@@ -43,9 +43,9 @@ dynamic = [
   "version",
 ]
 urls.Documentation = "https://turbohtml.readthedocs.io"
-urls.Homepage = "https://github.com/gaborbernat/turbohtml"
-urls.Source = "https://github.com/gaborbernat/turbohtml"
-urls.Tracker = "https://github.com/gaborbernat/turbohtml/issues"
+urls.Homepage = "https://github.com/tox-dev/turbohtml"
+urls.Source = "https://github.com/tox-dev/turbohtml"
+urls.Tracker = "https://github.com/tox-dev/turbohtml/issues"
 
 [dependency-groups]
 dev = [

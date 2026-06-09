@@ -13,7 +13,7 @@ turbohtml uses `tox <https://tox.wiki>`_ with `tox-uv <https://github.com/tox-de
 
 .. code-block:: console
 
-    $ git clone --recurse-submodules https://github.com/gaborbernat/turbohtml
+    $ git clone --recurse-submodules https://github.com/tox-dev/turbohtml
     $ cd turbohtml
     $ uvx --with tox-uv tox r -e 3.14   # build, test, and check coverage
 

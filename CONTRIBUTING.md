@@ -6,7 +6,7 @@ readable, maintainable code in equal measure.
 ## Quick start
 
 ```console
-git clone https://github.com/gaborbernat/turbohtml
+git clone https://github.com/tox-dev/turbohtml
 cd turbohtml
 uvx --with tox-uv tox r -e 3.14   # build, test, and check coverage
 ```
