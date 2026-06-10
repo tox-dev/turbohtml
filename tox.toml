@@ -76,6 +76,10 @@ commands = [
     "{tox_root}",
     "--filter",
     "src/turbohtml/.*\\.c",
+    # the tokenizer's emit macros end in `return`, leaving the closing braces of their
+    # enclosing blocks as unreachable join points that gcov reports as uncovered lines
+    "--exclude-noncode-lines",
+    "--exclude-unreachable-branches",
     "--gcov-executable",
     "{env:COV_GCOV:xcrun llvm-cov gcov}",
     "--fail-under-line",
@@ -115,6 +119,7 @@ description = "format and lint the code base"
 skip_install = true
 dependency_groups = [ "fix" ]
 pass_env = [ "PROGRAMDATA" ]
+commands_pre = []  # drop the instrumented editable install inherited from env_run_base
 commands = [ [ "pre-commit", "run", "--all-files", "--show-diff-on-failure", { replace = "posargs", extend = true } ] ]
 
 [env.pkg_meta]
@@ -134,9 +139,9 @@ dependency_groups = [ "type" ]
 commands = [ [ "ty", "check", "--output-format", "concise", "--error-on-warning", "src", "tests", "tools" ] ]
 
 [env.bench]
-description = "benchmark escape/unescape against the standard library (not run in CI)"
+description = "benchmark escape/unescape/tokenize against the standard library and html5lib (not run in CI)"
 package = "skip"
-dependency_groups = [ "test" ]
+dependency_groups = [ "bench" ]
 commands_pre = [
   [
     "uv",

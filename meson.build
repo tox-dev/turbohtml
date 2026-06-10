@@ -15,7 +15,11 @@ py.extension_module(
     '_html',
     [
         'src/turbohtml/_htmlmodule.c',
+        'src/turbohtml/charref.c',
         'src/turbohtml/escape.c',
+        'src/turbohtml/token_type.c',
+        'src/turbohtml/tokenizer_sm.c',
+        'src/turbohtml/tokenizer_type.c',
         'src/turbohtml/unescape.c',
     ],
     include_directories: include_directories('src/turbohtml'),

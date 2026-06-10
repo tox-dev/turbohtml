@@ -68,7 +68,7 @@ test = [
 ]
 type = [
   "ty>=0.0.44",
-  { include-group = "test" },
+  { include-group = "bench" },  # tools/benchmark.py imports pyperf and html5lib
 ]
 docs = [
   "furo>=2025.12.19",
@@ -78,6 +78,11 @@ docs = [
   "sphinx-issues>=5.0.1",
   "sphinxcontrib-towncrier>=0.5.0a0",
   "towncrier>=25.8",
+]
+bench = [
+  "html5lib>=1.1",
+  "pyperf>=2.9",
+  { include-group = "test" },
 ]
 coverage = [
   "covdefaults>=2.3",
@@ -113,6 +118,7 @@ windows.config-settings.setup-args = "--vsenv"
 
 [tool.ruff]
 line-length = 120
+extend-exclude = [ "tests/html5lib-tests" ]  # vendored conformance suite, not our code
 format.preview = true
 format.docstring-code-line-length = 100
 format.docstring-code-format = true
@@ -139,9 +145,11 @@ lint.per-file-ignores."tasks/**/*.py" = [
   "T201",   # progress output to the console is intentional
 ]
 lint.per-file-ignores."tests/**/*.py" = [
-  "D",      # don't document tests
-  "INP001", # no implicit namespace
-  "S101",   # asserts allowed in tests
+  "D",       # don't document tests
+  "INP001",  # no implicit namespace
+  "PLC2701", # the conformance harness drives the private _html._tokenize_states hook
+  "S101",    # asserts allowed in tests
+  "SLF001",  # same private hook
 ]
 lint.per-file-ignores."tools/**/*.py" = [
   "INP001", # no implicit namespace

@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """
-Benchmark turbohtml's escape/unescape against the standard library.
+Benchmark turbohtml's escape/unescape/tokenize against the standard library.
 
-Run with ``tox -e bench``. Timing uses the minimum of many trials, which filters
-out scheduler/thermal noise (noise only ever makes a run slower). Pass a substring
-as a positional argument to run only matching cases.
+Run with ``tox -e bench``; extra arguments are forwarded to pyperf (pass
+``--help`` to see them). pyperf runs every case in isolated worker processes
+and reports mean ± stddev; the parent process then prints a speedup table
+against the standard library and, for tokenize, html5lib's pure-Python
+tokenizer.
 """
 
 from __future__ import annotations
 
 import html
-import sys
-import time
-from typing import TYPE_CHECKING
+from html.parser import HTMLParser
+
+import pyperf
 
 import turbohtml
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 CASES: list[tuple[str, str, str]] = [
     ("escape", "plain prose, no specials", "the quick brown fox jumps over the lazy dog " * 80),
@@ -32,36 +31,88 @@ CASES: list[tuple[str, str, str]] = [
     ("unescape", "non-ASCII with references", "café &amp; résumé &copy; Москва &mdash; " * 60),
 ]
 
+TOKENIZE_CASES: list[tuple[str, str]] = [
+    (
+        "typical markup",
+        '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60,
+    ),
+    (
+        "text-heavy prose",
+        "<p>" + "the quick brown fox jumps over the lazy dog " * 100 + "</p>",
+    ),
+    (
+        "attribute-heavy",
+        '<a href="https://example.com/path?q=1" title="example" rel="noopener" target="_blank" data-x=y>link</a>\n'
+        * 60,
+    ),
+    (
+        "script-heavy",
+        "<script>function f(a, b) { return a < b && b > a; }</script>\n" * 60,
+    ),
+    (
+        "entity-heavy",
+        "<p>caf&eacute; &amp; r&eacute;sum&eacute; &#127881; &lt;tag&gt;</p>\n" * 60,
+    ),
+]
 
-def best(func: Callable[[str], str], arg: str) -> float:
-    """Return the fastest per-call time over many trials (noise-resistant)."""
-    inner = 1
-    while True:
-        start = time.perf_counter()
-        for _ in range(inner):
-            func(arg)
-        if time.perf_counter() - start > 0.005:
-            break
-        inner *= 2
-    fastest = float("inf")
-    for _ in range(50):
-        start = time.perf_counter()
-        for _ in range(inner):
-            func(arg)
-        fastest = min(fastest, (time.perf_counter() - start) / inner)
-    return fastest
+
+def turbo_tokenize(text: str) -> None:
+    """Consume the token stream so lazy Token construction is included."""
+    for _ in turbohtml.tokenize(text):
+        pass
+
+
+def stdlib_tokenize(text: str) -> None:
+    """Drive the stdlib parser with its default no-op handlers."""
+    parser = HTMLParser()
+    parser.feed(text)
+    parser.close()
+
+
+def html5lib_tokenize(text: str) -> None:
+    """Drive html5lib's tokenizer; skipped when html5lib is not installed."""
+    from html5lib._tokenizer import (  # noqa: PLC0415, PLC2701  # optional dependency; the tokenizer is internal API
+        HTMLTokenizer,
+    )
+
+    for _ in HTMLTokenizer(text):
+        pass
 
 
 def main() -> None:
-    """Print a turbohtml-vs-stdlib timing table."""
-    selector = sys.argv[1] if len(sys.argv) > 1 else ""
-    print(f"{'operation':10} {'input':28} {'turbohtml':>11} {'stdlib':>10} {'speedup':>8}")
+    """Run all cases under pyperf and print the speedup table in the parent."""
+    runner = pyperf.Runner()
+    args = runner.parse_args()
+    means: dict[str, float] = {}
+
+    def bench(name: str, func: object, arg: str) -> None:
+        if (result := runner.bench_func(name, func, arg)) is not None and result.get_nvalue():
+            means[name] = result.mean()
+
     for op, name, arg in CASES:
-        if selector and selector not in op and selector not in name:
-            continue
-        turbo = best(getattr(turbohtml, op), arg)
-        stdlib = best(getattr(html, op), arg)
-        print(f"{op:10} {name:28} {turbo * 1e6:8.2f} us {stdlib * 1e6:8.2f} us {stdlib / turbo:6.1f}x")
+        bench(f"{op} {name} [turbohtml]", getattr(turbohtml, op), arg)
+        bench(f"{op} {name} [stdlib]", getattr(html, op), arg)
+    try:
+        html5lib_tokenize("")
+        has_html5lib = True
+    except ImportError:
+        has_html5lib = False
+    for name, arg in TOKENIZE_CASES:
+        bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
+        bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)
+        if has_html5lib:
+            bench(f"tokenize {name} [html5lib]", html5lib_tokenize, arg)
+    if args.worker or not means:
+        return
+    print()
+    print(f"{'benchmark':40} {'turbohtml':>12} {'stdlib':>12} {'speedup':>8} {'html5lib':>12} {'speedup':>8}")
+    for op, name, _ in CASES + [("tokenize", name, arg) for name, arg in TOKENIZE_CASES]:
+        turbo = means[f"{op} {name} [turbohtml]"]
+        stdlib = means[f"{op} {name} [stdlib]"]
+        row = f"{op + ' ' + name:40} {turbo * 1e6:9.2f} us {stdlib * 1e6:9.2f} us {stdlib / turbo:7.1f}x"
+        if (five := means.get(f"{op} {name} [html5lib]")) is not None:
+            row += f" {five * 1e6:9.2f} us {five / turbo:7.1f}x"
+        print(row)
 
 
 if __name__ == "__main__":

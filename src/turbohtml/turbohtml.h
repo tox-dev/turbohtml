@@ -16,4 +16,9 @@ PyObject *turbohtml_escape(PyObject *module, PyObject *args, PyObject *kwds);
 /* Implemented in unescape.c. Signature matches METH_O. */
 PyObject *turbohtml_unescape(PyObject *module, PyObject *arg);
 
+/* Implemented in tokenizer_type.c. tokenize() matches METH_O; the internal
+   conformance hook _tokenize_states matches METH_VARARGS. */
+PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg);
+PyObject *turbohtml_tokenize_states(PyObject *module, PyObject *args);
+
 #endif /* TURBOHTML_H */

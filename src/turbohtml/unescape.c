@@ -10,74 +10,8 @@
 #include "turbohtml.h"
 
 #include <stdint.h>
-#include <string.h>
 
-#include "html_entities.h"
-
-static int cmp_name(const char *left, Py_ssize_t left_len, const char *right, unsigned right_len) {
-    Py_ssize_t shared = left_len < (Py_ssize_t)right_len ? left_len : (Py_ssize_t)right_len;
-    int order = memcmp(left, right, (size_t)shared);
-    if (order != 0) {
-        return order < 0 ? -1 : 1;
-    }
-    if (left_len == (Py_ssize_t)right_len) {
-        return 0;
-    }
-    return left_len < (Py_ssize_t)right_len ? -1 : 1;
-}
-
-static const html5_entity *find_entity(const char *name, Py_ssize_t len) {
-    int low = 0, high = html5_count - 1;
-    while (low <= high) {
-        int mid = (low + high) >> 1;
-        const html5_entity *entity = &html5_entities[mid];
-        int order = cmp_name(name, len, entity->name, entity->name_len);
-        if (order == 0) {
-            return entity;
-        }
-        if (order < 0) {
-            high = mid - 1;
-        } else {
-            low = mid + 1;
-        }
-    }
-    return NULL;
-}
-
-static int find_invalid_charref(Py_UCS4 num, Py_UCS4 *replacement) {
-    int low = 0, high = invalid_charref_count - 1;
-    while (low <= high) {
-        int mid = (low + high) >> 1;
-        Py_UCS4 candidate = invalid_charrefs[mid].num;
-        if (candidate == num) {
-            *replacement = invalid_charrefs[mid].cp;
-            return 1;
-        }
-        if (num < candidate) {
-            high = mid - 1;
-        } else {
-            low = mid + 1;
-        }
-    }
-    return 0;
-}
-
-static int is_invalid_codepoint(Py_UCS4 num) {
-    int low = 0, high = invalid_codepoint_count - 1;
-    while (low <= high) {
-        int mid = (low + high) >> 1;
-        Py_UCS4 candidate = invalid_codepoints[mid];
-        if (candidate == num) {
-            return 1;
-        }
-        if (num < candidate) {
-            high = mid - 1;
-        } else {
-            low = mid + 1;
-        }
-    }
-    return 0;
-}
+#include "charref.h"
 
 static inline int is_name_char(Py_UCS4 character) {
     /* the [^\t\n\f <&#;] class from the reference HTML5 charref regex */
@@ -94,16 +28,6 @@ static inline int is_name_char(Py_UCS4 character) {
     default:
         return 1;
     }
-}
-
-static inline int hex_value(Py_UCS4 character) {
-    if (character >= '0' && character <= '9')
-        return (int)(character - '0');
-    if (character >= 'a' && character <= 'f')
-        return (int)(character - 'a') + 10;
-    if (character >= 'A' && character <= 'F')
-        return (int)(character - 'A') + 10;
-    return -1;
 }
 
 static inline void emit(Py_UCS4 *out, Py_ssize_t *count, Py_UCS4 *maxchar, Py_UCS4 character) {
@@ -140,7 +64,7 @@ static Py_ssize_t parse_charref(int kind, const void *data, Py_ssize_t length, P
         while (cursor < length) {
             Py_UCS4 digit = PyUnicode_READ(kind, data, cursor);
             if (hex) {
-                int value = hex_value(digit);
+                int value = charref_hex_value(digit);
                 if (value < 0) {
                     break;
                 }
@@ -165,11 +89,11 @@ static Py_ssize_t parse_charref(int kind, const void *data, Py_ssize_t length, P
         }
 
         Py_UCS4 replacement;
-        if (!overflow && find_invalid_charref(num, &replacement)) {
+        if (!overflow && charref_find_invalid(num, &replacement)) {
             emit(out, count, maxchar, replacement);
         } else if ((num >= 0xD800 && num <= 0xDFFF) || num > 0x10FFFF) {
             emit(out, count, maxchar, 0xFFFD);
-        } else if (is_invalid_codepoint(num)) {
+        } else if (charref_is_invalid_codepoint(num)) {
             /* the spec maps these to the empty string, so emit nothing */
         } else {
             emit(out, count, maxchar, num);
@@ -203,11 +127,11 @@ static Py_ssize_t parse_charref(int kind, const void *data, Py_ssize_t length, P
     }
     int token_len = name_len + semicolon;
 
-    const html5_entity *entity = find_entity(ascii, token_len);
+    const html5_entity *entity = charref_find_entity(ascii, token_len);
     int match_len = token_len;
     if (entity == NULL) {
         for (int prefix = token_len - 1; prefix >= 2; prefix--) {
-            entity = find_entity(ascii, prefix);
+            entity = charref_find_entity(ascii, prefix);
             if (entity != NULL) {
                 match_len = prefix;
                 break;

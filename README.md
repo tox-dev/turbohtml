@@ -40,6 +40,29 @@ references that omit the trailing semicolon):
 `escape` and `unescape` reproduce `html.escape` and `html.unescape` exactly, so turbohtml is a drop-in replacement on
 hot paths.
 
+Tokenize markup into a stream of tokens following the WHATWG tokenization algorithm (the state machine passes all 7032
+html5lib-tests tokenizer conformance cases):
+
+```pycon
+>>> for token in turbohtml.tokenize('<p class="x">Tom &amp; Jerry</p>'):
+...     print(token.type.name, token.tag or token.data, token.attrs)
+START_TAG p [('class', 'x')]
+TEXT Tom & Jerry None
+END_TAG p []
+```
+
+For incremental input, `Tokenizer.feed()` returns the tokens completed by each chunk and `close()` flushes the rest:
+
+```pycon
+>>> tokenizer = turbohtml.Tokenizer()
+>>> [token.tag for token in tokenizer.feed("<div><sp")]
+['div']
+>>> [token.tag for token in tokenizer.feed("an>")]
+['span']
+>>> list(tokenizer.close())
+[]
+```
+
 ## Performance
 
 Measured on CPython 3.14 (release build) against the standard library's `html.escape` / `html.unescape`, via
@@ -62,6 +85,21 @@ Measured on CPython 3.14 (release build) against the standard library's `html.es
 `unescape` gains the most on entity-heavy input, especially numeric references, where the standard library pays a Python
 function call per match. Where the text is mostly plain, `unescape` ties the standard library, whose regex already
 short-circuits and runs in C. Numbers vary with input and hardware; reproduce them with `tox -e bench`.
+
+`tokenize` is compared against the standard library's `html.parser.HTMLParser` (driven with no-op handlers) and
+html5lib's pure-Python tokenizer:
+
+| input            | turbohtml | `html.parser` | speedup | html5lib | speedup |
+| ---------------- | --------- | ------------- | ------- | -------- | ------- |
+| typical markup   | 49.6 µs   | 442 µs        | 8.9×    | 893 µs   | 18×     |
+| text-heavy prose | 10.9 µs   | 2.9 µs        | 0.3×    | 172 µs   | 16×     |
+| attribute-heavy  | 39.9 µs   | 313 µs        | 7.9×    | 837 µs   | 21×     |
+| script-heavy     | 22.1 µs   | 162 µs        | 7.3×    | 542 µs   | 24.5×   |
+| entity-heavy     | 45.8 µs   | 249 µs        | 5.4×    | 1293 µs  | 28×     |
+
+Tag-dense input is where the C state machine wins; like html5ever, it also bulk-scans plain text runs instead of
+dispatching per character. The one case the standard library wins — a document that is almost entirely one text node —
+is where `HTMLParser` does a single C regex scan and never really tokenizes.
 
 ## Documentation
 
