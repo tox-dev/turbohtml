@@ -117,12 +117,13 @@ Call ``reset()`` to reuse the same tokenizer for an unrelated document.
  Report source positions in diagnostics
 ****************************************
 
-Every token remembers where it began. :meth:`turbohtml.Token.getpos` returns a 1-based line and 0-based column, the same
-convention as :meth:`python:html.parser.HTMLParser.getpos`, which makes it easy to point at the offending markup:
+Every token remembers where it began: :attr:`turbohtml.Token.line` is the 1-based source line and
+:attr:`turbohtml.Token.col` the 0-based column (the convention :mod:`python:html.parser` also uses), which makes it easy
+to point at the offending markup:
 
 .. code-block:: pycon
 
     >>> page = "<h1>title</h1>\n<img src='a.png'>"
-    >>> [(token.tag, token.getpos()) for token in turbohtml.tokenize(page)
+    >>> [f"{token.tag} at {token.line}:{token.col}" for token in turbohtml.tokenize(page)
     ...  if token.type is turbohtml.TokenType.START_TAG and token.tag == "img"]
-    [('img', (2, 0))]
+    ['img at 2:0']

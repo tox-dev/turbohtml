@@ -129,8 +129,8 @@ Two deliberate scope decisions keep the surface honest:
   API.
 
 Where behavior could drift, it is pinned by more than the suite: the token stream is fuzz-compared against html5lib's
-tokenizer, and source positions follow the :meth:`python:html.parser.HTMLParser.getpos` convention so diagnostics line
-up with what the standard library would report.
+tokenizer, and source positions use the same 1-based-line, 0-based-column convention as :mod:`python:html.parser`, so
+diagnostics line up with what the standard library would report.
 
 ****************************
  Tokenizing at native width

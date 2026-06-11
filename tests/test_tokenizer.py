@@ -28,7 +28,7 @@ def assert_streaming_matches_whole(document: str) -> None:
     streamed += list(tokenizer.close())
     whole = list(tokenize(document))
     assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [token.getpos() for token in streamed] == [token.getpos() for token in whole]
+    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
 
 
 def test_tokenize_simple_document() -> None:
@@ -460,11 +460,11 @@ def test_iterator_is_reusable_across_feeds() -> None:
         pytest.param("<title>a</titl>b</title>", [(1, 0), (1, 7), (1, 16)], id="rcdata-fallback"),
     ],
 )
-def test_getpos(document: str, positions: list[tuple[int, int]]) -> None:
-    assert [token.getpos() for token in tokenize(document)] == positions
+def test_positions(document: str, positions: list[tuple[int, int]]) -> None:
+    assert [(token.line, token.col) for token in tokenize(document)] == positions
 
 
-def test_getpos_matches_html_parser() -> None:
+def test_positions_match_html_parser() -> None:
     document = "head\n<p\nclass='x'>text<!--c-->\n<br/>tail"
 
     class Recorder(HTMLParser):
@@ -487,7 +487,7 @@ def test_getpos_matches_html_parser() -> None:
     recorder = Recorder()
     recorder.feed(document)
     recorder.close()
-    assert [token.getpos() for token in tokenize(document)] == recorder.positions
+    assert [(token.line, token.col) for token in tokenize(document)] == recorder.positions
 
 
 def test_dropped_tag_at_eof_flushes_text() -> None:

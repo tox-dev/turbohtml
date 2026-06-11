@@ -684,7 +684,7 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
     } while (0)
 
 /* Remember the position of a '<' about to be consumed; tokens it opens and
-   text fallbacks that re-emit it report this position (html.parser getpos). */
+   text fallbacks that re-emit it report this position (Token.line/col). */
 #define MARK()                                                                                                         \
     do {                                                                                                               \
         self->mark_line = self->line;                                                                                  \

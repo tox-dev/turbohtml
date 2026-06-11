@@ -249,16 +249,29 @@ static PyObject *token_get_force_quirks(PyObject *self, void *Py_UNUSED(closure)
     return PyBool_FromLong(record->kind == TH_DOCTYPE && record->force_quirks);
 }
 
+static PyObject *token_get_line(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyLong_FromSsize_t(((TokenObject *)self)->record.line);
+}
+
+static PyObject *token_get_col(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyLong_FromSsize_t(((TokenObject *)self)->record.col);
+}
+
+/* The :type: fields surface the annotations in the rendered API reference;
+   Sphinx cannot infer types from C getset descriptors. */
 static PyGetSetDef token_getset[] = {
-    {"type", token_get_type, NULL, "the TokenType of this token", NULL},
-    {"data", token_get_data, NULL, "text run or comment data, else None", NULL},
-    {"tag", token_get_tag, NULL, "lowercased tag name for start/end tags, else None", NULL},
-    {"attrs", token_get_attrs, NULL, "attribute (name, value) pairs for tags, else None", NULL},
-    {"self_closing", token_get_self_closing, NULL, "whether a start tag carried a trailing slash", NULL},
-    {"name", token_get_name, NULL, "DOCTYPE name, else None", NULL},
-    {"public_id", token_get_public_id, NULL, "DOCTYPE public identifier, else None", NULL},
-    {"system_id", token_get_system_id, NULL, "DOCTYPE system identifier, else None", NULL},
-    {"force_quirks", token_get_force_quirks, NULL, "whether a DOCTYPE forces quirks mode", NULL},
+    {"type", token_get_type, NULL, "the TokenType of this token\n\n:type: TokenType", NULL},
+    {"data", token_get_data, NULL, "text run or comment data, else None\n\n:type: str | None", NULL},
+    {"tag", token_get_tag, NULL, "lowercased tag name for start/end tags, else None\n\n:type: str | None", NULL},
+    {"attrs", token_get_attrs, NULL,
+     "attribute (name, value) pairs for tags, else None\n\n:type: list[tuple[str, str | None]] | None", NULL},
+    {"self_closing", token_get_self_closing, NULL, "whether a start tag carried a trailing slash\n\n:type: bool", NULL},
+    {"name", token_get_name, NULL, "DOCTYPE name, else None\n\n:type: str | None", NULL},
+    {"public_id", token_get_public_id, NULL, "DOCTYPE public identifier, else None\n\n:type: str | None", NULL},
+    {"system_id", token_get_system_id, NULL, "DOCTYPE system identifier, else None\n\n:type: str | None", NULL},
+    {"force_quirks", token_get_force_quirks, NULL, "whether a DOCTYPE forces quirks mode\n\n:type: bool", NULL},
+    {"line", token_get_line, NULL, "1-based source line where this token began\n\n:type: int", NULL},
+    {"col", token_get_col, NULL, "0-based source column where this token began\n\n:type: int", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -295,15 +308,6 @@ static PyObject *token_attr(PyObject *self, PyObject *args) {
     return Py_NewRef(fallback);
 }
 
-PyDoc_STRVAR(token_getpos_doc, "getpos()\n--\n\n"
-                               "Return the (line, column) where this token began, 1-based line and\n"
-                               "0-based column, matching html.parser.HTMLParser.getpos().");
-
-static PyObject *token_getpos(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    const th_token *record = &((TokenObject *)self)->record;
-    return Py_BuildValue("(nn)", record->line, record->col);
-}
-
 static PyObject *token_repr(PyObject *self) {
     const th_token *record = &((TokenObject *)self)->record;
     const char *kind = KIND_NAMES[record->kind];
@@ -336,7 +340,6 @@ static PyObject *token_repr(PyObject *self) {
 
 static PyMethodDef token_methods[] = {
     {"attr", token_attr, METH_VARARGS, token_attr_doc},
-    {"getpos", token_getpos, METH_NOARGS, token_getpos_doc},
     {NULL, NULL, 0, NULL},
 };
 
@@ -396,6 +399,13 @@ static int build_kind_enum(PyObject *module, module_state *state) {
     if (kind_enum == NULL) { /* GCOVR_EXCL_BR_LINE */
         return -1;           /* GCOVR_EXCL_LINE */
     }
+    PyObject *doc = PyUnicode_FromString("The kind of a Token; selects which of its attributes are meaningful.");
+    if (doc == NULL || PyObject_SetAttrString(kind_enum, "__doc__", doc) < 0) { /* GCOVR_EXCL_BR_LINE */
+        Py_XDECREF(doc);                                                        /* GCOVR_EXCL_LINE */
+        Py_DECREF(kind_enum);                                                   /* GCOVR_EXCL_LINE */
+        return -1;                                                              /* GCOVR_EXCL_LINE */
+    }
+    Py_DECREF(doc);
     for (int i = 0; i < 5; i++) {
         state->kinds[i] = PyObject_GetAttrString(kind_enum, KIND_NAMES[i]);
         if (state->kinds[i] == NULL) { /* GCOVR_EXCL_BR_LINE */
