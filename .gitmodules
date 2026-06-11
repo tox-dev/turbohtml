@@ -4,3 +4,7 @@
 [submodule "tools/html5lib-python"]
 	path = tools/html5lib-python
 	url = https://github.com/html5lib/html5lib-python
+[submodule "tools/bench-data/war-and-peace"]
+	path = tools/bench-data/war-and-peace
+	url = https://github.com/GITenberg/War-and-Peace_2600
+	shallow = true

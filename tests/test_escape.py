@@ -31,13 +31,23 @@ def test_escape_quote_default_true() -> None:
         pytest.param("x" * 100, id="long-ascii"),
         pytest.param("caf\xe9 r\xe9sum\xe9", id="latin1"),
         pytest.param("☃ snowman", id="ucs2"),
+        pytest.param("☃" * 100, id="long-ucs2"),
         pytest.param("\U0001f600 emoji", id="astral"),
+        pytest.param("\U0001f600" * 100, id="long-astral"),
     ],
 )
 def test_escape_no_specials_returns_equal(text: str) -> None:
     assert turbohtml.escape(text) == text
 
 
+@pytest.mark.parametrize(
+    "marker",
+    [
+        pytest.param("", id="ascii"),
+        pytest.param("☃", id="ucs2"),
+        pytest.param("\U0001f600", id="ucs4"),
+    ],
+)
 @pytest.mark.parametrize("pad", range(20))
 @pytest.mark.parametrize(
     ("char", "rep"),
@@ -49,8 +59,8 @@ def test_escape_no_specials_returns_equal(text: str) -> None:
         pytest.param("'", "&#x27;", id="apos"),
     ],
 )
-def test_escape_special_at_every_offset(pad: int, char: str, rep: str) -> None:
-    head, tail = "a" * pad, "b" * pad
+def test_escape_special_at_every_offset(marker: str, pad: int, char: str, rep: str) -> None:
+    head, tail = f"{marker}{'a' * pad}", "b" * pad
     assert turbohtml.escape(f"{head}{char}{tail}") == f"{head}{rep}{tail}"
 
 
@@ -73,6 +83,26 @@ def test_escape_multiple_kinds(text: str, expected: str) -> None:
 def test_escape_wide_quote_false() -> None:
     # the UCS-2/UCS-4 path with quote=False: leaves quotes alone, still escapes & < >
     assert turbohtml.escape('☃ "x" & <b>', quote=False) == '☃ "x" &amp; &lt;b&gt;'
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        pytest.param("", id="ascii"),
+        pytest.param("☃", id="ucs2"),
+        pytest.param("\U0001f600", id="ucs4"),
+    ],
+)
+def test_escape_quote_false_skips_full_blocks(marker: str) -> None:
+    # quotes spread over whole blocks must be skipped with quote=False while & is still escaped
+    body = "'a\"b" * 10
+    assert turbohtml.escape(f"{marker}{body}&", quote=False) == f"{marker}{body}&amp;"
+
+
+def test_escape_wide_lookalike_codepoints() -> None:
+    # wide code points whose individual bytes match specials ('&' is 0x26, '<' is 0x3c) must stay untouched
+    assert turbohtml.escape("☦㰼Ħ&") == "☦㰼Ħ&amp;"
+    assert turbohtml.escape("\U0001f626\U0001f63c&") == "\U0001f626\U0001f63c&amp;"
 
 
 def test_escape_str_subclass_returns_true_str() -> None:

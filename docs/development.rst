@@ -13,16 +13,20 @@ turbohtml uses `tox <https://tox.wiki>`_ with `tox-uv <https://github.com/tox-de
 
 .. code-block:: console
 
-    $ git clone --recurse-submodules https://github.com/tox-dev/turbohtml
+    $ git clone https://github.com/tox-dev/turbohtml
     $ cd turbohtml
+    $ git submodule update --init tests/html5lib-tests   # conformance data for the test suite
     $ uvx --with tox-uv tox r -e 3.14   # build, test, and check coverage
 
-The ``--recurse-submodules`` flag fetches the ``html5lib-tests`` conformance suite used by one of the tests; if you
-already cloned without it, run ``git submodule update --init``.
+The ``tests/html5lib-tests`` submodule holds the conformance suite used by one of the tests. Do not initialize all
+submodules indiscriminately: the ``tools/bench-data`` submodules reference multi-MiB real documents (pinned upstream
+commits, nothing copied into this repository) used only by ``tox r -e bench``; fetch them on demand with ``git submodule
+update --init --depth 1 tools/bench-data/whatwg-html tools/bench-data/war-and-peace``.
 
 ``tox r -e 3.14`` builds the extension, runs the test suite, and **fails unless both Python and C coverage are 100%**
 (line and branch). Other environments: ``type`` (`ty <https://github.com/astral-sh/ty>`_), ``docs`` (Sphinx), ``fix``
-(`pre-commit <https://pre-commit.com>`_), ``pkg_meta`` (wheel/sdist metadata), and ``regen`` (regenerate the entity
+(`pre-commit <https://pre-commit.com>`_), ``pkg_meta`` (wheel/sdist metadata), ``bench`` (`pyperf
+<https://pyperf.readthedocs.io>`_ comparison against the standard library), and ``regen`` (regenerate the entity
 tables).
 
 ****************
@@ -36,7 +40,7 @@ tables).
         _html.pyi            # type stub for the C extension
         py.typed             # PEP 561 marker
         turbohtml.h          # internal header shared by the C sources
-        escape.c             # html.escape implementation (SWAR)
+        escape.c             # html.escape implementation (SIMD / SWAR)
         unescape.c           # html.unescape implementation (entity tables)
         _htmlmodule.c        # module definition; wires escape.c + unescape.c
         html_entities.h      # generated tables (do not edit)
@@ -67,9 +71,14 @@ matrix.
 **No pure-Python fallback.** :PEP:`399` requires a pure-Python fallback only for standard-library modules. As a
 third-party package distributing per-interpreter wheels, turbohtml ships only the compiled implementation.
 
-**SWAR for escape.** ``escape`` confirms most strings need no escaping, so it scans one-byte strings eight bytes at a
-time using the `bit-twiddling "has-zero" trick <https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord>`_,
-falling back to a scalar scan for UCS-2 / UCS-4 (see :PEP:`393` for the representations).
+**SIMD / SWAR for escape.** ``escape`` confirms most strings need no escaping, so it classifies one-byte strings sixteen
+bytes at a time: on NEON a single low-nibble table lookup plus one comparison matches all five specials at once (each
+has a unique low nibble — the PSHUFB trick used by pulldown-cmark), on x86-64 SSE2 compares per special, and elsewhere a
+SWAR word applies the `bit-twiddling "has-zero" trick
+<https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord>`_. The sizing pass accumulates the growth of all
+matches branchlessly, and the writing pass copies clean stretches wholesale, rewriting only the positions a match
+bitmask singles out. UCS-2 / UCS-4 strings (see :PEP:`393` for the representations) are probed for all five special
+characters in one SWAR pass over a 64-bit word.
 
 **Free-threading ready.** The module has no mutable state (immutable ``str`` inputs, read-only tables), so it declares
 ``Py_MOD_GIL_NOT_USED`` and per-interpreter GIL support on interpreters that support them. See the `free-threading

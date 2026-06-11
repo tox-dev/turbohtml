@@ -49,6 +49,7 @@ urls.Tracker = "https://github.com/tox-dev/turbohtml/issues"
 
 [dependency-groups]
 dev = [
+  { include-group = "bench" },
   { include-group = "coverage" },
   { include-group = "docs" },
   { include-group = "fix" },
@@ -153,6 +154,7 @@ lint.per-file-ignores."tests/**/*.py" = [
 ]
 lint.per-file-ignores."tools/**/*.py" = [
   "INP001", # no implicit namespace
+  "S311",   # benchmark data is pseudo-random on purpose, nothing cryptographic
   "S404",   # generate_version.py shells out to git to derive the version
   "S603",   # fixed git subcommands, not external input
   "S607",   # git is resolved from PATH

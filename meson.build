@@ -9,6 +9,9 @@ project(
 # Freeze the git-derived version into the sdist so wheels built from it need no git history.
 meson.add_dist_script('tools/generate_version.py', '--write', 'src/turbohtml/_version.py', '--meson-dist')
 
+# Keep the development-only submodule corpora out of the sdist regardless of local checkout state.
+meson.add_dist_script('tools/prune_dist.py')
+
 py = import('python').find_installation(pure: false)
 
 py.extension_module(

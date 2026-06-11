@@ -9,6 +9,11 @@ typedef struct {
 } html5_entity;
 
 #define HTML5_MAX_NAME_LEN 32
+#define HTML5_INDEX_AMP 657
+#define HTML5_INDEX_APOS 688
+#define HTML5_INDEX_GT 1135
+#define HTML5_INDEX_LT 1390
+#define HTML5_INDEX_QUOT 1754
 static const int html5_count = 2231;
 static const html5_entity html5_entities[] = {
     {"AElig", 5u, 198u, 0u},

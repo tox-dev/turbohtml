@@ -8,6 +8,7 @@ readable, maintainable code in equal measure.
 ```console
 git clone https://github.com/tox-dev/turbohtml
 cd turbohtml
+git submodule update --init tests/html5lib-tests   # conformance data for the test suite
 uvx --with tox-uv tox r -e 3.14   # build, test, and check coverage
 ```
 

@@ -65,6 +65,11 @@ def test_unescape_no_reference_returns_input() -> None:
     [
         pytest.param("☃ &amp; &#62; &copy; x", "☃ & > \xa9 x", id="ucs2"),
         pytest.param("\U0001f600&amp;&#x41;&notin;", "\U0001f600&A∉", id="astral"),
+        pytest.param("\U0001f600 &amp; tail", "\U0001f600 & tail", id="astral-trailing-text"),
+        pytest.param("☃ snowman waits patiently &amp; melts", "☃ snowman waits patiently & melts", id="ucs2-late-ref"),
+        pytest.param(
+            "\U0001f600 emoji party &gt; goes on late", "\U0001f600 emoji party > goes on late", id="ucs4-late-ref"
+        ),
     ],
 )
 def test_unescape_multiple_kinds(text: str, expected: str) -> None:

@@ -48,11 +48,18 @@ def generate(out_path: Path) -> None:
         raise SystemExit(msg)
     max_name_len = max(len(name) for name in html5)
 
+    ordered = sorted(html5)
     named = [
         f'    {{"{name}", {len(name)}u, {ord(value[0])}u, {ord(value[1]) if len(value) == 2 else 0}u}},'
-        for name in sorted(html5)
+        for name in ordered
         for value in (html5[name],)
     ]
+    # the names html.escape emits dominate real input; expose their indices so
+    # unescape can check them with one comparison before the binary search
+    escape_defines = "".join(
+        f"#define HTML5_INDEX_{name.rstrip(';').upper()} {ordered.index(name)}\n"
+        for name in ("amp;", "apos;", "gt;", "lt;", "quot;")
+    )
     charrefs = [f"    {{{num}u, {ord(_invalid_charrefs[num])}u}}," for num in sorted(_invalid_charrefs)]
     codepoints = sorted(_invalid_codepoints)
     codepoint_lines = "\n".join(
@@ -70,6 +77,7 @@ def generate(out_path: Path) -> None:
         "    Py_UCS4 cp1; /* second code point, or 0 when the value is one char */\n"
         "} html5_entity;\n\n"
         f"#define HTML5_MAX_NAME_LEN {max_name_len}\n"
+        f"{escape_defines}"
         f"static const int html5_count = {len(named)};\n"
         "static const html5_entity html5_entities[] = {\n"
         f"{chr(10).join(named)}\n"

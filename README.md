@@ -64,26 +64,36 @@ For incremental input, `Tokenizer.feed()` returns the tokens completed by each c
 
 ## Performance
 
-Measured on CPython 3.14 (release build) against the standard library's `html.escape` / `html.unescape`, via
-`tox -e bench`:
+Measured with [pyperf](https://pyperf.readthedocs.io) on CPython 3.14 (release build, Apple M-series) against the
+standard library's `html.escape` / `html.unescape`. The multi-MiB inputs stream well past the CPU caches; the book and
+spec cases are real documents (Project Gutenberg's *War and Peace*, the WHATWG HTML spec source) pulled in as git
+submodules. Reproduce with `tox -e bench`:
 
-| operation  | input                      | turbohtml | stdlib  | speedup |
-| ---------- | -------------------------- | --------- | ------- | ------- |
-| `escape`   | plain prose, no specials   | 0.35 µs   | 2.23 µs | 6.3×    |
-| `escape`   | typical HTML markup        | 4.49 µs   | 10.5 µs | 2.3×    |
-| `escape`   | special-dense              | 2.99 µs   | 26.5 µs | 8.9×    |
-| `escape`   | non-ASCII prose (UCS-2)    | 0.92 µs   | 1.88 µs | 2.0×    |
-| `escape`   | astral text (UCS-4)        | 2.58 µs   | 2.65 µs | 1.0×    |
-| `unescape` | named references (dense)   | 18.1 µs   | 70.2 µs | 3.9×    |
-| `unescape` | numeric references (dense) | 4.16 µs   | 76.8 µs | 18.5×   |
-| `unescape` | mixed named + numeric      | 8.03 µs   | 35.2 µs | 4.4×    |
-| `unescape` | prose, sparse references   | 3.93 µs   | 3.87 µs | ~1×     |
-| `unescape` | non-ASCII with references  | 9.44 µs   | 35.2 µs | 3.7×    |
+| operation  | input                        | turbohtml | stdlib  | speedup |
+| ---------- | ---------------------------- | --------- | ------- | ------- |
+| `escape`   | tiny plain (64 B)            | 0.04 µs   | 0.14 µs | 3.6×    |
+| `escape`   | medium markup (4 KiB)        | 2.54 µs   | 8.17 µs | 3.2×    |
+| `escape`   | no-op prose (4 MiB)          | 0.12 ms   | 2.80 ms | 23.3×   |
+| `escape`   | book text (3 MiB)            | 0.71 ms   | 3.12 ms | 4.4×    |
+| `escape`   | book HTML (4 MiB)            | 1.38 ms   | 5.06 ms | 3.7×    |
+| `escape`   | spec HTML, dense (4 MiB)     | 5.31 ms   | 13.7 ms | 2.6×    |
+| `escape`   | UCS-2 plain (4 MiB)          | 0.74 ms   | 2.67 ms | 3.6×    |
+| `escape`   | UCS-2 markup (4 MiB)         | 3.73 ms   | 11.7 ms | 3.1×    |
+| `escape`   | UCS-4 plain (4 MiB)          | 1.52 ms   | 6.09 ms | 4.0×    |
+| `escape`   | UCS-4 markup (4 MiB)         | 4.64 ms   | 21.4 ms | 4.6×    |
+| `unescape` | tiny plain (64 B)            | 0.02 µs   | 0.03 µs | 1.4×    |
+| `unescape` | medium dense refs (4 KiB)    | 14.8 µs   | 74.4 µs | 5.0×    |
+| `unescape` | numeric refs (4 KiB)         | 5.11 µs   | 83.0 µs | 16.2×   |
+| `unescape` | book HTML, real refs (4 MiB) | 2.90 ms   | 9.24 ms | 3.2×    |
+| `unescape` | escaped book HTML (5 MiB)    | 6.10 ms   | 22.2 ms | 3.6×    |
+| `unescape` | dense refs (4 MiB)           | 17.0 ms   | 80.4 ms | 4.7×    |
+| `unescape` | UCS-2 refs (4 MiB)           | 5.55 ms   | 20.7 ms | 3.7×    |
 
-`escape` gains the most on text that needs little escaping — the SWAR scan skips eight safe bytes at a time — and
-`unescape` gains the most on entity-heavy input, especially numeric references, where the standard library pays a Python
-function call per match. Where the text is mostly plain, `unescape` ties the standard library, whose regex already
-short-circuits and runs in C. Numbers vary with input and hardware; reproduce them with `tox -e bench`.
+`escape` gains the most on text that needs little escaping — the SIMD scan classifies sixteen bytes at a time and copies
+clean stretches wholesale — and `unescape` gains the most on entity-heavy input, where the standard library pays a
+Python function call per match. The gap is narrowest on tiny strings, where call overhead dominates, and on
+special-dense markup, where both sides spend their time writing replacements. Numbers vary with input and hardware;
+reproduce them with `tox -e bench`.
 
 `tokenize` is compared against the standard library's `html.parser.HTMLParser` (driven with no-op handlers) and
 html5lib's pure-Python tokenizer, over synthetic cases and html5lib's benchmark corpus of real documents (a slice of the

@@ -10,7 +10,11 @@ process then prints a speedup table
 against the standard library and, for tokenize, html5lib's pure-Python
 tokenizer.
 
-Besides the synthetic cases, tokenize also runs over html5lib's benchmark
+The escape/unescape inputs span tiny strings (call overhead) and multi-MiB
+documents streaming well past the CPU caches: real corpora (Project
+Gutenberg's War and Peace from the tools/bench-data submodule and the WHATWG
+HTML spec source) plus seeded pseudo-random UCS-2/UCS-4 text, since large real
+wide-kind documents are scarce. tokenize also runs over html5lib's benchmark
 corpus (the tools/html5lib-python submodule) — a slice of the WHATWG HTML spec
 source plus a size-weighted sample of web-platform-tests pages, 0.6 kB to
 234 kB — and two multi-megabyte real documents (the ECMAScript specification
@@ -22,6 +26,7 @@ from __future__ import annotations
 
 import html
 import os
+import random
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -75,18 +80,130 @@ def large_text(filename: str, url: str) -> str:
     return target.read_text(encoding="utf-8")
 
 
-CASES: list[tuple[str, str, str]] = [
-    ("escape", "plain prose, no specials", "the quick brown fox jumps over the lazy dog " * 80),
-    ("escape", "typical HTML markup", '<p>Tom & Jerry said "hi" to <b>O\'Brien</b> & co.</p> ' * 60),
-    ("escape", "special-dense", "<>&\"'" * 500),
-    ("escape", "non-ASCII prose (UCS-2)", "résumé café naïve Москва " * 120),
-    ("escape", "astral text (UCS-4)", "emoji \U0001f600 party \U0001f389 " * 120),
-    ("unescape", "named references (dense)", "&amp;&lt;&gt;&quot;&copy;&mdash;&eacute; " * 60),
-    ("unescape", "numeric references (dense)", "&#62;&#x3e;&#38;&#127881;&#x1F600; " * 60),
-    ("unescape", "mixed named + numeric", "Tom &amp; Jerry &mdash; caf&eacute; &#127881; &lt;b&gt; " * 30),
-    ("unescape", "prose, sparse references", ("the quick brown fox " * 20 + "&amp; ") * 12),
-    ("unescape", "non-ASCII with references", "café &amp; résumé &copy; Москва &mdash; " * 60),
-]
+DATA_DIR = Path(__file__).resolve().parent / "bench-data"
+
+ASCII_WORDS = (
+    "the",
+    "quick",
+    "brown",
+    "fox",
+    "jumps",
+    "over",
+    "lazy",
+    "dogs",
+    "while",
+    "zealous",
+    "wizards",
+    "vex",
+    "sphinx",
+    "judges",
+    "of",
+    "black",
+    "quartz",
+    "monoliths",
+)
+UCS2_WORDS = (*ASCII_WORDS, "résumé", "café", "naïve", "Москва", "über", "façade", "πλάτων", "Ω")
+UCS4_WORDS = (*UCS2_WORDS, "😀", "🎉", "🚀", "🐍")
+REFERENCES = ("&amp;", "&lt;", "&gt;", "&quot;", "&#x27;", "&copy;", "&mdash;", "&eacute;", "&#62;", "&#127881;")
+NUMERIC_REFERENCES = ("&#62;", "&#x3e;", "&#38;", "&#127881;", "&#x1F600;")
+
+TINY = 64
+MEDIUM = 4 * 2**10
+LARGE = 4 * 2**20
+# unique generated prefix tiled up to LARGE: cache pressure comes from the address
+# footprint of the full string, not from the content repeating every 64 KiB
+CHUNK = 64 * 2**10
+
+
+def corpus(relative: str, size: int) -> str:
+    """
+    Load a slice of a vendored real-world document.
+
+    Decoded as latin-1 so the result is always a 1-byte unicode object exercising
+    the byte path regardless of any UTF-8 multibyte sequences in the file (the
+    bytes are preserved verbatim; mojibake is irrelevant to throughput).
+    """
+    path = DATA_DIR / relative
+    if not path.exists():
+        msg = f"{path} is missing; run: git submodule update --init --depth 1 tools/bench-data/war-and-peace"
+        raise FileNotFoundError(msg)
+    return path.read_bytes()[:size].decode("latin-1")
+
+
+def prose_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> str:
+    """Build at least ``size`` characters of word soup with nothing to escape."""
+    pieces: list[str] = []
+    total = 0
+    while total < size:
+        word = rng.choice(vocabulary)
+        pieces.append(word)
+        total += len(word) + 1
+    return " ".join(pieces)
+
+
+def markup_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> str:
+    """Build at least ``size`` characters of HTML-looking text rich in characters escape() rewrites."""
+    pieces: list[str] = []
+    total = 0
+    while total < size:
+        tag = rng.choice(("p", "div", "span", "em", "li"))
+        body = " ".join(rng.choice(vocabulary) for _ in range(rng.randint(4, 12)))
+        piece = f'<{tag} class="{rng.choice(vocabulary)}">{body} & {rng.choice(vocabulary)}\'s</{tag}>\n'
+        pieces.append(piece)
+        total += len(piece)
+    return "".join(pieces)
+
+
+def references_of(
+    rng: random.Random, vocabulary: tuple[str, ...], gap: int, size: int, references: tuple[str, ...] = REFERENCES
+) -> str:
+    """Build at least ``size`` characters of prose with a character reference after every ``gap`` words."""
+    pieces: list[str] = []
+    total = 0
+    while total < size:
+        for _ in range(gap):
+            word = rng.choice(vocabulary)
+            pieces.append(word)
+            total += len(word) + 1
+        reference = rng.choice(references)
+        pieces.append(reference)
+        total += len(reference) + 1
+    return " ".join(pieces)
+
+
+def tile(chunk: str, size: int) -> str:
+    """Repeat ``chunk`` up to exactly ``size`` characters."""
+    return (chunk * (size // len(chunk) + 1))[:size]
+
+
+def build_cases() -> list[tuple[str, str, str]]:
+    """Return the (operation, case name, input) escape/unescape matrix."""
+    rng = random.Random(0)
+    book_text = corpus("war-and-peace/2600.txt", LARGE)
+    book_html = corpus("war-and-peace/2600-h/2600-h.htm", LARGE)
+    spec_html = large_text(*LARGE_FILES[1][1:])[:LARGE]
+    return [
+        ("escape", "tiny plain (64 B)", prose_of(rng, ASCII_WORDS, TINY)),
+        ("escape", "medium markup (4 KiB)", markup_of(rng, ASCII_WORDS, MEDIUM)),
+        ("escape", "no-op prose (4 MiB)", tile(prose_of(rng, ASCII_WORDS, CHUNK), LARGE)),
+        ("escape", "book text (3 MiB)", book_text),
+        ("escape", "book HTML (4 MiB)", book_html),
+        ("escape", "spec HTML, dense (4 MiB)", spec_html),
+        ("escape", "UCS-2 plain (4 MiB)", tile(prose_of(rng, UCS2_WORDS, CHUNK), LARGE)),
+        ("escape", "UCS-2 markup (4 MiB)", tile(markup_of(rng, UCS2_WORDS, CHUNK), LARGE)),
+        ("escape", "UCS-4 plain (4 MiB)", tile(prose_of(rng, UCS4_WORDS, CHUNK), LARGE)),
+        ("escape", "UCS-4 markup (4 MiB)", tile(markup_of(rng, UCS4_WORDS, CHUNK), LARGE)),
+        ("unescape", "tiny plain (64 B)", prose_of(rng, ASCII_WORDS, TINY)),
+        ("unescape", "medium dense refs (4 KiB)", references_of(rng, ASCII_WORDS, 1, MEDIUM)),
+        ("unescape", "numeric refs (4 KiB)", references_of(rng, ASCII_WORDS, 1, MEDIUM, NUMERIC_REFERENCES)),
+        ("unescape", "book HTML, real refs (4 MiB)", book_html),
+        ("unescape", "escaped book HTML (5 MiB)", html.escape(book_html)),
+        ("unescape", "dense refs (4 MiB)", tile(references_of(rng, ASCII_WORDS, 1, CHUNK), LARGE)),
+        ("unescape", "UCS-2 refs (4 MiB)", tile(references_of(rng, UCS2_WORDS, 10, CHUNK), LARGE)),
+    ]
+
+
+CASES: list[tuple[str, str, str]] = build_cases()
 
 TOKENIZE_CASES: list[tuple[str, str]] = [
     (

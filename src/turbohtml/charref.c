@@ -22,6 +22,35 @@ static int cmp_name(const char *left, Py_ssize_t left_len, const char *right, un
 }
 
 const html5_entity *charref_find_entity(const char *name, Py_ssize_t len) {
+    /* the names html.escape emits dominate real input, so try them with one
+       comparison each before paying for the ~11-round binary search */
+    switch (name[0]) {
+    case 'a':
+        if (len == 4 && memcmp(name, "amp;", 4) == 0) {
+            return &html5_entities[HTML5_INDEX_AMP];
+        }
+        if (len == 5 && memcmp(name, "apos;", 5) == 0) {
+            return &html5_entities[HTML5_INDEX_APOS];
+        }
+        break;
+    case 'g':
+        if (len == 3 && memcmp(name, "gt;", 3) == 0) {
+            return &html5_entities[HTML5_INDEX_GT];
+        }
+        break;
+    case 'l':
+        if (len == 3 && memcmp(name, "lt;", 3) == 0) {
+            return &html5_entities[HTML5_INDEX_LT];
+        }
+        break;
+    case 'q':
+        if (len == 5 && memcmp(name, "quot;", 5) == 0) {
+            return &html5_entities[HTML5_INDEX_QUOT];
+        }
+        break;
+    default:
+        break;
+    }
     int low = 0, high = html5_count - 1;
     while (low <= high) {
         int mid = (low + high) >> 1;
