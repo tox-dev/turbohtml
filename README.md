@@ -87,19 +87,26 @@ function call per match. Where the text is mostly plain, `unescape` ties the sta
 short-circuits and runs in C. Numbers vary with input and hardware; reproduce them with `tox -e bench`.
 
 `tokenize` is compared against the standard library's `html.parser.HTMLParser` (driven with no-op handlers) and
-html5lib's pure-Python tokenizer:
+html5lib's pure-Python tokenizer, over synthetic cases and html5lib's benchmark corpus of real documents (a slice of the
+WHATWG spec source plus web-platform-tests pages of varied sizes):
 
-| input            | turbohtml | `html.parser` | speedup | html5lib | speedup |
-| ---------------- | --------- | ------------- | ------- | -------- | ------- |
-| typical markup   | 49.6 µs   | 442 µs        | 8.9×    | 893 µs   | 18×     |
-| text-heavy prose | 10.9 µs   | 2.9 µs        | 0.3×    | 172 µs   | 16×     |
-| attribute-heavy  | 39.9 µs   | 313 µs        | 7.9×    | 837 µs   | 21×     |
-| script-heavy     | 22.1 µs   | 162 µs        | 7.3×    | 542 µs   | 24.5×   |
-| entity-heavy     | 45.8 µs   | 249 µs        | 5.4×    | 1293 µs  | 28×     |
+| input                  | turbohtml | `html.parser` | speedup | html5lib | speedup |
+| ---------------------- | --------- | ------------- | ------- | -------- | ------- |
+| typical markup         | 47.3 µs   | 451 µs        | 9.5×    | 850 µs   | 18×     |
+| text-heavy prose       | 4.5 µs    | 2.9 µs        | 0.7×    | 150 µs   | 33×     |
+| attribute-heavy        | 33.5 µs   | 315 µs        | 9.4×    | 846 µs   | 25×     |
+| script-heavy           | 18.0 µs   | 165 µs        | 9.1×    | 513 µs   | 28×     |
+| entity-heavy           | 34.0 µs   | 199 µs        | 5.9×    | 1240 µs  | 36×     |
+| wpt page (0.6 kB)      | 2.5 µs    | 18.7 µs       | 7.5×    | 50 µs    | 20×     |
+| wpt page (9.6 kB)      | 47.7 µs   | 380 µs        | 8.0×    | 1208 µs  | 25×     |
+| wpt page (92 kB)       | 552 µs    | 4178 µs       | 7.6×    | 9185 µs  | 17×     |
+| wpt page, CJK (124 kB) | 890 µs    | 9067 µs       | 10.2×   | 23293 µs | 26×     |
+| whatwg spec (235 kB)   | 1167 µs   | 8010 µs       | 6.9×    | 20481 µs | 18×     |
 
-Tag-dense input is where the C state machine wins; like html5ever, it also bulk-scans plain text runs instead of
-dispatching per character. The one case the standard library wins — a document that is almost entirely one text node —
-is where `HTMLParser` does a single C regex scan and never really tokenizes.
+The state machine is stamped per input storage width (the CPython stringlib trick) and, like html5ever, bulk-scans plain
+text runs instead of dispatching per character, so ASCII documents stay one byte per character end to end. The one case
+the standard library wins — a document that is almost entirely one text node — is where `HTMLParser` does a single C
+regex scan and never really tokenizes.
 
 ## Documentation
 

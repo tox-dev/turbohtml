@@ -21,6 +21,16 @@ def _shape(token: Token) -> tuple[object, ...]:
     return (token.type, token.tag, token.data, token.attrs, token.self_closing)
 
 
+def assert_streaming_matches_whole(document: str) -> None:
+    """Feeding one character at a time must match one-shot tokenization."""
+    tokenizer = Tokenizer()
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    whole = list(tokenize(document))
+    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
+    assert [token.getpos() for token in streamed] == [token.getpos() for token in whole]
+
+
 def test_tokenize_simple_document() -> None:
     head, start, body, end = list(tokenize('a<p class="x">b</p>'))
     assert _shape(head) == (TokenType.TEXT, None, "a", None, False)
@@ -85,6 +95,11 @@ def test_self_closing_tag() -> None:
 def test_duplicate_attributes_keep_first() -> None:
     (tag,) = list(tokenize("<a x=1 y x=2 z=''>"))
     assert tag.attrs == [("x", "1"), ("y", None), ("z", "")]
+
+
+def test_same_length_attribute_names_of_different_widths() -> None:
+    (tag,) = list(tokenize("<a xy=1 xő=2>"))
+    assert tag.attrs == [("xy", "1"), ("xő", "2")]
 
 
 def test_attr_lookup() -> None:
@@ -188,8 +203,9 @@ def test_content_model_switching(document: str, expected: list[str]) -> None:
         ),
     ],
 )
-def test_script_end_tag_variants(document: str, kinds: list[TokenType]) -> None:
-    assert [token.type for token in tokenize(document)] == kinds
+def test_script_end_tag_variants(document: str, kinds: list[TokenType], width_prefix: str) -> None:
+    lead = [TokenType.TEXT] if width_prefix else []
+    assert [token.type for token in tokenize(width_prefix + document)] == lead + kinds
 
 
 @pytest.mark.parametrize(
@@ -208,8 +224,10 @@ def test_script_end_tag_variants(document: str, kinds: list[TokenType]) -> None:
         pytest.param("<!DOCTYPE html SYSTEM >", None, None, id="system-space-gt"),
     ],
 )
-def test_doctype_identifier_edge_cases(document: str, public_id: str | None, system_id: str | None) -> None:
-    (doctype,) = list(tokenize(document))
+def test_doctype_identifier_edge_cases(
+    document: str, public_id: str | None, system_id: str | None, width_prefix: str
+) -> None:
+    doctype = list(tokenize(width_prefix + document))[-1]
     assert doctype.public_id == public_id
     assert doctype.system_id == system_id
 
@@ -245,6 +263,7 @@ def test_streaming_charref_suspends() -> None:
 def test_streaming_crlf_across_feeds() -> None:
     tokenizer = Tokenizer()
     list(tokenizer.feed("a\r"))
+    list(tokenizer.feed(""))
     list(tokenizer.feed("\nb"))
     assert [token.data for token in tokenizer.close()] == ["a\nb"]
 
@@ -278,17 +297,13 @@ def test_newline_normalization(text: str, expected: str) -> None:
         pytest.param("<script>a<b</script>c", id="script"),
         pytest.param("<title>&notin;</title>", id="rcdata-charref"),
         pytest.param("a\r\nb\rc", id="newlines"),
+        pytest.param("a<p>ő x=🎉>b", id="widening-midstream"),
         pytest.param("<![CDATA[x]]>", id="cdata-bogus"),
         pytest.param("</> <?bogus> text", id="bogus-comments"),
     ],
 )
-def test_feed_char_by_char_matches_whole(document: str) -> None:
-    tokenizer = Tokenizer()
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    whole = list(tokenize(document))
-    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [token.getpos() for token in streamed] == [token.getpos() for token in whole]
+def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> None:
+    assert_streaming_matches_whole(width_prefix + document)
 
 
 @pytest.mark.parametrize(
@@ -326,13 +341,8 @@ def test_feed_char_by_char_matches_whole(document: str) -> None:
         pytest.param("<script><!--<script></script/->x", id="double-escape-end-slash"),
     ],
 )
-def test_eof_mid_construct_matches_streaming(document: str) -> None:
-    tokenizer = Tokenizer()
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    whole = list(tokenize(document))
-    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [token.getpos() for token in streamed] == [token.getpos() for token in whole]
+def test_eof_mid_construct_matches_streaming(document: str, width_prefix: str) -> None:
+    assert_streaming_matches_whole(width_prefix + document)
 
 
 @pytest.mark.parametrize(
@@ -345,8 +355,8 @@ def test_eof_mid_construct_matches_streaming(document: str) -> None:
         pytest.param("x]]y", "x]]y", id="double-bracket-text"),
     ],
 )
-def test_cdata_section_edges(text: str, expected: str) -> None:
-    assert _html._tokenize_states(text, "CDATA section state") == [("Character", expected)]
+def test_cdata_section_edges(text: str, expected: str, storage_kind: int) -> None:
+    assert _html._tokenize_states(text, "CDATA section state", None, storage_kind) == [("Character", expected)]
 
 
 @pytest.mark.parametrize(
@@ -363,8 +373,8 @@ def test_cdata_section_edges(text: str, expected: str) -> None:
         pytest.param("CDATA section state", "a\nb]", "a\nb]", id="cdata-newline"),
     ],
 )
-def test_text_run_breaks_on_special_characters(state: str, text: str, expected: str) -> None:
-    assert _html._tokenize_states(text, state) == [("Character", expected)]
+def test_text_run_breaks_on_special_characters(state: str, text: str, expected: str, storage_kind: int) -> None:
+    assert _html._tokenize_states(text, state, None, storage_kind) == [("Character", expected)]
 
 
 def test_reset_discards_state() -> None:
@@ -468,12 +478,21 @@ def test_tokenize_states_rejects_non_str_last_tag() -> None:
         _html._tokenize_states("x", "Data state", 5)  # ty: ignore[invalid-argument-type]  # non-str on purpose
 
 
+def test_tokenize_states_rejects_bad_storage_kind() -> None:
+    with pytest.raises(ValueError, match="storage_kind"):
+        _html._tokenize_states("x", "Data state", None, 3)
+
+
 def test_tokenize_states_default_last_tag() -> None:
     assert _html._tokenize_states("x", "Data state") == [("Character", "x")]
 
 
 def test_tokenize_states_empty_last_tag() -> None:
     assert _html._tokenize_states("x", "RCDATA state", "") == [("Character", "x")]
+
+
+def test_rcdata_end_tag_name_width_mismatch() -> None:
+    assert _html._tokenize_states("</xy>", "RCDATA state", "xő") == [("Character", "</xy>")]
 
 
 def test_tag_names_are_lowercased() -> None:

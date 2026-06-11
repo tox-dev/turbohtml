@@ -22,7 +22,7 @@ static PyObject *buf_to_str(const th_buf *buf) {
     if (buf->len == 0) {
         return PyUnicode_New(0, 0);
     }
-    return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, buf->data, buf->len);
+    return PyUnicode_FromKindAndData(buf->kind, buf->data, buf->len);
 }
 
 PyObject *token_from_record(module_state *state, th_token *record) {
@@ -104,8 +104,8 @@ static PyObject *token_get_attrs(PyObject *self, void *Py_UNUSED(closure)) {
         int duplicate = 0;
         for (Py_ssize_t j = 0; j < i; j++) {
             const th_attr *prior = &record->attrs[j];
-            if (prior->name.len == attr->name.len &&
-                memcmp(prior->name.data, attr->name.data, (size_t)attr->name.len * sizeof(Py_UCS4)) == 0) {
+            if (prior->name.len == attr->name.len && prior->name.kind == attr->name.kind &&
+                memcmp(prior->name.data, attr->name.data, (size_t)(attr->name.len * attr->name.kind)) == 0) {
                 duplicate = 1;
                 break;
             }
@@ -201,7 +201,7 @@ static PyObject *token_attr(PyObject *self, PyObject *args) {
             }
             int match = 1;
             for (Py_ssize_t j = 0; j < name_len; j++) {
-                if (attr->name.data[j] != (Py_UCS4)(unsigned char)name[j]) {
+                if (PyUnicode_READ(attr->name.kind, attr->name.data, j) != (Py_UCS4)(unsigned char)name[j]) {
                     match = 0;
                     break;
                 }

@@ -27,11 +27,14 @@ enum th_kind {
     TH_DOCTYPE,
 };
 
-/* Growable Py_UCS4 buffer. data may be NULL while len == 0. */
+/* Growable code-point buffer stored at the narrowest PyUnicode kind its
+   content needs, so ASCII data stays one byte per character end to end.
+   data may be NULL while len == 0; cap is in bytes. */
 typedef struct {
-    Py_UCS4 *data;
+    void *data;
     Py_ssize_t len;
     Py_ssize_t cap;
+    int kind; /* PyUnicode_{1,2,4}BYTE_KIND */
 } th_buf;
 
 typedef struct {
@@ -84,6 +87,11 @@ void th_tok_reset(th_tokenizer *self);
    appropriate-end-tag checks. Call before the first feed; used by the harness. */
 void th_tok_set_initial(th_tokenizer *self, enum th_initial_state state, const Py_UCS4 *last_tag,
                         Py_ssize_t last_tag_len);
+
+/* Testing hook: pre-set the empty input buffer's storage width so the
+   kind-stamped tokenizer cores can all be exercised with the same (mostly
+   ASCII) conformance data; tokenization is invariant to storage width. */
+void th_tok_widen_input(th_tokenizer *self, int kind);
 
 /* Switch the current content model. The public tokenizer calls this after a
    start tag for a raw-text element (script, style, title, textarea, ...) so the

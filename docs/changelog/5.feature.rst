@@ -1,3 +1,3 @@
 Add a WHATWG-conformant HTML tokenizer: :func:`turbohtml.tokenize` for whole strings, the streaming
-:class:`turbohtml.Tokenizer`, and the :class:`turbohtml.Token` / :class:`turbohtml.TokenType` types. The C state
-machine passes all 7032 html5lib-tests tokenizer conformance cases and bulk-scans text runs the way html5ever does.
+:class:`turbohtml.Tokenizer`, and the :class:`turbohtml.Token` / :class:`turbohtml.TokenType` types. The C state machine
+passes all 7032 html5lib-tests tokenizer conformance cases and bulk-scans text runs the way html5ever does.

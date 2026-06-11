@@ -1,3 +1,6 @@
 [submodule "tests/html5lib-tests"]
 	path = tests/html5lib-tests
 	url = https://github.com/html5lib/html5lib-tests
+[submodule "tools/html5lib-python"]
+	path = tools/html5lib-python
+	url = https://github.com/html5lib/html5lib-python

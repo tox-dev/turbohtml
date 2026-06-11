@@ -118,7 +118,7 @@ windows.config-settings.setup-args = "--vsenv"
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [ "tests/html5lib-tests" ]  # vendored conformance suite, not our code
+extend-exclude = [ "tests/html5lib-tests", "tools/html5lib-python" ]  # vendored suites, not our code
 format.preview = true
 format.docstring-code-line-length = 100
 format.docstring-code-format = true
@@ -176,7 +176,7 @@ quiet-level = 3
 max_supported_python = "3.15"
 
 [tool.ty]
-src.exclude = [ "tests/html5lib-tests" ]  # vendored conformance suite, not our code
+src.exclude = [ "tests/html5lib-tests", "tools/html5lib-python" ]  # vendored suites, not our code
 environment.python-version = "3.15"
 
 [tool.pytest]

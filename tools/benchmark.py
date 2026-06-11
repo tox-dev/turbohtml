@@ -7,16 +7,42 @@ Run with ``tox -e bench``; extra arguments are forwarded to pyperf (pass
 and reports mean ± stddev; the parent process then prints a speedup table
 against the standard library and, for tokenize, html5lib's pure-Python
 tokenizer.
+
+Besides the synthetic cases, tokenize also runs over html5lib's benchmark
+corpus (the tools/html5lib-python submodule) — a slice of the WHATWG HTML spec
+source plus a size-weighted sample of web-platform-tests pages, 0.6 kB to
+234 kB, so small and big documents are both represented.
 """
 
 from __future__ import annotations
 
 import html
 from html.parser import HTMLParser
+from pathlib import Path
 
 import pyperf
 
 import turbohtml
+
+CORPUS_DIR = Path(__file__).parent / "html5lib-python" / "benchmarks" / "data"
+CORPUS_FILES: list[tuple[str, str, str]] = [
+    ("wpt tiny (0.6 kB)", "wpt/weighted/toBlob.png.html", "utf-8"),
+    ("wpt small (4 kB)", "wpt/weighted/align-content-wrap-002.html", "utf-8"),
+    ("wpt medium (9.6 kB)", "wpt/weighted/grid-auto-fill-rows-001.html", "utf-8"),
+    ("wpt large (92 kB)", "wpt/weighted/test-plan.src.html", "utf-8"),
+    ("wpt CJK (124 kB)", "wpt/weighted/big5_chars_extra.html", "big5"),
+    ("whatwg spec (235 kB)", "html.html", "utf-8"),
+]
+
+
+def corpus_text(relative: str, encoding: str) -> str:
+    """Return a corpus document from the html5lib-python submodule."""
+    target = CORPUS_DIR / relative
+    if not target.exists():
+        msg = f"{target} is missing; run 'git submodule update --init tools/html5lib-python'"
+        raise FileNotFoundError(msg)
+    return target.read_text(encoding=encoding, errors="replace")
+
 
 CASES: list[tuple[str, str, str]] = [
     ("escape", "plain prose, no specials", "the quick brown fox jumps over the lazy dog " * 80),
@@ -97,7 +123,8 @@ def main() -> None:
         has_html5lib = True
     except ImportError:
         has_html5lib = False
-    for name, arg in TOKENIZE_CASES:
+    tokenize_cases = TOKENIZE_CASES + [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
+    for name, arg in tokenize_cases:
         bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
         bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)
         if has_html5lib:
@@ -106,7 +133,7 @@ def main() -> None:
         return
     print()
     print(f"{'benchmark':40} {'turbohtml':>12} {'stdlib':>12} {'speedup':>8} {'html5lib':>12} {'speedup':>8}")
-    for op, name, _ in CASES + [("tokenize", name, arg) for name, arg in TOKENIZE_CASES]:
+    for op, name, _ in CASES + [("tokenize", name, arg) for name, arg in tokenize_cases]:
         turbo = means[f"{op} {name} [turbohtml]"]
         stdlib = means[f"{op} {name} [stdlib]"]
         row = f"{op + ' ' + name:40} {turbo * 1e6:9.2f} us {stdlib * 1e6:9.2f} us {stdlib / turbo:7.1f}x"

@@ -35,7 +35,7 @@ static int name_is(const th_buf *name, const char *literal) {
         return 0;
     }
     for (size_t i = 0; i < len; i++) {
-        if (name->data[i] != (Py_UCS4)(unsigned char)literal[i]) {
+        if (PyUnicode_READ(name->kind, name->data, i) != (Py_UCS4)(unsigned char)literal[i]) {
             return 0;
         }
     }
@@ -255,21 +255,21 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg) {
    test harness can compare directly. Used only by _tokenize_states. */
 static PyObject *record_as_test_tuple(const th_token *record) {
     if (record->kind == TH_TEXT || record->kind == TH_COMMENT) {
-        PyObject *data = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->text.data, record->text.len);
+        PyObject *data = PyUnicode_FromKindAndData(record->text.kind, record->text.data, record->text.len);
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE */
         }
         return Py_BuildValue("(sN)", record->kind == TH_TEXT ? "Character" : "Comment", data);
     }
     if (record->kind == TH_END_TAG) {
-        PyObject *name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->name.data, record->name.len);
+        PyObject *name = PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len);
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE */
         }
         return Py_BuildValue("(sN)", "EndTag", name);
     }
     if (record->kind == TH_START_TAG) {
-        PyObject *name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->name.data, record->name.len);
+        PyObject *name = PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len);
         PyObject *attrs = PyDict_New();
         if (name == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE */
             Py_XDECREF(name);                /* GCOVR_EXCL_LINE */
@@ -278,7 +278,7 @@ static PyObject *record_as_test_tuple(const th_token *record) {
         }
         for (Py_ssize_t i = 0; i < record->attr_count; i++) {
             const th_attr *attr = &record->attrs[i];
-            PyObject *key = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->name.data, attr->name.len);
+            PyObject *key = PyUnicode_FromKindAndData(attr->name.kind, attr->name.data, attr->name.len);
             if (key == NULL) {    /* GCOVR_EXCL_BR_LINE */
                 Py_DECREF(name);  /* GCOVR_EXCL_LINE */
                 Py_DECREF(attrs); /* GCOVR_EXCL_LINE */
@@ -288,7 +288,7 @@ static PyObject *record_as_test_tuple(const th_token *record) {
                 Py_DECREF(key);
                 continue;
             }
-            PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value.data, attr->value.len);
+            PyObject *value = PyUnicode_FromKindAndData(attr->value.kind, attr->value.data, attr->value.len);
             if (value == NULL || PyDict_SetItem(attrs, key, value) < 0) { /* GCOVR_EXCL_BR_LINE */
                 Py_XDECREF(value);                                        /* GCOVR_EXCL_LINE */
                 Py_DECREF(key);                                           /* GCOVR_EXCL_LINE */
@@ -306,15 +306,15 @@ static PyObject *record_as_test_tuple(const th_token *record) {
     }
     /* DOCTYPE */
     PyObject *name = record->name.len
-                         ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->name.data, record->name.len)
+                         ? PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len)
                          : Py_NewRef(Py_None);
     PyObject *public_id =
         record->has_public_id
-            ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->public_id.data, record->public_id.len)
+            ? PyUnicode_FromKindAndData(record->public_id.kind, record->public_id.data, record->public_id.len)
             : Py_NewRef(Py_None);
     PyObject *system_id =
         record->has_system_id
-            ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, record->system_id.data, record->system_id.len)
+            ? PyUnicode_FromKindAndData(record->system_id.kind, record->system_id.data, record->system_id.len)
             : Py_NewRef(Py_None);
     if (name == NULL || public_id == NULL || system_id == NULL) { /* GCOVR_EXCL_BR_LINE */
         Py_XDECREF(name);                                         /* GCOVR_EXCL_LINE */
@@ -345,25 +345,35 @@ static int initial_state_from_name(const char *name, enum th_initial_state *out)
     return 0;
 }
 
-PyDoc_STRVAR(tokenize_states_doc, "_tokenize_states(text, initial_state, last_start_tag)\n--\n\n"
+PyDoc_STRVAR(tokenize_states_doc, "_tokenize_states(text, initial_state, last_start_tag, storage_kind)\n--\n\n"
                                   "Tokenize text from a given content-model state without the public\n"
                                   "tokenizer's tag-driven content switching. Returns html5lib-format token\n"
-                                  "tuples. Internal: used by the conformance test harness only.");
+                                  "tuples. storage_kind (1, 2 or 4) forces the input buffer width so every\n"
+                                  "kind-stamped tokenizer core can be exercised with the same data.\n"
+                                  "Internal: used by the conformance test harness only.");
 
 PyObject *turbohtml_tokenize_states(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *text;
     const char *state_name;
     PyObject *last_tag = Py_None;
-    if (!PyArg_ParseTuple(args, "Us|O:_tokenize_states", &text, &state_name, &last_tag)) {
+    int storage_kind = 1;
+    if (!PyArg_ParseTuple(args, "Us|Oi:_tokenize_states", &text, &state_name, &last_tag, &storage_kind)) {
         return NULL;
     }
     enum th_initial_state initial;
     if (initial_state_from_name(state_name, &initial) < 0) {
         return NULL;
     }
+    if (storage_kind != 1 && storage_kind != 2 && storage_kind != 4) {
+        PyErr_SetString(PyExc_ValueError, "storage_kind must be 1, 2 or 4");
+        return NULL;
+    }
     th_tokenizer *sm = th_tok_new();
     if (sm == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+    }
+    if (storage_kind > PyUnicode_KIND(text)) {
+        th_tok_widen_input(sm, storage_kind);
     }
     if (last_tag != Py_None) {
         if (!PyUnicode_Check(last_tag)) {

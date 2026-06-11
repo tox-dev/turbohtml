@@ -44,5 +44,5 @@ class Tokenizer:
 
 def tokenize(s: str, /) -> Iterator[Token]: ...
 def _tokenize_states(
-    text: str, initial_state: str, last_start_tag: str | None = ..., /
+    text: str, initial_state: str, last_start_tag: str | None = ..., storage_kind: int = ..., /
 ) -> list[tuple[object, ...]]: ...

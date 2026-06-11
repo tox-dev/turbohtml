@@ -6,6 +6,10 @@ private ``_tokenize_states`` hook drives the state machine in the requested
 state without the public tokenizer's tag-driven content switching, which is the
 contract the suite assumes. Parse-error reporting is out of scope here: only the
 token stream is compared.
+
+Every case runs at all three input storage widths (the tokenizer core is
+stamped per PyUnicode kind): the token stream must be invariant to how the
+input happens to be stored.
 """
 
 from __future__ import annotations
@@ -52,5 +56,8 @@ def _load_cases() -> list[Any]:
 
 
 @pytest.mark.parametrize(("text", "state", "last_start_tag", "expected"), _load_cases())
-def test_tokenizer_conformance(text: str, state: str, last_start_tag: str | None, expected: list[Any]) -> None:
-    assert [list(token) for token in _html._tokenize_states(text, state, last_start_tag)] == expected
+def test_tokenizer_conformance(
+    text: str, state: str, last_start_tag: str | None, expected: list[Any], storage_kind: int
+) -> None:
+    actual = _html._tokenize_states(text, state, last_start_tag, storage_kind)
+    assert [list(token) for token in actual] == expected
