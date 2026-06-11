@@ -24,6 +24,14 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define TH_SCAN_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define TH_SCAN_SSE2 1
+#endif
+
 #include "charref.h"
 
 #define REPLACEMENT 0xFFFD
@@ -639,14 +647,41 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
 #define TH_HASZERO(word) (((word) - TH_ONES) & ~(word) & TH_HIGHS)
 
 /* Find the first of up to four stop bytes (duplicates allowed) in the 1-byte
-   input from position i on, eight bytes at a time — the SWAR scan escape.c
-   uses. The tail compares with bitwise or so every lane is one branch. */
+   input from position i on. A vector loop skips 16-byte blocks containing no
+   stop byte (NEON or SSE2, the same shape html5ever's data-state fast path
+   uses), falling back to the eight-byte SWAR scan escape.c uses elsewhere;
+   the scalar tail then pinpoints the stop, comparing with bitwise or so every
+   lane is one branch. */
 static Py_ssize_t scan_stops_ucs1(const th_tokenizer *self, Py_ssize_t i, Py_UCS1 s1, Py_UCS1 s2, Py_UCS1 s3,
                                   Py_UCS1 s4) {
     const Py_UCS1 *d = (const Py_UCS1 *)self->input.data;
     Py_ssize_t len = self->input.len;
+#if defined(TH_SCAN_NEON)
+    uint8x16_t v1 = vdupq_n_u8(s1), v2 = vdupq_n_u8(s2), v3 = vdupq_n_u8(s3), v4 = vdupq_n_u8(s4);
+    while (i + 16 <= len) {
+        uint8x16_t block = vld1q_u8(d + i);
+        uint8x16_t hit = vorrq_u8(vorrq_u8(vceqq_u8(block, v1), vceqq_u8(block, v2)),
+                                  vorrq_u8(vceqq_u8(block, v3), vceqq_u8(block, v4)));
+        if (vmaxvq_u8(hit)) {
+            break;
+        }
+        i += 16;
+    }
+#elif defined(TH_SCAN_SSE2)
+    __m128i v1 = _mm_set1_epi8((char)s1), v2 = _mm_set1_epi8((char)s2);
+    __m128i v3 = _mm_set1_epi8((char)s3), v4 = _mm_set1_epi8((char)s4);
+    while (i + 16 <= len) {
+        __m128i block = _mm_loadu_si128((const __m128i *)(d + i));
+        __m128i hit = _mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(block, v1), _mm_cmpeq_epi8(block, v2)),
+                                   _mm_or_si128(_mm_cmpeq_epi8(block, v3), _mm_cmpeq_epi8(block, v4)));
+        if (_mm_movemask_epi8(hit)) {
+            break;
+        }
+        i += 16;
+    }
+#else
     uint64_t m1 = TH_ONES * s1, m2 = TH_ONES * s2, m3 = TH_ONES * s3, m4 = TH_ONES * s4;
-    while (i + 8 <= (Py_ssize_t)len) {
+    while (i + 8 <= len) {
         uint64_t word;
         memcpy(&word, d + i, sizeof(word));
         if (TH_HASZERO(word ^ m1) | TH_HASZERO(word ^ m2) | TH_HASZERO(word ^ m3) | TH_HASZERO(word ^ m4)) {
@@ -654,6 +689,7 @@ static Py_ssize_t scan_stops_ucs1(const th_tokenizer *self, Py_ssize_t i, Py_UCS
         }
         i += 8;
     }
+#endif
     while (i < len && !((d[i] == s1) | (d[i] == s2) | (d[i] == s3) | (d[i] == s4))) {
         i++;
     }
