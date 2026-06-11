@@ -2,9 +2,11 @@
 """
 Benchmark turbohtml's escape/unescape/tokenize against the standard library.
 
-Run with ``tox -e bench``; extra arguments are forwarded to pyperf (pass
-``--help`` to see them). pyperf runs every case in isolated worker processes
-and reports mean ± stddev; the parent process then prints a speedup table
+Run with ``tox -e bench``; positional arguments pick the suites to run
+(``escape``, ``unescape``, ``tokenize``, ``corpus`` — default all); remaining
+arguments are forwarded to pyperf (pass ``--help`` to see them). pyperf runs
+every case in isolated worker processes and reports mean ± stddev; the parent
+process then prints a speedup table
 against the standard library and, for tokenize, html5lib's pure-Python
 tokenizer.
 
@@ -17,6 +19,7 @@ source plus a size-weighted sample of web-platform-tests pages, 0.6 kB to
 from __future__ import annotations
 
 import html
+import os
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -105,10 +108,44 @@ def html5lib_tokenize(text: str) -> None:
         pass
 
 
+def print_table(means: dict[str, float], rows: list[tuple[str, str]]) -> None:
+    """Render the speedup table from the collected per-benchmark means."""
+    print()
+    print(f"{'benchmark':40} {'turbohtml':>12} {'stdlib':>12} {'speedup':>8} {'html5lib':>12} {'speedup':>8}")
+    for op, name in rows:
+        turbo = means[f"{op} {name} [turbohtml]"]
+        stdlib = means[f"{op} {name} [stdlib]"]
+        row = f"{op + ' ' + name:40} {turbo * 1e6:9.2f} us {stdlib * 1e6:9.2f} us {stdlib / turbo:7.1f}x"
+        if (five := means.get(f"{op} {name} [html5lib]")) is not None:
+            row += f" {five * 1e6:9.2f} us {five / turbo:7.1f}x"
+        print(row)
+
+
+def _has_html5lib() -> bool:
+    try:
+        html5lib_tokenize("")
+    except ImportError:
+        return False
+    return True
+
+
 def main() -> None:
     """Run all cases under pyperf and print the speedup table in the parent."""
     runner = pyperf.Runner()
+    runner.argparser.add_argument(
+        "suites",
+        nargs="*",
+        choices=["escape", "unescape", "tokenize", "corpus", []],
+        help="suites to run (default: all)",
+    )
     args = runner.parse_args()
+    # pyperf rebuilds worker command lines from its own options only, so the
+    # suite selection rides to the workers through the environment
+    if args.suites:
+        os.environ["TURBOHTML_BENCH_SUITES"] = ",".join(args.suites)
+        args.inherit_environ = [*(args.inherit_environ or []), "TURBOHTML_BENCH_SUITES"]
+    selection = os.environ.get("TURBOHTML_BENCH_SUITES", "escape,unescape,tokenize,corpus")
+    suites = set(selection.split(","))
     means: dict[str, float] = {}
 
     def bench(name: str, func: object, arg: str) -> None:
@@ -116,14 +153,13 @@ def main() -> None:
             means[name] = result.mean()
 
     for op, name, arg in CASES:
-        bench(f"{op} {name} [turbohtml]", getattr(turbohtml, op), arg)
-        bench(f"{op} {name} [stdlib]", getattr(html, op), arg)
-    try:
-        html5lib_tokenize("")
-        has_html5lib = True
-    except ImportError:
-        has_html5lib = False
-    tokenize_cases = TOKENIZE_CASES + [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
+        if op in suites:
+            bench(f"{op} {name} [turbohtml]", getattr(turbohtml, op), arg)
+            bench(f"{op} {name} [stdlib]", getattr(html, op), arg)
+    has_html5lib = _has_html5lib()
+    tokenize_cases = TOKENIZE_CASES if "tokenize" in suites else []
+    if "corpus" in suites:
+        tokenize_cases += [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
     for name, arg in tokenize_cases:
         bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
         bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)
@@ -131,15 +167,9 @@ def main() -> None:
             bench(f"tokenize {name} [html5lib]", html5lib_tokenize, arg)
     if args.worker or not means:
         return
-    print()
-    print(f"{'benchmark':40} {'turbohtml':>12} {'stdlib':>12} {'speedup':>8} {'html5lib':>12} {'speedup':>8}")
-    for op, name, _ in CASES + [("tokenize", name, arg) for name, arg in tokenize_cases]:
-        turbo = means[f"{op} {name} [turbohtml]"]
-        stdlib = means[f"{op} {name} [stdlib]"]
-        row = f"{op + ' ' + name:40} {turbo * 1e6:9.2f} us {stdlib * 1e6:9.2f} us {stdlib / turbo:7.1f}x"
-        if (five := means.get(f"{op} {name} [html5lib]")) is not None:
-            row += f" {five * 1e6:9.2f} us {five / turbo:7.1f}x"
-        print(row)
+    rows = [(op, name) for op, name, _ in CASES if op in suites]
+    rows += [("tokenize", name) for name, _ in tokenize_cases]
+    print_table(means, rows)
 
 
 if __name__ == "__main__":
