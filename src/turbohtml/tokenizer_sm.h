@@ -44,9 +44,15 @@ typedef struct {
 } th_attr;
 
 /* One completed token. Buffers are owned and reused across tokens via reset;
-   the Python layer copies what it needs out of them when it builds a Token. */
+   the Python layer copies what it needs out of them when it builds a Token.
+   A TEXT token that is an untouched span of the input carries is_slice with
+   src_start/src_len instead of filling text; resolve it against
+   th_tok_input_data before the next th_tok_next call. */
 typedef struct {
     enum th_kind kind;
+    int is_slice;
+    Py_ssize_t src_start;
+    Py_ssize_t src_len;
     th_buf name; /* tag name (lowercased) or DOCTYPE name */
     th_buf text; /* TEXT run or COMMENT data */
     th_attr *attrs;
@@ -102,6 +108,16 @@ void th_tok_switch(th_tokenizer *self, enum th_initial_state state);
 /* Append code points read from a unicode object's storage. An allocation
    failure is reported by the next th_tok_next call as TH_STEP_ERROR. */
 void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t length);
+
+/* Use caller-owned storage as the whole input without copying. Only valid on
+   a fresh tokenizer and for data free of '\r' (the caller checks); the
+   storage must stay alive and unchanged until the machine is freed, and no
+   th_tok_feed or th_tok_reset may follow. tokenize() borrows and never exposes
+   the machine; streaming feed() copies. */
+void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssize_t length);
+
+/* The storage backing slice tokens: sets *kind, returns the base pointer. */
+const void *th_tok_input_data(const th_tokenizer *self, int *kind);
 
 /* Signal end of input; the next th_tok_next calls flush remaining tokens. */
 void th_tok_close(th_tokenizer *self);

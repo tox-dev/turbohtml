@@ -26,8 +26,11 @@ typedef struct {
 int token_register(PyObject *module, module_state *state);
 int tokenizer_register(PyObject *module, module_state *state);
 
-/* Build a Token from a freshly emitted record. Small records are copied; a
-   large text run is moved out of the record, which then regrows. */
-PyObject *token_from_record(module_state *state, th_token *record);
+/* Build a Token from a freshly emitted record. Small records are copied and a
+   large text run is moved out of the record (which then regrows). A slice
+   record resolves lazily against source when the input is borrowed from it
+   (the Token keeps source alive), and immediately against sm's own storage
+   otherwise (a later feed may move it). */
+PyObject *token_from_record(module_state *state, const th_tokenizer *sm, PyObject *source, th_token *record);
 
 #endif /* TURBOHTML_TOKENIZER_PY_H */

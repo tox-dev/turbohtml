@@ -17,6 +17,7 @@
 
 typedef struct {
     PyObject_HEAD th_tokenizer *sm;
+    PyObject *source; /* borrowed-input owner for one-shot tokenize(), else NULL */
 } TokenizerObject;
 
 typedef struct {
@@ -96,7 +97,8 @@ static PyObject *iter_next(PyObject *self) {
     switch (th_tok_next(sm, &record)) { /* GCOVR_EXCL_BR_LINE: the TH_STEP_ERROR edge needs an allocation failure, which
                                            cannot be forced from a test */
     case TH_STEP_TOKEN: {
-        PyObject *token = token_from_record(state, record);
+        TokenizerObject *owner = (TokenizerObject *)((IterObject *)self)->owner;
+        PyObject *token = token_from_record(state, sm, owner->source, record);
         if (token == NULL) { /* GCOVR_EXCL_BR_LINE */
             return NULL;     /* GCOVR_EXCL_LINE */
         }
@@ -141,6 +143,7 @@ static PyObject *tokenizer_new(PyTypeObject *type, PyObject *Py_UNUSED(args), Py
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
+    self->source = NULL;
     self->sm = th_tok_new();
     if (self->sm == NULL) {      /* GCOVR_EXCL_BR_LINE */
         Py_DECREF(self);         /* GCOVR_EXCL_LINE */
@@ -150,7 +153,9 @@ static PyObject *tokenizer_new(PyTypeObject *type, PyObject *Py_UNUSED(args), Py
 }
 
 static int tokenizer_traverse(PyObject *self, visitproc visit, void *arg) {
-    Py_VISIT(Py_TYPE(self)); /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
+    TokenizerObject *tokenizer = (TokenizerObject *)self;
+    Py_VISIT(Py_TYPE(self));     /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
+    Py_VISIT(tokenizer->source); /* GCOVR_EXCL_BR_LINE: the failing-visit arm needs a gc callback that errors */
     return 0;
 }
 
@@ -158,6 +163,7 @@ static void tokenizer_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     PyObject_GC_UnTrack(self);
     th_tok_free(((TokenizerObject *)self)->sm);
+    Py_XDECREF(((TokenizerObject *)self)->source);
     type->tp_free(self);
     Py_DECREF(type);
 }
@@ -268,7 +274,15 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg) {
         return NULL;         /* GCOVR_EXCL_LINE */
     }
     th_tokenizer *sm = ((TokenizerObject *)tokenizer)->sm;
-    th_tok_feed(sm, PyUnicode_KIND(arg), PyUnicode_DATA(arg), PyUnicode_GET_LENGTH(arg));
+    Py_ssize_t length = PyUnicode_GET_LENGTH(arg);
+    if (PyUnicode_FindChar(arg, '\r', 0, length, 1) < 0) {
+        /* nothing to normalize: borrow the string's storage instead of
+           copying the whole document; the tokenizer keeps the string alive */
+        th_tok_borrow_input(sm, PyUnicode_KIND(arg), PyUnicode_DATA(arg), length);
+        ((TokenizerObject *)tokenizer)->source = Py_NewRef(arg);
+    } else {
+        th_tok_feed(sm, PyUnicode_KIND(arg), PyUnicode_DATA(arg), length);
+    }
     th_tok_close(sm);
     PyObject *iterator = iter_new(state, tokenizer);
     Py_DECREF(tokenizer);
@@ -279,7 +293,16 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg) {
 
 /* Format one record the way the html5lib tokenizer tests express tokens, so the
    test harness can compare directly. Used only by _tokenize_states. */
-static PyObject *record_as_test_tuple(const th_token *record) {
+static PyObject *record_as_test_tuple(const th_tokenizer *sm, const th_token *record) {
+    if (record->is_slice) {
+        int kind;
+        const char *data = th_tok_input_data(sm, &kind);
+        PyObject *text = PyUnicode_FromKindAndData(kind, data + record->src_start * kind, record->src_len);
+        if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;    /* GCOVR_EXCL_LINE */
+        }
+        return Py_BuildValue("(sN)", "Character", text);
+    }
     if (record->kind == TH_TEXT || record->kind == TH_COMMENT) {
         PyObject *data = PyUnicode_FromKindAndData(record->text.kind, record->text.data, record->text.len);
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -434,7 +457,7 @@ PyObject *turbohtml_tokenize_states(PyObject *Py_UNUSED(module), PyObject *args)
     th_token *record;
     enum th_step step;
     while ((step = th_tok_next(sm, &record)) == TH_STEP_TOKEN) {
-        PyObject *tuple = record_as_test_tuple(record);
+        PyObject *tuple = record_as_test_tuple(sm, record);
         if (tuple == NULL || PyList_Append(out, tuple) < 0) { /* GCOVR_EXCL_BR_LINE */
             Py_XDECREF(tuple);                                /* GCOVR_EXCL_LINE */
             Py_DECREF(out);                                   /* GCOVR_EXCL_LINE */

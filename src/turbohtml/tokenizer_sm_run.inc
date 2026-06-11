@@ -225,6 +225,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             if (ch == '&') {
                 text_begin(self);
+                text_materialize(self);
                 Py_ssize_t n = TH_NAME(consume_charref)(self, &self->text, 0);
                 if (n == -1) {
                     return RUN_NEED_MORE;
@@ -265,6 +266,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             if (ch == '&') {
                 text_begin(self);
+                text_materialize(self);
                 Py_ssize_t n = TH_NAME(consume_charref)(self, &self->text, 0);
                 if (n == -1) {
                     return RUN_NEED_MORE;

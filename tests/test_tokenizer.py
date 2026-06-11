@@ -238,9 +238,21 @@ def test_doctype_identifier_edge_cases(
 
 
 def test_large_text_runs_move_intact() -> None:
-    first, second = "a" * 600, "b" * 700
+    first, second = "&amp;" + "a" * 600, "&gt;" + "b" * 700
     tokens = list(tokenize(f"{first}<p>{second}"))
-    assert [token.data for token in tokens if token.type is TokenType.TEXT] == [first, second]
+    expected = ["&" + "a" * 600, ">" + "b" * 700]
+    assert [token.data for token in tokens if token.type is TokenType.TEXT] == expected
+
+
+def test_tokens_outlive_the_source_string() -> None:
+    text = "y" * 700 + "<p>"
+    iterator = tokenize(text)
+    del text
+    gc.collect()
+    tokens = list(iterator)
+    del iterator
+    gc.collect()
+    assert [token.data for token in tokens if token.type is TokenType.TEXT] == ["y" * 700]
 
 
 def test_plaintext_consumes_rest() -> None:

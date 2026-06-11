@@ -220,7 +220,10 @@ struct th_tokenizer {
     th_buf text; /* coalesced character run */
     Py_ssize_t text_line;
     Py_ssize_t text_col;
-    int text_open; /* a run is in progress */
+    int text_open;          /* a run is in progress */
+    Py_ssize_t slice_start; /* while the run is an untouched span of the input */
+    Py_ssize_t slice_len;
+    int input_borrowed; /* input.data is caller-owned storage, never freed here */
 
     th_token tok;     /* tag/comment/doctype under construction */
     th_attr *attr;    /* attribute under construction (points into tok.attrs) */
@@ -317,6 +320,8 @@ void th_tok_reset(th_tokenizer *self) {
     self->mark_col = 0;
     buf_reset(&self->text);
     self->text_open = 0;
+    self->slice_start = 0;
+    self->slice_len = 0;
     token_reset(&self->tok);
     buf_reset(&self->last_tag);
     buf_reset(&self->temp);
@@ -327,6 +332,9 @@ void th_tok_reset(th_tokenizer *self) {
 }
 
 void th_tok_free(th_tokenizer *self) {
+    if (self->input_borrowed) {
+        buf_init(&self->input);
+    }
     buf_free(&self->input);
     buf_free(&self->text);
     token_free(&self->tok);
@@ -413,6 +421,19 @@ void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t leng
     }
 }
 
+void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssize_t length) {
+    self->input.data = (void *)data;
+    self->input.len = length;
+    self->input.cap = 0;
+    self->input.kind = kind;
+    self->input_borrowed = 1;
+}
+
+const void *th_tok_input_data(const th_tokenizer *self, int *kind) {
+    *kind = self->input.kind;
+    return self->input.data;
+}
+
 void th_tok_close(th_tokenizer *self) {
     self->eof = 1;
 }
@@ -428,12 +449,26 @@ static void enqueue(th_tokenizer *self, th_token *tok) {
    queue it. */
 static void flush_text(th_tokenizer *self) {
     self->text_open = 0;
+    th_token *rec = &self->text_record;
+    if (self->slice_len > 0) {
+        /* the run is an untouched span of the input: hand out indices only */
+        token_reset(rec);
+        rec->kind = TH_TEXT;
+        rec->is_slice = 1;
+        rec->src_start = self->slice_start;
+        rec->src_len = self->slice_len;
+        rec->line = self->text_line;
+        rec->col = self->text_col;
+        self->slice_len = 0;
+        enqueue(self, rec);
+        return;
+    }
     if (self->text.len == 0) {
         return;
     }
-    th_token *rec = &self->text_record;
     token_reset(rec);
     rec->kind = TH_TEXT;
+    rec->is_slice = 0;
     rec->line = self->text_line;
     rec->col = self->text_col;
     th_buf swap = rec->text;
@@ -443,12 +478,52 @@ static void flush_text(th_tokenizer *self) {
     enqueue(self, rec);
 }
 
+/* Copy the pending slice span into the text buffer; from here on the run is
+   materialized (a synthesized character or a reference is about to land). */
+static void copy_input_range(th_tokenizer *self, Py_ssize_t start, Py_ssize_t n) {
+    th_buf *buf = &self->text;
+    int promote = self->input.kind > buf->kind ? buf_promote(buf, self->input.kind) : 0;
+    if (promote < 0 || buf_ensure(buf, (buf->len + n) * buf->kind) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        self->oom = 1;                                                    /* GCOVR_EXCL_LINE */
+        return;                                                           /* GCOVR_EXCL_LINE */
+    }
+    if (self->input.kind == buf->kind) {
+        memcpy((char *)buf->data + buf->len * buf->kind, (const char *)self->input.data + start * buf->kind,
+               (size_t)(n * buf->kind));
+        buf->len += n;
+    } else {
+        /* the span is narrower than the buffer (a wide character arrived via
+           an earlier character reference): widen while copying */
+        for (Py_ssize_t i = 0; i < n; i++) {
+            buf_write(buf, buf->len++, buf_read(&self->input, start + i));
+        }
+    }
+}
+
+static void text_materialize(th_tokenizer *self) {
+    if (self->slice_len > 0) {
+        copy_input_range(self, self->slice_start, self->slice_len);
+        self->slice_len = 0;
+    }
+}
+
 static void text_push(th_tokenizer *self, Py_UCS4 ch) {
     if (!self->text_open) {
         self->text_open = 1;
         self->text_line = self->line;
         self->text_col = self->col;
     }
+    /* a character whose value sits at the cursor extends (or starts) the
+       zero-copy span; anything synthesized materializes the run first */
+    if (self->text.len == 0 && self->pos < self->input.len && ch == buf_read(&self->input, self->pos) &&
+        (self->slice_len == 0 || self->pos == self->slice_start + self->slice_len)) {
+        if (self->slice_len == 0) {
+            self->slice_start = self->pos;
+        }
+        self->slice_len++;
+        return;
+    }
+    text_materialize(self);
     push(self, &self->text, ch);
 }
 
@@ -554,23 +629,15 @@ static void text_begin_mark(th_tokenizer *self) {
 static void text_append_run(th_tokenizer *self, Py_ssize_t stop) {
     Py_ssize_t n = stop - self->pos;
     text_begin(self);
-    th_buf *buf = &self->text;
-    int promote = self->input.kind > buf->kind ? buf_promote(buf, self->input.kind) : 0;
-    if (promote < 0 || buf_ensure(buf, (buf->len + n) * buf->kind) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        self->oom = 1;                                                    /* GCOVR_EXCL_LINE */
-        self->pos = stop;                                                 /* GCOVR_EXCL_LINE */
-        return;                                                           /* GCOVR_EXCL_LINE */
-    }
-    if (self->input.kind == buf->kind) {
-        memcpy((char *)buf->data + buf->len * buf->kind, (const char *)self->input.data + self->pos * buf->kind,
-               (size_t)(n * buf->kind));
-        buf->len += n;
-    } else {
-        /* the run is narrower than the buffer (a wide character arrived via an
-           earlier character reference): widen while copying */
-        for (Py_ssize_t i = 0; i < n; i++) {
-            buf_write(buf, buf->len++, buf_read(&self->input, self->pos + i));
+    if (self->text.len == 0 && (self->slice_len == 0 || self->pos == self->slice_start + self->slice_len)) {
+        /* still an untouched span of the input: extend the indices, copy nothing */
+        if (self->slice_len == 0) {
+            self->slice_start = self->pos;
         }
+        self->slice_len += n;
+    } else {
+        text_materialize(self);
+        copy_input_range(self, self->pos, n);
     }
     self->pos = stop;
     self->col += n;

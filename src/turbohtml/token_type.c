@@ -10,7 +10,9 @@
 
 typedef struct {
     PyObject_HEAD th_token record;
-    char *arena; /* single allocation backing every buffer in record (NULL for a moved-in text run) */
+    char *arena;        /* single allocation backing every buffer in record (NULL otherwise) */
+    PyObject *source;   /* string whose storage backs a still-unresolved slice (NULL otherwise) */
+    PyObject *data_str; /* resolved text for a slice record (NULL until needed) */
 } TokenObject;
 
 static const char *const KIND_NAMES[5] = {"TEXT", "START_TAG", "END_TAG", "COMMENT", "DOCTYPE"};
@@ -70,13 +72,36 @@ static char *token_pack(th_token *dst, const th_token *src) {
     return arena;
 }
 
-PyObject *token_from_record(module_state *state, th_token *record) {
+PyObject *token_from_record(module_state *state, const th_tokenizer *sm, PyObject *source, th_token *record) {
     PyTypeObject *type = (PyTypeObject *)state->token_type;
     TokenObject *self = (TokenObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
-    if (record->kind == TH_TEXT && record->text.len >= 512) {
+    if (record->is_slice) {
+        /* the run is a span of the machine's input, so no intermediate buffer
+           is involved. Strings hold no references, so owning one keeps Token
+           safely outside the GC either way. */
+        self->record.kind = TH_TEXT;
+        self->record.is_slice = 1;
+        self->record.src_start = record->src_start;
+        self->record.src_len = record->src_len;
+        self->record.line = record->line;
+        self->record.col = record->col;
+        if (source != NULL) {
+            /* borrowed input: source owns the storage, resolve on first use */
+            self->source = Py_NewRef(source);
+        } else {
+            /* the machine owns the storage and a later feed may move it */
+            int kind;
+            const char *data = th_tok_input_data(sm, &kind);
+            self->data_str = PyUnicode_FromKindAndData(kind, data + record->src_start * kind, record->src_len);
+            if (self->data_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                Py_DECREF(self);          /* GCOVR_EXCL_LINE */
+                return NULL;              /* GCOVR_EXCL_LINE */
+            }
+        }
+    } else if (record->kind == TH_TEXT && record->text.len >= 512) {
         self->arena = NULL;
         /* move a large text run instead of copying it; the machine's record
            simply regrows, which costs far less than duplicating the run */
@@ -97,6 +122,8 @@ PyObject *token_from_record(module_state *state, th_token *record) {
 static void token_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     TokenObject *token = (TokenObject *)self;
+    Py_XDECREF(token->source);
+    Py_XDECREF(token->data_str);
     if (token->arena != NULL) {
         PyMem_Free(token->arena);
     } else {
@@ -116,9 +143,20 @@ static PyObject *token_get_type(PyObject *self, void *Py_UNUSED(closure)) {
 }
 
 static PyObject *token_get_data(PyObject *self, void *Py_UNUSED(closure)) {
-    const th_token *record = &((TokenObject *)self)->record;
-    if (record->kind == TH_TEXT || record->kind == TH_COMMENT) {
-        return buf_to_str(&record->text);
+    TokenObject *token = (TokenObject *)self;
+    if (token->data_str != NULL) {
+        return Py_NewRef(token->data_str);
+    }
+    if (token->source != NULL) {
+        token->data_str = PyUnicode_Substring(token->source, token->record.src_start,
+                                              token->record.src_start + token->record.src_len);
+        if (token->data_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;               /* GCOVR_EXCL_LINE */
+        }
+        return Py_NewRef(token->data_str);
+    }
+    if (token->record.kind == TH_TEXT || token->record.kind == TH_COMMENT) {
+        return buf_to_str(&token->record.text);
     }
     Py_RETURN_NONE;
 }
@@ -287,7 +325,7 @@ static PyObject *token_repr(PyObject *self) {
         Py_DECREF(name);
         return repr;
     }
-    PyObject *data = buf_to_str(&record->text);
+    PyObject *data = token_get_data(self, NULL);
     if (data == NULL) { /* GCOVR_EXCL_BR_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
