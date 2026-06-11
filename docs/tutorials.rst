@@ -94,4 +94,5 @@ remains:
     []
 
 Notice the incomplete ``<sp`` stayed buffered until the rest of the tag arrived. That is the whole tokenizer API. From
-here, head to the :doc:`how-to` guides for task-focused recipes, or the :doc:`reference` for the exact signatures.
+here, head to the :doc:`how-to` guides for task-focused recipes — including porting an existing
+:class:`python:html.parser.HTMLParser` subclass — or the :doc:`reference` for the exact signatures.

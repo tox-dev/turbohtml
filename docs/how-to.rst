@@ -45,6 +45,71 @@ Unescaping follows the HTML5 rules, including longest-match for references that 
     >>> turbohtml.unescape("&notit;")
     '¬it;'
 
+**************************
+ Migrate from html.parser
+**************************
+
+:class:`python:html.parser.HTMLParser` is callback-driven: you subclass it and override a handler per event. turbohtml
+inverts that into a token stream you iterate, which removes the subclass, the mutable handler state, and the
+per-callback Python call overhead. A typical parser:
+
+.. code-block:: python
+
+    from html.parser import HTMLParser
+
+
+    class LinkCollector(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.links: list[str] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            if tag == "a":
+                self.links.extend(
+                    value for name, value in attrs if name == "href" and value
+                )
+
+
+    collector = LinkCollector()
+    collector.feed(page)
+    collector.close()
+
+becomes a loop:
+
+.. code-block:: python
+
+    import turbohtml
+
+    links = [
+        href
+        for token in turbohtml.tokenize(page)
+        if token.type is turbohtml.TokenType.START_TAG
+        and token.tag == "a"
+        and (href := token.attr("href"))
+    ]
+
+The events map one to one:
+
+- ``handle_starttag(tag, attrs)`` → a token with ``type is TokenType.START_TAG``; ``token.tag`` and ``token.attrs``
+  carry the same lowercased name and decoded ``(name, value)`` pairs, and ``token.attr(name)`` replaces scanning the
+  list.
+- ``handle_endtag(tag)`` → ``TokenType.END_TAG``.
+- ``handle_startendtag(tag, attrs)`` → a ``START_TAG`` token with ``self_closing`` true (turbohtml does not emit a
+  separate event).
+- ``handle_data(data)`` → ``TokenType.TEXT``; character references arrive already decoded, like
+  ``convert_charrefs=True``, so there is no ``handle_entityref``/``handle_charref`` pair to implement.
+- ``handle_comment(data)`` → ``TokenType.COMMENT``.
+- ``handle_decl(decl)`` → ``TokenType.DOCTYPE``, already split into ``name``, ``public_id`` and ``system_id`` instead of
+  one raw string.
+- ``self.getpos()`` → ``token.line`` and ``token.col``, the same 1-based-line, 0-based-column convention.
+- ``feed()``/``close()`` → the same names on :class:`turbohtml.Tokenizer`; each ``feed()`` returns the tokens that chunk
+  completed instead of firing callbacks, and a ``with`` block replaces remembering ``close()``.
+
+Behavior differs where ``html.parser`` diverges from the WHATWG algorithm browsers implement: turbohtml handles the
+raw-text content models exactly (a ``<b>`` inside ``<script>`` is text, not a tag), recovers from malformed markup the
+way a browser would, and never emits ``handle_decl`` for CDATA sections (they only exist in foreign content). Code
+ported from ``html.parser`` therefore sees the same tokens a browser sees, which is usually the migration's point.
+
 *****************************
  Extract the links of a page
 *****************************
