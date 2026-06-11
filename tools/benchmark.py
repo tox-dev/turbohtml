@@ -181,7 +181,8 @@ def build_cases() -> list[tuple[str, str, str]]:
     rng = random.Random(0)
     book_text = corpus("war-and-peace/2600.txt", LARGE)
     book_html = corpus("war-and-peace/2600-h/2600-h.htm", LARGE)
-    spec_html = large_text(*LARGE_FILES[1][1:])[:LARGE]
+    # byte-slice and decode latin-1 like corpus() so the case stays a 1-byte string
+    spec_html = large_text(*LARGE_FILES[1][1:]).encode()[:LARGE].decode("latin-1")
     return [
         ("escape", "tiny plain (64 B)", prose_of(rng, ASCII_WORDS, TINY)),
         ("escape", "medium markup (4 KiB)", markup_of(rng, ASCII_WORDS, MEDIUM)),

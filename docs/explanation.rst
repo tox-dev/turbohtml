@@ -27,88 +27,88 @@ git submodules. Reproduce with ``tox -e bench``:
     - - ``escape``
       - tiny plain (64 B)
       - 0.04 µs
-      - 0.14 µs
-      - 3.6x
+      - 0.11 µs
+      - 2.9x
     - - ``escape``
       - medium markup (4 KiB)
-      - 2.54 µs
-      - 8.17 µs
-      - 3.2x
+      - 2.38 µs
+      - 8.09 µs
+      - 3.4x
     - - ``escape``
       - no-op prose (4 MiB)
       - 0.12 ms
-      - 2.80 ms
-      - 23.3x
+      - 2.66 ms
+      - 22.2x
     - - ``escape``
       - book text (3 MiB)
-      - 0.71 ms
-      - 3.12 ms
-      - 4.4x
+      - 0.72 ms
+      - 2.80 ms
+      - 3.9x
     - - ``escape``
       - book HTML (4 MiB)
-      - 1.38 ms
-      - 5.06 ms
-      - 3.7x
+      - 1.35 ms
+      - 4.88 ms
+      - 3.6x
     - - ``escape``
       - spec HTML, dense (4 MiB)
-      - 5.31 ms
-      - 13.7 ms
-      - 2.6x
+      - 5.27 ms
+      - 13.3 ms
+      - 2.5x
     - - ``escape``
       - UCS-2 plain (4 MiB)
       - 0.74 ms
-      - 2.67 ms
-      - 3.6x
+      - 2.60 ms
+      - 3.5x
     - - ``escape``
       - UCS-2 markup (4 MiB)
-      - 3.73 ms
-      - 11.7 ms
-      - 3.1x
+      - 3.44 ms
+      - 11.5 ms
+      - 3.3x
     - - ``escape``
       - UCS-4 plain (4 MiB)
-      - 1.52 ms
-      - 6.09 ms
-      - 4.0x
+      - 0.97 ms
+      - 5.58 ms
+      - 5.8x
     - - ``escape``
       - UCS-4 markup (4 MiB)
-      - 4.64 ms
-      - 21.4 ms
-      - 4.6x
+      - 4.08 ms
+      - 20.3 ms
+      - 5.0x
     - - ``unescape``
       - tiny plain (64 B)
       - 0.02 µs
       - 0.03 µs
-      - 1.4x
+      - 1.3x
     - - ``unescape``
       - medium dense refs (4 KiB)
-      - 14.8 µs
-      - 74.4 µs
-      - 5.0x
+      - 8.57 µs
+      - 72.5 µs
+      - 8.5x
     - - ``unescape``
       - numeric refs (4 KiB)
-      - 5.11 µs
-      - 83.0 µs
-      - 16.2x
+      - 5.24 µs
+      - 81.1 µs
+      - 15.5x
     - - ``unescape``
       - book HTML, real refs (4 MiB)
-      - 2.90 ms
-      - 9.24 ms
+      - 2.80 ms
+      - 8.96 ms
       - 3.2x
     - - ``unescape``
       - escaped book HTML (5 MiB)
-      - 6.10 ms
-      - 22.2 ms
-      - 3.6x
+      - 2.10 ms
+      - 21.2 ms
+      - 10.1x
     - - ``unescape``
       - dense refs (4 MiB)
-      - 17.0 ms
-      - 80.4 ms
-      - 4.7x
+      - 10.4 ms
+      - 78.5 ms
+      - 7.6x
     - - ``unescape``
       - UCS-2 refs (4 MiB)
-      - 5.55 ms
-      - 20.7 ms
-      - 3.7x
+      - 2.78 ms
+      - 19.4 ms
+      - 7.0x
 
 ``escape`` gains the most on text that needs little escaping (the SIMD scan classifies sixteen bytes at a time and
 copies clean stretches wholesale); ``unescape`` gains the most on entity-heavy input, where the standard library pays a
@@ -202,69 +202,87 @@ of the WHATWG spec source plus web-platform-tests pages of varied sizes):
       - html5lib
       - speedup
     - - typical markup
-      - 47.3 µs
-      - 451 µs
-      - 9.5x
-      - 850 µs
-      - 18x
+      - 30.3 µs
+      - 449 µs
+      - 14.8x
+      - 840 µs
+      - 27.7x
     - - text-heavy prose
-      - 4.5 µs
-      - 2.9 µs
-      - 0.7x
-      - 150 µs
-      - 33x
+      - 0.55 µs
+      - 2.92 µs
+      - 5.3x
+      - 149 µs
+      - 273x
     - - attribute-heavy
-      - 33.5 µs
-      - 315 µs
-      - 9.4x
-      - 846 µs
-      - 25x
+      - 24.7 µs
+      - 330 µs
+      - 13.3x
+      - 837 µs
+      - 33.8x
     - - script-heavy
-      - 18.0 µs
-      - 165 µs
-      - 9.1x
-      - 513 µs
-      - 28x
+      - 13.0 µs
+      - 162 µs
+      - 12.5x
+      - 526 µs
+      - 40.5x
     - - entity-heavy
-      - 34.0 µs
-      - 199 µs
-      - 5.9x
-      - 1240 µs
-      - 36x
-    - - wpt page (0.6 kB)
-      - 2.5 µs
-      - 18.7 µs
-      - 7.5x
-      - 50 µs
-      - 20x
-    - - wpt page (9.6 kB)
-      - 47.7 µs
-      - 380 µs
-      - 8.0x
-      - 1208 µs
-      - 25x
-    - - wpt page (92 kB)
-      - 552 µs
-      - 4178 µs
-      - 7.6x
-      - 9185 µs
-      - 17x
-    - - wpt page, CJK (124 kB)
-      - 890 µs
-      - 9067 µs
-      - 10.2x
-      - 23293 µs
-      - 26x
+      - 22.3 µs
+      - 205 µs
+      - 9.2x
+      - 1246 µs
+      - 55.8x
+    - - wpt tiny (0.6 kB)
+      - 1.60 µs
+      - 18.2 µs
+      - 11.4x
+      - 49 µs
+      - 30.9x
+    - - wpt small (4 kB)
+      - 15.0 µs
+      - 176 µs
+      - 11.8x
+      - 434 µs
+      - 29.0x
+    - - wpt medium (9.6 kB)
+      - 34.9 µs
+      - 376 µs
+      - 10.8x
+      - 1190 µs
+      - 34.1x
+    - - wpt large (92 kB)
+      - 348 µs
+      - 4250 µs
+      - 12.2x
+      - 9311 µs
+      - 26.7x
+    - - wpt CJK (124 kB)
+      - 626 µs
+      - 8926 µs
+      - 14.3x
+      - 22844 µs
+      - 36.5x
     - - whatwg spec (235 kB)
-      - 1167 µs
-      - 8010 µs
-      - 6.9x
-      - 20481 µs
-      - 18x
+      - 701 µs
+      - 7838 µs
+      - 11.2x
+      - 20409 µs
+      - 29.1x
+    - - ecmascript spec (3 MB)
+      - 7.08 ms
+      - 57.9 ms
+      - 8.2x
+      - 192 ms
+      - 27.1x
+    - - whatwg spec source (7.9 MB)
+      - 37.0 ms
+      - 399 ms
+      - 10.8x
+      - 907 ms
+      - 24.5x
 
-The one case the standard library wins — a document that is almost entirely a single text node — is where its regex
-performs one C scan and never really tokenizes; everywhere markup actually appears, the state machine is 5–10x faster.
-Numbers vary with input and hardware; reproduce them with ``tox -e bench``.
+The closest case is a document that is almost entirely a single text node, where the standard library's regex performs
+one C scan and never really tokenizes; everywhere markup actually appears, the state machine is 8-15x faster. Numbers
+vary with input and hardware; reproduce them with ``tox -e bench``.
 
 ****************
  Free-threading
