@@ -77,10 +77,6 @@ commands = [
     "{tox_root}",
     "--filter",
     "src/turbohtml/.*\\.(c|inc)",
-    # the tokenizer's emit macros end in `return`, leaving the closing braces of their
-    # enclosing blocks as unreachable join points that gcov reports as uncovered lines
-    "--exclude-noncode-lines",
-    "--exclude-unreachable-branches",
     "--gcov-executable",
     "{env:COV_GCOV:xcrun llvm-cov gcov}",
     "--fail-under-line",

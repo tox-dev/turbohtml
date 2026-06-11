@@ -291,9 +291,8 @@ th_tokenizer *th_tok_new(void) {
    sticky flag keeps the per-character hot paths free of error branches and is
    checked once per th_tok_next call. */
 static void push(th_tokenizer *self, th_buf *buf, Py_UCS4 ch) {
-    if (buf_push(buf, ch) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        self->oom = 1;           /* GCOVR_EXCL_LINE */
-    }
+    if (buf_push(buf, ch) < 0) /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        self->oom = 1;         /* GCOVR_EXCL_LINE */
 }
 
 void th_tok_reset(th_tokenizer *self) {
@@ -490,9 +489,8 @@ static void new_attr(th_tokenizer *self) {
 /* When a start tag is emitted, remember its name for appropriate-end-tag
    checks; spec discards attributes on end tags but we keep the structure. */
 static void remember_start_tag(th_tokenizer *self) {
-    if (buf_copy(&self->last_tag, &self->tok.name) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        self->oom = 1;                                    /* GCOVR_EXCL_LINE */
-    }
+    if (buf_copy(&self->last_tag, &self->tok.name) < 0) /* GCOVR_EXCL_BR_LINE: allocation failure */
+        self->oom = 1;                                  /* GCOVR_EXCL_LINE */
 }
 
 static inline Py_UCS4 lower_ascii(Py_UCS4 ch) {
@@ -618,20 +616,23 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
         self->mark_col = self->col;                                                                                    \
     } while (0)
 
+/* These two always return, so they are plain blocks rather than do/while(0)
+   wrappers: the dead loop-exit edge a while(0) leaves behind lands on the
+   caller's closing brace and reads as an uncovered line. */
 #define EOF_FLUSH()                                                                                                    \
-    do {                                                                                                               \
+    {                                                                                                                  \
         flush_text(self);                                                                                              \
         return RUN_DONE;                                                                                               \
-    } while (0)
+    }
 
 /* Emit the markup token and return to the data state; on the EOF paths the
    data state then reports DONE, so a token is never emitted twice. */
 #define EMIT_MARKUP()                                                                                                  \
-    do {                                                                                                               \
+    {                                                                                                                  \
         self->state = ST_DATA;                                                                                         \
         emit_tok(self);                                                                                                \
         return RUN_EMITTED;                                                                                            \
-    } while (0)
+    }
 
 #define TH_ONES UINT64_C(0x0101010101010101)
 #define TH_HIGHS UINT64_C(0x8080808080808080)
