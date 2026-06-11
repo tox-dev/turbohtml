@@ -100,6 +100,16 @@ string at once:
     >>> [token.tag or token.data for token in tokens]
     ['ul', 'li', 'one', 'li', 'two', 'ul']
 
+As a context manager the tokenizer signals end of input when the block exits, so forgetting ``close()`` cannot leave the
+final tokens stuck behind an unfinished construct; iterate the tokenizer itself to drain what remains:
+
+.. code-block:: pycon
+
+    >>> with turbohtml.Tokenizer() as tokenizer:
+    ...     tokens = [token for chunk in ("<ul><li>on", "e") for token in tokenizer.feed(chunk)]
+    >>> [token.tag or token.data for token in tokenizer]
+    ['one']
+
 Call ``reset()`` to reuse the same tokenizer for an unrelated document.
 
 ****************************************

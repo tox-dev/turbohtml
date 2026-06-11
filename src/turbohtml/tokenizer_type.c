@@ -202,21 +202,50 @@ static PyObject *tokenizer_reset(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(tokenizer_enter_doc, "__enter__()\n--\n\nEnter a with block; returns the tokenizer itself.");
+
+static PyObject *tokenizer_enter(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    return Py_NewRef(self);
+}
+
+PyDoc_STRVAR(tokenizer_exit_doc, "__exit__(*exc)\n--\n\n"
+                                 "Leave a with block, signaling end of input as close() does. Buffered\n"
+                                 "tokens stay available: iterate the tokenizer to drain them.");
+
+static PyObject *tokenizer_exit(PyObject *self, PyObject *Py_UNUSED(args)) {
+    th_tok_close(((TokenizerObject *)self)->sm);
+    Py_RETURN_NONE;
+}
+
+/* iter(tokenizer) yields the tokens completed so far, like the feed() iterators. */
+static PyObject *tokenizer_iter(PyObject *self) {
+    return iter_new(state_of(self), self);
+}
+
 static PyMethodDef tokenizer_methods[] = {
     {"feed", tokenizer_feed, METH_O, tokenizer_feed_doc},
     {"close", tokenizer_close, METH_NOARGS, tokenizer_close_doc},
     {"reset", tokenizer_reset, METH_NOARGS, tokenizer_reset_doc},
+    {"__enter__", tokenizer_enter, METH_NOARGS, tokenizer_enter_doc},
+    {"__exit__", tokenizer_exit, METH_VARARGS, tokenizer_exit_doc},
     {NULL, NULL, 0, NULL},
 };
 
 PyDoc_STRVAR(tokenizer_doc, "Tokenizer()\n--\n\n"
                             "Streaming HTML tokenizer. Feed markup with feed() and iterate the\n"
-                            "returned iterators; call close() at the end. For a whole string at once\n"
-                            "use tokenize().");
+                            "returned iterators; call close() at the end, or use the tokenizer as a\n"
+                            "context manager so leaving the with block signals end of input, then\n"
+                            "iterate the tokenizer itself for the remaining tokens. For a whole\n"
+                            "string at once use tokenize().");
 
 static PyType_Slot tokenizer_slots[] = {
-    {Py_tp_doc, (void *)tokenizer_doc},   {Py_tp_new, tokenizer_new},         {Py_tp_dealloc, tokenizer_dealloc},
-    {Py_tp_traverse, tokenizer_traverse}, {Py_tp_methods, tokenizer_methods}, {0, NULL},
+    {Py_tp_doc, (void *)tokenizer_doc},
+    {Py_tp_new, tokenizer_new},
+    {Py_tp_dealloc, tokenizer_dealloc},
+    {Py_tp_traverse, tokenizer_traverse},
+    {Py_tp_iter, tokenizer_iter},
+    {Py_tp_methods, tokenizer_methods},
+    {0, NULL},
 };
 
 static PyType_Spec tokenizer_spec = {

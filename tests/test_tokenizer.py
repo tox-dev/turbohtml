@@ -391,6 +391,34 @@ def test_reset_discards_state() -> None:
     assert [token.tag for token in tokens] == ["p"]
 
 
+def test_context_manager_signals_eof() -> None:
+    with Tokenizer() as tokenizer:
+        assert isinstance(tokenizer, Tokenizer)
+        assert [token.tag for token in tokenizer.feed("<p>x")] == ["p"]
+    assert [token.data for token in tokenizer] == ["x"]
+
+
+def test_context_manager_closes_on_error() -> None:
+    tokenizer = Tokenizer()
+
+    def explode() -> None:
+        with tokenizer:
+            list(tokenizer.feed("<p>x"))
+            msg = "boom"
+            raise ValueError(msg)
+
+    with pytest.raises(ValueError, match="boom"):
+        explode()
+    assert [token.tag or token.data for token in tokenizer] == ["x"]
+
+
+def test_tokenizer_is_iterable_mid_stream() -> None:
+    tokenizer = Tokenizer()
+    tokenizer.feed("<p>x<b")
+    assert [token.tag for token in tokenizer] == ["p"]
+    assert [token.tag or token.data for token in tokenizer.feed(">")] == ["x", "b"]
+
+
 def test_close_is_terminal() -> None:
     tokenizer = Tokenizer()
     assert [token.tag for token in tokenizer.feed("<p>x")] == ["p"]
