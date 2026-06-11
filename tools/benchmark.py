@@ -13,13 +13,16 @@ tokenizer.
 Besides the synthetic cases, tokenize also runs over html5lib's benchmark
 corpus (the tools/html5lib-python submodule) — a slice of the WHATWG HTML spec
 source plus a size-weighted sample of web-platform-tests pages, 0.6 kB to
-234 kB, so small and big documents are both represented.
+234 kB — and two multi-megabyte real documents (the ECMAScript specification
+and the full WHATWG HTML spec source), downloaded once from pinned revisions
+and cached because their repositories are far too large to vendor.
 """
 
 from __future__ import annotations
 
 import html
 import os
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -45,6 +48,31 @@ def corpus_text(relative: str, encoding: str) -> str:
         msg = f"{target} is missing; run 'git submodule update --init tools/html5lib-python'"
         raise FileNotFoundError(msg)
     return target.read_text(encoding=encoding, errors="replace")
+
+
+LARGE_DIR = Path(__file__).parent / ".bench_data"
+LARGE_FILES: list[tuple[str, str, str]] = [
+    (
+        "ecmascript spec (3 MB)",
+        "ecma262-spec.html",
+        "https://raw.githubusercontent.com/tc39/ecma262/8c0c94eb3be152b7ae7dc0cb580f4ee9f0a9a0c2/spec.html",
+    ),
+    (
+        "whatwg spec source (7.9 MB)",
+        "whatwg-html-source.html",
+        "https://raw.githubusercontent.com/whatwg/html/15ce0d167e4ba413ae2948ee1868d83c38c363f8/source",
+    ),
+]
+
+
+def large_text(filename: str, url: str) -> str:
+    """Return a multi-megabyte document, downloading and caching it on first use."""
+    target = LARGE_DIR / filename
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url) as response:  # noqa: S310  # pinned https URL
+            target.write_bytes(response.read())
+    return target.read_text(encoding="utf-8")
 
 
 CASES: list[tuple[str, str, str]] = [
@@ -160,6 +188,7 @@ def main() -> None:
     tokenize_cases = TOKENIZE_CASES if "tokenize" in suites else []
     if "corpus" in suites:
         tokenize_cases += [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
+        tokenize_cases += [(name, large_text(filename, url)) for name, filename, url in LARGE_FILES]
     for name, arg in tokenize_cases:
         bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
         bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)

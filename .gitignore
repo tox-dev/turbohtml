@@ -24,3 +24,4 @@ venv*
 .coverage.*
 docs_out
 src/turbohtml/_version.py
+tools/.bench_data/
