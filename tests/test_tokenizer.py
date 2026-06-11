@@ -102,6 +102,12 @@ def test_non_latin1_tag_name() -> None:
     assert [token.tag for token in tokens if token.tag] == ["xmő", "xmő"]
 
 
+def test_wide_buffers_after_odd_length_narrow_ones() -> None:
+    (tag,) = list(tokenize("<ab xyz=ő q=🎉>"))
+    assert tag.tag == "ab"
+    assert tag.attrs == [("xyz", "ő"), ("q", "🎉")]
+
+
 def test_same_length_attribute_names_of_different_widths() -> None:
     (tag,) = list(tokenize("<a xy=1 xő=2>"))
     assert tag.attrs == [("xy", "1"), ("xő", "2")]

@@ -275,7 +275,7 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg) {
     }
     th_tokenizer *sm = ((TokenizerObject *)tokenizer)->sm;
     Py_ssize_t length = PyUnicode_GET_LENGTH(arg);
-    if (PyUnicode_FindChar(arg, '\r', 0, length, 1) < 0) {
+    if (PyUnicode_FindChar(arg, '\r', 0, length, 1) == -1) {
         /* nothing to normalize: borrow the string's storage instead of
            copying the whole document; the tokenizer keeps the string alive */
         th_tok_borrow_input(sm, PyUnicode_KIND(arg), PyUnicode_DATA(arg), length);

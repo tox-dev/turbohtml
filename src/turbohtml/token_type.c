@@ -8,6 +8,8 @@
 
 #include "tokenizer_py.h"
 
+#include <stdint.h>
+
 typedef struct {
     PyObject_HEAD th_token record;
     char *arena;        /* single allocation backing every buffer in record (NULL otherwise) */
@@ -30,12 +32,27 @@ static PyObject *buf_to_str(const th_buf *buf) {
 
 /* Copy src into dst with every buffer packed into one arena allocation, so a
    token costs a single malloc and free instead of one per buffer. */
+/* Place src into the arena at cursor, aligned to its storage width so wide
+   code points are never read through a misaligned pointer. */
+static char *pack_buf(th_buf *dst, const th_buf *src, char *cursor) {
+    cursor +=
+        (uintptr_t)cursor % (size_t)src->kind ? src->kind - (Py_ssize_t)((uintptr_t)cursor % (size_t)src->kind) : 0;
+    Py_ssize_t bytes = src->len * src->kind;
+    memcpy(cursor, src->data, (size_t)bytes);
+    *dst = *src;
+    dst->data = cursor;
+    dst->cap = 0;
+    return cursor + bytes;
+}
+
 static char *token_pack(th_token *dst, const th_token *src) {
+    /* each buffer may need up to kind - 1 padding bytes for alignment */
     Py_ssize_t total = src->attr_count * (Py_ssize_t)sizeof(th_attr) + src->name.len * src->name.kind +
                        src->text.len * src->text.kind + src->public_id.len * src->public_id.kind +
-                       src->system_id.len * src->system_id.kind;
+                       src->system_id.len * src->system_id.kind + 4 * 3;
     for (Py_ssize_t i = 0; i < src->attr_count; i++) {
-        total += src->attrs[i].name.len * src->attrs[i].name.kind + src->attrs[i].value.len * src->attrs[i].value.kind;
+        total += src->attrs[i].name.len * src->attrs[i].name.kind + src->attrs[i].value.len * src->attrs[i].value.kind +
+                 2 * 3;
     }
     char *arena = PyMem_Malloc((size_t)total + 1);
     if (arena == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -49,25 +66,13 @@ static char *token_pack(th_token *dst, const th_token *src) {
     const th_buf *from[4] = {&src->name, &src->text, &src->public_id, &src->system_id};
     th_buf *into[4] = {&dst->name, &dst->text, &dst->public_id, &dst->system_id};
     for (int i = 0; i < 4; i++) {
-        Py_ssize_t bytes = from[i]->len * from[i]->kind;
-        memcpy(cursor, from[i]->data, (size_t)bytes);
-        into[i]->data = cursor;
-        into[i]->cap = 0;
-        cursor += bytes;
+        cursor = pack_buf(into[i], from[i], cursor);
     }
     for (Py_ssize_t i = 0; i < src->attr_count; i++) {
         th_attr *attr = &dst->attrs[i];
-        *attr = src->attrs[i];
-        Py_ssize_t bytes = attr->name.len * attr->name.kind;
-        memcpy(cursor, src->attrs[i].name.data, (size_t)bytes);
-        attr->name.data = cursor;
-        attr->name.cap = 0;
-        cursor += bytes;
-        bytes = attr->value.len * attr->value.kind;
-        memcpy(cursor, src->attrs[i].value.data, (size_t)bytes);
-        attr->value.data = cursor;
-        attr->value.cap = 0;
-        cursor += bytes;
+        attr->has_value = src->attrs[i].has_value;
+        cursor = pack_buf(&attr->name, &src->attrs[i].name, cursor);
+        cursor = pack_buf(&attr->value, &src->attrs[i].value, cursor);
     }
     return arena;
 }
