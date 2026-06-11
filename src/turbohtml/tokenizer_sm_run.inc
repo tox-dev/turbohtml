@@ -208,6 +208,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != '&' && ch != '<' && ch != '\n') {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, '&', '<', '\n', '\n');
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -216,6 +219,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }
@@ -244,6 +248,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != '&' && ch != '<' && ch != '\n' && ch != 0) {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, '&', '<', '\n', 0);
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -252,6 +259,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }
@@ -280,6 +288,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != '<' && ch != '\n' && ch != 0) {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, '<', '\n', 0, 0);
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -288,6 +299,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }
@@ -306,6 +318,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != '<' && ch != '\n' && ch != 0) {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, '<', '\n', 0, 0);
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -314,6 +329,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }
@@ -332,6 +348,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != '\n' && ch != 0) {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, '\n', 0, 0, 0);
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -340,6 +359,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }
@@ -1541,6 +1561,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (ch != ']' && ch != '\n') {
+#if TH_UCS1
+                Py_ssize_t stop = scan_stops_ucs1(self, self->pos + 1, ']', '\n', '\n', '\n');
+#else
                 Py_ssize_t stop = self->pos + 1;
                 while (stop < self->input.len) {
                     Py_UCS4 c = TH_READ(stop);
@@ -1549,6 +1572,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     }
                     stop++;
                 }
+#endif
                 text_append_run(self, stop);
                 continue;
             }

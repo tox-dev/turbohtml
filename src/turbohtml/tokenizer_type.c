@@ -29,18 +29,15 @@ static module_state *state_of(PyObject *self) {
 
 /* ----------------------------------------------------------- content model */
 
-static int name_is(const th_buf *name, const char *literal) {
-    size_t len = strlen(literal);
-    if ((size_t)name->len != len) {
+static int name_eq(const th_buf *name, const char *literal, size_t len) {
+    if ((size_t)name->len != len || name->kind != PyUnicode_1BYTE_KIND) {
         return 0;
     }
-    for (size_t i = 0; i < len; i++) {
-        if (PyUnicode_READ(name->kind, name->data, i) != (Py_UCS4)(unsigned char)literal[i]) {
-            return 0;
-        }
-    }
-    return 1;
+    return memcmp(name->data, literal, len) == 0;
 }
+
+/* Compare against a string literal without a runtime strlen. */
+#define name_is(name, literal) name_eq((name), (literal), sizeof(literal) - 1)
 
 /* The content model a start tag switches the tokenizer into, or -1 for none. */
 static int content_model_for(const th_buf *name) {

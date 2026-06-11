@@ -113,10 +113,10 @@ corpus.
 :func:`turbohtml.tokenize` implements the `WHATWG HTML tokenization algorithm
 <https://html.spec.whatwg.org/multipage/parsing.html#tokenization>`_ — the same state machine inside every browser —
 rather than a regex approximation like :class:`python:html.parser.HTMLParser`. The C implementation mirrors the spec
-state by state so the two can be read side by side, and it passes all 7032 tokenizer cases of the shared `html5lib-tests
-<https://github.com/html5lib/html5lib-tests>`_ conformance suite, the corpus browsers and parser libraries validate
-against. The suite runs three times, once per input storage width, because the token stream must be invariant to how
-CPython happens to store the string.
+state by state so the two can be read side by side, and it is validated against the shared `html5lib-tests
+<https://github.com/html5lib/html5lib-tests>`_ conformance suite that browsers and parser libraries validate against, at
+all three input storage widths, once per input storage width, because the token stream must be invariant to how CPython
+happens to store the string.
 
 Two deliberate scope decisions keep the surface honest:
 

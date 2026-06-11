@@ -10,6 +10,7 @@
 
 typedef struct {
     PyObject_HEAD th_token record;
+    char *arena; /* single allocation backing every buffer in record (NULL for a moved-in text run) */
 } TokenObject;
 
 static const char *const KIND_NAMES[5] = {"TEXT", "START_TAG", "END_TAG", "COMMENT", "DOCTYPE"};
@@ -25,13 +26,58 @@ static PyObject *buf_to_str(const th_buf *buf) {
     return PyUnicode_FromKindAndData(buf->kind, buf->data, buf->len);
 }
 
+/* Copy src into dst with every buffer packed into one arena allocation, so a
+   token costs a single malloc and free instead of one per buffer. */
+static char *token_pack(th_token *dst, const th_token *src) {
+    Py_ssize_t total = src->attr_count * (Py_ssize_t)sizeof(th_attr) + src->name.len * src->name.kind +
+                       src->text.len * src->text.kind + src->public_id.len * src->public_id.kind +
+                       src->system_id.len * src->system_id.kind;
+    for (Py_ssize_t i = 0; i < src->attr_count; i++) {
+        total += src->attrs[i].name.len * src->attrs[i].name.kind + src->attrs[i].value.len * src->attrs[i].value.kind;
+    }
+    char *arena = PyMem_Malloc((size_t)total + 1);
+    if (arena == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    *dst = *src;
+    dst->attr_cap = src->attr_count;
+    char *cursor = arena;
+    dst->attrs = (th_attr *)cursor;
+    cursor += src->attr_count * (Py_ssize_t)sizeof(th_attr);
+    const th_buf *from[4] = {&src->name, &src->text, &src->public_id, &src->system_id};
+    th_buf *into[4] = {&dst->name, &dst->text, &dst->public_id, &dst->system_id};
+    for (int i = 0; i < 4; i++) {
+        Py_ssize_t bytes = from[i]->len * from[i]->kind;
+        memcpy(cursor, from[i]->data, (size_t)bytes);
+        into[i]->data = cursor;
+        into[i]->cap = 0;
+        cursor += bytes;
+    }
+    for (Py_ssize_t i = 0; i < src->attr_count; i++) {
+        th_attr *attr = &dst->attrs[i];
+        *attr = src->attrs[i];
+        Py_ssize_t bytes = attr->name.len * attr->name.kind;
+        memcpy(cursor, src->attrs[i].name.data, (size_t)bytes);
+        attr->name.data = cursor;
+        attr->name.cap = 0;
+        cursor += bytes;
+        bytes = attr->value.len * attr->value.kind;
+        memcpy(cursor, src->attrs[i].value.data, (size_t)bytes);
+        attr->value.data = cursor;
+        attr->value.cap = 0;
+        cursor += bytes;
+    }
+    return arena;
+}
+
 PyObject *token_from_record(module_state *state, th_token *record) {
-    TokenObject *self = PyObject_GC_New(TokenObject, (PyTypeObject *)state->token_type);
+    PyTypeObject *type = (PyTypeObject *)state->token_type;
+    TokenObject *self = (TokenObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
-    memset(&self->record, 0, sizeof(self->record));
     if (record->kind == TH_TEXT && record->text.len >= 512) {
+        self->arena = NULL;
         /* move a large text run instead of copying it; the machine's record
            simply regrows, which costs far less than duplicating the run */
         self->record.kind = TH_TEXT;
@@ -41,24 +87,21 @@ PyObject *token_from_record(module_state *state, th_token *record) {
         record->text.data = NULL;
         record->text.len = 0;
         record->text.cap = 0;
-    } else if (th_token_copy(&self->record, record) < 0) { /* GCOVR_EXCL_BR_LINE */
-        th_token_clear(&self->record);                     /* GCOVR_EXCL_LINE */
-        PyObject_GC_Del(self);                             /* GCOVR_EXCL_LINE */
-        return NULL;                                       /* GCOVR_EXCL_LINE */
+    } else if ((self->arena = token_pack(&self->record, record)) == NULL) { /* GCOVR_EXCL_BR_LINE */
+        Py_DECREF(self);                                                    /* GCOVR_EXCL_LINE */
+        return PyErr_NoMemory();                                            /* GCOVR_EXCL_LINE */
     }
-    PyObject_GC_Track(self);
     return (PyObject *)self;
-}
-
-static int token_traverse(PyObject *self, visitproc visit, void *arg) {
-    Py_VISIT(Py_TYPE(self)); /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
-    return 0;
 }
 
 static void token_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
-    PyObject_GC_UnTrack(self);
-    th_token_clear(&((TokenObject *)self)->record);
+    TokenObject *token = (TokenObject *)self;
+    if (token->arena != NULL) {
+        PyMem_Free(token->arena);
+    } else {
+        th_token_clear(&token->record);
+    }
     type->tp_free(self);
     Py_DECREF(type);
 }
@@ -262,20 +305,17 @@ static PyMethodDef token_methods[] = {
 PyDoc_STRVAR(token_doc, "An HTML token produced by Tokenizer or tokenize(). Immutable; the meaningful\n"
                         "attributes depend on .type.");
 
+/* Tokens hold no object references, so they live outside the garbage
+   collector: no tracking on creation, nothing to traverse on collection. */
 static PyType_Slot token_slots[] = {
-    {Py_tp_doc, (void *)token_doc},
-    {Py_tp_dealloc, token_dealloc},
-    {Py_tp_traverse, token_traverse},
-    {Py_tp_repr, token_repr},
-    {Py_tp_getset, token_getset},
-    {Py_tp_methods, token_methods},
-    {0, NULL},
+    {Py_tp_doc, (void *)token_doc}, {Py_tp_dealloc, token_dealloc}, {Py_tp_repr, token_repr},
+    {Py_tp_getset, token_getset},   {Py_tp_methods, token_methods}, {0, NULL},
 };
 
 static PyType_Spec token_spec = {
     .name = "turbohtml._html.Token",
     .basicsize = sizeof(TokenObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
     .slots = token_slots,
 };
 

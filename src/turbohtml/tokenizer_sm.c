@@ -21,6 +21,7 @@
 
 #include "tokenizer_sm.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "charref.h"
@@ -257,39 +258,6 @@ static int buf_copy(th_buf *dst, const th_buf *src) {
     return 0;
 }
 
-int th_token_copy(th_token *dst, const th_token *src) {
-    dst->kind = src->kind;
-    dst->self_closing = src->self_closing;
-    dst->has_public_id = src->has_public_id;
-    dst->has_system_id = src->has_system_id;
-    dst->force_quirks = src->force_quirks;
-    dst->line = src->line;
-    dst->col = src->col;
-    /* failures accumulate bitwise so no per-copy error branch is emitted */
-    int failed = buf_copy(&dst->name, &src->name) | buf_copy(&dst->text, &src->text) |
-                 buf_copy(&dst->public_id, &src->public_id) | buf_copy(&dst->system_id, &src->system_id);
-    if (src->attr_count > dst->attr_cap) {
-        th_attr *grown =
-            PyMem_Resize(dst->attrs, th_attr, (size_t)src->attr_count); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        for (Py_ssize_t i = dst->attr_cap; i < src->attr_count; i++) {
-            buf_init(&grown[i].name);
-            buf_init(&grown[i].value);
-        }
-        dst->attrs = grown;
-        dst->attr_cap = src->attr_count;
-    }
-    for (Py_ssize_t i = 0; i < src->attr_count; i++) {
-        failed |= buf_copy(&dst->attrs[i].name, &src->attrs[i].name);
-        failed |= buf_copy(&dst->attrs[i].value, &src->attrs[i].value);
-        dst->attrs[i].has_value = src->attrs[i].has_value;
-    }
-    dst->attr_count = src->attr_count;
-    return failed;
-}
-
 void th_token_clear(th_token *tok) {
     token_free(tok);
 }
@@ -414,9 +382,15 @@ void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t leng
         }
     }
     while (start < length) {
-        Py_ssize_t cr = start;
-        while (cr < length && PyUnicode_READ(kind, data, cr) != '\r') {
-            cr++;
+        Py_ssize_t cr;
+        if (kind == PyUnicode_1BYTE_KIND) {
+            const char *hit = memchr((const char *)data + start, '\r', (size_t)(length - start));
+            cr = hit ? hit - (const char *)data : length;
+        } else {
+            cr = start;
+            while (cr < length && PyUnicode_READ(kind, data, cr) != '\r') {
+                cr++;
+            }
         }
         input_append(self, kind, data, start, cr);
         if (cr == length) {
@@ -516,9 +490,8 @@ static void new_attr(th_tokenizer *self) {
 /* When a start tag is emitted, remember its name for appropriate-end-tag
    checks; spec discards attributes on end tags but we keep the structure. */
 static void remember_start_tag(th_tokenizer *self) {
-    buf_reset(&self->last_tag);
-    for (Py_ssize_t i = 0; i < self->tok.name.len; i++) {
-        push(self, &self->last_tag, buf_read(&self->tok.name, i));
+    if (buf_copy(&self->last_tag, &self->tok.name) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        self->oom = 1;                                    /* GCOVR_EXCL_LINE */
     }
 }
 
@@ -660,30 +633,62 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
         return RUN_EMITTED;                                                                                            \
     } while (0)
 
+#define TH_ONES UINT64_C(0x0101010101010101)
+#define TH_HIGHS UINT64_C(0x8080808080808080)
+#define TH_HASZERO(word) (((word) - TH_ONES) & ~(word) & TH_HIGHS)
+
+/* Find the first of up to four stop bytes (duplicates allowed) in the 1-byte
+   input from position i on, eight bytes at a time — the SWAR scan escape.c
+   uses. The tail compares with bitwise or so every lane is one branch. */
+static Py_ssize_t scan_stops_ucs1(const th_tokenizer *self, Py_ssize_t i, Py_UCS1 s1, Py_UCS1 s2, Py_UCS1 s3,
+                                  Py_UCS1 s4) {
+    const Py_UCS1 *d = (const Py_UCS1 *)self->input.data;
+    Py_ssize_t len = self->input.len;
+    uint64_t m1 = TH_ONES * s1, m2 = TH_ONES * s2, m3 = TH_ONES * s3, m4 = TH_ONES * s4;
+    while (i + 8 <= (Py_ssize_t)len) {
+        uint64_t word;
+        memcpy(&word, d + i, sizeof(word));
+        if (TH_HASZERO(word ^ m1) | TH_HASZERO(word ^ m2) | TH_HASZERO(word ^ m3) | TH_HASZERO(word ^ m4)) {
+            break;
+        }
+        i += 8;
+    }
+    while (i < len && !((d[i] == s1) | (d[i] == s2) | (d[i] == s3) | (d[i] == s4))) {
+        i++;
+    }
+    return i;
+}
+
 /* Stamp the tokenizer core once per input storage width. */
 #define TH_NAME(name) name##_ucs1
 #define TH_CHAR Py_UCS1
 #define TH_KIND PyUnicode_1BYTE_KIND
+#define TH_UCS1 1
 #include "tokenizer_sm_run.inc"
 #undef TH_NAME
 #undef TH_CHAR
 #undef TH_KIND
+#undef TH_UCS1
 
 #define TH_NAME(name) name##_ucs2
 #define TH_CHAR Py_UCS2
 #define TH_KIND PyUnicode_2BYTE_KIND
+#define TH_UCS1 0
 #include "tokenizer_sm_run.inc"
 #undef TH_NAME
 #undef TH_CHAR
 #undef TH_KIND
+#undef TH_UCS1
 
 #define TH_NAME(name) name##_ucs4
 #define TH_CHAR Py_UCS4
 #define TH_KIND PyUnicode_4BYTE_KIND
+#define TH_UCS1 0
 #include "tokenizer_sm_run.inc"
 #undef TH_NAME
 #undef TH_CHAR
 #undef TH_KIND
+#undef TH_UCS1
 
 static enum run_result run(th_tokenizer *self) {
     if (self->input.kind == PyUnicode_1BYTE_KIND) {

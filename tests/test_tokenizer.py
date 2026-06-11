@@ -97,6 +97,11 @@ def test_duplicate_attributes_keep_first() -> None:
     assert tag.attrs == [("x", "1"), ("y", None), ("z", "")]
 
 
+def test_non_latin1_tag_name() -> None:
+    tokens = list(tokenize("<xmő>x</xmő>"))
+    assert [token.tag for token in tokens if token.tag] == ["xmő", "xmő"]
+
+
 def test_same_length_attribute_names_of_different_widths() -> None:
     (tag,) = list(tokenize("<a xy=1 xő=2>"))
     assert tag.attrs == [("xy", "1"), ("xő", "2")]

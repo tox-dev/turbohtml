@@ -40,8 +40,7 @@ references that omit the trailing semicolon):
 `escape` and `unescape` reproduce `html.escape` and `html.unescape` exactly, so turbohtml is a drop-in replacement on
 hot paths.
 
-Tokenize markup into a stream of tokens following the WHATWG tokenization algorithm (the state machine passes all 7032
-html5lib-tests tokenizer conformance cases):
+Tokenize markup into a stream of tokens following the WHATWG tokenization algorithm:
 
 ```pycon
 >>> for token in turbohtml.tokenize('<p class="x">Tom &amp; Jerry</p>'):
@@ -92,21 +91,21 @@ WHATWG spec source plus web-platform-tests pages of varied sizes):
 
 | input                  | turbohtml | `html.parser` | speedup | html5lib | speedup |
 | ---------------------- | --------- | ------------- | ------- | -------- | ------- |
-| typical markup         | 47.3 µs   | 451 µs        | 9.5×    | 850 µs   | 18×     |
-| text-heavy prose       | 4.5 µs    | 2.9 µs        | 0.7×    | 150 µs   | 33×     |
-| attribute-heavy        | 33.5 µs   | 315 µs        | 9.4×    | 846 µs   | 25×     |
-| script-heavy           | 18.0 µs   | 165 µs        | 9.1×    | 513 µs   | 28×     |
-| entity-heavy           | 34.0 µs   | 199 µs        | 5.9×    | 1240 µs  | 36×     |
-| wpt page (0.6 kB)      | 2.5 µs    | 18.7 µs       | 7.5×    | 50 µs    | 20×     |
-| wpt page (9.6 kB)      | 47.7 µs   | 380 µs        | 8.0×    | 1208 µs  | 25×     |
-| wpt page (92 kB)       | 552 µs    | 4178 µs       | 7.6×    | 9185 µs  | 17×     |
-| wpt page, CJK (124 kB) | 890 µs    | 9067 µs       | 10.2×   | 23293 µs | 26×     |
-| whatwg spec (235 kB)   | 1167 µs   | 8010 µs       | 6.9×    | 20481 µs | 18×     |
+| typical markup         | 31.9 µs   | 438 µs        | 13.7×   | 836 µs   | 26×     |
+| text-heavy prose       | 0.87 µs   | 2.9 µs        | 3.3×    | 148 µs   | 171×    |
+| attribute-heavy        | 26.1 µs   | 353 µs        | 13.5×   | 960 µs   | 37×     |
+| script-heavy           | 12.5 µs   | 173 µs        | 13.8×   | 529 µs   | 42×     |
+| entity-heavy           | 33.6 µs   | 219 µs        | 6.5×    | 1283 µs  | 38×     |
+| wpt page (0.6 kB)      | 1.7 µs    | 19.2 µs       | 11.0×   | 54 µs    | 31×     |
+| wpt page (9.6 kB)      | 37.3 µs   | 428 µs        | 11.5×   | 1402 µs  | 38×     |
+| wpt page (92 kB)       | 483 µs    | 4432 µs       | 9.2×    | 9410 µs  | 20×     |
+| wpt page, CJK (124 kB) | 685 µs    | 9047 µs       | 13.2×   | 23136 µs | 34×     |
+| whatwg spec (235 kB)   | 805 µs    | 7954 µs       | 9.9×    | 20328 µs | 25×     |
 
 The state machine is stamped per input storage width (the CPython stringlib trick) and, like html5ever, bulk-scans plain
-text runs instead of dispatching per character, so ASCII documents stay one byte per character end to end. The one case
-the standard library wins — a document that is almost entirely one text node — is where `HTMLParser` does a single C
-regex scan and never really tokenizes.
+text runs instead of dispatching per character, so ASCII documents stay one byte per character end to end. Run scanning
+uses the same SWAR technique as `escape`, so even a document that is almost entirely one text node — `HTMLParser`'s best
+case, a single C regex scan — comes out ahead.
 
 ## Documentation
 

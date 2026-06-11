@@ -117,11 +117,7 @@ enum th_step {
 /* Advance until one token is produced or the machine stalls. */
 enum th_step th_tok_next(th_tokenizer *self, th_token **out);
 
-/* Deep-copy a token record (the machine reuses its records between tokens, so a
-   consumer that keeps a token past the next th_tok_next must copy it first).
-   Returns 0 on success, -1 on allocation failure. dst must be zero-initialized
-   or a previous copy target; free it with th_token_clear. */
-int th_token_copy(th_token *dst, const th_token *src);
+/* Free the buffers a consumer took ownership of (the moved-out text run). */
 void th_token_clear(th_token *tok);
 
 #endif /* TURBOHTML_TOKENIZER_SM_H */
