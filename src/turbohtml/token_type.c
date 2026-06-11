@@ -257,21 +257,20 @@ static PyObject *token_get_col(PyObject *self, void *Py_UNUSED(closure)) {
     return PyLong_FromSsize_t(((TokenObject *)self)->record.col);
 }
 
-/* The :type: fields surface the annotations in the rendered API reference;
-   Sphinx cannot infer types from C getset descriptors. */
+/* Types are not repeated here: the docs build lifts each property's annotation
+   from _html.pyi, the single source of truth (see docs/conf.py). */
 static PyGetSetDef token_getset[] = {
-    {"type", token_get_type, NULL, "the TokenType of this token\n\n:type: TokenType", NULL},
-    {"data", token_get_data, NULL, "text run or comment data, else None\n\n:type: str | None", NULL},
-    {"tag", token_get_tag, NULL, "lowercased tag name for start/end tags, else None\n\n:type: str | None", NULL},
-    {"attrs", token_get_attrs, NULL,
-     "attribute (name, value) pairs for tags, else None\n\n:type: list[tuple[str, str | None]] | None", NULL},
-    {"self_closing", token_get_self_closing, NULL, "whether a start tag carried a trailing slash\n\n:type: bool", NULL},
-    {"name", token_get_name, NULL, "DOCTYPE name, else None\n\n:type: str | None", NULL},
-    {"public_id", token_get_public_id, NULL, "DOCTYPE public identifier, else None\n\n:type: str | None", NULL},
-    {"system_id", token_get_system_id, NULL, "DOCTYPE system identifier, else None\n\n:type: str | None", NULL},
-    {"force_quirks", token_get_force_quirks, NULL, "whether a DOCTYPE forces quirks mode\n\n:type: bool", NULL},
-    {"line", token_get_line, NULL, "1-based source line where this token began\n\n:type: int", NULL},
-    {"col", token_get_col, NULL, "0-based source column where this token began\n\n:type: int", NULL},
+    {"type", token_get_type, NULL, "the TokenType of this token", NULL},
+    {"data", token_get_data, NULL, "text run or comment data, else None", NULL},
+    {"tag", token_get_tag, NULL, "lowercased tag name for start/end tags, else None", NULL},
+    {"attrs", token_get_attrs, NULL, "attribute (name, value) pairs for tags, else None", NULL},
+    {"self_closing", token_get_self_closing, NULL, "whether a start tag carried a trailing slash", NULL},
+    {"name", token_get_name, NULL, "DOCTYPE name, else None", NULL},
+    {"public_id", token_get_public_id, NULL, "DOCTYPE public identifier, else None", NULL},
+    {"system_id", token_get_system_id, NULL, "DOCTYPE system identifier, else None", NULL},
+    {"force_quirks", token_get_force_quirks, NULL, "whether a DOCTYPE forces quirks mode", NULL},
+    {"line", token_get_line, NULL, "1-based source line where this token began", NULL},
+    {"col", token_get_col, NULL, "0-based source column where this token began", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
