@@ -3,8 +3,8 @@
 ###########
 
 A fast, fully typed HTML toolkit for Python, powered by a C-accelerated core. ``turbohtml`` provides spec-correct HTML
-escaping and unescaping that match the standard library byte for byte while running several times faster, and it is
-ready for the free-threaded build.
+escaping and unescaping that match the standard library byte for byte, and a WHATWG-conformant streaming tokenizer — all
+several times faster than their pure-Python counterparts and ready for the free-threaded build.
 
 .. code-block:: pycon
 
@@ -13,6 +13,8 @@ ready for the free-threaded build.
     '&lt;a href=&quot;?x=1&amp;y=2&quot;&gt;Tom &amp; Jerry&lt;/a&gt;'
     >>> turbohtml.unescape("caf&eacute; &amp; r&eacute;sum&eacute;")
     'café & résumé'
+    >>> [token.tag or token.data for token in turbohtml.tokenize("<p>Tom &amp; Jerry</p>")]
+    ['p', 'Tom & Jerry', 'p']
 
 The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
 

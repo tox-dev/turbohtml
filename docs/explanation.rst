@@ -106,11 +106,131 @@ longest-prefix matching, numeric references, the Windows-1252 remaps, and the in
 ``U+FFFD`` or the empty string. The test suite checks the C output against the standard library over a large fuzzed
 corpus.
 
+************************
+ A spec-exact tokenizer
+************************
+
+:func:`turbohtml.tokenize` implements the `WHATWG HTML tokenization algorithm
+<https://html.spec.whatwg.org/multipage/parsing.html#tokenization>`_ — the same state machine inside every browser —
+rather than a regex approximation like :class:`python:html.parser.HTMLParser`. The C implementation mirrors the spec
+state by state so the two can be read side by side, and it passes all 7032 tokenizer cases of the shared `html5lib-tests
+<https://github.com/html5lib/html5lib-tests>`_ conformance suite, the corpus browsers and parser libraries validate
+against. The suite runs three times, once per input storage width, because the token stream must be invariant to how
+CPython happens to store the string.
+
+Two deliberate scope decisions keep the surface honest:
+
+- The tokenizer is not a parser. It hands you the token stream; it does not build a tree, balance tags, or apply the
+  tree-construction rules. The one tree-construction duty it takes on is content-model switching: after a start tag for
+  ``script``, ``style``, ``title`` and the other raw-text elements, the element's contents tokenize as the spec requires
+  (a ``<b>`` inside a script body is text, not a tag).
+- Parse errors are recovered from, not reported. The spec defines a recovery transition for every error and the machine
+  takes it, so malformed input produces the same tokens a browser would see; the error stream itself is not part of the
+  API.
+
+Where behavior could drift, it is pinned by more than the suite: the token stream is fuzz-compared against html5lib's
+tokenizer, and source positions follow the :meth:`python:html.parser.HTMLParser.getpos` convention so diagnostics line
+up with what the standard library would report.
+
+****************************
+ Tokenizing at native width
+****************************
+
+CPython stores a string at one of three widths (:PEP:`393`): one byte per character for Latin-1, two for the basic
+multilingual plane, four beyond. The tokenizer keeps that representation end to end instead of widening everything to
+UCS-4: the input buffer, accumulated text runs, tag names and attribute values all store code points at the narrowest
+width their content needs, promoting only when a wider character actually arrives. The state-machine core is compiled
+once per width — the same trick CPython's ``stringlib`` uses — so every read is direct indexing, and the plain-text
+states bulk-scan to the next special character the way `html5ever <https://github.com/servo/html5ever>`_ does rather
+than dispatching the state machine per character. For the ASCII documents that dominate real traffic, a text run travels
+from input to the final ``str`` as one-byte copies.
+
+Measured on CPython 3.14 (a release build, via ``tox -e bench``) against :class:`python:html.parser.HTMLParser` driven
+with no-op handlers and html5lib's pure-Python tokenizer, over synthetic cases and html5lib's benchmark corpus (a slice
+of the WHATWG spec source plus web-platform-tests pages of varied sizes):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 26 14 16 12 14 12
+
+    - - input
+      - turbohtml
+      - ``html.parser``
+      - speedup
+      - html5lib
+      - speedup
+    - - typical markup
+      - 47.3 µs
+      - 451 µs
+      - 9.5x
+      - 850 µs
+      - 18x
+    - - text-heavy prose
+      - 4.5 µs
+      - 2.9 µs
+      - 0.7x
+      - 150 µs
+      - 33x
+    - - attribute-heavy
+      - 33.5 µs
+      - 315 µs
+      - 9.4x
+      - 846 µs
+      - 25x
+    - - script-heavy
+      - 18.0 µs
+      - 165 µs
+      - 9.1x
+      - 513 µs
+      - 28x
+    - - entity-heavy
+      - 34.0 µs
+      - 199 µs
+      - 5.9x
+      - 1240 µs
+      - 36x
+    - - wpt page (0.6 kB)
+      - 2.5 µs
+      - 18.7 µs
+      - 7.5x
+      - 50 µs
+      - 20x
+    - - wpt page (9.6 kB)
+      - 47.7 µs
+      - 380 µs
+      - 8.0x
+      - 1208 µs
+      - 25x
+    - - wpt page (92 kB)
+      - 552 µs
+      - 4178 µs
+      - 7.6x
+      - 9185 µs
+      - 17x
+    - - wpt page, CJK (124 kB)
+      - 890 µs
+      - 9067 µs
+      - 10.2x
+      - 23293 µs
+      - 26x
+    - - whatwg spec (235 kB)
+      - 1167 µs
+      - 8010 µs
+      - 6.9x
+      - 20481 µs
+      - 18x
+
+The one case the standard library wins — a document that is almost entirely a single text node — is where its regex
+performs one C scan and never really tokenizes; everywhere markup actually appears, the state machine is 5–10x faster.
+Numbers vary with input and hardware; reproduce them with ``tox -e bench``.
+
 ****************
  Free-threading
 ****************
 
-The extension holds no mutable state: inputs are immutable ``str`` objects and the lookup tables are read-only. It
+The extension holds no shared mutable state: inputs are immutable ``str`` objects, the lookup tables are read-only, and
+each :class:`turbohtml.Tokenizer` owns its state machine outright, so tokenizers in different threads never contend. It
 therefore declares free-threading support and a per-interpreter GIL on interpreters new enough to honor those slots, so
-it does not force the global lock back on under a free-threaded build. See the `free-threading extension guide
-<https://docs.python.org/3/howto/free-threading-extensions.html>`_.
+it does not force the global lock back on under a free-threaded build. As with any stateful object, feeding one
+tokenizer from several threads at once needs synchronization on the caller's side. See the `free-threading extension
+guide <https://docs.python.org/3/howto/free-threading-extensions.html>`_.
