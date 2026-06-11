@@ -69,7 +69,8 @@ track the enclosing tag yourself:
 
 .. code-block:: pycon
 
-    >>> def visible_text(page):
+    >>> from collections.abc import Iterator
+    >>> def visible_text(page: str) -> Iterator[str]:
     ...     hidden = 0
     ...     for token in turbohtml.tokenize(page):
     ...         if token.type is turbohtml.TokenType.START_TAG and token.tag in {"script", "style"}:
