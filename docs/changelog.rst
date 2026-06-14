@@ -17,17 +17,17 @@ Features - 0.2.0
   :class:`turbohtml.Tokenizer`, and the :class:`turbohtml.Token` / :class:`turbohtml.TokenType` types. The C state
   machine is validated against the html5lib-tests tokenizer conformance suite and bulk-scans text runs the way html5ever
   does. (:issue:`6`)
-- Speed up ``escape`` and ``unescape`` across the board. ``escape``: one-byte strings are classified sixteen bytes at a
-  time with NEON / SSE2 (a SWAR word elsewhere) — on NEON a single low-nibble table lookup matches all five specials at
-  once — the sizing pass accumulates growth branchlessly, the writing pass copies clean stretches wholesale and rewrites
-  only the positions a match bitmask singles out, and UCS-2 / UCS-4 text is probed for all special characters in a
-  single SWAR pass instead of one ``PyUnicode_FindChar`` sweep per character (UCS-4 with a four-lane NEON vector).
-  ``unescape``: the scan hops between ``&`` occurrences and bulk-copies the clean spans instead of funnelling every
-  character through a per-code-point emit, output staging stays at the input's width until a reference actually widens
-  it, and the entities ``html.escape`` emits resolve with one comparison instead of the full binary search — unescaping
-  escaped real HTML runs about three times faster than via the general lookup path alone. The benchmark now uses `pyperf
-  <https://pyperf.readthedocs.io>`_ with multi-MiB real documents referenced as pinned git submodules under
-  ``tools/bench-data`` - by :user:`gaborbernat`. (:issue:`7`)
+- Speed up ``escape`` and ``unescape``. ``escape`` classifies one-byte strings sixteen bytes at a time with NEON or
+  SSE2, or a SWAR word elsewhere (on NEON, a single low-nibble table lookup matches all five specials at once). The
+  sizing pass accumulates growth without branches, the writing pass copies clean stretches in bulk and rewrites only the
+  positions a match bitmask singles out, and one SWAR pass probes UCS-2 / UCS-4 text for every special character instead
+  of running one ``PyUnicode_FindChar`` sweep per character (UCS-4 uses a four-lane NEON vector). ``unescape`` hops
+  between ``&`` occurrences and bulk-copies the clean spans instead of routing every character through a per-code-point
+  emit, keeps output staging at the input's width until a reference widens it, and resolves the entities ``html.escape``
+  emits with one comparison rather than the full binary search, so unescaping escaped real HTML runs about three times
+  faster than the general lookup path alone. The benchmark now uses `pyperf <https://pyperf.readthedocs.io>`_ with
+  multi-MiB real documents referenced as pinned git submodules under ``tools/bench-data`` - by :user:`gaborbernat`.
+  (:issue:`7`)
 
 *********************
  v0.1.1 (2026-06-09)

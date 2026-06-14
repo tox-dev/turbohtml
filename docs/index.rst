@@ -2,10 +2,10 @@
  turbohtml
 ###########
 
-A fast, fully typed HTML toolkit for Python, powered by a C-accelerated core. ``turbohtml`` provides spec-correct HTML
-escaping and unescaping that match the standard library byte for byte, a WHATWG-conformant streaming tokenizer, and a
-WHATWG-conformant parser that builds a navigable, lazily-wrapped tree — all several times faster than their pure-Python
-counterparts and ready for the free-threaded build.
+``turbohtml`` is a fast, fully typed HTML toolkit for Python built on a C-accelerated core. It provides spec-correct
+HTML escaping and unescaping that match the standard library byte for byte, a WHATWG-conformant streaming tokenizer, and
+a WHATWG-conformant parser that builds a navigable, lazily-wrapped tree. Each runs several times faster than its
+pure-Python counterpart and supports the free-threaded build.
 
 .. code-block:: pycon
 

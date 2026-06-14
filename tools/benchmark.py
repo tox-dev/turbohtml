@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Benchmark turbohtml's escape/unescape/tokenize against the standard library.
+Benchmark turbohtml's escape/unescape/tokenize/parse against other libraries.
 
 Run with ``tox -e bench``; positional arguments pick the suites to run
-(``escape``, ``unescape``, ``tokenize``, ``corpus`` — default all); remaining
-arguments are forwarded to pyperf (pass ``--help`` to see them). pyperf runs
-every case in isolated worker processes and reports mean ± stddev; the parent
-process then prints a speedup table
-against the standard library and, for tokenize, html5lib's pure-Python
-tokenizer.
+(``escape``, ``unescape``, ``tokenize``, ``corpus``, ``parse``; default all).
+Remaining arguments are forwarded to pyperf (pass ``--help`` to see them).
+pyperf runs every case in isolated worker processes and reports mean and
+stddev; the parent process then prints a speedup table: escape, unescape, and
+tokenize against the standard library, and parse against the other HTML tree
+builders (lexbor through selectolax, lxml, html5lib, and BeautifulSoup).
 
-The escape/unescape inputs span tiny strings (call overhead) and multi-MiB
-documents streaming well past the CPU caches: real corpora (Project
+The escape and unescape inputs span tiny strings (call overhead) and multi-MiB
+documents that stream well past the CPU caches: real corpora (Project
 Gutenberg's War and Peace from the tools/bench-data submodule and the WHATWG
 HTML spec source) plus seeded pseudo-random UCS-2/UCS-4 text, since large real
-wide-kind documents are scarce. tokenize also runs over html5lib's benchmark
-corpus (the tools/html5lib-python submodule) — a slice of the WHATWG HTML spec
-source plus a size-weighted sample of web-platform-tests pages, 0.6 kB to
-234 kB — and two multi-megabyte real documents (the ECMAScript specification
-and the full WHATWG HTML spec source), downloaded once from pinned revisions
-and cached because their repositories are far too large to vendor.
+wide-kind documents are scarce. tokenize and parse also run over html5lib's
+benchmark corpus (the tools/html5lib-python submodule): a slice of the WHATWG
+HTML spec source plus a size-weighted sample of web-platform-tests pages from
+0.6 kB to 234 kB, and two multi-megabyte documents (the ECMAScript and WHATWG
+HTML specifications), downloaded once from pinned revisions and cached because
+their repositories are too large to vendor.
 """
 
 from __future__ import annotations
@@ -32,10 +32,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import html5lib
 import pyperf
+from bs4 import BeautifulSoup
+from lxml import html as lxml_html
+from selectolax.lexbor import LexborHTMLParser
 
 import turbohtml
-from turbohtml import _html  # noqa: PLC2701  # the benchmark drives the accelerator's private parse hooks directly
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -243,25 +246,38 @@ def turbo_tokenize(text: str) -> None:
 
 
 def turbo_parse(text: str) -> None:
-    """Build (and free) the document tree without serializing it."""
-    _html._parse_only(text)  # noqa: SLF001  # _parse_only is the accelerator's allocate-then-free parse hook
+    """Parse a whole document into a navigable tree through the public parse() entry point."""
+    turbohtml.parse(text)
 
 
-def lexbor_parse(payload: bytes) -> None:
-    """Parse the document with lexbor via selectolax."""
-    # selectolax is an optional comparison lib; the local import lets _has_lexbor() detect its absence, and it
-    # ships no type stubs so ty cannot resolve it
-    from selectolax.lexbor import LexborHTMLParser  # noqa: PLC0415  # ty: ignore[unresolved-import]
-
-    LexborHTMLParser(payload)
+def lexbor_parse(text: str) -> None:
+    """Parse with lexbor through selectolax (C, WHATWG-conformant)."""
+    LexborHTMLParser(text.encode())  # lexbor's native input is UTF-8 bytes
 
 
-def _has_lexbor() -> bool:
-    try:
-        lexbor_parse(b"")
-    except ImportError:
-        return False
-    return True
+def lxml_parse(text: str) -> None:
+    """Parse with lxml's libxml2-backed HTML parser."""
+    lxml_html.document_fromstring(text)
+
+
+def html5lib_parse(text: str) -> None:
+    """Parse with html5lib, the pure-Python WHATWG reference implementation."""
+    html5lib.parse(text)
+
+
+def soup_parse(text: str) -> None:
+    """Parse with BeautifulSoup over its stdlib html.parser backend."""
+    BeautifulSoup(text, "html.parser")
+
+
+# Whole-document tree builders raced against turbohtml.parse() in the parse suite, ordered fastest to slowest.
+# Each label names the pip-installable package so the comparison stays like-for-like.
+PARSE_COMPETITORS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("lxml", lxml_parse),
+    ("selectolax", lexbor_parse),
+    ("BeautifulSoup", soup_parse),
+    ("html5lib", html5lib_parse),
+)
 
 
 def stdlib_tokenize(text: str) -> None:
@@ -302,28 +318,29 @@ def _has_html5lib() -> bool:
 
 
 def run_parse_suite(bench: Callable[[str, object, object], None]) -> list[tuple[str, str]]:
-    """Benchmark whole-document parsing for turbohtml and lexbor; return the cases."""
+    """Benchmark whole-document parsing for turbohtml and every alternative; return the cases."""
     cases = [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
     cases += [(name, large_text(filename, url)) for name, filename, url in LARGE_FILES]
-    has_lexbor = _has_lexbor()
     for name, arg in cases:
         bench(f"parse {name} [turbohtml]", turbo_parse, arg)
-        if has_lexbor:
-            bench(f"parse {name} [lexbor]", lexbor_parse, arg.encode())  # lexbor's native input is UTF-8 bytes
+        for label, parse in PARSE_COMPETITORS:
+            bench(f"parse {name} [{label}]", parse, arg)
     return cases
 
 
 def print_parse_table(means: dict[str, float], parse_cases: list[tuple[str, str]]) -> None:
-    """Render the turbohtml-vs-lexbor parse throughput table."""
+    """Render parse throughput for turbohtml beside each alternative and its slowdown factor."""
     if not parse_cases:
         return
     print()
-    print(f"{'benchmark':40} {'turbohtml':>12} {'lexbor':>12} {'vs lexbor':>10}")
+    header = f"{'parse benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label, _ in PARSE_COMPETITORS)
+    print(header)
     for name, _ in parse_cases:
         turbo = means[f"parse {name} [turbohtml]"]
-        row = f"{'parse ' + name:40} {turbo * 1e6:9.2f} us"
-        if (lx := means.get(f"parse {name} [lexbor]")) is not None:
-            row += f" {lx * 1e6:9.2f} us {lx / turbo:9.2f}x"
+        row = f"{'parse ' + name:28} {turbo * 1e6:8.1f} us"
+        for label, _ in PARSE_COMPETITORS:
+            other = means.get(f"parse {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
         print(row)
 
 

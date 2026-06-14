@@ -81,8 +81,11 @@ docs = [
   "towncrier>=25.8",
 ]
 bench = [
+  "beautifulsoup4>=4.13",
   "html5lib>=1.1",
+  "lxml>=6.1",
   "pyperf>=2.9",
+  "selectolax>=0.3.30",
   { include-group = "test" },
 ]
 coverage = [

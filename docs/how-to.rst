@@ -35,8 +35,8 @@ Convert named and numeric references from scraped or stored HTML back into text:
 
 .. code-block:: pycon
 
-    >>> turbohtml.unescape("&pound;10 &mdash; &#127881;")
-    '£10 — 🎉'
+    >>> turbohtml.unescape("&pound;10 &copy; &#127881;")
+    '£10 © 🎉'
 
 Unescaping follows the HTML5 rules, including longest-match for references that omit the trailing semicolon:
 
@@ -96,19 +96,19 @@ The events map one to one:
 - ``handle_endtag(tag)`` → ``TokenType.END_TAG``.
 - ``handle_startendtag(tag, attrs)`` → a ``START_TAG`` token with ``self_closing`` true (turbohtml does not emit a
   separate event).
-- ``handle_data(data)`` → ``TokenType.TEXT``; character references arrive already decoded, like
-  ``convert_charrefs=True``, so there is no ``handle_entityref``/``handle_charref`` pair to implement.
+- ``handle_data(data)`` → ``TokenType.TEXT``; character references arrive decoded, like ``convert_charrefs=True``, so
+  there is no ``handle_entityref``/``handle_charref`` pair to implement.
 - ``handle_comment(data)`` → ``TokenType.COMMENT``.
-- ``handle_decl(decl)`` → ``TokenType.DOCTYPE``, already split into ``name``, ``public_id`` and ``system_id`` instead of
-  one raw string.
+- ``handle_decl(decl)`` → ``TokenType.DOCTYPE``, split into ``name``, ``public_id`` and ``system_id`` instead of one raw
+  string.
 - ``self.getpos()`` → ``token.line`` and ``token.col``, the same 1-based-line, 0-based-column convention.
 - ``feed()``/``close()`` → the same names on :class:`turbohtml.Tokenizer`; each ``feed()`` returns the tokens that chunk
   completed instead of firing callbacks, and a ``with`` block replaces remembering ``close()``.
 
-Behavior differs where ``html.parser`` diverges from the WHATWG algorithm browsers implement: turbohtml handles the
-raw-text content models exactly (a ``<b>`` inside ``<script>`` is text, not a tag), recovers from malformed markup the
-way a browser would, and never emits ``handle_decl`` for CDATA sections (they only exist in foreign content). Code
-ported from ``html.parser`` therefore sees the same tokens a browser sees, which is usually the migration's point.
+turbohtml differs from ``html.parser`` wherever ``html.parser`` diverges from the WHATWG algorithm browsers implement:
+turbohtml handles the raw-text content models (a ``<b>`` inside ``<script>`` stays text rather than a tag), recovers
+from malformed markup the way a browser would, and never emits ``handle_decl`` for CDATA sections (they only exist in
+foreign content). Code ported from ``html.parser`` sees the same tokens a browser sees, the point of most migrations.
 
 *****************************
  Extract the links of a page
@@ -128,7 +128,7 @@ for a valueless attribute and your fallback when the attribute is missing:
  Extract the visible text of HTML
 **********************************
 
-Collect the text tokens while skipping the contents of elements whose text is not rendered, such as ``script`` and
+Collect the text tokens while skipping the contents of elements the browser does not render, such as ``script`` and
 ``style``. The tokenizer hands you script and style bodies as text tokens (that is what they are to the algorithm), so
 track the enclosing tag yourself:
 
@@ -183,8 +183,8 @@ Call ``reset()`` to reuse the same tokenizer for an unrelated document.
 ****************************************
 
 Every token remembers where it began: :attr:`turbohtml.Token.line` is the 1-based source line and
-:attr:`turbohtml.Token.col` the 0-based column (the convention :mod:`python:html.parser` also uses), which makes it easy
-to point at the offending markup:
+:attr:`turbohtml.Token.col` the 0-based column (the convention :mod:`python:html.parser` shares), so you can point at
+the offending markup:
 
 .. code-block:: pycon
 
@@ -214,8 +214,8 @@ or from any element, searching its descendants:
  Collect the links of a parsed page
 ************************************
 
-Collect the ``href`` of every anchor by iterating :meth:`~turbohtml.Node.find_all`; a missing attribute is simply absent
-from :attr:`~turbohtml.Element.attrs`:
+Collect the ``href`` of every anchor by iterating :meth:`~turbohtml.Node.find_all`; a missing attribute does not appear
+in :attr:`~turbohtml.Element.attrs`:
 
 .. code-block:: pycon
 
@@ -247,8 +247,8 @@ text.
 **************************************
 
 The node types are a sealed hierarchy with :py:data:`~object.__match_args__` set, so a ``match`` statement dispatches on
-node kind and unpacks the defining field — ``tag`` for an :class:`~turbohtml.Element`, ``data`` for a
-:class:`~turbohtml.Text` or :class:`~turbohtml.Comment`:
+node kind and unpacks the defining field (``tag`` for an :class:`~turbohtml.Element`, ``data`` for a
+:class:`~turbohtml.Text` or :class:`~turbohtml.Comment`):
 
 .. code-block:: pycon
 
@@ -270,7 +270,7 @@ node kind and unpacks the defining field — ``tag`` for an :class:`~turbohtml.E
  Parse an HTML fragment
 ************************
 
-To parse markup that belongs inside a specific element — a table row, an SVG subtree — use
+To parse markup that belongs inside a specific element (a table row, an SVG subtree), use
 :func:`turbohtml.parse_fragment` with the context tag. It returns that context :class:`~turbohtml.Element` with the
 parsed nodes as its children, applying the same insertion rules the element would impose in a full document:
 

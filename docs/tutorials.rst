@@ -6,7 +6,7 @@
  Getting started
 *****************
 
-This tutorial walks you from an empty environment to escaping and unescaping your first HTML.
+Go from an empty environment to escaping and unescaping your first HTML.
 
 Install turbohtml from PyPI:
 
@@ -22,27 +22,27 @@ Open a Python prompt and escape some text for safe inclusion in an HTML page:
     >>> turbohtml.escape("5 > 3 & 2 < 4")
     '5 &gt; 3 &amp; 2 &lt; 4'
 
-By default the quotation marks are escaped too, which is what you want inside an attribute value:
+By default ``escape`` escapes quotation marks too, which you want inside an attribute value:
 
 .. code-block:: pycon
 
     >>> turbohtml.escape("name=\"O'Brien\"")
     'name=&quot;O&#x27;Brien&quot;'
 
-Now go the other way and turn HTML character references back into text:
+Reverse the process: turn HTML character references back into text:
 
 .. code-block:: pycon
 
-    >>> turbohtml.unescape("Tom &amp; Jerry &mdash; caf&eacute;")
-    'Tom & Jerry — café'
+    >>> turbohtml.unescape("Tom &amp; Jerry, caf&eacute;")
+    'Tom & Jerry, café'
 
-From here you can stay with the string helpers, or continue below to break whole documents into tokens.
+Stay with the string helpers, or continue below to break whole documents into tokens.
 
 ********************************
  Tokenizing your first document
 ********************************
 
-This tutorial takes you from a string of HTML to a stream of tokens you can inspect.
+Go from a string of HTML to a stream of tokens you can inspect.
 
 Start with a small document and hand it to :func:`turbohtml.tokenize`, which returns an iterator of
 :class:`turbohtml.Token` objects:
@@ -56,8 +56,8 @@ Start with a small document and hand it to :func:`turbohtml.tokenize`, which ret
     Token(TEXT, data='Tom & Jerry')
     Token(END_TAG, tag='p')
 
-Each token tells you what it is through ``type``, a :class:`turbohtml.TokenType`. Start and end tags carry the
-lowercased tag name and the attributes, already decoded:
+``type`` identifies each token as a :class:`turbohtml.TokenType`. Start and end tags carry the lowercased tag name and
+the attributes, decoded:
 
 .. code-block:: pycon
 
@@ -69,9 +69,8 @@ lowercased tag name and the attributes, already decoded:
     >>> start.attrs
     [('class', 'intro')]
 
-Text arrives with character references already resolved — the ``&amp;`` above came through as a plain ``&`` — and
-content that the HTML specification treats as raw, such as a script body, arrives as one text token without further
-interpretation:
+Text arrives with character references resolved (the ``&amp;`` above came through as a plain ``&``). Content that the
+HTML specification treats as raw, such as a script body, arrives as one text token without further interpretation:
 
 .. code-block:: pycon
 
@@ -79,8 +78,8 @@ interpretation:
     ...  if token.type is turbohtml.TokenType.TEXT]
     ['if (a < b) run()']
 
-When the document arrives in pieces — from a network stream, for example — create a :class:`turbohtml.Tokenizer` and
-feed the pieces as they come. Each ``feed()`` returns the tokens that piece completed, and ``close()`` flushes whatever
+When the document arrives in pieces (from a network stream, for example), create a :class:`turbohtml.Tokenizer` and feed
+the pieces as they come. Each ``feed()`` returns the tokens that piece completed, and ``close()`` flushes whatever
 remains:
 
 .. code-block:: pycon
@@ -93,16 +92,16 @@ remains:
     >>> list(tokenizer.close())
     []
 
-Notice the incomplete ``<sp`` stayed buffered until the rest of the tag arrived. That is the whole tokenizer API. From
-here, head to the :doc:`how-to` guides for task-focused recipes — including porting an existing
-:class:`python:html.parser.HTMLParser` subclass — or the :doc:`reference` for the exact signatures.
+The incomplete ``<sp`` stayed buffered until the rest of the tag arrived. That is the whole tokenizer API. Head to the
+:doc:`how-to` guides for task-focused recipes, including porting an existing :class:`python:html.parser.HTMLParser`
+subclass, or the :doc:`reference` for the exact signatures.
 
 ********************************
  Parsing a document into a tree
 ********************************
 
-A token stream is flat; often you want the *structure* — which element contains which. This tutorial takes you from a
-string of HTML to a navigable tree of nodes.
+A token stream is flat. To see which element contains which, you need the *structure*: a tree. Go from a string of HTML
+to a navigable tree of nodes.
 
 Hand a whole document to :func:`turbohtml.parse`. It applies the full WHATWG tree-construction algorithm (the same one
 browsers run, including the error recovery that inserts the missing ``html``, ``head`` and ``body``) and returns a
@@ -115,8 +114,7 @@ browsers run, including the error recovery that inserts the missing ``html``, ``
     >>> doc.root
     Element('html')
 
-The most direct way to reach an element is :meth:`~turbohtml.Node.find`, which returns the first descendant matching a
-tag (and, optionally, attributes), or ``None``:
+:meth:`~turbohtml.Node.find` returns the first descendant matching a tag (and any attributes you pass), or ``None``:
 
 .. code-block:: pycon
 
@@ -126,7 +124,7 @@ tag (and, optionally, attributes), or ``None``:
     {'href': '/x'}
 
 Every node exposes its text and its markup. :attr:`~turbohtml.Node.text` is the concatenated character data of the
-subtree, with references already decoded; :attr:`~turbohtml.Node.html` re-serializes the subtree:
+subtree, with references decoded; :attr:`~turbohtml.Node.html` re-serializes the subtree:
 
 .. code-block:: pycon
 
@@ -136,7 +134,7 @@ subtree, with references already decoded; :attr:`~turbohtml.Node.html` re-serial
     >>> paragraph.html
     '<p>Tom &amp; <a href="/x">Jerry</a></p>'
 
-Text is modeled as real child nodes — the WHATWG DOM shape — so a paragraph's children are its text runs and its
+turbohtml models text as real child nodes (the WHATWG DOM shape), so a paragraph's children are its text runs and its
 elements interleaved, in order. A node is a sequence of its children: iterate it, take its length, index into it:
 
 .. code-block:: pycon
@@ -148,7 +146,7 @@ elements interleaved, in order. A node is a sequence of its children: iterate it
     >>> paragraph[1]
     Element('a')
 
-From any node you can walk outward as well as inward — :attr:`~turbohtml.Node.parent`,
+From any node you can walk outward as well as inward: :attr:`~turbohtml.Node.parent`,
 :attr:`~turbohtml.Node.next_sibling`, and the lazy :attr:`~turbohtml.Node.ancestors` and
 :attr:`~turbohtml.Node.descendants` iterators:
 
@@ -160,8 +158,8 @@ From any node you can walk outward as well as inward — :attr:`~turbohtml.Node.
     >>> [node.tag for node in link.ancestors if isinstance(node, turbohtml.Element)]
     ['p', 'body', 'html']
 
-Because the node types are a sealed hierarchy, structural pattern matching reads cleanly — each subtype unpacks its
-defining field:
+Because the node types are a sealed hierarchy, structural pattern matching works: each subtype unpacks its defining
+field:
 
 .. code-block:: pycon
 
