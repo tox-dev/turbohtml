@@ -2,42 +2,42 @@ ci:
   skip: ["clang-tidy"] # needs a local Meson build of the C extension, unavailable on pre-commit.ci
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: "3e8a8703264a2f4a69428a0aa4dcb512790b2c8c" # v6.0.0
+    rev: "v6.0.0" # v6.0.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: "f805888065fdb6162e1f800e50bb9460cbd223d6" # 0.37.2
+    rev: "0.37.3" # 0.37.2
     hooks:
       - id: check-github-workflows
         args: ["--verbose"]
   - repo: https://github.com/codespell-project/codespell
-    rev: "2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a" # v2.4.2
+    rev: "v2.4.2" # v2.4.2
     hooks:
       - id: codespell
         additional_dependencies: ["tomli>=2.4.1"]
   - repo: https://github.com/tox-dev/tox-toml-fmt
-    rev: "142187f8c21fa06a57faa7b9d862fe940f208f12" # v1.9.3
+    rev: "v1.9.3" # v1.9.3
     hooks:
       - id: tox-toml-fmt
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "3a8ef795727fa946dfcb21c5d07b1442c2362c09" # v2.23.0
+    rev: "v2.24.1" # v2.23.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: "dd18dad857d6133e90bbe478f4f2f22ec0030269" # v22.1.5
+    rev: "v22.1.5" # v22.1.5
     hooks:
       - id: clang-format
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/html_entities\.h$ # generated table
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "22f0422809455ec89ffdcf5a00170ba816e42ddb" # v0.15.16
+    rev: "v0.15.17" # v0.15.16
     hooks:
       - id: ruff-format
       - id: ruff-check
         args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
   - repo: https://github.com/google/yamlfmt
-    rev: "21ca5323a9c87ee37a434e0ca908efc0a89daa07" # v0.21.0
+    rev: "v0.21.0" # v0.21.0
     hooks:
       - id: yamlfmt
   - repo: local
@@ -68,14 +68,14 @@ repos:
         exclude: ^docs/changelog/(\d+\.(breaking|feature|bugfix|doc|packaging|misc)\.rst|template\.jinja2)$
         files: ^docs/changelog/
   - repo: https://github.com/LilSpazJoekp/docstrfmt
-    rev: "06455715c8a81e176748e036c1c945f3e80d5b8d" # v2.1.0
+    rev: "v2.1.1" # v2.1.0
     hooks:
       - id: docstrfmt
         args: ["--line-length=120"]
         types_or: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: "9257c6050c0261b8c57e712f632dc4a8010109a9" # v1.25.2
+    rev: "v1.25.2" # v1.25.2
     hooks:
       - id: zizmor
   - repo: meta
