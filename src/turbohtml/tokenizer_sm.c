@@ -798,7 +798,11 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
         if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)))) {
             break;
         }
-        newlines += __builtin_popcount((unsigned)_mm_movemask_epi8(_mm_cmpeq_epi8(block, nlv)));
+        /* sum one-per-newline across the lanes with SAD (escape.c's reduction), so
+           the count needs no popcount intrinsic MSVC lacks */
+        __m128i ones = _mm_and_si128(_mm_cmpeq_epi8(block, nlv), _mm_set1_epi8(1));
+        __m128i sums = _mm_sad_epu8(ones, _mm_setzero_si128());
+        newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
         index += 16;
     }
 #else
