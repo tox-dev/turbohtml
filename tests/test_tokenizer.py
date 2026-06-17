@@ -62,7 +62,8 @@ def test_comment_token() -> None:
         pytest.param(
             "<!DOCTYPE HTML PUBLIC \"pub\" 'sys'>", (TokenType.DOCTYPE, "html", "pub", "sys", False), id="full"
         ),
-        pytest.param("<!DOCTYPE>", (TokenType.DOCTYPE, "", None, None, True), id="bare"),
+        # a nameless DOCTYPE reports a missing (None) name, distinct from an empty string
+        pytest.param("<!DOCTYPE>", (TokenType.DOCTYPE, None, None, None, True), id="bare"),
         # a non-doctype token still exposes the doctype fields, all empty
         pytest.param("<p>", (TokenType.START_TAG, None, None, None, False), id="non-doctype"),
     ],

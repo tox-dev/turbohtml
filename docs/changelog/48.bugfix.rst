@@ -1,0 +1,4 @@
+Report a nameless ``<!DOCTYPE>`` token's :attr:`~turbohtml.Token.name` as ``None`` rather than ``""``. The WHATWG
+tokenizer keeps a DOCTYPE name's "missing" state distinct from the empty string, and a DOCTYPE name is never
+present-but-empty, so the public getter now surfaces the missing name as ``None`` — matching the html5lib-tests oracle
+and turbohtml's own tuple-state path.

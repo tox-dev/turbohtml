@@ -220,7 +220,9 @@ static PyObject *token_get_self_closing(PyObject *self, void *Py_UNUSED(closure)
 
 static PyObject *token_get_name(PyObject *self, void *Py_UNUSED(closure)) {
     const th_token *record = &((TokenObject *)self)->record;
-    if (record->kind == TH_DOCTYPE) {
+    /* a DOCTYPE name is missing or non-empty, never present-but-empty, so an
+       empty buffer is the WHATWG "missing" sentinel and surfaces as None */
+    if (record->kind == TH_DOCTYPE && record->name.len) {
         return buf_to_str(&record->name);
     }
     Py_RETURN_NONE;
