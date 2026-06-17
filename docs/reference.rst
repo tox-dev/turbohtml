@@ -32,3 +32,24 @@ turbohtml-specific ones, the rest mirror :class:`str`.
 
 .. autoclass:: EscapeFormatter
     :members: format_field
+
+*******************
+ turbohtml.linkify
+*******************
+
+.. module:: turbohtml.linkify
+
+Find URLs and email addresses in HTML and wrap them in ``<a>`` links, a successor to ``bleach.linkify``. It is
+HTML-aware, so it never links inside an existing ``<a>``, a raw-text element, or a caller's ``skip_tags``. A callback
+receives each generated :class:`Link` and returns it to keep the link or ``None`` to leave the text bare.
+
+.. autofunction:: linkify
+
+.. autoclass:: Linker
+    :members: linkify
+
+.. autoclass:: Link
+
+.. autofunction:: nofollow
+
+.. autofunction:: target_blank

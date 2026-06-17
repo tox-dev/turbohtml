@@ -1,0 +1,8 @@
+Auto-link URLs and email addresses in HTML with ``turbohtml.linkify``, a successor to ``bleach.linkify``, which has no
+replacement now that bleach is end of life. ``linkify(text, callbacks=..., skip_tags=..., parse_email=...)``, the
+reusable ``Linker``, and the ``nofollow``/``target_blank`` helpers keep bleach's names, so the common case is just an
+import change. Custom callbacks get a cleaner contract than bleach's tuple-keyed ``(attrs, new)``: each receives a
+``Link`` with plain ``url``, ``text``, and ``attrs`` and returns it to keep the link or ``None`` to drop it. It is
+HTML-aware: it parses with turbohtml's WHATWG tree builder, so it never links inside an existing ``<a>``, a
+``<script>``/``<style>``, or a caller's ``skip_tags``. A bare domain like ``example.com`` links only when its last label
+is a real TLD, matched against a regenerable IANA table, and the hot scan for link candidates runs in C.

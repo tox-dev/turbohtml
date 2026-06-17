@@ -79,6 +79,14 @@ its own target: ``turbohtml.escape`` with the standard library, ``turbohtml.mark
 builds the ``Markup`` in C in one call, where markupsafe pays a Python call and a ``Markup`` construction on every
 interpolation, so it runs faster.
 
+Linkifying needs the same HTML awareness from the other direction. :mod:`turbohtml.linkify` parses the input first, so
+it can see that a URL already sits inside an ``<a>`` or a ``<script>`` and leave it alone, which a regex over the raw
+string cannot. The scan for link candidates is the trigger-then-expand model the Rust ``linkify`` crate uses, kept in C:
+it looks for the few bytes that can start a link (``:`` for a scheme, ``@`` for an email, ``.`` for a bare domain) and
+expands outward from each, rather than backtracking a regex. A bare domain counts only when its last label is a real
+TLD, matched against a generated IANA table the same way the tag and entity tables are built. The Python layer owns the
+tree walk and the callbacks; the C layer owns the byte scan.
+
 ************************
  A spec-exact tokenizer
 ************************

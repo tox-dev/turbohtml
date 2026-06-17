@@ -387,3 +387,47 @@ faster and resolve references markupsafe's regex-based stripping can miss.
 These differences from markupsafe do not affect migration: the escape runs in C, every ``Markup`` method runs faster
 than markupsafe's, the ``soft_unicode`` alias that markupsafe 3.0 removed is absent here too, and turbohtml does not
 register itself as ``markupsafe``, so adoption stays an explicit per-project import.
+
+***********************
+ From bleach (linkify)
+***********************
+
+bleach is end of life and has no successor for its linkifier, so ``turbohtml.linkify`` takes its place. The entry points
+keep bleach's names, so the import changes and the common case is identical:
+
+.. code-block:: python
+
+    # bleach
+    from bleach import linkify
+    from bleach.linkifier import Linker, DEFAULT_CALLBACKS
+    from bleach.callbacks import nofollow, target_blank
+
+    # turbohtml
+    from turbohtml.linkify import linkify, Linker, DEFAULT_CALLBACKS, nofollow, target_blank
+
+``linkify(text, callbacks=..., skip_tags=..., parse_email=...)``, the reusable :class:`~turbohtml.linkify.Linker`, and
+the ``nofollow``/``target_blank`` defaults work as before. Only custom callbacks change shape. bleach passed ``(attrs,
+new)`` where ``attrs`` was keyed by ``(namespace, name)`` tuples with a ``"_text"`` pseudo-key for the visible text;
+turbohtml passes a single :class:`~turbohtml.linkify.Link` with plain ``url``, ``text``, and ``attrs`` (a ``dict[str,
+str]``), and a callback returns it to keep the link or ``None`` to leave the text bare. Porting a callback means
+dropping the ``new`` argument and reading fields instead of tuple keys:
+
+.. testcode::
+
+    from turbohtml.linkify import linkify, Link
+
+    def shorten(link: Link) -> Link | None:
+        link.text = link.url.removeprefix("https://").removeprefix("http://")
+        return link
+
+    print(linkify("read https://example.com/page", callbacks=[shorten]))
+
+.. testoutput::
+
+    read <a href="https://example.com/page">example.com/page</a>
+
+Two behaviors differ from bleach, both deliberate. bleach also ran the callbacks over the links already present in the
+input; turbohtml leaves an existing ``<a>`` untouched, so linkifying is idempotent and never rewrites a link an author
+wrote, which is why the callback drops bleach's ``new`` flag. A bare domain such as ``example.com`` links only when its
+last label is a current IANA TLD, from a table you can regenerate, where bleach shipped a frozen list. The scan for link
+candidates runs in C, so linkifying a page is faster than bleach's html5lib-based pass.

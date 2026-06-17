@@ -62,6 +62,7 @@ static PyMethodDef html_methods[] = {
     {"_parse_tree", turbohtml_parse_tree, METH_O, NULL},
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
+    {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 

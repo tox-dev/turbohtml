@@ -540,3 +540,22 @@ preserve processing instructions and CDATA sections exactly:
 .. testoutput::
 
     ('<ul><li>tea</li></ul>', '<ul><li>tea</li><li></li></ul>')
+
+*********************************
+ Turn URLs and emails into links
+*********************************
+
+To linkify user-entered text the way ``bleach.linkify`` did, use :func:`turbohtml.linkify.linkify`. It parses the HTML,
+so it links only in text the reader sees, never inside an existing ``<a>``, a ``<script>``, or a tag you list in
+``skip_tags``. Email autolinking is behind ``parse_email`` because not every page wants it. The default ``nofollow``
+callback marks web links, and leaves a ``mailto:`` link alone:
+
+.. testcode::
+
+    from turbohtml.linkify import linkify
+
+    print(linkify("email bob@example.com or visit https://example.com", parse_email=True))
+
+.. testoutput::
+
+    email <a href="mailto:bob@example.com">bob@example.com</a> or visit <a href="https://example.com" rel="nofollow">https://example.com</a>

@@ -9,8 +9,9 @@
 A fast, fully typed HTML toolkit for Python with a C-accelerated core. turbohtml escapes and unescapes HTML to match the
 standard library byte for byte, tokenizes markup with a WHATWG-conformant streaming tokenizer, and parses whole
 documents into a navigable element tree you query with CSS selectors, edit in place, build from scratch, and serialize
-back to conformant HTML. A markupsafe-compatible `turbohtml.markup` covers template autoescaping. Each operation runs
-several times faster than its pure-Python counterpart and supports the free-threaded build.
+back to conformant HTML. A markupsafe-compatible `turbohtml.markup` covers template autoescaping, and
+`turbohtml.linkify` auto-links URLs and emails the way bleach did. Each operation runs several times faster than its
+pure-Python counterpart and supports the free-threaded build.
 
 ## Install
 
@@ -59,6 +60,16 @@ print(Markup("<li>{}</li>").format("<script>alert(1)</script>"))
 # <li>&lt;script&gt;alert(1)&lt;/script&gt;</li>
 print(escape("Tom & Jerry"))
 # Tom &amp; Jerry
+```
+
+`turbohtml.linkify` replaces `bleach.linkify`, which has no other successor now that bleach is end of life. It parses
+the HTML first, so it never links inside an existing `<a>`, a `<script>`, or a tag you skip:
+
+```python
+from turbohtml.linkify import linkify
+
+print(linkify("email bob@example.com or visit https://example.com", parse_email=True))
+# email <a href="mailto:bob@example.com">bob@example.com</a> or visit <a href="https://example.com" rel="nofollow">https://example.com</a>
 ```
 
 Tokenize markup into a stream of tokens that follows the WHATWG tokenization algorithm:
@@ -152,6 +163,8 @@ the other C libraries on the read-path benchmarks. Measured with [pyperf](https:
 - `escape` and `unescape` match the standard library byte for byte while running several times faster, up to 22× on
   no-op text and 13× on entity-dense input.
 - `turbohtml.markup.escape` matches markupsafe and runs 2–3× faster on the small strings template autoescaping escapes.
+- `turbohtml.linkify` auto-links HTML 5–20× faster than bleach and 6–11× faster than the plain-text `linkify-it-py`
+  scanner, which only finds links without rewriting them.
 - `tokenize` is 9–16× faster than `html.parser` wherever markup appears.
 - `parse` builds a full WHATWG tree 2–5× faster than the C parsers lxml and selectolax, and 30–80× faster than the
   pure-Python BeautifulSoup and html5lib.

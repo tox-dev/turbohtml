@@ -83,8 +83,10 @@ docs = [
 ]
 bench = [
   "beautifulsoup4>=4.13",
+  "bleach>=6.2",
   "cssselect>=1.3",
   "html5lib>=1.1",
+  "linkify-it-py>=2",
   "lxml>=6.1",
   "markupsafe>=3",
   "pyperf>=2.9",
@@ -177,7 +179,7 @@ lint.preview = true
 [tool.codespell]
 builtin = "clear,usage,en-GB_to_en-US"
 ignore-words-list = "caf,notin,afe"  # café, the &notin; entity, and afe (active formatting elements)
-skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h"  # generated tables of HTML5 entity / element names
+skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h"  # generated tables of HTML5 / IANA names
 count = true
 quiet-level = 3
 

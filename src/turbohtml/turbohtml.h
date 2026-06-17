@@ -25,6 +25,10 @@ PyObject *turbohtml_markup_escape_silent(PyObject *module, PyObject *s);
 PyObject *turbohtml_markup_soft_str(PyObject *module, PyObject *s);
 PyObject *turbohtml_register_markup(PyObject *module, PyObject *type);
 
+/* Implemented in linkify.c. _linkify_scan finds URL/email spans in a text run;
+   signature matches METH_VARARGS. */
+PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
+
 /* Implemented in tokenizer_type.c. tokenize() matches METH_O; the internal
    conformance hook _tokenize_states matches METH_VARARGS. */
 PyObject *turbohtml_tokenize(PyObject *module, PyObject *arg);

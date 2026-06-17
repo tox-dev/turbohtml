@@ -33,14 +33,17 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import bleach
 import html5lib
 import markupsafe
 import pyperf
 from bs4 import BeautifulSoup
+from linkify_it import LinkifyIt
 from lxml import html as lxml_html
 from selectolax.lexbor import LexborHTMLParser
 
 import turbohtml
+from turbohtml.linkify import linkify as turbo_linkify_html
 from turbohtml.markup import escape as turbo_markup_escape
 
 if TYPE_CHECKING:
@@ -577,6 +580,72 @@ def print_markup_table(means: dict[str, float], cases: list[str]) -> None:
         print(row)
 
 
+# --- linkify suite: auto-link URLs/emails in HTML against bleach and linkify-it #
+# turbohtml.linkify against bleach.linkify, the HTML-aware linkifier it succeeds,
+# and linkify-it-py, the pure-Python scanner markdown-it-py pulls in. bleach and
+# turbohtml parse the HTML and rewrite it; linkify-it only scans and returns the
+# matches, so it does strictly less work yet is the pure-Python pace to beat.
+
+
+def turbo_linkify(text: str) -> None:
+    """Linkify HTML with turbohtml, parsing and rewriting the tree."""
+    turbo_linkify_html(text)
+
+
+def bleach_linkify(text: str) -> None:
+    """Linkify HTML with bleach's html5lib-based filter."""
+    bleach.linkify(text)
+
+
+_LINKIFY_IT = LinkifyIt()
+
+
+def linkifyit_scan(text: str) -> None:
+    """Scan plain text for links with linkify-it-py, which finds but does not rewrite."""
+    _LINKIFY_IT.match(text)
+
+
+LINKIFY_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_linkify),
+    ("bleach", bleach_linkify),
+    ("linkify-it", linkifyit_scan),
+)
+
+LINKIFY_CASES: tuple[tuple[str, str], ...] = (
+    ("comment", "Ping me at bob@example.com or see https://example.com for details."),
+    ("prose 1 KiB", ("See https://example.com/path?q=1 and visit www.example.org for more. " * 15)),
+    (
+        "markup 4 KiB",
+        ('<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
+    ),
+)
+LINKIFY_CASE_NAMES = [name for name, _ in LINKIFY_CASES]
+
+
+def run_linkify_suite(bench: Callable[[str, object, object], None]) -> None:
+    """Benchmark HTML-aware linkifying against bleach and linkify-it-py."""
+    for name, text in LINKIFY_CASES:
+        for label, run in LINKIFY_LIBS:
+            bench(f"linkify {name} [{label}]", run, text)
+
+
+def print_linkify_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render turbohtml's linkify beside bleach and linkify-it-py and their slowdown factors."""
+    if not cases:
+        return
+    others = [label for label, _ in LINKIFY_LIBS if label != "turbohtml"]
+    print()
+    header = f"{'linkify benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+    print(header)
+    for name in cases:
+        turbo = means[f"linkify {name} [turbohtml]"]
+        row = f"{'linkify ' + name:28} {turbo * 1e6:8.1f} us"
+        for label in others:
+            other = means.get(f"linkify {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+        print(row)
+
+
 def run_readpath_suite(bench: Callable[[str, object, object], None], op_index: int, op: str) -> list[str]:
     """Benchmark one read-path operation (find/select/serialize) across every library."""
     names: list[str] = []
@@ -669,6 +738,28 @@ def print_parse_table(means: dict[str, float], parse_cases: list[tuple[str, str]
         print(row)
 
 
+def run_string_suites(bench: Callable[[str, object, object], None], suites: set[str]) -> list[tuple[str, str]]:
+    """Run the escape/unescape/tokenize/corpus suites; return the ``(op, name)`` rows for the speedup table."""
+    rows: list[tuple[str, str]] = []
+    for op, name, arg in CASES:
+        if op in suites:
+            bench(f"{op} {name} [turbohtml]", getattr(turbohtml, op), arg)
+            bench(f"{op} {name} [stdlib]", getattr(html, op), arg)
+            rows.append((op, name))
+    tokenize_cases = TOKENIZE_CASES if "tokenize" in suites else []
+    if "corpus" in suites:
+        tokenize_cases += [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
+        tokenize_cases += [(name, large_text(filename, url)) for name, filename, url in LARGE_FILES]
+    has_html5lib = _has_html5lib()
+    for name, arg in tokenize_cases:
+        bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
+        bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)
+        if has_html5lib:
+            bench(f"tokenize {name} [html5lib]", html5lib_tokenize, arg)
+        rows.append(("tokenize", name))
+    return rows
+
+
 def main() -> None:
     """Run all cases under pyperf and print the speedup table in the parent."""
     runner = pyperf.Runner()
@@ -686,6 +777,7 @@ def main() -> None:
             "build",
             "edit",
             "markup",
+            "linkify",
             [],
         ],
         help="suites to run (default: all)",
@@ -696,30 +788,19 @@ def main() -> None:
     if args.suites:
         os.environ["TURBOHTML_BENCH_SUITES"] = ",".join(args.suites)
         args.inherit_environ = [*(args.inherit_environ or []), "TURBOHTML_BENCH_SUITES"]
-    selection = os.environ.get(
-        "TURBOHTML_BENCH_SUITES", "escape,unescape,tokenize,corpus,parse,query,serialize,build,edit,markup"
+    suites = set(
+        os.environ.get(
+            "TURBOHTML_BENCH_SUITES",
+            "escape,unescape,tokenize,corpus,parse,query,serialize,build,edit,markup,linkify",
+        ).split(",")
     )
-    suites = set(selection.split(","))
     means: dict[str, float] = {}
 
     def bench(name: str, func: object, arg: object) -> None:
         if (result := runner.bench_func(name, func, arg)) is not None and result.get_nvalue():
             means[name] = result.mean()
 
-    for op, name, arg in CASES:
-        if op in suites:
-            bench(f"{op} {name} [turbohtml]", getattr(turbohtml, op), arg)
-            bench(f"{op} {name} [stdlib]", getattr(html, op), arg)
-    has_html5lib = _has_html5lib()
-    tokenize_cases = TOKENIZE_CASES if "tokenize" in suites else []
-    if "corpus" in suites:
-        tokenize_cases += [(name, corpus_text(path, enc)) for name, path, enc in CORPUS_FILES]
-        tokenize_cases += [(name, large_text(filename, url)) for name, filename, url in LARGE_FILES]
-    for name, arg in tokenize_cases:
-        bench(f"tokenize {name} [turbohtml]", turbo_tokenize, arg)
-        bench(f"tokenize {name} [stdlib]", stdlib_tokenize, arg)
-        if has_html5lib:
-            bench(f"tokenize {name} [html5lib]", html5lib_tokenize, arg)
+    rows = run_string_suites(bench, suites)
     parse_cases = run_parse_suite(bench) if "parse" in suites else []
     find_cases = run_readpath_suite(bench, 0, "find") if "query" in suites else []
     select_cases = run_readpath_suite(bench, 1, "select") if "query" in suites else []
@@ -727,10 +808,10 @@ def main() -> None:
     build_cases = run_build_suite(bench) if "build" in suites else []
     edit_cases = run_edit_suite(bench) if "edit" in suites else []
     markup_cases = run_markup_suite(bench) if "markup" in suites else []
+    if "linkify" in suites:
+        run_linkify_suite(bench)
     if args.worker or not means:
         return
-    rows = [(op, name) for op, name, _ in CASES if op in suites]
-    rows += [("tokenize", name) for name, _ in tokenize_cases]
     print_table(means, rows)
     print_parse_table(means, parse_cases)
     print_readpath_table(means, "find", find_cases)
@@ -739,6 +820,7 @@ def main() -> None:
     print_build_table(means, build_cases)
     print_edit_table(means, edit_cases)
     print_markup_table(means, markup_cases)
+    print_linkify_table(means, LINKIFY_CASE_NAMES if "linkify" in suites else [])
 
 
 if __name__ == "__main__":
