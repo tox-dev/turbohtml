@@ -10,6 +10,7 @@ strings), and source positions.
 from __future__ import annotations
 
 import gc
+import tracemalloc
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 
@@ -532,3 +533,29 @@ def test_tokenize_states_returns_characters(args: tuple[str, ...], expected: str
 
 def test_tag_names_are_lowercased() -> None:
     assert [next(iter(tokenize(document))).tag for document in ("<DIV>", "<SpAn>")] == ["div", "span"]
+
+
+def test_streaming_tokenizer_reclaims_consumed_input() -> None:
+    # feed() compacts the consumed prefix, so a long-lived streaming tokenizer stays memory
+    # bounded instead of growing its input buffer with every chunk (issue #80).
+    tokenizer = Tokenizer()
+    for _ in range(200):  # warm up so one-time allocations settle out of the measurement
+        list(tokenizer.feed("<p>hello world</p>"))
+    tracemalloc.start()
+    for _ in range(10_000):
+        list(tokenizer.feed("<p>hello world</p>"))
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    # without compaction the buffer grows to well over 100 KB across this run; with it, it stays tiny
+    assert peak < 100_000, f"streaming feed leaked the input buffer: {peak} bytes"
+
+
+def test_feed_keeps_input_while_a_token_is_queued() -> None:
+    # a completed token not yet pulled from the iterator still spans the input buffer, so the
+    # next feed must skip compaction; the full stream stays correct either way.
+    tokenizer = Tokenizer()
+    stream = tokenizer.feed("x<a>")
+    first = next(stream)  # drives the state machine, leaving a record queued behind the one returned
+    tokenizer.feed("z")
+    tokens = [first, *tokenizer, *tokenizer.close()]
+    assert [_shape(token) for token in tokens] == [_shape(token) for token in tokenize("x<a>z")]

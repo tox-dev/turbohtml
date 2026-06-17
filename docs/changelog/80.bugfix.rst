@@ -1,0 +1,3 @@
+Reclaim the consumed prefix of a streaming :class:`~turbohtml.Tokenizer`'s input buffer on each ``feed()``, so feeding a
+long document in chunks stays memory-bounded instead of growing the buffer without limit for the lifetime of the
+tokenizer.
