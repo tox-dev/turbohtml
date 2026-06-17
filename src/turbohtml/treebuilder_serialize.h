@@ -294,8 +294,8 @@ static int sbuf_text_special(Py_UCS4 character, int in_attr, int formatter) {
     if ((character == '<' || character == '>') && escape_angle) {
         return 1;
     }
-    if (character == '"' && in_attr && formatter == TH_FMT_WHATWG) {
-        return 1;
+    if (character == '"' && in_attr) {
+        return formatter == TH_FMT_WHATWG;
     }
     return character == 0xA0 && formatter == TH_FMT_WHATWG;
 }
@@ -321,11 +321,41 @@ static void sbuf_put_special(sbuf *out, Py_UCS4 character, int formatter) {
 }
 
 /* Append text under one formatter, bulk-copying each run with nothing to escape
-   and rewriting only the flagged characters in between. */
+   and rewriting only the flagged characters in between. The tree stores text as
+   UCS-4, so the clean-run scan tests two code points per 64-bit word with the
+   same SWAR lane probes escape.c uses, hopping over long unescaped spans (which
+   dominate real documents) instead of re-classifying every character. NAMED
+   consults a table past 0x7F, so it keeps the scalar scan; WHATWG and MINIMAL
+   have a fixed special set (& plus < > " 0xA0 as the context selects) that the
+   probes resolve directly. */
 static void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr, int formatter) {
+    int swar = formatter != TH_FMT_NAMED;
+    int escape_angle = formatter == TH_FMT_MINIMAL || !in_attr;
+    int escape_quote = in_attr && formatter == TH_FMT_WHATWG;
+    int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
+        if (swar) {
+            while (index + UCS4_LANES <= len) {
+                uint64_t word;
+                memcpy(&word, &text[index], sizeof(word));
+                uint64_t mask = swar_haslane32(word, '&');
+                if (escape_angle) {
+                    mask |= swar_haslane32(word, '<') | swar_haslane32(word, '>');
+                }
+                if (escape_quote) {
+                    mask |= swar_haslane32(word, '"');
+                }
+                if (escape_nbsp) {
+                    mask |= swar_haslane32(word, 0xA0);
+                }
+                if (mask != 0) {
+                    break;
+                }
+                index += UCS4_LANES;
+            }
+        }
         while (index < len && !sbuf_text_special(text[index], in_attr, formatter)) {
             index++;
         }
@@ -631,8 +661,22 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
+/* When serializing a whole parsed document, the output length tracks the input
+   length closely, so reserve it up front. That turns the buffer's geometric
+   doubling (about ten reallocs and ~2x the output in memmoves for a 235 kB page)
+   into a single allocation. A subtree serialize keeps the default growth, since
+   the input length would wildly over-reserve. */
+static void sbuf_presize_for_root(sbuf *out, th_tree *tree, th_node *node) {
+    if (node == th_tree_document(tree)) {
+        /* reserving the input length is a no-op for an empty or programmatic
+           tree (length 0), so no separate guard is needed */
+        sbuf_reserve(out, tree->length);
+    }
+}
+
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    sbuf_presize_for_root(&out, tree, node);
     serialize_compact(&out, tree, node, TH_FMT_WHATWG);
     return sbuf_finish(&out, out_len);
 }
@@ -648,6 +692,7 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, int formatter, const Py_UCS4 *indent, Py_ssize_t indent_len,
                            Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    sbuf_presize_for_root(&out, tree, node);
     if (indent == NULL) {
         serialize_compact(&out, tree, node, formatter);
     } else {

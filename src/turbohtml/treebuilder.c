@@ -13,6 +13,7 @@
 #include "treebuilder.h"
 
 #include "ascii.h"
+#include "turbohtml.h" /* SWAR lane probes for the serializer's clean-run scan */
 
 #include <string.h>
 

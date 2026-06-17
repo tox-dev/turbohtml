@@ -614,11 +614,14 @@ static void text_begin_mark(th_tokenizer *self) {
 
 /* ----------------------------------------------------------------- run */
 
-/* Append input[pos..stop), a run guaranteed free of newlines, to the text
-   buffer in one step. The plain-text states scan ahead for their next special
-   character and move whole runs here instead of dispatching per character
-   (html5ever and lexbor take the same fast path). */
-static void text_append_run(th_tokenizer *self, Py_ssize_t stop) {
+/* Append input[pos..stop) to the text buffer in one step, advancing the
+   line/column counters by the run's newline structure. The plain-text states
+   scan ahead for their next special character and move whole runs here instead
+   of dispatching per character (html5ever and lexbor take the same fast path).
+   newlines is how many '\n' the run holds and col the column the run leaves the
+   cursor at (characters after its last newline); a newline-free run passes 0/0
+   and only advances the column by its length. */
+static void text_append_run_lc(th_tokenizer *self, Py_ssize_t stop, Py_ssize_t newlines, Py_ssize_t col) {
     Py_ssize_t count = stop - self->pos;
     text_begin(self);
     if (self->text.len == 0 && (self->slice_len == 0 || self->pos == self->slice_start + self->slice_len)) {
@@ -632,7 +635,18 @@ static void text_append_run(th_tokenizer *self, Py_ssize_t stop) {
         copy_input_range(self, self->pos, count);
     }
     self->pos = stop;
-    self->col += count;
+    if (newlines > 0) {
+        self->line += newlines;
+        self->col = col;
+    } else {
+        self->col += count;
+    }
+}
+
+/* Append a run guaranteed free of newlines (every plain-text state but DATA,
+   whose scan stops at every newline). */
+static void text_append_run(th_tokenizer *self, Py_ssize_t stop) {
+    text_append_run_lc(self, stop, 0, 0);
 }
 
 static void init_markup(th_tokenizer *self, enum th_kind kind) {
@@ -752,6 +766,69 @@ static Py_ssize_t scan_stops_ucs1(const th_tokenizer *self, Py_ssize_t index, Py
     while (index < len && !((data[index] == s1) | (data[index] == s2) | (data[index] == s3) | (data[index] == s4))) {
         index++;
     }
+    return index;
+}
+
+/* The DATA-state text scan: find the next '&' or '<' from index on while folding
+   in line/column tracking, so a multi-line prose run between tags is one vector
+   sweep rather than one scan per wrapped line. *out_newlines receives how many
+   newlines the run [index, return) holds, and *out_last_nl the index of its last
+   newline (-1 when none), from which the caller derives the ending column. The
+   per-block newline count is a SIMD population count; the last newline alone
+   needs a position, found by a short backward scan bounded by the final line. */
+static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_ssize_t *out_newlines,
+                                 Py_ssize_t *out_last_nl) {
+    const Py_UCS1 *data = (const Py_UCS1 *)self->input.data;
+    Py_ssize_t len = self->input.len;
+    Py_ssize_t newlines = 0;
+#if defined(TH_SCAN_NEON)
+    uint8x16_t amp = vdupq_n_u8('&'), lt = vdupq_n_u8('<'), nlv = vdupq_n_u8('\n');
+    while (index + 16 <= len) {
+        uint8x16_t block = vld1q_u8(data + index);
+        if (vmaxvq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)))) {
+            break;
+        }
+        newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(block, nlv), 7)); /* 0xFF >> 7 == 1 per match */
+        index += 16;
+    }
+#elif defined(TH_SCAN_SSE2)
+    __m128i amp = _mm_set1_epi8('&'), lt = _mm_set1_epi8('<'), nlv = _mm_set1_epi8('\n');
+    while (index + 16 <= len) {
+        __m128i block = _mm_loadu_si128((const __m128i *)(data + index));
+        if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)))) {
+            break;
+        }
+        newlines += __builtin_popcount((unsigned)_mm_movemask_epi8(_mm_cmpeq_epi8(block, nlv)));
+        index += 16;
+    }
+#else
+    uint64_t amp = TH_ONES * '&', lt = TH_ONES * '<', nlv = TH_ONES * '\n';
+    while (index + 8 <= len) {
+        uint64_t word;
+        memcpy(&word, data + index, sizeof(word));
+        if (TH_HASZERO(word ^ amp) | TH_HASZERO(word ^ lt)) {
+            break;
+        }
+        newlines += (Py_ssize_t)(((TH_HASZERO(word ^ nlv) >> 7) * TH_ONES) >> 56);
+        index += 8;
+    }
+#endif
+    while (index < len && data[index] != '&' && data[index] != '<') {
+        newlines += data[index] == '\n';
+        index++;
+    }
+    *out_newlines = newlines;
+    /* newlines > 0 guarantees a '\n' lies in [start, index), so the backward walk
+       is bounded by that newline and needs no explicit start guard (the same
+       guaranteed-terminator pattern th_node_doctype_ids uses). */
+    Py_ssize_t last_nl = -1;
+    if (newlines > 0) {
+        last_nl = index - 1;
+        while (data[last_nl] != '\n') {
+            last_nl--;
+        }
+    }
+    *out_last_nl = last_nl;
     return index;
 }
 

@@ -208,11 +208,28 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (at_eof) {
                 EOF_FLUSH();
             }
+#if TH_UCS1
+            /* '\n' is ordinary text in DATA — the only per-newline work is
+               line/column tracking, so a single SIMD pass runs straight through
+               newlines to the next markup (a paragraph between tags becomes one
+               sweep, not one per wrapped line) and folds the newline count and
+               last-newline column in along the way. The wider widths keep the
+               generic newline-stopping scan: they are rarer and the dedicated
+               1-byte pass is where real documents live. */
+            if (ch != '&' && ch != '<') {
+                Py_ssize_t newlines;
+                Py_ssize_t last_nl;
+                Py_ssize_t stop = scan_data_ucs1(self, self->pos, &newlines, &last_nl);
+                text_append_run_lc(self, stop, newlines, last_nl < 0 ? 0 : stop - last_nl - 1);
+                continue;
+            }
+#else
             if (ch != '&' && ch != '<' && ch != '\n') {
                 Py_ssize_t stop = TH_SCAN(self, self->pos + 1, '&', '<', '\n', '\n');
                 text_append_run(self, stop);
                 continue;
             }
+#endif
             if (ch == '&') {
                 text_begin(self);
                 text_materialize(self);
@@ -224,6 +241,15 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->col += consumed;
                 continue;
             }
+#if TH_UCS1
+            /* the run branch consumed every character but '&' and '<', and '&' is
+               handled above, so ch is '<' here: open a tag with no further test
+               (the wider widths still fall through a bare-newline text_push) */
+            MARK();
+            CONSUME();
+            self->state = ST_TAG_OPEN;
+            continue;
+#else
             if (ch == '<') {
                 MARK();
                 CONSUME();
@@ -233,6 +259,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             text_push(self, ch);
             CONSUME();
             continue;
+#endif
 
         case ST_RCDATA:
             if (at_eof) {
