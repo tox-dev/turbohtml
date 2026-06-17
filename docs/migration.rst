@@ -4,8 +4,8 @@
 
 turbohtml replaces the HTML libraries it benchmarks against. None is API-compatible, so porting is a translation:
 turbohtml uses one name per concept and a typed shape where those libraries spread the work across aliases, methods, and
-treebuilder choices. This page maps each library to turbohtml; BeautifulSoup gets the deepest treatment because it
-shares the most surface.
+treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
+<https://www.crummy.com/software/BeautifulSoup/>`_ gets the deepest treatment because it shares the most surface.
 
 ********************
  From BeautifulSoup
@@ -125,7 +125,7 @@ Attributes and text
 
 ``.attrs`` is the single access point; there is no ``tag["x"]`` shortcut, because ``node[i]`` indexes child nodes.
 Multi-valued attributes (``class``, ``rel``, ...) read back as a ``list[str]``, and text is real child nodes (the WHATWG
-DOM shape), so there is no ``.string`` shortcut and no ``lxml``-style ``text``/``tail`` split:
+DOM shape), so there is no ``.string`` shortcut and no `lxml <https://lxml.de>`_-style ``text``/``tail`` split:
 
 .. testcode::
 
@@ -231,9 +231,10 @@ Pitfalls
  From selectolax
 *****************
 
-selectolax wraps the same lexbor engine turbohtml benchmarks against, so the speed is comparable; the move is mostly API
-surface. selectolax searches with CSS only and exposes ``text()`` as a method, while turbohtml adds the
-``find``/``find_all`` filter grammar and makes :attr:`~turbohtml.Node.text` a property.
+`selectolax <https://github.com/rushter/selectolax>`_ wraps the same `lexbor <https://lexbor.com>`_ engine turbohtml
+benchmarks against, so the speed is comparable; the move is mostly API surface. selectolax searches with CSS only and
+exposes ``text()`` as a method, while turbohtml adds the ``find``/``find_all`` filter grammar and makes
+:attr:`~turbohtml.Node.text` a property.
 
 .. list-table::
     :header-rows: 1
@@ -278,9 +279,10 @@ Pitfalls
  From html5lib
 ***************
 
-html5lib runs the same WHATWG algorithm turbohtml does, so the *tree* it produces matches; what changes is that html5lib
-hands you a generic tree you select with a treebuilder (an :mod:`xml.etree.ElementTree` element by default, or DOM, or
-lxml), while turbohtml has one typed hierarchy with navigation, search, and serialization built in.
+`html5lib <https://github.com/html5lib/html5lib-python>`_ runs the same WHATWG algorithm turbohtml does, so the *tree*
+it produces matches; what changes is that html5lib hands you a generic tree you select with a treebuilder (an
+:mod:`xml.etree.ElementTree` element by default, or DOM, or lxml), while turbohtml has one typed hierarchy with
+navigation, search, and serialization built in.
 
 .. list-table::
     :header-rows: 1
@@ -346,8 +348,9 @@ The :doc:`how-to` guide has a worked port.
  From markupsafe
 *****************
 
-``turbohtml.markup`` is a drop-in for markupsafe's public surface, so a Jinja2, WTForms, or Werkzeug project changes
-only the import line:
+``turbohtml.markup`` is a drop-in for `markupsafe <https://markupsafe.palletsprojects.com>`_'s public surface, so a
+`Jinja2 <https://jinja.palletsprojects.com>`_, `WTForms <https://wtforms.readthedocs.io>`_, or `Werkzeug
+<https://werkzeug.palletsprojects.com>`_ project changes only the import line:
 
 .. code-block:: python
 
@@ -392,8 +395,9 @@ register itself as ``markupsafe``, so adoption stays an explicit per-project imp
  From bleach (linkify)
 ***********************
 
-bleach is end of life and has no successor for its linkifier, so ``turbohtml.linkify`` takes its place. The entry points
-keep bleach's names, so the import changes and the common case is identical:
+`bleach <https://github.com/mozilla/bleach>`_ is end of life and has no successor for its linkifier, so
+``turbohtml.linkify`` takes its place. The entry points keep bleach's names, so the import changes and the common case
+is identical:
 
 .. code-block:: python
 
@@ -431,3 +435,34 @@ input; turbohtml leaves an existing ``<a>`` untouched, so linkifying is idempote
 wrote, which is why the callback drops bleach's ``new`` flag. A bare domain such as ``example.com`` links only when its
 last label is a current IANA TLD, from a table you can regenerate, where bleach shipped a frozen list. The scan for link
 candidates runs in C, so linkifying a page is faster than bleach's html5lib-based pass.
+
+********************
+ From linkify-it-py
+********************
+
+`linkify-it-py <https://github.com/tsutsu3/linkify-it-py>`_ scans plain text and returns the link spans it finds;
+turning them into ``<a>`` tags, and skipping text that is already markup, is left to the caller. turbohtml does both.
+Where linkify-it-py hands back ``Match`` objects with ``url`` and offset fields, turbohtml returns the rewritten HTML:
+
+.. code-block:: python
+
+    # linkify-it-py
+    from linkify_it import LinkifyIt
+
+    matches = LinkifyIt().match("see https://example.com")
+    # [Match(url="https://example.com", ...)] or None, and you build the <a> yourself
+
+.. testcode::
+
+    from turbohtml.linkify import linkify
+
+    print(linkify("see https://example.com"))
+
+.. testoutput::
+
+    see <a href="https://example.com" rel="nofollow">https://example.com</a>
+
+Because turbohtml parses the input as HTML, it leaves alone a URL already inside an ``<a>`` or a ``<script>`` that
+linkify-it-py, working on the raw string, would match again. linkify-it-py is configurable down to custom schemes and
+fuzzy IP matching; turbohtml covers the common web, ``mailto:``, and bare-domain cases and trades that breadth for being
+HTML-aware and several times faster.

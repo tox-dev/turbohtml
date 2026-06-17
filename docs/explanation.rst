@@ -7,19 +7,21 @@
 *******************************************
 
 turbohtml parses, queries, edits, and serializes HTML through a fast, typed, WHATWG-conformant core. Reach for it when
-you parse real-world markup and want the tree a browser builds (the html5lib suite passes, so malformed input recovers
-the way it does in a browser rather than the way libxml2 guesses); when speed matters (the :doc:`performance` page has
-the figures); when you want a modern typed API with one name per concept, ``__match_args__`` on every node, and full
-type stubs, alongside the free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a
-drop-in several times faster than the standard library.
+you parse real-world markup and want the tree a browser builds (the `html5lib
+<https://github.com/html5lib/html5lib-python>`_ suite passes, so malformed input recovers the way it does in a browser
+rather than the way libxml2 guesses); when speed matters (the :doc:`performance` page has the figures); when you want a
+modern typed API with one name per concept, ``__match_args__`` on every node, and full type stubs, alongside the
+free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a drop-in several times faster
+than the standard library.
 
 It is the wrong tool in a few honest cases:
 
 - **You need XPath, XSLT, schema validation, or C14N.** turbohtml gives CSS selectors and the ``find`` filter grammar,
-  not XPath, and none of lxml's XML toolchain. Code that leans on those should stay on lxml.
-- **You depend on BeautifulSoup's ecosystem or its forgiving, duck-typed API.** ``bs4`` swaps parser backends,
-  integrates with a long tail of tools, and accepts almost any shape; turbohtml is one conformant parser with a sealed,
-  typed hierarchy. Code written to ``bs4``'s contract needs the :doc:`migration` guide, not a drop-in import.
+  not XPath, and none of `lxml <https://lxml.de>`_'s XML toolchain. Code that leans on those should stay on lxml.
+- **You depend on `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`_'s ecosystem or its forgiving,
+  duck-typed API.** ``bs4`` swaps parser backends, integrates with a long tail of tools, and accepts almost any shape;
+  turbohtml is one conformant parser with a sealed, typed hierarchy. Code written to ``bs4``'s contract needs the
+  :doc:`migration` guide, not a drop-in import.
 - **You need a decades-hardened dependency.** lxml and BeautifulSoup have been battle-tested for years across every
   platform and corner case; turbohtml is young.
 - **HTML is not your bottleneck.** If parsing is a rounding error in your workload, the library you already use is fine.
@@ -71,13 +73,14 @@ longest-prefix matching, numeric references, the Windows-1252 remaps, and the in
 ``U+FFFD`` or the empty string. The test suite checks the C output against the standard library over a large fuzzed
 corpus.
 
-Template engines need a different contract: markupsafe's, where escaping produces a ``Markup`` safe-string that records
-"this is already HTML" and combining it with untrusted text escapes that text. :mod:`turbohtml.markup` is a drop-in for
-markupsafe's public surface, down to the numeric ``&#34;``/``&#39;`` quote references, so a Jinja2 or WTForms project
-migrates by changing the import. It lives in a module apart from :func:`turbohtml.escape` so each stays byte-exact with
-its own target: ``turbohtml.escape`` with the standard library, ``turbohtml.markup.escape`` with markupsafe. turbohtml
-builds the ``Markup`` in C in one call, where markupsafe pays a Python call and a ``Markup`` construction on every
-interpolation, so it runs faster.
+Template engines need a different contract: `markupsafe <https://markupsafe.palletsprojects.com>`_'s, where escaping
+produces a ``Markup`` safe-string that records "this is already HTML" and combining it with untrusted text escapes that
+text. :mod:`turbohtml.markup` is a drop-in for markupsafe's public surface, down to the numeric ``&#34;``/``&#39;``
+quote references, so a `Jinja2 <https://jinja.palletsprojects.com>`_ or `WTForms <https://wtforms.readthedocs.io>`_
+project migrates by changing the import. It lives in a module apart from :func:`turbohtml.escape` so each stays
+byte-exact with its own target: ``turbohtml.escape`` with the standard library, ``turbohtml.markup.escape`` with
+markupsafe. turbohtml builds the ``Markup`` in C in one call, where markupsafe pays a Python call and a ``Markup``
+construction on every interpolation, so it runs faster.
 
 Linkifying needs the same HTML awareness from the other direction. :mod:`turbohtml.linkify` parses the input first, so
 it can see that a URL already sits inside an ``<a>`` or a ``<script>`` and leave it alone, which a regex over the raw
@@ -140,10 +143,10 @@ the adoption agency, foreign content, and the error recovery a browser performs)
 <https://github.com/html5lib/html5lib-tests>`_ tree-construction suite browsers use validates it. The result is the tree
 a browser builds for the same bytes.
 
-turbohtml builds the tree in C as a pointer-linked node graph in a single bump-allocated arena, the layout lexbor, Go's
-``x/net/html``, and html5ever all converge on. It holds **no Python objects**. Element identity is an interned integer
-atom, so every scope and category test in the algorithm is an integer compare rather than a string comparison, and
-freeing the whole tree is one release of the arena rather than a per-node teardown.
+turbohtml builds the tree in C as a pointer-linked node graph in a single bump-allocated arena, the layout `lexbor
+<https://lexbor.com>`_, Go's ``x/net/html``, and html5ever all converge on. It holds **no Python objects**. Element
+identity is an interned integer atom, so every scope and category test in the algorithm is an integer compare rather
+than a string comparison, and freeing the whole tree is one release of the arena rather than a per-node teardown.
 
 turbohtml creates the Python :class:`~turbohtml.Node` objects only for the nodes you touch. Walking into a child or
 sibling allocates one small wrapper that points at the existing arena node; it never copies the subtree. Text payloads
@@ -153,9 +156,9 @@ input string alive for as long as any node reachable from them, so a node extrac
 the document goes out of scope. Building the navigable :class:`~turbohtml.Document` costs about the same as building the
 raw C tree, and the wrappers add cost only for the nodes you touch.
 
-turbohtml parses faster than the C parsers lxml and selectolax, and 30 to 80 times faster than the pure-Python
-BeautifulSoup and html5lib, while building the WHATWG tree that lxml's libxml2 does not; the :doc:`performance` page has
-the per-document figures.
+turbohtml parses faster than the C parsers lxml and `selectolax <https://github.com/rushter/selectolax>`_, and 30 to 80
+times faster than the pure-Python BeautifulSoup and html5lib, while building the WHATWG tree that lxml's libxml2 does
+not; the :doc:`performance` page has the per-document figures.
 
 The node types are a small sealed hierarchy (:class:`~turbohtml.Document`, :class:`~turbohtml.Element`,
 :class:`~turbohtml.Text`, :class:`~turbohtml.Comment`, :class:`~turbohtml.Doctype`,

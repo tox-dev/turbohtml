@@ -232,10 +232,10 @@ times faster.
 *********
 
 :func:`turbohtml.parse` builds a full WHATWG document tree, against the other Python tree builders: `lxml
-<https://lxml.de>`_, `selectolax <https://github.com/rushter/selectolax>`_ (lexbor), `BeautifulSoup
-<https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ over ``html.parser``, and html5lib. turbohtml runs roughly
-two to five times faster than the C parsers and 30 to 80 times faster than the pure-Python ones, while building the
-WHATWG tree that lxml's libxml2 does not.
+<https://lxml.de>`_, `selectolax <https://github.com/rushter/selectolax>`_ (`lexbor <https://lexbor.com>`_),
+`BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ over ``html.parser``, and html5lib. turbohtml
+runs roughly two to five times faster than the C parsers and 30 to 80 times faster than the pure-Python ones, while
+building the WHATWG tree that lxml's libxml2 does not.
 
 .. list-table::
     :header-rows: 1
@@ -331,8 +331,9 @@ several times ahead of selectolax and BeautifulSoup.
       - 46.3 µs
       - 206 µs
 
-``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's ``cssselect``,
-selectolax's ``css``, BeautifulSoup's soupsieve). Because turbohtml compiles the selector against the tree once and then
+``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
+<https://github.com/scrapy/cssselect>`_, selectolax's ``css``, BeautifulSoup's `soupsieve
+<https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector against the tree once and then
 compares interned integer atoms, it runs from twice to over forty times faster than lxml and over a hundred times faster
 than BeautifulSoup.
 

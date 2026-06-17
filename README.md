@@ -9,9 +9,10 @@
 A fast, fully typed HTML toolkit for Python with a C-accelerated core. turbohtml escapes and unescapes HTML to match the
 standard library byte for byte, tokenizes markup with a WHATWG-conformant streaming tokenizer, and parses whole
 documents into a navigable element tree you query with CSS selectors, edit in place, build from scratch, and serialize
-back to conformant HTML. A markupsafe-compatible `turbohtml.markup` covers template autoescaping, and
-`turbohtml.linkify` auto-links URLs and emails the way bleach did. Each operation runs several times faster than its
-pure-Python counterpart and supports the free-threaded build.
+back to conformant HTML. A [markupsafe](https://markupsafe.palletsprojects.com)-compatible `turbohtml.markup` covers
+template autoescaping, and `turbohtml.linkify` auto-links URLs and emails the way
+[bleach](https://github.com/mozilla/bleach) did. Each operation runs several times faster than its pure-Python
+counterpart and supports the free-threaded build.
 
 ## Install
 
@@ -163,13 +164,15 @@ the other C libraries on the read-path benchmarks. Measured with [pyperf](https:
 - `escape` and `unescape` match the standard library byte for byte while running several times faster, up to 22× on
   no-op text and 13× on entity-dense input.
 - `turbohtml.markup.escape` matches markupsafe and runs 2–3× faster on the small strings template autoescaping escapes.
-- `turbohtml.linkify` auto-links HTML 5–20× faster than bleach and 6–11× faster than the plain-text `linkify-it-py`
-  scanner, which only finds links without rewriting them.
+- `turbohtml.linkify` auto-links HTML 5–20× faster than bleach and 6–11× faster than the plain-text
+  [linkify-it-py](https://github.com/tsutsu3/linkify-it-py) scanner, which only finds links without rewriting them.
 - `tokenize` is 9–16× faster than `html.parser` wherever markup appears.
-- `parse` builds a full WHATWG tree 2–5× faster than the C parsers lxml and selectolax, and 30–80× faster than the
-  pure-Python BeautifulSoup and html5lib.
-- `find_all` and CSS `select` run 2–40× faster than lxml's C XPath and cssselect at every size and 100× faster than
-  BeautifulSoup.
+- `parse` builds a full WHATWG tree 2–5× faster than the C parsers [lxml](https://lxml.de) and
+  [selectolax](https://github.com/rushter/selectolax), and 30–80× faster than the pure-Python
+  [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) and
+  [html5lib](https://github.com/html5lib/html5lib-python).
+- `find_all` and CSS `select` run 2–40× faster than lxml's C XPath and [cssselect](https://github.com/scrapy/cssselect)
+  at every size and 100× faster than BeautifulSoup.
 - serializing a tree back to HTML runs 2–4× faster than lxml and selectolax and about 40× faster than BeautifulSoup.
 - building a tree from scratch and editing a parsed one both run about twice as fast as lxml and an order of magnitude
   faster than BeautifulSoup.

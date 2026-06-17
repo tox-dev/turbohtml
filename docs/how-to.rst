@@ -39,7 +39,8 @@ and keep the output smaller:
 
 When you assemble HTML from a mix of trusted markup and untrusted values, use :mod:`turbohtml.markup`. Wrapping a value
 in :class:`~turbohtml.markup.Markup` declares it safe; combining it with plain text escapes that text, so a forgotten
-escape cannot inject markup. It is a drop-in for markupsafe, so a Jinja2 project migrates by changing the import:
+escape cannot inject markup. It is a drop-in for `markupsafe <https://markupsafe.palletsprojects.com>`_, so a `Jinja2
+<https://jinja.palletsprojects.com>`_ project migrates by changing the import:
 
 .. testcode::
 
@@ -507,7 +508,8 @@ children and ``decompose`` drops a subtree:
 ***********************************
 
 Edits can leave a run of adjacent text nodes; :meth:`~turbohtml.Element.normalize` merges each run into one and drops
-empty text nodes, throughout the subtree (the DOM operation BeautifulSoup spells ``smooth``):
+empty text nodes, throughout the subtree (the DOM operation `BeautifulSoup
+<https://www.crummy.com/software/BeautifulSoup/>`_ spells ``smooth``):
 
 .. testcode::
 
@@ -545,10 +547,10 @@ preserve processing instructions and CDATA sections exactly:
  Turn URLs and emails into links
 *********************************
 
-To linkify user-entered text the way ``bleach.linkify`` did, use :func:`turbohtml.linkify.linkify`. It parses the HTML,
-so it links only in text the reader sees, never inside an existing ``<a>``, a ``<script>``, or a tag you list in
-``skip_tags``. Email autolinking is behind ``parse_email`` because not every page wants it. The default ``nofollow``
-callback marks web links, and leaves a ``mailto:`` link alone:
+To linkify user-entered text the way `bleach.linkify <https://github.com/mozilla/bleach>`_ did, use
+:func:`turbohtml.linkify.linkify`. It parses the HTML, so it links only in text the reader sees, never inside an
+existing ``<a>``, a ``<script>``, or a tag you list in ``skip_tags``. Email autolinking is behind ``parse_email``
+because not every page wants it. The default ``nofollow`` callback marks web links, and leaves a ``mailto:`` link alone:
 
 .. testcode::
 
