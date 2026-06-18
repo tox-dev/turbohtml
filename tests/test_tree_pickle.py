@@ -42,6 +42,17 @@ def test_element_with_attributes_and_children_round_trips() -> None:
     assert clone.html == '<div class="card lg" id="x" hidden=""><h2>Title</h2>tail</div>'
 
 
+def test_parser_produced_invalid_tag_name_round_trips() -> None:
+    # the tokenizer keeps a '<' in a tag name ("a<b" from "<a<b>"), a name Element() rejects; pickle
+    # reconstruction must rebuild it through the trusted builder, not the validating constructor (issue #83).
+    element = next(node for node in parse("<a<b>x").descendants if isinstance(node, Element) and "<" in node.tag)
+    assert element.tag == "a<b"
+    clone = _roundtrip(element)
+    assert isinstance(clone, Element)
+    assert clone.tag == "a<b"
+    assert clone.html == element.html
+
+
 def test_nested_pi_and_cdata_survive_pickling() -> None:
     # serialize-and-reparse would fold these; pickling carries the child list
     host = Element("host")
@@ -94,9 +105,20 @@ def test_reconstruct_rejects_malformed_arguments() -> None:
         _reconstruct("not a triple")
 
 
-def test_reconstruct_propagates_construction_errors() -> None:
+def test_reconstruct_accepts_names_the_constructor_rejects() -> None:
     reduced = Element("div").__reduce__()
     assert isinstance(reduced, tuple)
     kind = reduced[1][0]  # the (kind, data, children) payload pickle would store
-    with pytest.raises(ValueError, match="invalid character"):
-        _reconstruct(kind, ("bad tag", {}), [])  # an invalid tag fails element construction
+    # _reconstruct is the trusted pickle hook, so it rebuilds whatever the parser stored,
+    # including a tag name like "a<b" that the validating public Element() rejects (issue #83)
+    node = _reconstruct(kind, ("a<b", {}), [])
+    assert node.tag == "a<b"
+
+
+def test_reconstruct_propagates_a_construction_failure() -> None:
+    reduced = Element("div").__reduce__()
+    kind = reduced[1][0]  # the (kind, data, children) payload pickle would store
+    # a genuinely broken payload still fails: a non-mapping attrs value cannot build an element,
+    # and reconstruction surfaces that error instead of returning a half-built node
+    with pytest.raises(AttributeError):
+        _reconstruct(kind, ("div", 123), [])

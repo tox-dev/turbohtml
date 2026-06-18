@@ -2136,16 +2136,11 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
    whose UTF-8 exceeds this is simply treated as an unknown atom. */
 #define ELEMENT_TAG_LOWER_STACK_BYTES 64
 
-static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"tag", "attrs", NULL};
-    PyObject *tag;
-    PyObject *attrs = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U|O", keywords, &tag, &attrs)) {
-        return NULL;
-    }
-    if (validate_name(tag, 0) < 0) {
-        return NULL;
-    }
+/* Build an Element wrapper for tag with attrs, without the public constructor's
+   name validation. The parser and pickle reconstruction produce tag names (e.g.
+   "a<b" from malformed input) that Element() rejects but that must round-trip
+   unchanged, so the trusted callers reach the element through this helper. */
+static inline PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
     Py_ssize_t tag_len = PyUnicode_GET_LENGTH(tag);
     PyObject *keys = NULL;
     Py_ssize_t attr_count = 0;
@@ -2201,6 +2196,19 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     }
     Py_XDECREF(keys);
     return wrap_fresh_tree_node(state, tree, node);
+}
+
+static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {"tag", "attrs", NULL};
+    PyObject *tag;
+    PyObject *attrs = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U|O", keywords, &tag, &attrs)) {
+        return NULL;
+    }
+    if (validate_name(tag, 0) < 0) {
+        return NULL;
+    }
+    return make_element(type, tag, attrs);
 }
 
 /* Prepare child_obj to become a child of dest_parent in anchor's tree and return
@@ -2921,9 +2929,19 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
     case TH_NODE_PI:
         node = PyObject_CallObject(state->pi_type, data);
         break;
-    case TH_NODE_ELEMENT:
-        node = PyObject_CallObject(state->element_type, data);
+    case TH_NODE_ELEMENT: {
+        /* the parser keeps characters Element() rejects (e.g. "a<b"), so reconstruct
+           through the trusted builder rather than the validating public constructor */
+        PyObject *tag;
+        PyObject *element_attrs;
+        /* GCOVR_EXCL_START: node_reduce builds this (tag, attrs) tuple, so the parse never fails */
+        if (!PyArg_ParseTuple(data, "UO", &tag, &element_attrs)) {
+            return NULL;
+        }
+        /* GCOVR_EXCL_STOP */
+        node = make_element((PyTypeObject *)state->element_type, tag, element_attrs);
         break;
+    }
     case TH_NODE_DOCTYPE:
         node = reconstruct_doctype(state, data);
         break;
