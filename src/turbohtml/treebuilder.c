@@ -2900,8 +2900,11 @@ static void run(th_tree *tree, th_tokenizer *sm, enum mode start_mode) {
                 }
                 if (atom == TH_TAG_HR) {
                     close_p_in_button_scope(tree);
-                    if (has_in_scope(tree, TH_TAG_SELECT)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN); /* closes open option/optgroup */
+                    if (has_in_scope(tree, TH_TAG_SELECT) ||
+                        (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
+                        /* in a select (or a select-context fragment) close the open option/optgroup
+                           first, so the hr lands at select level rather than inside the option */
+                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
                     }
                     insert_element(tree, tok); /* void */
                     break;

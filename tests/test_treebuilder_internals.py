@@ -507,6 +507,15 @@ def test_before_html_end_br_synthesizes_br() -> None:
         ),
         # a non-select-context fragment keeps an optgroup without the select-mode pop
         pytest.param("<optgroup>x", "div", '| <optgroup>\n|   "x"', id="optgroup-in-non-select-fragment"),
+        # an hr in a select-context fragment pops the open option, landing at select level (issue #94)
+        pytest.param(
+            "<option>a<hr><option>b",
+            "select",
+            '| <option>\n|   "a"\n| <hr>\n| <option>\n|   "b"',
+            id="select-hr-pops-option",
+        ),
+        # an hr in a non-select-context fragment is inserted without the select-mode pop
+        pytest.param("<hr>", "div", "| <hr>", id="hr-in-non-select-fragment"),
         pytest.param("  <col>x", "colgroup", "<col>", id="colgroup-whitespace-then-content"),
         pytest.param("<select></select><td>next", "tr", "<td>", id="select-in-cell-resets"),
         pytest.param("<table></table>x", "td", '"x"', id="reset-table-close-td-context"),
