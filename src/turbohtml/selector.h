@@ -3,7 +3,8 @@
    names resolve to interned atoms once and every match is an integer compare.
    Matching is right-to-left with backtracking on the descendant and general
    sibling combinators. This covers the common subset: type, universal, class,
-   id, attribute operators, and the four combinators, grouped by commas. */
+   id, attribute operators, the four combinators, the :is()/:where()/:has()
+   functional pseudo-classes, all grouped by commas. */
 
 #ifndef TURBOHTML_SELECTOR_H
 #define TURBOHTML_SELECTOR_H
@@ -13,8 +14,13 @@
 
 enum sel_attr_op { OP_EXISTS, OP_EQ, OP_INCLUDE, OP_DASH, OP_PREFIX, OP_SUFFIX, OP_SUBSTR };
 
-/* ':' tree-structural pseudo-classes. The nth-* variants carry An+B in nth_a/nth_b;
-   the others have fixed structural meaning. */
+/* The functional pseudo-classes hold a nested selector list built from sel_complex,
+   so the type is forward-declared here. */
+typedef struct sel_complex sel_complex;
+
+/* ':' pseudo-classes. The structural ones have fixed meaning (the nth-* variants
+   carry An+B in nth_a/nth_b); the functional ones (:is/:where/:has) carry a nested
+   selector list in sub. */
 enum sel_pseudo {
     PSEUDO_NONE,
     PSEUDO_ROOT,
@@ -29,6 +35,9 @@ enum sel_pseudo {
     PSEUDO_NTH_LAST_CHILD,
     PSEUDO_NTH_OF_TYPE,
     PSEUDO_NTH_LAST_OF_TYPE,
+    PSEUDO_IS,
+    PSEUDO_WHERE,
+    PSEUDO_HAS,
 };
 
 typedef struct {
@@ -45,6 +54,8 @@ typedef struct {
     Py_ssize_t name_len;  /* also the attribute name for the rare unknown case */
     const Py_UCS4 *value; /* '[': the attribute value */
     Py_ssize_t value_len;
+    sel_complex *sub; /* ':': the nested selector list for :is()/:where()/:has() */
+    int sub_count;    /* ':': number of comma-separated alternatives in sub */
 } sel_simple;
 
 typedef struct {
@@ -53,10 +64,10 @@ typedef struct {
     char combinator; /* ' ', '>', '+', '~': the combinator joining the compound on the left */
 } sel_compound;
 
-typedef struct {
+struct sel_complex {
     sel_compound *compounds; /* left to right; matched from the rightmost (the subject) */
     int count;
-} sel_complex;
+};
 
 typedef struct {
     Py_UCS4 *source; /* an owned copy of the selector text the slices point into */
@@ -414,6 +425,11 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
     sel_skip_ws(parser);
 }
 
+/* Parse the comma-separated selector list inside a :is()/:where()/:has(); defined
+   below, after the complex-selector parser it drives. */
+static int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative);
+static void sel_free_alts(sel_complex *alts, int count);
+
 /* Parse a pseudo-class selector (the leading ':' already consumed). */
 static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
     simple->kind = ':';
@@ -423,7 +439,8 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
     if (parser->error) {
         return;
     }
-    int functional = PSEUDO_NONE;
+    int functional = PSEUDO_NONE; /* an nth-* pseudo-class taking An+B */
+    int listy = PSEUDO_NONE;      /* :is()/:where()/:has() taking a selector list */
     if (sel_kw(name, name_len, "root")) {
         simple->pseudo = PSEUDO_ROOT;
     } else if (sel_kw(name, name_len, "empty")) {
@@ -448,6 +465,12 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
         functional = PSEUDO_NTH_OF_TYPE;
     } else if (sel_kw(name, name_len, "nth-last-of-type")) {
         functional = PSEUDO_NTH_LAST_OF_TYPE;
+    } else if (sel_kw(name, name_len, "is")) {
+        listy = PSEUDO_IS;
+    } else if (sel_kw(name, name_len, "where")) {
+        listy = PSEUDO_WHERE;
+    } else if (sel_kw(name, name_len, "has")) {
+        listy = PSEUDO_HAS;
     } else {
         parser->error = 1; /* an unknown pseudo-class invalidates the selector */
         return;
@@ -468,6 +491,14 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             return;
         }
         parser->pos++;
+    } else if (listy != PSEUDO_NONE) {
+        simple->pseudo = listy;
+        if (parser->pos >= parser->len || parser->src[parser->pos] != '(') {
+            parser->error = 1; /* :is()/:where()/:has() require an argument list */
+            return;
+        }
+        parser->pos++;
+        sel_parse_alts(parser, &simple->sub, &simple->sub_count, 1, listy == PSEUDO_HAS);
     } else if (parser->pos < parser->len && parser->src[parser->pos] == '(') {
         parser->error = 1; /* a non-functional pseudo-class takes no argument list */
         return;
@@ -487,6 +518,8 @@ static void sel_one(sel_parser *parser, sel_simple *simple) {
     simple->name_len = 0;
     simple->value = NULL;
     simple->value_len = 0;
+    simple->sub = NULL;
+    simple->sub_count = 0;
     Py_UCS4 ch = parser->src[parser->pos];
     if (ch == '.' || ch == '#') {
         simple->kind = (char)ch;
@@ -536,32 +569,70 @@ static int sel_compound_parse(sel_parser *parser, sel_simple *buffer, int capaci
     while (parser->pos < parser->len && sel_starts_simple(parser->src[parser->pos])) {
         if (count >= capacity) {
             parser->error = 1;
-            return count;
+            break;
         }
         sel_one(parser, &buffer[count]);
         if (parser->error) {
-            return count;
+            break;
         }
         count++;
     }
     if (count == 0) {
         parser->error = 1;
     }
+    if (parser->error) {
+        /* free the nested lists of the pseudo-classes parsed before the failure; the
+           simple that failed left its own sub NULL (sel_parse_alts cleans up on error) */
+        for (int index = 0; index < count; index++) {
+            if (buffer[index].sub != NULL) {
+                sel_free_alts(buffer[index].sub, buffer[index].sub_count);
+            }
+        }
+        return 0;
+    }
     return count;
 }
 
 /* Parse one complex selector (compounds joined by combinators) into *complex,
    allocating its compounds. Returns 0, or -1 with parser->error set. */
+static void sel_free_alts(sel_complex *alts, int count);
+
 static void free_compounds(sel_compound *compounds, int count) {
     for (int index = 0; index < count; index++) {
+        for (int simple = 0; simple < compounds[index].count; simple++) {
+            if (compounds[index].simples[simple].sub != NULL) { /* a functional pseudo-class's nested list */
+                sel_free_alts(compounds[index].simples[simple].sub, compounds[index].simples[simple].sub_count);
+            }
+        }
         PyMem_Free(compounds[index].simples);
     }
 }
 
-static int sel_complex_parse(sel_parser *parser, sel_complex *complex) {
+/* Free a comma-separated list of complex selectors and the array holding it (used
+   for the top-level compiled selector and every nested :is()/:where()/:has() list). */
+static void sel_free_alts(sel_complex *alts, int count) {
+    for (int index = 0; index < count; index++) {
+        free_compounds(alts[index].compounds, alts[index].count);
+        PyMem_Free(alts[index].compounds);
+    }
+    PyMem_Free(alts);
+}
+
+static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int nested, int relative) {
     sel_compound temp[32];
     int count = 0;
     char combinator = ' ';
+    /* a relative selector (the argument of :has()) may open with a combinator, which
+       joins its first compound to the anchor element instead of a left-hand compound */
+    if (relative) {
+        sel_skip_ws(parser);
+        Py_UCS4 lead = parser->pos < parser->len ? parser->src[parser->pos] : 0;
+        if (lead == '>' || lead == '+' || lead == '~') {
+            combinator = (char)lead;
+            parser->pos++;
+            sel_skip_ws(parser);
+        }
+    }
     while (1) {
         if (count >= 32) {
             parser->error = 1;
@@ -588,7 +659,7 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex) {
             break;
         }
         Py_UCS4 ch = parser->src[parser->pos];
-        if (ch == ',') {
+        if (ch == ',' || (nested && ch == ')')) {
             break;
         }
         if (ch == '>' || ch == '+' || ch == '~') {
@@ -618,14 +689,63 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex) {
     return 0;
 }
 
-static void selector_free(sel_compiled *compiled) {
-    for (int index = 0; index < compiled->count; index++) {
-        for (int inner = 0; inner < compiled->alts[index].count; inner++) {
-            PyMem_Free(compiled->alts[index].compounds[inner].simples);
+/* Parse a comma-separated list of complex selectors into a freshly allocated array.
+   nested stops the list at a closing ')' (the :is()/:where()/:has() argument case)
+   and requires that ')'; relative lets each complex open with a combinator (:has()).
+   Returns 0 with the out parameters set, or -1 with parser->error set. */
+static int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative) {
+    sel_complex temp[64];
+    int count = 0;
+    while (1) {
+        sel_skip_ws(parser);
+        if (count >= 64) {
+            parser->error = 1;
+            break;
         }
-        PyMem_Free(compiled->alts[index].compounds);
+        if (sel_complex_parse(parser, &temp[count], nested, relative) < 0) {
+            break;
+        }
+        count++;
+        sel_skip_ws(parser);
+        if (parser->pos >= parser->len) {
+            if (nested) {
+                parser->error = 1; /* a ':is(...' that never closes its '(' */
+            }
+            break;
+        }
+        if (parser->src[parser->pos] == ',') {
+            parser->pos++;
+            continue;
+        }
+        /* a successful complex stops only at a comma, the end, or -- when nested -- the
+           closing ')' that ends the argument list; consume it and finish */
+        parser->pos++;
+        break;
     }
-    PyMem_Free(compiled->alts);
+    if (parser->error) {
+        for (int index = 0; index < count; index++) {
+            free_compounds(temp[index].compounds, temp[index].count);
+            PyMem_Free(temp[index].compounds);
+        }
+        return -1;
+    }
+    sel_complex *owned = PyMem_Malloc((size_t)count * sizeof(sel_complex));
+    if (owned == NULL) {                              /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        for (int index = 0; index < count; index++) { /* GCOVR_EXCL_LINE: allocation-failure path */
+            free_compounds(temp[index].compounds, temp[index].count); /* GCOVR_EXCL_LINE */
+            PyMem_Free(temp[index].compounds);                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        } /* GCOVR_EXCL_LINE: allocation-failure path */
+        parser->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memcpy(owned, temp, (size_t)count * sizeof(sel_complex));
+    *out_alts = owned;
+    *out_count = count;
+    return 0;
+}
+
+static void selector_free(sel_compiled *compiled) {
+    sel_free_alts(compiled->alts, compiled->count);
     PyMem_Free(compiled->source);
     PyMem_Free(compiled);
 }
@@ -643,50 +763,23 @@ static sel_compiled *selector_compile(th_tree *tree, PyObject *selector_str) {
         return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0};
-    sel_complex temp[64];
-    int count = 0;
-    while (1) {
-        sel_skip_ws(&parser);
-        if (count >= 64) {
-            parser.error = 1;
-            break;
-        }
-        if (sel_complex_parse(&parser, &temp[count]) < 0) {
-            break;
-        }
-        count++;
-        sel_skip_ws(&parser);
-        if (parser.pos >= parser.len) {
-            break;
-        }
-        parser.pos++; /* a successful complex stops only at the end or a comma */
-    }
-    if (parser.error) { /* an empty or malformed selector always sets the error */
-        for (int index = 0; index < count; index++) {
-            free_compounds(temp[index].compounds, temp[index].count);
-            PyMem_Free(temp[index].compounds);
-        }
+    if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0) < 0) {
         PyMem_Free(compiled->source);
         PyMem_Free(compiled);
         PyErr_SetString(PyExc_ValueError, "invalid CSS selector");
         return NULL;
     }
-    compiled->alts = PyMem_Malloc((size_t)count * sizeof(sel_complex));
-    if (compiled->alts == NULL) {                     /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        for (int index = 0; index < count; index++) { /* GCOVR_EXCL_LINE: allocation-failure path */
-            free_compounds(temp[index].compounds, temp[index].count); /* GCOVR_EXCL_LINE */
-            PyMem_Free(temp[index].compounds);                        /* GCOVR_EXCL_LINE: allocation-failure path */
-        } /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(compiled->source);    /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(compiled);            /* GCOVR_EXCL_LINE: allocation-failure path */
-        return (void *)PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    memcpy(compiled->alts, temp, (size_t)count * sizeof(sel_complex));
-    compiled->count = count;
     return compiled;
 }
 
 /* --------------------------------------------------------------- matching */
+
+/* The functional pseudo-classes recurse into the matcher: :is()/:where() test the
+   element against a nested list, and :has() searches for a relative match, so the
+   matching primitives they call are forward-declared here. */
+static int sel_match_compound(th_node *node, const sel_compound *compound);
+static int sel_matches_alts(th_node *node, const sel_complex *alts, int count);
+static int sel_has_match(th_node *anchor, const sel_complex *alts, int count);
 
 static Py_UCS4 sel_fold(Py_UCS4 ch, int ci) {
     return (ci && ch >= 'A' && ch <= 'Z') ? ch + 32 : ch;
@@ -853,8 +946,15 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple) {
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_sibling_index(node, 1, 0));
     case PSEUDO_NTH_OF_TYPE:
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_sibling_index(node, 0, 1));
-    default: /* PSEUDO_NTH_LAST_OF_TYPE */
+    case PSEUDO_NTH_LAST_OF_TYPE:
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_sibling_index(node, 1, 1));
+    /* the functional pseudo-classes: :is()/:where() match the element against the
+       nested list; :has() searches for a relative match anchored at it */
+    case PSEUDO_IS:
+    case PSEUDO_WHERE:
+        return sel_matches_alts(node, simple->sub, simple->sub_count);
+    default: /* PSEUDO_HAS */
+        return sel_has_match(node, simple->sub, simple->sub_count);
     }
 }
 
@@ -921,11 +1021,36 @@ static th_node *sel_prev_element(th_node *node) {
     return NULL;
 }
 
-/* node matches compounds[index]; verify the combinators and compounds to its
-   left, with backtracking on the descendant and general-sibling axes. */
-static int sel_match_from(th_node *node, const sel_complex *complex, int index) {
+/* node matches compounds[index]; verify the combinators and compounds to its left,
+   with backtracking on the descendant and general-sibling axes. anchor is NULL for an
+   ordinary selector (the leftmost compound is the end); for a :has() relative selector
+   it is the element :has() tests, and the leftmost compound's leading combinator must
+   connect to it. The interior-combinator machinery is shared by both. */
+static int sel_match_from(th_node *node, const sel_complex *complex, int index, th_node *anchor) {
     if (index == 0) {
-        return 1;
+        if (anchor == NULL) {
+            return 1;
+        }
+        switch (complex->compounds[0].combinator) {
+        case '>':
+            return node->parent == anchor;
+        case '+':
+            return sel_prev_element(node) == anchor;
+        case '~':
+            for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
+                if (prev == anchor) {
+                    return 1;
+                }
+            }
+            return 0;
+        default: /* descendant */
+            for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+                if (ancestor == anchor) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
     }
     const sel_compound *target = &complex->compounds[index - 1];
     switch (complex->compounds[index].combinator) {
@@ -933,22 +1058,22 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index) 
         /* a matched node is an element, so it always has a parent (the document
            at the root), which sel_match_compound rejects as a non-element */
         th_node *parent = node->parent;
-        return sel_match_compound(parent, target) && sel_match_from(parent, complex, index - 1);
+        return sel_match_compound(parent, target) && sel_match_from(parent, complex, index - 1, anchor);
     }
     case '+': {
         th_node *prev = sel_prev_element(node);
-        return prev != NULL && sel_match_compound(prev, target) && sel_match_from(prev, complex, index - 1);
+        return prev != NULL && sel_match_compound(prev, target) && sel_match_from(prev, complex, index - 1, anchor);
     }
     case '~':
         for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
-            if (sel_match_compound(prev, target) && sel_match_from(prev, complex, index - 1)) {
+            if (sel_match_compound(prev, target) && sel_match_from(prev, complex, index - 1, anchor)) {
                 return 1;
             }
         }
         return 0;
     default: /* descendant */
         for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
-            if (sel_match_compound(ancestor, target) && sel_match_from(ancestor, complex, index - 1)) {
+            if (sel_match_compound(ancestor, target) && sel_match_from(ancestor, complex, index - 1, anchor)) {
                 return 1;
             }
         }
@@ -956,15 +1081,68 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index) 
     }
 }
 
-static int selector_matches(th_node *node, const sel_compiled *compiled) {
-    for (int index = 0; index < compiled->count; index++) {
-        const sel_complex *complex = &compiled->alts[index];
+/* node matches some alternative in alts: it is the subject (rightmost compound) of
+   one complex whose combinators to the left verify. The top-level match and the
+   :is()/:where() pseudo-classes share this. */
+static int sel_matches_alts(th_node *node, const sel_complex *alts, int count) {
+    for (int index = 0; index < count; index++) {
+        const sel_complex *complex = &alts[index];
         int subject = complex->count - 1;
-        if (sel_match_compound(node, &complex->compounds[subject]) && sel_match_from(node, complex, subject)) {
+        if (sel_match_compound(node, &complex->compounds[subject]) && sel_match_from(node, complex, subject, NULL)) {
             return 1;
         }
     }
     return 0;
+}
+
+/* Whether any element in the subtree below node is the subject of rel anchored at
+   anchor (the element :has() is testing), checked recursively in document order. */
+static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if ((sel_match_compound(child, &rel->compounds[subject]) && sel_match_from(child, rel, subject, anchor)) ||
+            sel_has_subtree(child, rel, subject, anchor)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the anchor element satisfies any :has() relative selector. A relative
+   selector reaches the anchor's descendants and, through a leading sibling
+   combinator, its following siblings and their subtrees. */
+static int sel_has_match(th_node *anchor, const sel_complex *alts, int count) {
+    for (int index = 0; index < count; index++) {
+        const sel_complex *rel = &alts[index];
+        int subject = rel->count - 1;
+        if (sel_has_subtree(anchor, rel, subject, anchor)) {
+            return 1;
+        }
+        /* only a leading sibling combinator (:has(+ x) / :has(~ x)) can match outside
+           the anchor's subtree; a descendant or child relative selector cannot, so its
+           following-sibling scan would always fail and is skipped */
+        char lead = rel->compounds[0].combinator;
+        if (lead != '+' && lead != '~') {
+            continue;
+        }
+        for (th_node *sibling = anchor->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+            if (sibling->type != TH_NODE_ELEMENT) {
+                continue;
+            }
+            if ((sel_match_compound(sibling, &rel->compounds[subject]) &&
+                 sel_match_from(sibling, rel, subject, anchor)) ||
+                sel_has_subtree(sibling, rel, subject, anchor)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int selector_matches(th_node *node, const sel_compiled *compiled) {
+    return sel_matches_alts(node, compiled->alts, compiled->count);
 }
 
 /* The lone simple selector of a selector that is one group, one compound, one

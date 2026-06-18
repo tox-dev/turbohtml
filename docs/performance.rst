@@ -389,6 +389,37 @@ than BeautifulSoup.
       - 47.4 µs
       - 2.12 ms
 
+The relational ``:has()`` pseudo-class is the costliest selector to evaluate, since a naive matcher rescans each
+candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and stays ahead of every alternative: roughly
+three times faster than lxml and selectolax on the large page and over a hundred times faster than BeautifulSoup. The
+matcher walks each anchor's descendants once and skips the sibling scan for descendant and child relationships, so the
+relational lookup keeps the same interned-atom comparison the flat selectors use.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18 18
+
+    - - select ``div:has(a)``
+      - turbohtml
+      - lxml
+      - selectolax
+      - BeautifulSoup
+    - - wpt page (4 kB)
+      - 0.8 µs
+      - 16.3 µs
+      - 4.8 µs
+      - 130 µs
+    - - wpt page (9.6 kB)
+      - 0.9 µs
+      - 18.2 µs
+      - 5.8 µs
+      - 154 µs
+    - - wpt page (92 kB)
+      - 11.9 µs
+      - 33.6 µs
+      - 37.8 µs
+      - 1.40 ms
+
 *************
  Serializing
 *************

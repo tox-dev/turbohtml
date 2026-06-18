@@ -363,6 +363,29 @@ def lexbor_select(tree: LexborHTMLParser) -> None:
     tree.css(CSS_SELECTOR)
 
 
+HAS_SELECTOR = "div:has(a)"  # the :has() relational pseudo-class: a div that contains a link
+
+
+def turbo_has_select(doc: Document) -> None:
+    """Run the :has() relational selector with turbohtml's select."""
+    doc.select(HAS_SELECTOR)
+
+
+def bs4_has_select(soup: BeautifulSoup) -> None:
+    """Run the :has() relational selector with BeautifulSoup's soupsieve."""
+    soup.select(HAS_SELECTOR)
+
+
+def lxml_has_select(tree: HtmlElement) -> None:
+    """Run the :has() relational selector with lxml's cssselect."""
+    tree.cssselect(HAS_SELECTOR)
+
+
+def lexbor_has_select(tree: LexborHTMLParser) -> None:
+    """Run the :has() relational selector with selectolax's css."""
+    tree.css(HAS_SELECTOR)
+
+
 def turbo_serialize(doc: Document) -> None:
     """Serialize back to HTML with turbohtml's html property."""
     _ = doc.html
@@ -455,12 +478,12 @@ def print_build_table(means: dict[str, float], cases: list[str]) -> None:
         print(row)
 
 
-# Read-path competitors, fastest-first: a tree builder plus the find/select/serialize trio. turbohtml leads each table.
+# Read-path competitors, fastest-first: a tree builder plus the find/select/serialize/:has ops. turbohtml leads each.
 READPATH_LIBS: tuple[tuple[str, Callable[[str], object], tuple[Callable[..., None], ...]], ...] = (
-    ("turbohtml", turbo_tree, (turbo_find, turbo_select, turbo_serialize)),
-    ("lxml", lxml_tree, (lxml_find, lxml_select, lxml_serialize)),
-    ("selectolax", lexbor_tree, (lexbor_find, lexbor_select, lexbor_serialize)),
-    ("BeautifulSoup", bs4_tree, (bs4_find, bs4_select, bs4_serialize)),
+    ("turbohtml", turbo_tree, (turbo_find, turbo_select, turbo_serialize, turbo_has_select)),
+    ("lxml", lxml_tree, (lxml_find, lxml_select, lxml_serialize, lxml_has_select)),
+    ("selectolax", lexbor_tree, (lexbor_find, lexbor_select, lexbor_serialize, lexbor_has_select)),
+    ("BeautifulSoup", bs4_tree, (bs4_find, bs4_select, bs4_serialize, bs4_has_select)),
 )
 
 # wpt pages from 4 kB to 92 kB; the multi-MB specs are skipped here since every
@@ -876,6 +899,7 @@ def main() -> None:
     parse_cases = run_parse_suite(bench) if "parse" in suites else []
     find_cases = run_readpath_suite(bench, 0, "find") if "query" in suites else []
     select_cases = run_readpath_suite(bench, 1, "select") if "query" in suites else []
+    has_select_cases = run_readpath_suite(bench, 3, "select :has") if "query" in suites else []
     serialize_cases = run_readpath_suite(bench, 2, "serialize") if "serialize" in suites else []
     build_cases = run_build_suite(bench) if "build" in suites else []
     edit_cases = run_edit_suite(bench) if "edit" in suites else []
@@ -890,6 +914,7 @@ def main() -> None:
     print_parse_table(means, parse_cases)
     print_readpath_table(means, "find", find_cases)
     print_readpath_table(means, "select", select_cases)
+    print_readpath_table(means, "select :has", has_select_cases)
     print_readpath_table(means, "serialize", serialize_cases)
     print_build_table(means, build_cases)
     print_edit_table(means, edit_cases)

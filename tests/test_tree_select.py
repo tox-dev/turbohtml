@@ -292,11 +292,90 @@ def test_namespace_prefixed_local_part_decodes_escapes() -> None:
     assert _sel("<root><a>1</a></root>", "*|\\61") == ["a"]
 
 
+_PSEUDO_DOC = (
+    "<main>"
+    '<section id="s">'
+    "<h2>T</h2>"
+    '<p class="lead">one <a href="/x">link</a></p>'
+    "<p>two</p>"
+    '<ul><li>a</li><li class="sel">b</li></ul>'
+    "</section>"
+    '<aside id="a"><span>side</span></aside>'
+    "</main>"
+)
+
+
+@pytest.mark.parametrize(
+    ("selector", "tags"),
+    [
+        # :is() and :where() match any nested alternative; :where() differs only in specificity
+        pytest.param(":is(h2, ul)", ["h2", "ul"], id="is-list"),
+        pytest.param(":IS(h2, ul)", ["h2", "ul"], id="is-uppercase-name"),  # pseudo-class names fold case
+        pytest.param(":where(li)", ["li", "li"], id="where"),
+        pytest.param("section :is(p, a)", ["p", "a", "p"], id="is-after-descendant"),
+        pytest.param(":is(.lead) a", ["a"], id="is-class-then-descendant"),
+        pytest.param("section:is(#s, .none)", ["section"], id="is-compound-subject"),
+        pytest.param(":is(:where(li.sel))", ["li"], id="nested-is-where"),
+        pytest.param(":is(em, strong)", [], id="is-no-match"),
+        # :has() leading combinators: descendant, child, next-sibling, subsequent-sibling
+        pytest.param("section:has(a)", ["section"], id="has-descendant"),
+        pytest.param("section:has(> h2)", ["section"], id="has-child"),
+        pytest.param("section:has(> a)", [], id="has-child-no-match"),
+        pytest.param("h2:has(+ p)", ["h2"], id="has-next-sibling"),
+        pytest.param("h2:has(~ ul)", ["h2"], id="has-subsequent-sibling"),
+        pytest.param("li:has(~ li)", ["li"], id="has-subsequent-sibling-li"),
+        # :has() multi-compound relative selectors exercise the interior combinators
+        pytest.param("section:has(p a)", ["section"], id="has-descendant-chain"),
+        pytest.param("section:has(p > a)", ["section"], id="has-child-chain"),
+        pytest.param("section:has(h2 + p)", ["section"], id="has-next-sibling-chain"),
+        pytest.param("section:has(h2 ~ ul)", ["section"], id="has-subsequent-chain"),
+        # a leading sibling combinator reaches the anchor's following siblings and subtrees
+        pytest.param("section:has(+ aside)", ["section"], id="has-next-sibling-element"),
+        pytest.param("section:has(~ aside span)", ["section"], id="has-sibling-subtree"),
+        # a following sibling matches the subject tag but is not adjacent, so the '+'
+        # chain back to the anchor fails while the sibling walk keeps scanning
+        pytest.param("h2:has(+ ul)", [], id="has-next-sibling-not-adjacent"),
+        pytest.param("aside:has(p)", [], id="has-no-match"),
+        pytest.param("aside:has(+ x)", [], id="has-no-following-sibling"),
+        # no-match cases where the subject is found but its combinator chain does not
+        # reach the anchor, exercising every relative-combinator dead end
+        pytest.param("section:has(~ li)", [], id="has-tilde-subject-is-descendant"),
+        pytest.param("section:has(span)", [], id="has-descendant-in-sibling-subtree"),
+        pytest.param("section:has(li ~ h2)", [], id="has-tilde-chain-no-match"),
+        pytest.param("section:has(ul a)", [], id="has-descendant-chain-no-match"),
+        # an interior compound that matches only an ancestor of the anchor (main is
+        # above section) is not within the anchor's subtree, so :has() does not match
+        pytest.param("section:has(main p)", [], id="has-interior-compound-above-anchor"),
+    ],
+)
+def test_functional_pseudo_classes(selector: str, tags: list[str]) -> None:
+    assert _sel(_PSEUDO_DOC, selector) == tags
+
+
+def test_has_skips_non_element_following_sibling() -> None:
+    # a comment between the anchor and a following sibling must not break :has()
+    doc = parse("<main><section></section><!--c--><aside><b>x</b></aside></main>")
+    assert [element.tag for element in doc.select("section:has(~ aside b)")] == ["section"]
+
+
 @pytest.mark.parametrize(
     "selector",
     [
         pytest.param("", id="empty"),
         pytest.param("  ", id="whitespace"),
+        # functional pseudo-classes (the structural pseudo cases are grouped below)
+        pytest.param(":unknown(p)", id="unsupported-pseudo"),
+        pytest.param(":is", id="is-without-args"),
+        pytest.param(":is(", id="is-unterminated"),
+        pytest.param(":is(p", id="is-unterminated-after-arg"),
+        pytest.param(":is()", id="is-empty-args"),
+        pytest.param(":is(p,)", id="is-trailing-comma"),
+        pytest.param(":is(.)", id="is-invalid-inner"),
+        pytest.param(":is.x", id="pseudo-name-then-non-paren"),
+        pytest.param(":ix(p)", id="pseudo-name-char-mismatch"),
+        pytest.param(":1s(p)", id="pseudo-name-with-digit"),  # a below-'A' byte in the case fold
+        pytest.param(":is(p):has(", id="pseudo-then-failing-pseudo"),
+        pytest.param(":has(>)", id="has-dangling-combinator"),
         # a namespace prefix must be followed by a type or the universal selector
         pytest.param("*|", id="star-prefix-at-eof"),
         pytest.param("|", id="bare-pipe"),

@@ -351,6 +351,24 @@ general-sibling (``~``) combinators, with comma groups:
     b
     ['a']
 
+The Selectors Level 4 functional pseudo-classes are supported too: ``:is()`` and ``:where()`` match an element against a
+nested selector list (they differ only in specificity, which a tree matcher ignores), and ``:has()`` keeps an element
+when a relative selector finds a match anchored at it:
+
+.. testcode::
+
+    page = turbohtml.parse(
+        '<article><h1>Post</h1><figure><img></figure></article>'
+        "<article><h1>Note</h1></article>"
+    )
+    print([a.select_one("h1").text for a in page.select("article:has(img)")])
+    print([e.tag for e in page.select(":is(h1, figure)")])
+
+.. testoutput::
+
+    ['Post']
+    ['h1', 'figure', 'h1']
+
 To test a node you already hold rather than search beneath it, use :meth:`~turbohtml.Node.matches` (does this node
 match) or :meth:`~turbohtml.Node.closest` (the nearest matching self-or-ancestor):
 

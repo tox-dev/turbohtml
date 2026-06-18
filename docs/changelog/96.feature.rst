@@ -1,0 +1,7 @@
+Match the Selectors Level 4 functional pseudo-classes ``:is()``, ``:where()``, and ``:has()`` in
+:meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
+:meth:`~turbohtml.Node.closest`, instead of rejecting them as invalid. ``:is()`` and ``:where()`` match an element
+against a nested selector list (a tree matcher treats them identically, since they differ only in specificity), and
+``:has()`` keeps an element when a relative selector -- with an optional leading ``>``, ``+``, or ``~`` combinator --
+finds a match anchored at it, so ``article:has(> img)`` and ``h2:has(+ p)`` work. The nested lists may themselves nest,
+and matching agrees with soupsieve and lexbor.
