@@ -1,0 +1,42 @@
+name: 📊 escape AVX2 bench
+# TEMPORARY: validates the AVX2 escape perf win on x86 (this repo's dev box is ARM,
+# so AVX2 can only be measured here). Remove before merging the real PR.
+on:
+  push:
+    branches: ["perf/escape-avx2"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bench:
+    name: 🏎️ escape A/B (SSE2 vs AVX2) on x86
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          submodules: true # war-and-peace corpus drives the large-input escape cases
+          persist-credentials: false
+      - name: 🔬 Show CPU features (must list avx2)
+        run: |
+          echo "arch: $(uname -m)"
+          lscpu | grep -i '^Flags' | tr ' ' '\n' | grep -iE 'avx2|avx512|sse2' | sort -u || true
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: 🛠️ Build (release) + bench deps
+        run: |
+          uv venv --python 3.14 .venv
+          uv pip install --python .venv/bin/python pyperf lxml beautifulsoup4 html5lib selectolax nh3 markupsafe bleach cssselect soupsieve linkify-it-py meson meson-python ninja
+          uv pip install --python .venv/bin/python --no-build-isolation -e . --config-settings=setup-args=-Dbuildtype=release
+      - name: 📊 A/B escape (TURBOHTML_NO_AVX2 forces the SSE2 path from the same build)
+        run: |
+          echo "::group::baseline (SSE2)"
+          TURBOHTML_NO_AVX2=1 .venv/bin/python tools/benchmark.py escape -o /tmp/sse2.json
+          echo "::endgroup::"
+          echo "::group::AVX2"
+          .venv/bin/python tools/benchmark.py escape -o /tmp/avx2.json
+          echo "::endgroup::"
+          echo "===================== SSE2 -> AVX2 ====================="
+          .venv/bin/python -m pyperf compare_to /tmp/sse2.json /tmp/avx2.json --table

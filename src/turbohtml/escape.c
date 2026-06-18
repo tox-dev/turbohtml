@@ -12,6 +12,8 @@
 
 #include "turbohtml.h"
 
+#include "escape_shared.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -26,20 +28,27 @@ static inline int ctz64(uint64_t value) {
 #define ctz64(value) __builtin_ctzll(value)
 #endif
 
-static inline Py_ssize_t escape_extra(Py_UCS4 character, int quote) {
-    switch (character) {
-    case '&':
-        return 4; /* "&amp;" replaces one character with five */
-    case '<':
-    case '>':
-        return 3; /* "&lt;" / "&gt;" */
-    case '"':     /* "&quot;" */
-    case '\'':    /* "&#x27;" */
-        return quote ? 5 : 0;
-    default:
-        return 0;
+/* AVX2 32-byte clean-run scan, compiled in its own -mavx2 unit (escape_avx2.c)
+   and linked in only on x86 builds where the compiler accepts -mavx2. The
+   module is built with -DTURBOHTML_HAVE_AVX2 in exactly that case, so these
+   declarations and the runtime dispatch below never reference an undefined
+   symbol on ARM / SWAR / MSVC builds. */
+#if defined(TURBOHTML_HAVE_AVX2)
+Py_ssize_t turbohtml_escape_count_1byte_avx2(const uint8_t *input, Py_ssize_t length, int quote);
+Py_ssize_t turbohtml_escape_write_1byte_avx2(const uint8_t *input, Py_ssize_t length, int out_kind, void *out_data,
+                                             int quote);
+
+/* Use AVX2 when the CPU supports it, resolved once. TURBOHTML_NO_AVX2 forces the
+   SSE2 path so CI can A/B both halves from one build; the env read happens once
+   and the idempotent first-call race writes the same value on every thread. */
+static int escape_use_avx2(void) {
+    static int decision = -1;
+    if (decision < 0) {
+        decision = __builtin_cpu_supports("avx2") && getenv("TURBOHTML_NO_AVX2") == NULL;
     }
+    return decision;
 }
+#endif
 
 #if defined(__aarch64__) || defined(_M_ARM64)
 
@@ -227,47 +236,6 @@ static inline int swar_word_has_special32(const uint32_t *block, int quote) {
     return mask != 0;
 }
 
-static inline Py_ssize_t write_escaped(int kind, void *data, Py_ssize_t offset, Py_UCS4 character, int quote) {
-    const char *replacement = NULL;
-    int replacement_len = 0;
-    switch (character) {
-    case '&':
-        replacement = "&amp;";
-        replacement_len = 5;
-        break;
-    case '<':
-        replacement = "&lt;";
-        replacement_len = 4;
-        break;
-    case '>':
-        replacement = "&gt;";
-        replacement_len = 4;
-        break;
-    case '"':
-        if (quote) {
-            replacement = "&quot;";
-            replacement_len = 6;
-        }
-        break;
-    case '\'':
-        if (quote) {
-            replacement = "&#x27;";
-            replacement_len = 6;
-        }
-        break;
-    default:
-        break;
-    }
-    if (replacement != NULL) {
-        for (int index = 0; index < replacement_len; index++) {
-            PyUnicode_WRITE(kind, data, offset + index, (Py_UCS4)replacement[index]);
-        }
-        return replacement_len;
-    }
-    PyUnicode_WRITE(kind, data, offset, character);
-    return 1;
-}
-
 PyObject *turbohtml_escape(PyObject *Py_UNUSED(module), PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"s", "quote", NULL};
     PyObject *text;
@@ -283,13 +251,20 @@ PyObject *turbohtml_escape(PyObject *Py_UNUSED(module), PyObject *args, PyObject
     Py_ssize_t extra = 0;
     if (kind == PyUnicode_1BYTE_KIND) {
         const uint8_t *input = (const uint8_t *)data;
-        Py_ssize_t pos = 0;
-        while (pos + BLOCK_BYTES <= length) {
-            extra += block_extra(input + pos, quote);
-            pos += BLOCK_BYTES;
-        }
-        for (; pos < length; pos++) {
-            extra += escape_extra(input[pos], quote);
+#if defined(TURBOHTML_HAVE_AVX2)
+        if (escape_use_avx2()) {
+            extra += turbohtml_escape_count_1byte_avx2(input, length, quote);
+        } else
+#endif
+        {
+            Py_ssize_t pos = 0;
+            while (pos + BLOCK_BYTES <= length) {
+                extra += block_extra(input + pos, quote);
+                pos += BLOCK_BYTES;
+            }
+            for (; pos < length; pos++) {
+                extra += escape_extra(input[pos], quote);
+            }
         }
     } else if (kind == PyUnicode_2BYTE_KIND) {
         const uint16_t *input = (const uint16_t *)data;
@@ -339,37 +314,44 @@ PyObject *turbohtml_escape(PyObject *Py_UNUSED(module), PyObject *args, PyObject
 
     if (kind == PyUnicode_1BYTE_KIND) {
         const uint8_t *input = (const uint8_t *)data;
-        uint8_t *output = (uint8_t *)out_data;
-        Py_ssize_t pos = 0;
-        while (pos + BLOCK_BYTES <= length) {
-            uint64_t mask = block_special_mask(input + pos, quote);
-            if (mask == 0) {
-                memcpy(output + written, input + pos, BLOCK_BYTES);
-                written += BLOCK_BYTES;
-            } else {
-                /* copy the gap before each special wholesale, rewrite the
-                   special, then copy whatever trails the last one; the gap
-                   checks keep special-dense input from paying for empty copies */
-                Py_ssize_t prev = 0;
-                do {
-                    Py_ssize_t index = SPECIAL_INDEX(mask);
-                    if (index > prev) {
-                        memcpy(output + written, input + pos + prev, (size_t)(index - prev));
-                        written += index - prev;
+#if defined(TURBOHTML_HAVE_AVX2)
+        if (escape_use_avx2()) {
+            written += turbohtml_escape_write_1byte_avx2(input, length, out_kind, out_data, quote);
+        } else
+#endif
+        {
+            uint8_t *output = (uint8_t *)out_data;
+            Py_ssize_t pos = 0;
+            while (pos + BLOCK_BYTES <= length) {
+                uint64_t mask = block_special_mask(input + pos, quote);
+                if (mask == 0) {
+                    memcpy(output + written, input + pos, BLOCK_BYTES);
+                    written += BLOCK_BYTES;
+                } else {
+                    /* copy the gap before each special wholesale, rewrite the
+                       special, then copy whatever trails the last one; the gap
+                       checks keep special-dense input from paying for empty copies */
+                    Py_ssize_t prev = 0;
+                    do {
+                        Py_ssize_t index = SPECIAL_INDEX(mask);
+                        if (index > prev) {
+                            memcpy(output + written, input + pos + prev, (size_t)(index - prev));
+                            written += index - prev;
+                        }
+                        written += write_escaped(out_kind, out_data, written, input[pos + index], quote);
+                        mask = SPECIAL_CLEAR(mask, index);
+                        prev = index + 1;
+                    } while (mask != 0);
+                    if (BLOCK_BYTES > prev) {
+                        memcpy(output + written, input + pos + prev, (size_t)(BLOCK_BYTES - prev));
+                        written += BLOCK_BYTES - prev;
                     }
-                    written += write_escaped(out_kind, out_data, written, input[pos + index], quote);
-                    mask = SPECIAL_CLEAR(mask, index);
-                    prev = index + 1;
-                } while (mask != 0);
-                if (BLOCK_BYTES > prev) {
-                    memcpy(output + written, input + pos + prev, (size_t)(BLOCK_BYTES - prev));
-                    written += BLOCK_BYTES - prev;
                 }
+                pos += BLOCK_BYTES;
             }
-            pos += BLOCK_BYTES;
-        }
-        for (; pos < length; pos++) {
-            written += write_escaped(out_kind, out_data, written, input[pos], quote);
+            for (; pos < length; pos++) {
+                written += write_escaped(out_kind, out_data, written, input[pos], quote);
+            }
         }
     } else if (kind == PyUnicode_2BYTE_KIND) {
         const uint16_t *input = (const uint16_t *)data;
