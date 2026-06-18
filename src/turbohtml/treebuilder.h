@@ -161,6 +161,12 @@ Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len);
    For a fragment the children of the context root are exposed instead. */
 th_node *th_tree_document(th_tree *tree);
 
+/* The count of dynamic attribute names interned into this tree's table. It only
+   grows, never shrinks, so a change signals that a name a compiled selector once
+   resolved as absent may now exist: a monotonic generation for invalidating a
+   cached compiled selector whose attribute atoms were resolved against the tree. */
+uint32_t th_tree_attr_generation(const th_tree *tree);
+
 /* Materialize one text/comment/doctype node's own character data (realizing a
    zero-copy span on demand) into a freshly PyMem-allocated UCS4 buffer.
    *out_len receives the length; returns NULL on allocation failure. */

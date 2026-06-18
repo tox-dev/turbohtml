@@ -1,0 +1,8 @@
+Accelerate the read path with two per-tree caches that ``find``, ``find_all``, ``select``, and ``select_one`` build
+lazily and reuse. A lazy element index, bucketed by tag atom, lets a whole-document tag or type-subject query enumerate
+just the matching tag's bucket instead of walking every node, and a move-to-front compiled-selector cache reuses a
+parsed selector across repeated calls on the same tree instead of recompiling it each time. The index drops on any
+structural mutation and the selector cache invalidates against the tree's attribute generation, so results stay correct.
+Together they run whole-document ``find``/``select`` two to roughly six times faster on large pages and repeated
+small-document ``select`` calls several times faster, while a query rooted at a subtree or with an unknown subject falls
+back to the original pre-order walk.

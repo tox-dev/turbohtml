@@ -18,6 +18,21 @@
 #include "selector.h"
 #include "treebuilder.h"
 
+/* A per-tree cache of compiled CSS selectors. A repeated select()/select_one()
+   with the same selector string then reuses the parse instead of re-running the
+   UCS4 copy, recursive-descent parse, and allocations on every call. The cache is
+   per tree because attribute atoms resolve against the tree, and is keyed by both
+   the selector str and the tree's attribute generation so a mutation that interns
+   a new attribute name (which could change an "absent" resolution) invalidates a
+   stale entry. Move-to-front, capped, guarded by the handle's critical section. */
+#define SEL_CACHE_CAP 16
+
+typedef struct {
+    PyObject *key;          /* the selector str (a strong reference) */
+    sel_compiled *compiled; /* compiled against this handle's tree */
+    uint32_t attr_gen;      /* tree attribute generation when compiled */
+} sel_cache_entry;
+
 typedef struct {
     PyObject_HEAD th_tree *tree;
     PyObject *source;   /* the input str whose storage the tree's spans borrow */
@@ -30,6 +45,8 @@ typedef struct {
     th_node **index_nodes;
     Py_ssize_t *index_offsets; /* th_tag_count + 2 entries; NULL until built */
     int index_built;
+    sel_cache_entry sel_cache[SEL_CACHE_CAP];
+    int sel_cache_len;
 } HandleObject;
 
 typedef struct {
@@ -1602,7 +1619,7 @@ static int handle_build_index(HandleObject *handle) {
     for (int atom = 0; atom <= th_tag_count; atom++) {
         offsets[atom + 1] += offsets[atom];
     }
-    th_node **nodes = PyMem_Malloc((total > 0 ? (size_t)total : 1) * sizeof(th_node *));
+    th_node **nodes = PyMem_Malloc(((size_t)total + 1) * sizeof(th_node *));
     if (nodes == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(offsets); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1633,9 +1650,6 @@ static int handle_build_index(HandleObject *handle) {
    type selector. Such a selector can enumerate just that atom's index bucket. */
 static uint16_t selector_subject_atom(const sel_compiled *compiled) {
     uint16_t atom = TH_TAG_UNKNOWN;
-    if (compiled->count == 0) {
-        return TH_TAG_UNKNOWN;
-    }
     for (int alt = 0; alt < compiled->count; alt++) {
         const sel_complex *complex = &compiled->alts[alt];
         const sel_compound *subject = &complex->compounds[complex->count - 1];
@@ -1662,6 +1676,21 @@ static int handle_index_usable(HandleObject *handle, th_node *origin) {
     return origin == th_tree_document(handle->tree);
 }
 
+/* Whether an eligible query (a known subject tag, rooted at the document) can read
+   the whole-tree atom index, building it on the first such query and reusing it
+   after. Returns 0 when the query is ineligible, the origin is a subtree, or a
+   build fails (out of memory); the caller then falls back to a pre-order walk. */
+static int handle_use_index(HandleObject *handle, th_node *origin, int eligible) {
+    if (!eligible || !handle_index_usable(handle, origin)) {
+        return 0;
+    }
+    if (handle->index_built) {
+        return 1;
+    }
+    return handle_build_index(handle) ==
+           0; /* GCOVR_EXCL_BR_LINE: an index build only fails on unforceable allocation */
+}
+
 static PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
     query_t query;
     if (build_query(self, args, kwargs, 0, &query) < 0) {
@@ -1677,8 +1706,7 @@ static PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (query_is_simple_tag(&query) && handle_index_usable(handle_obj, origin) &&
-        (handle_obj->index_built || handle_build_index(handle_obj) == 0)) {
+    if (handle_use_index(handle_obj, origin, query_is_simple_tag(&query))) {
         if (handle_obj->index_offsets[query.tag_atom + 1] > handle_obj->index_offsets[query.tag_atom]) {
             found = handle_obj->index_nodes[handle_obj->index_offsets[query.tag_atom]];
         }
@@ -1743,8 +1771,7 @@ static PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs)
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (query_is_simple_tag(&query) && handle_index_usable(handle_obj, origin) &&
-        (handle_obj->index_built || handle_build_index(handle_obj) == 0)) {
+    if (handle_use_index(handle_obj, origin, query_is_simple_tag(&query))) {
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
             if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
@@ -1793,138 +1820,203 @@ static PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs)
     return out;
 }
 
-/* Type-check arg as a str and compile it against self's tree, returning the
-   compiled selector, or NULL with a TypeError or a compile error already set. */
-static sel_compiled *compile_selector_arg(PyObject *self, PyObject *arg) {
+/* Type-check arg as a selector str, returning 0, or -1 with a TypeError set. */
+static int check_selector_arg(PyObject *arg) {
     if (!PyUnicode_Check(arg)) {
         PyErr_SetString(PyExc_TypeError, "selector must be a str");
+        return -1;
+    }
+    return 0;
+}
+
+/* Look up arg in handle's per-tree compiled-selector cache, compiling and
+   inserting on a miss (most recent first, capped at SEL_CACHE_CAP). An entry
+   compiled before a new attribute name was interned is recompiled in place so a
+   once-absent attribute now resolves. The caller must already hold the handle's
+   critical section and have type-checked arg; the returned pointer is borrowed
+   (the cache owns it). Returns NULL with a Python error set on a compile error. */
+static sel_compiled *cached_compile(HandleObject *handle, PyObject *arg) {
+    uint32_t gen = th_tree_attr_generation(handle->tree);
+    for (int index = 0; index < handle->sel_cache_len; index++) {
+        sel_cache_entry entry = handle->sel_cache[index];
+        if (entry.key != arg && PyUnicode_Compare(entry.key, arg) != 0) {
+            continue;
+        }
+        if (entry.attr_gen != gen) {
+            sel_compiled *fresh = selector_compile(handle->tree, arg);
+            if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: recompiling a valid selector fails only on alloc */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            selector_free(entry.compiled);
+            entry.compiled = fresh;
+            entry.attr_gen = gen;
+        }
+        memmove(&handle->sel_cache[1], &handle->sel_cache[0], (size_t)index * sizeof(sel_cache_entry));
+        handle->sel_cache[0] = entry;
+        return entry.compiled;
+    }
+    sel_compiled *compiled = selector_compile(handle->tree, arg);
+    if (compiled == NULL) {
         return NULL;
     }
-    return selector_compile(tree_of(self), arg);
+    if (handle->sel_cache_len == SEL_CACHE_CAP) {
+        sel_cache_entry *evicted = &handle->sel_cache[SEL_CACHE_CAP - 1];
+        selector_free(evicted->compiled);
+        Py_DECREF(evicted->key);
+    } else {
+        handle->sel_cache_len++;
+    }
+    memmove(&handle->sel_cache[1], &handle->sel_cache[0],
+            (size_t)(handle->sel_cache_len - 1) * sizeof(sel_cache_entry));
+    handle->sel_cache[0] = (sel_cache_entry){Py_NewRef(arg), compiled, gen};
+    return compiled;
 }
 
 static PyObject *node_select(PyObject *self, PyObject *arg) {
-    sel_compiled *compiled = compile_selector_arg(self, arg);
-    if (compiled == NULL) {
+    if (check_selector_arg(arg) < 0) {
         return NULL;
     }
     module_state *state = state_of(self);
     PyObject *handle = ((NodeObject *)self)->handle;
     th_node *origin = ((NodeObject *)self)->node;
     PyObject *out = PyList_New(0);
-    if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        selector_free(compiled); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    /* a single simple selector (one group, one compound, one simple) is tested
-       with sel_match_simple directly, skipping the group/combinator machinery */
-    const sel_simple *single = sel_single_simple(compiled);
-    uint16_t subject = selector_subject_atom(compiled);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: a concurrent mutate must not rewire mid-walk */
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (subject != TH_TAG_UNKNOWN && handle_index_usable(handle_obj, origin) &&
-        (handle_obj->index_built || handle_build_index(handle_obj) == 0)) {
-        /* only the candidate subjects need the matcher, drawn in document order
-           from the atom bucket instead of a full pre-order walk */
-        Py_ssize_t end = handle_obj->index_offsets[subject + 1];
-        for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
-            th_node *node = handle_obj->index_nodes[pos];
-            int matched = single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled);
-            if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot fail */
-                error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-        }
+    sel_compiled *compiled = cached_compile(handle_obj, arg);
+    if (compiled == NULL) {
+        error = 1;
     } else {
-        for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
-            if (node->type != TH_NODE_ELEMENT) {
-                continue;
+        /* a single simple selector (one group, one compound, one simple) is tested
+           with sel_match_simple directly, skipping the group/combinator machinery */
+        const sel_simple *single = sel_single_simple(compiled);
+        uint16_t subject = selector_subject_atom(compiled);
+        if (handle_use_index(handle_obj, origin, subject != TH_TAG_UNKNOWN)) {
+            /* only the candidate subjects need the matcher, drawn in document order
+               from the atom bucket instead of a full pre-order walk */
+            Py_ssize_t end = handle_obj->index_offsets[subject + 1];
+            for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
+                th_node *node = handle_obj->index_nodes[pos];
+                int matched = single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled);
+                if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                    break;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
             }
-            int matched = single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled);
-            if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot fail */
-                error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        } else {
+            for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
+                if (node->type != TH_NODE_ELEMENT) {
+                    continue;
+                }
+                int matched = single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled);
+                if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                    break;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
             }
         }
     }
     Py_END_CRITICAL_SECTION();
-    selector_free(compiled);
-    if (error) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_DECREF(out); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (error) {
+        Py_DECREF(out);
+        return NULL;
     }
     return out;
 }
 
 static PyObject *node_select_one(PyObject *self, PyObject *arg) {
-    sel_compiled *compiled = compile_selector_arg(self, arg);
-    if (compiled == NULL) {
+    if (check_selector_arg(arg) < 0) {
         return NULL;
     }
     PyObject *handle = ((NodeObject *)self)->handle;
     th_node *origin = ((NodeObject *)self)->node;
-    const sel_simple *single = sel_single_simple(compiled);
-    uint16_t subject = selector_subject_atom(compiled);
     th_node *found = NULL;
+    int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the walk */
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (subject != TH_TAG_UNKNOWN && handle_index_usable(handle_obj, origin) &&
-        (handle_obj->index_built || handle_build_index(handle_obj) == 0)) {
-        Py_ssize_t end = handle_obj->index_offsets[subject + 1];
-        for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
-            th_node *node = handle_obj->index_nodes[pos];
-            if (single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled)) {
-                found = node;
-                break;
-            }
-        }
+    sel_compiled *compiled = cached_compile(handle_obj, arg);
+    if (compiled == NULL) {
+        error = 1;
     } else {
-        for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
-            if (node->type != TH_NODE_ELEMENT) {
-                continue;
+        const sel_simple *single = sel_single_simple(compiled);
+        uint16_t subject = selector_subject_atom(compiled);
+        if (handle_use_index(handle_obj, origin, subject != TH_TAG_UNKNOWN)) {
+            Py_ssize_t end = handle_obj->index_offsets[subject + 1];
+            for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
+                th_node *node = handle_obj->index_nodes[pos];
+                if (single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled)) {
+                    found = node;
+                    break;
+                }
             }
-            if (single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled)) {
-                found = node;
-                break;
+        } else {
+            for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
+                if (node->type != TH_NODE_ELEMENT) {
+                    continue;
+                }
+                if (single != NULL ? sel_match_simple(node, single) : selector_matches(node, compiled)) {
+                    found = node;
+                    break;
+                }
             }
         }
     }
     Py_END_CRITICAL_SECTION();
-    selector_free(compiled);
-    return node_wrap(state_of(self), ((NodeObject *)self)->handle, found);
+    if (error) {
+        return NULL;
+    }
+    return node_wrap(state_of(self), handle, found);
 }
 
 static PyObject *node_css_matches(PyObject *self, PyObject *arg) {
-    sel_compiled *compiled = compile_selector_arg(self, arg);
-    if (compiled == NULL) {
+    if (check_selector_arg(arg) < 0) {
         return NULL;
     }
+    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *node = ((NodeObject *)self)->node;
-    int matched;
-    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle); /* selector_matches walks ancestors/siblings */
-    matched = node->type == TH_NODE_ELEMENT && selector_matches(node, compiled);
+    int matched = 0;
+    int error = 0;
+    Py_BEGIN_CRITICAL_SECTION(handle); /* selector_matches walks ancestors/siblings */
+    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    if (compiled == NULL) {
+        error = 1;
+    } else {
+        matched = node->type == TH_NODE_ELEMENT && selector_matches(node, compiled);
+    }
     Py_END_CRITICAL_SECTION();
-    selector_free(compiled);
+    if (error) {
+        return NULL;
+    }
     return PyBool_FromLong(matched);
 }
 
 static PyObject *node_css_closest(PyObject *self, PyObject *arg) {
-    sel_compiled *compiled = compile_selector_arg(self, arg);
-    if (compiled == NULL) {
+    if (check_selector_arg(arg) < 0) {
         return NULL;
     }
+    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *found = NULL;
-    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle); /* per-tree lock around the ancestor walk */
-    for (th_node *node = ((NodeObject *)self)->node; node != NULL; node = node->parent) {
-        if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled)) {
-            found = node;
-            break;
+    int error = 0;
+    Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the ancestor walk */
+    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    if (compiled == NULL) {
+        error = 1;
+    } else {
+        for (th_node *node = ((NodeObject *)self)->node; node != NULL; node = node->parent) {
+            if (node->type == TH_NODE_ELEMENT && selector_matches(node, compiled)) {
+                found = node;
+                break;
+            }
         }
     }
     Py_END_CRITICAL_SECTION();
-    selector_free(compiled);
-    return node_wrap(state_of(self), ((NodeObject *)self)->handle, found);
+    if (error) {
+        return NULL;
+    }
+    return node_wrap(state_of(self), handle, found);
 }
 
 /* Map a Formatter member to its enum th_formatter index; absent means the
@@ -2995,6 +3087,10 @@ static PyType_Spec document_spec = {
 static void handle_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     HandleObject *handle = (HandleObject *)self;
+    for (int index = 0; index < handle->sel_cache_len; index++) {
+        selector_free(handle->sel_cache[index].compiled);
+        Py_DECREF(handle->sel_cache[index].key);
+    }
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
     th_tree_free(handle->tree);
