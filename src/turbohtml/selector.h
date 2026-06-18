@@ -18,7 +18,8 @@ typedef struct {
     uint16_t tag_atom;  /* 'e': the tag atom, TH_TAG_UNKNOWN for a name outside the table */
     uint32_t attr_atom; /* '[': the attribute atom, UINT32_MAX when no element has the name */
     enum sel_attr_op op;
-    int ci;               /* '[': matched case-insensitively */
+    int ci;               /* '[': matched case-insensitively (explicit i flag) */
+    int ci_default;       /* '[': name is in the HTML case-insensitive set, no explicit s/i flag */
     const Py_UCS4 *name;  /* class / id / unknown tag name (into the owned source copy) */
     Py_ssize_t name_len;  /* also the attribute name for the rare unknown case */
     const Py_UCS4 *value; /* '[': the attribute value */
@@ -172,6 +173,53 @@ static uint32_t sel_attr_atom(th_tree *tree, const Py_UCS4 *name, Py_ssize_t len
     return th_attr_lookup(tree, bytes, at);
 }
 
+/* The HTML "case-sensitivity of selectors" attribute set: with no explicit s/i
+   flag, an attribute selector on one of these names compares its value ASCII
+   case-insensitively on HTML elements (WHATWG HTML, "Case-sensitivity of
+   selectors"). Kept sorted for the binary search in sel_attr_default_ci. */
+static const char *const SEL_CI_ATTRS[] = {
+    "accept",   "accept-charset", "align",    "alink",      "axis",   "bgcolor",  "charset",   "checked",  "clear",
+    "codetype", "color",          "compact",  "declare",    "defer",  "dir",      "direction", "disabled", "enctype",
+    "face",     "frame",          "hreflang", "http-equiv", "lang",   "language", "link",      "media",    "method",
+    "multiple", "nohref",         "noresize", "noshade",    "nowrap", "readonly", "rel",       "rev",      "rules",
+    "scope",    "scrolling",      "selected", "shape",      "target", "text",     "type",      "valign",   "valuetype",
+    "vlink",
+};
+
+/* Whether an attribute name (lowercased) is in the case-insensitive set. */
+static int sel_attr_default_ci(const Py_UCS4 *name, Py_ssize_t len) {
+    char buf[16]; /* the longest name, accept-charset, is 14 bytes */
+    if (len >= (Py_ssize_t)sizeof(buf)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = name[index];
+        if (ch >= 'A' && ch <= 'Z') {
+            ch += 32;
+        }
+        if (ch >= 0x80) {
+            return 0; /* a non-ASCII name is never in the set */
+        }
+        buf[index] = (char)ch;
+    }
+    buf[len] = '\0';
+    Py_ssize_t lo = 0;
+    Py_ssize_t hi = (Py_ssize_t)(sizeof(SEL_CI_ATTRS) / sizeof(SEL_CI_ATTRS[0]));
+    while (lo < hi) {
+        Py_ssize_t mid = (lo + hi) / 2;
+        int cmp = strcmp(buf, SEL_CI_ATTRS[mid]);
+        if (cmp == 0) {
+            return 1;
+        }
+        if (cmp < 0) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    return 0;
+}
+
 /* Parse a bracketed attribute selector (the leading '[' already consumed). */
 static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     simple->kind = '[';
@@ -237,6 +285,8 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     } else if (parser->pos < parser->len && (parser->src[parser->pos] | 32) == 's') {
         parser->pos++;
         sel_skip_ws(parser);
+    } else if (sel_attr_default_ci(name, name_len)) {
+        simple->ci_default = 1; /* the HTML set defaults to case-insensitive without a flag */
     }
     if (parser->pos >= parser->len || parser->src[parser->pos] != ']') {
         parser->error = 1;
@@ -250,6 +300,7 @@ static void sel_one(sel_parser *parser, sel_simple *simple) {
     simple->tag_atom = TH_TAG_UNKNOWN;
     simple->attr_atom = 0;
     simple->ci = 0;
+    simple->ci_default = 0;
     simple->name = NULL;
     simple->name_len = 0;
     simple->value = NULL;
@@ -480,35 +531,36 @@ static const th_node_attr *sel_find_attr(th_node *node, uint32_t atom) {
     return NULL;
 }
 
-/* Whether the attribute value satisfies the simple's operator and value. */
-static int sel_match_attr_op(const sel_simple *simple, const Py_UCS4 *value, Py_ssize_t value_len) {
+/* Whether the attribute value satisfies the simple's operator and value, folding
+   case per ci (the explicit flag combined with the HTML default-set decision). */
+static int sel_match_attr_op(const sel_simple *simple, const Py_UCS4 *value, Py_ssize_t value_len, int ci) {
     const Py_UCS4 *want = simple->value;
     Py_ssize_t want_len = simple->value_len;
     switch (simple->op) {
     case OP_EXISTS:
         return 1;
     case OP_EQ:
-        return sel_eq(value, value_len, want, want_len, simple->ci);
+        return sel_eq(value, value_len, want, want_len, ci);
     case OP_PREFIX:
-        return want_len > 0 && value_len >= want_len && sel_eq(value, want_len, want, want_len, simple->ci);
+        return want_len > 0 && value_len >= want_len && sel_eq(value, want_len, want, want_len, ci);
     case OP_SUFFIX:
         return want_len > 0 && value_len >= want_len &&
-               sel_eq(value + (value_len - want_len), want_len, want, want_len, simple->ci);
+               sel_eq(value + (value_len - want_len), want_len, want, want_len, ci);
     case OP_DASH:
-        return sel_eq(value, value_len, want, want_len, simple->ci) ||
-               (value_len > want_len && value[want_len] == '-' && sel_eq(value, want_len, want, want_len, simple->ci));
+        return sel_eq(value, value_len, want, want_len, ci) ||
+               (value_len > want_len && value[want_len] == '-' && sel_eq(value, want_len, want, want_len, ci));
     case OP_INCLUDE: {
         if (want_len == 0) {
             return 0;
         }
-        return contains_ws_token(value, value_len, want, want_len, simple->ci);
+        return contains_ws_token(value, value_len, want, want_len, ci);
     }
     default: /* OP_SUBSTR */
         if (want_len == 0) {
             return 0;
         }
         for (Py_ssize_t start = 0; start + want_len <= value_len; start++) {
-            if (sel_eq(value + start, want_len, want, want_len, simple->ci)) {
+            if (sel_eq(value + start, want_len, want, want_len, ci)) {
                 return 1;
             }
         }
@@ -547,7 +599,9 @@ static int sel_match_simple(th_node *node, const sel_simple *simple) {
         }
         const Py_UCS4 *value = attr->value != NULL ? attr->value : simple->value;
         Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
-        return sel_match_attr_op(simple, value, value_len);
+        /* the HTML case-insensitive set applies only to HTML-namespace elements */
+        int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
+        return sel_match_attr_op(simple, value, value_len, ci);
     }
     }
 }

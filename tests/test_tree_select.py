@@ -154,6 +154,23 @@ def test_select_over_doc(selector: str, tags: list[str]) -> None:
         pytest.param('<div class="Az">', r".\41z", ["div"], id="class-hex-escape-stops-at-non-hex"),
         # a trailing backslash escapes U+FFFD
         pytest.param('<div class="x�">', ".x\\", ["div"], id="class-trailing-backslash-is-replacement"),
+        # the WHATWG "case-sensitivity of selectors" set: type/rel/... compare their
+        # value ASCII case-insensitively by default on HTML elements (no flag needed)
+        pytest.param('<input type="TEXT">', "input[type=text]", ["input"], id="ci-attr-set-default"),
+        # an uppercase attribute name in the selector still resolves to the set
+        pytest.param('<input type="x">', "[TYPE=X]", ["input"], id="ci-attr-set-uppercase-name"),
+        pytest.param('<input type="TEXT">', "[type~=text]", ["input"], id="ci-attr-set-include-op"),
+        pytest.param('<input type="TEXT">', "input[type=text s]", [], id="ci-attr-set-s-flag-forces-cs"),
+        # the default applies only to HTML-namespace elements, not foreign ones
+        pytest.param('<svg><rect type="FOO"></rect></svg>', "[type=foo]", [], id="ci-attr-set-not-foreign"),
+        # an attribute outside the set keeps the default case-sensitive comparison
+        pytest.param('<div data-x="ABC"></div>', "[data-x=abc]", [], id="non-ci-attr-stays-cs"),
+        # sel_attr_default_ci rejects a non-ASCII name, an over-long name, and names
+        # that fall before/after the set without matching it
+        pytest.param("<div></div>", "[café=x]", [], id="ci-attr-set-non-ascii-name"),
+        pytest.param("<div></div>", "[abcdefghijklmnopq=x]", [], id="ci-attr-set-overlong-name"),
+        pytest.param("<div></div>", "[aaa=x]", [], id="ci-attr-set-before-set"),
+        pytest.param("<div></div>", "[zzz=x]", [], id="ci-attr-set-after-set"),
     ],
 )
 def test_select_over_custom_html(html: str, selector: str, tags: list[str]) -> None:

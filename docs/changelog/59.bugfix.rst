@@ -1,0 +1,6 @@
+Compare the HTML case-insensitive attribute set case-insensitively in :meth:`~turbohtml.Node.select`/
+:meth:`~turbohtml.Node.select_one` by default. Per the WHATWG "case-sensitivity of selectors" rules, a selector on one
+of a fixed set of attributes (``type``, ``rel``, ``lang``, ``method``, ``charset``, ...) compares its value ASCII
+case-insensitively on HTML elements without an explicit ``i`` flag, so ``input[type=text]`` now matches ``type="TEXT"``.
+An explicit ``s`` flag still forces a case-sensitive comparison, and the default does not apply to foreign (SVG/MathML)
+elements.
