@@ -131,10 +131,9 @@ static PyObject *type_for_node(module_state *state, const th_node *node) {
     return state->node_type;
 }
 
-static PyObject *node_wrap(module_state *state, PyObject *handle, th_node *node) {
-    if (node == NULL) {
-        Py_RETURN_NONE;
-    }
+/* Allocate a fresh wrapper for node and record it as the node's cached wrapper
+   (a borrowed pointer the wrapper clears on dealloc). Caller holds handle's lock. */
+static PyObject *node_wrap_new(module_state *state, PyObject *handle, th_node *node) {
     PyTypeObject *type = (PyTypeObject *)type_for_node(state, node);
     NodeObject *self = (NodeObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -142,12 +141,54 @@ static PyObject *node_wrap(module_state *state, PyObject *handle, th_node *node)
     }
     self->handle = Py_NewRef(handle);
     self->node = node;
+#ifdef Py_GIL_DISABLED
+    PyUnstable_EnableTryIncRef((PyObject *)self); /* let a concurrent lookup safely re-incref it */
+#endif
+    node->py_wrapper = (PyObject *)self;
     return (PyObject *)self;
+}
+
+/* One wrapper per node: reuse the cached one so identity holds (node is node) and
+   hot traversal/query loops don't churn wrapper objects. The cache slot is a
+   borrowed reference guarded by the tree handle's critical section. */
+static PyObject *node_wrap(module_state *state, PyObject *handle, th_node *node) {
+    if (node == NULL) {
+        Py_RETURN_NONE;
+    }
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    PyObject *cached = node->py_wrapper;
+    if (cached != NULL) {
+#ifdef Py_GIL_DISABLED
+        /* the cached wrapper may be mid-dealloc on another thread; only reuse it if
+           we can still take a strong reference, else mint a fresh one */
+        result = PyUnstable_TryIncRef(cached) ? cached : node_wrap_new(state, handle, node);
+#else
+        result = Py_NewRef(cached);
+#endif
+    } else {
+        result = node_wrap_new(state, handle, node);
+    }
+    Py_END_CRITICAL_SECTION();
+    return result;
 }
 
 static void node_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
-    Py_DECREF(((NodeObject *)self)->handle);
+    PyObject *handle = ((NodeObject *)self)->handle;
+    th_node *node = ((NodeObject *)self)->node;
+    /* drop the cache slot if it still points at us (a concurrent lookup may have
+       already replaced it after failing to re-incref this dying wrapper) */
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    /* GCOVR_EXCL_BR_START: the slot only points elsewhere when a concurrent lookup
+       replaced it after failing to re-incref this dying wrapper, which cannot happen
+       on the GIL coverage build (no second thread races the dealloc) */
+    if (node->py_wrapper == self) {
+        node->py_wrapper = NULL;
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    Py_END_CRITICAL_SECTION();
+    Py_DECREF(handle);
     type->tp_free(self);
     Py_DECREF(type);
 }

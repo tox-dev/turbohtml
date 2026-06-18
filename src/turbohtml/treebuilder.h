@@ -78,6 +78,10 @@ struct th_node {
     Py_ssize_t text_len;
     th_node_attr *attrs;
     Py_ssize_t attr_count;
+    /* Borrowed pointer to the live Python wrapper, or NULL. The Python layer caches
+       one wrapper per node here for object identity and to avoid per-access churn;
+       the wrapper clears this on dealloc. The tree engine never touches it. */
+    PyObject *py_wrapper;
 };
 
 typedef struct th_tree th_tree;
