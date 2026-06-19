@@ -9,7 +9,8 @@ source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript spec
 <https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
 <https://github.com/web-platform-tests/wpt>`_ pages. Reproduce any section with ``tox -e bench <suite>``, where the
 suite is one of ``escape``, ``unescape``, ``tokenize``, ``parse``, ``query``, ``xpath``, ``serialize``, ``build``,
-``edit``, ``chain``, ``markup``, ``linkify``, ``markdown``, or ``sanitize``. Numbers vary with input and hardware.
+``edit``, ``chain``, ``htmlparser``, ``markup``, ``linkify``, ``markdown``, or ``sanitize``. Numbers vary with input and
+hardware.
 
 **********
  Escaping
@@ -702,3 +703,29 @@ starts from one node, so it runs roughly ten times faster.
     - - wpt page (92 kB)
       - 21.2 µs
       - 257 µs
+
+*********************
+ html.parser adapter
+*********************
+
+:class:`turbohtml.html_parser.HTMLParser` against the standard library's :class:`python:html.parser.HTMLParser`, both
+subclassed with the same minimal handler so the comparison is the parser and dispatch cost for the identical
+callback-driven programming model. The per-tag Python handler call is a floor both pay, so the margin is narrower than
+raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it three to four times faster.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 36 36
+
+    - - feed and dispatch a page
+      - turbohtml
+      - html.parser
+    - - wpt page (4 kB)
+      - 40.9 µs
+      - 175 µs
+    - - wpt page (9.6 kB)
+      - 89.8 µs
+      - 401 µs
+    - - wpt page (92 kB)
+      - 1.43 ms
+      - 4.32 ms

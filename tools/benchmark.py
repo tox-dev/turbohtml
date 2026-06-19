@@ -57,6 +57,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 import turbohtml
 from turbohtml import sanitizer as turbo_sanitizer
+from turbohtml.html_parser import HTMLParser as TurboHTMLParser
 from turbohtml.linkify import linkify as turbo_linkify_html
 from turbohtml.markup import escape as turbo_markup_escape
 from turbohtml.query import Query as TurboQuery
@@ -625,6 +626,88 @@ def print_chain_table(means: dict[str, float], cases: list[str]) -> None:
         row = f"{'chain ' + name:28} {turbo * 1e6:8.1f} us"
         for label in others:
             other = means.get(f"chain {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+        print(row)
+
+
+# --- htmlparser suite: callback-driven parsing, the html.parser model ------- #
+# turbohtml's html.parser adapter against the standard library's HTMLParser, both
+# subclassed with the same minimal handler, so the comparison is the parser and
+# dispatch cost for an identical callback API rather than the handler body.
+
+
+class _TurboCounter(TurboHTMLParser):
+    """A turbohtml adapter subclass whose handler does minimal, identical work."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        super().__init__()
+        self.work = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Tally a start tag and its attributes."""
+        self.work += len(tag) + len(attrs)
+
+
+class _StdlibCounter(HTMLParser):
+    """A stdlib HTMLParser subclass doing the same minimal work."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        super().__init__()
+        self.work = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Tally a start tag and its attributes."""
+        self.work += len(tag) + len(attrs)
+
+
+def turbo_htmlparser(text: str) -> None:
+    """Drive turbohtml's html.parser adapter with the counting handler."""
+    parser = _TurboCounter()
+    parser.feed(text)
+    parser.close()
+
+
+def stdlib_htmlparser(text: str) -> None:
+    """Drive the standard library's HTMLParser with the same counting handler."""
+    parser = _StdlibCounter()
+    parser.feed(text)
+    parser.close()
+
+
+# Callback-parser competitors; only turbohtml and the standard library offer the
+# subclass-and-override html.parser programming model.
+HTMLPARSER_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_htmlparser),
+    ("html.parser", stdlib_htmlparser),
+)
+
+
+def run_htmlparser_suite(bench: Callable[[str, object, object], None]) -> list[str]:
+    """Benchmark callback-driven parsing across every library; return the case names."""
+    names: list[str] = []
+    for name, path, enc in READPATH_CASES:
+        text = corpus_text(path, enc)
+        for label, parse_fn in HTMLPARSER_LIBS:
+            bench(f"htmlparser {name} [{label}]", parse_fn, text)
+        names.append(name)
+    return names
+
+
+def print_htmlparser_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render turbohtml's adapter beside the standard library and its slowdown factor."""
+    if not cases:
+        return
+    others = [label for label, _ in HTMLPARSER_LIBS if label != "turbohtml"]
+    print()
+    header = f"{'htmlparser benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+    print(header)
+    for name in cases:
+        turbo = means[f"htmlparser {name} [turbohtml]"]
+        row = f"{'htmlparser ' + name:28} {turbo * 1e6:8.1f} us"
+        for label in others:
+            other = means.get(f"htmlparser {name} [{label}]")
             row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
         print(row)
 
@@ -1322,7 +1405,19 @@ def run_string_suites(bench: Callable[[str, object, object], None], suites: set[
     return rows
 
 
-def main() -> None:  # noqa: PLR0914  # one local per suite's collected cases; the orchestration is flat by design
+# Suites whose runner returns a case list and whose table takes (means, cases); the
+# orchestration drives them through this table instead of a line apiece.
+SIMPLE_SUITES: tuple[tuple[str, Callable[..., list[str]], Callable[[dict[str, float], list[str]], None]], ...] = (
+    ("build", run_build_suite, print_build_table),
+    ("edit", run_edit_suite, print_edit_table),
+    ("chain", run_chain_suite, print_chain_table),
+    ("htmlparser", run_htmlparser_suite, print_htmlparser_table),
+    ("markup", run_markup_suite, print_markup_table),
+    ("minify", run_minify_suite, print_minify_table),
+)
+
+
+def main() -> None:
     """Run all cases under pyperf and print the speedup table in the parent."""
     runner = pyperf.Runner()
     runner.argparser.add_argument(
@@ -1340,6 +1435,7 @@ def main() -> None:  # noqa: PLR0914  # one local per suite's collected cases; t
             "build",
             "edit",
             "chain",
+            "htmlparser",
             "markup",
             "minify",
             "linkify",
@@ -1358,7 +1454,7 @@ def main() -> None:  # noqa: PLR0914  # one local per suite's collected cases; t
     suites = set(
         os.environ.get(
             "TURBOHTML_BENCH_SUITES",
-            "escape,unescape,tokenize,corpus,parse,query,xpath,serialize,build,edit,chain,markup,minify,linkify,markdown,sanitize",
+            "escape,unescape,tokenize,corpus,parse,query,xpath,serialize,build,edit,chain,htmlparser,markup,minify,linkify,markdown,sanitize",
         ).split(",")
     )
     means: dict[str, float] = {}
@@ -1375,11 +1471,7 @@ def main() -> None:  # noqa: PLR0914  # one local per suite's collected cases; t
     xpath_cases = run_xpath_suite(bench) if "xpath" in suites else ([], [])
     xpath_feature_cases = run_xpath_feature_suite(bench) if "xpath" in suites else []
     serialize_cases = run_readpath_suite(bench, 2, "serialize") if "serialize" in suites else []
-    build_cases = run_build_suite(bench) if "build" in suites else []
-    edit_cases = run_edit_suite(bench) if "edit" in suites else []
-    chain_cases = run_chain_suite(bench) if "chain" in suites else []
-    markup_cases = run_markup_suite(bench) if "markup" in suites else []
-    minify_cases = run_minify_suite(bench) if "minify" in suites else []
+    simple_cases = {name: run_fn(bench) for name, run_fn, _ in SIMPLE_SUITES if name in suites}
     if "linkify" in suites:
         run_linkify_suite(bench)
     if "markdown" in suites:
@@ -1396,11 +1488,8 @@ def main() -> None:  # noqa: PLR0914  # one local per suite's collected cases; t
     print_xpath_table(means, xpath_cases)
     print_xpath_feature_table(means, xpath_feature_cases)
     print_readpath_table(means, "serialize", serialize_cases)
-    print_build_table(means, build_cases)
-    print_edit_table(means, edit_cases)
-    print_chain_table(means, chain_cases)
-    print_markup_table(means, markup_cases)
-    print_minify_table(means, minify_cases)
+    for name, _, print_fn in SIMPLE_SUITES:
+        print_fn(means, simple_cases.get(name, []))
     print_linkify_table(means, LINKIFY_CASE_NAMES if "linkify" in suites else [])
     print_markdown_table(means, MARKDOWN_CASE_NAMES if "markdown" in suites else [])
     print_text_table(means, TEXT_CASE_NAMES if "markdown" in suites else [])
