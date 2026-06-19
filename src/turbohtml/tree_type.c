@@ -15,6 +15,7 @@
 
 #include "ascii.h"
 #include "encoding.h"
+#include "encoding_detect.h"
 #include "selector.h"
 #include "treebuilder.h"
 #include "xpath.h"
@@ -5326,7 +5327,7 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
    prescan, then windows-1252), decode with that codec replacing malformed bytes,
    and parse the resulting str. The decoded str is retained as the tree's source. */
 static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *enc_arg, Py_ssize_t enc_len, int strict,
-                             int positions) {
+                             int detect, int positions) {
     Py_buffer view;
     if (PyObject_GetBuffer(markup, &view, PyBUF_SIMPLE) < 0) { /* GCOVR_EXCL_BR_LINE: bytes expose a simple buffer */
         return NULL;                                           /* GCOVR_EXCL_LINE: buffer-acquisition failure */
@@ -5340,6 +5341,10 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     }
     if (entry == NULL) {
         entry = th_encoding_prescan(bytes, len);
+    }
+    if (entry == NULL && detect) {
+        /* opt-in content-based detection, strictly after the spec sniffing steps */
+        entry = th_encoding_detect(bytes, len);
     }
     if (entry == NULL) {
         entry = th_encoding_lookup("windows-1252", 12);
@@ -5392,14 +5397,15 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
-    static char *keywords[] = {"markup", "encoding", "strict", "positions", NULL};
+    static char *keywords[] = {"markup", "encoding", "strict", "detect_encoding", "positions", NULL};
     PyObject *markup;
     const char *enc_arg = NULL;
     Py_ssize_t enc_len = 0;
     int strict = 0;
+    int detect = 0;
     int positions = 1;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$z#pp:parse", keywords, &markup, &enc_arg, &enc_len, &strict,
-                                     &positions)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$z#ppp:parse", keywords, &markup, &enc_arg, &enc_len, &strict,
+                                     &detect, &positions)) {
         return NULL;
     }
     module_state *state = PyModule_GetState(module);
@@ -5418,7 +5424,7 @@ PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
         PyErr_SetString(PyExc_TypeError, "parse() argument must be str or a bytes-like object");
         return NULL;
     }
-    return parse_bytes(state, markup, enc_arg, enc_len, strict, positions);
+    return parse_bytes(state, markup, enc_arg, enc_len, strict, detect, positions);
 }
 
 PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObject *kwargs) {

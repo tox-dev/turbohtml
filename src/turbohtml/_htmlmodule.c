@@ -40,10 +40,13 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            "capture_source true every markup token records its verbatim source\n"
                            "(Token.source).");
 
-PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, positions=True)\n--\n\n"
+PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True)\n--\n\n"
                         "Parse a whole HTML document with the WHATWG tree-construction algorithm\n"
                         "and return a navigable Document. markup is a str, or bytes whose encoding\n"
-                        "is sniffed (the encoding argument, a <meta> charset, then windows-1252).\n\n"
+                        "is sniffed (the encoding argument, a <meta> charset, then windows-1252).\n"
+                        "detect_encoding=True adds a content-based detection step after the <meta>\n"
+                        "prescan and before the windows-1252 fallback, used only when those spec\n"
+                        "steps yield no encoding; a declared, <meta>, or BOM encoding always wins.\n\n"
                         "The recovered parse errors are on Document.errors; with strict=True the\n"
                         "first one is raised as HTMLParseError instead. positions records each\n"
                         "element's source_line/source_col; pass False to skip it when memory or\n"

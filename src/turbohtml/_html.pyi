@@ -426,7 +426,12 @@ class IncrementalParser:
     def __exit__(self, *exc: object) -> None: ...
 
 def parse(
-    markup: str | bytes, *, encoding: str | None = None, strict: bool = False, positions: bool = True
+    markup: str | bytes,
+    *,
+    encoding: str | None = None,
+    strict: bool = False,
+    detect_encoding: bool = False,
+    positions: bool = True,
 ) -> Document: ...
 def parse_fragment(html: str, context: str = "div", *, positions: bool = True) -> Element: ...
 def _parse_tree(html: str, /) -> str: ...
