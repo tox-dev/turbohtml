@@ -20,3 +20,9 @@ A companion :meth:`~turbohtml.Node.to_text` exports layout-aware plain text, the
 and -- most visibly -- tables laid out as a column-aligned grid, all in the same single C walk. Options control link
 display (hidden, inline, or numbered footnotes), image alt text, the CSS profile, the table cell separator, the bullet,
 and an optional word-wrap width.
+
+:meth:`~turbohtml.Node.to_annotated_text` adds inscriptis's annotation role: given an ``annotation_rules`` mapping it
+returns the rendered text together with ``(start, end, label)`` spans over its code-point offsets, so a labeling or
+information-extraction pipeline keeps the visual layout and the markup-derived labels in one pass. Rule keys take the
+inscriptis ``tag``, ``tag#attr``, ``tag#attr=value``, ``#attr`` and ``#attr=value`` forms, and every ``to_text`` option
+applies.

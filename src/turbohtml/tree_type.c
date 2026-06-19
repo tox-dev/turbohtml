@@ -674,6 +674,145 @@ static PyObject *node_to_text(PyObject *self, PyObject *args, PyObject *kwds) {
     return result;
 }
 
+/* Parse one annotation_rules entry ("tag", "tag#attr", "tag#attr=value", or
+   "#attr...") into a text_rule. The attr name borrows the key's UTF-8 (the dict
+   outlives the call); a value token is copied to *value_out (the caller frees it)
+   and the labels tuple to *labels_out (the caller releases it). */
+static int text_parse_rule(PyObject *key, PyObject *value, text_rule *rule, PyObject **labels_out,
+                           Py_UCS4 **value_out) {
+    if (!PyUnicode_Check(key)) {
+        PyErr_SetString(PyExc_TypeError, "annotation_rules keys must be strings");
+        return -1;
+    }
+    if (PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError, "annotation_rules values must be a list of labels, not a string");
+        return -1;
+    }
+    Py_ssize_t klen;
+    const char *kb = PyUnicode_AsUTF8AndSize(key, &klen);
+    if (kb == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate key cannot be built from a real parse */
+        return -1;    /* GCOVR_EXCL_LINE: encoding-failure path */
+    }
+    const char *hash = memchr(kb, '#', (size_t)klen);
+    Py_ssize_t taglen = hash != NULL ? hash - kb : klen;
+    rule->any_tag = taglen == 0;
+    rule->tag_atom = rule->any_tag ? TH_TAG_UNKNOWN : th_tag_lookup(kb, taglen);
+    rule->attr = NULL;
+    rule->attr_len = 0;
+    rule->value = NULL;
+    rule->value_len = 0;
+    if (hash != NULL) {
+        const char *spec = hash + 1;
+        Py_ssize_t speclen = klen - taglen - 1;
+        const char *eq = memchr(spec, '=', (size_t)speclen);
+        rule->attr = spec;
+        rule->attr_len = eq != NULL ? eq - spec : speclen;
+        if (eq != NULL) {
+            PyObject *vstr = PyUnicode_FromStringAndSize(eq + 1, speclen - rule->attr_len - 1);
+            if (vstr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            Py_UCS4 *vbuf = PyUnicode_AsUCS4Copy(vstr);
+            rule->value_len = PyUnicode_GET_LENGTH(vstr);
+            Py_DECREF(vstr);
+            if (vbuf == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            *value_out = vbuf;
+            rule->value = vbuf;
+        }
+    }
+    PyObject *labels = PySequence_Tuple(value);
+    if (labels == NULL) {
+        return -1;
+    }
+    *labels_out = labels;
+    rule->labels = labels;
+    return 0;
+}
+
+PyDoc_STRVAR(to_annotated_text_doc,
+             "to_annotated_text(annotation_rules, *, width=0, links='none', images=False, layout='extended', "
+             "default_image_alt='', table_cell_separator='  ', bullet='* ')\n--\n\n"
+             "Render layout-aware text and, for every element matching a rule in\n"
+             "annotation_rules, record a labeled span over its text. Returns\n"
+             "(text, [(start, end, label), ...]). Spans inside table cells are not recorded.");
+
+static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject *kwds) {
+    text_opts opt = th_text_default_opts();
+    PyObject *rules_dict, *links = NULL, *layout = NULL;
+    static char *kw[] = {"annotation_rules",     "width",  "links", "images", "layout", "default_image_alt",
+                         "table_cell_separator", "bullet", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|$iOpOsss", kw, &rules_dict, &opt.width, &links, &opt.images,
+                                     &layout, &opt.default_image_alt, &opt.cell_separator, &opt.bullet)) {
+        return NULL;
+    }
+    if (!PyDict_Check(rules_dict)) {
+        PyErr_SetString(PyExc_TypeError, "annotation_rules must be a dict");
+        return NULL;
+    }
+    static const char *const link_modes[] = {"none", "inline", "footnote"};
+    static const char *const layouts[] = {"strict", "extended"};
+    if (md_resolve_enum("links", links, link_modes, 3, &opt.links) < 0 ||
+        md_resolve_enum("layout", layout, layouts, 2, &opt.extended) < 0) {
+        return NULL;
+    }
+    Py_ssize_t n = PyDict_Size(rules_dict);
+    text_rule *rules = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(text_rule));
+    PyObject **labels = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(PyObject *));
+    Py_UCS4 **values = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(Py_UCS4 *));
+    if (rules == NULL || labels == NULL || values == NULL) { /* GCOVR_EXCL_BR_LINE: cannot force an alloc failure */
+        PyMem_Free(rules);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(labels);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(values);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *key, *value;
+    Py_ssize_t pos = 0, r = 0;
+    int failed = 0;
+    while (PyDict_Next(rules_dict, &pos, &key, &value)) {
+        if (text_parse_rule(key, value, &rules[r], &labels[r], &values[r]) < 0) {
+            failed = 1;
+            break;
+        }
+        r++;
+    }
+    PyObject *result = NULL;
+    if (!failed) {
+        text_span *spans = NULL;
+        Py_ssize_t span_count = 0, out_len = 0;
+        Py_UCS4 *data;
+        Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+        data = th_node_annotated_text(tree_of(self), ((NodeObject *)self)->node, &opt, rules, n, &spans, &span_count,
+                                      &out_len);
+        Py_END_CRITICAL_SECTION();
+        if (data == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        } /* GCOVR_EXCL_LINE: merge of the unreachable alloc-failure block */
+        /* data is NULL only on an alloc failure, so the NULL arms are unreachable */
+        PyObject *text = data != NULL ? ucs4_to_str(data, out_len) : NULL;   /* GCOVR_EXCL_BR_LINE */
+        PyObject *label_list = data != NULL ? PyList_New(span_count) : NULL; /* GCOVR_EXCL_BR_LINE */
+        if (text != NULL && label_list != NULL) { /* GCOVR_EXCL_BR_LINE: only an alloc failure makes either NULL */
+            for (Py_ssize_t i = 0; i < span_count; i++) {
+                PyList_SET_ITEM(label_list, i, Py_BuildValue("nnO", spans[i].start, spans[i].end, spans[i].label));
+            }
+            result = PyTuple_Pack(2, text, label_list);
+        }
+        Py_XDECREF(text);
+        Py_XDECREF(label_list);
+        PyMem_Free(data);
+        PyMem_Free(spans);
+    }
+    for (Py_ssize_t i = 0; i < r; i++) {
+        Py_XDECREF(labels[i]);
+        PyMem_Free(values[i]);
+    }
+    PyMem_Free(rules);
+    PyMem_Free(labels);
+    PyMem_Free(values);
+    return result;
+}
+
 static PyGetSetDef node_getset[] = {
     {"parent", node_get_parent, NULL, "the parent Element or Document, or None for the document root", NULL},
     {"children", node_get_children, NULL, "the child nodes as a tuple", NULL},
@@ -905,6 +1044,8 @@ static PyMethodDef node_methods[] = {
     {"encode", (PyCFunction)(void (*)(void))node_encode, METH_VARARGS | METH_KEYWORDS, encode_doc},
     {"to_markdown", (PyCFunction)(void (*)(void))node_to_markdown, METH_VARARGS | METH_KEYWORDS, to_markdown_doc},
     {"to_text", (PyCFunction)(void (*)(void))node_to_text, METH_VARARGS | METH_KEYWORDS, to_text_doc},
+    {"to_annotated_text", (PyCFunction)(void (*)(void))node_to_annotated_text, METH_VARARGS | METH_KEYWORDS,
+     to_annotated_text_doc},
     {"insert_before", node_insert_before, METH_VARARGS, insert_before_doc},
     {"insert_after", node_insert_after, METH_VARARGS, insert_after_doc},
     {"replace_with", node_replace_with, METH_VARARGS, replace_with_doc},

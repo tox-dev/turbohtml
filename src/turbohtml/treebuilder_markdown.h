@@ -1240,7 +1240,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
 
 /* Trim whitespace off the finished buffer in place per the document_strip mode:
    both ends, the left only, the right only, or neither. */
-static void md_trim(sbuf *out, int mode) {
+static Py_ssize_t md_trim(sbuf *out, int mode) {
     Py_ssize_t start = 0;
     if (mode == TH_MD_DOC_STRIP || mode == TH_MD_DOC_LSTRIP) {
         /* strip leading blank lines only; block content never starts with a space
@@ -1259,6 +1259,7 @@ static void md_trim(sbuf *out, int mode) {
         memmove(out->data, out->data + start, (size_t)(end - start) * sizeof(Py_UCS4));
     }
     out->len = end - start;
+    return start; /* how many leading code points were removed, to shift annotations */
 }
 
 /* Append the collected reference definitions ("[n]: url \"title\"") after the

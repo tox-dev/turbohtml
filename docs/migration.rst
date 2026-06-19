@@ -1115,6 +1115,40 @@ The ``ParserConfig`` options map as:
     - - (no equivalent)
       - ``width`` adds word wrapping, which inscriptis leaves to the caller
 
+inscriptis can also tag the rendered text with labeled spans through ``get_annotated_text`` and an ``annotation_rules``
+mapping. :meth:`~turbohtml.Node.to_annotated_text` is the same call: it returns the rendered text together with a list
+of ``(start, end, label)`` triples over its code-point offsets, taking every ``to_text`` option as well.
+
+.. code-block:: python
+
+    # inscriptis
+    from inscriptis import get_annotated_text, ParserConfig
+
+    rules = {"h1": ["heading"], "b": ["emphasis"]}
+    get_annotated_text(html, ParserConfig(annotation_rules=rules))
+
+    # turbohtml
+    turbohtml.parse(html).to_annotated_text(rules)
+
+.. testcode::
+
+    text, labels = parse("<h1>Title</h1><p>Some <b>bold</b> words.</p>").to_annotated_text(
+        {"h1": ["heading"], "b": ["emphasis"]}
+    )
+    print(text)
+    print([(label, text[start:end]) for start, end, label in labels])
+
+.. testoutput::
+
+    Title
+
+    Some bold words.
+    [('heading', 'Title'), ('emphasis', 'bold')]
+
+Rule keys follow inscriptis: a bare tag (``"h1"``), a ``tag#attr`` to require an attribute, a ``tag#attr=value`` to
+match one whitespace-separated token of it, and the tag-less ``#attr`` / ``#attr=value`` forms to match across any tag.
+The value is the list of labels to attach.
+
 Pitfalls
 ========
 
@@ -1122,4 +1156,5 @@ Pitfalls
   for numbered references collected at the end.
 - ``to_text`` renders structure, not styling: there is no bold or color, and headings are plain text. For the raw
   concatenation with no layout at all, read :attr:`~turbohtml.Node.text`.
-- The annotation API (inscriptis's ``get_annotated_text`` and ``annotation_rules``) is not ported.
+- Annotation offsets count code points into the returned string; a table cell is labeled at its position in the laid-out
+  grid, so the span covers the cell's column-aligned text rather than the source order.

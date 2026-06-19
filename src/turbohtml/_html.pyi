@@ -252,6 +252,19 @@ class Node:
         table_cell_separator: str = "  ",
         bullet: str = "* ",
     ) -> str: ...
+    def to_annotated_text(
+        self,
+        annotation_rules: Mapping[str, Sequence[str]],
+        /,
+        *,
+        width: int = 0,
+        links: Literal["none", "inline", "footnote"] = "none",
+        images: bool = False,
+        layout: Literal["extended", "strict"] = "extended",
+        default_image_alt: str = "",
+        table_cell_separator: str = "  ",
+        bullet: str = "* ",
+    ) -> tuple[str, list[tuple[int, int, str]]]: ...
     def insert_before(self, *nodes: Node) -> None: ...
     def insert_after(self, *nodes: Node) -> None: ...
     def replace_with(self, *nodes: Node) -> None: ...

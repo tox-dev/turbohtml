@@ -26,6 +26,13 @@ typedef struct {
     Py_ssize_t url_len;
 } text_reference;
 
+/* One open annotation: where the matching element's text began, and the rule
+   whose labels close over it. */
+typedef struct {
+    Py_ssize_t start;
+    const text_rule *rule;
+} text_active;
+
 typedef struct {
     sbuf out;
     th_tree *tree;
@@ -34,6 +41,15 @@ typedef struct {
     text_reference *refs; /* footnote-link targets */
     Py_ssize_t ref_count;
     Py_ssize_t ref_cap;
+    const text_rule *rules; /* annotation rules, or NULL when not annotating */
+    Py_ssize_t n_rules;
+    text_span *spans; /* recorded labeled spans */
+    Py_ssize_t span_count;
+    Py_ssize_t span_cap;
+    text_active *active; /* annotations open at the current depth */
+    Py_ssize_t active_count;
+    Py_ssize_t active_cap;
+    int annotate_off; /* suppress span recording (inside a table cell) */
     int started;
     int line_has_content;
     int column;        /* visible width on the current line, for word wrapping */
@@ -150,6 +166,111 @@ static void text_put_literal(text_ctx *ctx, const char *s) {
     ctx->line_has_content = 1;
 }
 
+/* Whether an element matches an annotation rule: the tag (or any tag) and, when
+   the rule has an attribute condition, that the attribute is present and -- when
+   a value is given -- carries it as a whitespace-separated token. */
+static int text_rule_matches(text_ctx *ctx, th_node *node, const text_rule *rule) {
+    if (!rule->any_tag && (node->ns != TH_NS_HTML || node->atom != rule->tag_atom)) {
+        return 0;
+    }
+    if (rule->attr == NULL) {
+        return 1;
+    }
+    Py_ssize_t idx = th_node_attr_find(ctx->tree, node, rule->attr, rule->attr_len);
+    if (idx < 0 || node->attrs[idx].value == NULL) {
+        return 0;
+    }
+    if (rule->value == NULL) {
+        return 1;
+    }
+    const Py_UCS4 *av = node->attrs[idx].value;
+    Py_ssize_t avlen = node->attrs[idx].value_len;
+    Py_ssize_t i = 0;
+    while (i < avlen) {
+        while (i < avlen && md_is_ws(av[i])) {
+            i++;
+        }
+        Py_ssize_t start = i;
+        while (i < avlen && !md_is_ws(av[i])) {
+            i++;
+        }
+        if (i - start == rule->value_len &&
+            memcmp(&av[start], rule->value, (size_t)rule->value_len * sizeof(Py_UCS4)) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Record a labeled span over [start, end), trimming surrounding whitespace, one
+   entry per label the rule carries. */
+static void text_record_span(text_ctx *ctx, Py_ssize_t start, Py_ssize_t end, PyObject *labels) {
+    while (start < end && md_is_ws(ctx->out.data[start])) {
+        start++;
+    }
+    while (end > start && md_is_ws(ctx->out.data[end - 1])) {
+        end--;
+    }
+    if (start >= end) {
+        return; /* an element with no visible text (or only whitespace) gets no span */
+    }
+    Py_ssize_t n = PyTuple_GET_SIZE(labels);
+    for (Py_ssize_t i = 0; i < n; i++) {
+        if (ctx->span_count == ctx->span_cap) {
+            Py_ssize_t cap = ctx->span_cap ? ctx->span_cap * 2 : 8;
+            text_span *grown = PyMem_Realloc(ctx->spans, (size_t)cap * sizeof(text_span));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            ctx->spans = grown;
+            ctx->span_cap = cap;
+        }
+        ctx->spans[ctx->span_count].start = start;
+        ctx->spans[ctx->span_count].end = end;
+        ctx->spans[ctx->span_count].label = PyTuple_GET_ITEM(labels, i);
+        ctx->span_count++;
+    }
+}
+
+/* Open a span for every rule this element matches, returning how many; the cursor
+   offset now is each span's start. */
+static Py_ssize_t text_open_annotations(text_ctx *ctx, th_node *node) {
+    if (ctx->rules == NULL || ctx->annotate_off) {
+        return 0;
+    }
+    Py_ssize_t opened = 0;
+    for (Py_ssize_t r = 0; r < ctx->n_rules; r++) {
+        if (!text_rule_matches(ctx, node, &ctx->rules[r])) {
+            continue;
+        }
+        if (ctx->active_count == ctx->active_cap) {
+            Py_ssize_t cap = ctx->active_cap ? ctx->active_cap * 2 : 8;
+            text_active *grown = PyMem_Realloc(ctx->active, (size_t)cap * sizeof(text_active));
+            if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return opened;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            ctx->active = grown;
+            ctx->active_cap = cap;
+        }
+        ctx->active[ctx->active_count].start = ctx->out.len;
+        ctx->active[ctx->active_count].rule = &ctx->rules[r];
+        ctx->active_count++;
+        opened++;
+    }
+    return opened;
+}
+
+/* Close the opened spans, recording each over the text emitted since it opened. */
+static void text_close_annotations(text_ctx *ctx, Py_ssize_t opened) {
+    for (Py_ssize_t i = 0; i < opened; i++) {
+        ctx->active_count--;
+        text_active *a = &ctx->active[ctx->active_count];
+        text_record_span(ctx, a->start, ctx->out.len, a->rule->labels);
+    }
+}
+
 static void text_render_inline(text_ctx *ctx, th_node *node);
 static void text_emit_text2(text_ctx *ctx, const char *s);
 
@@ -202,15 +323,7 @@ static void text_emit_image(text_ctx *ctx, th_node *node) {
 static void text_render_block(text_ctx *ctx, th_node *node);
 static void text_block_children(text_ctx *ctx, th_node *node);
 
-static void text_render_inline(text_ctx *ctx, th_node *node) {
-    if (node->type == TH_NODE_TEXT) {
-        text_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
-        return;
-    }
-    if (node->type != TH_NODE_ELEMENT && node->type != TH_NODE_CONTENT) {
-        return;
-    }
-    uint16_t atom = node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN;
+static void text_render_inline_element(text_ctx *ctx, th_node *node, uint16_t atom) {
     if (atom == TH_TAG_A) {
         text_emit_link(ctx, node);
         return;
@@ -229,11 +342,25 @@ static void text_render_inline(text_ctx *ctx, th_node *node) {
     if (is_md_skipped(atom)) {
         return;
     }
-    if (is_md_block(atom)) {
-        text_render_block(ctx, node);
+    text_inline_children(ctx, node);
+}
+
+static void text_render_inline(text_ctx *ctx, th_node *node) {
+    if (node->type == TH_NODE_TEXT) {
+        text_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
         return;
     }
-    text_inline_children(ctx, node);
+    if (node->type != TH_NODE_ELEMENT && node->type != TH_NODE_CONTENT) {
+        return;
+    }
+    uint16_t atom = node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN;
+    if (is_md_block(atom)) {
+        text_render_block(ctx, node); /* text_render_block opens its own annotation */
+        return;
+    }
+    Py_ssize_t opened = text_open_annotations(ctx, node);
+    text_render_inline_element(ctx, node, atom);
+    text_close_annotations(ctx, opened);
 }
 
 /* Emit an ASCII option string (a default image alt) through the word machinery
@@ -388,7 +515,11 @@ static void text_cell_text(text_ctx *ctx, th_node *node, sbuf *dst) {
     ctx->line_has_content = 1;
     ctx->column = 0;
     ctx->space_pending = 0;
+    /* a cell renders into a throwaway buffer, so its offsets do not map to the
+       grid; suppress span recording and let the placement loop annotate cells */
+    ctx->annotate_off++;
     text_inline_children(ctx, node);
+    ctx->annotate_off--;
     sbuf rendered = ctx->out;
     PyMem_Free(ctx->prefix.data);
     ctx->out = saved_out;
@@ -445,12 +576,14 @@ static void text_render_table(text_ctx *ctx, th_node *node) {
     }
     sbuf *grid = PyMem_Calloc((size_t)(count * columns), sizeof(sbuf));
     Py_ssize_t *widths = PyMem_Calloc((size_t)columns, sizeof(Py_ssize_t));
-    if (grid == NULL || widths == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(grid);                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(widths);               /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(rows);                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        ctx->out.failed = 1;              /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;                           /* GCOVR_EXCL_LINE: allocation-failure path */
+    th_node **cells = PyMem_Calloc((size_t)(count * columns), sizeof(th_node *));
+    if (grid == NULL || widths == NULL || cells == NULL) { /* GCOVR_EXCL_BR_LINE: cannot force an allocation failure */
+        PyMem_Free(grid);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(widths);                                /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(cells);                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(rows);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->out.failed = 1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t r = 0; r < count; r++) {
         Py_ssize_t col = 0;
@@ -459,6 +592,7 @@ static void text_render_table(text_ctx *ctx, th_node *node) {
                 continue;
             }
             text_cell_text(ctx, cell, &grid[r * columns + col]);
+            cells[r * columns + col] = cell;
             if (grid[r * columns + col].len > widths[col]) {
                 widths[col] = grid[r * columns + col].len;
             }
@@ -475,7 +609,11 @@ static void text_render_table(text_ctx *ctx, th_node *node) {
                 text_emit_ascii(ctx, ctx->opt->cell_separator);
             }
             sbuf *cell = &grid[r * columns + c];
+            th_node *cell_node = cells[r * columns + c];
+            /* annotate the cell element over its placed (not throwaway) text */
+            Py_ssize_t opened = cell_node != NULL ? text_open_annotations(ctx, cell_node) : 0;
             sbuf_put_run(&ctx->out, cell->data, cell->len);
+            text_close_annotations(ctx, opened);
             /* the last column needs no padding: nothing follows it on the line */
             if (c + 1 < columns) {
                 for (Py_ssize_t pad = cell->len; pad < widths[c]; pad++) {
@@ -490,6 +628,7 @@ static void text_render_table(text_ctx *ctx, th_node *node) {
     }
     PyMem_Free(grid);
     PyMem_Free(widths);
+    PyMem_Free(cells);
     PyMem_Free(rows);
 }
 
@@ -516,7 +655,7 @@ static void text_render_pre(text_ctx *ctx, th_node *node) {
     PyMem_Free(text);
 }
 
-static void text_render_block(text_ctx *ctx, th_node *node) {
+static void text_render_block_inner(text_ctx *ctx, th_node *node) {
     uint16_t atom = node->atom;
     switch (atom) {
     case TH_TAG_UL:
@@ -557,6 +696,12 @@ static void text_render_block(text_ctx *ctx, th_node *node) {
     }
 }
 
+static void text_render_block(text_ctx *ctx, th_node *node) {
+    Py_ssize_t opened = text_open_annotations(ctx, node);
+    text_render_block_inner(ctx, node);
+    text_close_annotations(ctx, opened);
+}
+
 static void text_flush_references(text_ctx *ctx) {
     if (ctx->ref_count == 0) {
         return;
@@ -573,23 +718,53 @@ static void text_flush_references(text_ctx *ctx) {
     }
 }
 
+/* Walk node into ctx (the dispatch shared by the plain and annotated entries). */
+static void text_render_root(text_ctx *ctx, th_node *node) {
+    sbuf_presize_for_root(&ctx->out, ctx->tree, node);
+    if (node->type == TH_NODE_TEXT) {
+        ctx->started = 1;
+        ctx->line_has_content = 1;
+        text_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
+    } else if (is_md_block(node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN)) {
+        text_render_block(ctx, node);
+    } else {
+        text_block_children(ctx, node);
+    }
+    text_flush_references(ctx);
+}
+
 Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt, Py_ssize_t *out_len) {
     text_ctx ctx = {0};
     ctx.tree = tree;
     ctx.opt = opt;
-    sbuf_presize_for_root(&ctx.out, tree, node);
-    if (node->type == TH_NODE_TEXT) {
-        ctx.started = 1;
-        ctx.line_has_content = 1;
-        text_emit_text(&ctx, need_text(tree, node), node->text_len);
-    } else if (is_md_block(node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN)) {
-        text_render_block(&ctx, node);
-    } else {
-        text_block_children(&ctx, node);
-    }
-    text_flush_references(&ctx);
+    text_render_root(&ctx, node);
     PyMem_Free(ctx.prefix.data);
     PyMem_Free(ctx.refs);
     md_trim(&ctx.out, TH_MD_DOC_STRIP);
+    return sbuf_finish(&ctx.out, out_len);
+}
+
+Py_UCS4 *th_node_annotated_text(th_tree *tree, th_node *node, const text_opts *opt, const text_rule *rules,
+                                Py_ssize_t n_rules, text_span **out_spans, Py_ssize_t *out_span_count,
+                                Py_ssize_t *out_len) {
+    text_ctx ctx = {0};
+    ctx.tree = tree;
+    ctx.opt = opt;
+    ctx.rules = rules;
+    ctx.n_rules = n_rules;
+    text_render_root(&ctx, node);
+    PyMem_Free(ctx.prefix.data);
+    PyMem_Free(ctx.refs);
+    PyMem_Free(ctx.active);
+    /* the doc-strip removes leading blank lines, shifting every offset back by the
+       same amount; record_span already trimmed each span to non-blank bounds, so
+       the trailing strip never lands inside one and no clamping is needed */
+    Py_ssize_t front = md_trim(&ctx.out, TH_MD_DOC_STRIP);
+    for (Py_ssize_t i = 0; i < ctx.span_count; i++) {
+        ctx.spans[i].start -= front;
+        ctx.spans[i].end -= front;
+    }
+    *out_spans = ctx.spans;
+    *out_span_count = ctx.span_count;
     return sbuf_finish(&ctx.out, out_len);
 }

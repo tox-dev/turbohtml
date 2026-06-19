@@ -747,6 +747,37 @@ guide maps each old option to its turbohtml name.
 Links are hidden by default; pass ``links="inline"`` to append ``text (url)``, ``links="footnote"`` for numbered
 references, ``images=True`` to show alt text, and ``width`` to word-wrap.
 
+********************************
+ Label spans of the export text
+********************************
+
+To pull labeled regions out of the rendered text -- the role inscriptis fills with ``annotation_rules`` -- call
+:meth:`~turbohtml.Node.to_annotated_text` with a rule mapping. It returns the same text :meth:`~turbohtml.Node.to_text`
+would, plus a list of ``(start, end, label)`` triples whose offsets index into that text, and it accepts every
+``to_text`` option as well:
+
+.. testcode::
+
+    import turbohtml
+    text, labels = turbohtml.parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text(
+        {"h1": ["heading"], "b": ["metric"]}
+    )
+    print(text)
+    for start, end, label in labels:
+        print(label, "->", repr(text[start:end]))
+
+.. testoutput::
+
+    Q3
+
+    Up 12% on the year.
+    heading -> 'Q3'
+    metric -> '12%'
+
+A rule key is a tag (``"b"``), a ``tag#attr`` requiring the attribute, a ``tag#attr=value`` matching one
+whitespace-separated token, or the tag-less ``#attr`` / ``#attr=value`` to match across any tag; its value is the list
+of labels to attach.
+
 ************************************
  Parse bytes of an unknown encoding
 ************************************

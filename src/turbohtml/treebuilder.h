@@ -298,6 +298,38 @@ text_opts th_text_default_opts(void);
    NULL on allocation failure. */
 Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt, Py_ssize_t *out_len);
 
+/* One annotation rule (the inscriptis annotation_rules surface): match an element
+   by tag and, optionally, by an attribute whose value contains a token, and
+   attach its labels to the element's text span. any_tag matches every tag (the
+   "#attr" form); attr/value NULL means no attribute condition. labels is a
+   borrowed tuple of str the binding keeps alive for the call. */
+typedef struct {
+    uint16_t tag_atom;
+    int any_tag;
+    const char *attr;
+    Py_ssize_t attr_len;
+    const Py_UCS4 *value;
+    Py_ssize_t value_len;
+    PyObject *labels;
+} text_rule;
+
+/* A labeled span of the rendered text: code-point offsets [start, end) and the
+   label (a borrowed str). */
+typedef struct {
+    Py_ssize_t start;
+    Py_ssize_t end;
+    PyObject *label;
+} text_span;
+
+/* Render node as layout text (as th_node_layout_text) while recording, for every
+   element matching a rule, a labeled span over its rendered text. *out_spans
+   receives a PyMem-allocated array of *out_span_count spans (offsets into the
+   returned text); the caller frees it. Spans inside table cells are not recorded.
+   NULL on allocation failure. */
+Py_UCS4 *th_node_annotated_text(th_tree *tree, th_node *node, const text_opts *opt, const text_rule *rules,
+                                Py_ssize_t n_rules, text_span **out_spans, Py_ssize_t *out_span_count,
+                                Py_ssize_t *out_len);
+
 /* The doctype's public and system identifiers as slices of the node's own text;
    returns 1 with the four out params set when present, 0 for a name-only doctype. */
 int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *public_len, const Py_UCS4 **system_id,
