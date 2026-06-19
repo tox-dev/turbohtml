@@ -426,64 +426,73 @@ longer builds on a current toolchain. turbohtml is the maintained, mutable, type
 Each library parses the document once, then the timed call runs one query. ``find`` collects every ``<a>`` element the
 way each library reaches for it (turbohtml's :meth:`~turbohtml.Node.find_all`, lxml's XPath ``findall``, selectolax's
 and BeautifulSoup's selectors). A tag-only query resolves the name to an interned atom and walks the subtree comparing
-integers, with no per-element string built and no matcher dispatch, so it runs ahead of lxml's C XPath engine and
-several times ahead of selectolax and BeautifulSoup.
+integers, with no per-element string built and no matcher dispatch, so it runs ahead of lxml's C XPath engine and many
+times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector library), and BeautifulSoup.
 
 .. list-table::
     :header-rows: 1
-    :widths: 28 18 18 18 18
+    :widths: 26 15 15 15 15 15
 
     - - find every <a>
       - turbohtml
       - lxml
       - selectolax
+      - parsel
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 0.2 µs
+      - 0.1 µs
       - 0.5 µs
       - 2.4 µs
-      - 5.9 µs
+      - 4.0 µs
+      - 6.1 µs
     - - wpt page (9.6 kB)
-      - 0.3 µs
-      - 0.6 µs
-      - 2.8 µs
+      - 0.1 µs
+      - 0.5 µs
+      - 2.7 µs
+      - 4.4 µs
       - 9.5 µs
     - - wpt page (92 kB)
-      - 15.7 µs
-      - 24.6 µs
-      - 46.3 µs
-      - 206 µs
+      - 2.0 µs
+      - 24.2 µs
+      - 47.1 µs
+      - 82.1 µs
+      - 212 µs
 
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
-<https://github.com/scrapy/cssselect>`_, selectolax's ``css``, BeautifulSoup's `soupsieve
+<https://github.com/scrapy/cssselect>`_, selectolax's ``css``, parsel's ``css``, BeautifulSoup's `soupsieve
 <https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector against the tree once and then
-compares interned integer atoms, it runs from twice to over forty times faster than lxml and over a hundred times faster
-than BeautifulSoup.
+compares interned integer atoms, a reused query costs tens of nanoseconds: hundreds of times faster than lxml and parsel
+(which re-translate the selector to XPath on every call) and over a thousand times faster than BeautifulSoup, narrowing
+to roughly twenty times on the largest page where the document walk dominates.
 
 .. list-table::
     :header-rows: 1
-    :widths: 28 18 18 18 18
+    :widths: 26 15 15 15 15 15
 
     - - select ``div a[href]``
       - turbohtml
       - lxml
       - selectolax
+      - parsel
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 0.3 µs
-      - 15.1 µs
+      - 0.04 µs
+      - 15.5 µs
       - 2.5 µs
-      - 41.9 µs
+      - 7.4 µs
+      - 45.1 µs
     - - wpt page (9.6 kB)
-      - 0.4 µs
-      - 16.9 µs
-      - 3.0 µs
-      - 64.3 µs
+      - 0.04 µs
+      - 17.4 µs
+      - 3.3 µs
+      - 8.6 µs
+      - 66.5 µs
     - - wpt page (92 kB)
-      - 12.7 µs
-      - 33.2 µs
-      - 47.4 µs
-      - 2.12 ms
+      - 2.0 µs
+      - 39.1 µs
+      - 46.4 µs
+      - 26.8 µs
+      - 2.11 ms
 
 The relational ``:has()`` pseudo-class is the costliest selector to evaluate, since a naive matcher rescans each
 candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and stays ahead of every alternative: roughly

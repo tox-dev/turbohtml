@@ -442,11 +442,9 @@ Performance
 
 parsel translates every ``.css()`` query to XPath with `cssselect <https://github.com/scrapy/cssselect>`_ and evaluates
 it on libxml2, building a fresh ``SelectorList`` on each call. turbohtml compiles a selector against the tree once and
-then matches by comparing interned integer atoms, so the same query runs several times faster end to end and an order of
-magnitude faster when it is reused against an already-parsed tree. The :doc:`performance` page's *Querying* table
-measures turbohtml's :meth:`~turbohtml.Node.select` at two to over forty times faster than lxml's ``cssselect`` -- the
-engine parsel itself runs on -- so a parsel-to-turbohtml port keeps that margin and removes parsel's per-call
-``SelectorList`` overhead on top.
+then matches by comparing interned integer atoms, so a reused query costs tens of nanoseconds. The :doc:`performance`
+page's *Querying* table benchmarks parsel directly: ``select`` on the ``div a[href]`` query runs roughly thirteen to two
+hundred times faster in turbohtml, and the tag-only ``find`` runs tens of times faster.
 
 Pitfalls
 ========
