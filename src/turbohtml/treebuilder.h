@@ -83,9 +83,11 @@ struct th_node {
 typedef struct th_tree th_tree;
 
 /* Parse a whole document. kind/data/length are a borrowed PyUnicode buffer that
-   must outlive the returned tree (its slice text points into it). Returns NULL
-   only on allocation failure (no Python error is set). */
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length);
+   must outlive the returned tree (its slice text points into it). positions
+   records each element's source line/column (read via th_node_source_position) at
+   the cost of two trailing words per element; pass 0 to skip it. Returns NULL only
+   on allocation failure (no Python error is set). */
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions);
 
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
@@ -143,9 +145,10 @@ void th_node_normalize(th_tree *tree, th_node *root);
 
 /* Parse an HTML fragment as if set as the innerHTML of the given context element
    (e.g. "td", or "svg path"). The returned tree serializes the context root's
-   children. context is a NUL-free ASCII name; context_len its length. */
+   children. context is a NUL-free ASCII name; context_len its length. positions
+   records element source line/column as in th_tree_parse. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len);
+                                Py_ssize_t context_len, int positions);
 
 void th_tree_free(th_tree *tree);
 
@@ -157,9 +160,9 @@ void th_tree_free(th_tree *tree);
    state persists across feeds. */
 typedef struct th_stream th_stream;
 
-/* Create an empty push parser. Returns NULL on allocation failure (no Python
-   error is set). */
-th_stream *th_stream_new(void);
+/* Create an empty push parser. positions records element source line/column as in
+   th_tree_parse. Returns NULL on allocation failure (no Python error is set). */
+th_stream *th_stream_new(int positions);
 
 /* Append a chunk of code points (a borrowed PyUnicode buffer, copied) and build
    as far as the now-available tokens allow. Returns 0, or -1 on allocation
@@ -388,6 +391,14 @@ Py_UCS4 *th_node_annotated_text(th_tree *tree, th_node *node, const text_opts *o
    returns 1 with the four out params set when present, 0 for a name-only doctype. */
 int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *public_len, const Py_UCS4 **system_id,
                         Py_ssize_t *system_len);
+
+/* The source position where a parsed element's start tag began: 1-based line and
+   0-based column, the same convention th_token and html.parser's getpos use.
+   Returns 1 with *line/*col set for an element that carries a position, or 0 when
+   the tree was parsed without positions, the node is not an element, or it is a
+   synthetic element (implied html/head/body, a fragment root, or one constructed
+   by hand) with no source. */
+int th_node_source_position(th_tree *tree, th_node *node, Py_ssize_t *line, Py_ssize_t *col);
 
 /* The interned name bytes (NUL-terminated UTF-8) for an attribute's name_atom;
    *out_len receives the length. Resolves a static atom from the generated table

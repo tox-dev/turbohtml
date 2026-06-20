@@ -100,6 +100,14 @@ print([li.text for li in doc.find_all("li")])  # ['one', 'two']
 print(doc.find("ul").children[0].tag)  # li
 ```
 
+Every parsed element knows where it came from in the source (`source_line`/`source_col`/`position`, the 1-based-line,
+0-based-column convention of `html.parser` and lxml's `sourceline`); pass `positions=False` to skip the tracking:
+
+```python
+doc = turbohtml.parse("<ul>\n  <li>one</li>\n</ul>")
+print(doc.find("li").position)  # (2, 2)
+```
+
 Query with a CSS selector, and serialize a node back to HTML with the escaping you choose:
 
 ```python

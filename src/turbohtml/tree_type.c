@@ -415,6 +415,30 @@ static PyObject *node_get_previous_sibling(PyObject *self, void *Py_UNUSED(closu
     return node_wrap(state_of(self), node->handle, node->node->prev_sibling);
 }
 
+static PyObject *node_get_source_line(PyObject *self, void *Py_UNUSED(closure)) {
+    Py_ssize_t line, col;
+    if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
+        return PyLong_FromSsize_t(line);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *node_get_source_col(PyObject *self, void *Py_UNUSED(closure)) {
+    Py_ssize_t line, col;
+    if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
+        return PyLong_FromSsize_t(col);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *node_get_position(PyObject *self, void *Py_UNUSED(closure)) {
+    Py_ssize_t line, col;
+    if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
+        return Py_BuildValue("(nn)", line, col);
+    }
+    Py_RETURN_NONE;
+}
+
 static PyObject *node_children_tuple(PyObject *self) {
     NodeObject *node = (NodeObject *)self;
     module_state *state = state_of(self);
@@ -916,6 +940,12 @@ static PyGetSetDef node_getset[] = {
     {"text", node_get_text, NULL, "the concatenated character data of every Text descendant", NULL},
     {"html", node_get_html, NULL, "the HTML serialization of this node and its subtree", NULL},
     {"inner_html", node_get_inner_html, NULL, "the HTML serialization of this node's children", NULL},
+    {"source_line", node_get_source_line, NULL,
+     "the 1-based source line of this element's start tag, or None if unavailable", NULL},
+    {"source_col", node_get_source_col, NULL,
+     "the 0-based source column of this element's start tag, or None if unavailable", NULL},
+    {"position", node_get_position, NULL,
+     "the (source_line, source_col) of this element's start tag, or None if unavailable", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -5295,8 +5325,8 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
 /* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta>
    prescan, then windows-1252), decode with that codec replacing malformed bytes,
    and parse the resulting str. The decoded str is retained as the tree's source. */
-static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *enc_arg, Py_ssize_t enc_len,
-                             int strict) {
+static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *enc_arg, Py_ssize_t enc_len, int strict,
+                             int positions) {
     Py_buffer view;
     if (PyObject_GetBuffer(markup, &view, PyBUF_SIMPLE) < 0) { /* GCOVR_EXCL_BR_LINE: bytes expose a simple buffer */
         return NULL;                                           /* GCOVR_EXCL_LINE: buffer-acquisition failure */
@@ -5339,7 +5369,8 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: the codec is from the table and the replace handler never fails */
         return NULL;       /* GCOVR_EXCL_LINE: decode failure */
     }
-    th_tree *tree = th_tree_parse(PyUnicode_KIND(decoded), PyUnicode_DATA(decoded), PyUnicode_GET_LENGTH(decoded));
+    th_tree *tree =
+        th_tree_parse(PyUnicode_KIND(decoded), PyUnicode_DATA(decoded), PyUnicode_GET_LENGTH(decoded), positions);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         Py_DECREF(decoded);      /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -5361,17 +5392,20 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
-    static char *keywords[] = {"markup", "encoding", "strict", NULL};
+    static char *keywords[] = {"markup", "encoding", "strict", "positions", NULL};
     PyObject *markup;
     const char *enc_arg = NULL;
     Py_ssize_t enc_len = 0;
     int strict = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$z#p:parse", keywords, &markup, &enc_arg, &enc_len, &strict)) {
+    int positions = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$z#pp:parse", keywords, &markup, &enc_arg, &enc_len, &strict,
+                                     &positions)) {
         return NULL;
     }
     module_state *state = PyModule_GetState(module);
     if (PyUnicode_Check(markup)) {
-        th_tree *tree = th_tree_parse(PyUnicode_KIND(markup), PyUnicode_DATA(markup), PyUnicode_GET_LENGTH(markup));
+        th_tree *tree =
+            th_tree_parse(PyUnicode_KIND(markup), PyUnicode_DATA(markup), PyUnicode_GET_LENGTH(markup), positions);
         if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -5384,15 +5418,16 @@ PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
         PyErr_SetString(PyExc_TypeError, "parse() argument must be str or a bytes-like object");
         return NULL;
     }
-    return parse_bytes(state, markup, enc_arg, enc_len, strict);
+    return parse_bytes(state, markup, enc_arg, enc_len, strict, positions);
 }
 
 PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObject *kwargs) {
-    static char *keywords[] = {"html", "context", NULL};
+    static char *keywords[] = {"html", "context", "positions", NULL};
     PyObject *text;
     PyObject *context_obj = NULL;
+    int positions = 1;
     /* require str: the "s#" format also accepts bytes, which would decode as latin-1 garbage */
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "U|U:parse_fragment", keywords, &text, &context_obj)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "U|U$p:parse_fragment", keywords, &text, &context_obj, &positions)) {
         return NULL;
     }
     const char *context = "div";
@@ -5404,7 +5439,7 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
         }
     }
     th_tree *tree = th_tree_parse_fragment(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text),
-                                           context, context_len);
+                                           context, context_len, positions);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -5425,9 +5460,10 @@ typedef struct {
 } StreamObject;
 
 static PyObject *stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"encoding", NULL};
+    static char *keywords[] = {"encoding", "positions", NULL};
     PyObject *encoding = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$U:IncrementalParser", keywords, &encoding)) {
+    int positions = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$Up:IncrementalParser", keywords, &encoding, &positions)) {
         return NULL;
     }
     StreamObject *self = (StreamObject *)type->tp_alloc(type, 0);
@@ -5440,7 +5476,7 @@ static PyObject *stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
         Py_DECREF(self);          /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    self->stream = th_stream_new();
+    self->stream = th_stream_new(positions);
     if (self->stream == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(self);         /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */

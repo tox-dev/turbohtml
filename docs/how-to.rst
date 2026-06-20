@@ -1060,6 +1060,40 @@ parsed nodes as its children, applying the same insertion rules the element woul
     ['a', 'b']
     <tr><td>a</td><td>b</td></tr>
 
+*********************************
+ Find where an element came from
+*********************************
+
+Every parsed element records where its start tag began, so an error report or linter can point back at the source. Read
+:attr:`~turbohtml.Node.source_line` (1-based), :attr:`~turbohtml.Node.source_col` (0-based), or the
+:attr:`~turbohtml.Node.position` pair -- the same convention as :meth:`python:html.parser.HTMLParser.getpos` and
+``lxml``'s ``sourceline``:
+
+.. testcode::
+
+    doc = turbohtml.parse("<ul>\n  <li>first</li>\n  <li>second</li>\n</ul>")
+    for item in doc.find_all("li"):
+        print(item.text, item.position)
+
+.. testoutput::
+
+    first (2, 2)
+    second (3, 2)
+
+An element with no place in the source -- a node built by hand, or an implied ``html``/``head``/``body`` -- reads
+``None``. Pass ``positions=False`` to :func:`turbohtml.parse` to skip the tracking entirely (a small memory and speed
+saving), after which every accessor reads ``None``:
+
+.. testcode::
+
+    print(turbohtml.parse("<p>x</p>", positions=False).find("p").source_line)
+    print(turbohtml.Element("div").position)
+
+.. testoutput::
+
+    None
+    None
+
 **********************
  Build a tree by hand
 **********************

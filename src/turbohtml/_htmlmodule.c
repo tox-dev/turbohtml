@@ -40,17 +40,20 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            "capture_source true every markup token records its verbatim source\n"
                            "(Token.source).");
 
-PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False)\n--\n\n"
+PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, positions=True)\n--\n\n"
                         "Parse a whole HTML document with the WHATWG tree-construction algorithm\n"
                         "and return a navigable Document. markup is a str, or bytes whose encoding\n"
                         "is sniffed (the encoding argument, a <meta> charset, then windows-1252).\n\n"
                         "The recovered parse errors are on Document.errors; with strict=True the\n"
-                        "first one is raised as HTMLParseError instead.");
+                        "first one is raised as HTMLParseError instead. positions records each\n"
+                        "element's source_line/source_col; pass False to skip it when memory or\n"
+                        "speed matters more than source locations.");
 
-PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div')\n--\n\n"
+PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True)\n--\n\n"
                                  "Parse an HTML fragment as the innerHTML of a context element and return\n"
                                  "that context Element with the parsed nodes as its children. context is a\n"
-                                 "tag name, optionally namespaced (e.g. 'td', 'svg path').");
+                                 "tag name, optionally namespaced (e.g. 'td', 'svg path'). positions records\n"
+                                 "element source_line/source_col; pass False to skip it.");
 
 static PyMethodDef html_methods[] = {
     {"escape", (PyCFunction)(void (*)(void))turbohtml_escape, METH_VARARGS | METH_KEYWORDS, escape_doc},

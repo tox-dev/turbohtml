@@ -98,6 +98,8 @@ The renames
       - ``node.serialize(layout=Indent(2))``
     - - ``tag.smooth()``
       - ``element.normalize()``
+    - - ``tag.sourceline``, ``tag.sourcepos``
+      - ``node.source_line``, ``node.source_col`` (same 1-based line, 0-based column; ``None`` when absent)
 
 Searching
 =========
@@ -215,6 +217,8 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
       - ``Element("div")``, ``p.append(Element("div"))``
     - - ``el.drop_tag()``, ``el.drop_tree()``
       - ``el.unwrap()``, ``el.decompose()``
+    - - ``el.sourceline``
+      - ``el.source_line`` (1-based, like lxml; plus ``el.source_col`` for the 0-based column lxml lacks)
     - - ``lxml.html.tostring(el)``
       - ``el.html``
 
