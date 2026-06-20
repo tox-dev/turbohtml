@@ -818,7 +818,9 @@ static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned 
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
-    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+    } else if (u >= 0x3400 && u < 0xA000) {
+        /* the strict CPython shift_jis codec never emits the U+F900..U+FAFF compatibility
+           ideographs chardetng also matches here, so that range is dropped */
         th_cjk_flush_pending(cand);
         long s = (cand->prev_byte < 0x98 || (cand->prev_byte == 0x98 && b < 0x73))
                      ? TH_SJIS_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_kanji)
@@ -882,7 +884,9 @@ static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
-    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+    } else if (u >= 0x3400 && u < 0xA000) {
+        /* like shift_jis, the euc_jp codec never emits the U+F900..U+FAFF compatibility
+           ideographs, so chardetng's second range is dropped */
         if (cand->prev_prev_byte == 0x8F) {
             cand->score += TH_EUCJP_OTHER_KANJI;
         } else if (cand->prev_byte < 0xD0) {

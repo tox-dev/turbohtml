@@ -93,6 +93,10 @@ def test_cjk_latin_adjacency_arms() -> None:
     assert detected("aｱ".encode("euc_jp")) is not None  # half-width katakana after ASCII
     assert detected("aあ".encode("euc_jp")) is not None  # kana after ASCII
     assert detected("丂丂漢字".encode("euc_jp")) is not None  # JIS X 0212 (the 0x8F plane)
+    # voicing marks after a voicable half-width katakana score (the plausible arm); after
+    # a non-voicable one they are implausible -- both arms of the EUC-JP voicing ternary
+    assert detected("ｶﾞ".encode("euc_jp")) is not None  # KA + dakuten (voiced)
+    assert detected("ﾊﾟ".encode("euc_jp")) is not None  # HA + handakuten
 
 
 def test_iso_2022_jp_invalid_is_not_detected() -> None:
