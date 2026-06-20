@@ -239,7 +239,26 @@ typedef struct {
     link_span *spans;
     Py_ssize_t span_count;
     Py_ssize_t span_cap;
+    th_node **nodes;       /* a pure-C snapshot of the elements to process, so no structural pointer */
+    Py_ssize_t node_count; /* is dereferenced across a Python call that could suspend the critical section */
+    Py_ssize_t node_cap;
 } link_walk;
+
+/* Append a node to a growable pointer array (the element snapshot, or a <style>'s text children). */
+static int collect_node(th_node ***array, Py_ssize_t *count, Py_ssize_t *cap, th_node *node) {
+    if (*count == *cap) {
+        Py_ssize_t grown_cap = *cap ? *cap * 2 : 16;
+        th_node **grown = PyMem_Realloc(*array, (size_t)grown_cap * sizeof(th_node *));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        *array = grown;
+        *cap = grown_cap;
+    }
+    (*array)[(*count)++] = node;
+    return 0;
+}
 
 static int collect_span(void *ctx, Py_ssize_t start, Py_ssize_t end) {
     link_walk *walk = ctx;
@@ -467,21 +486,29 @@ static int process_element(link_walk *walk, th_node *element) {
     }
     int failed = 0;
     /* a <style>'s text children are a stylesheet, scanned for url()/@import like a style attribute. A parsed text node
-       holds a zero-copy span, not a ready buffer, so its data is materialized (and freed) per child. */
+       holds a zero-copy span, not a ready buffer, so its data is materialized (and freed) per child. The children are
+       snapshotted in a pure-C pass first so a concurrent mutation cannot relink the child list while handle_value runs
+       a Python callback (which can suspend the per-tree critical section) below. */
     if (element->atom == TH_TAG_STYLE) {
+        th_node **children = NULL;
+        Py_ssize_t child_count = 0, child_cap = 0;
         for (th_node *child = element->first_child; child != NULL && !failed; child = child->next_sibling) {
-            if (child->type != TH_NODE_TEXT) {
-                continue;
+            if (child->type == TH_NODE_TEXT) {
+                failed = collect_node(&children, &child_count, &child_cap, child) < 0;
             }
+        }
+        for (Py_ssize_t index = 0; index < child_count && !failed; index++) {
             Py_ssize_t text_len = 0;
-            Py_UCS4 *text = th_node_data(walk->tree, child, &text_len);
+            Py_UCS4 *text = th_node_data(walk->tree, children[index], &text_len);
             if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
                 break;          /* GCOVR_EXCL_LINE */
             }
-            failed = handle_value(walk, report_element, Py_None, child, NULL, 0, text, text_len, scan_css) < 0;
+            failed =
+                handle_value(walk, report_element, Py_None, children[index], NULL, 0, text, text_len, scan_css) < 0;
             PyMem_Free(text);
         }
+        PyMem_Free(children);
     }
     /* an element is either a <style> or a <meta>, never both, so the style block above cannot have set failed here */
     if (element->atom == TH_TAG_META && is_meta_refresh(walk, element)) {
@@ -524,13 +551,17 @@ static int process_element(link_walk *walk, th_node *element) {
     return failed ? -1 : 0;
 }
 
-/* Pre-order walk over `root` and its descendants (not its siblings), processing every element. A rewrite mutates only
-   attribute values and text payloads, so the structural pointers stay valid across the walk. */
-static int walk_subtree(link_walk *walk, th_node *root) {
+/* Pre-order snapshot of every element under `root` (not its siblings) into walk->nodes. This runs no Python API, so the
+   per-tree critical section cannot be suspended here and a concurrent structural mutation cannot relink a node while we
+   follow first_child/next_sibling/parent. process_element then works off the snapshot, never re-deriving the structure
+   across the Python callbacks/allocations it performs (which may suspend the lock). */
+static int collect_subtree(link_walk *walk, th_node *root) {
     th_node *current = root;
     while (current != NULL) {
-        if (current->type == TH_NODE_ELEMENT && process_element(walk, current) < 0) {
-            return -1;
+        if (current->type == TH_NODE_ELEMENT) {
+            if (collect_node(&walk->nodes, &walk->node_count, &walk->node_cap, current) < 0) { /* GCOVR_EXCL_BR_LINE */
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
         if (current->first_child != NULL) {
             current = current->first_child;
@@ -556,9 +587,13 @@ static PyObject *run_walk(PyObject *module, PyObject *node, PyObject *result, Py
     walk.handle = turbohtml_node_handle(node);
     int failed;
     Py_BEGIN_CRITICAL_SECTION(walk.handle); /* per-tree lock: no concurrent mutation mid-walk */
-    failed = walk_subtree(&walk, root) < 0;
+    failed = collect_subtree(&walk, root) < 0;
+    for (Py_ssize_t index = 0; !failed && index < walk.node_count; index++) {
+        failed = process_element(&walk, walk.nodes[index]) < 0;
+    }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(walk.spans);
+    PyMem_Free(walk.nodes);
     if (failed) {
         Py_XDECREF(result);
         return NULL;

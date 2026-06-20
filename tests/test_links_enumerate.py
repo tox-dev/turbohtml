@@ -14,6 +14,12 @@ def test_anchor_href_is_enumerated() -> None:
     assert _urls('<a href="a/b.html">x</a>') == [("a", "href", "a/b.html")]
 
 
+def test_many_elements_grow_the_snapshot() -> None:
+    # The pure-C element snapshot starts at 16 slots; >16 elements exercise its regrow.
+    html = "".join(f'<a href="p{index}">{index}</a>' for index in range(40))
+    assert _urls(html) == [("a", "href", f"p{index}") for index in range(40)]
+
+
 def test_value_is_reported_with_surrounding_whitespace_trimmed() -> None:
     assert _urls('<a href="  a/b.html  ">x</a>') == [("a", "href", "a/b.html")]
 
