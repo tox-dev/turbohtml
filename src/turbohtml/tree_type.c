@@ -117,7 +117,7 @@ static th_tree *tree_of(PyObject *self) {
 int turbohtml_node_borrow(PyObject *module, PyObject *obj, th_tree **tree, th_node **node) {
     module_state *state = PyModule_GetState(module);
     if (!PyObject_TypeCheck(obj, (PyTypeObject *)state->node_type)) {
-        PyErr_SetString(PyExc_TypeError, "sanitize expected a turbohtml element");
+        PyErr_SetString(PyExc_TypeError, "expected a turbohtml element");
         return -1;
     }
     *node = ((NodeObject *)obj)->node;
@@ -179,6 +179,18 @@ static PyObject *node_wrap(module_state *state, PyObject *handle, th_node *node)
     self->handle = Py_NewRef(handle);
     self->node = node;
     return (PyObject *)self;
+}
+
+/* The per-tree handle a Python node holds (borrowed), so links.c can take the
+   critical section around its walk. */
+PyObject *turbohtml_node_handle(PyObject *obj) {
+    return ((NodeObject *)obj)->handle;
+}
+
+/* Wrap `node` as a Python node sharing `owner`'s handle and module state, so
+   links.c can hand back live Element wrappers for the nodes it enumerates. */
+PyObject *turbohtml_node_wrap_in(PyObject *owner, th_node *node) {
+    return node_wrap(state_of(owner), ((NodeObject *)owner)->handle, node);
 }
 
 static void node_dealloc(PyObject *self) {

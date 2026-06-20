@@ -75,6 +75,8 @@ static PyMethodDef html_methods[] = {
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},
     {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
+    {"_links", turbohtml_links, METH_VARARGS, NULL},
+    {"_rewrite_links", turbohtml_rewrite_links, METH_VARARGS, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };

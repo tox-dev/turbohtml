@@ -78,3 +78,32 @@ def test_concurrent_reads_and_mixed_mutations_are_memory_safe() -> None:
 
     _run(reader, extractor, appender)
     assert body.serialize().startswith("<body>")  # still well-formed after the concurrent churn
+
+
+def test_concurrent_link_enumeration_and_resolve_is_memory_safe() -> None:
+    from turbohtml.links import links, resolve_links  # noqa: PLC0415
+
+    anchors = "".join(f'<a href="p{index}/"><img src="i{index}.png"></a>' for index in range(300))
+    doc = turbohtml.parse(f"<html><body>{anchors}</body></html>")
+    body = doc.find("body")
+    assert body is not None
+    children = list(body.children)
+    start = threading.Barrier(3)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(200):
+            links(doc)  # walks every link-bearing attribute while the tree is rewired
+
+    def resolver() -> None:
+        start.wait()
+        for _ in range(200):
+            resolve_links(doc, "https://example.com/base/")  # rewrites values under the per-tree lock
+
+    def extractor() -> None:
+        start.wait()
+        for child in children:
+            child.extract()
+
+    _run(reader, resolver, extractor)
+    assert isinstance(links(doc), list)  # the tree is still walkable after the concurrent churn

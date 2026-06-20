@@ -1,0 +1,594 @@
+/* Link enumeration and rewriting over a parsed tree, kept in C so only the facade is Python.
+
+   turbohtml/links.py parses (or is handed) a tree and exposes links()/resolve_links()/rewrite_links(); this file is the
+   walk that locates every link-bearing location and, for the rewrite path, splices a replacement back in place. The
+   genuinely new capability over iterating <a href> by hand is the URLs embedded in CSS url()/@import (in a style
+   attribute and in <style> text), in a <meta http-equiv=refresh> content value, and in the srcset/ping/archive list
+   attributes. URL resolution itself (resolve_links) is stdlib urllib.parse.urljoin, applied by the Python facade; this
+   file only finds the spans and rewrites them, so RFC 3986 is not reinvented here. */
+
+#include "turbohtml.h"
+
+#include "treebuilder.h"
+
+#include <string.h>
+
+/* A scanner reports each URL span [start, end) inside a value buffer through this callback; returning -1 aborts the
+   walk with a Python error already set. Keeping the scanners callback-driven means none of them allocates. */
+typedef int (*link_emit)(void *ctx, Py_ssize_t start, Py_ssize_t end);
+typedef int (*scanner_fn)(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx);
+
+/* The ASCII whitespace that separates URL-list tokens, minus CR: the WHATWG input preprocessor converts CR to LF, so a
+   parsed value never carries a 0x0D. An array+loop (matching sanitize.c) keeps the branch count stable instead of the
+   chained-|| a compiler can leave with unreachable arms. */
+static int is_ws(Py_UCS4 c) {
+    static const Py_UCS4 whitespace[] = {0x09, 0x0A, 0x0C, 0x20};
+    for (size_t index = 0; index < sizeof(whitespace) / sizeof(whitespace[0]); index++) {
+        if (c == whitespace[index]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* A CSS/identifier byte, used to reject url(/import/url= matches that are only the tail of a longer identifier (e.g.
+   "blur(" must not match "url(", "curl" must not match the refresh keyword). */
+static int is_ident(Py_UCS4 c) {
+    Py_UCS4 lower = c | 0x20;
+    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+}
+
+/* Case-insensitive (ASCII) match of the literal `lit` at offset `pos`; letters compare case-folded, every other byte
+   exactly, so "(", "=", and "@" match literally. */
+static int imatch(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t pos, const char *lit, Py_ssize_t lit_len) {
+    if (pos + lit_len > len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < lit_len; index++) {
+        Py_UCS4 c = value[pos + index];
+        Py_UCS4 folded = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        if (folded != (Py_UCS4)(unsigned char)lit[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A whole single-URL attribute value (href, src, ...), with surrounding whitespace trimmed off the reported span. */
+static int scan_single(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
+    Py_ssize_t start = 0;
+    Py_ssize_t end = len;
+    while (start < end && is_ws(value[start])) {
+        start++;
+    }
+    while (end > start && is_ws(value[end - 1])) {
+        end--;
+    }
+    if (end > start) {
+        return emit(ctx, start, end);
+    }
+    return 0;
+}
+
+/* A whitespace-separated URL list (a/area ping, object/applet archive): each non-empty token is a URL. */
+static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
+    Py_ssize_t pos = 0;
+    while (pos < len) {
+        while (pos < len && is_ws(value[pos])) {
+            pos++;
+        }
+        Py_ssize_t start = pos;
+        while (pos < len && !is_ws(value[pos])) {
+            pos++;
+        }
+        if (pos > start) {
+            if (emit(ctx, start, pos) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
+                return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    return 0;
+}
+
+/* A srcset/imagesrcset candidate list: the leading URL of each comma-separated candidate (the same split PR #228 uses
+   to scheme-check candidates), with any trailing "1x"/"640w" descriptor skipped. */
+static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
+    Py_ssize_t pos = 0;
+    while (pos < len) {
+        while (pos < len && (value[pos] == ',' || is_ws(value[pos]))) {
+            pos++;
+        }
+        Py_ssize_t start = pos;
+        while (pos < len && value[pos] != ',' && !is_ws(value[pos])) {
+            pos++;
+        }
+        if (pos > start) {
+            if (emit(ctx, start, pos) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
+                return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        while (pos < len && value[pos] != ',') {
+            pos++;
+        }
+    }
+    return 0;
+}
+
+/* The URL inside a url(...) function: skip whitespace and an optional quote after the '(', then read to the matching
+   quote, or to the first whitespace or ')'. Emits the span between, or nothing for an empty url(). */
+static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, link_emit emit, void *ctx,
+                        Py_ssize_t *resume) {
+    Py_ssize_t pos = open;
+    while (pos < len && is_ws(value[pos])) {
+        pos++;
+    }
+    Py_UCS4 quote = 0;
+    if (pos < len && (value[pos] == '"' || value[pos] == '\'')) {
+        quote = value[pos++];
+    }
+    Py_ssize_t start = pos;
+    while (pos < len && value[pos] != ')' && (quote ? value[pos] != quote : !is_ws(value[pos]))) {
+        pos++;
+    }
+    *resume = pos;
+    if (pos > start) {
+        return emit(ctx, start, pos);
+    }
+    return 0;
+}
+
+/* The URL inside an unguarded @import "..."/@import '...' string (the @import url(...) form is caught by the url()
+   scan). Emits the quoted string's contents. */
+static int css_import_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t after, link_emit emit, void *ctx,
+                           Py_ssize_t *resume) {
+    Py_ssize_t pos = after;
+    while (pos < len && is_ws(value[pos])) {
+        pos++;
+    }
+    if (pos < len && (value[pos] == '"' || value[pos] == '\'')) {
+        Py_UCS4 quote = value[pos++];
+        Py_ssize_t start = pos;
+        while (pos < len && value[pos] != quote) {
+            pos++;
+        }
+        *resume = pos;
+        if (pos > start) {
+            return emit(ctx, start, pos);
+        }
+    }
+    return 0;
+}
+
+/* CSS text (a style attribute or <style> content): every url(...) target and every @import string. */
+static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
+    Py_ssize_t pos = 0;
+    while (pos < len) {
+        int boundary = pos == 0 || !is_ident(value[pos - 1]);
+        if (boundary && imatch(value, len, pos, "url(", 4)) {
+            Py_ssize_t resume = pos + 4;
+            if (css_url_span(value, len, pos + 4, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc only */
+                return -1;                                                   /* GCOVR_EXCL_LINE: alloc-failure path */
+            }
+            pos = resume;
+        } else if (boundary && value[pos] == '@' && imatch(value, len, pos, "@import", 7)) {
+            Py_ssize_t resume = pos + 7;
+            if (css_import_span(value, len, pos + 7, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc only */
+                return -1;                                                      /* GCOVR_EXCL_LINE: alloc-failure */
+            }
+            pos = resume;
+        } else {
+            pos++;
+        }
+    }
+    return 0;
+}
+
+/* A <meta http-equiv=refresh content="delay; url=..."> target: the value after the first url= keyword, trimmed and
+   unquoted. A bare timed refresh with no url= carries no link. */
+static int scan_meta_refresh(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
+    for (Py_ssize_t pos = 0; pos < len; pos++) {
+        int boundary = pos == 0 || !is_ident(value[pos - 1]);
+        if (!boundary || !imatch(value, len, pos, "url", 3)) {
+            continue;
+        }
+        Py_ssize_t after = pos + 3;
+        while (after < len && is_ws(value[after])) {
+            after++;
+        }
+        if (after >= len || value[after] != '=') {
+            continue;
+        }
+        after++;
+        while (after < len && is_ws(value[after])) {
+            after++;
+        }
+        Py_UCS4 quote = 0;
+        if (after < len && (value[after] == '"' || value[after] == '\'')) {
+            quote = value[after++];
+        }
+        Py_ssize_t start = after;
+        Py_ssize_t end = len;
+        while (after < len && (quote ? value[after] != quote : !is_ws(value[after]))) {
+            after++;
+        }
+        end = after;
+        if (end > start) {
+            return emit(ctx, start, end);
+        }
+        return 0;
+    }
+    return 0;
+}
+
+/* ----------------------------------------------------------------- the walk */
+
+typedef struct {
+    Py_ssize_t start;
+    Py_ssize_t end;
+} link_span;
+
+/* The walk's shared state. Exactly one of `result` (enumerate) and `replace` (rewrite) is set. `spans` is reused across
+   values to avoid a per-value allocation. */
+typedef struct {
+    th_tree *tree;
+    PyObject *handle;  /* the per-tree handle, held for the critical section across the walk */
+    PyObject *owner;   /* the element/document the public call was made on, for wrapping enumerated nodes */
+    PyObject *result;  /* list[(Element, str | None, str)] for enumerate, else NULL */
+    PyObject *replace; /* callable (str) -> str | None for rewrite, else NULL */
+    link_span *spans;
+    Py_ssize_t span_count;
+    Py_ssize_t span_cap;
+} link_walk;
+
+static int collect_span(void *ctx, Py_ssize_t start, Py_ssize_t end) {
+    link_walk *walk = ctx;
+    if (walk->span_count == walk->span_cap) {
+        Py_ssize_t cap = walk->span_cap ? walk->span_cap * 2 : 8;
+        link_span *grown = PyMem_Realloc(walk->spans, (size_t)cap * sizeof(link_span));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        walk->spans = grown;
+        walk->span_cap = cap;
+    }
+    walk->spans[walk->span_count].start = start;
+    walk->spans[walk->span_count].end = end;
+    walk->span_count++;
+    return 0;
+}
+
+static PyObject *ucs4_slice(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value + start, end - start);
+}
+
+/* Append (element, attr, url) for each span to the result list. `report_element` is the owning Element wrapper and
+   `report_attr` its attribute name (or None for <style> text); both are borrowed for the call's duration. */
+static int emit_enumerated(link_walk *walk, PyObject *report_element, PyObject *report_attr, const Py_UCS4 *value) {
+    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
+        PyObject *url = ucs4_slice(value, walk->spans[index].start, walk->spans[index].end);
+        if (url == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *record = PyTuple_Pack(3, report_element, report_attr, url);
+        Py_DECREF(url);
+        if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int failed = PyList_Append(walk->result, record);
+        Py_DECREF(record);
+        if (failed < 0) { /* GCOVR_EXCL_BR_LINE: list append fails only on allocation failure */
+            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+/* Build the value with each recorded replacement spliced over its span and write it back, to the named attribute or
+   (attr_name == NULL) to the target text node. Returns the tree edit's status: 0, or -1 on allocation failure. */
+static int splice_value(link_walk *walk, th_node *target, const char *attr_name, Py_ssize_t attr_len,
+                        const Py_UCS4 *value, Py_ssize_t len, PyObject **replacements, Py_ssize_t new_len) {
+    Py_UCS4 *out = PyMem_Malloc((size_t)new_len * sizeof(Py_UCS4) + 1);
+    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t out_len = 0;
+    Py_ssize_t cursor = 0;
+    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
+        for (; cursor < walk->spans[index].start; cursor++) {
+            out[out_len++] = value[cursor];
+        }
+        if (replacements[index] != NULL) {
+            Py_ssize_t rep_len = PyUnicode_GET_LENGTH(replacements[index]);
+            for (Py_ssize_t at = 0; at < rep_len; at++) {
+                out[out_len++] = PyUnicode_READ_CHAR(replacements[index], at);
+            }
+        } else {
+            for (; cursor < walk->spans[index].end; cursor++) {
+                out[out_len++] = value[cursor];
+            }
+        }
+        cursor = walk->spans[index].end;
+    }
+    for (; cursor < len; cursor++) {
+        out[out_len++] = value[cursor];
+    }
+    int status = attr_name != NULL ? th_node_attr_set(walk->tree, target, attr_name, attr_len, out, out_len, 1)
+                                   : th_node_set_data(walk->tree, target, out, out_len);
+    PyMem_Free(out);
+    return status;
+}
+
+/* Call replace(url) for each span and build a rewritten value, or leave the value untouched when every replacement is
+   None or unchanged. */
+static int rewrite_value(link_walk *walk, th_node *target, const char *attr_name, Py_ssize_t attr_len,
+                         const Py_UCS4 *value, Py_ssize_t len) {
+    PyObject **replacements = PyMem_Calloc((size_t)walk->span_count, sizeof(PyObject *));
+    if (replacements == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory();       /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;              /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t new_len = len;
+    int changed = 0;
+    int failed = 0;
+    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
+        PyObject *url = ucs4_slice(value, walk->spans[index].start, walk->spans[index].end);
+        if (url == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            failed = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;         /* GCOVR_EXCL_LINE */
+        }
+        PyObject *out = PyObject_CallFunctionObjArgs(walk->replace, url, NULL);
+        if (out == NULL) {
+            Py_DECREF(url);
+            failed = 1;
+            break;
+        }
+        if (out == Py_None || PyUnicode_Check(out)) {
+            if (out != Py_None && PyUnicode_Compare(out, url) != 0) {
+                replacements[index] = Py_NewRef(out);
+                new_len += PyUnicode_GET_LENGTH(out) - (walk->spans[index].end - walk->spans[index].start);
+                changed = 1;
+            }
+        } else {
+            PyErr_SetString(PyExc_TypeError, "a link rewrite must return str or None");
+            failed = 1;
+        }
+        Py_DECREF(out);
+        Py_DECREF(url);
+        if (failed) {
+            break;
+        }
+    }
+    if (!failed && changed) {
+        /* splice_value returns -1 only on an unforceable allocation failure; the branchless assignment keeps that
+           dead path off the branch count without an excluded fall-through brace */
+        failed = splice_value(walk, target, attr_name, attr_len, value, len, replacements, new_len) < 0;
+    }
+    for (Py_ssize_t index = 0; index < walk->span_count; index++) {
+        Py_XDECREF(replacements[index]);
+    }
+    PyMem_Free(replacements);
+    return failed ? -1 : 0;
+}
+
+/* Scan one value with `scan`, then either record the spans or rewrite them. `report_element`/`report_attr` describe the
+   enumeration location; `target`/`attr_name`/`attr_len` describe where a rewrite writes back. */
+static int handle_value(link_walk *walk, PyObject *report_element, PyObject *report_attr, th_node *target,
+                        const char *attr_name, Py_ssize_t attr_len, const Py_UCS4 *value, Py_ssize_t len,
+                        scanner_fn scan) {
+    walk->span_count = 0;
+    if (scan(value, len, collect_span, walk) < 0) { /* GCOVR_EXCL_BR_LINE: scan alloc only (collect_span realloc) */
+        return -1;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (walk->span_count == 0) {
+        return 0;
+    }
+    if (walk->result != NULL) {
+        return emit_enumerated(walk, report_element, report_attr, value);
+    }
+    return rewrite_value(walk, target, attr_name, attr_len, value, len);
+}
+
+/* The attribute value `name` on `element`, or NULL with *len=0 when absent or valueless. */
+static const Py_UCS4 *attr_value(link_walk *walk, th_node *element, const char *name, Py_ssize_t name_len,
+                                 Py_ssize_t *len) {
+    Py_ssize_t index = th_node_attr_find(walk->tree, element, name, name_len);
+    if (index < 0 || element->attrs[index].value == NULL) {
+        *len = 0;
+        return NULL;
+    }
+    *len = element->attrs[index].value_len;
+    return element->attrs[index].value;
+}
+
+static int value_imatch(const Py_UCS4 *value, Py_ssize_t len, const char *lit, Py_ssize_t lit_len) {
+    return len == lit_len && imatch(value, len, 0, lit, lit_len);
+}
+
+/* Single-URL attribute names (ping/archive are whitespace lists and srcset a candidate list, handled separately). */
+static int is_single_url_attr(const char *name, Py_ssize_t len) {
+    switch (len) {
+    case 3:
+        return memcmp(name, "src", 3) == 0;
+    case 4:
+        return memcmp(name, "href", 4) == 0 || memcmp(name, "cite", 4) == 0 || memcmp(name, "data", 4) == 0;
+    case 6:
+        return memcmp(name, "action", 6) == 0 || memcmp(name, "poster", 6) == 0;
+    case 8:
+        return memcmp(name, "longdesc", 8) == 0;
+    case 10:
+        return memcmp(name, "formaction", 10) == 0 || memcmp(name, "background", 10) == 0 ||
+               memcmp(name, "xlink:href", 10) == 0;
+    default:
+        return 0;
+    }
+}
+
+static int is_srcset_attr(const char *name, Py_ssize_t len) {
+    return (len == 6 && memcmp(name, "srcset", 6) == 0) || (len == 11 && memcmp(name, "imagesrcset", 11) == 0);
+}
+
+/* Pick the scanner for attribute `name` on an element with tag `atom`, or NULL if the attribute holds no link. */
+static scanner_fn scanner_for_attr(uint16_t atom, const char *name, Py_ssize_t len) {
+    if (is_srcset_attr(name, len)) {
+        return scan_srcset;
+    }
+    if (len == 5 && memcmp(name, "style", 5) == 0) {
+        return scan_css;
+    }
+    if (len == 4 && memcmp(name, "ping", 4) == 0 && (atom == TH_TAG_A || atom == TH_TAG_AREA)) {
+        return scan_space_list;
+    }
+    if (len == 7 && memcmp(name, "archive", 7) == 0 && (atom == TH_TAG_OBJECT || atom == TH_TAG_APPLET)) {
+        return scan_space_list;
+    }
+    if (is_single_url_attr(name, len)) {
+        return scan_single;
+    }
+    return NULL;
+}
+
+/* Does <meta> declare http-equiv=refresh (the only meta whose content carries a URL)? */
+static int is_meta_refresh(link_walk *walk, th_node *element) {
+    Py_ssize_t len = 0;
+    const Py_UCS4 *equiv = attr_value(walk, element, "http-equiv", 10, &len);
+    return equiv != NULL && value_imatch(equiv, len, "refresh", 7);
+}
+
+static int process_element(link_walk *walk, th_node *element) {
+    PyObject *report_element = NULL;
+    if (walk->result != NULL) {
+        report_element = turbohtml_node_wrap_in(walk->owner, element);
+        if (report_element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    int failed = 0;
+    /* a <style>'s text children are a stylesheet, scanned for url()/@import like a style attribute. A parsed text node
+       holds a zero-copy span, not a ready buffer, so its data is materialized (and freed) per child. */
+    if (element->atom == TH_TAG_STYLE) {
+        for (th_node *child = element->first_child; child != NULL && !failed; child = child->next_sibling) {
+            if (child->type != TH_NODE_TEXT) {
+                continue;
+            }
+            Py_ssize_t text_len = 0;
+            Py_UCS4 *text = th_node_data(walk->tree, child, &text_len);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;          /* GCOVR_EXCL_LINE */
+            }
+            failed = handle_value(walk, report_element, Py_None, child, NULL, 0, text, text_len, scan_css) < 0;
+            PyMem_Free(text);
+        }
+    }
+    /* an element is either a <style> or a <meta>, never both, so the style block above cannot have set failed here */
+    if (element->atom == TH_TAG_META && is_meta_refresh(walk, element)) {
+        Py_ssize_t len = 0;
+        const Py_UCS4 *content = attr_value(walk, element, "content", 7, &len);
+        if (content != NULL) {
+            PyObject *report_attr = NULL;
+            if (walk->result != NULL) {
+                report_attr = PyUnicode_FromString("content");
+                if (report_attr == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+                    Py_XDECREF(report_element); /* GCOVR_EXCL_LINE: allocation-failure path */
+                    return -1;                  /* GCOVR_EXCL_LINE */
+                }
+            }
+            failed = handle_value(walk, report_element, report_attr, element, "content", 7, content, len,
+                                  scan_meta_refresh) < 0;
+            Py_XDECREF(report_attr);
+        }
+    }
+    for (Py_ssize_t index = 0; index < element->attr_count && !failed; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(walk->tree, element->attrs[index].name_atom, &name_len);
+        scanner_fn scan = scanner_for_attr(element->atom, name, name_len);
+        if (scan == NULL || element->attrs[index].value == NULL) {
+            continue;
+        }
+        PyObject *report_attr = NULL;
+        if (walk->result != NULL) {
+            report_attr = PyUnicode_FromStringAndSize(name, name_len);
+            if (report_attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                failed = 1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                 /* GCOVR_EXCL_LINE */
+            }
+        }
+        failed = handle_value(walk, report_element, report_attr, element, name, name_len, element->attrs[index].value,
+                              element->attrs[index].value_len, scan) < 0;
+        Py_XDECREF(report_attr);
+    }
+    Py_XDECREF(report_element);
+    return failed ? -1 : 0;
+}
+
+/* Pre-order walk over `root` and its descendants (not its siblings), processing every element. A rewrite mutates only
+   attribute values and text payloads, so the structural pointers stay valid across the walk. */
+static int walk_subtree(link_walk *walk, th_node *root) {
+    th_node *current = root;
+    while (current != NULL) {
+        if (current->type == TH_NODE_ELEMENT && process_element(walk, current) < 0) {
+            return -1;
+        }
+        if (current->first_child != NULL) {
+            current = current->first_child;
+            continue;
+        }
+        while (current != root && current->next_sibling == NULL) {
+            current = current->parent;
+        }
+        current = current == root ? NULL : current->next_sibling;
+    }
+    return 0;
+}
+
+/* Shared entry point: borrow the tree the node wraps and run the walk under the per-tree critical section. */
+static PyObject *run_walk(PyObject *module, PyObject *node, PyObject *result, PyObject *replace) {
+    link_walk walk = {.owner = node, .result = result, .replace = replace};
+    th_node *root;
+    if (turbohtml_node_borrow(module, node, &walk.tree, &root) < 0) {
+        return NULL;
+    }
+    /* read the handle into the struct (always, so it is covered) rather than into the macro argument, which the GIL
+       build's no-op Py_BEGIN_CRITICAL_SECTION does not evaluate */
+    walk.handle = turbohtml_node_handle(node);
+    int failed;
+    Py_BEGIN_CRITICAL_SECTION(walk.handle); /* per-tree lock: no concurrent mutation mid-walk */
+    failed = walk_subtree(&walk, root) < 0;
+    Py_END_CRITICAL_SECTION();
+    PyMem_Free(walk.spans);
+    if (failed) {
+        Py_XDECREF(result);
+        return NULL;
+    }
+    return result != NULL ? result : Py_NewRef(Py_None);
+}
+
+/* _links(node) -> list[(Element, str | None, str)]. Enumerates every link-bearing location in document order. */
+PyObject *turbohtml_links(PyObject *module, PyObject *args) {
+    PyObject *node;
+    if (!PyArg_ParseTuple(args, "O:_links", &node)) {
+        return NULL;
+    }
+    PyObject *result = PyList_New(0);
+    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return run_walk(module, node, result, NULL);
+}
+
+/* _rewrite_links(node, replace) -> None. Calls replace(url) for every link; a str result replaces it, None leaves it.
+ */
+PyObject *turbohtml_rewrite_links(PyObject *module, PyObject *args) {
+    PyObject *node;
+    PyObject *replace;
+    if (!PyArg_ParseTuple(args, "OO:_rewrite_links", &node, &replace)) {
+        return NULL;
+    }
+    if (!PyCallable_Check(replace)) {
+        PyErr_SetString(PyExc_TypeError, "rewrite_links expected a callable");
+        return NULL;
+    }
+    return run_walk(module, node, NULL, replace);
+}
