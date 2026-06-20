@@ -58,8 +58,14 @@ _ENCODING_LABEL = {
 
 
 def parse_numbers(text: str) -> list[int]:
-    """Return every integer literal in a Rust array body, in order."""
-    return [int(token) for token in re.findall(r"\d+", text)]
+    r"""
+    Return every integer literal in a Rust array body, in order.
+
+    The class tables are decimal; the CJK frequency tables are hex (``0x4E2D``),
+    so match a hex literal before falling back to a decimal run (a bare ``\d+``
+    would split ``0x4E2D`` into ``0``, ``4``, ``2``).
+    """
+    return [int(token, 0) for token in re.findall(r"0[xX][0-9A-Fa-f]+|\d+", text)]
 
 
 def parse_detector_data(source: str) -> dict[str, list[int]]:

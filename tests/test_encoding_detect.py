@@ -163,3 +163,57 @@ def test_truncated_sequence_at_eof_is_not_utf8() -> None:
 )
 def test_single_byte_detection(text: str, source: str, expected: str) -> None:
     assert detected(text.encode(source)) == expected
+
+
+# CJK multi-byte detection (Phase 3). Each candidate drives a CPython incremental
+# codec the way chardetng drives encoding_rs; the expected labels are golden, matching
+# Firefox's chardetng on the same well-formed text.
+@pytest.mark.parametrize(
+    ("text", "source", "expected"),
+    [
+        pytest.param(
+            "日本語のテキストをここに書きます。今日はとても良い天気ですね。",
+            "shift_jis",
+            "Shift_JIS",
+            id="japanese-shift_jis",
+        ),
+        pytest.param(
+            "日本語のテキストをここに書きます。今日はとても良い天気ですね。",
+            "euc_jp",
+            "EUC-JP",
+            id="japanese-euc-jp",
+        ),
+        pytest.param(
+            "コンピュータのプログラムはとても複雑な仕組みで動いています。",
+            "shift_jis",
+            "Shift_JIS",
+            id="japanese-katakana",
+        ),
+        pytest.param(
+            "한국어 텍스트를 여기에 작성합니다 오늘은 날씨가 정말 좋습니다 그렇죠.",
+            "euc_kr",
+            "EUC-KR",
+            id="korean-euc-kr",
+        ),
+        pytest.param(
+            "这是一段简体中文文本用来测试编码检测今天天气非常好我们去公园散步吧。",
+            "gbk",
+            "GBK",
+            id="simplified-gbk",
+        ),
+        pytest.param(
+            "這是一段繁體中文文本用來測試編碼偵測今天天氣非常好我們去公園散步吧。",
+            "big5",
+            "Big5",
+            id="traditional-big5",
+        ),
+    ],
+)
+def test_cjk_detection(text: str, source: str, expected: str) -> None:
+    assert detected(text.encode(source)) == expected
+
+
+def test_iso_2022_jp_detected() -> None:
+    # ISO-2022-JP is 7-bit and escape-driven: no high byte, an escape, decodes cleanly
+    raw = "日本語のテキストをここに書きます。".encode("iso2022_jp")
+    assert detected(raw) == "ISO-2022-JP"

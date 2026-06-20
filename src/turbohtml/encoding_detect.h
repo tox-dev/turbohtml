@@ -553,19 +553,580 @@ static const struct {
 #define TH_SB_LOGICAL_SLOT 8 /* the windows-1255 row above, for the Hebrew tiebreak */
 #define TH_DETECT_ISO_8859_8_INDEX 13
 
+/* ---- CJK multi-byte candidates (issue #182, phase 3) -----------------------
+
+   chardetng scores the CJK candidates by feeding each byte to an encoding_rs
+   decoder and classifying every scalar it emits. turbohtml has no encoding_rs, so
+   each candidate drives the matching CPython incremental codec instead and applies
+   the same scoring. The two decoders agree on well-formed CJK text, which is what
+   decides the guess. chardetng additionally keeps a few malformed byte sequences
+   alive with a large penalty (Shift_JIS-2004, the Mac extensions, unmapped Big5 and
+   GBK pairs); the strict CPython codec disqualifies them, but those candidates lose
+   the strict-max either way, so the winner is unchanged. The scoring constants are
+   chardetng's, with the integer divisions pre-evaluated. */
+#define TH_CJK_BASE 41
+#define TH_CJK_SECONDARY 20
+#define TH_CJK_LATIN_ADJ (-41)
+#define TH_CJ_PUNCT 20
+#define TH_CJK_OTHER 5
+#define TH_HWK_SCORE 1
+#define TH_HWK_VOICING_SCORE 10
+#define TH_SJIS_INITIAL_HWK_PENALTY (-75)
+#define TH_SJIS_KANA 20
+#define TH_SJIS_LEVEL_1 41
+#define TH_SJIS_LEVEL_2 20
+#define TH_SJIS_PUA_PENALTY (-410)
+#define TH_EUCJP_KANA 54
+#define TH_EUCJP_NEAR_OBSOLETE_KANA 40
+#define TH_EUCJP_LEVEL_1 41
+#define TH_EUCJP_LEVEL_2 20
+#define TH_EUCJP_OTHER_KANJI 5
+#define TH_EUCJP_INITIAL_KANA_PENALTY (-14)
+#define TH_BIG5_LEVEL_1 41
+#define TH_BIG5_OTHER 20
+#define TH_EUCKR_EUC_HANGUL 42
+#define TH_EUCKR_NON_EUC_HANGUL 4
+#define TH_EUCKR_HANJA 10
+#define TH_EUCKR_HANJA_AFTER_HANGUL_PENALTY (-410)
+#define TH_EUCKR_LONG_WORD_PENALTY (-6)
+#define TH_GBK_LEVEL_1 41
+#define TH_GBK_LEVEL_2 20
+#define TH_GBK_NON_EUC 5
+#define TH_GBK_PUA_PENALTY (-410)
+
+typedef enum {
+    TH_CJK_GBK,
+    TH_CJK_SHIFT_JIS,
+    TH_CJK_EUC_JP,
+    TH_CJK_BIG5,
+    TH_CJK_EUC_KR,
+} th_cjk_kind;
+
+/* Previous-character class. Cj doubles as Korean Hangul; Hanja is EUC-KR only. */
+enum { TH_CJ_ASCII, TH_CJ_CJ, TH_CJ_HANJA, TH_CJ_OTHER };
+
+/* Whether a half-width katakana voicing mark may legally follow the previous one. */
+enum { TH_HWK_FORBIDDEN, TH_HWK_DAKUTEN, TH_HWK_DAKUTEN_OR_HANDAKUTEN };
+
+typedef struct {
+    PyObject *decoder;
+    th_cjk_kind kind;
+    int alive;
+    long score;
+    unsigned char prev_byte;
+    unsigned char prev_prev_byte;
+    int prev;
+    long pending;
+    int has_pending;
+    int hwk_state;
+    int hwk_seen;
+    int non_ascii_seen;
+    int prev_was_euc_range;
+    unsigned long word_len;
+} th_cjk_candidate;
+
+/* chardetng's cjk_extra_score: a frequency bonus that is larger the earlier the
+   scalar appears in the 128-entry most-frequent table for its script. */
+static long th_cjk_extra_score(uint16_t u, const uint16_t *table) {
+    for (int pos = 0; pos < 128; pos++) {
+        if (table[pos] == u) {
+            return (128 - pos) / 16;
+        }
+    }
+    return 0;
+}
+
+/* A Shift_JIS/Big5 lead byte whose trail half is ambiguous enough that a score is
+   deferred until the next scalar confirms a plausible run. */
+static int th_cjk_problematic_lead(unsigned char b) {
+    switch (b) {
+    case 0x91:
+    case 0x92:
+    case 0x93:
+    case 0x94:
+    case 0x95:
+    case 0x96:
+    case 0x97:
+    case 0x9A:
+    case 0x8A:
+    case 0x9B:
+    case 0x8B:
+    case 0x9E:
+    case 0x8E:
+    case 0xB0:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The GBK/EUC-KR superset of th_cjk_problematic_lead. */
+static int th_cjk_more_problematic_lead(unsigned char b) {
+    return th_cjk_problematic_lead(b) || b == 0x82 || b == 0x84 || b == 0x85 || b == 0xA0;
+}
+
+static void th_cjk_flush_pending(th_cjk_candidate *cand) {
+    if (cand->has_pending) {
+        cand->score += cand->pending;
+        cand->has_pending = 0;
+    }
+}
+
+/* Count s now if the previous scalar was CJ or the lead is unproblematic, else hold
+   it as pending until the next scalar decides whether the run is plausible. */
+static long th_cjk_maybe_pending(th_cjk_candidate *cand, long s, int problematic) {
+    if (cand->prev == TH_CJ_CJ || !problematic) {
+        return s;
+    }
+    cand->pending = s;
+    cand->has_pending = 1;
+    return 0;
+}
+
+static int th_cj_punct5(uint16_t u) {
+    return u == 0x3000 || u == 0x3001 || u == 0x3002 || u == 0xFF08 || u == 0xFF09;
+}
+
+static int th_cj_punct9(uint16_t u) {
+    return th_cj_punct5(u) || u == 0xFF01 || u == 0xFF0C || u == 0xFF1B || u == 0xFF1F;
+}
+
+/* The GB18030-required PUA mappings that chardetng treats as ideographs rather than
+   penalizing as private-use. */
+static int th_gbk_pua_ideograph(uint16_t u) {
+    return (u >= 0xE78D && u <= 0xE796) || (u >= 0xE816 && u <= 0xE818) || u == 0xE81E || u == 0xE826 || u == 0xE82B ||
+           u == 0xE82C || u == 0xE831 || u == 0xE832 || u == 0xE83B || u == 0xE843 || u == 0xE854 || u == 0xE855 ||
+           u == 0xE864;
+}
+
+/* NOLINTBEGIN(bugprone-branch-clone) */
+
+static void th_cjk_score_gbk(th_cjk_candidate *cand, int written, uint16_t u, unsigned char b) {
+    if (written == 2) {
+        th_cjk_flush_pending(cand);
+        if (u >= 0xDB80 && u <= 0xDBFF) {
+            cand->score += TH_GBK_PUA_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+        } else if (u >= 0xD480 && u < 0xD880) {
+            cand->score += TH_GBK_NON_EUC;
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+        } else {
+            cand->score += TH_CJK_OTHER;
+            cand->prev = TH_CJ_OTHER;
+        }
+        return;
+    }
+    if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
+        cand->has_pending = 0;
+        if (cand->prev == TH_CJ_CJ) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_ASCII;
+    } else if (u == 0x20AC) {
+        cand->has_pending = 0;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u >= 0x4E00 && u <= 0x9FA5) {
+        th_cjk_flush_pending(cand);
+        if (b >= 0xA1 && b <= 0xFE) {
+            if (cand->prev_byte >= 0xA1 && cand->prev_byte <= 0xD7) {
+                cand->score += TH_GBK_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_simplified);
+            } else if (cand->prev_byte >= 0xD8 && cand->prev_byte <= 0xFE) {
+                cand->score += TH_GBK_LEVEL_2;
+            } else {
+                cand->score += TH_GBK_NON_EUC;
+            }
+        } else {
+            cand->score += th_cjk_maybe_pending(cand, TH_GBK_NON_EUC, th_cjk_more_problematic_lead(cand->prev_byte));
+        }
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+        th_cjk_flush_pending(cand);
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if (u >= 0xE000 && u < 0xF900) {
+        th_cjk_flush_pending(cand);
+        if (th_gbk_pua_ideograph(u)) {
+            cand->score += TH_GBK_NON_EUC;
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+        } else {
+            cand->score += TH_GBK_PUA_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+        }
+    } else if (th_cj_punct9(u)) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJ_PUNCT;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u <= 0x7F) {
+        cand->has_pending = 0;
+        cand->prev = TH_CJ_OTHER;
+    } else {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJK_OTHER;
+        cand->prev = TH_CJ_OTHER;
+    }
+}
+
+static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned char b) {
+    int hwk_prev = cand->hwk_state;
+    cand->hwk_state = TH_HWK_FORBIDDEN;
+    if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
+        cand->has_pending = 0;
+        if (cand->prev == TH_CJ_CJ) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_ASCII;
+    } else if (u >= 0xFF61 && u <= 0xFF9F) {
+        if (!cand->hwk_seen) {
+            cand->hwk_seen = 1;
+            cand->score += TH_SJIS_INITIAL_HWK_PENALTY;
+        }
+        cand->has_pending = 0;
+        cand->score += TH_HWK_SCORE;
+        if ((u >= 0xFF76 && u <= 0xFF84) || u == 0xFF73) {
+            cand->hwk_state = TH_HWK_DAKUTEN;
+        } else if (u >= 0xFF8A && u <= 0xFF8E) {
+            cand->hwk_state = TH_HWK_DAKUTEN_OR_HANDAKUTEN;
+        } else if (u == 0xFF9E) {
+            cand->score += (hwk_prev == TH_HWK_FORBIDDEN) ? TH_DETECT_IMPLAUSIBILITY_PENALTY : TH_HWK_VOICING_SCORE;
+        } else if (u == 0xFF9F) {
+            cand->score +=
+                (hwk_prev != TH_HWK_DAKUTEN_OR_HANDAKUTEN) ? TH_DETECT_IMPLAUSIBILITY_PENALTY : TH_HWK_VOICING_SCORE;
+        }
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if (u >= 0x3040 && u < 0x3100) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_SJIS_KANA;
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+        th_cjk_flush_pending(cand);
+        long s = (cand->prev_byte < 0x98 || (cand->prev_byte == 0x98 && b < 0x73))
+                     ? TH_SJIS_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_kanji)
+                     : TH_SJIS_LEVEL_2;
+        cand->score += th_cjk_maybe_pending(cand, s, th_cjk_problematic_lead(cand->prev_byte));
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if (u >= 0xE000 && u < 0xF900) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_SJIS_PUA_PENALTY;
+        cand->prev = TH_CJ_OTHER;
+    } else if (th_cj_punct5(u)) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJ_PUNCT;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u == 0x80) {
+        cand->has_pending = 0;
+        cand->score += TH_DETECT_IMPLAUSIBILITY_PENALTY;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u <= 0x7F) {
+        cand->has_pending = 0;
+        cand->prev = TH_CJ_OTHER;
+    } else {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJK_OTHER;
+        cand->prev = TH_CJ_OTHER;
+    }
+}
+
+static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
+    int hwk_prev = cand->hwk_state;
+    cand->hwk_state = TH_HWK_FORBIDDEN;
+    if (!cand->non_ascii_seen && u >= 0x80) {
+        cand->non_ascii_seen = 1;
+        if (u >= 0x3040 && u < 0x3100) {
+            cand->score += TH_EUCJP_INITIAL_KANA_PENALTY;
+        }
+    }
+    if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
+        if (cand->prev == TH_CJ_CJ) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_ASCII;
+    } else if (u >= 0xFF61 && u <= 0xFF9F) {
+        cand->score += TH_HWK_SCORE;
+        if ((u >= 0xFF76 && u <= 0xFF84) || u == 0xFF73) {
+            cand->hwk_state = TH_HWK_DAKUTEN;
+        } else if (u >= 0xFF8A && u <= 0xFF8E) {
+            cand->hwk_state = TH_HWK_DAKUTEN_OR_HANDAKUTEN;
+        } else if (u == 0xFF9E) {
+            cand->score += (hwk_prev == TH_HWK_FORBIDDEN) ? TH_DETECT_IMPLAUSIBILITY_PENALTY : TH_HWK_VOICING_SCORE;
+        } else if (u == 0xFF9F) {
+            cand->score +=
+                (hwk_prev != TH_HWK_DAKUTEN_OR_HANDAKUTEN) ? TH_DETECT_IMPLAUSIBILITY_PENALTY : TH_HWK_VOICING_SCORE;
+        }
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_OTHER;
+    } else if ((u >= 0x3041 && u <= 0x3093) || (u >= 0x30A1 && u <= 0x30F6)) {
+        cand->score +=
+            (u == 0x3090 || u == 0x3091 || u == 0x30F0 || u == 0x30F1) ? TH_EUCJP_NEAR_OBSOLETE_KANA : TH_EUCJP_KANA;
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+        if (cand->prev_prev_byte == 0x8F) {
+            cand->score += TH_EUCJP_OTHER_KANJI;
+        } else if (cand->prev_byte < 0xD0) {
+            cand->score += TH_EUCJP_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_kanji);
+        } else {
+            cand->score += TH_EUCJP_LEVEL_2;
+        }
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if (th_cj_punct5(u)) {
+        cand->score += TH_CJ_PUNCT;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u <= 0x7F) {
+        cand->prev = TH_CJ_OTHER;
+    } else {
+        cand->score += TH_CJK_OTHER;
+        cand->prev = TH_CJ_OTHER;
+    }
+}
+
+static void th_cjk_score_big5(th_cjk_candidate *cand, int written, uint16_t u) {
+    if (written == 2) {
+        th_cjk_flush_pending(cand);
+        if (u == 0xCA || u == 0xEA) {
+            cand->score += TH_CJK_OTHER;
+            cand->prev = TH_CJ_OTHER;
+        } else {
+            cand->score += th_cjk_maybe_pending(cand, TH_BIG5_OTHER, th_cjk_problematic_lead(cand->prev_byte));
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+        }
+        return;
+    }
+    if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
+        cand->has_pending = 0;
+        if (cand->prev == TH_CJ_CJ) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_ASCII;
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
+        th_cjk_flush_pending(cand);
+        long s = (cand->prev_byte >= 0xA4 && cand->prev_byte <= 0xC6) ? TH_BIG5_LEVEL_1 : TH_BIG5_OTHER;
+        cand->score += th_cjk_maybe_pending(cand, s, th_cjk_problematic_lead(cand->prev_byte));
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+    } else if (th_cj_punct9(u)) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJ_PUNCT;
+        cand->prev = TH_CJ_OTHER;
+    } else if (u <= 0x7F) {
+        cand->has_pending = 0;
+        cand->prev = TH_CJ_OTHER;
+    } else {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJK_OTHER;
+        cand->prev = TH_CJ_OTHER;
+    }
+}
+
+static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, int in_euc_range) {
+    if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
+        cand->has_pending = 0;
+        if (cand->prev == TH_CJ_CJ || cand->prev == TH_CJ_HANJA) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_ASCII;
+        cand->word_len = 0;
+    } else if (u >= 0xAC00 && u <= 0xD7A3) {
+        th_cjk_flush_pending(cand);
+        if (cand->prev_was_euc_range && in_euc_range) {
+            cand->score += TH_EUCKR_EUC_HANGUL + th_cjk_extra_score(u, th_detect_freq_frequent_hangul);
+        } else {
+            cand->score +=
+                th_cjk_maybe_pending(cand, TH_EUCKR_NON_EUC_HANGUL, th_cjk_more_problematic_lead(cand->prev_byte));
+        }
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        }
+        cand->prev = TH_CJ_CJ;
+        cand->word_len++;
+        if (cand->word_len > 5) {
+            cand->score += TH_EUCKR_LONG_WORD_PENALTY;
+        }
+    } else if ((u >= 0x4E00 && u < 0xAC00) || (u >= 0xF900 && u <= 0xFA0B)) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_EUCKR_HANJA;
+        if (cand->prev == TH_CJ_ASCII) {
+            cand->score += TH_CJK_LATIN_ADJ;
+        } else if (cand->prev == TH_CJ_CJ) {
+            cand->score += TH_EUCKR_HANJA_AFTER_HANGUL_PENALTY;
+        }
+        cand->prev = TH_CJ_HANJA;
+        cand->word_len++;
+        if (cand->word_len > 5) {
+            cand->score += TH_EUCKR_LONG_WORD_PENALTY;
+        }
+    } else if (u >= 0x80) {
+        th_cjk_flush_pending(cand);
+        cand->score += TH_CJK_OTHER;
+        cand->prev = TH_CJ_OTHER;
+        cand->word_len = 0;
+    } else {
+        cand->has_pending = 0;
+        cand->prev = TH_CJ_OTHER;
+        cand->word_len = 0;
+    }
+}
+
+/* NOLINTEND(bugprone-branch-clone) */
+
+/* Drive one CPython incremental codec a byte at a time, mirroring chardetng's
+   decode-and-classify loop. A decode error disqualifies the candidate. */
+static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
+    for (Py_ssize_t i = 0; i < len; i++) {
+        unsigned char b = buf[i];
+        int in_euc_range = b >= 0xA1 && b <= 0xFE;
+        PyObject *chunk = PyBytes_FromStringAndSize((const char *)&b, 1);
+        if (chunk == NULL) {
+            PyErr_Clear();
+            cand->alive = 0;
+            return;
+        }
+        PyObject *out = PyObject_CallMethod(cand->decoder, "decode", "O", chunk);
+        Py_DECREF(chunk);
+        if (out == NULL) {
+            PyErr_Clear();
+            cand->alive = 0;
+            return;
+        }
+        Py_ssize_t n = PyUnicode_GET_LENGTH(out);
+        if (n > 0) {
+            Py_UCS4 cp0 = PyUnicode_READ_CHAR(out, 0);
+            int written = (n >= 2 || cp0 > 0xFFFF) ? 2 : 1;
+            uint16_t u = (n >= 2 || cp0 <= 0xFFFF) ? (uint16_t)cp0 : (uint16_t)(0xD800 + ((cp0 - 0x10000) >> 10));
+            switch (cand->kind) {
+            case TH_CJK_GBK:
+                th_cjk_score_gbk(cand, written, u, b);
+                break;
+            case TH_CJK_SHIFT_JIS:
+                th_cjk_score_shift_jis(cand, u, b);
+                break;
+            case TH_CJK_EUC_JP:
+                th_cjk_score_euc_jp(cand, u);
+                break;
+            case TH_CJK_BIG5:
+                th_cjk_score_big5(cand, written, u);
+                break;
+            case TH_CJK_EUC_KR:
+                th_cjk_score_euc_kr(cand, u, in_euc_range);
+                break;
+            }
+        }
+        Py_DECREF(out);
+        cand->prev_was_euc_range = in_euc_range;
+        cand->prev_prev_byte = cand->prev_byte;
+        cand->prev_byte = b;
+    }
+    PyObject *flush = PyObject_CallMethod(cand->decoder, "decode", "y#i", "", (Py_ssize_t)0, 1);
+    if (flush == NULL) {
+        PyErr_Clear();
+        cand->alive = 0;
+        return;
+    }
+    Py_DECREF(flush);
+}
+
+/* Run one CJK candidate end to end against the strict CPython codec named by entry,
+   updating *winner/*max when it both survives and beats the running best. */
+static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
+                       const char **winner, long *max) {
+    const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+    PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
+    if (decoder == NULL) {
+        PyErr_Clear();
+        return;
+    }
+    th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
+    th_cjk_feed(&cand, buf, len);
+    Py_DECREF(decoder);
+    if (cand.alive && cand.score > *max) {
+        *max = cand.score;
+        *winner = label;
+    }
+}
+
+/* ISO-2022-JP is 7-bit and escape-driven: chardetng returns it when the stream has
+   no high byte, contains an escape, and decodes cleanly as ISO-2022-JP. */
+static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
+    int esc = 0;
+    for (Py_ssize_t i = 0; i < len; i++) {
+        if (buf[i] == 0x1B) {
+            esc = 1;
+            break;
+        }
+    }
+    if (!esc) {
+        return 0;
+    }
+    const th_encoding_entry *entry = th_encoding_lookup("iso-2022-jp", 11);
+    PyObject *decoded = PyUnicode_Decode((const char *)buf, len, entry->codec, "strict");
+    if (decoded == NULL) {
+        PyErr_Clear();
+        return 0;
+    }
+    Py_DECREF(decoded);
+    return 1;
+}
+
 /* Guess the encoding of a declaration-less byte stream, or NULL when it is pure
    ASCII (the caller then keeps the windows-1252 fallback, which decodes ASCII
-   identically). UTF-8 is resolved structurally; otherwise the single-byte
-   candidates run and the highest-scoring one wins, defaulting to windows-1252. The
-   CJK candidates land in a later phase. */
+   identically). ISO-2022-JP and UTF-8 are resolved structurally; otherwise the CJK
+   and single-byte candidates compete in chardetng's strict-max, defaulting to
+   windows-1252, with the Hebrew visual/logical tiebreak applied last. */
 static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len) {
     int has_non_ascii;
-    if (th_detect_is_utf8(buf, len, &has_non_ascii) && has_non_ascii) {
-        return th_encoding_lookup("utf-8", 5);
-    }
+    int is_utf8 = th_detect_is_utf8(buf, len, &has_non_ascii);
     if (!has_non_ascii) {
+        if (th_iso2022jp_alive(buf, len)) {
+            return th_encoding_lookup("iso-2022-jp", 11);
+        }
         return NULL;
     }
+    if (is_utf8) {
+        return th_encoding_lookup("utf-8", 5);
+    }
+
+    const char *winner = "windows-1252";
+    long max = 0;
+
+    /* CJK candidates run first, matching chardetng's index order so the strict ">"
+       below resolves ties the same way (an earlier candidate keeps a tie). */
+    th_cjk_run(TH_CJK_GBK, "gbk", buf, len, &winner, &max);
+    th_cjk_run(TH_CJK_EUC_JP, "euc-jp", buf, len, &winner, &max);
+    th_cjk_run(TH_CJK_EUC_KR, "euc-kr", buf, len, &winner, &max);
+    th_cjk_run(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, &winner, &max);
+    th_cjk_run(TH_CJK_BIG5, "big5", buf, len, &winner, &max);
+
     th_sb_candidate candidates[TH_SB_COUNT];
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
         th_sb_init(&candidates[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
@@ -576,8 +1137,6 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
     th_sb_init(&visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
     th_sb_feed(&visual, buf, len);
 
-    const char *winner = "windows-1252";
-    long max = 0;
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
         long score;
         if (th_sb_final_score(&candidates[slot], &score) && score > max) {
