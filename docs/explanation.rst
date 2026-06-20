@@ -102,14 +102,14 @@ whose cleaned form cleans differently a second time fails the build. Only the :c
 facade is Python; the filtering walk -- the allowlist checks, the URL-scheme parsing, the escape/strip/remove of each
 node -- runs in C against the parsed tree, which is why it sanitizes faster than the Rust nh3.
 
-Enumerating a page's links is the same tree walk from a third angle. :mod:`turbohtml.links` finds every link-bearing
-location in C -- not just ``<a href>`` but the URLs hidden in ``srcset`` candidate lists, a ``<meta refresh>`` redirect,
-and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet -- so the capability no hand-rolled
-``find_all`` loop reaches comes for free. The walk locates the URL spans and splices replacements back in place; the URL
-resolution itself is :func:`urllib.parse.urljoin` from the standard library, deliberately *not* reimplemented in C,
-because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value lies. The line
-between the two is the project's rule in miniature: the HTML-specific, performance-sensitive work is C, and a thin typed
-facade wires it to the stdlib.
+Enumerating a page's links is the same tree walk from a third angle. :meth:`~turbohtml.Node.links` finds every
+link-bearing location in C -- not just ``<a href>`` but the URLs hidden in ``srcset`` candidate lists, a ``<meta
+refresh>`` redirect, and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet -- so the capability
+no hand-rolled ``find_all`` loop reaches comes for free. The walk locates the URL spans and splices replacements back in
+place; the URL resolution itself is :func:`urllib.parse.urljoin` from the standard library, deliberately *not*
+reimplemented in C, because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value
+lies. The line between the two is the project's rule in miniature: the HTML-specific, performance-sensitive work is C,
+and a thin typed facade wires it to the stdlib.
 
 ************************
  A spec-exact tokenizer

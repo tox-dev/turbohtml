@@ -1,11 +1,11 @@
-/* Link enumeration and rewriting over a parsed tree, kept in C so only the facade is Python.
+/* Link enumeration and rewriting over a parsed tree, the C engine behind the Node.links()/rewrite_links()/
+   resolve_links() methods (wired in tree_type.c).
 
-   turbohtml/links.py parses (or is handed) a tree and exposes links()/resolve_links()/rewrite_links(); this file is the
-   walk that locates every link-bearing location and, for the rewrite path, splices a replacement back in place. The
-   genuinely new capability over iterating <a href> by hand is the URLs embedded in CSS url()/@import (in a style
-   attribute and in <style> text), in a <meta http-equiv=refresh> content value, and in the srcset/ping/archive list
-   attributes. URL resolution itself (resolve_links) is stdlib urllib.parse.urljoin, applied by the Python facade; this
-   file only finds the spans and rewrites them, so RFC 3986 is not reinvented here. */
+   This file is the walk that locates every link-bearing location and, for the rewrite path, splices a replacement back
+   in place. The genuinely new capability over iterating <a href> by hand is the URLs embedded in CSS url()/@import (in
+   a style attribute and in <style> text), in a <meta http-equiv=refresh> content value, and in the srcset/ping/archive
+   list attributes. URL resolution itself (resolve_links) is stdlib urllib.parse.urljoin, bound through
+   functools.partial here, so RFC 3986 is not reinvented. */
 
 #include "turbohtml.h"
 
@@ -232,10 +232,11 @@ typedef struct {
    values to avoid a per-value allocation. */
 typedef struct {
     th_tree *tree;
-    PyObject *handle;  /* the per-tree handle, held for the critical section across the walk */
-    PyObject *owner;   /* the element/document the public call was made on, for wrapping enumerated nodes */
-    PyObject *result;  /* list[(Element, str | None, str)] for enumerate, else NULL */
-    PyObject *replace; /* callable (str) -> str | None for rewrite, else NULL */
+    module_state *state; /* the module's per-interpreter state, for the Link record type */
+    PyObject *handle;    /* the per-tree handle, held for the critical section across the walk */
+    PyObject *owner;     /* the element/document the public call was made on, for wrapping enumerated nodes */
+    PyObject *result;    /* list[Link] for enumerate, else NULL */
+    PyObject *replace;   /* callable (str) -> str | None for rewrite, else NULL */
     link_span *spans;
     Py_ssize_t span_count;
     Py_ssize_t span_cap;
@@ -282,15 +283,15 @@ static PyObject *ucs4_slice(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t e
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value + start, end - start);
 }
 
-/* Append (element, attr, url) for each span to the result list. `report_element` is the owning Element wrapper and
-   `report_attr` its attribute name (or None for <style> text); both are borrowed for the call's duration. */
+/* Append a Link(element, attr, url) for each span to the result list. `report_element` is the owning Element wrapper
+   and `report_attr` its attribute name (or None for <style> text); both are borrowed for the call's duration. */
 static int emit_enumerated(link_walk *walk, PyObject *report_element, PyObject *report_attr, const Py_UCS4 *value) {
     for (Py_ssize_t index = 0; index < walk->span_count; index++) {
         PyObject *url = ucs4_slice(value, walk->spans[index].start, walk->spans[index].end);
         if (url == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *record = PyTuple_Pack(3, report_element, report_attr, url);
+        PyObject *record = PyObject_CallFunction(walk->state->link_type, "OOO", report_element, report_attr, url);
         Py_DECREF(url);
         if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -575,16 +576,15 @@ static int collect_subtree(link_walk *walk, th_node *root) {
     return 0;
 }
 
-/* Shared entry point: borrow the tree the node wraps and run the walk under the per-tree critical section. */
-static PyObject *run_walk(PyObject *module, PyObject *node, PyObject *result, PyObject *replace) {
-    link_walk walk = {.owner = node, .result = result, .replace = replace};
-    th_node *root;
-    if (turbohtml_node_borrow(module, node, &walk.tree, &root) < 0) {
-        return NULL;
-    }
+/* Shared engine: run the walk over `root` under `owner`'s per-tree critical section. The thin Node methods in
+   tree_type.c derive (owner, tree, root) straight from the node and hand them here; the module state for the Link
+   record type and the per-tree handle for the lock come off `owner`. */
+static PyObject *run_walk(PyObject *owner, th_tree *tree, th_node *root, PyObject *result, PyObject *replace) {
+    link_walk walk = {.tree = tree, .owner = owner, .result = result, .replace = replace};
+    walk.state = PyType_GetModuleState(Py_TYPE(owner));
     /* read the handle into the struct (always, so it is covered) rather than into the macro argument, which the GIL
        build's no-op Py_BEGIN_CRITICAL_SECTION does not evaluate */
-    walk.handle = turbohtml_node_handle(node);
+    walk.handle = turbohtml_node_handle(owner);
     int failed;
     Py_BEGIN_CRITICAL_SECTION(walk.handle); /* per-tree lock: no concurrent mutation mid-walk */
     failed = collect_subtree(&walk, root) < 0;
@@ -601,30 +601,66 @@ static PyObject *run_walk(PyObject *module, PyObject *node, PyObject *result, Py
     return result != NULL ? result : Py_NewRef(Py_None);
 }
 
-/* _links(node) -> list[(Element, str | None, str)]. Enumerates every link-bearing location in document order. */
-PyObject *turbohtml_links(PyObject *module, PyObject *args) {
-    PyObject *node;
-    if (!PyArg_ParseTuple(args, "O:_links", &node)) {
-        return NULL;
-    }
+/* Store the Link record type the C core constructs for each enumerated link; turbohtml._links registers it on import.
+ */
+PyObject *turbohtml_register_links(PyObject *module, PyObject *type) {
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->link_type, Py_NewRef(type));
+    Py_RETURN_NONE;
+}
+
+/* Node.links() -> list[Link]. Enumerates every link-bearing location under the node in document order. */
+PyObject *turbohtml_node_links(PyObject *owner, th_tree *tree, th_node *root) {
     PyObject *result = PyList_New(0);
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return run_walk(module, node, result, NULL);
+    return run_walk(owner, tree, root, result, NULL);
 }
 
-/* _rewrite_links(node, replace) -> None. Calls replace(url) for every link; a str result replaces it, None leaves it.
- */
-PyObject *turbohtml_rewrite_links(PyObject *module, PyObject *args) {
-    PyObject *node;
-    PyObject *replace;
-    if (!PyArg_ParseTuple(args, "OO:_rewrite_links", &node, &replace)) {
-        return NULL;
-    }
+/* Node.rewrite_links(replace) -> None. Calls replace(url) for every link; a str result replaces it, None leaves it. */
+PyObject *turbohtml_node_rewrite_links(PyObject *owner, th_tree *tree, th_node *root, PyObject *replace) {
     if (!PyCallable_Check(replace)) {
         PyErr_SetString(PyExc_TypeError, "rewrite_links expected a callable");
         return NULL;
     }
-    return run_walk(module, node, NULL, replace);
+    return run_walk(owner, tree, root, NULL, replace);
+}
+
+/* Node.resolve_links(base_url) -> None. Rewrites every link absolute against base_url with functools.partial bound over
+   stdlib urllib.parse.urljoin, so RFC 3986 resolution is not reinvented. */
+PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *root, PyObject *base_url) {
+    if (!PyUnicode_Check(base_url)) {
+        PyErr_SetString(PyExc_TypeError, "resolve_links expected a base URL string");
+        return NULL;
+    }
+    PyObject *parse_module = PyImport_ImportModule("urllib.parse");
+    if (parse_module == NULL) { /* GCOVR_EXCL_BR_LINE: a stdlib import cannot be forced to fail from a test */
+        return NULL;            /* GCOVR_EXCL_LINE: import-failure path */
+    }
+    PyObject *urljoin = PyObject_GetAttrString(parse_module, "urljoin");
+    Py_DECREF(parse_module);
+    if (urljoin == NULL) { /* GCOVR_EXCL_BR_LINE: urllib.parse.urljoin always exists */
+        return NULL;       /* GCOVR_EXCL_LINE: attribute-failure path */
+    }
+    PyObject *functools_module = PyImport_ImportModule("functools");
+    if (functools_module == NULL) { /* GCOVR_EXCL_BR_LINE: a stdlib import cannot be forced to fail from a test */
+        Py_DECREF(urljoin);         /* GCOVR_EXCL_LINE: import-failure path */
+        return NULL;                /* GCOVR_EXCL_LINE */
+    }
+    PyObject *partial = PyObject_GetAttrString(functools_module, "partial");
+    Py_DECREF(functools_module);
+    if (partial == NULL) {  /* GCOVR_EXCL_BR_LINE: functools.partial always exists */
+        Py_DECREF(urljoin); /* GCOVR_EXCL_LINE: attribute-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    PyObject *bound = PyObject_CallFunctionObjArgs(partial, urljoin, base_url, NULL);
+    Py_DECREF(partial);
+    Py_DECREF(urljoin);
+    if (bound == NULL) { /* GCOVR_EXCL_BR_LINE: binding a partial cannot be forced to fail from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = run_walk(owner, tree, root, NULL, bound);
+    Py_DECREF(bound);
+    return result;
 }

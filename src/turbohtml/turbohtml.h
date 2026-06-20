@@ -43,14 +43,21 @@ struct th_node;
 int turbohtml_node_borrow(PyObject *module, PyObject *obj, struct th_tree **tree, struct th_node **node);
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args);
 
-/* Implemented in links.c. _links enumerates every link-bearing location in a
-   subtree; _rewrite_links replaces each via a callback. Both match METH_VARARGS.
+/* Implemented in links.c, the engine behind Node.links()/rewrite_links()/
+   resolve_links(). Each takes the wrapping node (owner, for the per-tree handle
+   and the Element wrappers) and the already-derived tree+root the thin C methods
+   in tree_type.c hand over: turbohtml_node_links enumerates every link-bearing
+   location as Link records, turbohtml_node_rewrite_links replaces each via a
+   callback, turbohtml_node_resolve_links absolutizes them against a base URL with
+   urllib.parse.urljoin. _register_links stores the Link record type (METH_O).
    turbohtml_node_handle and turbohtml_node_wrap_in (tree_type.c) lend links.c the
    per-tree handle for the critical section and the node->Element wrapper. */
 PyObject *turbohtml_node_handle(PyObject *obj);
 PyObject *turbohtml_node_wrap_in(PyObject *owner, struct th_node *node);
-PyObject *turbohtml_links(PyObject *module, PyObject *args);
-PyObject *turbohtml_rewrite_links(PyObject *module, PyObject *args);
+PyObject *turbohtml_register_links(PyObject *module, PyObject *type);
+PyObject *turbohtml_node_links(PyObject *owner, struct th_tree *tree, struct th_node *root);
+PyObject *turbohtml_node_rewrite_links(PyObject *owner, struct th_tree *tree, struct th_node *root, PyObject *replace);
+PyObject *turbohtml_node_resolve_links(PyObject *owner, struct th_tree *tree, struct th_node *root, PyObject *base_url);
 
 /* Implemented in tokenizer_type.c. tokenize() matches METH_VARARGS | METH_KEYWORDS;
    the internal conformance hook _tokenize_states matches METH_VARARGS. */

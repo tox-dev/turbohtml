@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import Element, Text, parse_fragment
-from turbohtml.links import rewrite_links
 
 
 def _boom(url: str) -> str:
@@ -13,7 +12,7 @@ def _boom(url: str) -> str:
 
 def _rewritten(html: str, replace: object) -> str:
     root = parse_fragment(html)
-    rewrite_links(root, replace)  # ty: ignore[invalid-argument-type]
+    root.rewrite_links(replace)  # ty: ignore[invalid-argument-type]
     return root.inner_html
 
 
@@ -76,10 +75,10 @@ def test_an_exception_on_the_first_of_several_style_texts_stops_the_walk() -> No
         raise ValueError(msg)
 
     with pytest.raises(ValueError, match="stop"):
-        rewrite_links(style, boom)
+        style.rewrite_links(boom)
     assert seen == ["one.png"]  # the second text node was never reached
 
 
 def test_rewrite_links_requires_a_callable() -> None:
     with pytest.raises(TypeError, match="expected a callable"):
-        rewrite_links(parse_fragment("<a href=a>x</a>"), "not callable")  # ty: ignore[invalid-argument-type]
+        parse_fragment("<a href=a>x</a>").rewrite_links("not callable")  # ty: ignore[invalid-argument-type]

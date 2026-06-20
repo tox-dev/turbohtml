@@ -12,6 +12,7 @@
    struct; the node's th_node type selects which Python type wraps it. */
 
 #include "tokenizer_py.h"
+#include "turbohtml.h"
 
 #include "ascii.h"
 #include "encoding.h"
@@ -932,6 +933,32 @@ static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject
     return result;
 }
 
+PyDoc_STRVAR(links_doc, "links()\n--\n\n"
+                        "Return every link in this node and its subtree, in document order, as a\n"
+                        "list of Link records. Beyond <a href>, this finds the URLs hidden in\n"
+                        "srcset/ping/archive lists, a <meta http-equiv=refresh> redirect, and CSS\n"
+                        "url()/@import in a style attribute or a <style> sheet.");
+
+static PyObject *node_links(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    return turbohtml_node_links(self, tree_of(self), ((NodeObject *)self)->node);
+}
+
+PyDoc_STRVAR(rewrite_links_doc, "rewrite_links(replace, /)\n--\n\n"
+                                "Replace every link in this node and its subtree in place with replace(url).\n"
+                                "Returning a str substitutes the link; returning None leaves it unchanged.");
+
+static PyObject *node_rewrite_links(PyObject *self, PyObject *replace) {
+    return turbohtml_node_rewrite_links(self, tree_of(self), ((NodeObject *)self)->node, replace);
+}
+
+PyDoc_STRVAR(resolve_links_doc, "resolve_links(base_url, /)\n--\n\n"
+                                "Rewrite every link in this node and its subtree to an absolute URL resolved\n"
+                                "against base_url, in place, using stdlib urllib.parse.urljoin.");
+
+static PyObject *node_resolve_links(PyObject *self, PyObject *base_url) {
+    return turbohtml_node_resolve_links(self, tree_of(self), ((NodeObject *)self)->node, base_url);
+}
+
 static PyGetSetDef node_getset[] = {
     {"parent", node_get_parent, NULL, "the parent Element or Document, or None for the document root", NULL},
     {"children", node_get_children, NULL, "the child nodes as a tuple", NULL},
@@ -1177,6 +1204,9 @@ static PyMethodDef node_methods[] = {
     {"to_text", (PyCFunction)(void (*)(void))node_to_text, METH_VARARGS | METH_KEYWORDS, to_text_doc},
     {"to_annotated_text", (PyCFunction)(void (*)(void))node_to_annotated_text, METH_VARARGS | METH_KEYWORDS,
      to_annotated_text_doc},
+    {"links", node_links, METH_NOARGS, links_doc},
+    {"rewrite_links", node_rewrite_links, METH_O, rewrite_links_doc},
+    {"resolve_links", node_resolve_links, METH_O, resolve_links_doc},
     {"insert_before", node_insert_before, METH_VARARGS, insert_before_doc},
     {"insert_after", node_insert_after, METH_VARARGS, insert_after_doc},
     {"replace_with", node_replace_with, METH_VARARGS, replace_with_doc},

@@ -471,16 +471,14 @@ in :attr:`~turbohtml.Element.attrs`:
 ***********************************************
 
 Iterating ``<a href>`` by hand misses the URLs in ``srcset``, a ``<meta refresh>`` redirect, and CSS
-``url()``/``@import``. :func:`turbohtml.links.links` finds them all, and :func:`~turbohtml.links.resolve_links` rewrites
+``url()``/``@import``. :meth:`~turbohtml.Node.links` finds them all, and :meth:`~turbohtml.Node.resolve_links` rewrites
 them absolute against a base URL in place:
 
 .. testcode::
 
-    from turbohtml.links import links, resolve_links
-
     doc = turbohtml.parse('<p style="background:url(hero.png)"><a href="a/b.html">x</a></p>')
-    resolve_links(doc, "https://example.com/dir/")
-    for link in links(doc):
+    doc.resolve_links("https://example.com/dir/")
+    for link in doc.links():
         print(link.element.tag, link.attribute, link.url)
 
 .. testoutput::
@@ -488,7 +486,7 @@ them absolute against a base URL in place:
     p style https://example.com/dir/hero.png
     a href https://example.com/dir/a/b.html
 
-For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :func:`~turbohtml.links.rewrite_links`;
+For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :meth:`~turbohtml.Node.rewrite_links`;
 returning ``None`` leaves a link untouched.
 
 ***********************************

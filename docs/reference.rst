@@ -66,24 +66,6 @@ each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 .. autoclass:: LinkSpan
     :members:
 
-*****************
- turbohtml.links
-*****************
-
-.. module:: turbohtml.links
-
-Enumerate every link in a parsed tree and rewrite the links absolute against a base URL, including the URLs hidden in
-CSS ``url()``/``@import``, a ``<meta http-equiv=refresh>`` redirect, and the ``srcset``/``ping``/``archive`` list
-attributes.
-
-.. autofunction:: links
-
-.. autofunction:: resolve_links
-
-.. autofunction:: rewrite_links
-
-.. autoclass:: Link
-
 *********************
  turbohtml.sanitizer
 *********************

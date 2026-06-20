@@ -3,11 +3,10 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse_fragment
-from turbohtml.links import links
 
 
 def _urls(html: str) -> list[str]:
-    return [link.url for link in links(parse_fragment(html))]
+    return [link.url for link in parse_fragment(html).links()]
 
 
 @pytest.mark.parametrize(

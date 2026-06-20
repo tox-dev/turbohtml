@@ -63,6 +63,7 @@ static PyMethodDef html_methods[] = {
     {"_markup_soft_str", turbohtml_markup_soft_str, METH_O, markup_soft_str_doc},
     {"_register_markup", turbohtml_register_markup, METH_O, NULL},
     {"_register_xpath_string", turbohtml_register_xpath_string, METH_O, NULL},
+    {"_register_links", turbohtml_register_links, METH_O, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
     {"parse_fragment", (PyCFunction)(void (*)(void))turbohtml_tree_parse_fragment, METH_VARARGS | METH_KEYWORDS,
@@ -75,8 +76,6 @@ static PyMethodDef html_methods[] = {
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},
     {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
-    {"_links", turbohtml_links, METH_VARARGS, NULL},
-    {"_rewrite_links", turbohtml_rewrite_links, METH_VARARGS, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
@@ -129,6 +128,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->pattern_type);      /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->markup_type);       /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->xpath_string_type); /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->link_type);         /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -173,6 +173,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->pattern_type);
     Py_CLEAR(state->markup_type);
     Py_CLEAR(state->xpath_string_type);
+    Py_CLEAR(state->link_type);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }

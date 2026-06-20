@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import Element, Text, parse, parse_fragment
-from turbohtml.links import Link, links
+from turbohtml import Element, Link, Text, parse, parse_fragment
 
 
 def _urls(html: str) -> list[tuple[str, str | None, str]]:
-    return [(link.element.tag, link.attribute, link.url) for link in links(parse_fragment(html))]
+    return [(link.element.tag, link.attribute, link.url) for link in parse_fragment(html).links()]
 
 
 def test_anchor_href_is_enumerated() -> None:
@@ -173,7 +172,7 @@ def test_style_with_a_non_text_child_skips_it() -> None:
     style = Element("style")
     style.append(Element("span"))
     style.append(Text("a{background:url(bg.png)}"))
-    assert [link.url for link in links(style)] == ["bg.png"]
+    assert [link.url for link in style.links()] == ["bg.png"]
 
 
 def test_css_import_double_quoted() -> None:
@@ -196,12 +195,12 @@ def test_links_is_returned_in_document_order() -> None:
 
 
 def test_links_on_a_whole_document() -> None:
-    found = links(parse('<html><body><a href="u">x</a></body></html>'))
+    found = parse('<html><body><a href="u">x</a></body></html>').links()
     assert [(link.element.tag, link.url) for link in found] == [("a", "u")]
 
 
 def test_link_is_a_named_tuple() -> None:
-    (link,) = links(parse_fragment('<a href="u">x</a>'))
+    (link,) = parse_fragment('<a href="u">x</a>').links()
     assert isinstance(link, Link)
     assert link == (link.element, "href", "u")
     assert link.element.attrs["href"] == "u"

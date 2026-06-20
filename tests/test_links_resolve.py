@@ -3,14 +3,13 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse, parse_fragment
-from turbohtml.links import links, resolve_links
 
 _BASE = "https://example.com/dir/page.html"
 
 
 def _resolved(html: str, base: str = _BASE) -> str:
     root = parse_fragment(html)
-    resolve_links(root, base)
+    root.resolve_links(base)
     return root.inner_html
 
 
@@ -47,7 +46,7 @@ def test_css_url_in_style_attribute_is_resolved() -> None:
 
 def test_css_url_in_style_element_is_resolved() -> None:
     root = parse_fragment("<style>a{background:url(bg.png)} @import 'theme.css';</style>")
-    resolve_links(root, _BASE)
+    root.resolve_links(_BASE)
     assert root.inner_html == (
         "<style>a{background:url(https://example.com/dir/bg.png)} @import 'https://example.com/dir/theme.css';</style>"
     )
@@ -60,8 +59,8 @@ def test_meta_refresh_url_is_resolved() -> None:
 
 def test_resolve_on_a_whole_document_returns_none() -> None:
     doc = parse('<html><body><a href="a.html">x</a></body></html>')
-    assert resolve_links(doc, _BASE) is None
-    (link,) = links(doc)
+    assert doc.resolve_links(_BASE) is None
+    (link,) = doc.links()
     assert link.url == "https://example.com/dir/a.html"
 
 
@@ -80,3 +79,8 @@ def test_a_longer_replacement_grows_the_value() -> None:
 )
 def test_nothing_to_resolve_is_a_no_op(html: str) -> None:
     assert _resolved(html) == html
+
+
+def test_resolve_links_requires_a_string_base() -> None:
+    with pytest.raises(TypeError, match="base URL string"):
+        parse_fragment('<a href="a">x</a>').resolve_links(None)  # ty: ignore[invalid-argument-type]

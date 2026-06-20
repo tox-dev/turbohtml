@@ -30,6 +30,7 @@ from ._html import (
     tokenize,
     unescape,
 )
+from ._links import Link  # registers the Link record type with the C core on import
 from ._xpath import XPathString  # registers the smart-string type with the C core on import
 
 __version__ = version("turbohtml")
@@ -46,6 +47,7 @@ __all__ = [
     "HTMLParseError",
     "IncrementalParser",
     "Indent",
+    "Link",
     "Minify",
     "Namespace",
     "Node",
