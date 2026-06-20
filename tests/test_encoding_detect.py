@@ -72,10 +72,94 @@ def test_encoding_argument_wins_over_detection() -> None:
     ],
 )
 def test_utf8_validator(raw: bytes, is_utf8: bool) -> None:  # noqa: FBT001  # parametrized expectation flag
-    # wrap so the document is non-trivial; detection runs on the whole byte buffer
-    assert detected(b"<p>" + raw + b"</p>") == ("UTF-8" if is_utf8 else "windows-1252")
+    # wrap so the document is non-trivial; detection runs on the whole byte buffer.
+    # invalid UTF-8 resolves to some single-byte encoding (Phase 2), never UTF-8
+    result = detected(b"<p>" + raw + b"</p>")
+    if is_utf8:
+        assert result == "UTF-8"
+    else:
+        assert result != "UTF-8"
 
 
 def test_truncated_sequence_at_eof_is_not_utf8() -> None:
     # an incomplete multi-byte sequence at the very end of the buffer disqualifies UTF-8
     assert detected(b"caf\xc3") == "windows-1252"
+
+
+# Single-byte detection (Phase 2). The expected values are golden, captured from
+# Firefox's chardetng (the reference this port follows) so the C detector is checked
+# against it without a runtime cargo dependency. Each case is natural-language text
+# re-encoded into a legacy single-byte encoding; the detector must recover its label.
+@pytest.mark.parametrize(
+    ("text", "source", "expected"),
+    [
+        pytest.param(
+            "Précédemment, la créativité française était très développée près de Paris ici.",
+            "cp1252",
+            "windows-1252",
+            id="french",
+        ),
+        pytest.param(
+            "Müller schrieb über die Größe der schönen Häuser in Würzburg täglich neu.",
+            "iso-8859-1",
+            "windows-1252",
+            id="german",
+        ),
+        pytest.param(
+            "Программирование помогает понять структуру вычислительных систем сегодня здесь.",
+            "cp1251",
+            "windows-1251",
+            id="russian-1251",
+        ),
+        pytest.param(
+            "Москва это столица России и очень большой красивый город здесь сейчас опять.",
+            "koi8-r",
+            "KOI8-U",
+            id="russian-koi8",
+        ),
+        pytest.param(
+            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # noqa: RUF001
+            "cp1253",
+            "windows-1253",
+            id="greek-1253",
+        ),
+        pytest.param(
+            "Zażółć gęślą jaźń bardzo szybko aby sprawdzić wszystkie polskie znaki tutaj teraz.",
+            "cp1250",
+            "windows-1250",
+            id="polish-1250",
+        ),
+        pytest.param(
+            "Příliš žluťoučký kůň úpěl ďábelské ódy nad řekou ve městě každý letní večer tam.",
+            "iso-8859-2",
+            "ISO-8859-2",
+            id="czech-iso2",
+        ),
+        pytest.param(
+            "Çok güzel bir gün bugün İstanbul şehrinde yağmur yağıyor ve sıcaklık çok düşük.",  # noqa: RUF001
+            "cp1254",
+            "windows-1254",
+            id="turkish-1254",
+        ),
+        pytest.param(
+            "שלום לכולם היום יום יפה מאוד בעיר תל אביב והשמש זורחת בשמיים הכחולים שלנו כאן.",
+            "cp1255",
+            "windows-1255",
+            id="hebrew-1255",
+        ),
+        pytest.param(
+            "اللغة العربية لغة جميلة وغنية بالكلمات والتعابير المختلفة في العالم العربي كله.",
+            "cp1256",
+            "windows-1256",
+            id="arabic-1256",
+        ),
+        pytest.param(
+            "Lietuvių kalba turi daug specialių raidžių ir įdomią gramatikos struktūrą šiandien.",
+            "cp1257",
+            "windows-1257",
+            id="baltic-1257",
+        ),
+    ],
+)
+def test_single_byte_detection(text: str, source: str, expected: str) -> None:
+    assert detected(text.encode(source)) == expected

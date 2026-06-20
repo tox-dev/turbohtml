@@ -79,6 +79,9 @@ def parse_detector_data(source: str) -> dict[str, list[int]]:
 def parse_single_byte(source: str) -> list[tuple[str, ...]]:
     """Parse the 20 ``SINGLE_BYTE_DATA`` rows into (encoding, lower, upper, prob, ascii, non_ascii)."""
     block = re.search(r"pub static SINGLE_BYTE_DATA: \[SingleByteData; 20\] = \[(.*?)\n\];", source, re.DOTALL)
+    if block is None:
+        msg = "SINGLE_BYTE_DATA not found; chardetng layout changed"
+        raise SystemExit(msg)
     rows = re.findall(
         r"encoding:\s*&(\w+),\s*lower:\s*&DETECTOR_DATA\.(\w+),\s*upper:\s*&DETECTOR_DATA\.(\w+),"
         r"\s*probabilities:\s*&DETECTOR_DATA\.(\w+),\s*ascii:\s*(\w+),\s*non_ascii:\s*(\w+),",
