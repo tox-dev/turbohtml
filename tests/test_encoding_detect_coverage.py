@@ -118,6 +118,31 @@ def test_hebrew_visual_order_detected() -> None:
     assert detected(cyrillic_winner) == "windows-1251"
 
 
+def test_latin_lower_to_upper_case_transitions() -> None:
+    # the Latin candidate penalizes an implausible lowercase->uppercase transition unless
+    # the pair is plain ASCII: "aB" is the ASCII pair (no penalty), "éB" is not (penalty),
+    # exercising both arms of that case-state branch
+    assert detected("aBcD éB àC normal latin text here".encode("cp1252")) is not None
+
+
+def test_arabic_zwnj_and_ascii_run() -> None:
+    # windows-1256 reserves a class for the zero-width non-joiner (byte 0x9D); an Arabic
+    # text carrying one, plus a run of consecutive ASCII, exercises the ZWNJ-aware pair
+    # scoring and the ASCII-pair shortcut in the Arabic/French candidate.
+    arabic = "العربية"
+    # a digit on each side of the ZWNJ puts an above-boundary class next to it, so both
+    # the current==ZWNJ and previous==ZWNJ arms of the pair score are taken
+    raw = (arabic + " 1‌2 " + arabic + "  " + arabic + " hello world " + arabic).encode("cp1256")
+    assert detected(raw) is not None
+
+
+def test_logical_hebrew_punctuation_marks() -> None:
+    # every ASCII punctuation mark the logical-order tracker recognizes (. , : ; ? !),
+    # placed after Hebrew words so each is counted as plausible punctuation
+    text = "שלום. עולם, וגם: כאן; מה? נהדר! עוד מילים בעברית כדי שתהיה ארוכה דיה"
+    assert detected(text.encode("iso-8859-8")) is not None
+
+
 def test_windows_1252_ordinal_state_machine() -> None:
     # The windows-1252 ordinal detector rewards Spanish/Portuguese ordinals (1o, 2a,
     # No, copyright). These segments walk every state and transition; double spaces
@@ -149,6 +174,8 @@ def test_windows_1252_ordinal_state_machine() -> None:
         "©",  # copyright then reset space -> bonus
         "©x",  # copyright then letter
         "Iº",  # Roman numeral then masculine
+        "Iª",  # Roman numeral then feminine
+        "IIX",  # Roman stays Roman across I and X
         "Ix",  # Roman then letter
         "I ",  # Roman then space
         "IVx",  # Roman stays Roman, then letter

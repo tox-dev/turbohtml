@@ -114,9 +114,10 @@ static long th_detect_pair_score(const th_detect_single_byte *data, int current,
         return stored == 255 ? TH_DETECT_IMPLAUSIBILITY_PENALTY : (long)stored;
     }
     if (current < boundary) {
-        /* current alphabetic below the boundary, previous above it */
-        if (current == 0 || current == TH_DETECT_ASCII_DIGIT ||
-            (windows_1256 && current == TH_DETECT_WINDOWS_1256_ZWNJ)) {
+        /* current alphabetic below the boundary, previous above it. The ASCII-digit
+           class (100) is always above the boundary (at most 72), so unlike chardetng we
+           omit its always-false test here; only space and the windows-1256 ZWNJ qualify. */
+        if (current == 0 || (windows_1256 && current == TH_DETECT_WINDOWS_1256_ZWNJ)) {
             return 0;
         }
         switch (previous - boundary) {
@@ -132,9 +133,9 @@ static long th_detect_pair_score(const th_detect_single_byte *data, int current,
         }
     }
     if (previous < boundary) {
-        /* current above the boundary, previous alphabetic below it */
-        if (previous == 0 || previous == TH_DETECT_ASCII_DIGIT ||
-            (windows_1256 && previous == TH_DETECT_WINDOWS_1256_ZWNJ)) {
+        /* current above the boundary, previous alphabetic below it; the ASCII-digit class
+           is again always above the boundary, so its test is omitted */
+        if (previous == 0 || (windows_1256 && previous == TH_DETECT_WINDOWS_1256_ZWNJ)) {
             return 0;
         }
         switch (current - boundary) {
@@ -700,11 +701,15 @@ static int th_gbk_pua_ideograph(uint16_t u) {
 
 static void th_cjk_score_gbk(th_cjk_candidate *cand, int written, uint16_t u, unsigned char b) {
     if (written == 2) {
+        /* u is the high surrogate of a GB18030 four-byte astral scalar, always in
+           0xD800..0xDBFF, so chardetng's redundant outer bounds (<= 0xDBFF, >= 0xD480)
+           are dropped: plane 15/16 private use sits at 0xDB80 and up, the BMP-adjacent
+           ideographs below 0xD880, and the rest scores as other. */
         th_cjk_flush_pending(cand);
-        if (u >= 0xDB80 && u <= 0xDBFF) {
+        if (u >= 0xDB80) {
             cand->score += TH_GBK_PUA_PENALTY;
             cand->prev = TH_CJ_OTHER;
-        } else if (u >= 0xD480 && u < 0xD880) {
+        } else if (u < 0xD880) {
             cand->score += TH_GBK_NON_EUC;
             if (cand->prev == TH_CJ_ASCII) {
                 cand->score += TH_CJK_LATIN_ADJ;
@@ -727,10 +732,12 @@ static void th_cjk_score_gbk(th_cjk_candidate *cand, int written, uint16_t u, un
         cand->prev = TH_CJ_OTHER;
     } else if (u >= 0x4E00 && u <= 0x9FA5) {
         th_cjk_flush_pending(cand);
-        if (b >= 0xA1 && b <= 0xFE) {
+        /* a valid gb18030 trail byte never exceeds 0xFE, and a two-byte lead never
+           exceeds 0xFE, so chardetng's upper bounds collapse to the lower ones */
+        if (b >= 0xA1) {
             if (cand->prev_byte >= 0xA1 && cand->prev_byte <= 0xD7) {
                 cand->score += TH_GBK_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_simplified);
-            } else if (cand->prev_byte >= 0xD8 && cand->prev_byte <= 0xFE) {
+            } else if (cand->prev_byte >= 0xD8) {
                 cand->score += TH_GBK_LEVEL_2;
             } else {
                 cand->score += TH_GBK_NON_EUC;
@@ -999,9 +1006,12 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
         }
         Py_ssize_t n = PyUnicode_GET_LENGTH(out);
         if (n > 0) {
+            /* each one-byte feed completes at most one scalar, so the decoded string is a
+               single code point; an astral one (GB18030 four-byte) maps to written==2 via
+               its UTF-16 high surrogate, mirroring chardetng's encoding_rs output */
             Py_UCS4 cp0 = PyUnicode_READ_CHAR(out, 0);
-            int written = (n >= 2 || cp0 > 0xFFFF) ? 2 : 1;
-            uint16_t u = (n >= 2 || cp0 <= 0xFFFF) ? (uint16_t)cp0 : (uint16_t)(0xD800 + ((cp0 - 0x10000) >> 10));
+            int written = cp0 > 0xFFFF ? 2 : 1;
+            uint16_t u = cp0 <= 0xFFFF ? (uint16_t)cp0 : (uint16_t)(0xD800 + ((cp0 - 0x10000) >> 10));
             switch (cand->kind) {
             case TH_CJK_GBK:
                 th_cjk_score_gbk(cand, written, u, b);
@@ -1015,7 +1025,7 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
             case TH_CJK_BIG5:
                 th_cjk_score_big5(cand, u);
                 break;
-            case TH_CJK_EUC_KR:
+            default: /* TH_CJK_EUC_KR */
                 th_cjk_score_euc_kr(cand, u);
                 break;
             }
@@ -1121,13 +1131,17 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
             winner = candidates[slot].data->label;
         }
     }
+    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
+       score Hebrew text identically -- they differ only in punctuation plausibility --
+       so the visual order can only ever tie windows-1255, never outscore the field;
+       chardetng's visual_score > max test is dead here and dropped. The branches are
+       fully nested so each decision is counted on its own. */
     long visual_score;
     if (th_sb_final_score(&visual, &visual_score)) {
-        int considered = visual_score > max || strcmp(winner, "windows-1255") == 0;
-        int punctuation_favors_visual =
-            visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation;
-        if (considered && punctuation_favors_visual) {
-            winner = "iso-8859-8";
+        if (strcmp(winner, "windows-1255") == 0) {
+            if (visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
+                winner = "iso-8859-8";
+            }
         }
     }
     return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
