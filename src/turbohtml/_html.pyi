@@ -35,6 +35,7 @@ def _sanitize(
     attribute_filter: Callable[[str, str, str], str | None] | None,
     set_attributes: Mapping[str, Mapping[str, str]],
     remove_with_content: frozenset[str],
+    css_properties: frozenset[str],
     /,
 ) -> None: ...
 

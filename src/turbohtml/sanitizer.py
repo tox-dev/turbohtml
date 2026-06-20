@@ -48,6 +48,17 @@ DEFAULT_ATTRIBUTES: Mapping[str, frozenset[str]] = MappingProxyType({
 })
 #: bleach's default URL schemes.
 DEFAULT_SCHEMES = frozenset({"http", "https", "mailto"})
+#: bleach's default allowed CSS properties (CSS 2.1 safe set plus SVG paint), for scrubbing a ``style`` attribute.
+DEFAULT_CSS_PROPERTIES = frozenset({
+    "azimuth", "background-color", "border-bottom-color", "border-collapse", "border-color", "border-left-color",
+    "border-right-color", "border-top-color", "clear", "color", "cursor", "direction", "display", "elevation",
+    "float", "font", "font-family", "font-size", "font-style", "font-variant", "font-weight", "height",
+    "letter-spacing", "line-height", "overflow", "pause", "pause-after", "pause-before", "pitch", "pitch-range",
+    "richness", "speak", "speak-header", "speak-numeral", "speak-punctuation", "speech-rate", "stress", "text-align",
+    "text-decoration", "text-indent", "unicode-bidi", "vertical-align", "voice-family", "volume", "white-space",
+    "width", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+    "stroke-opacity",
+})  # fmt: skip
 
 # A roomier set for the relaxed preset: typical user-generated content (headings, tables, images, figures).
 _RELAXED_TAGS = DEFAULT_TAGS | {
@@ -78,8 +89,10 @@ class Policy:
     forced onto every kept instance of it (added if absent, overwritten if present) -- the one thing
     ``attribute_filter`` cannot do, since it only sees attributes already there. ``remove_with_content`` names
     disallowed tags whose whole subtree is dropped (e.g. ``script``/``style``) rather than escaped or stripped, so their
-    text never leaks into the output. The baseline-unsafe set and the event-handler and bad-scheme stripping are not
-    configurable, so any policy is safe.
+    text never leaks into the output. When ``style`` is an allowed attribute, its value is scrubbed against
+    ``css_properties``: each declaration whose property name is not in the set is dropped, so dangerous CSS cannot ride
+    in on a kept ``style``. The baseline-unsafe set and the event-handler and bad-scheme stripping are not configurable,
+    so any policy is safe.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -93,6 +106,7 @@ class Policy:
     attribute_filter: Callable[[str, str, str], str | None] | None = None
     set_attributes: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     remove_with_content: frozenset[str] = frozenset()
+    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES
 
     @classmethod
     def strict(cls) -> Policy:
@@ -140,6 +154,7 @@ class Sanitizer:
             policy.attribute_filter,
             self._set_attributes,
             policy.remove_with_content,
+            policy.css_properties,
         )
         return root.inner_html
 
@@ -151,6 +166,7 @@ def sanitize(html: str, policy: Policy | None = None) -> str:
 
 __all__ = [
     "DEFAULT_ATTRIBUTES",
+    "DEFAULT_CSS_PROPERTIES",
     "DEFAULT_SCHEMES",
     "DEFAULT_TAGS",
     "OnDisallowed",

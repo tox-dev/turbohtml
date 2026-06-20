@@ -27,6 +27,7 @@ typedef struct {
     PyObject *attribute_filter; /* callable (tag, name, value) -> str | None, or None */
     PyObject *set_attributes;   /* dict[str, dict[str, str]]: per-tag attribute values to force-set on kept elements */
     PyObject *remove_with_content; /* frozenset[str]: disallowed tags whose whole subtree is dropped, not escaped */
+    PyObject *css_properties;      /* frozenset[str]: CSS property names kept when scrubbing a `style` attribute */
     int allow_relative;
     int on_disallowed;
     int strip_comments;
@@ -310,6 +311,147 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     return 0;
 }
 
+/* A CSS property name is ASCII letters, digits, and '-', so an ASCII lowercase is enough to look it up. Returns 1
+   allow, 0 drop, -1 error. */
+static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t len) {
+    char lowered[64];
+    if (len == 0 || len >= (Py_ssize_t)sizeof(lowered)) {
+        return 0; /* empty, or longer than any real property name */
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 c = name[index];
+        lowered[index] = (char)((c >= 'A' && c <= 'Z') ? (c | 0x20) : c);
+    }
+    PyObject *key = PyUnicode_FromStringAndSize(lowered, len);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int allowed = PySet_Contains(s->css_properties, key);
+    Py_DECREF(key);
+    return allowed;
+}
+
+/* Append the declaration `value[start:end)` to `out` if the property name (the part before `colon`) is allowlisted,
+   trimming surrounding whitespace and joining kept declarations with "; ". Returns 0, or -1 on error. */
+static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
+                                 Py_UCS4 *out, Py_ssize_t *out_len) {
+    if (colon < start) {
+        return 0; /* no property:value split in this declaration, so drop it */
+    }
+    Py_ssize_t name_start = start;
+    Py_ssize_t name_end = colon;
+    while (name_start < name_end && is_ascii_ws(value[name_start])) {
+        name_start++;
+    }
+    while (name_end > name_start && is_ascii_ws(value[name_end - 1])) {
+        name_end--;
+    }
+    int allowed = css_property_allowed(s, value + name_start, name_end - name_start);
+    if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: css_property_allowed only fails on allocation failure */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (!allowed) {
+        return 0;
+    }
+    /* output from the trimmed name start to the value's last non-whitespace byte (the leading whitespace was already
+       trimmed into name_start, so a kept declaration is emitted without its surrounding whitespace) */
+    Py_ssize_t decl_end = end;
+    while (decl_end > colon + 1 && is_ascii_ws(value[decl_end - 1])) {
+        decl_end--;
+    }
+    if (*out_len > 0) {
+        out[(*out_len)++] = ';';
+        out[(*out_len)++] = ' ';
+    }
+    for (Py_ssize_t index = name_start; index < decl_end; index++) {
+        out[(*out_len)++] = value[index];
+    }
+    return 0;
+}
+
+/* Scrub a kept `style` attribute: keep only declarations whose property name is allowlisted. The value is a CSS
+   declaration list; split it on top-level ';' and ':' while skipping strings, comments, and parenthesised groups so a
+   separator inside url()/quotes/comments is not mistaken for one. Rewrites the attribute, deleting it if nothing
+   survives. Returns 0 on success, -1 on error. */
+static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr) {
+    const Py_UCS4 *value = attr->value;
+    Py_ssize_t len = attr->value_len;
+    Py_UCS4 *out = PyMem_Malloc((size_t)(2 * len + 2) * sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t out_len = 0;
+    Py_ssize_t decl_start = 0;
+    Py_ssize_t colon = -1;
+    int mode = 0; /* 0 normal, 1 string, 2 comment */
+    Py_UCS4 quote = 0;
+    int depth = 0;
+    for (Py_ssize_t index = 0; index <= len; index++) {
+        int boundary = index == len; /* the end of the value flushes the final declaration */
+        Py_UCS4 c = boundary ? 0 : value[index];
+        if (!boundary && mode == 2) {
+            if (c == '*' && index + 1 < len && value[index + 1] == '/') {
+                mode = 0;
+                index++;
+            }
+            continue;
+        }
+        if (!boundary && mode == 1) {
+            if (c == '\\') {
+                index++; /* a backslash escapes the next byte, even a quote */
+            } else if (c == quote) {
+                mode = 0;
+            }
+            continue;
+        }
+        if (!boundary) {
+            if (c == '/' && index + 1 < len && value[index + 1] == '*') {
+                mode = 2;
+                index++;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                mode = 1;
+                quote = c;
+                continue;
+            }
+            if (c == '(') {
+                depth++;
+                continue;
+            }
+            if (c == ')') {
+                depth -= depth > 0;
+                continue;
+            }
+            if (depth > 0) {
+                continue;
+            }
+            if (c == ':' && colon < 0) {
+                colon = index;
+                continue;
+            }
+            if (c != ';') {
+                continue;
+            }
+        }
+        int flushed = css_flush_declaration(s, value, decl_start, index, colon, out, &out_len);
+        if (flushed < 0) {   /* GCOVR_EXCL_BR_LINE: css_flush_declaration only fails on allocation failure */
+            PyMem_Free(out); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;       /* GCOVR_EXCL_LINE */
+        }
+        decl_start = index + 1;
+        colon = -1;
+    }
+    if (out_len == 0) {
+        th_node_attr_del(s->tree, element, "style", 5);
+        PyMem_Free(out);
+        return 0;
+    }
+    int result = th_node_attr_set(s->tree, element, "style", 5, out, out_len, 1);
+    PyMem_Free(out);
+    return result;
+}
+
 static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     Py_ssize_t index = 0;
     while (index < element->attr_count) {
@@ -354,6 +496,15 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
         if (drop) {
             th_node_attr_del(s->tree, element, name, name_len);
             continue; /* the next attribute shifted into this slot */
+        }
+        if (name_len == 5 && memcmp(name, "style", 5) == 0) {
+            Py_ssize_t before = element->attr_count;
+            if (sanitize_style(s, element, attr) < 0) { /* GCOVR_EXCL_BR_LINE: only on allocation failure */
+                return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            if (element->attr_count < before) {
+                continue; /* the style scrubbed to empty and was deleted */
+            }
         }
         if (s->attribute_filter != Py_None) {
             Py_ssize_t before = element->attr_count;
@@ -558,14 +709,14 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
 }
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
-   attribute_filter, set_attributes, remove_with_content) -> None. Filters the fragment in place; sanitizer.py
-   serializes it. */
+   attribute_filter, set_attributes, remove_with_content, css_properties) -> None. Filters the fragment in place;
+   sanitizer.py serializes it. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
-                          &s.set_attributes, &s.remove_with_content)) {
+                          &s.set_attributes, &s.remove_with_content, &s.css_properties)) {
         return NULL;
     }
     th_node *root;

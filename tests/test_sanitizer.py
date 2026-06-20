@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from turbohtml.sanitizer import (
     DEFAULT_ATTRIBUTES,
+    DEFAULT_CSS_PROPERTIES,
     DEFAULT_SCHEMES,
     DEFAULT_TAGS,
     OnDisallowed,
@@ -11,6 +14,24 @@ from turbohtml.sanitizer import (
     Sanitizer,
     sanitize,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def _style_policy(
+    *,
+    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES,
+    attribute_filter: Callable[[str, str, str], str | None] | None = None,
+) -> Policy:
+    """A policy that allows <p style="...">, for exercising CSS scrubbing."""
+    return Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=css_properties,
+        attribute_filter=attribute_filter,
+    )
+
 
 # frame and frameset are absent: the parser drops them outside a frameset document, so a fragment never contains one.
 _UNSAFE_TAGS = [
@@ -184,6 +205,95 @@ def test_remove_with_content_overrides_every_disposition(mode: OnDisallowed) -> 
     out = sanitize("<b>ok</b><script>alert(1)</script>", policy)
     assert "alert(1)" not in out
     assert "<b>ok</b>" in out
+
+
+def test_style_dropped_when_not_allowed() -> None:
+    # style is not in the default allowed attributes, so it is dropped without CSS scrubbing
+    assert sanitize('<a href="http://x" style="color: red">t</a>') == '<a href="http://x">t</a>'
+
+
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [
+        pytest.param("color: red", 'style="color: red"', id="keep-allowed"),
+        pytest.param("position: fixed", None, id="drop-disallowed"),
+        pytest.param("COLOR: red", 'style="COLOR: red"', id="uppercase-name"),
+        pytest.param("color: red; width: 5px", 'style="color: red; width: 5px"', id="two-kept-joined"),
+        pytest.param("color: red; position: fixed", 'style="color: red"', id="keep-one-drop-one"),
+        pytest.param("  color : red  ", 'style="color : red"', id="surrounding-whitespace-trimmed"),
+        pytest.param("color: red; /* ; : x */ width: 1px", 'style="color: red', id="comment-holds-separators"),
+        pytest.param("font-family: 'a;b:c'; color: red", "font-family: 'a;b:c'", id="string-holds-separators"),
+        pytest.param("font-family: 'a\\'b'; color: red", "color: red", id="string-escaped-quote"),
+        pytest.param("cursor: url(a;b:c); color: red", "cursor: url(a;b:c)", id="url-holds-separators"),
+        pytest.param("cursor: url((nested)); color: red", "color: red", id="nested-parens"),
+        pytest.param("color: red)", 'style="color: red)"', id="stray-close-paren"),
+        pytest.param("color:", 'style="color:"', id="empty-value"),
+        pytest.param("color: a:b", 'style="color: a:b"', id="value-has-second-colon"),
+        pytest.param("no-colon-declaration", None, id="declaration-without-colon"),
+        pytest.param(": red; color: blue", 'style="color: blue"', id="empty-property-name"),
+        pytest.param("", None, id="empty-value"),
+        pytest.param(";;; color: red ;;;", 'style="color: red"', id="extra-semicolons"),
+        pytest.param("position: fixed; z-index: 9", None, id="all-dropped-removes-attribute"),
+        pytest.param(("a" * 70) + ": red; color: blue", 'style="color: blue"', id="property-name-too-long"),
+    ],
+)
+def test_style_scrubbing(style: str, expected: str | None) -> None:
+    out = sanitize(f'<p style="{style}">x</p>', _style_policy())
+    if expected is None:
+        assert "style=" not in out
+    else:
+        assert expected in out
+
+
+def test_style_unterminated_string_is_safe() -> None:
+    # an unterminated string runs to the end; the declaration's property still gates it
+    out = sanitize('<p style="color: red; font-family: \'unterminated">x</p>', _style_policy())
+    assert "color: red" in out
+    assert sanitize(out, _style_policy()) == out  # idempotent
+
+
+def test_style_unterminated_comment_is_safe() -> None:
+    out = sanitize('<p style="color: red; width: 1px /* unterminated">x</p>', _style_policy())
+    assert "color: red" in out
+    assert sanitize(out, _style_policy()) == out
+
+
+def test_style_empty_property_set_drops_all_css() -> None:
+    out = sanitize('<p style="color: red">x</p>', _style_policy(css_properties=frozenset()))
+    assert "style=" not in out
+
+
+def test_style_scrubbed_before_attribute_filter_sees_it() -> None:
+    seen: list[str] = []
+
+    def record(_tag: str, name: str, value: str) -> str:
+        seen.append(f"{name}={value}")
+        return value
+
+    sanitize('<p style="color: red; position: fixed">x</p>', _style_policy(attribute_filter=record))
+    assert seen == ["style=color: red"]  # the filter sees the already-scrubbed value
+
+
+def test_style_comment_with_lone_asterisk() -> None:
+    # a '*' inside a comment that is not the closing '*/' must not end the comment early
+    assert "color: red" in sanitize('<p style="color: red /* a*b */">x</p>', _style_policy())
+
+
+def test_style_unterminated_comment_ending_in_asterisk() -> None:
+    # a '*' as the final byte of an unterminated comment has no following '/'
+    assert "color: red" in sanitize('<p style="color: red /* x *">x</p>', _style_policy())
+
+
+def test_style_slash_not_starting_a_comment() -> None:
+    # a '/' not followed by '*' is an ordinary character, including one at the very end
+    assert "color: 1/2" in sanitize('<p style="color: 1/2">x</p>', _style_policy())
+    assert "color: red/" in sanitize('<p style="color: red/">x</p>', _style_policy())
+
+
+def test_style_double_quoted_css_string() -> None:
+    # a double-quoted CSS string (in a single-quoted attribute) holds separators safely
+    out = sanitize("<p style='font-family: \"a;b:c\"; color: red'>x</p>", _style_policy())
+    assert "color: red" in out
 
 
 @pytest.mark.parametrize(
@@ -427,8 +537,10 @@ def test_strip_propagates_a_child_filter_error() -> None:
 def test_sanitize_rejects_non_element() -> None:
     from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
 
+    # the eleven policy arguments after the element; only the non-element first argument matters to this guard
+    policy_args = (frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset())
     with pytest.raises(TypeError):
-        _sanitize("not an element", frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset())  # ty: ignore[invalid-argument-type]  # noqa: FBT003
+        _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]
 
 
 def test_sanitize_rejects_wrong_arguments() -> None:

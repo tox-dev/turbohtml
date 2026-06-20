@@ -828,7 +828,10 @@ frozen, thread-safe policy (bleach's ``clean`` had a documented thread-safety fo
 an ``attribute_filter`` that rewrites or drops a value where bleach's callable only returned a bool. One difference is
 deliberate and load-bearing: turbohtml's safety baseline (``<script>``, ``on*`` handlers, ``javascript:`` URLs) is not
 configurable, so even a permissive ``attributes`` callable cannot re-admit them, where bleach faithfully kept whatever
-you allowed. CSS sanitizing (bleach's ``css_sanitizer``) is not yet ported; ``clean`` raises if you pass it.
+you allowed. The native sanitizer scrubs the ``style`` attribute against ``Policy.css_properties`` (the safe set
+bleach's ``css_sanitizer`` defaults to), so an allowed ``style`` keeps only allowlisted declarations; the
+bleach-compatible ``clean`` shim does not yet take a ``css_sanitizer`` argument (it raises), and ``<style>`` element
+contents are dropped rather than scrubbed.
 
 **********
  From nh3
@@ -894,9 +897,10 @@ Porting inverts the model. Instead of switching dangerous things off, declare th
 The ``javascript:`` URL is gone because ``http``/``https``/``mailto`` are the only schemes the policy admits, and the
 ``<script>`` is escaped rather than executed. ``Cleaner``'s ``host_whitelist`` and ``allow_tags`` lists fold into
 ``Policy.tags`` and ``attribute_filter``, its ``kill_tags`` (drop the element together with its content) maps to
-``Policy.remove_with_content``, and its ``add_nofollow`` maps to ``Policy.add_link_rel``. The CSS scrubbing ``Cleaner``
-does for ``style`` is not ported, and ``Cleaner`` rewrites a disallowed scheme to an empty ``href`` where turbohtml
-drops the attribute outright.
+``Policy.remove_with_content``, and its ``add_nofollow`` maps to ``Policy.add_link_rel``. turbohtml scrubs a kept
+``style`` attribute against ``Policy.css_properties``, though it drops ``<style>`` elements where ``Cleaner`` scrubs
+their text too, and ``Cleaner`` rewrites a disallowed scheme to an empty ``href`` where turbohtml drops the attribute
+outright.
 
 *********************
  From html-sanitizer
