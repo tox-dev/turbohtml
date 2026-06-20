@@ -65,6 +65,7 @@ each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 
 .. autoclass:: LinkSpan
     :members:
+
 *****************
  turbohtml.links
 *****************

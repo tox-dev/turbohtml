@@ -31,6 +31,7 @@ def test_non_url_attributes_of_varied_length_are_ignored(attr: str) -> None:
         pytest.param("5; url=", [], id="empty-url-after-equals"),
         pytest.param("url=only.html", ["only.html"], id="url-first"),
         pytest.param("5; URL = spaced.html", ["spaced.html"], id="spaced-around-equals"),
+        pytest.param("5; url=a.html ignored", ["a.html"], id="unquoted-url-ends-at-whitespace"),
         pytest.param("5", [], id="no-url-keyword"),
         pytest.param("5; urlx=no.html", [], id="url-not-followed-by-equals"),
         pytest.param("5; curl=no.html", [], id="url-is-tail-of-identifier"),
@@ -66,6 +67,7 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
         pytest.param("@media screen {}", [], id="other-at-rule"),
         pytest.param("background:url('unclosed", ["unclosed"], id="unclosed-quote-runs-to-end"),
         pytest.param("background:url(", [], id="empty-url-at-end"),
+        pytest.param("a-b_c:url(z.png)", ["z.png"], id="dash-and-underscore-are-identifier-bytes"),
     ],
 )
 def test_style_element_css_parsing(css: str, expected: list[str]) -> None:

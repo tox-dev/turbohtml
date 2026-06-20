@@ -9,6 +9,7 @@
 
 #include "turbohtml.h"
 
+#include "tokenizer_py.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "treebuilder.h"
 
 #include <string.h>
