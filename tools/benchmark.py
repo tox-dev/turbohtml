@@ -49,6 +49,7 @@ import nh3
 import pyperf
 import w3lib.html
 from bs4 import BeautifulSoup
+from inscriptis.model.config import ParserConfig
 from linkify_it import LinkifyIt
 from lxml import html as lxml_html
 from parsel import Selector
@@ -987,7 +988,36 @@ MARKDOWN_OPT_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
     ("html2text", html2text_configured),
 )
 
-MARKDOWN_CASE_NAMES = [name for name, _ in MARKDOWN_CASES] + ["configured 4 KiB"]
+# the google_doc case feeds the inline-CSS styling a Google Docs export carries,
+# so the CSS-to-Markdown path (bold/italic weights, fixed-width spans) is measured
+# against html2text's google_doc mode; markdownify has no equivalent.
+_MARKDOWN_GOOGLE_HTML = (
+    '<p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">italic</span> and '
+    "<span style=\"font-family:'Courier New'\">code()</span> in a line.</p>"
+) * 18
+
+
+def turbo_markdown_google(text: str) -> None:
+    """Convert a Google Docs export with turbohtml's google_doc mode."""
+    turbohtml.parse(text).to_markdown(google_doc=True)
+
+
+_HTML2TEXT_GOOGLE = html2text.HTML2Text()
+_HTML2TEXT_GOOGLE.body_width = 0
+_HTML2TEXT_GOOGLE.google_doc = True
+
+
+def html2text_google(text: str) -> None:
+    """Convert a Google Docs export with html2text's google_doc mode."""
+    _HTML2TEXT_GOOGLE.handle(text)
+
+
+MARKDOWN_GOOGLE_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_markdown_google),
+    ("html2text", html2text_google),
+)
+
+MARKDOWN_CASE_NAMES = [name for name, _ in MARKDOWN_CASES] + ["configured 4 KiB", "google_doc 4 KiB"]
 
 
 def turbo_text(text: str) -> None:
@@ -1009,7 +1039,29 @@ TEXT_CASES: tuple[tuple[str, str], ...] = (
     ("article 2 KiB", ("<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16)),
     ("table 4 KiB", ("<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30)),
 )
-TEXT_CASE_NAMES = [name for name, _ in TEXT_CASES]
+TEXT_CASE_NAMES = [name for name, _ in TEXT_CASES] + ["annotated 4 KiB"]
+
+# the annotation case labels matching elements with spans, the role inscriptis's
+# get_annotated_text fills, so the labeled-span path is measured beside it.
+_ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
+_ANNOTATION_CONFIG = ParserConfig(annotation_rules=_ANNOTATION_RULES)
+_ANNOTATION_HTML = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
+
+
+def turbo_annotated(text: str) -> None:
+    """Render annotated layout text with turbohtml, recording spans in C."""
+    turbohtml.parse(text).to_annotated_text(_ANNOTATION_RULES)
+
+
+def inscriptis_annotated(text: str) -> None:
+    """Render annotated layout text with inscriptis, on an lxml tree."""
+    inscriptis.get_annotated_text(text, _ANNOTATION_CONFIG)
+
+
+ANNOTATION_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_annotated),
+    ("inscriptis", inscriptis_annotated),
+)
 
 
 def run_markdown_suite(bench: Callable[[str, object, object], None]) -> None:
@@ -1019,9 +1071,13 @@ def run_markdown_suite(bench: Callable[[str, object, object], None]) -> None:
             bench(f"markdown {name} [{label}]", run, text)
     for label, run in MARKDOWN_OPT_LIBS:
         bench(f"markdown configured 4 KiB [{label}]", run, _MARKDOWN_OPTS_HTML)
+    for label, run in MARKDOWN_GOOGLE_LIBS:
+        bench(f"markdown google_doc 4 KiB [{label}]", run, _MARKDOWN_GOOGLE_HTML)
     for name, text in TEXT_CASES:
         for label, run in TEXT_LIBS:
             bench(f"text {name} [{label}]", run, text)
+    for label, run in ANNOTATION_LIBS:
+        bench(f"text annotated 4 KiB [{label}]", run, _ANNOTATION_HTML)
 
 
 def print_text_table(means: dict[str, float], cases: list[str]) -> None:

@@ -520,10 +520,12 @@ PyDoc_STRVAR(
     "mark_code=False, link_style='inline', autolink=True, link_title=False, ignore_links=False, "
     "skip_internal_links=False, base_url='', image_mode='markdown', default_image_alt='', table_mode='markdown', "
     "table_header='first', pad_tables=False, escape_mode='minimal', escape_asterisks=True, escape_underscores=True, "
-    "line_break='spaces', block_spacing='double', document_strip='strip', quote_open='\"', quote_close='\"')\n--\n\n"
+    "line_break='spaces', block_spacing='double', document_strip='strip', quote_open='\"', quote_close='\"', "
+    "google_doc=False, google_list_indent=36, hide_strikethrough=False)\n--\n\n"
     "Render this node and its subtree as Markdown. The keyword options cover the\n"
     "markdownify and html2text configuration surface; the defaults emit opinionated\n"
-    "GitHub-Flavored Markdown.");
+    "GitHub-Flavored Markdown. google_doc reads the inline-CSS styling a Google Docs\n"
+    "export carries (bold/italic/strike weights and list margins).");
 
 /* Resolve a string option against its allowed values, writing the matched index
    into *out (an enum), or leave *out untouched when the argument was omitted. */
@@ -582,13 +584,17 @@ static PyObject *node_to_markdown(PyObject *self, PyObject *args, PyObject *kwds
                          "document_strip",
                          "quote_open",
                          "quote_close",
+                         "google_doc",
+                         "google_list_indent",
+                         "hide_strikethrough",
                          NULL};
     if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "|$OsssOpssOspOppppsOsOOpOppOOOss", kw, &heading, &opt.bullets, &opt.strong, &opt.emphasis,
+            args, kwds, "|$OsssOpssOspOppppsOsOOpOppOOOsspip", kw, &heading, &opt.bullets, &opt.strong, &opt.emphasis,
             &strike, &ignore_emphasis, &opt.sub, &opt.sup, &code_style, &opt.code_language, &mark_code, &link,
             &opt.autolink, &opt.link_title, &opt.ignore_links, &opt.skip_internal_links, &opt.base_url, &image,
             &opt.default_image_alt, &table, &header, &opt.pad_tables, &escape, &opt.escape_asterisks,
-            &opt.escape_underscores, &brk, &spacing, &docstrip, &opt.quote_open, &opt.quote_close)) {
+            &opt.escape_underscores, &brk, &spacing, &docstrip, &opt.quote_open, &opt.quote_close, &opt.google_doc,
+            &opt.google_list_indent, &opt.hide_strikethrough)) {
         return NULL;
     }
     static const char *const headings[] = {"atx", "atx_closed", "setext"};
@@ -618,6 +624,10 @@ static PyObject *node_to_markdown(PyObject *self, PyObject *args, PyObject *kwds
     }
     if (*opt.bullets == '\0') {
         PyErr_SetString(PyExc_ValueError, "bullets must not be empty");
+        return NULL;
+    }
+    if (opt.google_list_indent < 1) {
+        PyErr_SetString(PyExc_ValueError, "google_list_indent must be a positive number of pixels");
         return NULL;
     }
     opt.keep_emphasis = !ignore_emphasis;

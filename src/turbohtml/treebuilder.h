@@ -261,9 +261,12 @@ typedef struct {
     int block_spacing_single; /* one newline between blocks instead of a blank line */
     int wrap_width;           /* word-wrap column, 0 disables */
     int wrap_list_items;
-    int document_strip; /* enum th_md_doc_strip */
-    const char *sub;    /* <sub> wrapper */
-    const char *sup;    /* <sup> wrapper */
+    int document_strip;     /* enum th_md_doc_strip */
+    const char *sub;        /* <sub> wrapper */
+    const char *sup;        /* <sup> wrapper */
+    int google_doc;         /* read inline-CSS styling the way a Google Docs export encodes it */
+    int google_list_indent; /* px of margin-left per list-nesting level (>= 1); divides margin-left */
+    int hide_strikethrough; /* in google_doc mode, drop text a CSS line-through struck */
 } md_opts;
 
 /* The no-argument baseline configuration (opinionated GitHub-Flavored Markdown). */

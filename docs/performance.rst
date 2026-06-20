@@ -193,6 +193,13 @@ reference links, padded tables, full escaping), and turbohtml stays ahead by the
       - 28 µs
       - 2726 µs
       - 1182 µs
+    - - google_doc (4 KiB)
+      - 17 µs
+      - —
+      - 577 µs
+
+The ``google_doc`` row reads the inline-CSS styling a Google Docs export carries (html2text's google_doc mode);
+markdownify has no equivalent.
 
 *************
  Layout text
@@ -215,6 +222,12 @@ builds an lxml tree and a CSS model in Python, where turbohtml does the whole la
     - - table (4 KiB)
       - 26 µs
       - 885 µs
+    - - annotated (4 KiB)
+      - 10 µs
+      - 208 µs
+
+The ``annotated`` row labels matching elements with spans through :meth:`~turbohtml.Node.to_annotated_text` against
+inscriptis's ``get_annotated_text``.
 
 ************
  Unescaping

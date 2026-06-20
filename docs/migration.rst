@@ -1048,6 +1048,27 @@ The html2text options map as:
       - ``quote_open``, ``quote_close``
     - - ``escape_snob``
       - ``escape_mode="all"``
+    - - ``google_doc``
+      - ``google_doc``
+    - - ``google_list_indent``
+      - ``google_list_indent``
+    - - ``hide_strikethrough``
+      - ``hide_strikethrough``
+
+``google_doc=True`` reads the inline-CSS styling a Google Docs HTML export carries: a ``font-weight`` of ``bold`` or
+``700``--``900`` becomes ``strong``, ``font-style:italic`` becomes ``emphasis``, a ``Courier New``/``Consolas``
+``font-family`` becomes an inline code span, ``list-style-type`` picks the list marker, and each ``google_list_indent``
+pixels of ``margin-left`` add one list-nesting level. With ``hide_strikethrough=True`` a
+``text-decoration:line-through`` drops the struck text.
+
+.. testcode::
+
+    export = '<p><span style="font-weight:700">Quarterly</span> revenue</p>'
+    print(parse(export).to_markdown(google_doc=True))
+
+.. testoutput::
+
+    **Quarterly** revenue
 
 Pitfalls
 ========
@@ -1056,9 +1077,9 @@ Pitfalls
   ``strong_em_symbol``; set both to reproduce its behavior.
 - ``to_markdown`` is a method on any node, so convert a subtree by calling it on the element you selected
   (``doc.find("article").to_markdown()``) instead of slicing the HTML string first.
-- A few niche knobs are intentionally dropped: html2text's Google-Docs heuristics (``google_doc``,
-  ``google_list_indent``), the parser-selection options (markdownify's ``bs4_options``), and the per-call tag-handler
-  callbacks. ``base_url`` does simple prefixing rather than full RFC-3986 URL resolution.
+- A few niche knobs are intentionally dropped: the parser-selection options (markdownify's ``bs4_options``) and the
+  per-call tag-handler callbacks, since turbohtml always runs the WHATWG algorithm and the walk holds no per-call state.
+  ``base_url`` does simple prefixing rather than full RFC-3986 URL resolution.
 - Layout-aware plain text (the ``inscriptis`` role, ``to_text(layout=...)``) is a separate method; for the unstructured
   concatenation read :attr:`~turbohtml.Node.text`.
 

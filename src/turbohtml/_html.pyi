@@ -240,6 +240,9 @@ class Node:
         document_strip: Literal["strip", "lstrip", "rstrip", "none"] = "strip",
         quote_open: str = '"',
         quote_close: str = '"',
+        google_doc: bool = False,
+        google_list_indent: int = 36,
+        hide_strikethrough: bool = False,
     ) -> str: ...
     def to_text(
         self,

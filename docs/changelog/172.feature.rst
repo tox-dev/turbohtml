@@ -13,7 +13,11 @@ Keyword options cover the markdownify and html2text configuration surface with o
 migrating off either reproduces its output: heading style (ATX, closed ATX, setext), bullet and emphasis and quote
 markers, reference vs inline links with autolinking, image alt/ignore modes, ignored links/emphasis/tables, fenced or
 indented or marked code blocks, padded and stripped tables, three escaping levels, single vs double block spacing, and
-document trimming. The :doc:`migration <migration>` guide maps each old option to its turbohtml name.
+document trimming. ``google_doc=True`` adds html2text's Google-Docs mode, reading the inline-CSS styling such an export
+carries: a bold/italic font weight or style becomes ``strong``/``emphasis``, a fixed-width font becomes inline code,
+``list-style-type`` picks the marker, ``margin-left`` over ``google_list_indent`` pixels sets list nesting, and
+``hide_strikethrough`` drops struck text. The :doc:`migration <migration>` guide maps each old option to its turbohtml
+name.
 
 A companion :meth:`~turbohtml.Node.to_text` exports layout-aware plain text, the role `inscriptis
 <https://github.com/weblyzard/inscriptis>`_ fills: blocks separated by blank lines, lists indented under their bullets,

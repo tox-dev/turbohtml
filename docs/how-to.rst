@@ -718,6 +718,18 @@ guide maps each old option to its turbohtml name.
 
     [1]: /x
 
+To convert a Google Docs HTML export, pass ``google_doc=True`` so the inline-CSS styling it carries (font weight, font
+style, fixed-width fonts, and ``margin-left`` list nesting) turns into Markdown:
+
+.. testcode::
+
+    export = '<p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">soft</span>.</p>'
+    print(turbohtml.parse(export).to_markdown(google_doc=True))
+
+.. testoutput::
+
+    **Bold** and *soft*.
+
 **********************
  Export to plain text
 **********************

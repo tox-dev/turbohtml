@@ -125,6 +125,9 @@ print(doc.to_markdown())
 # - water
 ```
 
+The keyword options cover the markdownify and html2text surface; `google_doc=True` adds html2text's Google-Docs mode,
+reading the inline-CSS styling such an export carries.
+
 Or to layout-aware plain text (the `inscriptis` role), with tables laid out as aligned columns:
 
 ```python

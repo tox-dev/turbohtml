@@ -97,6 +97,9 @@ md_opts th_markdown_default_opts(void) {
     opt.document_strip = TH_MD_DOC_STRIP;
     opt.sub = "";
     opt.sup = "";
+    opt.google_doc = 0;
+    opt.google_list_indent = 36;
+    opt.hide_strikethrough = 0;
     return opt;
 }
 
@@ -139,6 +142,8 @@ typedef struct {
     int suppress_break;   /* the next block attaches to the current (list marker) line */
     int tight;            /* inside a list item: inline runs do not add blank lines */
     int list_depth;       /* nesting depth of the current list, for bullet cycling */
+    int g_bold;           /* google_doc: a CSS font-weight bold is in force from an ancestor */
+    int g_italic;         /* google_doc: a CSS font-style italic is in force from an ancestor */
     int failed;           /* a reference buffer allocation failed */
 } md_ctx;
 
@@ -358,6 +363,108 @@ static const Py_UCS4 *md_attr(th_tree *tree, th_node *node, const char *name, Py
     }
     *len = node->attrs[index].value_len;
     return node->attrs[index].value;
+}
+
+/* Case-insensitive ASCII compare of a code-point slice to a lowercase C key. */
+static int md_ucs4_ieq(const Py_UCS4 *text, Py_ssize_t len, const char *key) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (character >= 'A' && character <= 'Z') {
+            character += 'a' - 'A';
+        }
+        if (key[index] == '\0' || character != (Py_UCS4)(unsigned char)key[index]) {
+            return 0;
+        }
+    }
+    return key[len] == '\0';
+}
+
+/* Find the declaration `prop: value` in an inline style string (a `style`
+   attribute value), matching the property case-insensitively and trimming the
+   value. Returns 1 with the value slice set when present. */
+static int md_css_prop(const Py_UCS4 *style, Py_ssize_t style_len, const char *prop, const Py_UCS4 **out_value,
+                       Py_ssize_t *out_len) {
+    Py_ssize_t prop_len = (Py_ssize_t)strlen(prop);
+    Py_ssize_t cursor = 0;
+    while (cursor < style_len) {
+        Py_ssize_t name_start = cursor;
+        while (cursor < style_len && style[cursor] != ':' && style[cursor] != ';') {
+            cursor++;
+        }
+        Py_ssize_t name_end = cursor;
+        if (cursor >= style_len || style[cursor] == ';') {
+            cursor++; /* a declaration without a colon: skip past its terminator */
+            continue;
+        }
+        cursor++; /* past ':' */
+        Py_ssize_t value_start = cursor;
+        while (cursor < style_len && style[cursor] != ';') {
+            cursor++;
+        }
+        Py_ssize_t value_end = cursor;
+        cursor++; /* past ';' */
+        while (name_start < name_end && md_is_ws(style[name_start])) {
+            name_start++;
+        }
+        while (name_end > name_start && md_is_ws(style[name_end - 1])) {
+            name_end--;
+        }
+        while (value_start < value_end && md_is_ws(style[value_start])) {
+            value_start++;
+        }
+        while (value_end > value_start && md_is_ws(style[value_end - 1])) {
+            value_end--;
+        }
+        if (name_end - name_start == prop_len && md_ucs4_ieq(&style[name_start], prop_len, prop)) {
+            *out_value = &style[value_start];
+            *out_len = value_end - value_start;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the value is one of the four bold weights a Google Docs export emits. */
+static int md_css_bold(const Py_UCS4 *value, Py_ssize_t len) {
+    static const char *const weights[] = {"bold", "700", "800", "900"};
+    for (size_t index = 0; index < sizeof(weights) / sizeof(weights[0]); index++) {
+        if (md_ucs4_ieq(value, len, weights[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether the value names one of the fixed-width fonts Google Docs uses for code. */
+static int md_css_fixed(const Py_UCS4 *value, Py_ssize_t len) {
+    static const char *const fonts[] = {"courier new", "consolas"};
+    for (size_t index = 0; index < sizeof(fonts) / sizeof(fonts[0]); index++) {
+        if (md_ucs4_ieq(value, len, fonts[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether a list-style-type value renders as an unordered bullet rather than a
+   number, mirroring inscriptis/html2text's set of bullet keywords. */
+static int md_css_unordered(const Py_UCS4 *value, Py_ssize_t len) {
+    static const char *const bullets[] = {"disc", "circle", "square", "none"};
+    for (size_t index = 0; index < sizeof(bullets) / sizeof(bullets[0]); index++) {
+        if (md_ucs4_ieq(value, len, bullets[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The leading integer pixel count of a length value ("72px" -> 72). */
+static int md_css_px(const Py_UCS4 *value, Py_ssize_t len) {
+    int pixels = 0;
+    for (Py_ssize_t index = 0; index < len && value[index] >= '0' && value[index] <= '9'; index++) {
+        pixels = pixels * 10 + (int)(value[index] - '0');
+    }
+    return pixels;
 }
 
 static void md_render_inline(md_ctx *ctx, th_node *node);
@@ -590,16 +697,9 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
 static void md_render_block(md_ctx *ctx, th_node *node);
 static void md_block_children(md_ctx *ctx, th_node *node);
 
-/* Render one node encountered in an inline run. A block element nested in inline
-   flow (rare, e.g. a <div> inside a <span>) is laid out as its own block. */
-static void md_render_inline(md_ctx *ctx, th_node *node) {
-    if (node->type == TH_NODE_TEXT) {
-        md_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
-        return;
-    }
-    if (node->type != TH_NODE_ELEMENT && node->type != TH_NODE_CONTENT) {
-        return;
-    }
+/* Render an element (or content node) by its tag, the common path shared by the
+   plain walk and the google_doc CSS wrapper. Text is handled by the caller. */
+static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
     uint16_t atom = node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN;
     switch (atom) {
@@ -657,6 +757,88 @@ static void md_render_inline(md_ctx *ctx, th_node *node) {
         return;
     }
     md_inline_children(ctx, node);
+}
+
+/* Render an element in google_doc mode: turn the inline-CSS styling a Google Docs
+   export carries into Markdown. A font-weight/font-style/fixed-width font opens
+   the matching marker (only on the transition the ancestor did not already set,
+   so nested spans do not double the markup), and a line-through drops the text
+   when hide_strikethrough is on. The markers are deferred like md_wrap so a
+   leading inner space lands outside and an empty span leaves nothing behind. */
+static void md_render_google(md_ctx *ctx, th_node *node) {
+    const md_opts *opt = ctx->opt;
+    Py_ssize_t style_len;
+    const Py_UCS4 *style = md_attr(ctx->tree, node, "style", &style_len);
+    const Py_UCS4 *value;
+    Py_ssize_t value_len;
+    if (opt->hide_strikethrough && style != NULL &&
+        md_css_prop(style, style_len, "text-decoration", &value, &value_len) &&
+        md_ucs4_ieq(value, value_len, "line-through")) {
+        return; /* the struck-through subtree is hidden entirely */
+    }
+    int outer_bold = ctx->g_bold, outer_italic = ctx->g_italic;
+    int bold = outer_bold, italic = outer_italic, fixed = 0;
+    if (style != NULL) {
+        if (md_css_prop(style, style_len, "font-weight", &value, &value_len)) {
+            bold = md_css_bold(value, value_len);
+        }
+        if (md_css_prop(style, style_len, "font-style", &value, &value_len)) {
+            italic = md_ucs4_ieq(value, value_len, "italic");
+        }
+        if (md_css_prop(style, style_len, "font-family", &value, &value_len)) {
+            fixed = md_css_fixed(value, value_len);
+        }
+    }
+    md_pending italic_frame, bold_frame;
+    if (italic && !outer_italic) {
+        italic_frame = (md_pending){opt->emphasis, ctx->pending, 0};
+        ctx->pending = &italic_frame;
+    }
+    if (bold && !outer_bold) {
+        bold_frame = (md_pending){opt->strong, ctx->pending, 0};
+        ctx->pending = &bold_frame;
+    }
+    ctx->g_bold = bold;
+    ctx->g_italic = italic;
+    if (fixed) {
+        /* a fixed-width run renders as an inline code span; its subtree is consumed
+           as text, so a nested fixed span is never reached and needs no dedup */
+        md_emit_code_span(ctx, node);
+    } else {
+        md_render_inline_tag(ctx, node);
+    }
+    ctx->g_bold = outer_bold;
+    ctx->g_italic = outer_italic;
+    if (bold && !outer_bold) {
+        ctx->pending = bold_frame.prev;
+        if (bold_frame.emitted) {
+            md_puts8(&ctx->out, opt->strong);
+        }
+    }
+    if (italic && !outer_italic) {
+        ctx->pending = italic_frame.prev;
+        if (italic_frame.emitted) {
+            md_puts8(&ctx->out, opt->emphasis);
+        }
+    }
+}
+
+/* Render one node encountered in an inline run. A block element nested in inline
+   flow (rare, e.g. a <div> inside a <span>) is laid out as its own block. */
+static void md_render_inline(md_ctx *ctx, th_node *node) {
+    if (node->type == TH_NODE_TEXT) {
+        md_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
+        return;
+    }
+    if (node->type != TH_NODE_ELEMENT && node->type != TH_NODE_CONTENT) {
+        return;
+    }
+    if (ctx->opt->google_doc) {
+        /* a content node carries no style, so it passes through unstyled */
+        md_render_google(ctx, node);
+        return;
+    }
+    md_render_inline_tag(ctx, node);
 }
 
 /* ------------------------------------------------------------ block output */
@@ -732,6 +914,17 @@ static void md_block_children(md_ctx *ctx, th_node *node) {
 }
 
 static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
+    if (ctx->opt->google_doc) {
+        /* a Google Docs export keeps the ol/ul element but states the real marker
+           kind in list-style-type, so honor it when present */
+        Py_ssize_t style_len;
+        const Py_UCS4 *style = md_attr(ctx->tree, node, "style", &style_len);
+        const Py_UCS4 *value;
+        Py_ssize_t value_len;
+        if (style != NULL && md_css_prop(style, style_len, "list-style-type", &value, &value_len)) {
+            ordered = !md_css_unordered(value, value_len);
+        }
+    }
     Py_ssize_t number = 1;
     if (ordered) {
         Py_ssize_t start_len;
@@ -760,15 +953,31 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
             continue;
         }
         md_block_line(ctx, 0);
+        Py_ssize_t lead = 0;
+        if (ctx->opt->google_doc) {
+            /* Google Docs flattens nested lists, signaling depth with margin-left
+               instead, so each google_list_indent pixels add one indent level */
+            Py_ssize_t style_len;
+            const Py_UCS4 *style = md_attr(ctx->tree, child, "style", &style_len);
+            const Py_UCS4 *value;
+            Py_ssize_t value_len;
+            if (style != NULL && md_css_prop(style, style_len, "margin-left", &value, &value_len)) {
+                int nest = md_css_px(value, value_len) / ctx->opt->google_list_indent;
+                for (int level = 0; level < nest; level++) {
+                    sbuf_puts(&ctx->out, "  ");
+                }
+                lead = (Py_ssize_t)nest * 2;
+            }
+        }
         Py_ssize_t width;
         if (ordered) {
-            width = md_put_decimal(&ctx->out, number) + 2;
+            width = lead + md_put_decimal(&ctx->out, number) + 2;
             sbuf_puts(&ctx->out, ". ");
             number++;
         } else {
             sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)bullet);
             sbuf_putc(&ctx->out, ' ');
-            width = 2;
+            width = lead + 2;
         }
         ctx->line_has_content = 1;
         Py_ssize_t base = md_push_spaces(ctx, width);
