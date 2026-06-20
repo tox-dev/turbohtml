@@ -493,9 +493,13 @@ static int process_element(link_walk *walk, th_node *element) {
     if (element->atom == TH_TAG_STYLE) {
         th_node **children = NULL;
         Py_ssize_t child_count = 0, child_cap = 0;
-        for (th_node *child = element->first_child; child != NULL && !failed; child = child->next_sibling) {
-            if (child->type == TH_NODE_TEXT) {
-                failed = collect_node(&children, &child_count, &child_cap, child) < 0;
+        for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
+            if (child->type != TH_NODE_TEXT) {
+                continue;
+            }
+            if (collect_node(&children, &child_count, &child_cap, child) < 0) { /* GCOVR_EXCL_BR_LINE: alloc only */
+                failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;      /* GCOVR_EXCL_LINE */
             }
         }
         for (Py_ssize_t index = 0; index < child_count && !failed; index++) {
