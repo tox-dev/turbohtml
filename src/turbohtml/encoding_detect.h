@@ -575,7 +575,6 @@ static const struct {
 #define TH_SJIS_KANA 20
 #define TH_SJIS_LEVEL_1 41
 #define TH_SJIS_LEVEL_2 20
-#define TH_SJIS_PUA_PENALTY (-410)
 #define TH_EUCJP_KANA 54
 #define TH_EUCJP_NEAR_OBSOLETE_KANA 40
 #define TH_EUCJP_LEVEL_1 41
@@ -585,7 +584,6 @@ static const struct {
 #define TH_BIG5_LEVEL_1 41
 #define TH_BIG5_OTHER 20
 #define TH_EUCKR_EUC_HANGUL 42
-#define TH_EUCKR_NON_EUC_HANGUL 4
 #define TH_EUCKR_HANJA 10
 #define TH_EUCKR_HANJA_AFTER_HANGUL_PENALTY (-410)
 #define TH_EUCKR_LONG_WORD_PENALTY (-6)
@@ -621,7 +619,6 @@ typedef struct {
     int hwk_state;
     int hwk_seen;
     int non_ascii_seen;
-    int prev_was_euc_range;
     unsigned long word_len;
 } th_cjk_candidate;
 
@@ -824,17 +821,9 @@ static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned 
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
-    } else if (u >= 0xE000 && u < 0xF900) {
-        th_cjk_flush_pending(cand);
-        cand->score += TH_SJIS_PUA_PENALTY;
-        cand->prev = TH_CJ_OTHER;
     } else if (th_cj_punct5(u)) {
         th_cjk_flush_pending(cand);
         cand->score += TH_CJ_PUNCT;
-        cand->prev = TH_CJ_OTHER;
-    } else if (u == 0x80) {
-        cand->has_pending = 0;
-        cand->score += TH_DETECT_IMPLAUSIBILITY_PENALTY;
         cand->prev = TH_CJ_OTHER;
     } else if (u <= 0x7F) {
         cand->has_pending = 0;
@@ -844,6 +833,9 @@ static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned 
         cand->score += TH_CJK_OTHER;
         cand->prev = TH_CJ_OTHER;
     }
+    /* chardetng's Shift_JIS scorer also penalizes the private-use area and the lone
+       0x80, but the strict CPython shift_jis codec emits neither, so those arms are
+       unreachable here and omitted. */
 }
 
 static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
@@ -906,21 +898,10 @@ static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
     }
 }
 
-static void th_cjk_score_big5(th_cjk_candidate *cand, int written, uint16_t u) {
-    if (written == 2) {
-        th_cjk_flush_pending(cand);
-        if (u == 0xCA || u == 0xEA) {
-            cand->score += TH_CJK_OTHER;
-            cand->prev = TH_CJ_OTHER;
-        } else {
-            cand->score += th_cjk_maybe_pending(cand, TH_BIG5_OTHER, th_cjk_problematic_lead(cand->prev_byte));
-            if (cand->prev == TH_CJ_ASCII) {
-                cand->score += TH_CJK_LATIN_ADJ;
-            }
-            cand->prev = TH_CJ_CJ;
-        }
-        return;
-    }
+/* The strict CPython big5 codec emits one BMP scalar per sequence -- no astral
+   scalars and no two-scalar combining output -- so chardetng's written==2 arm is
+   unreachable here and omitted. */
+static void th_cjk_score_big5(th_cjk_candidate *cand, uint16_t u) {
     if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
         cand->has_pending = 0;
         if (cand->prev == TH_CJ_CJ) {
@@ -949,7 +930,10 @@ static void th_cjk_score_big5(th_cjk_candidate *cand, int written, uint16_t u) {
     }
 }
 
-static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, int in_euc_range) {
+/* The strict CPython euc_kr codec decodes only the EUC (KS X 1001) plane, where every
+   Hangul syllable has both bytes in 0xA1..0xFE; chardetng's non-EUC Hangul arm (the
+   Windows-949/UHC extension) is therefore unreachable here and omitted. */
+static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u) {
     if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
         cand->has_pending = 0;
         if (cand->prev == TH_CJ_CJ || cand->prev == TH_CJ_HANJA) {
@@ -959,12 +943,7 @@ static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, int in_euc_r
         cand->word_len = 0;
     } else if (u >= 0xAC00 && u <= 0xD7A3) {
         th_cjk_flush_pending(cand);
-        if (cand->prev_was_euc_range && in_euc_range) {
-            cand->score += TH_EUCKR_EUC_HANGUL + th_cjk_extra_score(u, th_detect_freq_frequent_hangul);
-        } else {
-            cand->score +=
-                th_cjk_maybe_pending(cand, TH_EUCKR_NON_EUC_HANGUL, th_cjk_more_problematic_lead(cand->prev_byte));
-        }
+        cand->score += TH_EUCKR_EUC_HANGUL + th_cjk_extra_score(u, th_detect_freq_frequent_hangul);
         if (cand->prev == TH_CJ_ASCII) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
@@ -1005,13 +984,12 @@ static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, int in_euc_r
 static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
     for (Py_ssize_t i = 0; i < len; i++) {
         unsigned char b = buf[i];
-        int in_euc_range = b >= 0xA1 && b <= 0xFE;
         PyObject *chunk = PyBytes_FromStringAndSize((const char *)&b, 1);
-        if (chunk == NULL) {
+        if (chunk == NULL) { /* GCOVR_EXCL_START -- single-byte allocation only fails on OOM */
             PyErr_Clear();
             cand->alive = 0;
             return;
-        }
+        } /* GCOVR_EXCL_STOP */
         PyObject *out = PyObject_CallMethod(cand->decoder, "decode", "O", chunk);
         Py_DECREF(chunk);
         if (out == NULL) {
@@ -1035,15 +1013,14 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
                 th_cjk_score_euc_jp(cand, u);
                 break;
             case TH_CJK_BIG5:
-                th_cjk_score_big5(cand, written, u);
+                th_cjk_score_big5(cand, u);
                 break;
             case TH_CJK_EUC_KR:
-                th_cjk_score_euc_kr(cand, u, in_euc_range);
+                th_cjk_score_euc_kr(cand, u);
                 break;
             }
         }
         Py_DECREF(out);
-        cand->prev_was_euc_range = in_euc_range;
         cand->prev_prev_byte = cand->prev_byte;
         cand->prev_byte = b;
     }
@@ -1062,10 +1039,10 @@ static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char 
                        const char **winner, long *max) {
     const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
     PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
-    if (decoder == NULL) {
+    if (decoder == NULL) { /* GCOVR_EXCL_START -- every CJK codec name is a built-in codec */
         PyErr_Clear();
         return;
-    }
+    } /* GCOVR_EXCL_STOP */
     th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
     th_cjk_feed(&cand, buf, len);
     Py_DECREF(decoder);
@@ -1145,9 +1122,13 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
         }
     }
     long visual_score;
-    if (th_sb_final_score(&visual, &visual_score) && (visual_score > max || strcmp(winner, "windows-1255") == 0) &&
-        visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
-        winner = "iso-8859-8";
+    if (th_sb_final_score(&visual, &visual_score)) {
+        int considered = visual_score > max || strcmp(winner, "windows-1255") == 0;
+        int punctuation_favors_visual =
+            visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation;
+        if (considered && punctuation_favors_visual) {
+            winner = "iso-8859-8";
+        }
     }
     return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
 }
