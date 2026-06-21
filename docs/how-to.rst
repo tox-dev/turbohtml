@@ -226,7 +226,7 @@ track the enclosing tag yourself:
 
 Scraping code wants *strings*, not nodes. :meth:`~turbohtml.Element.attr` reads one attribute as a single string (or a
 default when it is missing), and :meth:`~turbohtml.Node.re` / :meth:`~turbohtml.Node.re_first` run a regular expression
-over a node's text -- the same extraction primitives Scrapy's ``parsel`` offers. ``re`` returns the one capturing group
+over a node's text, the same extraction primitives Scrapy's ``parsel`` offers. ``re`` returns the one capturing group
 when the pattern has exactly one, otherwise the whole match, so a single pattern pulls the part you want:
 
 .. testcode::
@@ -472,7 +472,7 @@ the source position (1-based ``line``, 0-based ``col``); a well-formed document 
 
     duplicate-attribute at 1:6
 
-To fail instead of recover -- in a linter or a strict ingest pipeline -- pass ``strict=True`` and catch
+To fail instead of recover (in a linter or a strict ingest pipeline), pass ``strict=True`` and catch
 :class:`~turbohtml.HTMLParseError`, whose ``error`` attribute is the first :class:`~turbohtml.ParseError`:
 
 .. testcode::
@@ -600,7 +600,8 @@ comma groups:
     ['a']
 
 ``:nth-child(An+B of S)`` counts only the inclusive siblings that match the selector list ``S``, so ``An+B`` indexes
-that filtered subset rather than every sibling -- here the second ``.row`` item, skipping the separator between them:
+that filtered subset rather than every sibling. Here that picks the second ``.row`` item, skipping the separator between
+them:
 
 .. testcode::
 
@@ -617,8 +618,8 @@ that filtered subset rather than every sibling -- here the second ``.row`` item,
 The Selectors Level 4 functional pseudo-classes are supported too: ``:is()`` and ``:where()`` match an element against a
 nested selector list (they differ only in specificity, which a tree matcher ignores), ``:has()`` keeps an element when a
 relative selector finds a match anchored at it, and ``:not()`` keeps an element that matches none of its arguments.
-``:not()`` takes a full selector list, so it negates compound and complex selectors -- not just a single class or type
--- and nests with the others (``article:not(:has(img))`` selects the image-less articles):
+``:not()`` takes a full selector list, so it negates compound and complex selectors (not just a single class or type)
+and nests with the others (``article:not(:has(img))`` selects the image-less articles):
 
 .. testcode::
 
@@ -661,8 +662,8 @@ resolved text direction. ``:scope`` is the element the query is rooted at, which
     ['hi']
     ['p']
 
-The interaction- and navigation-state pseudo-classes -- ``:hover``, ``:focus``, ``:focus-within``, ``:focus-visible``,
-``:active``, ``:target``, ``:target-within``, ``:visited``, ``:link``, and ``:any-link`` -- parse as valid selectors but
+The interaction- and navigation-state pseudo-classes (``:hover``, ``:focus``, ``:focus-within``, ``:focus-visible``,
+``:active``, ``:target``, ``:target-within``, ``:visited``, ``:link``, and ``:any-link``) parse as valid selectors but
 match nothing, since a parsed tree has no live UA state. They stay usable inside ``:is()`` and ``:not()`` rather than
 raising, so ``a:not(:visited)`` keeps every link.
 
@@ -926,7 +927,7 @@ two serializations of equal trees diff cleanly:
 
 ``meta_charset`` makes the document ``<head>`` declare the output encoding: an existing ``<meta charset>`` (or ``<meta
 http-equiv="content-type">``) is normalized in place, and a head that declares none gets a ``<meta charset>`` injected
-as its first child — never a duplicate. ``serialize`` declares ``utf-8`` (the encoding of the returned ``str``), while
+as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the encoding of the returned ``str``), while
 ``encode`` declares the encoding it writes:
 
 .. testcode::
@@ -945,8 +946,8 @@ as its first child — never a duplicate. ``serialize`` declares ``utf-8`` (the 
  Export to Markdown
 ********************
 
-:meth:`~turbohtml.Node.to_markdown` renders a node and its subtree as GitHub-Flavored Markdown — headings, lists, links,
-emphasis, code, blockquotes, images, and pipe tables — collapsing runs of whitespace the way normal flow lays them out.
+:meth:`~turbohtml.Node.to_markdown` renders a node and its subtree as GitHub-Flavored Markdown (headings, lists, links,
+emphasis, code, blockquotes, images, and pipe tables), collapsing runs of whitespace the way normal flow lays them out.
 It is a one-call replacement for the ``scrape`` → ``Markdown`` step that html2text or markdownify would do, with no
 second dependency and the whole walk in C:
 
@@ -996,7 +997,7 @@ Three output modes shape the result further. ``wrap_width`` word-wraps prose at 
 paragraphs unwrapped), honoring list and blockquote indentation; ``wrap_list_items`` extends wrapping into list items
 and ``wrap_links=False`` keeps a ``[text](url)`` construct on one line. ``image_mode="html"`` and ``table_mode="html"``
 pass the original ``<img>`` or ``<table>`` through verbatim, for readers that render embedded HTML. ``transliterate``
-folds common non-ASCII typography in prose -- smart quotes, dashes, ellipsis, accented letters -- to ASCII:
+folds common non-ASCII typography in prose (smart quotes, dashes, ellipsis, accented letters) to ASCII:
 
 .. testcode::
 
@@ -1020,7 +1021,7 @@ style, fixed-width fonts, and ``margin-left`` list nesting) turns into Markdown:
 
     **Bold** and *soft*.
 
-When an option cannot express the rule you need -- a custom element, or a tag that should render its own way -- pass
+When an option cannot express the rule you need (a custom element, or a tag that should render its own way), pass
 ``converters``: a mapping from a lowercased tag name to a ``callable(element, content) -> str``. The callable receives
 the :class:`~turbohtml.Element` and the already-converted Markdown of its children, and returns the Markdown for that
 element. A registered tag's built-in rendering is replaced; every other tag is untouched, and the hook costs nothing
@@ -1043,7 +1044,7 @@ Return ``""`` to drop an element, or return ``content`` unchanged to unwrap it. 
 on its own line; any other tag flows inline. The callable runs inside the same per-tree lock the walk holds, so it may
 read the element's attributes and subtree freely.
 
-To unwrap whole tags without a callable, pass ``strip`` or ``convert`` -- the two mutually exclusive filters
+To unwrap whole tags without a callable, pass ``strip`` or ``convert``, the two mutually exclusive filters
 ``markdownify`` exposes under the same names. ``strip`` names tags whose markup is dropped while their text keeps
 flowing; ``convert`` names the only tags to keep markup for, so every other tag is unwrapped. A name the tag table does
 not know is ignored, and ``<script>``, ``<style>``, and ``<head>`` still vanish whole regardless:
@@ -1063,8 +1064,8 @@ not know is ignored, and ``<script>``, ``<style>``, and ``<head>`` still vanish 
  Export to plain text
 **********************
 
-:meth:`~turbohtml.Node.to_text` renders layout-aware plain text — the role `inscriptis
-<https://github.com/weblyzard/inscriptis>`_ fills — keeping the visual structure rather than collapsing everything like
+:meth:`~turbohtml.Node.to_text` renders layout-aware plain text (the role `inscriptis
+<https://github.com/weblyzard/inscriptis>`_ fills), keeping the visual structure rather than collapsing everything like
 :attr:`~turbohtml.Node.text` does. Its most visible feature is laying tables out as aligned columns:
 
 .. testcode::
@@ -1092,7 +1093,7 @@ references, ``images=True`` to show alt text, and ``width`` to word-wrap.
  Label spans of the export text
 ********************************
 
-To pull labeled regions out of the rendered text -- the role inscriptis fills with ``annotation_rules`` -- call
+To pull labeled regions out of the rendered text (the role inscriptis fills with ``annotation_rules``), call
 :meth:`~turbohtml.Node.to_annotated_text` with a rule mapping. It returns the same text :meth:`~turbohtml.Node.to_text`
 would, plus a list of ``(start, end, label)`` triples whose offsets index into that text, and it accepts every
 ``to_text`` option as well:
@@ -1123,8 +1124,8 @@ of labels to attach.
  Extract the main article
 **************************
 
-:meth:`~turbohtml.Node.main_content` returns the dominant content element -- the article body with the navigation,
-sidebars, advertising and comment boilerplate scored out -- so you can work on just the prose. It is the role
+:meth:`~turbohtml.Node.main_content` returns the dominant content element (the article body with the navigation,
+sidebars, advertising and comment boilerplate scored out), so you can work on just the prose. It is the role
 `resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_ fills with its main-content extractor.
 :meth:`~turbohtml.Node.main_text` is the shortcut that renders that element with :meth:`~turbohtml.Node.to_text`:
 
@@ -1154,8 +1155,8 @@ sidebars, advertising and comment boilerplate scored out -- so you can work on j
     The tail always points away from the Sun, pushed out by the solar wind and radiation.
 
 The score is a content-density heuristic: long paragraphs with prose punctuation raise their container, while a class or
-id like ``sidebar``, ``comment`` or ``nav`` lowers it or drops the subtree outright. A page with no real article -- only
-short snippets or pure navigation -- yields ``None`` from ``main_content`` and ``""`` from ``main_text``, so guard the
+id like ``sidebar``, ``comment`` or ``nav`` lowers it or drops the subtree outright. A page with no real article (only
+short snippets or pure navigation) yields ``None`` from ``main_content`` and ``""`` from ``main_text``, so guard the
 result:
 
 .. testcode::
@@ -1168,8 +1169,8 @@ result:
     None
 
 To turn those spans into something printable, pass the returned ``(text, labels)`` pair to one of the two output
-processors. :func:`turbohtml.annotation_surface` groups each label's matched substrings into a dict, in document order
--- the surface forms an NLP or information-extraction pipeline consumes:
+processors. :func:`turbohtml.annotation_surface` groups each label's matched substrings into a dict, in document order,
+the surface forms an NLP or information-extraction pipeline consumes:
 
 .. testcode::
 
@@ -1242,7 +1243,7 @@ parsed nodes as its children, applying the same insertion rules the element woul
 
 Every parsed element records where its start tag began, so an error report or linter can point back at the source. Read
 :attr:`~turbohtml.Node.source_line` (1-based), :attr:`~turbohtml.Node.source_col` (0-based), or the
-:attr:`~turbohtml.Node.position` pair -- the same convention as :meth:`python:html.parser.HTMLParser.getpos` and
+:attr:`~turbohtml.Node.position` pair, the same convention as :meth:`python:html.parser.HTMLParser.getpos` and
 ``lxml``'s ``sourceline``:
 
 .. testcode::
@@ -1256,9 +1257,9 @@ Every parsed element records where its start tag began, so an error report or li
     first (2, 2)
     second (3, 2)
 
-An element with no place in the source -- a node built by hand, or an implied ``html``/``head``/``body`` -- reads
-``None``. Pass ``positions=False`` to :func:`turbohtml.parse` to skip the tracking entirely (a small memory and speed
-saving), after which every accessor reads ``None``:
+An element with no place in the source (a node built by hand, or an implied ``html``/``head``/``body``) reads ``None``.
+Pass ``positions=False`` to :func:`turbohtml.parse` to skip the tracking entirely (a small memory and speed saving),
+after which every accessor reads ``None``:
 
 .. testcode::
 
@@ -1437,8 +1438,8 @@ suffix the IANA table does not know, and ``schemes`` to autolink only an allowli
  Find links in plain text
 **************************
 
-When the text is not HTML and you only need *where* the links are -- to highlight them, count them, or build your own
-markup -- use :class:`turbohtml.linkify.Detector`. ``find`` returns a :class:`~turbohtml.linkify.LinkSpan` per match,
+When the text is not HTML and you only need *where* the links are (to highlight them, count them, or build your own
+markup), use :class:`turbohtml.linkify.Detector`. ``find`` returns a :class:`~turbohtml.linkify.LinkSpan` per match,
 with offsets, the matched text, and the normalized ``url``; ``has_link`` answers the yes/no question more cheaply:
 
 .. testcode::
@@ -1471,7 +1472,7 @@ their opaque URLs are found too (every ``scheme://`` URL is detected without reg
 *************************
 
 To clean user-submitted HTML the way ``bleach.clean`` did, use :func:`turbohtml.sanitizer.sanitize`. A
-:class:`~turbohtml.sanitizer.Policy` says what to keep -- here the ``relaxed`` preset for typical user content -- and a
+:class:`~turbohtml.sanitizer.Policy` says what to keep (here the ``relaxed`` preset for typical user content), and a
 non-overridable baseline drops scripting and ``javascript:`` URLs no matter what the policy allows:
 
 .. testcode::

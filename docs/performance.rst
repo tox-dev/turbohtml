@@ -125,15 +125,15 @@ turbohtml's own tree carry it past bleach's html5lib pass by five to twenty time
  Sanitize
 **********
 
-:func:`turbohtml.sanitizer.sanitize` against four sanitizers. Three share its allowlist model -- only listed tags and
-attributes survive, so a vector nobody anticipated is dropped by default: `nh3 <https://nh3.readthedocs.io>`_ (the Rust
-ammonia binding), `bleach <https://bleach.readthedocs.io>`_ (its end-of-life predecessor, on html5lib), and
+:func:`turbohtml.sanitizer.sanitize` against four sanitizers. Three share its allowlist model, where only listed tags
+and attributes survive, so a vector nobody anticipated is dropped by default: `nh3 <https://nh3.readthedocs.io>`_ (the
+Rust ammonia binding), `bleach <https://bleach.readthedocs.io>`_ (its end-of-life predecessor, on html5lib), and
 `html-sanitizer <https://github.com/matthiask/html-sanitizer>`_ (an allowlist over lxml). The fourth, `lxml-html-clean
 <https://github.com/fedora-python/lxml_html_clean>`_ (the externalized ``lxml.html.clean.Cleaner``), is a blocklist: it
 strips the constructs it knows are dangerous and lets the rest through, a model lxml itself flagged as hard to keep
 safe. The inputs are realistic user content with a few disallowed tags and a dangerous attribute mixed in. turbohtml
-runs the whole filtering walk in C and leads every alternative, but the model matters more than the microseconds --
-prefer an allowlist, since a blocklist passes anything it did not think to name.
+runs the whole filtering walk in C and leads every alternative, but the model matters more than the microseconds. Prefer
+an allowlist, since a blocklist passes anything it did not think to name.
 
 .. list-table::
     :header-rows: 1
@@ -546,9 +546,9 @@ the sweep across every page size. turbohtml compiles each expression against the
 interned atoms, and folds ``//`` to a single ``descendant`` walk, so it leads across the surface. The exception is a
 predicate that references ``position()`` (``[1]`` or ``position() <= 3``): it pins the result to proximity order and
 disables the ``//`` collapse, so on the largest pages lxml's streaming evaluation closes the gap. The last four rows are
-the lxml/parsel options the parity work added -- a ``$variable`` binding, an EXSLT ``re:test`` predicate (turbohtml's
-Python :mod:`re` against lxml's C libexslt), a ``smart_strings`` attribute read, and a custom ``extensions=`` function
--- which turbohtml still leads, since lxml resolves the namespace map and option set on every call.
+the lxml/parsel options the parity work added: a ``$variable`` binding, an EXSLT ``re:test`` predicate (turbohtml's
+Python :mod:`re` against lxml's C libexslt), a ``smart_strings`` attribute read, and a custom ``extensions=`` function.
+turbohtml still leads, since lxml resolves the namespace map and option set on every call.
 
 .. list-table::
     :header-rows: 1
@@ -608,11 +608,11 @@ Python :mod:`re` against lxml's C libexslt), a ``smart_strings`` attribute read,
 *************
 
 Serializing a parsed document back to HTML: turbohtml's :attr:`~turbohtml.Node.html`, lxml's ``tostring``, selectolax's
-``html``, and BeautifulSoup's ``decode``. turbohtml scans each text run for the next character that needs escaping --
-two code points at a time with the same SWAR lane probes :func:`~turbohtml.escape` uses -- and bulk-copies the clean
-spans, recovering each special's position from the lane mask, and reserves the whole-document buffer up front so the
-output grows in one allocation. It serializes three to six times faster than lxml, over three times faster than
-selectolax, and fifty to sixty times faster than BeautifulSoup.
+``html``, and BeautifulSoup's ``decode``. turbohtml scans each text run for the next character that needs escaping (two
+code points at a time with the same SWAR lane probes :func:`~turbohtml.escape` uses) and bulk-copies the clean spans,
+recovering each special's position from the lane mask, and reserves the whole-document buffer up front so the output
+grows in one allocation. It serializes three to six times faster than lxml, over three times faster than selectolax, and
+fifty to sixty times faster than BeautifulSoup.
 
 .. list-table::
     :header-rows: 1

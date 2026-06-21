@@ -49,8 +49,8 @@ Encoding detection
 ==================
 
 ``parse`` runs the WHATWG sniffing algorithm on bytes: a leading BOM, then a ``<meta charset>`` prescan, then a
-``windows-1252`` fallback. That covers what ``UnicodeDammit`` reads from the markup, and it stops there -- turbohtml
-does not guess an encoding from the byte distribution. ``UnicodeDammit``'s optional statistical pass and the dedicated
+``windows-1252`` fallback. That covers what ``UnicodeDammit`` reads from the markup, and it stops there. turbohtml does
+not guess an encoding from the byte distribution. ``UnicodeDammit``'s optional statistical pass and the dedicated
 detectors (`charset-normalizer <https://github.com/jawah/charset_normalizer>`_, `chardet
 <https://github.com/chardet/chardet>`_, ``cchardet``) read byte frequency, so a markup-less stream, or a document with
 no BOM and no declaration, lands on ``windows-1252`` here where they would name, say, ``koi8-r``. When there is nothing
@@ -187,7 +187,7 @@ Pitfalls
   :meth:`~turbohtml.Node.prune` trims the parsed tree to a CSS selector in one C pass, so a large document still yields
   a small tree.
 - A couple of bs4 entry points are deliberate clean-break omissions: the choice of parser backend (turbohtml always runs
-  the WHATWG algorithm) and registering a named output formatter -- pick a :class:`~turbohtml.Formatter` per
+  the WHATWG algorithm) and registering a named output formatter. Pick a :class:`~turbohtml.Formatter` per
   :meth:`~turbohtml.Node.serialize` call instead.
 
 ***********
@@ -444,7 +444,7 @@ with the ``libxml2``/gumbo build dependency:
 returns a ``SelectorList`` and you pull *strings* out of it with ``.get()`` / ``.getall()``, using the ``::text`` and
 ``::attr(name)`` pseudo-elements to reach text and attribute values. turbohtml instead returns :class:`~turbohtml.Node`
 objects from :meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.xpath`, and you read
-:attr:`~turbohtml.Node.text`, :meth:`~turbohtml.Element.attr`, or :attr:`~turbohtml.Node.html` off each node -- so the
+:attr:`~turbohtml.Node.text`, :meth:`~turbohtml.Element.attr`, or :attr:`~turbohtml.Node.html` off each node, so the
 non-standard ``::text`` / ``::attr()`` pseudo-elements become ordinary text and attribute access. The string-extraction
 helpers :meth:`~turbohtml.Node.re` and :meth:`~turbohtml.Node.re_first` carry over directly, including their ``attr``
 keyword for running a pattern over an attribute value instead of the text.
