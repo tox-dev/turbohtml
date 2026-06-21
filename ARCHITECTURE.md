@@ -6,10 +6,10 @@ tree so you know where a change belongs.
 
 ## Two layers
 
-- **Python facade** — `src/turbohtml/`. Public modules users import: the package root re-exports the core types from the
+- **Python facade**: `src/turbohtml/`. Public modules users import: the package root re-exports the core types from the
   extension, and `query`, `sanitizer`, and `linkify` add higher-level APIs. `migration/` holds drop-in replacements for
   other libraries (`bleach`, `markupsafe`, `stdlib`). These files are small and hold no parsing logic.
-- **C extension** — `src/turbohtml/_c/`. Everything compiles into one extension module, `turbohtml._html`. The Python
+- **C extension**: `src/turbohtml/_c/`. Everything compiles into one extension module, `turbohtml._html`. The Python
   facade calls into it; users never import `_html` directly. `_html.pyi` is its type stub.
 
 ## C subsystems (`src/turbohtml/_c/`)

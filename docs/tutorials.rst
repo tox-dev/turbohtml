@@ -217,7 +217,7 @@ From any node you can walk outward as well as inward: :attr:`~turbohtml.Node.par
     ['p', 'body', 'html']
 
 For richer queries, :meth:`~turbohtml.Node.select` takes a CSS selector and returns every matching descendant in
-document order. The negation pseudo-class ``:not()`` keeps the elements that match none of its arguments -- here, the
+document order. The negation pseudo-class ``:not()`` keeps the elements that match none of its arguments; here, the
 descendants of ``body`` that are not links:
 
 .. testcode::
@@ -239,7 +239,7 @@ Selectors also reach the form and UI pseudo-classes the markup determines, such 
 
     1
 
-``:is()`` and ``:where()`` are forgiving, so an arm they cannot parse is dropped and the rest still select -- a typo in
+``:is()`` and ``:where()`` are forgiving, so an arm they cannot parse is dropped and the rest still select; a typo in
 one alternative does not break the query:
 
 .. testcode::
@@ -250,7 +250,7 @@ one alternative does not break the query:
 
     ['h1']
 
-Structural pseudo-classes count positions, and ``:nth-child(An+B of S)`` counts only the siblings matching ``S`` -- here
+Structural pseudo-classes count positions, and ``:nth-child(An+B of S)`` counts only the siblings matching ``S``; here
 the first checked box, ignoring the unchecked ones in between:
 
 .. testcode::

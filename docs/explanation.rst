@@ -99,12 +99,12 @@ tree it will serialize cannot be fooled that way. A non-overridable baseline rem
 ``javascript:`` URLs below the configurable allowlist, so a policy cannot route around the unsafe set, and the test
 suite asserts the property directly: ``sanitize(sanitize(x)) == sanitize(x)`` across an adversarial corpus, so any input
 whose cleaned form cleans differently a second time fails the build. Only the :class:`~turbohtml.sanitizer.Policy`
-facade is Python; the filtering walk -- the allowlist checks, the URL-scheme parsing, the escape/strip/remove of each
-node -- runs in C against the parsed tree, which is why it sanitizes faster than the Rust nh3.
+facade is Python; the filtering walk (the allowlist checks, the URL-scheme parsing, the escape/strip/remove of each
+node) runs in C against the parsed tree, which is why it sanitizes faster than the Rust nh3.
 
 Enumerating a page's links is the same tree walk from a third angle. :meth:`~turbohtml.Node.links` finds every
-link-bearing location in C -- not just ``<a href>`` but the URLs hidden in ``srcset`` candidate lists, a ``<meta
-refresh>`` redirect, and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet -- so the capability
+link-bearing location in C (not just ``<a href>`` but the URLs hidden in ``srcset`` candidate lists, a ``<meta
+refresh>`` redirect, and CSS ``url()``/``@import`` in a ``style`` attribute or a ``<style>`` sheet), so the capability
 no hand-rolled ``find_all`` loop reaches comes for free. The walk locates the URL spans and splices replacements back in
 place; the URL resolution itself is :func:`urllib.parse.urljoin` from the standard library, deliberately *not*
 reimplemented in C, because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value
@@ -132,7 +132,7 @@ Two decisions bound the tokenizer's scope:
 - The machine recovers from parse errors rather than stopping on them. The spec defines a recovery transition for every
   error and the machine takes it, so malformed input produces the same tokens a browser would see. A duplicate attribute
   name is one such recovery: the spec keeps the first occurrence and drops the rest at tokenization, so ``<a href=x
-  href=y>`` carries a single ``href`` of ``x`` everywhere it is observed — in the token, the parsed tree, and the
+  href=y>`` carries a single ``href`` of ``x`` everywhere it is observed: in the token, the parsed tree, and the
   serialized output alike. The recovery is silent in the token stream itself; the errors it papered over surface on
   :attr:`Document.errors <turbohtml.Document.errors>` when you :func:`~turbohtml.parse` (see below).
 
@@ -187,7 +187,7 @@ times faster than the pure-Python BeautifulSoup and html5lib, while building the
 not; the :doc:`performance` page has the per-document figures.
 
 The same tokenizer and tree builder also drive :class:`turbohtml.IncrementalParser`, the push form of
-:func:`turbohtml.parse`. The tokenizer is resumable -- it suspends mid-token when its input runs out -- and reclaims the
+:func:`turbohtml.parse`. The tokenizer is resumable (it suspends mid-token when its input runs out) and reclaims the
 prefix it has consumed on every chunk, so the only state the parser carries across a ``feed`` is the few insertion-mode
 variables of the tree-construction loop, lifted out of the one-shot call into the parser. The input side is therefore
 bounded no matter how long the stream: you never hold the whole source at once, the concrete win over ``parse`` for a
@@ -196,8 +196,8 @@ through a stateful incremental codec, so a multi-byte character split across a c
 The recovery a browser performs hides the spec's parse errors, but a linter or a strict pipeline still wants them.
 :func:`~turbohtml.parse` records each error it recovers from on :attr:`Document.errors <turbohtml.Document.errors>`, a
 list of :class:`~turbohtml.ParseError` carrying the spec error code and the source position (1-based line, 0-based
-column, the same convention :class:`~turbohtml.Token` uses). Collection costs nothing on well-formed input — there are
-no errors to record and the per-character paths are untouched — so it stays on by default rather than behind a flag; the
+column, the same convention :class:`~turbohtml.Token` uses). Collection costs nothing on well-formed input (there are no
+errors to record and the per-character paths are untouched), so it stays on by default rather than behind a flag; the
 standalone :func:`~turbohtml.tokenize` and :class:`~turbohtml.Tokenizer`, which expose the raw stream, do not collect.
 Pass ``strict=True`` to raise the first error as :class:`~turbohtml.HTMLParseError` (with the ``ParseError`` on its
 ``error`` attribute) instead of returning a recovered tree.
@@ -216,44 +216,44 @@ The query surface builds on that node model. Navigation covers parents, siblings
 :attr:`~turbohtml.Node.following` / :attr:`~turbohtml.Node.preceding` iterators, plus the sequence protocol over a
 node's children. :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` filter a chosen
 :class:`~turbohtml.Axis` by tag and attributes, where a filter is a string, regex, callable, or list.
-:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` run a native CSS matcher -- type, id, class,
+:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` run a native CSS matcher covering type, id, class,
 attribute, the four combinators, the structural pseudo-classes (including ``:nth-child(An+B of S)``, which indexes only
 the siblings matching ``S``), the ``:is()``/``:where()``/``:has()``/``:not()`` functional pseudo-classes, and the
-``:scope``, form/UI (``:checked``, ``:disabled``, ``:default``, ...), ``:lang()`` and ``:dir()`` pseudo-classes that a
-static tree can determine -- and :meth:`~turbohtml.Node.matches` / :meth:`~turbohtml.Node.closest` test a node in place.
-``:is()`` and ``:where()`` parse their argument as a forgiving selector list (a bad arm is dropped, the rest stay
-usable), while ``:not()`` and ``:has()`` take a real list where any bad arm is an error, as the Selectors standard
-specifies. The pseudo-classes that depend on live interaction or navigation state (``:hover``, ``:focus``, ``:target``,
-``:visited``, ``:link``, ...) parse but match nothing, since a parsed document has no such state. Selectors compile
-against the tree, so a tag or attribute name resolves to the same interned atom the parser assigned and each match is an
-integer compare. Compiling against the tree also captures its document mode, so ``#id`` and ``.class`` fold ASCII case
-in a quirks-mode document and compare exactly otherwise, as the Selectors standard requires.
-:meth:`~turbohtml.Node.xpath`, :meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` evaluate XPath
-1.0 over the same model: a native-C engine compiles each expression once into an immutable, per-tree-cached program,
-resolves name tests to interned atoms, and collapses the ``//`` abbreviation to a single ``descendant`` walk, so the
-structural axes, predicates, operators, unions, and the core function library run at lxml's speed. The core API stays
+``:scope``, form/UI (``:checked``, ``:disabled``, ``:default``, ...), ``:lang()`` and ``:dir()`` pseudo-classes a static
+tree can determine. :meth:`~turbohtml.Node.matches` and :meth:`~turbohtml.Node.closest` test a node in place. ``:is()``
+and ``:where()`` parse their argument as a forgiving selector list (a bad arm is dropped, the rest stay usable), while
+``:not()`` and ``:has()`` take a real list where any bad arm is an error, as the Selectors standard specifies. The
+pseudo-classes that depend on live interaction or navigation state (``:hover``, ``:focus``, ``:target``, ``:visited``,
+``:link``, ...) parse but match nothing, since a parsed document has no such state. Selectors compile against the tree,
+so a tag or attribute name resolves to the same interned atom the parser assigned and each match is an integer compare.
+Compiling against the tree also captures its document mode, so ``#id`` and ``.class`` fold ASCII case in a quirks-mode
+document and compare exactly otherwise, as the Selectors standard requires. :meth:`~turbohtml.Node.xpath`,
+:meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` evaluate XPath 1.0 over the same model: a
+native-C engine compiles each expression once into an immutable, per-tree-cached program, resolves name tests to
+interned atoms, and collapses the ``//`` abbreviation to a single ``descendant`` walk, so the structural axes,
+predicates, operators, unions, and the core function library run at lxml's speed. The core API stays
 one-name-per-concept and returns plain lists, so the jQuery-style chaining pyquery users expect lives in an optional
 Python-side wrapper, :class:`turbohtml.query.Query`, whose traversal and mutation methods each return a wrapper. Output
 runs back through :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.serialize`, and :meth:`~turbohtml.Node.encode`,
 WHATWG-conformant by default with the escaping selectable through :class:`~turbohtml.Formatter`.
 
 A :class:`~turbohtml.Minify` is a serialization mode on that same conformant tree, and its design rule is that the
-minified bytes must reparse to the same tree -- the hard part, a spec-correct parse, is already done, so minifying is
-only allowed to drop or fold what the parser reconstructs on the way back in. That gives a single correctness gate:
+minified bytes must reparse to the same tree: the hard part, a spec-correct parse, is already done, so minifying is only
+allowed to drop or fold what the parser reconstructs on the way back in. That gives a single correctness gate:
 ``minify(parse(minify(parse(src))))`` equals ``minify(parse(src))``, checked across the html5lib-tests corpus and real
 pages. Whitespace folds to one space rather than disappearing (a single space reparses in place, so the fold is
 idempotent); optional tags are omitted only away from open formatting elements, because the adoption agency would
 otherwise reconstruct one across the gap and shift the tree; and a value is unquoted only when no character could end or
-re-open it. The transforms that would *not* round-trip -- deleting whitespace between block elements, or omitting a tag
-whose reparse changes nesting -- are exactly the ones turbohtml declines to make.
+re-open it. The transforms that would *not* round-trip (deleting whitespace between block elements, or omitting a tag
+whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 
 ***********************
  Exporting to Markdown
 ***********************
 
 :meth:`~turbohtml.Node.to_markdown` is a second serializer that walks the same arena tree but emits GitHub-Flavored
-Markdown instead of HTML. The survey of the field -- the Python ``html2text``, ``markdownify``, and ``inscriptis``, Go's
-``html-to-markdown``, and Rust's ``htmd`` -- converged on one architecture: a recursive visit over a real DOM (not a
+Markdown instead of HTML. The survey of the field (the Python ``html2text``, ``markdownify``, and ``inscriptis``, Go's
+``html-to-markdown``, and Rust's ``htmd``) converged on one architecture: a recursive visit over a real DOM (not a
 streaming parse), with the block context threaded through the recursion rather than re-derived by walking parent
 pointers. turbohtml already has the tree, so the exporter is a single pass over it into one growing buffer, classifying
 each element as block (its own line, with collapsed blank-line margins) or inline (wrapped in a marker), the CSS
@@ -264,8 +264,8 @@ text eagerly: a run of whitespace sets a pending flag, and the owed space is wri
 character, and dropped at a line or block start. Because a closing emphasis marker does not flush that pending space, a
 trailing space inside ``<b>bold </b>`` lands *after* the ``**`` rather than producing the invalid ``**bold **``; because
 the opening marker is itself deferred until the first visible character, a leading space moves out the same way. The
-common case -- a run of plain prose with nothing to escape -- is bulk-copied in one ``memcpy`` after its first
-character, the borrow-or-copy fast path Rust's ``htmd`` uses.
+common case (a run of plain prose with nothing to escape) is bulk-copied in one ``memcpy`` after its first character,
+the borrow-or-copy fast path Rust's ``htmd`` uses.
 
 Three places where the field is inconsistent, turbohtml does the correct thing: an inline code span is fenced with one
 more backtick than the longest run inside it (so ``` `a``b` ``` never splits), a ``|`` inside a table cell is escaped,
@@ -273,7 +273,7 @@ and a nested ordered list keeps its own counter through the recursion stack rath
 naive implementation corrupts on nesting. The output is opinionated GFM with no options, validated both by golden cases
 and by rendering it back to HTML with a reference Markdown engine and checking that no visible text was lost.
 
-The walk holds no state outside its stack frame -- no module-level buffers, no per-converter object -- so two threads
+The walk holds no state outside its stack frame (no module-level buffers, no per-converter object), so two threads
 exporting two trees never interfere, and the binding takes the same per-tree critical section
 :attr:`~turbohtml.Node.text` and :attr:`~turbohtml.Node.html` use so a concurrent mutation cannot rewire the tree
 mid-walk (a no-op under the GIL build). Where Go's ``html-to-markdown`` reaches for a mutex, the stateless visitor needs
@@ -281,18 +281,18 @@ none.
 
 Where ``markdownify`` makes extensibility a subclass with a ``convert_<tag>`` method per tag, turbohtml exposes the same
 power as a ``converters`` mapping: tag name to ``callable(element, content) -> str``. The C walk checks it only on an
-element and only when the mapping is present -- one ``NULL`` test on the no-hook path -- so the dispatch is free unless
-a tag is actually registered. When one matches, the engine renders that element's children into a sub-buffer (sharing
-the document's reference-link accumulator), hands the callable a real :class:`~turbohtml.Element` and that inner
-Markdown, and splices the result back into the stream with block or inline framing from the tag. The callable runs
-inside the walk's critical section, so reading the element is safe; CPython suspends and resumes the section around any
-reentrant tree access the callable makes, so it cannot deadlock.
+element and only when the mapping is present (one ``NULL`` test on the no-hook path), so the dispatch is free unless a
+tag is actually registered. When one matches, the engine renders that element's children into a sub-buffer (sharing the
+document's reference-link accumulator), hands the callable a real :class:`~turbohtml.Element` and that inner Markdown,
+and splices the result back into the stream with block or inline framing from the tag. The callable runs inside the
+walk's critical section, so reading the element is safe; CPython suspends and resumes the section around any reentrant
+tree access the callable makes, so it cannot deadlock.
 
 A lighter knob unwraps whole tags without a callable: ``strip`` (a denylist) and ``convert`` (an allowlist), the same
 pair ``markdownify`` carries. Both compile to one 256-bit set indexed by the interned tag atom, so the per-element test
-is a constant-time bit lookup with no bound check -- a stripped element simply renders its children in place of its own
-markup. The interning is what makes a name the tag table does not know fold to no entry, mirroring how ``markdownify``
-ignores a tag it has no converter for.
+is a constant-time bit lookup with no bound check: a stripped element renders its children in place of its own markup.
+The interning is what makes a name the tag table does not know fold to no entry, mirroring how ``markdownify`` ignores a
+tag it has no converter for.
 
 ******************************
  Annotation output processors
@@ -303,7 +303,7 @@ ignores a tag it has no converter for.
 processors* that turn the spans into a usable artifact, and turbohtml keeps the same split:
 :func:`~turbohtml.annotation_surface` and :func:`~turbohtml.annotation_tags` are pure transforms over the ``(text,
 spans)`` pair, never the tree. They take no node, no arena, and no shared handle, so unlike the serializers they need no
-critical section at all -- the input string is immutable and the spans sequence is only read, which makes them
+critical section at all: the input string is immutable and the spans sequence is only read, which makes them
 free-threading safe by construction rather than by locking. Keeping extraction (the tree walk) and rendering (the span
 transform) apart means one walk can feed several renderings, and the renderings compose with any spans of that shape,
 not only the ones :meth:`~turbohtml.Node.to_annotated_text` happens to emit.
@@ -325,17 +325,17 @@ Scraping is string work: the caller wants ``"/p/42"`` or ``"42"``, not a node to
 ``.re_first()``, and the migration path needs the same primitives without bolting non-standard pseudo-elements onto the
 CSS engine. turbohtml keeps the selector pure and adds the extraction step as three node methods instead.
 
-:meth:`~turbohtml.Element.attr` returns the *raw* attribute value as one string -- ``class="a b c"`` reads back as ``"a
-b c"`` rather than the token list :attr:`Element.attrs <turbohtml.Element.attrs>` exposes, a valueless attribute as
-``""``, and an absent one as the supplied default -- so it is the single-string counterpart to the live mapping, and the
-one ``parsel``'s ``::attr(name)`` translates to. :meth:`~turbohtml.Node.re` and :meth:`~turbohtml.Node.re_first` run a
+:meth:`~turbohtml.Element.attr` returns the *raw* attribute value as one string: ``class="a b c"`` reads back as ``"a b
+c"`` rather than the token list :attr:`Element.attrs <turbohtml.Element.attrs>` exposes, a valueless attribute as
+``""``, and an absent one as the supplied default. It is the single-string counterpart to the live mapping, the one
+``parsel``'s ``::attr(name)`` translates to. :meth:`~turbohtml.Node.re` and :meth:`~turbohtml.Node.re_first` run a
 pattern (a ``str`` compiled once through :func:`re.compile`, or a pattern you compiled yourself) over the node's
-:attr:`~turbohtml.Node.text`, or over an attribute value when ``attr=`` is given. They follow ``parsel``'s group rule --
-yield the lone capturing group when the pattern has exactly one, else the whole match -- because that is what makes a
+:attr:`~turbohtml.Node.text`, or over an attribute value when ``attr=`` is given. They follow ``parsel``'s group rule
+(yield the lone capturing group when the pattern has exactly one, else the whole match) because that is what makes a
 single pattern pull just the digits out of ``Order 1138``. The regex itself stays in Python's battle-tested :mod:`re`;
 only the source string is produced in C, under the same per-tree critical section :attr:`~turbohtml.Node.text` takes so
 a concurrent mutation cannot rewire the subtree mid-read. Unlike ``parsel``, these run on one node rather than a whole
-``SelectorList``, so a comprehension over :meth:`~turbohtml.Node.select` covers a page -- the explicit loop the rest of
+``SelectorList``, so a comprehension over :meth:`~turbohtml.Node.select` covers a page: the explicit loop the rest of
 the query API also asks for, rather than a hidden fan-out.
 
 **************************
@@ -343,8 +343,8 @@ the query API also asks for, rather than a hidden fan-out.
 **************************
 
 :meth:`~turbohtml.Node.main_content` answers a different question than the exporters: not *how do I render this tree*
-but *which part of it is the article*. The field -- ``readability`` and ``readability-lxml``, Mozilla's
-``Readability.js``, and ``resiliparse``'s main-content extractor -- converged on a content-density heuristic, and
+but *which part of it is the article*. The field (``readability`` and ``readability-lxml``, Mozilla's
+``Readability.js``, and ``resiliparse``'s main-content extractor) converged on a content-density heuristic, and
 turbohtml implements the same shape in C over the arena tree, so no Python object is built for a node that loses.
 
 The walk scores *containers* by the prose they hold. Every paragraph-like element (``<p>``, ``<td>``, ``<pre>``) with at
@@ -356,26 +356,26 @@ structural weight from its tag (``<div>`` ``+5``; ``<blockquote>``/``<td>``/``<p
 ``-3``; headings and ``<th>`` ``-5``) and a class/id weight (``+25`` for an ``article``/``content``/``post`` hint,
 ``-25`` for a ``sidebar``/``comment``/``footer`` one), the well-known readability signals.
 
-Two prunings keep boilerplate out of the count. Subtrees that are never content -- ``<script>``, ``<style>``, ``<nav>``,
-``<aside>``, ``<header>``, ``<footer>``, and the like, plus anything in a foreign (SVG/MathML) namespace -- are skipped
+Two prunings keep boilerplate out of the count. Subtrees that are never content (``<script>``, ``<style>``, ``<nav>``,
+``<aside>``, ``<header>``, ``<footer>``, and the like, plus anything in a foreign SVG or MathML namespace) are skipped
 wholesale, their text excluded even from a surrounding container's totals. A subtree whose class or id reads as
 boilerplate (``comment``, ``modal``, ``share``, ``sidebar``, ``pagination``...) is dropped too, *unless* the same
 attribute also carries a rescue hint (``article``, ``content``, ``main``), the case where a single element is tagged
-both ways. Finally each surviving candidate's score is discounted by its link density -- the fraction of its text that
-sits inside an ``<a>`` -- so a dense menu that slipped through scores near zero, and the highest remaining score wins.
+both ways. Finally each surviving candidate's score is discounted by its link density (the fraction of its text that
+sits inside an ``<a>``), so a dense menu that slipped through scores near zero, and the highest remaining score wins.
 When nothing scores positively (a stub page, pure navigation), there is no winner and the method returns ``None``.
 
 The heuristic has limits worth stating. It is tuned for article-shaped pages; a search-results grid, a forum thread, or
 a single-page app rendered entirely from script has no dominant prose container and may return ``None`` or a surprising
-node. It selects an existing element unchanged -- it does not clean inline boilerplate *within* the winner the way
-``Readability.js`` rewrites the DOM -- so pair it with :class:`~turbohtml.sanitizer.Sanitizer` when you need a scrubbed
+node. It selects an existing element unchanged (it does not clean inline boilerplate *within* the winner the way
+``Readability.js`` rewrites the DOM), so pair it with :class:`~turbohtml.sanitizer.Sanitizer` when you need a scrubbed
 fragment. And it is content extraction only: language detection and WARC/web-archive handling, which ``resiliparse``
 bundles alongside, are out of scope; reach for a dedicated tool there.
 
 The whole scoring walk is pure C and allocates only a small candidate array (a linear find-or-insert map, since the
 candidate set is just the parents and grandparents of scored paragraphs). It touches no Python object until a winner is
-chosen, at which point the binding -- holding the same per-tree critical section the other walks use -- wraps that one
-node, or renders its text for :meth:`~turbohtml.Node.main_text`. Two threads extracting from two trees never interfere.
+chosen, at which point the binding (holding the same per-tree critical section the other walks use) wraps that one node,
+or renders its text for :meth:`~turbohtml.Node.main_text`. Two threads extracting from two trees never interfere.
 
 *******************
  Mutating the tree
@@ -396,8 +396,8 @@ could rewire the tree, so a group moves in a single atomic edit rather than node
 :meth:`~turbohtml.Node.prune` is the bulk version of that subtractive edit, and answers the gap a ``SoupStrainer``
 filled by filtering *during* the parse. turbohtml keeps the parse whole and conformant, then trims afterward: it runs
 the CSS matcher over the subtree once, snapshots every match together with its ancestor chain, and only then removes
-everything the snapshot does not cover. Doing the match before any edit is what keeps it correct under free-threading --
-a selector can call back into Python (a regex or string filter), and a structural pointer must never be dereferenced
+everything the snapshot does not cover. Doing the match before any edit is what keeps it correct under free-threading: a
+selector can call back into Python (a regex or string filter), and a structural pointer must never be dereferenced
 across such a call once an edit could have rewired it, so the matching pass touches no links the removal pass will
 change and the removal pass calls into no Python. A match keeps its whole subtree and its ancestors keep their place, so
 a large document collapses to just the parts of interest in one locked pass over the arena.

@@ -39,16 +39,24 @@ tables).
         __init__.py          # public API re-export, typed
         _html.pyi            # type stub for the C extension
         py.typed             # PEP 561 marker
-        turbohtml.h          # internal header shared by the C sources
-        escape.c             # html.escape implementation (SIMD / SWAR)
-        unescape.c           # html.unescape implementation (entity tables)
-        _htmlmodule.c        # module definition; wires escape.c + unescape.c
-        html_entities.h      # generated tables (do not edit)
-    tools/generate_html_entities.py   # regenerates html_entities.h
-    tests/                   # pytest suite (escape + unescape)
+        query.py             # Query, the chainable wrapper
+        sanitizer.py         # allowlist HTML sanitizer
+        linkify.py           # URL and email autolinker
+        migration/           # drop-in shims: bleach, markupsafe, stdlib
+        _c/                  # C sources, compiled into one turbohtml._html module
+            core/            # module entry point (module.c), shared headers
+            tokenizer/       # WHATWG tokenizer and Token/Tokenizer bindings
+            dom/             # tree builder and the node object model
+            serialize/       # HTML, minify, markdown, text, escape/unescape
+            query/           # css/, xpath/, find/ selection engines
+            encoding/        # charset prescan and detection
+            features/        # sanitize, linkify, links, annotation
+            data/            # generated tables (do not edit)
+    tools/generate_*.py      # regenerate the data/ tables
+    tests/                   # pytest suite, mirroring src/turbohtml/_c/
 
-The three C files compile into a single ``_html`` extension. We split them per feature for readability; their shared
-surface is the entry-point declarations in ``turbohtml.h``.
+The C sources under ``_c/`` compile into one ``turbohtml._html`` extension, split by subsystem; the package root
+re-exports the public names and the Python modules add the higher-level APIs. ``ARCHITECTURE.md`` maps the tree in full.
 
 .. _architecture-decisions:
 
@@ -60,7 +68,7 @@ surface is the entry-point declarations in ``turbohtml.h``.
 <https://mesonbuild.com/meson-python/>`_ is the build backend because `hatchling <https://hatch.pypa.io>`_ (used by our
 pure-Python projects) does not compile C; meson-python builds C extensions and supports coverage instrumentation.
 
-**No stable ABI (abi3).** The fast paths require the non–\ :ref:`Limited API <python:stable>` buffer macros
+**No stable ABI (abi3).** The fast paths require buffer macros outside the :ref:`Limited API <python:stable>`:
 ``PyUnicode_KIND``, ``PyUnicode_DATA``, ``PyUnicode_READ``, ``PyUnicode_WRITE`` and ``PyUnicode_New`` (see the
 `PyUnicode C API <https://docs.python.org/3/c-api/unicode.html>`_ and :PEP:`393`). The `Limited API
 <https://docs.python.org/3/c-api/stable.html>`_ exposes per-code-point calls (``PyUnicode_ReadChar`` /
@@ -87,8 +95,8 @@ extension guide <https://docs.python.org/3/howto/free-threading-extensions.html>
 for byte, including ``&#x27;`` for the single quote and the full HTML5 character-reference rules. The suite fuzzes the C
 output against the standard library.
 
-**Generated entity tables.** ``tools/generate_html_entities.py`` produces ``html_entities.h``. The named references come
-from :data:`python:html.entities.html5` (which mirrors the `WHATWG named character references
+**Generated entity tables.** ``tools/generate_html_entities.py`` produces ``_c/data/html_entities.h``. The named
+references come from :data:`python:html.entities.html5` (which mirrors the `WHATWG named character references
 <https://html.spec.whatwg.org/multipage/named-characters.html>`_); the numeric-charref correction tables derive from the
 `WHATWG specification <https://html.spec.whatwg.org/multipage/parsing.html#numeric-character-reference-end-state>`_, not
 private standard-library internals, so the C tables never drift from the source of truth.
@@ -118,9 +126,11 @@ are allocation-failure guards that a test cannot trigger; each carries a `gcovr 
 
 Adding a C feature:
 
-1. Add ``src/turbohtml/<feature>.c`` and declare its entry point in ``turbohtml.h``.
-2. Add the source to ``meson.build`` and wire the method in ``_htmlmodule.c``.
-3. Add tests and keep coverage at 100%; mark any unreachable branch with ``GCOVR_EXCL_BR_LINE`` plus a reason.
+1. Add the source under the owning subsystem (``src/turbohtml/_c/<subsystem>/``) and declare it in that subsystem's
+   header.
+2. List the source in ``meson.build`` and wire the binding in ``_c/core/module.c`` (or the owning PyType).
+3. Add tests under the mirroring ``tests/`` path and keep coverage at 100%; mark any unreachable branch with
+   ``GCOVR_EXCL_BR_LINE`` plus a reason.
 
 ***********
  Releasing

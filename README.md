@@ -11,8 +11,9 @@ standard library byte for byte, tokenizes markup with a WHATWG-conformant stream
 documents into a navigable element tree you query with CSS selectors, edit in place, build from scratch, serialize back
 to conformant HTML, and export to GitHub-Flavored Markdown or layout-aware plain text. A
 [markupsafe](https://markupsafe.palletsprojects.com)-compatible `turbohtml.migration.markupsafe` covers template
-autoescaping, and `turbohtml.linkify` auto-links URLs and emails the way [bleach](https://github.com/mozilla/bleach)
-did. Each operation runs several times faster than its pure-Python counterpart and supports the free-threaded build.
+autoescaping, `turbohtml.linkify` auto-links URLs and emails the way [bleach](https://github.com/mozilla/bleach) did,
+and `turbohtml.sanitizer` scrubs untrusted HTML against an allowlist as `bleach.clean` did. Each operation runs several
+times faster than its pure-Python counterpart and supports the free-threaded build.
 
 ## Install
 
