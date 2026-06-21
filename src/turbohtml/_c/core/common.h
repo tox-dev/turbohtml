@@ -78,7 +78,7 @@ PyObject *turbohtml_parse_tree(PyObject *module, PyObject *arg);
 PyObject *turbohtml_parse_fragment(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
 
-/* Implemented in xpath.c. _xpath_parse compiles an XPath expression and returns a
+/* Implemented in query/xpath/functions.c. _xpath_parse compiles an XPath expression and returns a
    canonical S-expression of the parsed AST; the conformance hook the parser tests
    diff against. Signature matches METH_O. */
 PyObject *turbohtml_xpath_parse(PyObject *module, PyObject *arg);

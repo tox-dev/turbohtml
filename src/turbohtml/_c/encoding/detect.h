@@ -1,5 +1,5 @@
 /* Content-based character encoding detection (issue #182), #included into
-   dom/node.c after encoding.h.
+   dom/document.c after encoding/encoding.h.
 
    This is a strictly WHATWG-subordinate fallback: it runs only after the spec
    path (a BOM, the encoding argument, then the <meta> prescan) has yielded no

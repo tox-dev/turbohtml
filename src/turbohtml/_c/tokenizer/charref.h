@@ -4,7 +4,7 @@
    are consulted from two places: unescape() resolves every reference in a
    string, and the tokenizer resolves them inside its character-reference
    state. Both go through the accessors declared here so the generated tables
-   in html_entities.h have a single owner (charref.c) rather than being
+   in data/html_entities.h have a single owner (tokenizer/charref.c) rather than being
    compiled into each consumer. The scanning policy (how far to read, when a
    reference is "in an attribute", which parse errors to report) stays with the
    consumer; this file only answers table questions. */
