@@ -23,6 +23,7 @@ py.extension_module(
         'src/turbohtml/_c/tokenizer/token.c',
         'src/turbohtml/_c/tokenizer/tokenizer.c',
         'src/turbohtml/_c/dom/tree.c',
+        'src/turbohtml/_c/dom/mutate.c',
         'src/turbohtml/_c/dom/binding.c',
         'src/turbohtml/_c/dom/node.c',
         'src/turbohtml/_c/dom/element.c',

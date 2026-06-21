@@ -154,4 +154,90 @@ static inline int is_void_atom(uint16_t atom) {
     }
 }
 
+/* ----------------------------------------------------------------- nodes */
+
+/* When the tree tracks positions, an element node carries its source line
+   (1-based) and column (0-based) in two uint32 slots appended right after the
+   struct, so the 80-byte node and the default arena are untouched without the
+   feature and for every other node type. node_pos reaches them; only valid for an
+   element of a position-tracking tree, where node_new reserved the space. A line
+   of 0 marks "no source" (a synthetic element: implied html/head/body, a fragment
+   root, or one built by hand), which the accessor reports as None. Shared by the
+   parser (tree.c) and the construction/mutation API (mutate.c). */
+static inline uint32_t *node_pos(th_node *node) {
+    return (uint32_t *)((char *)node + sizeof(th_node));
+}
+
+static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
+    int positioned = tree->track_positions && type == TH_NODE_ELEMENT;
+    Py_ssize_t size = (Py_ssize_t)sizeof(th_node) + (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0);
+    th_node *node = arena_alloc(tree, size);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    memset(node, 0, sizeof(*node));
+    if (positioned) {
+        node_pos(node)[0] = 0; /* line; 0 = no source until insert_element sets it */
+        node_pos(node)[1] = 0; /* col */
+    }
+    node->type = type;
+    node->atom = TH_TAG_UNKNOWN;
+    return node;
+}
+
+static inline void node_append(th_node *parent, th_node *child) {
+    child->parent = parent;
+    child->prev_sibling = parent->last_child;
+    child->next_sibling = NULL;
+    if (parent->last_child != NULL) {
+        parent->last_child->next_sibling = child;
+    } else {
+        parent->first_child = child;
+    }
+    parent->last_child = child;
+}
+
+/* Detach a node from its current parent (the adoption agency re-parents). */
+static inline void node_remove(th_node *child) {
+    th_node *parent = child->parent;
+    if (parent == NULL) {
+        return;
+    }
+    if (child->prev_sibling != NULL) {
+        child->prev_sibling->next_sibling = child->next_sibling;
+    } else {
+        parent->first_child = child->next_sibling;
+    }
+    if (child->next_sibling != NULL) {
+        child->next_sibling->prev_sibling = child->prev_sibling;
+    } else {
+        parent->last_child = child->prev_sibling;
+    }
+    child->parent = NULL;
+    child->prev_sibling = NULL;
+    child->next_sibling = NULL;
+}
+
+/* Insert child before ref among ref's siblings (ref->parent becomes the parent);
+   ref==NULL appends to parent. */
+static inline void node_insert_before(th_node *parent, th_node *child, th_node *ref) {
+    if (ref == NULL) {
+        node_append(parent, child);
+        return;
+    }
+    child->parent = parent;
+    child->next_sibling = ref;
+    child->prev_sibling = ref->prev_sibling;
+    if (ref->prev_sibling != NULL) {
+        ref->prev_sibling->next_sibling = child;
+    } else {
+        parent->first_child = child;
+    }
+    ref->prev_sibling = child;
+}
+
+/* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom.
+   Owned by the parser (tree.c); the construction API (mutate.c) reuses it. */
+uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len);
+
 #endif /* TURBOHTML_DOM_TREE_INTERNAL_H */
