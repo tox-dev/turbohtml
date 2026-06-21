@@ -70,6 +70,18 @@ py.install_sources(
 
 py.install_sources(
     [
+        'src/turbohtml/_stubs/__init__.pyi',
+        'src/turbohtml/_stubs/dom.pyi',
+        'src/turbohtml/_stubs/features.pyi',
+        'src/turbohtml/_stubs/query.pyi',
+        'src/turbohtml/_stubs/serialize.pyi',
+        'src/turbohtml/_stubs/tokenizer.pyi',
+    ],
+    subdir: 'turbohtml/_stubs',
+)
+
+py.install_sources(
+    [
         'src/turbohtml/migration/__init__.py',
         'src/turbohtml/migration/bleach.py',
         'src/turbohtml/migration/markupsafe.py',

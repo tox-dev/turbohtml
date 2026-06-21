@@ -1,0 +1,39 @@
+# Subsystem: serialize (_c/serialize) — output formatting, escaping, and markup-safe helpers.
+from enum import Enum
+from typing import final
+
+class Formatter(Enum):
+    WHATWG = "whatwg"
+    MINIMAL = "minimal"
+    NAMED_ENTITIES = "named"
+
+@final
+class Indent:
+    def __init__(self, indent: int | str = 2) -> None: ...
+    @property
+    def unit(self) -> str: ...
+
+@final
+class Minify:
+    def __init__(
+        self,
+        *,
+        collapse_whitespace: bool = ...,
+        omit_optional_tags: bool = ...,
+        unquote_attributes: bool = ...,
+        strip_comments: bool = ...,
+    ) -> None: ...
+    @property
+    def collapse_whitespace(self) -> bool: ...
+    @property
+    def omit_optional_tags(self) -> bool: ...
+    @property
+    def unquote_attributes(self) -> bool: ...
+    @property
+    def strip_comments(self) -> bool: ...
+
+def escape(s: str, quote: bool = ...) -> str: ...
+def unescape(s: str, /) -> str: ...
+def _markup_escape(s: object, /) -> str: ...
+def _markup_escape_silent(s: object, /) -> str: ...
+def _markup_soft_str(s: object, /) -> str: ...

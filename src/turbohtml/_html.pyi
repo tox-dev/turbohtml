@@ -1,460 +1,53 @@
-from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
-from enum import Enum, IntEnum
-from re import Pattern
-from typing import Literal, TypeAlias, final
-
-from ._links import Link
-
-_Filter: TypeAlias = str | Pattern[str] | bool | Callable[[str | None], bool] | list[_Filter]
-
-class Axis(IntEnum):
-    DESCENDANTS = 0
-    CHILDREN = 1
-    ANCESTORS = 2
-    NEXT_SIBLINGS = 3
-    PREVIOUS_SIBLINGS = 4
-    FOLLOWING = 5
-    PRECEDING = 6
-
-def escape(s: str, quote: bool = ...) -> str: ...
-def unescape(s: str, /) -> str: ...
-def _markup_escape(s: object, /) -> str: ...
-def _markup_escape_silent(s: object, /) -> str: ...
-def _markup_soft_str(s: object, /) -> str: ...
-def _register_markup(markup_type: type, /) -> None: ...
-def _linkify_scan(
-    text: str, parse_email: bool, bare_domains: bool, extra_tlds: tuple[str, ...] = ..., /
-) -> list[tuple[int, int, int]]: ...
-def _linkify_find(
-    text: str, emails: bool, bare_domains: bool, extra_tlds: tuple[str, ...], schemes: tuple[str, ...], /
-) -> list[tuple[int, int, int]]: ...
-def _xpath_parse(expression: str, /) -> str: ...
-def _register_xpath_string(xpath_string_type: type, /) -> None: ...
-def _register_links(link_type: type, /) -> None: ...
-def _sanitize(
-    element: Element,
-    tags: frozenset[str],
-    attributes: Mapping[str, frozenset[str]],
-    url_schemes: frozenset[str],
-    allow_relative: bool,
-    on_disallowed: int,
-    strip_comments: bool,
-    add_link_rel: str | None,
-    attribute_filter: Callable[[str, str, str], str | None] | None,
-    set_attributes: Mapping[str, Mapping[str, str]],
-    remove_with_content: frozenset[str],
-    css_properties: frozenset[str],
-    /,
-) -> None: ...
-
-class TokenType(IntEnum):
-    TEXT = 0
-    START_TAG = 1
-    END_TAG = 2
-    COMMENT = 3
-    DOCTYPE = 4
-    CHARACTER_REFERENCE = 5
-
-@final
-class Token:
-    @property
-    def type(self) -> TokenType: ...
-    @property
-    def data(self) -> str | None: ...
-    @property
-    def source(self) -> str | None: ...
-    @property
-    def tag(self) -> str | None: ...
-    @property
-    def attrs(self) -> list[tuple[str, str]] | None: ...
-    @property
-    def self_closing(self) -> bool: ...
-    @property
-    def name(self) -> str | None: ...
-    @property
-    def public_id(self) -> str | None: ...
-    @property
-    def system_id(self) -> str | None: ...
-    @property
-    def force_quirks(self) -> bool: ...
-    @property
-    def line(self) -> int: ...
-    @property
-    def col(self) -> int: ...
-    def attr(self, name: str, default: str | None = None) -> str | None: ...
-
-@final
-class Tokenizer:
-    def __init__(self, *, resolve_references: bool = ..., capture_source: bool = ...) -> None: ...
-    def feed(self, data: str) -> Iterator[Token]: ...
-    def close(self) -> Iterator[Token]: ...
-    def reset(self) -> None: ...
-    def __enter__(self) -> Tokenizer: ...
-    def __exit__(self, *exc: object) -> None: ...
-    def __iter__(self) -> Iterator[Token]: ...
-
-def tokenize(s: str, /, *, resolve_references: bool = ..., capture_source: bool = ...) -> Iterator[Token]: ...
-def _tokenize_states(
-    text: str, initial_state: str, last_start_tag: str | None = ..., storage_kind: int = ..., /
-) -> list[tuple[object, ...]]: ...
-
-class Namespace(Enum):
-    HTML = "html"
-    SVG = "svg"
-    MATHML = "math"
-
-class Formatter(Enum):
-    WHATWG = "whatwg"
-    MINIMAL = "minimal"
-    NAMED_ENTITIES = "named"
-
-@final
-class Indent:
-    def __init__(self, indent: int | str = 2) -> None: ...
-    @property
-    def unit(self) -> str: ...
-
-@final
-class Minify:
-    def __init__(
-        self,
-        *,
-        collapse_whitespace: bool = ...,
-        omit_optional_tags: bool = ...,
-        unquote_attributes: bool = ...,
-        strip_comments: bool = ...,
-    ) -> None: ...
-    @property
-    def collapse_whitespace(self) -> bool: ...
-    @property
-    def omit_optional_tags(self) -> bool: ...
-    @property
-    def unquote_attributes(self) -> bool: ...
-    @property
-    def strip_comments(self) -> bool: ...
-
-class Node:
-    @property
-    def parent(self) -> Element | Document | None: ...
-    @property
-    def children(self) -> Sequence[Node]: ...
-    @property
-    def next_sibling(self) -> Node | None: ...
-    @property
-    def previous_sibling(self) -> Node | None: ...
-    @property
-    def descendants(self) -> Iterator[Node]: ...
-    @property
-    def ancestors(self) -> Iterator[Element | Document]: ...
-    @property
-    def next_siblings(self) -> Iterator[Node]: ...
-    @property
-    def previous_siblings(self) -> Iterator[Node]: ...
-    @property
-    def following(self) -> Iterator[Node]: ...
-    @property
-    def preceding(self) -> Iterator[Node]: ...
-    @property
-    def strings(self) -> Iterator[str]: ...
-    @property
-    def stripped_strings(self) -> Iterator[str]: ...
-    @property
-    def text(self) -> str: ...
-    @property
-    def html(self) -> str: ...
-    @property
-    def inner_html(self) -> str: ...
-    @property
-    def source_line(self) -> int | None: ...
-    @property
-    def source_col(self) -> int | None: ...
-    @property
-    def position(self) -> tuple[int, int] | None: ...
-    def find(
-        self,
-        tag: _Filter | None = None,
-        /,
-        *,
-        axis: Axis = ...,
-        attrs: Mapping[str, _Filter] | None = ...,
-        class_: _Filter | None = ...,
-        **filters: _Filter,
-    ) -> Element | None: ...
-    def find_all(
-        self,
-        tag: _Filter | None = None,
-        /,
-        *,
-        axis: Axis = ...,
-        attrs: Mapping[str, _Filter] | None = ...,
-        class_: _Filter | None = ...,
-        limit: int | None = ...,
-        **filters: _Filter,
-    ) -> list[Element]: ...
-    def select(self, selector: str, /) -> list[Element]: ...
-    def select_one(self, selector: str, /) -> Element | None: ...
-    def xpath(
-        self,
-        expression: str,
-        /,
-        *,
-        smart_strings: bool = ...,
-        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] | None = ...,
-        **variables: str | float | bool,
-    ) -> list[Element | str]: ...
-    def xpath_iter(
-        self,
-        expression: str,
-        /,
-        *,
-        smart_strings: bool = ...,
-        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] | None = ...,
-        **variables: str | float | bool,
-    ) -> Iterator[Element | str]: ...
-    def xpath_one(
-        self,
-        expression: str,
-        /,
-        *,
-        smart_strings: bool = ...,
-        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] | None = ...,
-        **variables: str | float | bool,
-    ) -> Element | str | None: ...
-    def matches(self, selector: str, /) -> bool: ...
-    def closest(self, selector: str, /) -> Element | None: ...
-    def prune(self, selector: str, /) -> Node: ...
-    def re(self, pattern: str | Pattern[str], /, *, attr: str | None = None) -> list[str]: ...
-    def re_first(
-        self, pattern: str | Pattern[str], /, default: str | None = None, *, attr: str | None = None
-    ) -> str | None: ...
-    def serialize(
-        self,
-        *,
-        formatter: Formatter = ...,
-        layout: Indent | Minify | None = ...,
-        sort_attributes: bool = ...,
-        meta_charset: bool = ...,
-    ) -> str: ...
-    def encode(
-        self,
-        encoding: str = "utf-8",
-        *,
-        formatter: Formatter = ...,
-        layout: Indent | Minify | None = ...,
-        sort_attributes: bool = ...,
-        meta_charset: bool = ...,
-    ) -> bytes: ...
-    def to_markdown(
-        self,
-        *,
-        heading_style: Literal["atx", "atx_closed", "setext"] = "atx",
-        bullets: str = "-",
-        strong: str = "**",
-        emphasis: str = "*",
-        strikethrough: Literal["keep", "hide"] = "keep",
-        ignore_emphasis: bool = False,
-        sub_symbol: str = "",
-        sup_symbol: str = "",
-        code_block_style: Literal["fenced", "indented"] = "fenced",
-        code_language: str = "",
-        mark_code: bool = False,
-        link_style: Literal["inline", "reference"] = "inline",
-        autolink: bool = True,
-        link_title: bool = False,
-        ignore_links: bool = False,
-        skip_internal_links: bool = False,
-        base_url: str = "",
-        image_mode: Literal["markdown", "alt", "ignore", "html"] = "markdown",
-        default_image_alt: str = "",
-        table_mode: Literal["markdown", "strip", "html"] = "markdown",
-        table_header: Literal["first", "detect", "none"] = "first",
-        pad_tables: bool = False,
-        escape_mode: Literal["minimal", "all"] = "minimal",
-        escape_asterisks: bool = True,
-        escape_underscores: bool = True,
-        line_break: Literal["spaces", "backslash"] = "spaces",
-        block_spacing: Literal["double", "single"] = "double",
-        wrap_width: int = 0,
-        wrap_list_items: bool = False,
-        wrap_links: bool = True,
-        transliterate: bool = False,
-        document_strip: Literal["strip", "lstrip", "rstrip", "none"] = "strip",
-        quote_open: str = '"',
-        quote_close: str = '"',
-        google_doc: bool = False,
-        google_list_indent: int = 36,
-        hide_strikethrough: bool = False,
-        strip: Iterable[str] | None = None,
-        convert: Iterable[str] | None = None,
-        converters: Mapping[str, Callable[[Element, str], str]] | None = None,
-    ) -> str: ...
-    def to_text(
-        self,
-        *,
-        width: int = 0,
-        links: Literal["none", "inline", "footnote"] = "none",
-        images: bool = False,
-        layout: Literal["extended", "strict"] = "extended",
-        default_image_alt: str = "",
-        table_cell_separator: str = "  ",
-        bullet: str = "* ",
-    ) -> str: ...
-    def to_annotated_text(
-        self,
-        annotation_rules: Mapping[str, Sequence[str]],
-        /,
-        *,
-        width: int = 0,
-        links: Literal["none", "inline", "footnote"] = "none",
-        images: bool = False,
-        layout: Literal["extended", "strict"] = "extended",
-        default_image_alt: str = "",
-        table_cell_separator: str = "  ",
-        bullet: str = "* ",
-    ) -> tuple[str, list[tuple[int, int, str]]]: ...
-    def links(self) -> list[Link]: ...
-    def rewrite_links(self, replace: Callable[[str], str | None], /) -> None: ...
-    def resolve_links(self, base_url: str, /) -> None: ...
-    def main_content(self) -> Element | None: ...
-    def main_text(self) -> str: ...
-    def insert_before(self, *nodes: Node) -> None: ...
-    def insert_after(self, *nodes: Node) -> None: ...
-    def replace_with(self, *nodes: Node) -> None: ...
-    def wrap(self, wrapper: Element, /) -> Element: ...
-    def wrap_siblings(self, wrapper: Element, /, *, until: Node | None = None) -> Element: ...
-    def unwrap(self) -> Node: ...
-    def extract(self) -> Node: ...
-    def decompose(self) -> None: ...
-    def __iter__(self) -> Iterator[Node]: ...
-    def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> Node: ...
-    def __bool__(self) -> bool: ...
-    def __hash__(self) -> int: ...
-    def __eq__(self, other: object) -> bool: ...
-
-@final
-class Element(Node):
-    __match_args__ = ("tag",)
-    def __init__(self, tag: str, attrs: Mapping[str, str | list[str] | None] | None = None) -> None: ...
-    @property
-    def tag(self) -> str: ...
-    @property
-    def namespace(self) -> Namespace: ...
-    @property
-    def attrs(self) -> MutableMapping[str, str | list[str] | None]: ...
-    @property
-    def text(self) -> str: ...
-    @text.setter
-    def text(self, value: str) -> None: ...
-    @property
-    def field_value(self) -> str | list[str] | None: ...
-    @field_value.setter
-    def field_value(self, value: str | list[str] | None) -> None: ...
-    @property
-    def checked(self) -> bool: ...
-    @checked.setter
-    def checked(self, value: bool) -> None: ...
-    def form_data(self) -> list[tuple[str, str]]: ...
-    def attr(self, name: str, /, default: str | None = None) -> str | None: ...
-    def append(self, child: Node, /) -> None: ...
-    def extend(self, children: Iterable[Node], /) -> None: ...
-    def insert(self, index: int, child: Node, /) -> None: ...
-    def clear(self) -> None: ...
-    def normalize(self) -> None: ...
-    def wrap_children(self, wrapper: Element, /) -> Element: ...
-
-@final
-class Text(Node):
-    __match_args__ = ("data",)
-    def __init__(self, data: str) -> None: ...
-    @property
-    def data(self) -> str: ...
-    @data.setter
-    def data(self, value: str) -> None: ...
-
-@final
-class Comment(Node):
-    __match_args__ = ("data",)
-    def __init__(self, data: str) -> None: ...
-    @property
-    def data(self) -> str: ...
-    @data.setter
-    def data(self, value: str) -> None: ...
-
-@final
-class CData(Node):
-    __match_args__ = ("data",)
-    def __init__(self, data: str) -> None: ...
-    @property
-    def data(self) -> str: ...
-    @data.setter
-    def data(self, value: str) -> None: ...
-
-@final
-class ProcessingInstruction(Node):
-    __match_args__ = ("target", "data")
-    def __init__(self, target: str, data: str) -> None: ...
-    @property
-    def target(self) -> str: ...
-    @property
-    def data(self) -> str: ...
-
-@final
-class Doctype(Node):
-    __match_args__ = ("name",)
-    @property
-    def name(self) -> str: ...
-    @property
-    def public_id(self) -> str | None: ...
-    @property
-    def system_id(self) -> str | None: ...
-
-@final
-class ParseError:
-    @property
-    def code(self) -> str: ...
-    @property
-    def line(self) -> int: ...
-    @property
-    def col(self) -> int: ...
-    def __hash__(self) -> int: ...
-    def __eq__(self, other: object) -> bool: ...
-
-class HTMLParseError(Exception):
-    error: ParseError
-
-@final
-class Document(Node):
-    __match_args__ = ("root",)
-    @property
-    def root(self) -> Element | None: ...
-    @property
-    def encoding(self) -> str | None: ...
-    def base_url(self, fallback: str = "") -> str: ...
-    def meta_refresh(self, fallback: str = "") -> tuple[float, str] | None: ...
-    @property
-    def errors(self) -> list[ParseError]: ...
-
-@final
-class IncrementalParser:
-    def __init__(self, *, encoding: str = "utf-8", positions: bool = True) -> None: ...
-    def feed(self, data: str | bytes) -> None: ...
-    def close(self) -> Document: ...
-    def __enter__(self) -> IncrementalParser: ...
-    def __exit__(self, *exc: object) -> None: ...
-
-def parse(
-    markup: str | bytes,
-    *,
-    encoding: str | None = None,
-    strict: bool = False,
-    detect_encoding: bool = False,
-    positions: bool = True,
-) -> Document: ...
-def parse_fragment(html: str, context: str = "div", *, positions: bool = True) -> Element: ...
-def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...
-def annotation_tags(text: str, spans: Iterable[tuple[int, int, str]], /) -> str: ...
-def _parse_tree(html: str, /) -> str: ...
-def _parse_fragment(html: str, context: str, /) -> str: ...
-def _parse_only(html: str, /) -> None: ...
-def _reconstruct(kind: int, descriptor: tuple[object, ...], children: list[Node], /) -> Node: ...
+# Aggregate stub for the compiled turbohtml._html extension; re-exports the _stubs subsystem packages.
+from ._stubs.dom import (
+    Axis as Axis,
+    CData as CData,
+    Comment as Comment,
+    Doctype as Doctype,
+    Document as Document,
+    Element as Element,
+    HTMLParseError as HTMLParseError,
+    IncrementalParser as IncrementalParser,
+    Namespace as Namespace,
+    Node as Node,
+    ParseError as ParseError,
+    ProcessingInstruction as ProcessingInstruction,
+    Text as Text,
+    _Filter as _Filter,
+    _parse_fragment as _parse_fragment,
+    _parse_only as _parse_only,
+    _parse_tree as _parse_tree,
+    _reconstruct as _reconstruct,
+    parse as parse,
+    parse_fragment as parse_fragment,
+)
+from ._stubs.features import (
+    _linkify_find as _linkify_find,
+    _linkify_scan as _linkify_scan,
+    _register_links as _register_links,
+    _register_markup as _register_markup,
+    _sanitize as _sanitize,
+    annotation_surface as annotation_surface,
+    annotation_tags as annotation_tags,
+)
+from ._stubs.query import (
+    _register_xpath_string as _register_xpath_string,
+    _xpath_parse as _xpath_parse,
+)
+from ._stubs.serialize import (
+    Formatter as Formatter,
+    Indent as Indent,
+    Minify as Minify,
+    _markup_escape as _markup_escape,
+    _markup_escape_silent as _markup_escape_silent,
+    _markup_soft_str as _markup_soft_str,
+    escape as escape,
+    unescape as unescape,
+)
+from ._stubs.tokenizer import (
+    Token as Token,
+    TokenType as TokenType,
+    Tokenizer as Tokenizer,
+    _tokenize_states as _tokenize_states,
+    tokenize as tokenize,
+)
