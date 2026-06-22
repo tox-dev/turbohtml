@@ -1,2 +1,2 @@
-Serializing a deeply nested tree no longer aborts the process; ``.html`` and ``serialize()`` now handle trees nested
-past roughly 130k levels and raise instead of overflowing the stack.
+Serializing a deeply nested tree no longer aborts the process; ``.html`` and :meth:`~turbohtml.Node.serialize` now
+handle trees nested past roughly 130k levels and raise instead of overflowing the stack.

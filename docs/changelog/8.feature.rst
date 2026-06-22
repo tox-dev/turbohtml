@@ -1,5 +1,6 @@
-Sanitize untrusted HTML against an allowlist with ``turbohtml.sanitizer``, a successor to the end-of-life
-``bleach.clean``. A frozen, thread-safe ``Policy`` with ``strict``/``basic``/``relaxed`` presets controls the allowed
-tags, attributes, and URL schemes, while a non-overridable baseline always removes ``<script>``, event-handler
-attributes, and ``javascript:`` URLs, so a no-argument ``sanitize`` is safe by default. A ``turbohtml.migration.bleach``
-shim migrates bleach users with an import-only change.
+Sanitize untrusted HTML against an allowlist with :mod:`turbohtml.sanitizer`, a successor to the end-of-life
+`bleach.clean <https://github.com/mozilla/bleach>`__. A frozen, thread-safe :class:`turbohtml.sanitizer.Policy` with
+``strict``/``basic``/``relaxed`` presets controls the allowed tags, attributes, and URL schemes, while a non-overridable
+baseline always removes ``<script>``, event-handler attributes, and ``javascript:`` URLs, so a no-argument
+:func:`turbohtml.sanitizer.sanitize` is safe by default. A :mod:`turbohtml.migration.bleach` shim migrates bleach users
+with an import-only change.

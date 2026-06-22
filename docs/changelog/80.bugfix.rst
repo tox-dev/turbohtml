@@ -1,2 +1,3 @@
-Feeding a long document to a streaming :class:`~turbohtml.Tokenizer` in chunks now stays memory-bounded; each ``feed()``
-reclaims the consumed prefix of the input buffer instead of growing it for the tokenizer's lifetime.
+Feeding a long document to a streaming :class:`~turbohtml.Tokenizer` in chunks now stays memory-bounded; each
+:meth:`~turbohtml.Tokenizer.feed` reclaims the consumed prefix of the input buffer instead of growing it for the
+tokenizer's lifetime.

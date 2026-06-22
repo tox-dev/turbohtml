@@ -1,2 +1,3 @@
 A prefix-less ``xmlns`` attribute on a foreign (SVG/MathML) element now lands in the ``http://www.w3.org/2000/xmlns/``
-namespace per the WHATWG "adjust foreign attributes" table, matching html5lib's serialization.
+namespace per the WHATWG "adjust foreign attributes" table, matching `html5lib
+<https://github.com/html5lib/html5lib-python>`__'s serialization.

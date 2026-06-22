@@ -1,3 +1,3 @@
 A RCDATA/RAWTEXT element such as ``<textarea>`` foster-parented out of a ``<table>`` no longer drops the following
 ``<tr>``/``<td>``, so ``parse("<table><textarea></textarea><tr><td>x")`` builds the expected table structure, matching
-html5lib.
+`html5lib <https://github.com/html5lib/html5lib-python>`__.

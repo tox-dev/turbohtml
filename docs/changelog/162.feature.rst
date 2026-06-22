@@ -1,3 +1,4 @@
-Run whole-document ``find``, ``find_all``, ``select``, and ``select_one`` two to roughly six times faster on large
-pages, and repeated small-document ``select`` calls several times faster, thanks to per-tree element-index and
-compiled-selector caches that build lazily and invalidate on mutation, so results stay correct.
+Run whole-document :meth:`~turbohtml.Node.find`, :meth:`~turbohtml.Node.find_all`, :meth:`~turbohtml.Node.select`, and
+:meth:`~turbohtml.Node.select_one` two to roughly six times faster on large pages, and repeated small-document
+``select`` calls several times faster, thanks to per-tree element-index and compiled-selector caches that build lazily
+and invalidate on mutation, so results stay correct.

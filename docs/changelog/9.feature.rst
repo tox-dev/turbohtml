@@ -1,5 +1,7 @@
-Auto-link URLs and email addresses in HTML with ``turbohtml.linkify``, a successor to the end-of-life
-``bleach.linkify``. ``linkify``, the reusable ``Linker``, and the ``nofollow``/``target_blank`` helpers keep bleach's
-names for an import-only migration, while custom callbacks now receive a plain ``Link`` with ``url``, ``text``, and
-``attrs``. It is HTML-aware: it never links inside an existing ``<a>``, a ``<script>``/``<style>``, or your
-``skip_tags``, and links a bare domain only when its last label is a real IANA TLD.
+Auto-link URLs and email addresses in HTML with :mod:`turbohtml.linkify`, a successor to the end-of-life `bleach.linkify
+<https://github.com/mozilla/bleach>`__. :func:`turbohtml.linkify.linkify`, the reusable
+:class:`turbohtml.linkify.Linker`, and the :func:`turbohtml.linkify.nofollow`/:func:`turbohtml.linkify.target_blank`
+helpers keep bleach's names for an import-only migration, while custom callbacks now receive a plain
+:class:`turbohtml.linkify.Link` with ``url``, ``text``, and ``attrs``. It is HTML-aware: it never links inside an
+existing ``<a>``, a ``<script>``/``<style>``, or your ``skip_tags``, and links a bare domain only when its last label is
+a real IANA TLD.

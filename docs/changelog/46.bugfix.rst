@@ -1,2 +1,3 @@
 A redundant ``<html>`` or duplicate ``<head>`` start tag no longer leaves head mode early, so a following ``style``,
-``meta``, ``link``, ``base``, or ``title`` stays in ``<head>`` instead of landing in ``<body>``, matching html5lib.
+``meta``, ``link``, ``base``, or ``title`` stays in ``<head>`` instead of landing in ``<body>``, matching `html5lib
+<https://github.com/html5lib/html5lib-python>`__.

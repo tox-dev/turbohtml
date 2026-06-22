@@ -1,4 +1,5 @@
 Evaluate XPath 1.0 expressions with :meth:`~turbohtml.Node.xpath` (a list of results, or a scalar ``float`` / ``str`` /
 ``bool``), :meth:`~turbohtml.Node.xpath_one` (the first result or ``None``), and :meth:`~turbohtml.Node.xpath_iter` (an
 iterator), covering the structural axes, node tests, predicates, operators, unions, and the core function library, so
-``lxml``, ``parsel``, and ``pyquery`` users keep their XPath when they migrate.
+`lxml <https://lxml.de/>`__, `parsel <https://parsel.readthedocs.io/>`__, and ``pyquery`` users keep their XPath when
+they migrate.

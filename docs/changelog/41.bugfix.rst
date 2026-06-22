@@ -1,2 +1,3 @@
-A MathML ``definitionurl`` attribute is now cased to ``definitionURL`` in ``Element.attrs``, ``inner_html``, and every
-serialization, matching html5lib; lookups on foreign elements stay case-insensitive.
+A MathML ``definitionurl`` attribute is now cased to ``definitionURL`` in :attr:`turbohtml.Element.attrs`,
+:attr:`~turbohtml.Node.inner_html`, and every serialization, matching `html5lib
+<https://github.com/html5lib/html5lib-python>`__; lookups on foreign elements stay case-insensitive.

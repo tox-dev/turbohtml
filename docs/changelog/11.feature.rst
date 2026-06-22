@@ -1,4 +1,6 @@
-Escape untrusted text for HTML with ``turbohtml.migration.markupsafe``, a drop-in for markupsafe's public surface
-(``Markup``, ``escape``, ``escape_silent``, ``soft_str``, ``EscapeFormatter``). A Jinja2, WTForms, or Werkzeug project
-migrates by changing the import, and ``escape`` runs two to four times faster on the small strings autoescaping
-interpolates.
+Escape untrusted text for HTML with :mod:`turbohtml.migration.markupsafe`, a drop-in for `markupsafe
+<https://markupsafe.palletsprojects.com/>`__'s public surface (:class:`turbohtml.migration.markupsafe.Markup`,
+:func:`turbohtml.migration.markupsafe.escape`, :func:`turbohtml.migration.markupsafe.escape_silent`,
+:func:`turbohtml.migration.markupsafe.soft_str`, :class:`turbohtml.migration.markupsafe.EscapeFormatter`). A `Jinja2
+<https://jinja.palletsprojects.com/>`__, WTForms, or Werkzeug project migrates by changing the import, and ``escape``
+runs two to four times faster on the small strings autoescaping interpolates.

@@ -1,3 +1,4 @@
-``select()`` and ``select_one()`` now accept namespace-qualified type selectors (``*|E``, ``*|*``, ``|E``, ``ns|E``)
-instead of raising ``ValueError('invalid CSS selector')``; in a namespaceless HTML document the prefix is parsed and
-ignored, matching lxml.cssselect, selectolax, and bs4.
+:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` now accept namespace-qualified type selectors
+(``*|E``, ``*|*``, ``|E``, ``ns|E``) instead of raising ``ValueError('invalid CSS selector')``; in a namespaceless HTML
+document the prefix is parsed and ignored, matching `lxml.cssselect <https://lxml.de/>`__, `selectolax
+<https://github.com/rushter/selectolax>`__, and `bs4 <https://www.crummy.com/software/BeautifulSoup/>`__.

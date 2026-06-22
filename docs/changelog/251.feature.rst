@@ -1,5 +1,5 @@
-Add the inscriptis annotation output processors over the ``(text, spans)`` pair
-:meth:`~turbohtml.Node.to_annotated_text` returns: :func:`turbohtml.annotation_surface` groups each label's matched
+Add the `inscriptis <https://github.com/weblyzard/inscriptis>`__ annotation output processors over the ``(text, spans)``
+pair :meth:`~turbohtml.Node.to_annotated_text` returns: :func:`turbohtml.annotation_surface` groups each label's matched
 substrings into a dict in document order, and :func:`turbohtml.annotation_tags` weaves the spans back into the text as
 inline ``<label>...</label>`` markup, closing the innermost span first so nested spans stay well-formed - by
 :user:`gaborbernat`.

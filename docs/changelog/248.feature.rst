@@ -1,4 +1,4 @@
 Add ``strip`` and ``convert`` keywords to :meth:`~turbohtml.Node.to_markdown`, the mutually exclusive tag filters
-``markdownify`` exposes: ``strip`` names tags whose markup is dropped while their text stays, and ``convert`` names the
-only tags to keep markup for. A name outside the tag table is ignored, and ``<script>``/``<style>``/``<head>`` still
-vanish whole - by :user:`gaborbernat`.
+`markdownify <https://pypi.org/project/markdownify/>`__ exposes: ``strip`` names tags whose markup is dropped while
+their text stays, and ``convert`` names the only tags to keep markup for. A name outside the tag table is ignored, and
+``<script>``/``<style>``/``<head>`` still vanish whole - by :user:`gaborbernat`.

@@ -1,4 +1,5 @@
-Add form-field helpers to ``Element``: ``field_value`` reads and writes a control's value with form semantics (input,
-textarea, option, and single/multiple ``select``), ``checked`` reads and sets a checkbox or radio with radio-group
-exclusivity, and ``form_data`` serializes a ``<form>``'s successful controls to ``(name, value)`` pairs following the
-WHATWG submission rules - by :user:`gaborbernat`.
+Add form-field helpers to :class:`~turbohtml.Element`: :attr:`~turbohtml.Element.field_value` reads and writes a
+control's value with form semantics (input, textarea, option, and single/multiple ``select``),
+:attr:`~turbohtml.Element.checked` reads and sets a checkbox or radio with radio-group exclusivity, and
+:attr:`~turbohtml.Element.form_data` serializes a ``<form>``'s successful controls to ``(name, value)`` pairs following
+the WHATWG submission rules - by :user:`gaborbernat`.

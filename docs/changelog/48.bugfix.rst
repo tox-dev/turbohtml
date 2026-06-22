@@ -1,2 +1,2 @@
-A nameless ``<!DOCTYPE>`` now reports its ``Token.name`` as ``None`` rather than an empty string, keeping a missing
-DOCTYPE name distinct from an empty one and matching the html5lib-tests oracle.
+A nameless ``<!DOCTYPE>`` now reports its :attr:`turbohtml.Token.name` as ``None`` rather than an empty string, keeping
+a missing DOCTYPE name distinct from an empty one and matching the html5lib-tests oracle.

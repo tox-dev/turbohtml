@@ -1,3 +1,3 @@
 Add :meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh` on :class:`~turbohtml.Document`,
-the two ``w3lib.html`` helpers that read a document's own URL hints (its ``<base href>`` and a ``<meta
-http-equiv=refresh>``) and resolve them against a fallback base URL - by :user:`gaborbernat`.
+the two `w3lib.html <https://w3lib.readthedocs.io/>`__ helpers that read a document's own URL hints (its ``<base href>``
+and a ``<meta http-equiv=refresh>``) and resolve them against a fallback base URL - by :user:`gaborbernat`.
