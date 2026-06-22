@@ -1,0 +1,3 @@
+Add :data:`turbohtml.build.E`, a terse builder for constructing HTML trees in the spirit of ``lxml.builder.E``:
+``E.div({"class": "card"}, E.h1("Title"), E.p("body"))`` builds real :class:`~turbohtml.Element` nodes that serialize
+through the existing API, and a new migration section maps dominate, yattag, htpy, airium, and ``lxml.builder`` onto it.

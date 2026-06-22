@@ -45,3 +45,11 @@ place; the URL resolution itself is :func:`urllib.parse.urljoin` from the standa
 reimplemented in C, because RFC 3986 reference resolution is a solved, standard problem and not where turbohtml's value
 lies. The line between the two is the project's rule in miniature: the HTML-specific, performance-sensitive work is C,
 and a thin typed facade wires it to the stdlib.
+
+Generating HTML is the one place a builder helper earns a little Python of its own. :data:`turbohtml.build.E` adds no
+tree mechanics: every ``E.<tag>(...)`` call constructs a real :class:`~turbohtml.Element` and appends its children
+through the same C edit surface, so the helper is pure construction sugar -- the way ``lxml.builder.E`` is pure Python
+over libxml2's tree. The tree, the attribute storage, and the serialize step all stay in C; the Python layer only spells
+the call ``E.div({...}, child, "text")`` instead of three statements. Keeping it thin is deliberate: a generator that
+reimplemented escaping or attribute handling in Python would drift from the parser's behavior, and the value of building
+on the same tree is that what you generate serializes by exactly the rules that parse it back.

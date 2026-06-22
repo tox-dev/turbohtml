@@ -27,6 +27,23 @@ annotated-text result.
 
 .. autofunction:: annotation_tags
 
+*****************
+ turbohtml.build
+*****************
+
+.. module:: turbohtml.build
+
+A terse builder for constructing HTML trees, in the spirit of ``lxml.builder.E``. It is a thin layer over
+:class:`~turbohtml.Element` and :meth:`~turbohtml.Node.serialize`: ``E.<tag>(attrs, *children)`` builds a real element,
+folds a leading mapping into its attributes, and appends each remaining argument as a child (a string becomes a
+:class:`~turbohtml.Text` node, a node is appended as-is).
+
+.. autodata:: E
+    :no-value:
+
+.. autoclass:: ElementMaker
+    :members:
+
 ********************************
  turbohtml.migration.markupsafe
 ********************************

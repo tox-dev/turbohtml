@@ -13,6 +13,7 @@ treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
     markupsafe
     beautifulsoup
     lxml
+    dominate
     linkify-it-py
     bleach
     markdownify
