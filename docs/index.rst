@@ -44,7 +44,6 @@ The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
     migration/index
     reference
     explanation
-    performance
-    development
+    development/index
     changelog
     license

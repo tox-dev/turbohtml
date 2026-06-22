@@ -2,7 +2,13 @@
  Development
 #############
 
-This page covers how we build, test, and maintain turbohtml.
+This page covers how we build, test, and maintain turbohtml; the :doc:`performance` page collects the benchmark tables
+the rest of the docs link into.
+
+.. toctree::
+    :hidden:
+
+    performance
 
 ****************
  Getting set up
@@ -56,7 +62,41 @@ tables).
     tests/                   # pytest suite, mirroring src/turbohtml/_c/
 
 The C sources under ``_c/`` compile into one ``turbohtml._html`` extension, split by subsystem; the package root
-re-exports the public names and the Python modules add the higher-level APIs. ``ARCHITECTURE.md`` maps the tree in full.
+re-exports the public names and the Python modules add the higher-level APIs. Users never import ``_html`` directly, and
+``_html.pyi`` is its type stub.
+
+Each ``_c/`` subdirectory owns one subsystem:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 18 82
+
+    - - Directory
+      - Responsibility
+    - - ``core/``
+      - Module entry point (``module.c``), shared declarations and SWAR helpers (``common.h``), ``ascii.h``.
+    - - ``tokenizer/``
+      - The WHATWG tokenizer state machine and its ``Token``/``Tokenizer`` bindings; character references.
+    - - ``dom/``
+      - The tree builder (``tree.c``) and the node object model split by PyType (``node``, ``element``, ``leaf``,
+        ``document``, ``formatters``).
+    - - ``serialize/``
+      - Output modes over a built tree: html5lib ``#document``, minify, markdown, layout text, readability; plus
+        escape/unescape and the markupsafe surface.
+    - - ``query/``
+      - The selection engines, one per subdirectory: ``css/`` (selector matching), ``xpath/`` (XPath 1.0 + EXSLT),
+        ``find/`` (``find``/``find_all``).
+    - - ``encoding/``
+      - Charset prescan and content-based encoding detection.
+    - - ``features/``
+      - Transforms over a finished tree: ``sanitize``, ``linkify``, ``links``, ``annotation``.
+    - - ``data/``
+      - Generated static tables (tag and attribute atoms, HTML entities, TLDs). Regenerate with ``tools/generate_*.py``.
+
+Input bytes pass through ``encoding/`` (when detection is requested), then ``tokenizer/`` turns them into tokens, and
+``dom/tree.c`` builds the node tree with the WHATWG insertion-mode algorithm. From a built tree you query it
+(``query/``), serialize it (``serialize/``), or transform it (``features/``). The Python node types in ``dom/`` wrap the
+C tree and expose all of this to users.
 
 .. _architecture-decisions:
 
@@ -100,6 +140,23 @@ references come from :data:`python:html.entities.html5` (which mirrors the `WHAT
 <https://html.spec.whatwg.org/multipage/named-characters.html>`_); the numeric-charref correction tables derive from the
 `WHATWG specification <https://html.spec.whatwg.org/multipage/parsing.html#numeric-character-reference-end-state>`_, not
 private standard-library internals, so the C tables never drift from the source of truth.
+
+**Includes are subsystem-qualified.** With ``-I src/turbohtml/_c``, a file includes ``"tokenizer/statemachine.h"``, not
+a bare basename, so the path names the subsystem that owns the header.
+
+**Hot paths inline across the subsystem split.** Helpers shared by several translation units in one subsystem (the node
+traversal helpers in ``dom/nodes.h``, the serialize primitives in ``serialize/internal.h``) are ``static inline`` in a
+shared header, so each unit inlines its own copy; the serialize and tree-builder modes share buffer and tree internals
+the same way.
+
+**Generated tables have one owner.** The ``data/`` headers come from ``tools/generate_*.py``; edit the generator, not
+the output, and they stay out of formatting and clang-tidy.
+
+**Coverage gates on two toolchains.** Both the gcc (Linux) and llvm-cov (macOS, Windows) gates require full line and
+branch coverage; an exclusion needs a written reason that testing it is impossible.
+
+**Tree mutations take a per-tree critical section.** A mutation locks the shared handle for the tree it touches; the
+lock is a no-op on the GIL build, and the free-threading matrix and ThreadSanitizer guard it.
 
 ******************
  Maintainer tasks

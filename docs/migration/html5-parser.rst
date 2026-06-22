@@ -29,10 +29,10 @@ Because the tree it returns is lxml's, the element accessors port exactly as in 
 section above: ``el.get``/``el.attrib`` become ``el.attrs``, the ``el.text``/``el.tail`` string pair becomes child
 :class:`~turbohtml.Text` nodes, ``el.getparent()`` becomes ``el.parent``, and ``el.xpath(...)`` maps to turbohtml's
 XPath 1.0 :meth:`~turbohtml.Node.xpath` (or CSS :meth:`~turbohtml.Node.select` and the
-:meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar). The :doc:`/performance` page benchmarks the
-WHATWG tree builders; html5-parser sits in the same native-gumbo tier as the C parsers measured there, so it is
-cross-linked rather than given a separate row, since its lxml tree is bound to a specific ``libxml2`` build that the
-benchmark cannot pin portably.
+:meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar). The :doc:`/development/performance` page
+benchmarks the WHATWG tree builders; html5-parser sits in the same native-gumbo tier as the C parsers measured there, so
+it is cross-linked rather than given a separate row, since its lxml tree is bound to a specific ``libxml2`` build that
+the benchmark cannot pin portably.
 
 ******************************
  Not yet ported / limitations

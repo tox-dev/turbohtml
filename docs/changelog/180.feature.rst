@@ -1,4 +1,4 @@
 Chain queries fluently with :class:`turbohtml.query.Query`, a pyquery-style wrapper over the tree and selector engine
 whose traversal and mutation methods (``find``, ``filter``, ``eq``, ``parent``, ``children``, ``attr``, ``add_class``,
 and the rest) each return a ``Query`` so calls compose. It runs roughly ten times faster than pyquery on the same chain
-(see the :doc:`performance` page).
+(see the :doc:`development/performance` page).

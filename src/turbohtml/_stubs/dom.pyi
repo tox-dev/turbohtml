@@ -4,7 +4,8 @@ from enum import Enum, IntEnum
 from re import Pattern
 from typing import Literal, TypeAlias, final
 
-from .._links import Link
+from turbohtml._links import Link
+
 from .serialize import Formatter, Indent, Minify
 
 _Filter: TypeAlias = str | Pattern[str] | bool | Callable[[str | None], bool] | list[_Filter]

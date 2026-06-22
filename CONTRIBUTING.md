@@ -13,7 +13,7 @@ uvx --with tox-uv tox r -e 3.14   # build, test, and check coverage
 ```
 
 `tox r -e 3.14` fails unless both Python and C coverage are 100% (line and branch). See the
-[Development docs](https://turbohtml.readthedocs.io/en/latest/development.html) for the project layout, the
+[Development docs](https://turbohtml.readthedocs.io/en/latest/development/) for the project layout, the
 architectural decisions, and maintainer tasks (regenerating tables, the coverage gates, adding a feature, releasing).
 
 ## Before opening a pull request

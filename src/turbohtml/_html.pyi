@@ -1,53 +1,127 @@
 # Aggregate stub for the compiled turbohtml._html extension; re-exports the _stubs subsystem packages.
 from ._stubs.dom import (
     Axis as Axis,
+)
+from ._stubs.dom import (
     CData as CData,
+)
+from ._stubs.dom import (
     Comment as Comment,
+)
+from ._stubs.dom import (
     Doctype as Doctype,
+)
+from ._stubs.dom import (
     Document as Document,
+)
+from ._stubs.dom import (
     Element as Element,
+)
+from ._stubs.dom import (
     HTMLParseError as HTMLParseError,
+)
+from ._stubs.dom import (
     IncrementalParser as IncrementalParser,
+)
+from ._stubs.dom import (
     Namespace as Namespace,
+)
+from ._stubs.dom import (
     Node as Node,
+)
+from ._stubs.dom import (
     ParseError as ParseError,
+)
+from ._stubs.dom import (
     ProcessingInstruction as ProcessingInstruction,
+)
+from ._stubs.dom import (
     Text as Text,
+)
+from ._stubs.dom import (
     _Filter as _Filter,
+)
+from ._stubs.dom import (
     _parse_fragment as _parse_fragment,
+)
+from ._stubs.dom import (
     _parse_only as _parse_only,
+)
+from ._stubs.dom import (
     _parse_tree as _parse_tree,
+)
+from ._stubs.dom import (
     _reconstruct as _reconstruct,
+)
+from ._stubs.dom import (
     parse as parse,
+)
+from ._stubs.dom import (
     parse_fragment as parse_fragment,
 )
 from ._stubs.features import (
     _linkify_find as _linkify_find,
+)
+from ._stubs.features import (
     _linkify_scan as _linkify_scan,
+)
+from ._stubs.features import (
     _register_links as _register_links,
+)
+from ._stubs.features import (
     _register_markup as _register_markup,
+)
+from ._stubs.features import (
     _sanitize as _sanitize,
+)
+from ._stubs.features import (
     annotation_surface as annotation_surface,
+)
+from ._stubs.features import (
     annotation_tags as annotation_tags,
 )
 from ._stubs.query import (
     _register_xpath_string as _register_xpath_string,
+)
+from ._stubs.query import (
     _xpath_parse as _xpath_parse,
 )
 from ._stubs.serialize import (
     Formatter as Formatter,
+)
+from ._stubs.serialize import (
     Indent as Indent,
+)
+from ._stubs.serialize import (
     Minify as Minify,
+)
+from ._stubs.serialize import (
     _markup_escape as _markup_escape,
+)
+from ._stubs.serialize import (
     _markup_escape_silent as _markup_escape_silent,
+)
+from ._stubs.serialize import (
     _markup_soft_str as _markup_soft_str,
+)
+from ._stubs.serialize import (
     escape as escape,
+)
+from ._stubs.serialize import (
     unescape as unescape,
 )
 from ._stubs.tokenizer import (
     Token as Token,
-    TokenType as TokenType,
+)
+from ._stubs.tokenizer import (
     Tokenizer as Tokenizer,
+)
+from ._stubs.tokenizer import (
+    TokenType as TokenType,
+)
+from ._stubs.tokenizer import (
     _tokenize_states as _tokenize_states,
+)
+from ._stubs.tokenizer import (
     tokenize as tokenize,
 )

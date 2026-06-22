@@ -70,5 +70,5 @@ node-method counterpart (the set has no shared anchor to place the wrapper at); 
 <https://www.python-httpx.org>`_ (or any client) and hand the bytes to :func:`turbohtml.parse`. And pyquery exposes
 lxml's ``.xpath(...)`` on the fluent wrapper itself; turbohtml's ``Query`` is CSS-only, so an XPath chain drops to the
 node-level :meth:`~turbohtml.Node.xpath` (XPath 1.0) or the :meth:`~turbohtml.Node.find` grammar via :meth:`Query.items
-<turbohtml.query.Query.items>`. The :doc:`/performance` page's fluent-chaining benchmark times the same chain against
-pyquery.
+<turbohtml.query.Query.items>`. The :doc:`/development/performance` page's fluent-chaining benchmark times the same
+chain against pyquery.

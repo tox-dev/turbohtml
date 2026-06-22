@@ -9,9 +9,9 @@
 turbohtml parses, queries, edits, and serializes HTML through a fast, typed, WHATWG-conformant core. Reach for it when
 you parse real-world markup and want the tree a browser builds (the `html5lib
 <https://github.com/html5lib/html5lib-python>`_ suite passes, so malformed input recovers the way it does in a browser
-rather than the way libxml2 guesses); when speed matters (the :doc:`performance` page has the figures); when you want a
-modern typed API with one name per concept, ``__match_args__`` on every node, and full type stubs, alongside the
-free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a drop-in several times faster
+rather than the way libxml2 guesses); when speed matters (the :doc:`development/performance` page has the figures); when
+you want a modern typed API with one name per concept, ``__match_args__`` on every node, and full type stubs, alongside
+the free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a drop-in several times faster
 than the standard library.
 
 It is the wrong tool in a few honest cases:
@@ -36,11 +36,11 @@ Escaping and unescaping sit on hot paths: HTML output escaping runs on every ren
 every chunk of text an HTML parser emits. ``turbohtml`` implements both in C so they run several times faster than an
 equivalent pure-Python implementation, with no change in behavior.
 
-The :doc:`performance` page measures both against :func:`python:html.escape` and :func:`python:html.unescape` over real
-corpora. ``escape`` gains the most on text that needs little escaping (the SIMD scan classifies sixteen bytes at a time
-and copies clean stretches in bulk); ``unescape`` gains the most on entity-heavy input, where the standard library pays
-a Python call per match. The gap is narrowest on tiny strings, where call overhead dominates, and on special-dense
-markup, where both sides spend their time writing replacements.
+The :doc:`development/performance` page measures both against :func:`python:html.escape` and
+:func:`python:html.unescape` over real corpora. ``escape`` gains the most on text that needs little escaping (the SIMD
+scan classifies sixteen bytes at a time and copies clean stretches in bulk); ``unescape`` gains the most on
+entity-heavy input, where the standard library pays a Python call per match. The gap is narrowest on tiny strings, where
+call overhead dominates, and on special-dense markup, where both sides spend their time writing replacements.
 
 Unlike a standard-library accelerator, ``turbohtml`` ships **only** the compiled implementation. :PEP:`399` requires a
 pure-Python fallback only for the standard library; as a third-party package distributing per-interpreter wheels,
@@ -155,9 +155,10 @@ bulk-scan to the next special character the way `html5ever <https://github.com/s
 dispatching the state machine per character. For the ASCII documents that dominate real traffic, a text run travels from
 input to the final ``str`` as one-byte copies.
 
-The :doc:`performance` page measures the tokenizer against :class:`python:html.parser.HTMLParser` and html5lib's
-pure-Python tokenizer. The closest case is a document dominated by a single text node, where the standard library's
-regex performs one C scan and never tokenizes; everywhere markup appears, the state machine is roughly ten times faster.
+The :doc:`development/performance` page measures the tokenizer against :class:`python:html.parser.HTMLParser` and
+html5lib's pure-Python tokenizer. The closest case is a document dominated by a single text node, where the standard
+library's regex performs one C scan and never tokenizes; everywhere markup appears, the state machine is roughly ten
+times faster.
 
 *********************************
  A navigable tree without copies
@@ -184,7 +185,7 @@ raw C tree, and the wrappers add cost only for the nodes you touch.
 
 turbohtml parses faster than the C parsers lxml and `selectolax <https://github.com/rushter/selectolax>`_, and 30 to 80
 times faster than the pure-Python BeautifulSoup and html5lib, while building the WHATWG tree that lxml's libxml2 does
-not; the :doc:`performance` page has the per-document figures.
+not; the :doc:`development/performance` page has the per-document figures.
 
 The same tokenizer and tree builder also drive :class:`turbohtml.IncrementalParser`, the push form of
 :func:`turbohtml.parse`. The tokenizer is resumable (it suspends mid-token when its input runs out) and reclaims the

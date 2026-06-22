@@ -74,4 +74,4 @@ reference - pass ``resolve_references=False`` and handle ``TokenType.CHARACTER_R
 ``token.source`` is the verbatim reference (``&amp;``) and ``token.data`` its resolved value. The verbatim start-tag
 text that ``get_starttag_text()`` returns is ``token.source`` once you pass ``capture_source=True``. When the goal is
 the resulting structure rather than the event sequence, skip the loop and :func:`turbohtml.parse` to a tree, then walk
-it. The :doc:`/performance` page's tokenizing benchmark times this token loop against ``html.parser``.
+it. The :doc:`/development/performance` page's tokenizing benchmark times this token loop against ``html.parser``.

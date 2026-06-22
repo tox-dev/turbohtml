@@ -61,9 +61,10 @@ keyword for running a pattern over an attribute value instead of the text.
 
 parsel translates every ``.css()`` query to XPath with `cssselect <https://github.com/scrapy/cssselect>`_ and evaluates
 it on libxml2, building a fresh ``SelectorList`` on each call. turbohtml compiles a selector against the tree once and
-then matches by comparing interned integer atoms, so a reused query costs tens of nanoseconds. The :doc:`/performance`
-page's *Querying* table benchmarks parsel directly: ``select`` on the ``div a[href]`` query runs roughly thirteen to two
-hundred times faster in turbohtml, and the tag-only ``find`` runs tens of times faster.
+then matches by comparing interned integer atoms, so a reused query costs tens of nanoseconds. The
+:doc:`/development/performance` page's *Querying* table benchmarks parsel directly: ``select`` on the ``div a[href]``
+query runs roughly thirteen to two hundred times faster in turbohtml, and the tag-only ``find`` runs tens of times
+faster.
 
 **********
  Pitfalls
