@@ -12,64 +12,84 @@
 
 PyDoc_STRVAR(escape_doc, "escape(s, quote=True)\n--\n\n"
                          "Replace special characters \"&\", \"<\" and \">\" with HTML-safe sequences.\n\n"
-                         "If the optional flag quote is true (the default), the quotation mark\n"
-                         "characters, both double quote (\") and single quote ('), are also translated.");
+                         ":param s: text to escape.\n"
+                         ":param quote: also translate the double (\") and single (') quotation marks,\n"
+                         "    so the result is safe inside an attribute value.\n"
+                         ":returns: the escaped text.");
 
 PyDoc_STRVAR(unescape_doc, "unescape(s, /)\n--\n\n"
                            "Convert all named and numeric character references in s to the\n"
-                           "corresponding Unicode characters, following the HTML5 rules.");
+                           "corresponding Unicode characters, following the HTML5 rules.\n\n"
+                           ":param s: text containing character references.\n"
+                           ":returns: the text with every reference resolved.");
 
 PyDoc_STRVAR(markup_escape_doc, "escape(s, /)\n--\n\n"
                                 "Replace &, <, >, ', and \" with HTML-safe sequences and return a Markup.\n\n"
                                 "An object with an __html__ method is trusted as already safe; any other\n"
                                 "object is converted to a string first. Matches markupsafe.escape, including\n"
-                                "the numeric &#34; and &#39; quote references.");
+                                "the numeric &#34; and &#39; quote references.\n\n"
+                                ":param s: value to escape; an __html__ method marks it already safe.\n"
+                                ":returns: a Markup holding the escaped text.");
 
 PyDoc_STRVAR(markup_escape_silent_doc, "escape_silent(s, /)\n--\n\n"
-                                       "Like escape, but None becomes the empty Markup rather than 'None'.");
+                                       "Like escape, but None becomes the empty Markup rather than 'None'.\n\n"
+                                       ":param s: value to escape, or None for an empty Markup.\n"
+                                       ":returns: a Markup holding the escaped text.");
 
 PyDoc_STRVAR(markup_soft_str_doc, "soft_str(s, /)\n--\n\n"
                                   "Convert s to str only if it is not already one, preserving a Markup so\n"
-                                  "already-safe text is not escaped a second time.");
+                                  "already-safe text is not escaped a second time.\n\n"
+                                  ":param s: value to coerce to text.\n"
+                                  ":returns: s unchanged when it is already a str, otherwise str(s).");
 
 PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_source=False)\n--\n\n"
-                           "Tokenize a whole HTML string, returning an iterator of Token objects\n"
-                           "following the WHATWG tokenization algorithm. With resolve_references\n"
-                           "false each character reference in text becomes its own\n"
-                           "CHARACTER_REFERENCE token instead of folding into the run; with\n"
-                           "capture_source true every markup token records its verbatim source\n"
-                           "(Token.source).");
+                           "Tokenize a whole HTML string following the WHATWG tokenization algorithm.\n\n"
+                           ":param s: the HTML to tokenize.\n"
+                           ":param resolve_references: fold character references into the surrounding text\n"
+                           "    run; when False each one becomes its own CHARACTER_REFERENCE token.\n"
+                           ":param capture_source: record each markup token's verbatim source on\n"
+                           "    Token.source.\n"
+                           ":returns: an iterator of Token objects in document order.");
 
 PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True)\n--\n\n"
-                        "Parse a whole HTML document with the WHATWG tree-construction algorithm\n"
-                        "and return a navigable Document. markup is a str, or bytes whose encoding\n"
-                        "is sniffed (the encoding argument, a <meta> charset, then windows-1252).\n"
-                        "detect_encoding=True adds a content-based detection step after the <meta>\n"
-                        "prescan and before the windows-1252 fallback, used only when those spec\n"
-                        "steps yield no encoding; a declared, <meta>, or BOM encoding always wins.\n\n"
-                        "The recovered parse errors are on Document.errors; with strict=True the\n"
-                        "first one is raised as HTMLParseError instead. positions records each\n"
-                        "element's source_line/source_col; pass False to skip it when memory or\n"
-                        "speed matters more than source locations.");
+                        "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
+                        "return a navigable Document.\n\n"
+                        ":param markup: the document, as str, or bytes whose encoding is sniffed (the\n"
+                        "    encoding argument, then a <meta> charset, then windows-1252).\n"
+                        ":param encoding: the encoding to decode bytes with; a declared, <meta>, or BOM\n"
+                        "    encoding still wins over it.\n"
+                        ":param strict: raise the first recovered parse error as HTMLParseError instead\n"
+                        "    of collecting it on Document.errors.\n"
+                        ":param detect_encoding: add a content-based detection step for bytes input,\n"
+                        "    used only when the spec's encoding steps yield nothing.\n"
+                        ":param positions: record each element's source_line/source_col; pass False to\n"
+                        "    skip it when memory or speed matters more than source locations.\n"
+                        ":returns: the parsed Document.");
 
 PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True)\n--\n\n"
-                                 "Parse an HTML fragment as the innerHTML of a context element and return\n"
-                                 "that context Element with the parsed nodes as its children. context is a\n"
-                                 "tag name, optionally namespaced (e.g. 'td', 'svg path'). positions records\n"
-                                 "element source_line/source_col; pass False to skip it.");
+                                 "Parse an HTML fragment as the innerHTML of a context element.\n\n"
+                                 ":param html: the fragment markup.\n"
+                                 ":param context: the context element's tag name, optionally namespaced\n"
+                                 "    (e.g. 'td', 'svg path').\n"
+                                 ":param positions: record each element's source_line/source_col; pass\n"
+                                 "    False to skip it.\n"
+                                 ":returns: the context Element with the parsed nodes as its children.");
 
 PyDoc_STRVAR(annotation_surface_doc, "annotation_surface(text, spans, /)\n--\n\n"
-                                     "Group the annotated substrings by label. Given the (text, spans) pair\n"
-                                     "Node.to_annotated_text() returns, build a dict mapping each label to the\n"
-                                     "list of text[start:end] slices its spans cover, in document order. This\n"
-                                     "is the inscriptis surface-form extractor.");
+                                     "Group the annotated substrings by label, the inscriptis surface-form\n"
+                                     "extractor.\n\n"
+                                     ":param text: the rendered text from Node.to_annotated_text().\n"
+                                     ":param spans: the (start, end, label) spans from the same call.\n"
+                                     ":returns: a dict mapping each label to the list of text[start:end] slices\n"
+                                     "    its spans cover, in document order.");
 
 PyDoc_STRVAR(annotation_tags_doc, "annotation_tags(text, spans, /)\n--\n\n"
-                                  "Weave the annotated spans back into the text as inline markup. Given the\n"
-                                  "(text, spans) pair Node.to_annotated_text() returns, wrap each span in\n"
-                                  "<label>...</label> tags and return the tagged string. The innermost span\n"
-                                  "closes first, so properly nested spans stay well-formed. This is the\n"
-                                  "inscriptis inline-tagged (XML) exporter.");
+                                  "Weave the annotated spans back into the text as inline markup, the\n"
+                                  "inscriptis inline-tagged (XML) exporter. The innermost span closes first,\n"
+                                  "so properly nested spans stay well-formed.\n\n"
+                                  ":param text: the rendered text from Node.to_annotated_text().\n"
+                                  ":param spans: the (start, end, label) spans from the same call.\n"
+                                  ":returns: the text with each span wrapped in <label>...</label> tags.");
 
 static PyMethodDef html_methods[] = {
     {"escape", (PyCFunction)(void (*)(void))turbohtml_escape, METH_VARARGS | METH_KEYWORDS, escape_doc},

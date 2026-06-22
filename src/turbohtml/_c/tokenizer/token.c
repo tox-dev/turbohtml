@@ -323,8 +323,11 @@ static PyGetSetDef token_getset[] = {
 };
 
 PyDoc_STRVAR(token_attr_doc, "attr(name, default=None)\n--\n\n"
-                             "Return the value of attribute name on a start or end tag. A valueless\n"
-                             "attribute yields the empty string; a missing attribute yields default.");
+                             "Read one attribute of a start or end tag. A valueless attribute yields the\n"
+                             "empty string.\n\n"
+                             ":param name: the attribute name.\n"
+                             ":param default: value returned when the attribute is absent.\n"
+                             ":returns: the attribute value, or default when it is absent.");
 
 static PyObject *token_attr(PyObject *self, PyObject *args) {
     PyObject *name_obj;
@@ -453,7 +456,14 @@ static int build_kind_enum(PyObject *module, module_state *state) {
     if (kind_enum == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *doc = PyUnicode_FromString("The kind of a Token; selects which of its attributes are meaningful.");
+    PyObject *doc =
+        PyUnicode_FromString("The kind of a Token, reported by Token.type; it selects which of the token's "
+                             "attributes are meaningful.\n\n"
+                             "TEXT is a run of character data (Token.data); START_TAG and END_TAG are tags "
+                             "(Token.tag, Token.attrs); COMMENT is a comment (Token.data); DOCTYPE is a "
+                             "document type declaration (Token.name and the public/system ids); "
+                             "CHARACTER_REFERENCE is a single resolved reference emitted on its own when the "
+                             "tokenizer runs with resolve_references=False.");
     /* allocation failure cannot be forced from a test */
     if (doc == NULL || PyObject_SetAttrString(kind_enum, "__doc__", doc) < 0) { /* GCOVR_EXCL_BR_LINE */
         Py_XDECREF(doc);      /* GCOVR_EXCL_LINE: alloc-failure path */

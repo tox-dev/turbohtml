@@ -338,7 +338,11 @@ PyDoc_STRVAR(
     "whose markup is dropped (their text stays); convert names the only tags to keep\n"
     "markup for; the two are mutually exclusive. converters maps a lowercased tag\n"
     "name to a callable(element, content) -> str that replaces how that tag renders,\n"
-    "receiving the element and its already-converted child Markdown.");
+    "receiving the element and its already-converted child Markdown. Each remaining\n"
+    "keyword tunes one detail of the output (heading and bullet markers, emphasis\n"
+    "delimiters, link and image handling, table layout, escaping, wrapping, and\n"
+    "whitespace); see the serializing how-to for the full option reference.\n\n"
+    ":returns: the Markdown rendering of this node's subtree.");
 
 /* Resolve a string option against its allowed values, writing the matched index
    into *out (an enum), or leave *out untouched when the argument was omitted. */
@@ -597,7 +601,17 @@ PyDoc_STRVAR(to_text_doc, "to_text(*, width=0, links='none', images=False, layou
                           "table_cell_separator='  ', bullet='* ')\n--\n\n"
                           "Render this node and its subtree as layout-aware plain text: blocks\n"
                           "separated by blank lines, lists indented under their bullets, and tables\n"
-                          "laid out as a column-aligned grid. The inscriptis role, in C.");
+                          "laid out as a column-aligned grid. The inscriptis role, in C.\n\n"
+                          ":param width: wrap column for prose, or 0 to leave lines unwrapped.\n"
+                          ":param links: how to render <a> targets: 'none' drops them, 'inline' shows\n"
+                          "    them after the text, 'footnote' collects them at the end.\n"
+                          ":param images: render image alt text instead of skipping images.\n"
+                          ":param layout: 'extended' adds blank lines and indentation; 'strict' keeps the\n"
+                          "    output compact.\n"
+                          ":param default_image_alt: alt text used for an image that declares none.\n"
+                          ":param table_cell_separator: string placed between table cells on a row.\n"
+                          ":param bullet: marker prefixed to each list item.\n"
+                          ":returns: the plain-text rendering of this node's subtree.");
 
 static PyObject *node_to_text(PyObject *self, PyObject *args, PyObject *kwds) {
     text_opts opt = th_text_default_opts();
@@ -688,8 +702,18 @@ PyDoc_STRVAR(to_annotated_text_doc,
              "to_annotated_text(annotation_rules, *, width=0, links='none', images=False, layout='extended', "
              "default_image_alt='', table_cell_separator='  ', bullet='* ')\n--\n\n"
              "Render layout-aware text and, for every element matching a rule in\n"
-             "annotation_rules, record a labeled span over its text. Returns\n"
-             "(text, [(start, end, label), ...]). Spans inside table cells are not recorded.");
+             "annotation_rules, record a labeled span over its text. Spans inside table\n"
+             "cells are not recorded.\n\n"
+             ":param annotation_rules: maps a selector ('tag', 'tag#attr', 'tag#attr=value',\n"
+             "    or '#attr') to the list of labels to attach to each matching element.\n"
+             ":param width: wrap column for prose, or 0 to leave lines unwrapped.\n"
+             ":param links: how to render <a> targets: 'none', 'inline', or 'footnote'.\n"
+             ":param images: render image alt text instead of skipping images.\n"
+             ":param layout: 'extended' adds blank lines and indentation; 'strict' is compact.\n"
+             ":param default_image_alt: alt text used for an image that declares none.\n"
+             ":param table_cell_separator: string placed between table cells on a row.\n"
+             ":param bullet: marker prefixed to each list item.\n"
+             ":returns: a (text, spans) pair, where spans is a list of (start, end, label).");
 
 static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject *kwds) {
     text_opts opt = th_text_default_opts();
@@ -767,37 +791,39 @@ static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject
 }
 
 PyDoc_STRVAR(links_doc, "links()\n--\n\n"
-                        "Return every link in this node and its subtree, in document order, as a\n"
-                        "list of Link records. Beyond <a href>, this finds the URLs hidden in\n"
-                        "srcset/ping/archive lists, a <meta http-equiv=refresh> redirect, and CSS\n"
-                        "url()/@import in a style attribute or a <style> sheet.");
+                        "Find every link in this node and its subtree. Beyond <a href>, this finds the\n"
+                        "URLs hidden in srcset/ping/archive lists, a <meta http-equiv=refresh>\n"
+                        "redirect, and CSS url()/@import in a style attribute or a <style> sheet.\n\n"
+                        ":returns: the Link records in document order.");
 
 static PyObject *node_links(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     return turbohtml_node_links(self, tree_of(self), ((NodeObject *)self)->node);
 }
 
 PyDoc_STRVAR(rewrite_links_doc, "rewrite_links(replace, /)\n--\n\n"
-                                "Replace every link in this node and its subtree in place with replace(url).\n"
-                                "Returning a str substitutes the link; returning None leaves it unchanged.");
+                                "Rewrite every link in this node and its subtree in place.\n\n"
+                                ":param replace: called with each URL; return a str to substitute it or\n"
+                                "    None to leave it unchanged.");
 
 static PyObject *node_rewrite_links(PyObject *self, PyObject *replace) {
     return turbohtml_node_rewrite_links(self, tree_of(self), ((NodeObject *)self)->node, replace);
 }
 
 PyDoc_STRVAR(resolve_links_doc, "resolve_links(base_url, /)\n--\n\n"
-                                "Rewrite every link in this node and its subtree to an absolute URL resolved\n"
-                                "against base_url, in place, using stdlib urllib.parse.urljoin.");
+                                "Rewrite every link in this node and its subtree to an absolute URL, in\n"
+                                "place, using stdlib urllib.parse.urljoin.\n\n"
+                                ":param base_url: the base each relative URL is resolved against.");
 
 static PyObject *node_resolve_links(PyObject *self, PyObject *base_url) {
     return turbohtml_node_resolve_links(self, tree_of(self), ((NodeObject *)self)->node, base_url);
 }
 
 PyDoc_STRVAR(main_content_doc, "main_content()\n--\n\n"
-                               "Return the dominant content element under this node -- the article body with\n"
-                               "navigation, sidebars, ads, comments and other boilerplate scored out -- or\n"
-                               "None when nothing reads as content. Scores the tree by content density (text\n"
-                               "length, comma count, tag and class/id weight, discounted by link density), the\n"
-                               "readability heuristic, in C.");
+                               "Find the dominant content element under this node, the article body with\n"
+                               "navigation, sidebars, ads, comments and other boilerplate scored out. Scores\n"
+                               "the tree by content density (text length, comma count, tag and class/id\n"
+                               "weight, discounted by link density), the readability heuristic, in C.\n\n"
+                               ":returns: the winning content Element, or None when nothing reads as content.");
 
 static PyObject *node_main_content(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_node *winner;
@@ -811,9 +837,9 @@ static PyObject *node_main_content(PyObject *self, PyObject *Py_UNUSED(ignored))
 }
 
 PyDoc_STRVAR(main_text_doc, "main_text()\n--\n\n"
-                            "Return the main content under this node rendered as layout-aware plain text\n"
-                            "(as to_text() renders main_content()), or an empty string when there is no\n"
-                            "main content.");
+                            "Render the main content under this node as layout-aware plain text, as\n"
+                            "to_text() renders main_content().\n\n"
+                            ":returns: the main content's text, or an empty string when there is none.");
 
 static PyObject *node_main_text(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     text_opts opt = th_text_default_opts();
@@ -953,56 +979,87 @@ static PyObject *node_repr(PyObject *self) {
 }
 
 PyDoc_STRVAR(re_doc, "re(pattern, /, *, attr=None)\n--\n\n"
-                     "Run pattern (a str or a compiled re.Pattern) over this node's text and\n"
-                     "return every match as a list of str. With attr set, run it over that\n"
-                     "attribute's value instead, or return [] when the attribute is absent.\n"
-                     "Each match yields its one capturing group when the pattern has exactly\n"
-                     "one, otherwise the whole match.");
+                     "Run a regex over this node's text. Each match yields its one capturing group\n"
+                     "when the pattern has exactly one, otherwise the whole match.\n\n"
+                     ":param pattern: a str or compiled re.Pattern to search for.\n"
+                     ":param attr: search this attribute's value instead of the node text; an\n"
+                     "    absent attribute yields [].\n"
+                     ":returns: every match as a list of str.");
 
 PyDoc_STRVAR(re_first_doc, "re_first(pattern, /, default=None, *, attr=None)\n--\n\n"
-                           "Return the first match of pattern over this node's text (or the attr\n"
-                           "attribute's value), with the same group rule as re(), or default when\n"
-                           "nothing matches.");
+                           "Run a regex over this node's text and return the first match, with the same\n"
+                           "group rule as re().\n\n"
+                           ":param pattern: a str or compiled re.Pattern to search for.\n"
+                           ":param default: value returned when nothing matches.\n"
+                           ":param attr: search this attribute's value instead of the node text.\n"
+                           ":returns: the first match as a str, or default when nothing matches.");
 
 PyDoc_STRVAR(select_doc, "select(selector, /)\n--\n\n"
-                         "Return the list of descendant Elements matching the CSS selector, in\n"
-                         "document order. The selector grammar covers type, #id, .class, and\n"
-                         "attribute selectors, the four combinators, the structural pseudo-classes\n"
-                         "(including :nth-child(An+B of S)), the :is(), :where(), :has(), and :not()\n"
-                         "functional pseudo-classes, and the\n"
-                         ":scope, form/UI, :lang() and :dir() pseudo-classes a static tree can\n"
-                         "determine; live-state pseudo-classes (:hover, :focus, ...) match nothing.\n"
-                         ":is() and :where() take a forgiving list, so a bad arm is dropped.");
+                         "Find the descendant Elements matching a CSS selector. The grammar covers\n"
+                         "type, #id, .class, and attribute selectors, the four combinators, the\n"
+                         "structural pseudo-classes (including :nth-child(An+B of S)), the :is(),\n"
+                         ":where(), :has(), and :not() functional pseudo-classes, and the :scope,\n"
+                         "form/UI, :lang() and :dir() pseudo-classes a static tree can determine;\n"
+                         "live-state pseudo-classes (:hover, :focus, ...) match nothing. :is() and\n"
+                         ":where() take a forgiving list, so a bad arm is dropped.\n\n"
+                         ":param selector: the CSS selector.\n"
+                         ":returns: the matching descendant Elements in document order.");
 
 PyDoc_STRVAR(select_one_doc, "select_one(selector, /)\n--\n\n"
-                             "Return the first descendant Element matching the CSS selector, or None.");
+                             "Find the first descendant Element matching a CSS selector.\n\n"
+                             ":param selector: the CSS selector.\n"
+                             ":returns: the first matching Element, or None.");
 
-PyDoc_STRVAR(xpath_doc, "xpath(expression, /)\n--\n\n"
-                        "Evaluate an XPath expression relative to this node and return the result:\n"
-                        "a list of Elements (and attribute/text values as str) in document order for\n"
-                        "a node-set. Absolute paths start at the document root.");
+PyDoc_STRVAR(xpath_doc, "xpath(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
+                        "Evaluate an XPath expression relative to this node. A node-set returns a list\n"
+                        "of Elements (with attribute/text values as str) in document order; absolute\n"
+                        "paths start at the document root.\n\n"
+                        ":param expression: the XPath expression.\n"
+                        ":param smart_strings: return each string result as a value that remembers the\n"
+                        "    Element it came from.\n"
+                        ":param extensions: maps an (namespace, name) pair to a callable, registering a\n"
+                        "    custom XPath function.\n"
+                        ":param variables: values bound to the $name variables used in the expression.\n"
+                        ":returns: the result list, of Elements and str values in document order.");
 
-PyDoc_STRVAR(xpath_iter_doc, "xpath_iter(expression, /)\n--\n\n"
-                             "Like xpath, but return an iterator over the results in document order.");
+PyDoc_STRVAR(xpath_iter_doc, "xpath_iter(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
+                             "Like xpath(), but stream the results instead of building a list.\n\n"
+                             ":param expression: the XPath expression.\n"
+                             ":param smart_strings: return each string result as a value that remembers\n"
+                             "    the Element it came from.\n"
+                             ":param extensions: maps an (namespace, name) pair to a custom XPath function.\n"
+                             ":param variables: values bound to the $name variables in the expression.\n"
+                             ":returns: an iterator over the results in document order.");
 
-PyDoc_STRVAR(xpath_one_doc, "xpath_one(expression, /)\n--\n\n"
-                            "Return the first result of the XPath expression in document order, or None.");
+PyDoc_STRVAR(xpath_one_doc, "xpath_one(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
+                            "Like xpath(), but return only the first result.\n\n"
+                            ":param expression: the XPath expression.\n"
+                            ":param smart_strings: return a string result as a value that remembers the\n"
+                            "    Element it came from.\n"
+                            ":param extensions: maps an (namespace, name) pair to a custom XPath function.\n"
+                            ":param variables: values bound to the $name variables in the expression.\n"
+                            ":returns: the first result in document order, or None when there is none.");
 
 PyDoc_STRVAR(matches_doc, "matches(selector, /)\n--\n\n"
-                          "Return whether this node is an Element matching the CSS selector,\n"
-                          "evaluated against its own ancestors and siblings.");
+                          "Test this node against a CSS selector, evaluated with its own ancestors and\n"
+                          "siblings as context.\n\n"
+                          ":param selector: the CSS selector.\n"
+                          ":returns: whether this node is an Element that matches.");
 
 PyDoc_STRVAR(closest_doc, "closest(selector, /)\n--\n\n"
-                          "Return the nearest Element matching the CSS selector, testing this node\n"
-                          "then each ancestor, or None.");
+                          "Find the nearest Element matching a CSS selector, testing this node then each\n"
+                          "ancestor.\n\n"
+                          ":param selector: the CSS selector.\n"
+                          ":returns: the nearest matching Element, or None.");
 
 PyDoc_STRVAR(prune_doc, "prune(selector, /)\n--\n\n"
-                        "Keep only the descendants matching the CSS selector, together with their\n"
-                        "ancestors up to this node and the whole subtree under each match, and\n"
-                        "remove every other descendant in place. Return this node. With no match\n"
-                        "the subtree is emptied. This trims a parsed document to the parts of\n"
-                        "interest after a normal WHATWG parse, the way BeautifulSoup's\n"
-                        "SoupStrainer filters a document while parsing it.");
+                        "Keep only the descendants matching a CSS selector, together with their\n"
+                        "ancestors up to this node and the whole subtree under each match, and remove\n"
+                        "every other descendant in place. With no match the subtree is emptied. This\n"
+                        "trims a parsed document to the parts of interest after a normal WHATWG parse,\n"
+                        "the way BeautifulSoup's SoupStrainer filters a document while parsing it.\n\n"
+                        ":param selector: the CSS selector the kept descendants must match.\n"
+                        ":returns: this node.");
 
 static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds);
 
@@ -1010,61 +1067,86 @@ static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds);
 
 PyDoc_STRVAR(serialize_doc,
              "serialize(*, formatter=Formatter.WHATWG, layout=None, sort_attributes=False, meta_charset=False)\n--\n\n"
-             "Serialize this node and its subtree to a str. formatter chooses the escape\n"
-             "policy. layout chooses the whitespace: None gives the compact WHATWG form,\n"
-             "an Indent pretty-prints (adding whitespace, so it does not preserve\n"
-             "meaning), and a Minify shrinks the output while reparsing to the same tree.\n"
-             "sort_attributes emits each start tag's attributes in ascending name order.\n"
-             "meta_charset ensures the document <head> declares <meta charset=\"utf-8\">,\n"
-             "normalizing an existing charset declaration or injecting one.");
+             "Serialize this node and its subtree to a str.\n\n"
+             ":param formatter: the character-escaping policy to apply.\n"
+             ":param layout: the whitespace mode: None gives the compact WHATWG form, an\n"
+             "    Indent pretty-prints (adding whitespace, so it does not preserve meaning),\n"
+             "    and a Minify shrinks the output while reparsing to the same tree.\n"
+             ":param sort_attributes: emit each start tag's attributes in ascending name order.\n"
+             ":param meta_charset: ensure the document <head> declares <meta charset=\"utf-8\">,\n"
+             "    normalizing an existing charset declaration or injecting one.\n"
+             ":returns: the serialized markup.");
 
 PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', *, formatter=Formatter.WHATWG, layout=None, sort_attributes=False, "
                          "meta_charset=False)\n--\n\n"
-                         "Serialize this node and its subtree to bytes in the named encoding, with the\n"
-                         "same formatter, layout, and sort_attributes controls as serialize(). When\n"
-                         "meta_charset is set the injected/normalized <meta charset> names encoding.");
+                         "Serialize this node and its subtree to bytes, with the same formatter, layout,\n"
+                         "and sort_attributes controls as serialize().\n\n"
+                         ":param encoding: the codec to encode the markup with.\n"
+                         ":param formatter: the character-escaping policy to apply.\n"
+                         ":param layout: the whitespace mode (None, an Indent, or a Minify).\n"
+                         ":param sort_attributes: emit each start tag's attributes in name order.\n"
+                         ":param meta_charset: ensure a <meta charset> naming encoding is present.\n"
+                         ":returns: the serialized markup encoded as bytes.");
 
 PyDoc_STRVAR(find_doc, "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, **filters)\n--\n\n"
-                       "Return the first Element along axis matching the tag filter and every\n"
-                       "attribute filter, or None. A filter is a str, bool, compiled regex,\n"
-                       "callable, or a list of those.");
+                       "Find the first Element along axis matching the tag filter and every attribute\n"
+                       "filter. A filter is a str, bool, compiled regex, callable, or a list of those.\n\n"
+                       ":param tag: filter on the tag name.\n"
+                       ":param axis: which nodes to walk relative to this one.\n"
+                       ":param attrs: a mapping of attribute name to filter.\n"
+                       ":param class_: filter on a token of the class attribute.\n"
+                       ":param filters: further attribute filters given as keyword arguments.\n"
+                       ":returns: the first matching Element, or None.");
 
 PyDoc_STRVAR(find_all_doc,
              "find_all(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, limit=None, **filters)\n--\n\n"
-             "Return the list of Elements along axis matching the tag filter and every\n"
-             "attribute filter, up to limit results.");
+             "Find every Element along axis matching the tag filter and every attribute\n"
+             "filter, with the same filter forms as find().\n\n"
+             ":param tag: filter on the tag name.\n"
+             ":param axis: which nodes to walk relative to this one.\n"
+             ":param attrs: a mapping of attribute name to filter.\n"
+             ":param class_: filter on a token of the class attribute.\n"
+             ":param limit: stop after this many matches; None collects them all.\n"
+             ":param filters: further attribute filters given as keyword arguments.\n"
+             ":returns: the matching Elements in document order.");
 
 PyDoc_STRVAR(insert_before_doc, "insert_before(*nodes)\n--\n\n"
-                                "Insert each node into this node's parent right before this node, in order.\n"
-                                "A node already in a tree is moved; a node from another tree is adopted by\n"
-                                "copy.");
+                                "Insert each node into this node's parent right before this node, in order. A\n"
+                                "node already in a tree is moved; a node from another tree is adopted by copy.\n\n"
+                                ":param nodes: the nodes to insert.");
 
 PyDoc_STRVAR(insert_after_doc, "insert_after(*nodes)\n--\n\n"
                                "Insert each node into this node's parent right after this node, in order,\n"
-                               "with the same move-or-adopt rule as insert_before().");
+                               "with the same move-or-adopt rule as insert_before().\n\n"
+                               ":param nodes: the nodes to insert.");
 
 PyDoc_STRVAR(replace_with_doc, "replace_with(*nodes)\n--\n\n"
-                               "Put nodes where this node is, in order, and detach this node, which\n"
-                               "becomes a standalone root the caller still holds. With no nodes this just\n"
-                               "removes this node.");
+                               "Put nodes where this node is, in order, and detach this node, which becomes a\n"
+                               "standalone root the caller still holds. With no nodes this just removes this\n"
+                               "node.\n\n"
+                               ":param nodes: the nodes to put in this node's place.");
 
 PyDoc_STRVAR(wrap_doc, "wrap(wrapper, /)\n--\n\n"
-                       "Put this node inside wrapper, an element, in this node's place and return\n"
-                       "wrapper.");
+                       "Put this node inside wrapper, in this node's place.\n\n"
+                       ":param wrapper: the element to wrap this node in.\n"
+                       ":returns: wrapper, now holding this node.");
 
 PyDoc_STRVAR(wrap_siblings_doc, "wrap_siblings(wrapper, /, *, until=None)\n--\n\n"
-                                "Wrap this node and the siblings that follow it in wrapper, an element, in\n"
-                                "one move, and return wrapper. The run reaches through until (this node or a\n"
-                                "later sibling, included) or to the last sibling when until is None; wrapper\n"
-                                "lands where this node was. The bulk form of wrap() for a contiguous run.");
+                                "Wrap this node and the siblings that follow it in wrapper in one move; the\n"
+                                "bulk form of wrap() for a contiguous run. wrapper lands where this node was.\n\n"
+                                ":param wrapper: the element to wrap the run in.\n"
+                                ":param until: the last sibling to include (this node or a later one);\n"
+                                "    None reaches to the last sibling.\n"
+                                ":returns: wrapper, now holding the run.");
 
 PyDoc_STRVAR(unwrap_doc, "unwrap()\n--\n\n"
-                         "Replace this node with its children and return it detached (the inverse of\n"
-                         "wrap).");
+                         "Replace this node with its children, the inverse of wrap().\n\n"
+                         ":returns: this node, detached.");
 
 PyDoc_STRVAR(extract_doc, "extract()\n--\n\n"
-                          "Detach this node from its parent and return it, leaving a standalone node\n"
-                          "the caller can reinsert elsewhere.");
+                          "Detach this node from its parent, leaving a standalone node the caller can\n"
+                          "reinsert elsewhere.\n\n"
+                          ":returns: this node, detached.");
 
 PyDoc_STRVAR(decompose_doc, "decompose()\n--\n\n"
                             "Detach this node and its subtree from the document and drop it.");

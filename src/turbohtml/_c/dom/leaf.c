@@ -183,7 +183,8 @@ static PyGetSetDef data_getset[] = {
     {NULL, NULL, NULL, NULL, NULL},
 };
 
-PyDoc_STRVAR(text_doc, "A run of character data.");
+PyDoc_STRVAR(text_doc, "A run of character data.\n\n"
+                       ":param data: the text content.");
 
 static PyType_Slot text_slots[] = {
     {Py_tp_doc, (void *)text_doc},
@@ -199,7 +200,8 @@ PyType_Spec text_spec = {
     .slots = text_slots,
 };
 
-PyDoc_STRVAR(comment_doc, "An HTML comment.");
+PyDoc_STRVAR(comment_doc, "An HTML comment.\n\n"
+                          ":param data: the comment text, without the <!-- --> delimiters.");
 
 static PyType_Slot comment_slots[] = {
     {Py_tp_doc, (void *)comment_doc},
@@ -215,7 +217,8 @@ PyType_Spec comment_spec = {
     .slots = comment_slots,
 };
 
-PyDoc_STRVAR(cdata_doc, "A CDATA section.");
+PyDoc_STRVAR(cdata_doc, "A CDATA section.\n\n"
+                        ":param data: the section text, without the <![CDATA[ ]]> delimiters.");
 
 static PyType_Slot cdata_slots[] = {
     {Py_tp_doc, (void *)cdata_doc},
@@ -247,7 +250,9 @@ static PyGetSetDef pi_getset[] = {
     {NULL, NULL, NULL, NULL, NULL},
 };
 
-PyDoc_STRVAR(pi_doc, "A processing instruction.");
+PyDoc_STRVAR(pi_doc, "A processing instruction.\n\n"
+                     ":param target: the instruction target (the name right after <?).\n"
+                     ":param data: the instruction data (everything after the target).");
 
 static PyType_Slot pi_slots[] = {
     {Py_tp_doc, (void *)pi_doc},

@@ -195,9 +195,10 @@ static int feed_string(th_tokenizer *sm, PyObject *data) {
 }
 
 PyDoc_STRVAR(tokenizer_feed_doc, "feed(data)\n--\n\n"
-                                 "Append a chunk of markup and return an iterator over the tokens that\n"
-                                 "are now complete. Text before an unfinished tag stays buffered until\n"
-                                 "more is fed or close() is called.");
+                                 "Append a chunk of markup. Text before an unfinished tag stays buffered until\n"
+                                 "more is fed or close() is called.\n\n"
+                                 ":param data: the next chunk of markup.\n"
+                                 ":returns: an iterator over the tokens that are now complete.");
 
 static PyObject *tokenizer_feed(PyObject *self, PyObject *data) {
     th_tokenizer *sm = ((TokenizerObject *)self)->sm;
@@ -212,8 +213,8 @@ static PyObject *tokenizer_feed(PyObject *self, PyObject *data) {
 }
 
 PyDoc_STRVAR(tokenizer_close_doc, "close()\n--\n\n"
-                                  "Signal end of input and return an iterator over the final tokens,\n"
-                                  "flushing any buffered text and the token in progress.");
+                                  "Signal end of input, flushing any buffered text and the token in progress.\n\n"
+                                  ":returns: an iterator over the final tokens.");
 
 static PyObject *tokenizer_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_tokenizer *sm = ((TokenizerObject *)self)->sm;
@@ -270,12 +271,12 @@ PyDoc_STRVAR(tokenizer_doc, "Tokenizer(*, resolve_references=True, capture_sourc
                             "context manager so leaving the with block signals end of input, then\n"
                             "iterate the tokenizer itself for the remaining tokens. For a whole\n"
                             "string at once use tokenize().\n\n"
-                            "With resolve_references false, each character reference in text is\n"
-                            "emitted as its own CHARACTER_REFERENCE token (its data the resolved\n"
-                            "value, its source the verbatim reference) rather than folding into the\n"
-                            "surrounding text run; attribute-value references are always resolved.\n"
-                            "With capture_source true, every markup token records the verbatim source\n"
-                            "slice it came from, available as Token.source.");
+                            ":param resolve_references: fold character references into the surrounding\n"
+                            "    text run; when False each one is emitted as its own CHARACTER_REFERENCE\n"
+                            "    token (its data the resolved value, its source the verbatim reference).\n"
+                            "    Attribute-value references are always resolved.\n"
+                            ":param capture_source: record each markup token's verbatim source slice,\n"
+                            "    available as Token.source.");
 
 static PyType_Slot tokenizer_slots[] = {
     {Py_tp_doc, (void *)tokenizer_doc},

@@ -863,12 +863,13 @@ static int collect_control(th_tree *tree, th_node *form, th_node *node, PyObject
 }
 
 PyDoc_STRVAR(form_data_doc, "form_data()\n--\n\n"
-                            "Return the form's successful controls as a list of (name, value) pairs in\n"
-                            "document order, following the WHATWG form-submission entry-list rules.\n"
-                            "Controls without a non-empty name, disabled controls (their own disabled or a\n"
-                            "disabled ancestor fieldset), buttons, and file/submit/reset/image inputs are\n"
-                            "skipped; a checkbox or radio contributes only when checked, a select one pair\n"
-                            "per selected option. Controls are matched by containment in the form.");
+                            "Collect this form's successful controls, following the WHATWG form-submission\n"
+                            "entry-list rules. Controls without a non-empty name, disabled controls (their\n"
+                            "own disabled or a disabled ancestor fieldset), buttons, and\n"
+                            "file/submit/reset/image inputs are skipped; a checkbox or radio contributes\n"
+                            "only when checked, a select one pair per selected option. Controls are matched\n"
+                            "by containment in the form.\n\n"
+                            ":returns: the (name, value) pairs in document order.");
 
 static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_node *node = ((NodeObject *)self)->node;
@@ -898,10 +899,12 @@ static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored))
 }
 
 PyDoc_STRVAR(attr_doc, "attr(name, /, default=None)\n--\n\n"
-                       "Return the named attribute's value as a single str, or default when the\n"
-                       "attribute is absent. The raw value is returned, so a token-list attribute\n"
-                       "like class reads back as \"a b c\" rather than a list, and a valueless\n"
-                       "attribute reads back as the empty string.");
+                       "Read one attribute as a single str. The raw value is returned, so a token-list\n"
+                       "attribute like class reads back as \"a b c\" rather than a list, and a valueless\n"
+                       "attribute reads back as the empty string.\n\n"
+                       ":param name: the attribute name.\n"
+                       ":param default: value returned when the attribute is absent.\n"
+                       ":returns: the attribute value, or default when it is absent.");
 
 static PyObject *element_attr(PyObject *self, PyObject *args, PyObject *kwds) {
     static char *kw[] = {"", "default", NULL};
@@ -1994,7 +1997,10 @@ PyObject *node_prune(PyObject *self, PyObject *arg) {
     return Py_NewRef(self);
 }
 
-PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and child nodes.");
+PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and child nodes.\n\n"
+                          ":param tag: the tag name.\n"
+                          ":param attrs: initial attributes; a list value sets a token-list attribute and\n"
+                          "    None a valueless one.");
 
 static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
 
@@ -2012,15 +2018,19 @@ static PyObject *element_wrap_children(PyObject *self, PyObject *wrapper_obj);
 
 PyDoc_STRVAR(append_doc, "append(child, /)\n--\n\n"
                          "Add child as the last child of this element. A node already in a tree is\n"
-                         "moved; a node from another tree is adopted by copy.");
+                         "moved; a node from another tree is adopted by copy.\n\n"
+                         ":param child: the node to append.");
 
 PyDoc_STRVAR(extend_doc, "extend(children, /)\n--\n\n"
                          "Append every node from the iterable in order, each one moved or adopted\n"
-                         "like append().");
+                         "like append().\n\n"
+                         ":param children: the nodes to append.");
 
 PyDoc_STRVAR(insert_doc, "insert(index, child, /)\n--\n\n"
-                         "Insert child among this element's children at index, counted and clamped\n"
-                         "like list.insert.");
+                         "Insert child among this element's children, counted and clamped like\n"
+                         "list.insert.\n\n"
+                         ":param index: position among the existing children.\n"
+                         ":param child: the node to insert.");
 
 PyDoc_STRVAR(clear_doc, "clear()\n--\n\n"
                         "Detach every child of this element, leaving it empty.");
@@ -2030,9 +2040,11 @@ PyDoc_STRVAR(normalize_doc, "normalize()\n--\n\n"
                             "Text nodes, throughout this element's subtree.");
 
 PyDoc_STRVAR(wrap_children_doc, "wrap_children(wrapper, /)\n--\n\n"
-                                "Move every child of this element into wrapper, an element, make wrapper the\n"
-                                "sole child, and return wrapper. The bulk form of wrap() for a container's\n"
-                                "whole content; an empty element gains an empty wrapper.");
+                                "Move every child of this element into wrapper, make wrapper the sole child,\n"
+                                "and return it. The bulk form of wrap() for a container's whole content; an\n"
+                                "empty element gains an empty wrapper.\n\n"
+                                ":param wrapper: the element to move the children into.\n"
+                                ":returns: wrapper, now holding the moved children.");
 
 static PyMethodDef element_methods[] = {
     {"append", element_append, METH_O, append_doc},

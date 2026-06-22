@@ -85,7 +85,11 @@ PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags
                          "strip_comments=True)\n--\n\n"
                          "A serialize(layout=...)/encode(layout=...) mode that shrinks the output. Each\n"
                          "flag toggles one round-trip-safe transform: the minified output always reparses\n"
-                         "to the same tree.");
+                         "to the same tree.\n\n"
+                         ":param collapse_whitespace: collapse runs of insignificant whitespace.\n"
+                         ":param omit_optional_tags: drop start/end tags the parser can infer.\n"
+                         ":param unquote_attributes: remove quotes around attribute values that allow it.\n"
+                         ":param strip_comments: remove comments.");
 
 static PyType_Slot minify_slots[] = {
     {Py_tp_doc, (void *)minify_doc},
@@ -204,9 +208,10 @@ static PyObject *indent_repr(PyObject *self) {
 }
 
 PyDoc_STRVAR(indent_doc, "Indent(indent=2)\n--\n\n"
-                         "A serialize(layout=...)/encode(layout=...) mode that pretty-prints with the\n"
-                         "given per-level unit: an int for that many spaces, or a string used verbatim.\n"
-                         "It adds whitespace, so unlike the compact default it does not preserve meaning.");
+                         "A serialize(layout=...)/encode(layout=...) mode that pretty-prints. It adds\n"
+                         "whitespace, so unlike the compact default it does not preserve meaning.\n\n"
+                         ":param indent: the per-level unit: an int for that many spaces, or a string\n"
+                         "    used verbatim.");
 
 static PyType_Slot indent_slots[] = {
     {Py_tp_doc, (void *)indent_doc}, {Py_tp_new, indent_new},

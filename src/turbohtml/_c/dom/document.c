@@ -168,8 +168,10 @@ static PyObject *refresh_fallback(PyObject *fallback) {
 }
 
 PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
-                           "Return this document's base URL: its first <base href> resolved against fallback, or\n"
-                           "fallback itself when there is no <base href>.");
+                           "Resolve this document's base URL from its first <base href>.\n\n"
+                           ":param fallback: the URL the <base href> is resolved against, and the result\n"
+                           "    itself when the document has no <base href>.\n"
+                           ":returns: the document's base URL.");
 
 static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"fallback", NULL};
@@ -208,9 +210,12 @@ static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwa
 }
 
 PyDoc_STRVAR(meta_refresh_doc, "meta_refresh(fallback='')\n--\n\n"
-                               "Return (delay_seconds, url) from a <meta http-equiv=refresh>, or None when the\n"
-                               "document has none. The url is resolved against fallback (and is fallback when the\n"
-                               "directive omits one); a refresh tag inside <noscript> is ignored.");
+                               "Read the document's <meta http-equiv=refresh> redirect. A refresh tag inside\n"
+                               "<noscript> is ignored.\n\n"
+                               ":param fallback: the URL the directive's target is resolved against, and the\n"
+                               "    target itself when the directive omits one.\n"
+                               ":returns: a (delay_seconds, url) pair, or None when the document has no\n"
+                               "    refresh directive.");
 
 /* A <meta> nested in <noscript> is ignored, as w3lib does; <script> needs no entry because it is a raw-text element, so
    the parser never nests a <meta> element inside one. */
@@ -663,10 +668,11 @@ static PyObject *stream_feed_locked(StreamObject *parser, PyObject *data) {
 }
 
 PyDoc_STRVAR(stream_feed_doc, "feed(data)\n--\n\n"
-                              "Push a chunk of markup. data is str (fed as code points) or a bytes-like\n"
-                              "object decoded with the parser's encoding, with an incomplete trailing\n"
-                              "multi-byte sequence held back until the next chunk. The source need never\n"
-                              "be held whole in memory. Raises ValueError once the parser is closed.");
+                              "Push a chunk of markup, so the source need never be held whole in memory.\n"
+                              "Raises ValueError once the parser is closed.\n\n"
+                              ":param data: str (fed as code points) or a bytes-like object decoded with\n"
+                              "    the parser's encoding, an incomplete trailing multi-byte sequence held\n"
+                              "    back until the next chunk.");
 
 static PyObject *stream_feed(PyObject *self, PyObject *data) {
     PyObject *result;
@@ -705,9 +711,10 @@ static PyObject *stream_close_locked(StreamObject *parser, module_state *state) 
 }
 
 PyDoc_STRVAR(stream_close_doc, "close()\n--\n\n"
-                               "Signal end of input and return the finished Document, flushing the\n"
-                               "decoder and tokenizer and applying the missing html/head/body rules.\n"
-                               "Raises ValueError if the parser is already closed.");
+                               "Signal end of input, flushing the decoder and tokenizer and applying the\n"
+                               "missing html/head/body rules. Raises ValueError if the parser is already\n"
+                               "closed.\n\n"
+                               ":returns: the finished Document.");
 
 static PyObject *stream_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     module_state *state = PyType_GetModuleState(Py_TYPE(self));
@@ -747,11 +754,14 @@ static PyMethodDef stream_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
-PyDoc_STRVAR(stream_doc, "IncrementalParser(*, encoding='utf-8')\n--\n\n"
+PyDoc_STRVAR(stream_doc, "IncrementalParser(*, encoding='utf-8', positions=True)\n--\n\n"
                          "A push parser that builds a Document from chunks fed with feed(), so a\n"
                          "document arriving over a stream never has to be held whole in memory. Feed\n"
                          "str or bytes chunks in any size, then call close() for the finished\n"
-                         "Document. For a whole string or bytes at once use parse().");
+                         "Document. For a whole string or bytes at once use parse().\n\n"
+                         ":param encoding: codec used to decode any bytes chunks.\n"
+                         ":param positions: whether to record each element's source line and column;\n"
+                         "    pass False to skip it when memory or speed matters more.");
 
 static PyType_Slot stream_slots[] = {
     {Py_tp_doc, (void *)stream_doc},
@@ -952,9 +962,10 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
 /* Build one public enum named qualname with count members, register it on the
    module, cache each member into cached_out, and store the enum object in
    *enum_out. base_is_int_enum picks IntEnum over Enum; string_values, when not
-   NULL, gives each member a str value, otherwise members take their index. */
+   NULL, gives each member a str value, otherwise members take their index. doc,
+   when not NULL, becomes the enum class docstring so the reference is not blank. */
 static int build_enum(PyObject *module, const char *qualname, int base_is_int_enum, const char *const *names, int count,
-                      const char *const *string_values, PyObject **cached_out, PyObject **enum_out) {
+                      const char *const *string_values, const char *doc, PyObject **cached_out, PyObject **enum_out) {
     PyObject *members = PyDict_New();
     if (members == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -993,6 +1004,14 @@ static int build_enum(PyObject *module, const char *qualname, int base_is_int_en
     if (built == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyObject *docstring = PyUnicode_FromString(doc);
+    /* allocation failure cannot be forced from a test */
+    if (docstring == NULL || PyObject_SetAttrString(built, "__doc__", docstring) < 0) { /* GCOVR_EXCL_BR_LINE */
+        Py_XDECREF(docstring); /* GCOVR_EXCL_LINE: alloc-failure path */
+        Py_DECREF(built);      /* GCOVR_EXCL_LINE: alloc-failure path */
+        return -1;             /* GCOVR_EXCL_LINE: alloc-failure path */
+    }
+    Py_DECREF(docstring);
     for (int index = 0; index < count; index++) {
         cached_out[index] = PyObject_GetAttrString(built, names[index]);
         if (cached_out[index] == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1007,20 +1026,34 @@ static int build_enum(PyObject *module, const char *qualname, int base_is_int_en
 static int build_namespace_enum(PyObject *module, module_state *state) {
     static const char *const names[TH_NAMESPACE_COUNT] = {"HTML", "SVG", "MATHML"};
     static const char *const values[TH_NAMESPACE_COUNT] = {"html", "svg", "math"};
-    return build_enum(module, "Namespace", 0, names, TH_NAMESPACE_COUNT, values, state->namespaces,
+    static const char doc[] = "The XML namespace an Element belongs to, as reported by Element.namespace.\n\n"
+                              "HTML is the ordinary HTML namespace; SVG is inline <svg> content; MATHML is\n"
+                              "inline <math> content. Each member's value is the namespace short name "
+                              "(\"html\", \"svg\", \"math\").";
+    return build_enum(module, "Namespace", 0, names, TH_NAMESPACE_COUNT, values, doc, state->namespaces,
                       &state->namespace_enum);
 }
 
 static int build_axis_enum(PyObject *module, module_state *state) {
     static const char *const names[TH_AXIS_COUNT] = {"DESCENDANTS",       "CHILDREN",  "ANCESTORS", "NEXT_SIBLINGS",
                                                      "PREVIOUS_SIBLINGS", "FOLLOWING", "PRECEDING"};
-    return build_enum(module, "Axis", 1, names, TH_AXIS_COUNT, NULL, state->axes, &state->axis_enum);
+    static const char doc[] = "The direction find()/find_all() walk from a node, passed as their axis argument.\n\n"
+                              "DESCENDANTS visits every node in the subtree in document order (the default);\n"
+                              "CHILDREN only the direct children; ANCESTORS the parent chain up to the document;\n"
+                              "NEXT_SIBLINGS the following siblings and PREVIOUS_SIBLINGS the preceding ones;\n"
+                              "FOLLOWING every node after this one in document order (skipping its descendants)\n"
+                              "and PRECEDING every node before it (skipping its ancestors).";
+    return build_enum(module, "Axis", 1, names, TH_AXIS_COUNT, NULL, doc, state->axes, &state->axis_enum);
 }
 
 static int build_formatter_enum(PyObject *module, module_state *state) {
     static const char *const names[TH_FORMATTER_COUNT] = {"WHATWG", "MINIMAL", "NAMED_ENTITIES"};
     static const char *const values[TH_FORMATTER_COUNT] = {"whatwg", "minimal", "named"};
-    return build_enum(module, "Formatter", 0, names, TH_FORMATTER_COUNT, values, state->formatters,
+    static const char doc[] = "The character-escaping policy serialize()/encode() apply, passed as formatter.\n\n"
+                              "WHATWG escapes exactly what the HTML serialization algorithm requires (the\n"
+                              "default); MINIMAL escapes only the characters that would otherwise change the\n"
+                              "markup; NAMED_ENTITIES prefers named character references where one exists.";
+    return build_enum(module, "Formatter", 0, names, TH_FORMATTER_COUNT, values, doc, state->formatters,
                       &state->formatter_enum);
 }
 
