@@ -43,7 +43,7 @@ The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
     how-to/index
     migration/index
     reference
-    explanation
+    explanation/index
     development/index
     changelog
     license

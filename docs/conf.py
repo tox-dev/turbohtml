@@ -22,6 +22,7 @@ extensions = [
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
     "sphinx_issues",  # the :issue: role used by the changelog
+    "sphinxcontrib.mermaid",  # the .. mermaid:: directive used by the explanation diagrams
     "sphinxcontrib.towncrier.ext",  # render unreleased news fragments as a draft section
 ]
 
