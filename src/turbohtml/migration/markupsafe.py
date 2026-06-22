@@ -67,6 +67,11 @@ class Markup(str):  # noqa: FURB189, PLR0904
     Wrap a value to declare it trusted. Operations that combine it with other text escape that text first, so the
     result stays safe. Constructing ``Markup`` directly trusts its argument without escaping, so wrap only content you
     control or have already escaped; call :meth:`escape` to make untrusted text safe.
+
+    :param base: the value to trust as safe HTML; its ``__html__`` method is used when present, and ``bytes`` is
+        decoded with ``encoding``.
+    :param encoding: the codec to decode ``base`` with when it is ``bytes``; ``None`` leaves a ``str`` as is.
+    :param errors: the decoding error policy passed to :meth:`bytes.decode` when ``encoding`` is given.
     """
 
     __slots__ = ()
@@ -285,6 +290,8 @@ class EscapeFormatter(string.Formatter):
     itself safely through ``__html_format__`` or ``__html__`` stays trusted instead of escaping again. The class is
     public and subclassable so a template sandbox can mix it with its own formatter, the way Jinja2 does, so its calls
     go through ``super()`` to cooperate with that multiple inheritance.
+
+    :param escape: the function applied to each interpolated field value to make it safe.
     """
 
     __slots__ = ("escape",)

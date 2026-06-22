@@ -32,15 +32,17 @@ __all__ = ["HTMLParser"]
 
 
 class HTMLParser:
-    """A subclass-and-override callback parser over the streaming tokenizer."""
+    """
+    A subclass-and-override callback parser over the streaming tokenizer.
+
+    :param convert_charrefs: accepted for compatibility but ignored; references are always resolved.
+    """
+
+    convert_charrefs: bool
+    """Accepted for compatibility; references are always resolved regardless of its value."""
 
     def __init__(self, *, convert_charrefs: bool = True) -> None:
-        """
-        Create a parser.
-
-        :param convert_charrefs: accepted for compatibility but ignored; references are always resolved.
-        """
-        #: Accepted for compatibility; references are always resolved regardless of its value.
+        """Create a parser."""
         self.convert_charrefs = convert_charrefs
         self._tokenizer = Tokenizer()
         self._lineno = 1

@@ -17,13 +17,17 @@ class Link(NamedTuple):
     """
     One link found in a document.
 
-    ``element`` owns the link, ``attribute`` is the attribute carrying it (``None`` for a ``<style>`` sheet's text), and
-    ``url`` is the link exactly as it appears in the source.
+    :param element: the element the link was found on.
+    :param attribute: the attribute carrying the link, or ``None`` for a ``<style>`` sheet's text.
+    :param url: the link exactly as it appears in the source, before any resolution.
     """
 
     element: Element
+    """the element the link was found on."""
     attribute: str | None
+    """the attribute carrying the link, or ``None`` for a ``<style>`` sheet's text."""
     url: str
+    """the link exactly as it appears in the source, before any resolution."""
 
 
 _register_links(Link)

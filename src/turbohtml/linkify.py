@@ -41,6 +41,11 @@ class Link:
 
     A callback returns the link to keep it, or ``None`` to drop the anchor: a detected link stays plain text, an
     existing one is unwrapped to its contents.
+
+    :param url: the link's ``href``.
+    :param text: the visible link text the reader sees.
+    :param attrs: extra attributes to put on the ``<a>`` (``rel``, ``target``, ``class``, ...).
+    :param existing: True when reprocessing an ``<a>`` already in the input, False for a freshly detected link.
     """
 
     __slots__ = ("attrs", "existing", "text", "url")
@@ -53,14 +58,7 @@ class Link:
         *,
         existing: bool = False,
     ) -> None:
-        """
-        Create a link.
-
-        :param url: the link's ``href``.
-        :param text: the visible link text the reader sees.
-        :param attrs: extra attributes to put on the ``<a>`` (``rel``, ``target``, ``class``, ...).
-        :param existing: True when reprocessing an ``<a>`` already in the input, False for a freshly detected link.
-        """
+        """Create a link."""
         self.url = url
         self.text = text
         self.attrs = attrs if attrs is not None else {}
@@ -119,7 +117,17 @@ DEFAULT_CALLBACKS = (nofollow,)
 
 
 class Linker:
-    """A reusable linkifier; build it once with a configuration and call :meth:`linkify` per document."""
+    """
+    A reusable linkifier; build it once with a configuration and call :meth:`linkify` per document.
+
+    :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
+    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
+    :param parse_email: also autolink bare email addresses as ``mailto:`` links.
+    :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
+    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+    :param schemes: restrict which explicit-scheme URLs autolink (``None`` keeps every scheme); a bare domain is
+        always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+    """
 
     def __init__(  # noqa: PLR0913  # configuration knobs, each independent, not a refactor candidate
         self,
@@ -131,17 +139,7 @@ class Linker:
         extra_tlds: Iterable[str] | None = None,
         schemes: Iterable[str] | None = None,
     ) -> None:
-        """
-        Build a reusable linkifier.
-
-        :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
-        :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-        :param parse_email: also autolink bare email addresses as ``mailto:`` links.
-        :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
-        :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
-        :param schemes: restrict which explicit-scheme URLs autolink (``None`` keeps every scheme); a bare domain is
-            always treated as ``http`` and is governed by the TLD table, not ``schemes``.
-        """
+        """Build a reusable linkifier."""
         self.callbacks = list(callbacks)
         self.skip_tags = frozenset(skip_tags or ())
         self.parse_email = parse_email
@@ -269,21 +267,21 @@ def linkify(  # noqa: PLR0913  # configuration knobs, each independent, not a re
 
 
 class LinkSpan:
-    """One URL or email address found in a run of plain text."""
+    """
+    One URL or email address found in a run of plain text.
+
+    :param start: the half-open start offset of the match in the scanned text.
+    :param end: the half-open end offset of the match in the scanned text.
+    :param text: the matched substring exactly as it appeared.
+    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the text
+        itself for a ``scheme://`` or registered scheme-less URL).
+    :param is_email: whether the match is an email address.
+    """
 
     __slots__ = ("end", "is_email", "start", "text", "url")
 
     def __init__(self, start: int, end: int, text: str, url: str, is_email: bool) -> None:  # noqa: FBT001
-        """
-        Create a link span.
-
-        :param start: the half-open start offset of the match in the scanned text.
-        :param end: the half-open end offset of the match in the scanned text.
-        :param text: the matched substring exactly as it appeared.
-        :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the text
-            itself for a ``scheme://`` or registered scheme-less URL).
-        :param is_email: whether the match is an email address.
-        """
+        """Create a link span."""
         self.start = start
         self.end = end
         self.text = text
@@ -327,6 +325,12 @@ class Detector:
 
     Unlike :class:`Linker`, which rewrites HTML, a detector only *locates* links and hands back :class:`LinkSpan`
     objects, leaving the text untouched.
+
+    :param emails: detect bare email addresses.
+    :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
+    :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
+    :param schemes: scheme-less schemes such as ``tel`` or ``bitcoin`` to detect as opaque URLs; every
+        ``scheme://`` URL is detected without registration.
     """
 
     def __init__(
@@ -337,15 +341,7 @@ class Detector:
         tlds: Iterable[str] = (),
         schemes: Iterable[str] = (),
     ) -> None:
-        """
-        Build a reusable detector.
-
-        :param emails: detect bare email addresses.
-        :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
-        :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
-        :param schemes: scheme-less schemes such as ``tel`` or ``bitcoin`` to detect as opaque URLs; every
-            ``scheme://`` URL is detected without registration.
-        """
+        """Build a reusable detector."""
         self.emails = emails
         self.bare_domains = bare_domains
         self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})

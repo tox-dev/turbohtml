@@ -149,14 +149,14 @@ class Policy:
 
 
 class Sanitizer:
-    """A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread."""
+    """
+    A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
+
+    :param policy: the policy to enforce; None uses bleach's default allowlist.
+    """
 
     def __init__(self, policy: Policy | None = None) -> None:
-        """
-        Compile a policy into the form the C walk consumes.
-
-        :param policy: the policy to enforce; None uses bleach's default allowlist.
-        """
+        """Compile a policy into the form the C walk consumes."""
         self.policy = policy if policy is not None else Policy()
         self._attributes = dict(self.policy.attributes)
         self._link_rel = " ".join(sorted(self.policy.add_link_rel)) or None

@@ -47,14 +47,14 @@ def _class_list(element: Element) -> list[str]:
 
 
 class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chainable method set
-    """An ordered, duplicate-free set of elements with chainable traversal and mutation."""
+    """
+    An ordered, duplicate-free set of elements with chainable traversal and mutation.
+
+    :param source: HTML to parse, a single Element or Document, or an iterable of Elements.
+    """
 
     def __init__(self, source: str | Element | Document | Iterable[Element]) -> None:
-        """
-        Wrap a source into a query set.
-
-        :param source: HTML to parse, a single Element or Document, or an iterable of Elements.
-        """
+        """Wrap a source into a query set."""
         if isinstance(source, str):
             source = parse(source)
         if isinstance(source, Document):

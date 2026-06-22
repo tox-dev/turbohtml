@@ -153,6 +153,14 @@ def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, 
 
 _STUB_SIGNATURES, _STUB_PROPERTY_TYPES = _collect_stub_types()
 
+# turbohtml.migration.markupsafe re-exports the compiled ``_markup_*`` helpers under their markupsafe names; autodoc
+# sees the alias full name, so point each one at the stub entry that carries its typed signature.
+_STUB_ALIASES = {
+    "turbohtml.migration.markupsafe.escape": "turbohtml._markup_escape",
+    "turbohtml.migration.markupsafe.escape_silent": "turbohtml._markup_escape_silent",
+    "turbohtml.migration.markupsafe.soft_str": "turbohtml._markup_soft_str",
+}
+
 
 def _patch_autodoc_engine() -> None:
     # Sphinx 9's functional autodoc engine builds the signature and the property/attribute ``:type:`` purely from
@@ -165,7 +173,8 @@ def _patch_autodoc_engine() -> None:
     extract_signature = _signatures._extract_signature_from_object
 
     def _extract_signature(*, props: Any, **kwargs: Any) -> list[tuple[str, str]]:
-        if (entry := _STUB_SIGNATURES.get(props.full_name)) is not None:
+        full_name = _STUB_ALIASES.get(props.full_name, props.full_name)
+        if (entry := _STUB_SIGNATURES.get(full_name)) is not None:
             arguments, return_annotation = entry
             return [(arguments, return_annotation or "")]
         return extract_signature(props=props, **kwargs)
@@ -187,7 +196,29 @@ def _patch_autodoc_engine() -> None:
     _loader._make_props_from_imported_object = _make_props
 
 
-def setup(app: Sphinx) -> dict[str, Any]:  # noqa: ARG001
+def _stub_signature_for_alias(  # noqa: PLR0913, PLR0917 -- the signature is fixed by the autodoc-process-signature event
+    app: Sphinx,  # noqa: ARG001
+    what: str,  # noqa: ARG001
+    name: str,
+    obj: object,  # noqa: ARG001
+    options: Any,  # noqa: ARG001
+    signature: str | None,  # noqa: ARG001
+    return_annotation: str | None,  # noqa: ARG001
+) -> tuple[str, str] | None:
+    """
+    Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
+
+    Their docstring's leading ``name(sig)`` line gives autodoc a signature before it reaches the stub hook, so the
+    only place left to inject the stub-sourced types is the ``autodoc-process-signature`` event.
+    """
+    if (entry := _STUB_SIGNATURES.get(_STUB_ALIASES.get(name, ""))) is None:
+        return None
+    arguments, return_type = entry
+    return arguments, return_type or ""
+
+
+def setup(app: Sphinx) -> dict[str, Any]:
     """Wire the stub-sourced type annotations into autodoc."""
     _patch_autodoc_engine()
+    app.connect("autodoc-process-signature", _stub_signature_for_alias)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
