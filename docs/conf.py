@@ -35,6 +35,9 @@ extensions = [
 
 html_theme = "furo"
 html_title = "turbohtml"
+html_static_path = ["_static"]
+html_logo = "_static/turbohtml.svg"
+html_favicon = "_static/turbohtml.svg"
 
 # News fragments are assembled by towncrier, not rendered as standalone pages.
 exclude_patterns = ["changelog/*"]

@@ -11,21 +11,21 @@ treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
     :maxdepth: 1
 
     markupsafe
-    lxml
     beautifulsoup
-    html5lib
-    w3lib
-    bleach
-    html2text
-    parsel
-    markdownify
-    selectolax
-    pyquery
-    nh3
-    inscriptis
+    lxml
     linkify-it-py
+    bleach
+    markdownify
+    nh3
+    html5lib
+    html2text
     lxml-html-clean
+    w3lib
+    selectolax
+    parsel
+    pyquery
+    inscriptis
+    resiliparse
     html-sanitizer
     html5-parser
-    resiliparse
     stdlib
