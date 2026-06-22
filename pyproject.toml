@@ -159,7 +159,11 @@ lint.ignore = [
   "PLR2004", # comparing against literal numbers is clear enough on its own
 ]
 lint.per-file-ignores."docs/conf.py" = [
-  "INP001", # Sphinx config is not part of a package
+  "ANN401",  # the autodoc-engine wrappers forward Sphinx's arbitrary *args/**kwargs
+  "INP001",  # Sphinx config is not part of a package
+  "PLC0415", # Sphinx internals are imported lazily inside setup(), only when the build runs
+  "PLC2701", # patching the Sphinx 9 functional autodoc engine requires its private _dynamic modules
+  "SLF001",  # ... and replacing their private signature/property builders for the C extension
 ]
 lint.per-file-ignores."tasks/**/*.py" = [
   "INP001", # no implicit namespace
