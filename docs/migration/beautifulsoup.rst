@@ -2,6 +2,49 @@
  From BeautifulSoup
 ####################
 
+.. image:: https://static.pepy.tech/badge/beautifulsoup4
+    :alt: beautifulsoup4 downloads
+    :target: https://pepy.tech/project/beautifulsoup4
+
+`BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ is the long-standing convenience layer over a
+choice of HTML parsers (``html.parser``, ``lxml``, or ``html5lib``): you pick a backend, then navigate and search the
+resulting soup with a large, alias-rich API. It shares the most surface with turbohtml, so this is the deepest section.
+
+***************
+ Why turbohtml
+***************
+
+:func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with no parser backend to choose,
+since it always runs the WHATWG algorithm in C. The search surface is one ``find``/``find_all``/``select`` grammar with
+:class:`~turbohtml.Axis` directions instead of a dozen directional finders. And it parses, queries, and serializes one
+to two orders of magnitude faster than BeautifulSoup over ``html.parser``:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - input
+      - turbohtml
+      - BeautifulSoup
+    - - parse wpt page (4 kB)
+      - 10.9 µs
+      - 435 µs
+    - - parse wpt page (92 kB)
+      - 269 µs
+      - 15.2 ms
+    - - select ``div a[href]`` (4 kB)
+      - 0.04 µs
+      - 45.1 µs
+    - - serialize wpt page (92 kB)
+      - 105 µs
+      - 6.30 ms
+
+The :doc:`/development/performance` page benchmarks the build and edit paths against BeautifulSoup too.
+
+*********
+ Parsing
+*********
+
 Parsing returns a :class:`~turbohtml.Document` instead of a ``BeautifulSoup`` object. There is no parser name to pass,
 since turbohtml always runs the WHATWG algorithm:
 
@@ -60,41 +103,43 @@ with an explicit ``encoding=``).
     - - BeautifulSoup
       - turbohtml
     - - ``tag.name``
-      - ``element.tag``
+      - :attr:`~turbohtml.Element.tag`
     - - ``tag["class"]``, ``tag.get("x")``, ``tag.has_attr("x")``
-      - ``element.attrs["class"]``, ``element.attrs.get("x")``, ``"x" in element.attrs``
+      - :attr:`~turbohtml.Element.attrs` (``attrs["class"]``, ``attrs.get("x")``, ``"x" in attrs``)
     - - ``tag.string``, ``tag.get_text()``
-      - ``node.text``, ``node.strings``, ``node.stripped_strings``
+      - :attr:`~turbohtml.Node.text`, :attr:`~turbohtml.Node.strings`, :attr:`~turbohtml.Node.stripped_strings`
     - - ``tag.parents``
-      - ``node.ancestors``
+      - :attr:`~turbohtml.Node.ancestors`
     - - ``tag.contents``, ``list(tag.children)``
-      - ``node.children``
+      - :attr:`~turbohtml.Node.children`
     - - ``tag.next_elements``
-      - ``node.following``
+      - :attr:`~turbohtml.Node.following`
     - - ``tag.find_parent(...)``
-      - ``node.find(..., axis=Axis.ANCESTORS)`` or ``node.closest(selector)``
+      - :meth:`~turbohtml.Node.find` (``axis=Axis.ANCESTORS``) or :meth:`~turbohtml.Node.closest`
     - - ``tag.find_next(...)``, ``tag.find_previous(...)``
-      - ``node.find(..., axis=Axis.FOLLOWING)``, ``node.find(..., axis=Axis.PRECEDING)``
+      - :meth:`~turbohtml.Node.find` with ``axis=Axis.FOLLOWING`` / ``Axis.PRECEDING``
     - - ``tag.find_next_sibling(...)``, ``tag.find_previous_sibling(...)``
-      - ``node.find(..., axis=Axis.NEXT_SIBLINGS)``, ``node.find(..., axis=Axis.PREVIOUS_SIBLINGS)``
+      - :meth:`~turbohtml.Node.find` with ``axis=Axis.NEXT_SIBLINGS`` / ``Axis.PREVIOUS_SIBLINGS``
     - - ``tag.find_all("a", recursive=False)``
-      - ``element.find_all("a", axis=Axis.CHILDREN)``
+      - :meth:`~turbohtml.Node.find_all` (``axis=Axis.CHILDREN``)
     - - ``soup.select(".cls")``, ``soup.select_one(".cls")``
-      - ``node.select(".cls")``, ``node.select_one(".cls")``
+      - :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`
     - - ``BeautifulSoup(markup, parse_only=SoupStrainer("article"))``
-      - ``turbohtml.parse(markup).prune("article")``
+      - ``turbohtml.parse(markup).prune("article")`` (:meth:`~turbohtml.Node.prune`)
     - - ``tag.decompose()``, ``tag.extract()``, ``tag.unwrap()``, ``tag.wrap(...)``
-      - ``node.decompose()``, ``node.extract()``, ``node.unwrap()``, ``node.wrap(...)``
+      - :meth:`~turbohtml.Node.decompose`, :meth:`~turbohtml.Node.extract`, :meth:`~turbohtml.Node.unwrap`,
+        :meth:`~turbohtml.Node.wrap`
     - - ``tag.insert_before(...)``, ``tag.insert_after(...)``, ``tag.replace_with(...)``
-      - the same names on every :class:`~turbohtml.Node`
+      - :meth:`~turbohtml.Node.insert_before`, :meth:`~turbohtml.Node.insert_after`,
+        :meth:`~turbohtml.Node.replace_with`
     - - ``soup.new_tag("div")``, ``soup.new_string("hi")``
-      - ``Element("div")``, ``Text("hi")``
+      - :class:`~turbohtml.Element`, :class:`~turbohtml.Text`
     - - ``tag.prettify()``
-      - ``node.serialize(layout=Indent(2))``
+      - :meth:`~turbohtml.Node.serialize` (``layout=Indent(2)``)
     - - ``tag.smooth()``
-      - ``element.normalize()``
+      - :meth:`~turbohtml.Element.normalize`
     - - ``tag.sourceline``, ``tag.sourcepos``
-      - ``node.source_line``, ``node.source_col`` (same 1-based line, 0-based column; ``None`` when absent)
+      - :attr:`~turbohtml.Node.source_line`, :attr:`~turbohtml.Node.source_col`
 
 ***********
  Searching

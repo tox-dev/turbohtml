@@ -2,9 +2,42 @@
  From inscriptis
 #################
 
+.. image:: https://static.pepy.tech/badge/inscriptis
+    :alt: inscriptis downloads
+    :target: https://pepy.tech/project/inscriptis
+
 `inscriptis <https://github.com/weblyzard/inscriptis>`_ renders HTML to *layout-aware* plain text: it keeps the visual
-structure, most visibly by laying tables out as aligned columns. :meth:`~turbohtml.Node.to_text` is the same idea in C,
-replacing ``get_text``:
+structure, most visibly by laying tables out as aligned columns, and can tag the output with labeled annotation spans.
+It builds an lxml tree and a CSS model in Python.
+
+***************
+ Why turbohtml
+***************
+
+:meth:`~turbohtml.Node.to_text` is the same idea in one fully type annotated C walk, replacing ``get_text``, and
+:meth:`~turbohtml.Node.to_annotated_text` ports the annotation surface. Doing the whole layout natively makes it roughly
+twenty times faster:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - to text
+      - turbohtml
+      - inscriptis
+    - - article (2 KiB)
+      - 7 µs
+      - 172 µs
+    - - table (4 KiB)
+      - 26 µs
+      - 885 µs
+    - - annotated (4 KiB)
+      - 10 µs
+      - 208 µs
+
+*************
+ The renames
+*************
 
 .. code-block:: python
 
@@ -30,14 +63,14 @@ replacing ``get_text``:
     Region  Total
     North   120
 
-The ``ParserConfig`` options map as:
+The ``ParserConfig`` options map onto :meth:`~turbohtml.Node.to_text` keywords:
 
 .. list-table::
     :header-rows: 1
     :widths: 50 50
 
     - - inscriptis
-      - turbohtml ``to_text(...)``
+      - turbohtml :meth:`~turbohtml.Node.to_text`
     - - ``display_links``
       - ``links`` (``"none"``/``"inline"``/``"footnote"``)
     - - ``display_images``
@@ -50,6 +83,10 @@ The ``ParserConfig`` options map as:
       - ``bullet``
     - - (no equivalent)
       - ``width`` adds word wrapping, which inscriptis leaves to the caller
+
+*************
+ Annotations
+*************
 
 inscriptis can also tag the rendered text with labeled spans through ``get_annotated_text`` and an ``annotation_rules``
 mapping. :meth:`~turbohtml.Node.to_annotated_text` is the same call: it returns the rendered text together with a list
@@ -124,10 +161,7 @@ as ``<label>...</label>`` markup, innermost span closing first).
 
 - Links are hidden by default (matching inscriptis); pass ``links="inline"`` for ``text (url)`` or ``links="footnote"``
   for numbered references collected at the end.
-- ``to_text`` renders structure, not styling: there is no bold or color, and headings are plain text. For the raw
-  concatenation with no layout at all, read :attr:`~turbohtml.Node.text`.
+- :meth:`~turbohtml.Node.to_text` renders structure, not styling: there is no bold or color, and headings are plain
+  text. For the raw concatenation with no layout at all, read :attr:`~turbohtml.Node.text`.
 - Annotation offsets count code points into the returned string; a table cell is labeled at its position in the laid-out
   grid, so the span covers the cell's column-aligned text rather than the source order.
-- :meth:`~turbohtml.Node.to_annotated_text` returns the ``(text, spans)`` list directly; render it with
-  :func:`turbohtml.annotation_surface` or :func:`turbohtml.annotation_tags`, the ports of inscriptis's surface-form and
-  inline-tagged output processors, or format the spans yourself.

@@ -2,11 +2,28 @@
  From html5-parser
 ###################
 
-`html5-parser <https://github.com/kovidgoyal/html5-parser>`_ wraps gumbo, the C WHATWG parser, and hands the result back
-as an `lxml <https://lxml.de>`_/ElementTree tree. It is turbohtml's closest direct competitor: a native parse with no
-pure-Python pass. The difference is what you get back. ``html5_parser.parse`` returns a read-oriented lxml element built
-on ``libxml2``, while :func:`turbohtml.parse` returns a :class:`~turbohtml.Document` with a mutable, natively typed tree
-and a real ``<template>`` content document, and no ``libxml2``/gumbo build dependency.
+.. image:: https://static.pepy.tech/badge/html5-parser
+    :alt: html5-parser downloads
+    :target: https://pepy.tech/project/html5-parser
+
+`html5-parser <https://html5-parser.readthedocs.io>`_ wraps gumbo, the C WHATWG parser, and hands the result back as an
+`lxml <https://lxml.de>`_/ElementTree tree. It is turbohtml's closest direct competitor: a native parse with no
+pure-Python pass.
+
+***************
+ Why turbohtml
+***************
+
+The difference is what you get back. ``html5_parser.parse`` returns a read-oriented lxml element built on ``libxml2``,
+while :func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with a mutable, natively typed
+tree and a real ``<template>`` content document, and no ``libxml2``/gumbo build dependency. html5-parser sits in the
+same native-gumbo tier as the C parsers measured on the :doc:`/development/performance` page; because its lxml tree is
+bound to a specific ``libxml2`` build that the benchmark cannot pin portably, it is cross-linked there rather than given
+a separate row.
+
+*************
+ The renames
+*************
 
 .. code-block:: python
 
@@ -26,17 +43,14 @@ and a real ``<template>`` content document, and no ``libxml2``/gumbo build depen
     cell
 
 Because the tree it returns is lxml's, the element accessors port exactly as in the :ref:`From lxml <migration-lxml>`
-section above: ``el.get``/``el.attrib`` become ``el.attrs``, the ``el.text``/``el.tail`` string pair becomes child
-:class:`~turbohtml.Text` nodes, ``el.getparent()`` becomes ``el.parent``, and ``el.xpath(...)`` maps to turbohtml's
-XPath 1.0 :meth:`~turbohtml.Node.xpath` (or CSS :meth:`~turbohtml.Node.select` and the
-:meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar). The :doc:`/development/performance` page
-benchmarks the WHATWG tree builders; html5-parser sits in the same native-gumbo tier as the C parsers measured there, so
-it is cross-linked rather than given a separate row, since its lxml tree is bound to a specific ``libxml2`` build that
-the benchmark cannot pin portably.
+section: ``el.get``/``el.attrib`` become :attr:`~turbohtml.Element.attrs`, the ``el.text``/``el.tail`` string pair
+becomes child :class:`~turbohtml.Text` nodes, ``el.getparent()`` becomes :attr:`~turbohtml.Node.parent`, and
+``el.xpath(...)`` maps to turbohtml's XPath 1.0 :meth:`~turbohtml.Node.xpath` (or CSS :meth:`~turbohtml.Node.select` and
+the :meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar).
 
-******************************
- Not yet ported / limitations
-******************************
+**********
+ Pitfalls
+**********
 
 Like :ref:`From lxml <migration-lxml>`, the gap is the rest of the libxml2 stack the returned tree would otherwise
 carry, dropped on purpose with the ``libxml2``/gumbo build dependency:

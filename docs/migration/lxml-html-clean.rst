@@ -2,12 +2,41 @@
  From lxml-html-clean
 ######################
 
-`lxml-html-clean <https://github.com/fedora-python/lxml_html_clean>`_ (the ``Cleaner`` split out of ``lxml.html.clean``)
-takes the opposite stance to ``turbohtml.sanitizer``: it is a **blocklist**. You toggle off categories of dangerous
-content (``scripts``, ``javascript``, ``style``, ``comments``, ``embedded``, ``frames``, ``forms``, ``meta``, ...) and
-everything else survives, so a tag the library has not heard of passes through. turbohtml is an **allowlist**: nothing
-survives unless a :class:`~turbohtml.sanitizer.Policy` names it, which is why the safety baseline holds against markup
-the author never anticipated.
+.. image:: https://static.pepy.tech/badge/lxml_html_clean
+    :alt: lxml-html-clean downloads
+    :target: https://pepy.tech/project/lxml_html_clean
+
+`lxml-html-clean <https://github.com/fedora-python/lxml_html_clean>`_ is the ``Cleaner`` split out of
+``lxml.html.clean``. It is a **blocklist**: you toggle off categories of dangerous content (``scripts``, ``javascript``,
+``style``, ``comments``, ``embedded``, ``frames``, ``forms``, ``meta``, ...) and everything else survives, so a tag the
+library has not heard of passes through.
+
+***************
+ Why turbohtml
+***************
+
+``turbohtml.sanitizer`` takes the opposite, safer stance: it is an **allowlist**, so nothing survives unless a
+:class:`~turbohtml.sanitizer.Policy` names it, which is why the safety baseline holds against markup the author never
+anticipated. It is fully type annotated and runs the filtering walk in C rather than over an lxml tree, leading the
+blocklist cleaner by an order of magnitude:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - sanitize
+      - turbohtml
+      - lxml-html-clean
+    - - comment (1 link, 1 script)
+      - 1.5 µs
+      - 19.3 µs
+    - - post (4 KiB)
+      - 41.1 µs
+      - 505 µs
+
+*************
+ The renames
+*************
 
 Porting inverts the model. Instead of switching dangerous things off, declare the small set you keep:
 
@@ -19,6 +48,21 @@ Porting inverts the model. Instead of switching dangerous things off, declare th
     Cleaner(
         scripts=True, javascript=True, comments=True, style=True, forms=True
     ).clean_html(text)
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - lxml-html-clean
+      - turbohtml
+    - - ``Cleaner(...).clean_html(text)``
+      - :func:`turbohtml.sanitizer.sanitize` with a :class:`~turbohtml.sanitizer.Policy`
+    - - ``host_whitelist=``, ``allow_tags=``
+      - ``Policy.tags`` and ``Policy.attribute_filter``
+    - - ``kill_tags=`` (drop element with content)
+      - ``Policy.remove_with_content``
+    - - ``add_nofollow=``
+      - ``Policy.add_link_rel``
 
 .. testcode::
 
@@ -34,9 +78,12 @@ Porting inverts the model. Instead of switching dangerous things off, declare th
     <p>Hi&lt;script&gt;x()&lt;/script&gt; <a>l</a></p>
 
 The ``javascript:`` URL is gone because ``http``/``https``/``mailto`` are the only schemes the policy admits, and the
-``<script>`` is escaped rather than executed. ``Cleaner``'s ``host_whitelist`` and ``allow_tags`` lists fold into
-``Policy.tags`` and ``attribute_filter``, its ``kill_tags`` (drop the element together with its content) maps to
-``Policy.remove_with_content``, and its ``add_nofollow`` maps to ``Policy.add_link_rel``. turbohtml scrubs a kept
-``style`` attribute against ``Policy.css_properties``, though it drops ``<style>`` elements where ``Cleaner`` scrubs
-their text too, and ``Cleaner`` rewrites a disallowed scheme to an empty ``href`` where turbohtml drops the attribute
-outright.
+``<script>`` is escaped rather than executed.
+
+**********
+ Pitfalls
+**********
+
+- turbohtml scrubs a kept ``style`` attribute against ``Policy.css_properties`` but drops ``<style>`` elements, where
+  ``Cleaner`` scrubs their text too.
+- ``Cleaner`` rewrites a disallowed scheme to an empty ``href`` where turbohtml drops the attribute outright.

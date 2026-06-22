@@ -2,9 +2,39 @@
  From html-sanitizer
 #####################
 
-`html-sanitizer <https://github.com/matthiask/html-sanitizer>`_ already shares turbohtml's allowlist stance, so the move
-is a settings-to-:class:`~turbohtml.sanitizer.Policy` translation rather than a rethink. Its ``settings`` dict carries
-``tags`` (a set), ``attributes`` (a per-tag dict), ``add_nofollow``, and a ``sanitize_href`` scheme check:
+.. image:: https://static.pepy.tech/badge/html-sanitizer
+    :alt: html-sanitizer downloads
+    :target: https://pepy.tech/project/html-sanitizer
+
+`html-sanitizer <https://github.com/matthiask/html-sanitizer>`_ is an allowlist sanitizer over lxml, configured with a
+``settings`` dict carrying ``tags`` (a set), ``attributes`` (a per-tag dict), ``add_nofollow``, a ``sanitize_href``
+scheme check, and whitespace/tag-merging normalization.
+
+***************
+ Why turbohtml
+***************
+
+``turbohtml.sanitizer`` shares the allowlist stance, so the move is a settings-to-:class:`~turbohtml.sanitizer.Policy`
+translation rather than a rethink, but it adds full static typing, a frozen thread-safe policy, and the WHATWG tree
+builder in C instead of an lxml parse, leading html-sanitizer by one to two orders of magnitude:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - sanitize
+      - turbohtml
+      - html-sanitizer
+    - - comment (1 link, 1 script)
+      - 1.5 µs
+      - 46.8 µs
+    - - post (4 KiB)
+      - 41.1 µs
+      - 1559 µs
+
+*************
+ The renames
+*************
 
 .. code-block:: python
 
@@ -14,6 +44,23 @@ is a settings-to-:class:`~turbohtml.sanitizer.Policy` translation rather than a 
     Sanitizer(
         {"tags": {"a", "p"}, "attributes": {"a": {"href"}}, "add_nofollow": True}
     ).sanitize(text)
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - html-sanitizer
+      - turbohtml
+    - - ``Sanitizer(settings).sanitize(text)``
+      - :func:`turbohtml.sanitizer.sanitize` with a :class:`~turbohtml.sanitizer.Policy`
+    - - ``tags``
+      - ``Policy.tags``
+    - - ``attributes``
+      - ``Policy.attributes``
+    - - ``add_nofollow``
+      - ``Policy.add_link_rel`` (``{"nofollow"}``)
+    - - ``sanitize_href`` schemes
+      - ``Policy.url_schemes``
 
 .. testcode::
 
@@ -32,9 +79,11 @@ is a settings-to-:class:`~turbohtml.sanitizer.Policy` translation rather than a 
 
     <p>Hi <a href="http://x" rel="nofollow">l</a></p>
 
-``tags`` maps to ``Policy.tags``, ``attributes`` to ``Policy.attributes``, ``add_nofollow`` to
-``add_link_rel={"nofollow"}``, and ``sanitize_href``'s allowed schemes to ``url_schemes``. Two html-sanitizer features
-have no direct port: the whitespace normalization and tag-merging it performs (``empty``, ``separate``, ``whitespace``)
-and its ``element_preprocessors``/``element_postprocessors`` hooks. turbohtml's ``attribute_filter`` covers value-level
-rewriting, but structural post-processing is left to a walk over the returned tree. html-sanitizer parses through lxml;
-turbohtml runs the WHATWG tree builder in C.
+**********
+ Pitfalls
+**********
+
+- The whitespace normalization and tag-merging html-sanitizer performs (``empty``, ``separate``, ``whitespace``) has no
+  direct port; do it with a walk over the returned tree.
+- Its ``element_preprocessors``/``element_postprocessors`` hooks have no direct port either. turbohtml's
+  ``attribute_filter`` covers value-level rewriting, but structural post-processing is left to a walk over the tree.

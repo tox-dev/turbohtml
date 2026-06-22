@@ -4,6 +4,50 @@
  From lxml
 ###########
 
+.. image:: https://static.pepy.tech/badge/lxml
+    :alt: lxml downloads
+    :target: https://pepy.tech/project/lxml
+
+`lxml <https://lxml.de>`_ is the libxml2/libxslt binding that most Python HTML and XML processing has been built on:
+``lxml.html`` parses documents into ElementTree-style elements with ``.text``/``.tail`` strings, and the wider stack
+adds XPath, XSLT, and schema validation.
+
+***************
+ Why turbohtml
+***************
+
+:func:`turbohtml.parse` builds the WHATWG document tree that libxml2's HTML parser does not, returns a fully type
+annotated :class:`~turbohtml.Document`, and folds XPath, CSS, and the ``find``/``find_all`` grammar into one node API
+instead of separate ``findall``/``xpath``/``cssselect`` entry points. It parses two to four times faster than lxml while
+matching a browser on malformed input:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - parse
+      - turbohtml
+      - lxml
+    - - wpt page (4 kB)
+      - 10.9 µs
+      - 27.2 µs
+    - - wpt page (92 kB)
+      - 269 µs
+      - 633 µs
+    - - whatwg spec (235 kB)
+      - 510 µs
+      - 1.24 ms
+    - - ecmascript spec (3 MB)
+      - 4.48 ms
+      - 17.5 ms
+
+The :doc:`/development/performance` page also benchmarks turbohtml's serializer, builder, editor, CSS, and XPath 1.0
+engine against lxml directly.
+
+*************
+ The renames
+*************
+
 :func:`turbohtml.parse` replaces ``lxml.html.document_fromstring`` and returns a :class:`~turbohtml.Document`;
 :func:`turbohtml.parse_fragment` replaces ``lxml.html.fromstring`` for a fragment. The biggest change is the tree shape:
 lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtml models it as real child
@@ -16,34 +60,33 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
     - - lxml
       - turbohtml
     - - ``el.tag``
-      - ``el.tag`` (same)
+      - :attr:`~turbohtml.Element.tag` (same)
     - - ``el.get("x")``, ``el.attrib``, ``el.set("x", "v")``
-      - ``el.attrs.get("x")``, ``el.attrs``, ``el.attrs["x"] = "v"``
+      - :attr:`~turbohtml.Element.attrs` (``attrs.get("x")``, ``attrs["x"] = "v"``)
     - - ``el.text``, ``el.tail``
-      - child :class:`~turbohtml.Text` nodes; iterate ``el.children``
+      - child :class:`~turbohtml.Text` nodes; iterate :attr:`~turbohtml.Node.children`
     - - ``el.text_content()``
-      - ``el.text``
+      - :attr:`~turbohtml.Node.text`
     - - ``el.getparent()``, ``el.getnext()``, ``el.getprevious()``
-      - ``el.parent``, ``el.next_sibling``, ``el.previous_sibling``
+      - :attr:`~turbohtml.Node.parent`, :attr:`~turbohtml.Node.next_sibling`, :attr:`~turbohtml.Node.previous_sibling`
     - - ``list(el)``, ``el.iterdescendants()``, ``el.iterancestors()``
-      - ``el.children``, ``el.descendants``, ``el.ancestors``
+      - :attr:`~turbohtml.Node.children`, :attr:`~turbohtml.Node.descendants`, :attr:`~turbohtml.Node.ancestors`
     - - ``el.findall(".//a")``, ``el.xpath("//a[@href]")``
-      - ``el.find_all("a")``, ``el.find_all("a", attrs={"href": True})``
+      - :meth:`~turbohtml.Node.find_all`, :meth:`~turbohtml.Node.xpath`
     - - ``el.cssselect("div a")``
-      - ``el.select("div a")``
+      - :meth:`~turbohtml.Node.select`
     - - ``lxml.html.Element("div")``, ``etree.SubElement(p, "div")``
-      - ``Element("div")``, ``p.append(Element("div"))``
+      - :class:`~turbohtml.Element`, :meth:`p.append(Element("div")) <turbohtml.Element.append>`
     - - ``el.drop_tag()``, ``el.drop_tree()``
-      - ``el.unwrap()``, ``el.decompose()``
+      - :meth:`~turbohtml.Node.unwrap`, :meth:`~turbohtml.Node.decompose`
     - - ``el.sourceline``
-      - ``el.source_line`` (1-based, like lxml; plus ``el.source_col`` for the 0-based column lxml lacks)
+      - :attr:`~turbohtml.Node.source_line` (1-based, like lxml; plus :attr:`~turbohtml.Node.source_col`)
     - - ``el.iterlinks()``
-      - :meth:`el.links() <turbohtml.Node.links>`
+      - :meth:`~turbohtml.Node.links`
     - - ``el.make_links_absolute(base)``, ``el.rewrite_links(fn)``
-      - :meth:`el.resolve_links(base) <turbohtml.Node.resolve_links>`, :meth:`el.rewrite_links(fn)
-        <turbohtml.Node.rewrite_links>`
+      - :meth:`~turbohtml.Node.resolve_links`, :meth:`~turbohtml.Node.rewrite_links`
     - - ``lxml.html.tostring(el)``
-      - ``el.html``
+      - :attr:`~turbohtml.Node.html`
 
 .. testcode::
 
@@ -68,16 +111,5 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
   ``str`` or ``bytes`` chunks with ``feed`` and call ``close`` for the finished :class:`~turbohtml.Document`. The parser
   never holds the whole source at once, so you can parse a stream larger than the source buffer you would otherwise
   materialize for :func:`turbohtml.parse`.
-
-******************************
- Not yet ported / limitations
-******************************
-
-XPath 1.0 (:meth:`~turbohtml.Node.xpath`), CSS :meth:`~turbohtml.Node.select`, the ``find``/``find_all`` filter grammar,
-:attr:`~turbohtml.Node.source_line`/:attr:`~turbohtml.Node.source_col`, and :meth:`~turbohtml.Node.links`/
-:meth:`~turbohtml.Node.resolve_links` all ship, but the wider libxml2 toolchain lxml exposes is a deliberate clean-break
-scope cut:
-
-- XSLT, DTD/RelaxNG/XML-Schema validation, and C14N have no turbohtml equivalent.
-- XPath is the 1.0 engine only; XPath 2.0+ and XQuery are out of scope.
-- The ``.text``/``.tail`` string model is replaced by real :class:`~turbohtml.Text` child nodes, not reproduced.
+- The wider libxml2 toolchain is a deliberate clean-break scope cut: XSLT, DTD/RelaxNG/XML-Schema validation, and C14N
+  have no turbohtml equivalent, and XPath is the 1.0 engine only (XPath 2.0+ and XQuery are out of scope).

@@ -31,7 +31,13 @@ html_title = "turbohtml"
 # News fragments are assembled by towncrier, not rendered as standalone pages.
 exclude_patterns = ["changelog/*"]
 
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "markupsafe": ("https://markupsafe.palletsprojects.com/en/stable/", None),
+    "parsel": ("https://parsel.readthedocs.io/en/latest/", None),
+    "w3lib": ("https://w3lib.readthedocs.io/en/latest/", None),
+    "html5lib": ("https://html5lib.readthedocs.io/en/latest/", None),
+}
 autodoc_member_order = "bysource"
 nitpicky = True
 always_document_param_types = True

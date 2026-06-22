@@ -2,10 +2,45 @@
  From pyquery
 ##############
 
-`pyquery <https://github.com/gawel/pyquery>`_ puts a jQuery-style fluent wrapper over `lxml
-<https://lxml.de>`_/`cssselect <https://github.com/scrapy/cssselect>`_. turbohtml ships the same chaining idiom as
-:class:`turbohtml.query.Query`, so the method chains port almost name for name; build one from a parsed document and
-call it with a selector:
+.. image:: https://static.pepy.tech/badge/pyquery
+    :alt: pyquery downloads
+    :target: https://pepy.tech/project/pyquery
+
+`pyquery <https://github.com/gawel/pyquery>`_ puts a jQuery-style fluent, chainable wrapper over `lxml
+<https://lxml.de>`_/`cssselect <https://github.com/scrapy/cssselect>`_, so you select and mutate a document with method
+chains.
+
+***************
+ Why turbohtml
+***************
+
+turbohtml ships the same chaining idiom as :class:`turbohtml.query.Query`, fully type annotated, with the selector and
+attribute primitives running in C. The wrapper also skips a redundant de-duplication when a chain starts from one node,
+so the same chain runs roughly ten times faster than pyquery's lxml-backed wrapper:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - select, filter, tag, read
+      - turbohtml
+      - pyquery
+    - - wpt page (4 kB)
+      - 0.9 µs
+      - 16.0 µs
+    - - wpt page (9.6 kB)
+      - 1.1 µs
+      - 16.5 µs
+    - - wpt page (92 kB)
+      - 21.2 µs
+      - 257 µs
+
+*************
+ The renames
+*************
+
+Build a :class:`~turbohtml.query.Query` from a parsed document and call it with a selector; the method chains port
+almost name for name:
 
 .. testcode::
 
@@ -21,8 +56,6 @@ call it with a selector:
     /u
     ['l', 'm']
 
-The idiom translates directly:
-
 .. list-table::
     :header-rows: 1
     :widths: 50 50
@@ -30,21 +63,21 @@ The idiom translates directly:
     - - pyquery
       - turbohtml
     - - ``pq = PyQuery(html)``
-      - ``query = Query(parse(html))``
+      - :class:`Query(parse(html)) <turbohtml.query.Query>`
     - - ``pq("div.foo")``, ``pq("a").find("span")``
       - ``query("div.foo")``, ``query("a").find("span")``
     - - ``.filter(sel)``, ``.eq(i)``, ``.closest(sel)``
       - the same names
     - - ``.attr("href")``, ``.attr("k", "v")``
-      - ``.attr("href")``, ``.attr("k", "v")``
+      - the same names
     - - ``.text()``, ``.html()``
-      - ``.text()``, ``.html()``
+      - the same names
     - - ``.add_class(c)``, ``.remove_class(c)``, ``.has_class(c)``
       - the same names
     - - ``.parent()``, ``.children()``, ``.siblings()``
       - the same names
     - - iterating ``for item in pq("a").items()``
-      - ``for item in query("a").items()``
+      - :meth:`for item in query("a").items() <turbohtml.query.Query.items>`
 
 pyquery's ``.wrap_all(html)`` wraps a whole matched set in one new container in place; the node API has two methods for
 the shapes that fit a tree model cleanly. :meth:`~turbohtml.Element.wrap_children` boxes every child of a container, and
@@ -59,16 +92,19 @@ node, or to the last sibling), so ``query("p").wrap_all("<div/>")`` over a run o
     - - pyquery
       - turbohtml
     - - ``pq("section").contents().wrap_all("<div/>")``
-      - ``section.wrap_children(Element("div"))``
+      - :meth:`section.wrap_children(Element("div")) <turbohtml.Element.wrap_children>`
     - - ``pq(run).wrap_all("<div/>")`` over a contiguous run
-      - ``first.wrap_siblings(Element("div"), until=last)``
+      - :meth:`first.wrap_siblings(Element("div"), until=last) <turbohtml.Node.wrap_siblings>`
 
-Three limits are worth stating. ``.wrap_all`` over an **arbitrary, non-contiguous** set of nodes has no single
-node-method counterpart (the set has no shared anchor to place the wrapper at); wrap the contiguous run, or
-:meth:`~turbohtml.Element.append` the scattered nodes into one new element and place it yourself. pyquery's
-**network-fetching constructor** (``PyQuery(url=...)``) is also out of scope: fetch with `httpx
-<https://www.python-httpx.org>`_ (or any client) and hand the bytes to :func:`turbohtml.parse`. And pyquery exposes
-lxml's ``.xpath(...)`` on the fluent wrapper itself; turbohtml's ``Query`` is CSS-only, so an XPath chain drops to the
-node-level :meth:`~turbohtml.Node.xpath` (XPath 1.0) or the :meth:`~turbohtml.Node.find` grammar via :meth:`Query.items
-<turbohtml.query.Query.items>`. The :doc:`/development/performance` page's fluent-chaining benchmark times the same
-chain against pyquery.
+**********
+ Pitfalls
+**********
+
+- ``.wrap_all`` over an **arbitrary, non-contiguous** set of nodes has no single node-method counterpart (the set has no
+  shared anchor to place the wrapper at); wrap the contiguous run, or :meth:`~turbohtml.Element.append` the scattered
+  nodes into one new element and place it yourself.
+- pyquery's **network-fetching constructor** (``PyQuery(url=...)``) is out of scope: fetch with `httpx
+  <https://www.python-httpx.org>`_ (or any client) and hand the bytes to :func:`turbohtml.parse`.
+- pyquery exposes lxml's ``.xpath(...)`` on the fluent wrapper itself; turbohtml's ``Query`` is CSS-only, so an XPath
+  chain drops to the node-level :meth:`~turbohtml.Node.xpath` (XPath 1.0) or the :meth:`~turbohtml.Node.find` grammar
+  via :meth:`Query.items <turbohtml.query.Query.items>`.

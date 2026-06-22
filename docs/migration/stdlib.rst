@@ -2,8 +2,41 @@
  From the standard library
 ###########################
 
-:func:`turbohtml.escape` and :func:`turbohtml.unescape` reproduce :func:`python:html.escape` and
-:func:`python:html.unescape` byte for byte, so they are a drop-in:
+Python's standard library ships HTML primitives in the :mod:`python:html` package: :func:`python:html.escape` and
+:func:`python:html.unescape` for entity handling, and :class:`python:html.parser.HTMLParser`, a SAX-style,
+non-WHATWG-conformant tokenizer you subclass with ``handle_*`` callbacks.
+
+***************
+ Why turbohtml
+***************
+
+:func:`turbohtml.escape` and :func:`turbohtml.unescape` reproduce the standard-library functions byte for byte, so they
+are drop-ins, but scan with SIMD and run several times faster. The tokenizer and :func:`turbohtml.parse` are
+WHATWG-conformant where ``html.parser`` is not, and the whole surface is fully type annotated:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - operation
+      - turbohtml
+      - standard library
+    - - escape medium markup (4 KiB)
+      - 2.18 µs
+      - 7.19 µs
+    - - unescape medium dense refs (4 KiB)
+      - 8.03 µs
+      - 69.5 µs
+    - - tokenize typical markup
+      - 31.6 µs
+      - 441 µs
+    - - feed and dispatch wpt page (9.6 kB)
+      - 89.8 µs
+      - 401 µs
+
+*********************
+ Escape and unescape
+*********************
 
 .. testcode::
 
@@ -16,6 +49,10 @@
 
     True
     True
+
+*********************
+ html.parser adapter
+*********************
 
 To keep an existing :class:`python:html.parser.HTMLParser` subclass, swap its base class for
 :class:`turbohtml.migration.stdlib.HTMLParser`: the same ``handle_*`` callbacks and ``feed``/``close`` methods run over
@@ -68,10 +105,15 @@ inverts the control flow. Each ``handle_*`` override becomes a branch on :attr:`
 
     [('start', 'p', [('class', 'x')]), ('data', 'Hi & bye'), ('end', 'p')]
 
-By default ``token.data`` already holds decoded text (``Hi & bye`` above, not ``Hi &amp; bye``), the equivalent of
-``convert_charrefs=True``. To recover the split stream that ``convert_charrefs=False`` gives - one event per character
-reference - pass ``resolve_references=False`` and handle ``TokenType.CHARACTER_REFERENCE`` tokens, whose
-``token.source`` is the verbatim reference (``&amp;``) and ``token.data`` its resolved value. The verbatim start-tag
-text that ``get_starttag_text()`` returns is ``token.source`` once you pass ``capture_source=True``. When the goal is
-the resulting structure rather than the event sequence, skip the loop and :func:`turbohtml.parse` to a tree, then walk
-it. The :doc:`/development/performance` page's tokenizing benchmark times this token loop against ``html.parser``.
+**********
+ Pitfalls
+**********
+
+- The token stream inverts ``html.parser``'s callback control flow: you loop over tokens and branch on :attr:`Token.type
+  <turbohtml.Token.type>` instead of overriding ``handle_*`` (unless you subclass
+  :class:`turbohtml.migration.stdlib.HTMLParser`, which keeps the callbacks).
+- By default ``token.data`` already holds decoded text (the equivalent of ``convert_charrefs=True``). To recover the
+  split stream ``convert_charrefs=False`` gives, pass ``resolve_references=False`` and handle
+  ``TokenType.CHARACTER_REFERENCE`` tokens, whose ``token.source`` is the verbatim reference and ``token.data`` its
+  resolved value. The verbatim start-tag text ``get_starttag_text()`` returns is ``token.source`` once you pass
+  ``capture_source=True``.

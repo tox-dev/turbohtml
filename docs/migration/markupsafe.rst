@@ -2,9 +2,52 @@
  From markupsafe
 #################
 
-``turbohtml.migration.markupsafe`` is a drop-in for `markupsafe <https://markupsafe.palletsprojects.com>`_'s public
-surface, so a `Jinja2 <https://jinja.palletsprojects.com>`_, `WTForms <https://wtforms.readthedocs.io>`_, or `Werkzeug
-<https://werkzeug.palletsprojects.com>`_ project changes only the import line:
+.. image:: https://static.pepy.tech/badge/markupsafe
+    :alt: markupsafe downloads
+    :target: https://pepy.tech/project/markupsafe
+
+`markupsafe <https://markupsafe.palletsprojects.com>`_ is the safe-string library behind `Jinja2
+<https://jinja.palletsprojects.com>`_, `WTForms <https://wtforms.readthedocs.io>`_, and `Werkzeug
+<https://werkzeug.palletsprojects.com>`_: it provides a ``Markup`` string subclass and an ``escape`` function so a
+template engine can interpolate untrusted values into HTML without escaping safe markup twice.
+
+***************
+ Why turbohtml
+***************
+
+``turbohtml.migration.markupsafe`` is a drop-in for markupsafe's public surface, fully type annotated, with the escape
+and every ``Markup`` operation implemented in C. It also keeps one name per concept: :meth:`~turbohtml.escape` and the
+tokenizer back the same primitives the rest of the library uses. The escape runs roughly two to three times faster than
+markupsafe's own C escape on the small, mostly-clean strings a template engine interpolates under autoescape:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - input
+      - turbohtml
+      - markupsafe
+    - - clean (8 B)
+      - 63 ns
+      - 188 ns
+    - - clean (32 B)
+      - 71 ns
+      - 207 ns
+    - - clean (256 B)
+      - 138 ns
+      - 458 ns
+    - - name with ``'`` and ``&``
+      - 87 ns
+      - 218 ns
+    - - escape-heavy markup
+      - 147 ns
+      - 358 ns
+
+*************
+ The renames
+*************
+
+A Jinja2, WTForms, or Werkzeug project changes only the import line:
 
 .. code-block:: python
 
@@ -19,6 +62,29 @@ surface, so a `Jinja2 <https://jinja.palletsprojects.com>`_, `WTForms <https://w
         soft_str,
         EscapeFormatter,
     )
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - markupsafe
+      - turbohtml
+    - - :class:`markupsafe.Markup`
+      - :class:`~turbohtml.migration.markupsafe.Markup`
+    - - :func:`markupsafe.escape`
+      - :func:`~turbohtml.migration.markupsafe.escape`
+    - - :func:`markupsafe.escape_silent`
+      - :func:`~turbohtml.migration.markupsafe.escape_silent`
+    - - :func:`markupsafe.soft_str`
+      - :func:`~turbohtml.migration.markupsafe.soft_str`
+    - - ``EscapeFormatter``
+      - :class:`~turbohtml.migration.markupsafe.EscapeFormatter`
+    - - :meth:`markupsafe.Markup.striptags`
+      - :meth:`~turbohtml.migration.markupsafe.Markup.striptags`
+    - - :meth:`markupsafe.Markup.unescape`
+      - :meth:`~turbohtml.migration.markupsafe.Markup.unescape`
+    - - ``Markup.format``, ``Markup.join``
+      - :meth:`~turbohtml.migration.markupsafe.Markup.format`, :meth:`~turbohtml.migration.markupsafe.Markup.join`
 
 ``escape`` returns a :class:`~turbohtml.migration.markupsafe.Markup` with the same numeric quote references markupsafe
 emits, honors the ``__html__`` protocol, and leaves an existing ``Markup`` untouched. ``Markup`` overrides the full
@@ -47,6 +113,11 @@ Two methods are upgrades rather than reimplementations: :meth:`~turbohtml.migrat
 :meth:`~turbohtml.migration.markupsafe.Markup.unescape` run on turbohtml's tokenizer and HTML5 reference resolution, so
 they are faster and resolve references markupsafe's regex-based stripping can miss.
 
-These differences from markupsafe do not affect migration: the escape runs in C, every ``Markup`` method runs faster
-than markupsafe's, the ``soft_unicode`` alias that markupsafe 3.0 removed is absent here too, and turbohtml does not
-register itself as ``markupsafe``, so adoption stays an explicit per-project import.
+**********
+ Pitfalls
+**********
+
+- The ``soft_unicode`` alias that markupsafe 3.0 removed is absent here too; use
+  :func:`~turbohtml.migration.markupsafe.soft_str`.
+- turbohtml does not register itself as ``markupsafe``, so adoption stays an explicit per-project import rather than a
+  transparent replacement of the installed package.
