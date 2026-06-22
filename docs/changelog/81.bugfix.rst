@@ -1,3 +1,2 @@
-Stop a crash when a node the :attr:`~turbohtml.Node.descendants` (or ``strings``) iterator has cached as its next
-position is detached with :meth:`~turbohtml.Node.extract` mid-iteration. The walk now ends safely once the cursor's
-ancestry no longer reaches the root instead of dereferencing a ``NULL`` parent pointer.
+Detaching a node with :meth:`~turbohtml.Node.extract` while iterating :attr:`~turbohtml.Node.descendants` (or
+``strings``) no longer crashes; the walk now ends safely once the cursor can no longer reach the root.

@@ -1,6 +1,4 @@
-Give :class:`turbohtml.Tokenizer` and :func:`turbohtml.tokenize` two opt-in surfaces. With ``resolve_references=False``
-each character reference in text becomes its own ``TokenType.CHARACTER_REFERENCE`` token (``token.data`` the resolved
-value, ``token.source`` the verbatim ``&...;``) instead of folding into the surrounding text run; attribute-value
-references stay decoded. With ``capture_source=True`` every markup token records the verbatim source slice it came from
-as ``token.source`` (the raw ``<a href=...>`` of a start tag, a comment, or a DOCTYPE). Both default off, so the
-existing token stream is byte-for-byte unchanged - by :user:`gaborbernat`.
+:class:`turbohtml.Tokenizer` and :func:`turbohtml.tokenize` gain two opt-in flags: ``resolve_references=False`` emits
+each character reference as its own ``TokenType.CHARACTER_REFERENCE`` token, and ``capture_source=True`` records each
+token's raw source on ``token.source``. Both default off, so the existing token stream is unchanged - by
+:user:`gaborbernat`.

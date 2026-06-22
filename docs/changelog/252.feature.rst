@@ -1,5 +1,4 @@
 Add :meth:`~turbohtml.Node.prune`, which trims a parsed tree to a CSS selector: it keeps every descendant matching the
-selector together with their ancestors and the whole subtree under each match, and removes everything else in place,
-returning the node. This is the post-parse equivalent of BeautifulSoup's ``SoupStrainer`` -- parse the whole document
-the WHATWG way, then collapse a large document to just the parts of interest in one locked, free-threading-safe C pass -
+selector together with their ancestors and subtrees, removes everything else in place, and returns the node. This is the
+post-parse equivalent of BeautifulSoup's ``SoupStrainer``: it collapses a large document to just the parts of interest -
 by :user:`gaborbernat`.

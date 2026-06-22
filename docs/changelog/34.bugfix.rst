@@ -1,4 +1,2 @@
-Keep the underscore in a host label when linkifying. ``turbohtml.linkify`` stopped scanning a host at ``_``, so a URL
-like ``https://cdn_1.example.org/x`` lost its ``cdn_`` label and scheme and was rewritten to an anchor pointing at a
-different host (``http://1.example.org/x``) that never appeared in the input. Underscore is an RFC 3986 unreserved
-character, valid anywhere in a reg-name host (``_dmarc``, ``cdn_1``), so the whole URL is now linked as written.
+Linkifying a URL with an underscore in its host (e.g. ``https://cdn_1.example.org/x``) no longer truncates the host and
+rewrites it to a different one; underscore is valid in a host label, so the whole URL is now linked as written.

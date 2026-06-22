@@ -1,5 +1,2 @@
-Keep head-only elements in ``<head>`` after a redundant ``<html>`` or duplicate ``<head>`` start tag. Such a tag in the
-"before head"/"in head" insertion modes prematurely left head mode, so a following ``style``, ``meta``, ``link``,
-``base``, or ``title`` was inserted into ``<body>``. Per the WHATWG tree-construction algorithm a redundant ``<html>``
-start tag merges its attributes onto the open ``<html>`` without changing the mode, and a duplicate ``<head>`` start tag
-is an ignored parse error; both now leave subsequent head content in ``<head>``.
+A redundant ``<html>`` or duplicate ``<head>`` start tag no longer leaves head mode early, so a following ``style``,
+``meta``, ``link``, ``base``, or ``title`` stays in ``<head>`` instead of landing in ``<body>``, matching html5lib.

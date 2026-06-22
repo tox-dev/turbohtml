@@ -1,11 +1,5 @@
-Match the Selectors Level 4 ``:scope`` (§6.6), input/UI (§12), ``:lang()`` and ``:dir()`` (§11) pseudo-classes in
+Match the Selectors Level 4 ``:scope``, input/UI, ``:lang()``, and ``:dir()`` pseudo-classes in
 :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
-:meth:`~turbohtml.Node.closest`, instead of rejecting them as invalid. The attribute- and structure-determinable set --
-``:checked``, ``:disabled`` / ``:enabled`` (with ``fieldset`` and ``optgroup`` inheritance and the first-``legend``
-exception), ``:required`` / ``:optional``, ``:read-only`` / ``:read-write``, ``:default`` (including a form's first
-submit button), ``:scope`` (the query root), ``:lang()`` (nearest ``lang`` with BCP47 hyphen-prefix ranges) and
-``:dir()`` (resolving ``auto`` and ``bdi`` from the content's first strong character) -- now matches, in agreement with
-soupsieve and browsers. The live UA/interaction and navigation pseudo-classes (``:hover``, ``:focus``,
-``:focus-within``, ``:focus-visible``, ``:active``, ``:target``, ``:target-within``, ``:visited``, ``:link``,
-``:any-link``) parse as valid selectors but match nothing, since a static tree has no such state, so they compose inside
-``:is()`` and ``:not()`` rather than raising.
+:meth:`~turbohtml.Node.closest`. The attribute- and structure-determinable set (``:checked``, ``:disabled``,
+``:required``, ``:default``, and more) matches as soupsieve and browsers do; live UA-state pseudo-classes (``:hover``,
+``:focus``, ``:target``, ...) parse as valid but match nothing.

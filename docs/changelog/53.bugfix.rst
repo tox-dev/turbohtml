@@ -1,6 +1,3 @@
-End an auto-linked URL at non-ASCII Unicode whitespace in :func:`turbohtml.linkify.linkify`. A no-break space
-(``U+00A0``/``&nbsp;``), an ideographic space (``U+3000``), and the other Unicode ``White_Space`` code points are
-forbidden in host labels by UTS46 and bound a URL the way an ASCII space does, matching bleach and linkify-it-py;
-previously they were swallowed as host/URL characters, which over-linked a trailing word, dropped a link flanked by
-``&nbsp;``, or emitted a bare-domain anchor next to an orphaned scheme. Internationalized domains and zero-width format
-characters (ZWSP, BOM, word joiner) are unaffected.
+:func:`turbohtml.linkify.linkify` now ends an auto-linked URL at non-ASCII Unicode whitespace such as ``&nbsp;``
+(``U+00A0``) and the ideographic space (``U+3000``), matching bleach and linkify-it-py and no longer over-linking
+trailing words or dropping flanked links.

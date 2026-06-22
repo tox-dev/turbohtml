@@ -1,10 +1,5 @@
-Sanitize untrusted HTML against an allowlist with ``turbohtml.sanitizer``, a successor to ``bleach.clean``, which has no
-maintained replacement now that bleach is end of life (deprecated for sitting on the unmaintained html5lib). A frozen,
-thread-safe ``Policy`` describes what to keep -- ``tags``, per-tag ``attributes`` with a ``"*"`` wildcard,
-``url_schemes``, an ``OnDisallowed`` choice of escape, strip, or remove, and a rewriting ``attribute_filter`` -- with
-``strict``/``basic``/``relaxed`` presets, and ``Sanitizer``/``sanitize`` apply it. A non-overridable baseline removes
-``<script>``, event-handler attributes, and ``javascript:`` URLs even when a policy would admit them, so a no-argument
-``sanitize`` is safe by construction. It parses to a real tree, filters it, and serializes once -- no reparse round
-trip, the step that lets mutation XSS back in -- and the whole filtering walk runs in C, so it sanitizes several times
-faster than the Rust nh3 and far faster than bleach. A separate ``turbohtml.migration.bleach`` shim offers ``clean(text,
-tags=..., attributes=..., protocols=..., strip=...)`` for migrating bleach users with only an import change.
+Sanitize untrusted HTML against an allowlist with ``turbohtml.sanitizer``, a successor to the end-of-life
+``bleach.clean``. A frozen, thread-safe ``Policy`` with ``strict``/``basic``/``relaxed`` presets controls the allowed
+tags, attributes, and URL schemes, while a non-overridable baseline always removes ``<script>``, event-handler
+attributes, and ``javascript:`` URLs, so a no-argument ``sanitize`` is safe by default. A ``turbohtml.migration.bleach``
+shim migrates bleach users with an import-only change.

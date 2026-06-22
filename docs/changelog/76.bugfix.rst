@@ -1,3 +1,2 @@
-Declare the private ``turbohtml._html._reconstruct`` pickle hook in the type stub so a type checker resolves it. The
-built-in is the first element of every node's ``__reduce__`` result, yet it was the one private helper missing from
-``_html.pyi``, which forced an ``unresolved-import`` suppression in the pickle tests that can now be dropped.
+Type checkers now resolve the private ``turbohtml._html._reconstruct`` pickle hook, which was the one helper missing
+from the type stub.

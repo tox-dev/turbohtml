@@ -1,4 +1,3 @@
 Add two output options to :meth:`~turbohtml.Node.serialize` and :meth:`~turbohtml.Node.encode`: ``sort_attributes``
 emits each start tag's attributes in ascending name order for deterministic diffs, and ``meta_charset`` ensures the
-document ``<head>`` declares the output encoding, normalizing an existing ``<meta charset>`` or injecting one. Both
-compose with every ``formatter`` and ``layout`` - by :user:`gaborbernat`.
+document ``<head>`` declares the output encoding - by :user:`gaborbernat`.

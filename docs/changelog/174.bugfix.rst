@@ -1,8 +1,3 @@
-Parse the ``:is()`` and ``:where()`` arguments as a Selectors Level 4 forgiving selector list (§16.1) in
-:meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
-:meth:`~turbohtml.Node.closest`. An arm that fails to parse -- an unsupported pseudo-class, a malformed compound, or an
-empty arm from a stray comma -- is now dropped so the remaining arms stay usable, instead of invalidating the whole
-selector, and an all-dropped list (including ``:is()``) is valid and matches nothing. ``:not()`` and ``:has()`` keep
-their non-forgiving real-list semantics, where a bad arm is still an error, and the top-level selector list stays
-non-forgiving as the standard requires. Recovery skips delimiters inside strings and balanced brackets, so a comma in a
-dropped arm's ``[attr="a, b"]`` does not split it.
+``:is()`` and ``:where()`` now parse as Selectors Level 4 forgiving selector lists in :meth:`~turbohtml.Node.select`,
+:meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`, so an
+unsupported or malformed arm is dropped and the remaining arms stay usable instead of invalidating the whole selector.

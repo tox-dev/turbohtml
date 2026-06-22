@@ -1,4 +1,2 @@
-Keep an otherwise-whitespace ``<table>`` text run inside the table when it contains a U+0000. In the "in table text"
-insertion mode a NUL is a parse error that is dropped, but turbohtml treated the run as containing a non-whitespace
-character and foster-parented the whitespace out as a sibling before the table. The whitespace check now ignores NUL, so
-``parse("<table>\x00 ")`` keeps the space as a child of ``<table>``, matching html5lib.
+An otherwise-whitespace ``<table>`` text run containing a U+0000 now stays inside the table, so ``parse("<table>\x00
+")`` keeps the space as a child of ``<table>`` instead of foster-parenting it out, matching html5lib.

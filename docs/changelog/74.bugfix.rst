@@ -1,4 +1,2 @@
-Raise ``TypeError`` instead of ``AttributeError`` when :class:`~turbohtml.Element` is constructed with a non-mapping
-``attrs`` such as an ``int`` or ``list``. The constructor enumerates ``attrs`` through its ``keys()`` method, so a value
-without one previously surfaced the raw ``'int' object has no attribute 'keys'`` error; it now reports that ``attrs``
-must be a mapping. A ``keys()`` that exists but raises still propagates its own error rather than being relabeled.
+Constructing :class:`~turbohtml.Element` with a non-mapping ``attrs`` such as an ``int`` or ``list`` now raises a clear
+``TypeError`` reporting that ``attrs`` must be a mapping, instead of a cryptic ``AttributeError``.

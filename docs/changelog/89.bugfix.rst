@@ -1,4 +1,3 @@
-Pop an open ``option`` or ``optgroup`` before inserting a new ``optgroup`` (or ``option``) start tag in a
-``select``-context fragment, so the elements become siblings instead of nesting. The "in select" pop only fired when a
-``select`` element was in scope, which never holds in a fragment whose context is ``select`` and whose ``select`` is
-implied, so ``parse_fragment("<optgroup>1<optgroup>2", context="select")`` produced one optgroup nested in the other.
+Consecutive ``<optgroup>`` (or ``<option>``) start tags in a ``select``-context fragment now become siblings instead of
+nesting, so ``parse_fragment("<optgroup>1<optgroup>2", context="select")`` no longer nests one optgroup inside the
+other.

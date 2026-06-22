@@ -1,7 +1,4 @@
-Match the Selectors Level 4 negation pseudo-class ``:not()`` in :meth:`~turbohtml.Node.select`,
-:meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`, instead of
-rejecting it as invalid. ``:not()`` takes a full ``<complex-selector-list>``, so it negates compound and complex
-selectors -- ``p:not(.a, .b)`` and ``p:not(div p)`` -- and nests with the other functional pseudo-classes, making the
-spec example ``section:not(:has(h1))`` and compositions such as ``ul:has(:not(a))`` work. The argument list is
-non-forgiving: a syntactically invalid arm invalidates the whole selector, and matching agrees with soupsieve and
-lexbor.
+Use the Selectors Level 4 ``:not()`` negation pseudo-class in :meth:`~turbohtml.Node.select`,
+:meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`. It takes a
+full complex-selector list, so ``p:not(.a, .b)`` and ``section:not(:has(h1))`` work and nest with the other functional
+pseudo-classes, matching soupsieve and lexbor.

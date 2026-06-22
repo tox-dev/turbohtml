@@ -1,5 +1,2 @@
-Apply the WHATWG "adjust MathML attributes" step so a MathML ``definitionurl`` attribute is cased to ``definitionURL``
-in the parsed tree and every serialization, not only the ``#document`` debug format. ``parse_fragment("<math
-definitionURL=x></math>", "body")`` now reports ``definitionURL`` in ``Element.attrs`` and ``inner_html``, matching
-html5lib. Attribute lookups on foreign (MathML/SVG) elements stay case-insensitive, so ``math.attrs["definitionURL"]``
-and ``math.attrs["definitionurl"]`` both resolve.
+A MathML ``definitionurl`` attribute is now cased to ``definitionURL`` in ``Element.attrs``, ``inner_html``, and every
+serialization, matching html5lib; lookups on foreign elements stay case-insensitive.

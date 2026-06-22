@@ -1,6 +1,5 @@
-Add the :meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.rewrite_links`, and :meth:`~turbohtml.Node.resolve_links`
-node methods. :meth:`~turbohtml.Node.links` enumerates every link in a node's subtree as :class:`~turbohtml.Link`
-records -- including the URLs embedded in CSS ``url()``/``@import``, a ``<meta http-equiv=refresh>`` redirect, and the
-``srcset``/``ping``/``archive`` list attributes -- while :meth:`~turbohtml.Node.resolve_links` rewrites them absolute
-against a base URL and :meth:`~turbohtml.Node.rewrite_links` applies an arbitrary function, all in a single C tree walk
-- by :user:`gaborbernat`.
+Add the :meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, and :meth:`~turbohtml.Node.rewrite_links`
+methods: :meth:`~turbohtml.Node.links` enumerates every link in a subtree as :class:`~turbohtml.Link` records (including
+CSS ``url()``/``@import``, a ``<meta http-equiv=refresh>`` redirect, and ``srcset``/``ping``/``archive`` lists), while
+``resolve_links`` rewrites them absolute against a base URL and ``rewrite_links`` applies an arbitrary function - by
+:user:`gaborbernat`.

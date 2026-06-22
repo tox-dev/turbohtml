@@ -1,3 +1,2 @@
-Reject arguments passed to the :class:`~turbohtml.Tokenizer` constructor with a ``TypeError`` instead of silently
-ignoring them. A streaming tokenizer starts empty and takes no arguments, so ``Tokenizer("<p>")`` was a no-op that
-discarded its input; it now fails loudly.
+Passing arguments to the :class:`~turbohtml.Tokenizer` constructor now raises ``TypeError`` instead of silently
+discarding them, so ``Tokenizer("<p>")`` no longer drops its input. A streaming tokenizer starts empty.

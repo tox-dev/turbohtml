@@ -1,4 +1,2 @@
-Pop an open ``option`` or ``optgroup`` before inserting an ``hr`` in a ``select``-context fragment, so the ``hr`` lands
-at ``select`` level as a sibling of the options instead of nesting inside one. WHATWG added this ``hr`` rule to the "in
-select" insertion mode in 2024; turbohtml only applied it when a ``select`` element was in scope, which never holds in a
-fragment whose ``select`` context is implied.
+An ``<hr>`` in a ``select``-context fragment now lands at ``select`` level as a sibling of the options instead of
+nesting inside one, applying the WHATWG "in select" ``hr`` rule even when the ``select`` context is implied.

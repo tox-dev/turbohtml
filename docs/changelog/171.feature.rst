@@ -1,5 +1,4 @@
-Add an HTML minification mode to the serializer: :meth:`~turbohtml.Node.serialize` and :meth:`~turbohtml.Node.encode`
-take ``layout=`` a :class:`~turbohtml.Minify` options object whose four flags fold insignificant whitespace, omit the
-start/end tags the WHATWG rules make optional, drop redundant attribute quotes, and strip comments. Every transform is
-round-trip safe -- the minified output reparses to the same tree -- so turbohtml can replace ``minify-html`` and
-``htmlmin`` without a serialize-then-reparse changing the document.
+Minify HTML by passing ``layout=`` a :class:`~turbohtml.Minify` options object to :meth:`~turbohtml.Node.serialize` and
+:meth:`~turbohtml.Node.encode`, which folds insignificant whitespace, omits optional tags, drops redundant attribute
+quotes, and strips comments. Every transform is round-trip safe: the output reparses to the same tree, so turbohtml
+replaces ``minify-html`` and ``htmlmin``.

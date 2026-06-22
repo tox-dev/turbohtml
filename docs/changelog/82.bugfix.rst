@@ -1,5 +1,2 @@
-Guard the streaming ``Tokenizer`` with a per-object critical section so concurrent use from multiple threads on the
-free-threaded (no-GIL) interpreter is memory-safe. ``feed()``, ``close()``, ``reset()``, ``__exit__``, and the token
-iterator all mutate the tokenizer's shared state machine, its record buffers, and its free list; without a lock,
-concurrent ``feed()``/iteration on a single shared tokenizer corrupted the native heap and segfaulted. Each now runs
-under ``Py_BEGIN_CRITICAL_SECTION`` on the owning tokenizer (a no-op on the GIL builds).
+The streaming :class:`~turbohtml.Tokenizer` is now memory-safe when shared across threads on the free-threaded (no-GIL)
+interpreter; concurrent ``feed()`` or iteration on one tokenizer previously corrupted memory and segfaulted.

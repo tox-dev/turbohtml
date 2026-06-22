@@ -1,4 +1,2 @@
-Place a plain ``xmlns`` attribute on a foreign (SVG/MathML) element in the ``http://www.w3.org/2000/xmlns/`` namespace,
-the last missing row of the WHATWG "adjust foreign attributes" table. turbohtml already moved ``xmlns:xlink`` and the
-``xlink:`` and ``xml:`` attributes into their namespaces but left a prefix-less ``xmlns`` in the null namespace, so the
-tree-construction ``#document`` output rendered ``xmlns="..."`` where html5lib renders ``xmlns xmlns="..."``.
+A prefix-less ``xmlns`` attribute on a foreign (SVG/MathML) element now lands in the ``http://www.w3.org/2000/xmlns/``
+namespace per the WHATWG "adjust foreign attributes" table, matching html5lib's serialization.

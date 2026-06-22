@@ -1,4 +1,3 @@
-Note the encoding-detection boundary in the BeautifulSoup migration guide: turbohtml's WHATWG sniffing (a BOM, the
-``<meta charset>`` prescan, then a ``windows-1252`` fallback) replaces what ``UnicodeDammit`` reads from the markup, but
-not the statistical detectors (``charset-normalizer``, ``chardet``, ``cchardet``) that guess from byte frequency. Reach
-for those when a stream carries no BOM and no declaration.
+The BeautifulSoup migration guide now documents the encoding-detection boundary: turbohtml's WHATWG sniffing replaces
+``UnicodeDammit``'s markup reading, but reach for ``charset-normalizer``, ``chardet``, or ``cchardet`` when a stream
+carries no BOM and no declaration.

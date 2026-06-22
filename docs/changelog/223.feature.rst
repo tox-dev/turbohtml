@@ -1,6 +1,4 @@
-Extend :func:`turbohtml.linkify.linkify` and :class:`turbohtml.linkify.Linker` with three keyword-only hooks.
-``process_existing`` runs the callbacks over ``<a>`` tags already in the input, not only freshly detected links; a
-callback reads the new ``Link.existing`` flag to tell an author's anchor from a detected one, and vetoing an existing
-anchor unwraps it to its contents. ``extra_tlds`` adds top-level domains that make a bare domain a link on top of the
-built-in IANA table, threaded into the C scanner as a lock-free frozenset probe. ``schemes`` restricts which
-explicit-scheme URLs autolink, leaving an unlisted scheme as plain text.
+Extend :func:`turbohtml.linkify.linkify` and :class:`turbohtml.linkify.Linker` with three keyword-only hooks:
+``process_existing`` runs the callbacks over ``<a>`` tags already in the input (vetoing one unwraps it to its contents),
+``extra_tlds`` adds top-level domains that make a bare domain a link, and ``schemes`` restricts which explicit-scheme
+URLs autolink.

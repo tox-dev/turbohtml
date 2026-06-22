@@ -1,3 +1,2 @@
-Add a "From pyquery" migration guide mapping the jQuery-style chaining idiom onto :class:`turbohtml.query.Query`, which
-shares the ``filter``/``eq``/``attr``/``add_class`` surface, and cross-linking the fluent-chaining benchmark - by
-:user:`gaborbernat`.
+A new "From pyquery" migration guide maps the jQuery-style chaining idiom onto :class:`turbohtml.query.Query`, so
+pyquery users have a path to the fluent-chaining API - by :user:`gaborbernat`.

@@ -1,5 +1,3 @@
-Treat a present-but-empty DOCTYPE system identifier the same as a missing one when deciding quirks mode for the
-``-//W3C//DTD HTML 4.01 Frameset//`` and ``-//W3C//DTD HTML 4.01 Transitional//`` public identifiers, as the WHATWG
-initial insertion mode requires ("the system identifier is missing or the empty string"). ``<!DOCTYPE html PUBLIC
-"-//W3C//DTD HTML 4.01 Frameset//EN" "">`` now enters quirks mode; only a non-empty system identifier downgrades these
-to limited-quirks.
+A DOCTYPE with an empty system identifier now triggers quirks mode for the HTML 4.01 Frameset and Transitional public
+identifiers, as the WHATWG spec requires, so ``<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Frameset//EN" "">`` enters
+quirks mode; only a non-empty system identifier downgrades to limited-quirks.

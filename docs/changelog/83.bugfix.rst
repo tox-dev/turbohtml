@@ -1,4 +1,3 @@
-Round-trip a parsed element through :mod:`python:pickle` and :func:`python:copy.deepcopy` even when its tag name holds a
-character the public :class:`~turbohtml.Element` constructor rejects, such as the ``<`` the tokenizer keeps in ``a<b``
-from ``<a<b>``. Reconstruction rebuilds the element through a trusted builder rather than the validating constructor, so
-a parsed tree always survives pickling.
+A parsed element whose tag name holds a character the public :class:`~turbohtml.Element` constructor rejects, such as
+the ``<`` kept from ``<a<b>``, now survives :mod:`python:pickle` and :func:`python:copy.deepcopy` round-trips instead of
+failing to reconstruct.

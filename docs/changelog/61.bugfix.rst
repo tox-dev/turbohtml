@@ -1,4 +1,2 @@
-Keep a trailing ``*`` in a linkified URL instead of trimming it. ``*`` is an RFC 3986 sub-delim that is valid in a path
-or query, and both bleach and linkify_it retain it, yet linkify dropped a ``*`` at the very end of a URL from the match
-span even though it kept one mid-path. The ``href`` no longer silently points at a different resource than the visible
-text.
+A trailing ``*`` in a linkified URL is now kept rather than trimmed, matching bleach and linkify_it, so the ``href`` no
+longer points at a different resource than the visible text.

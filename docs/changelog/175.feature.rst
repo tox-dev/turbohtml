@@ -1,7 +1,4 @@
-Support the Selectors Level 4 ``of S`` clause on ``:nth-child()`` and ``:nth-last-child()`` (§13.3.1) in
+Use the Selectors Level 4 ``of S`` clause on ``:nth-child()`` and ``:nth-last-child()`` in
 :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
-:meth:`~turbohtml.Node.closest`, instead of rejecting it as invalid. ``:nth-child(An+B of S)`` now counts only the
-inclusive siblings that match the selector list ``S`` -- so ``li:nth-child(2n of .x)`` indexes the ``.x`` items rather
-than every ``li`` -- and an element that does not itself match ``S`` is never selected. The ``of`` keyword is rejected
-on the ``-of-type`` variants, which the grammar does not allow it on, and matching follows the spec and browsers
-(soupsieve's ``of S`` handling is incorrect).
+:meth:`~turbohtml.Node.closest`, so ``li:nth-child(2n of .x)`` indexes the ``.x`` items rather than every ``li``,
+matching the spec and browsers.

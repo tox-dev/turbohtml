@@ -1,5 +1,2 @@
-Foster-parent out to the fragment root when parsing a fragment whose context is a table-section element (``tbody``,
-``table``, ``tr``, ``thead``, ``tfoot``) and no ``table`` element is on the stack of open elements. The WHATWG
-appropriate-place algorithm's "no last table" branch inserts at the first element on the stack, so
-``parse_fragment("<tr><li>x", context="tbody")`` now yields ``<tr></tr><li>x</li>`` (the ``<li>`` a sibling after the
-row) instead of nesting the ``<li>`` inside the open ``<tr>``, matching html5lib. Document-path fostering is unchanged.
+A fragment whose context is a table-section element now foster-parents out to the fragment root when no ``table`` is
+open, so ``parse_fragment("<tr><li>x", context="tbody")`` makes the ``<li>`` a sibling after the row, matching html5lib.

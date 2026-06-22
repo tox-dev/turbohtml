@@ -1,2 +1,2 @@
-Add a "Not yet ported / limitations" note to each migration section, dropping the stale gaps (lxml/html5-parser XPath,
+Refresh each migration section's "Not yet ported / limitations" note, dropping the stale gaps (lxml/html5-parser XPath,
 markdownify per-tag converters) that recent features now cover.

@@ -1,4 +1,3 @@
-Replace the ``indent`` argument of :meth:`~turbohtml.Node.serialize` and :meth:`~turbohtml.Node.encode` with a single
-``layout`` argument that holds one serialization mode, so the pretty and minify modes are mutually exclusive by
-construction rather than by a runtime check. Pretty-printing now takes ``layout=`` an :class:`~turbohtml.Indent` (an int
-for that many spaces, or a string used verbatim); ``serialize(indent=2)`` becomes ``serialize(layout=Indent(2))``.
+:meth:`~turbohtml.Node.serialize` and :meth:`~turbohtml.Node.encode` replace the ``indent`` argument with a single
+``layout`` argument that selects one serialization mode. Pretty-printing now passes ``layout=`` an
+:class:`~turbohtml.Indent`: ``serialize(indent=2)`` becomes ``serialize(layout=Indent(2))``.

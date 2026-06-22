@@ -1,6 +1,3 @@
-Always neutralize ``<plaintext>`` in :func:`turbohtml.sanitizer.sanitize`, regardless of the policy allowlist, the way
-``<xmp>`` and ``<script>`` already are. ``<plaintext>`` switches the tokenizer to a raw-text state that runs to end of
-input, so a policy that allowlisted it kept content such as ``</select><img src=x onerror=alert(1)>`` as an unescapable
-raw text node; the serialized output reparsed into a live ``<img>`` whose ``onerror`` fired (a mutation-XSS bypass) and
-was not idempotent. The element is now escaped to inert text, matching nh3's safe handling. The default, ``strict``, and
-``relaxed`` policies were never affected because they already escape ``<plaintext>``.
+:func:`turbohtml.sanitizer.sanitize` now always escapes ``<plaintext>`` to inert text regardless of the policy
+allowlist, closing a mutation-XSS bypass where an allowlisted ``<plaintext>`` could reparse into a live ``<img>`` with a
+firing ``onerror``; the ``strict`` and ``relaxed`` policies were never affected.

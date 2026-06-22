@@ -1,5 +1,3 @@
-Drop a URL attribute entirely when a duplicate of it carries a disallowed scheme. ``Sanitizer`` checked each ``href``
-value in isolation and removed a rejected one by name, which deleted the first (benign) occurrence and left the
-dangerous duplicate as the lone attribute, so ``<a href='http://ok' href='javascript:alert(1)'>`` survived sanitizing
-with a live ``javascript:`` link. Every occurrence of a URL attribute whose value fails the scheme policy is now
-removed, closing the duplicate-attribute desync and restoring ``sanitize(sanitize(x)) == sanitize(x)``.
+The sanitizer now drops every occurrence of a URL attribute whose value fails the scheme policy, not just the one
+matched by name, so ``<a href='http://ok' href='javascript:alert(1)'>`` no longer survives with a live ``javascript:``
+link, restoring ``sanitize(sanitize(x)) == sanitize(x)``.

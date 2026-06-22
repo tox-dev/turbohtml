@@ -1,4 +1,2 @@
-Preserve a foreign-content element's namespace across a pickle round-trip. Pickling a detached SVG or MathML
-:class:`~turbohtml.Element` reset its ``namespace`` to ``Namespace.HTML``, because the ``__reduce__`` payload carried
-only the tag and attributes, unlike :func:`copy.deepcopy`. The payload now appends the namespace for a foreign element
-and the unpickle hook restores it, leaving HTML elements unchanged and rejecting an out-of-range namespace.
+A detached SVG or MathML :class:`~turbohtml.Element` now keeps its ``namespace`` across a :mod:`python:pickle`
+round-trip, instead of being reset to ``Namespace.HTML``.

@@ -1,10 +1,4 @@
-Add :class:`turbohtml.query.Query`, a pyquery-style fluent, chainable query wrapper over the tree and selector engine,
-for code migrating off `pyquery <https://github.com/gawel/pyquery>`_'s jQuery-style chaining. A ``Query`` wraps an
-ordered, duplicate-free set of elements, and its traversal and mutation methods -- ``__call__``/``find``, ``filter``,
-``eq``, ``parent``, ``children``, ``siblings``, ``closest``, ``items``, ``attr``, ``text``, ``html``, ``has_class``,
-``add_class``, ``remove_class``, ``toggle_class`` -- each return a ``Query``, so calls compose. It is a Python-layer
-convenience over the existing tree and selector primitives, kept out of the core API so the chainable surface stays
-optional; the method names are turbohtml's own (``add_class`` rather than pyquery's ``addClass``), so a migration
-adjusts the spelling but keeps the structure. Because the wrapper delegates the real work to the C selector and
-attribute primitives -- and skips a redundant de-duplication when a chain starts from one node -- it runs roughly ten
-times faster than pyquery on the same chain (see the :doc:`performance` page).
+Chain queries fluently with :class:`turbohtml.query.Query`, a pyquery-style wrapper over the tree and selector engine
+whose traversal and mutation methods (``find``, ``filter``, ``eq``, ``parent``, ``children``, ``attr``, ``add_class``,
+and the rest) each return a ``Query`` so calls compose. It runs roughly ten times faster than pyquery on the same chain
+(see the :doc:`performance` page).

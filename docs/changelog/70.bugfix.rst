@@ -1,6 +1,3 @@
-Keep allowlisted SVG and MathML elements instead of escaping them to text. The sanitizer matched the ``tags`` allowlist
-only against HTML-namespace names, so every foreign element failed the lookup and was escaped even when its name was on
-the list. A foreign element now matches the allowlist by its serialized name (``svg``, ``foreignObject``, ...), matching
-bleach and nh3. Safety is preserved: the unsafe-element set still escapes scripting/raw-text elements in any namespace,
-and a foreign element is kept only inside kept context, so it never outlives its namespace (an ``svg`` ``<a>`` whose
-``<svg>`` is escaped never survives as a live HTML anchor).
+The sanitizer now keeps allowlisted SVG and MathML elements instead of escaping every foreign element to text, matching
+bleach and nh3; scripting and raw-text elements are still escaped in any namespace, and a kept foreign element never
+outlives its namespace.

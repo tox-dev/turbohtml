@@ -1,5 +1,4 @@
-Support the CSS tree-structural pseudo-classes in :meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.select_one`:
-``:root``, ``:empty``, ``:first-child``, ``:last-child``, ``:only-child``, ``:first-of-type``, ``:last-of-type``,
-``:only-of-type``, and the functional ``:nth-child()``, ``:nth-last-child()``, ``:nth-of-type()``, and
-``:nth-last-of-type()`` (with the full ``An+B`` microsyntax, including the ``even`` and ``odd`` keywords). Previously
-every pseudo-class raised ``ValueError('invalid CSS selector')``.
+Match the CSS tree-structural pseudo-classes in :meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.select_one`:
+``:root``, ``:empty``, ``:first-child``, ``:only-of-type``, and the functional ``:nth-child()``, ``:nth-of-type()`` and
+their last-of family with the full ``An+B`` microsyntax (including ``even`` and ``odd``). These previously raised
+``ValueError``.

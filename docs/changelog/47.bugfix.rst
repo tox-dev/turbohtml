@@ -1,5 +1,2 @@
-Treat the MathML and SVG integration points (``mi``, ``mo``, ``mn``, ``ms``, ``mtext``, ``foreignObject``, ``desc``,
-``title``) as scope boundaries in the adoption agency's in-scope check. A formatting end tag separated from the current
-node by one of these foreign elements wrongly ran the adoption agency, splitting the foreign subtree out to ``<body>``;
-``parse("<b><math><mi></b>")`` now keeps ``mi`` nested as ``<b><math><mi></mi></math></b>`` and ignores the unmatched
-``</b>``, matching html5lib and lexbor.
+A formatting end tag no longer breaks out of a MathML or SVG integration point, so ``parse("<b><math><mi></b>")`` keeps
+``mi`` nested as ``<b><math><mi></mi></math></b>`` and ignores the unmatched ``</b>``, matching html5lib and lexbor.

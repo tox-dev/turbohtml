@@ -1,23 +1,5 @@
-Complete the XPath 1.0 core function library with ``id()``, ``namespace-uri()``, and ``lang()``. On an HTML document
-``lang()`` honors the HTML ``lang`` attribute and ``namespace-uri()`` reports the SVG and MathML namespace for foreign
-content, where ``lxml``'s legacy HTML parser returns nothing for both.
-
-Bind ``$name`` variables by passing them as keyword arguments to :meth:`~turbohtml.Node.xpath`,
-:meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` (a ``str``, ``int``, ``float``, or ``bool``
-each), so ``doc.xpath("//a[@href=$url]", url=target)`` keeps the value out of the expression string the way ``lxml`` and
-``parsel`` do.
-
-Support the EXSLT regular-expression functions ``re:test`` and ``re:replace`` that ``parsel`` and ``scrapy`` enable by
-default, so a predicate like ``//a[re:test(@href, '\\d+$', 'i')]`` ports across. The ``re:`` prefix dispatches to
-Python's :mod:`re`, with the EXSLT flag letters (``i``, ``m``, ``s``, ``x``, and ``g`` for a global replace) honored.
-
-Pass ``smart_strings=True`` to get :class:`~turbohtml.XPathString` results, ``str`` subclasses that remember the element
-an attribute or ``text()`` value came from, the way ``lxml``'s smart strings do: ``result.getparent()`` returns the
-element and ``result.is_attribute`` / ``result.attrname`` identify the source. The default stays a plain ``str`` (the
-fast path ``parsel`` also chooses).
-
-Register custom XPath functions with ``extensions={(None, name): callable}``, like ``lxml``. The callable receives a
-context whose ``context_node`` is the current element and the evaluated arguments (a node-set as a list of elements, a
-string/number/boolean as the matching Python value), and returns a ``str``, number, or ``bool``. Calling a Python
-function from the evaluator runs outside the all-C fast path, so reserve it for what the built-in library cannot
-express.
+Round out the XPath engine: the core library gains ``id()``, ``namespace-uri()``, and ``lang()``; bind ``$name``
+variables as keyword arguments to :meth:`~turbohtml.Node.xpath` (and its ``_one``/``_iter`` siblings); use the EXSLT
+``re:test``/``re:replace`` functions parsel and scrapy enable; opt into ``lxml``-style :class:`~turbohtml.XPathString`
+smart strings with ``smart_strings=True``; and register custom functions with ``extensions={(None, name): callable}``.
+The ``lxml`` and ``parsel`` expressions port across.

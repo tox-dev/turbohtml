@@ -1,7 +1,4 @@
 A valueless attribute (``<x a>``) now reports the empty string instead of ``None`` in :attr:`turbohtml.Token.attrs`,
-:meth:`turbohtml.Token.attr`, and :attr:`turbohtml.Element.attrs` (the empty list for a token-list attribute such as
-``class``), matching the WHATWG tokenizer, which assigns the empty string to a missing value, and the DOM, where
-``getAttribute`` returns ``""``. A present-but-empty attribute (``<x a="">``) was already indistinguishable in the tree
-and reports the same. Setting an attribute to ``None`` still produces an empty attribute that serializes as ``a=""``.
-Code that tested ``element.attrs["a"] is None`` to detect a valueless attribute should test ``element.attrs.get("a") ==
-""`` or membership instead.
+:meth:`turbohtml.Token.attr`, and :attr:`turbohtml.Element.attrs`, matching the WHATWG tokenizer and the DOM. Code that
+tested ``element.attrs["a"] is None`` to detect a valueless attribute should now test ``element.attrs.get("a") == ""``
+or membership.

@@ -1,5 +1,4 @@
-Add :class:`turbohtml.IncrementalParser`, a push parser that builds a :class:`~turbohtml.Document` from chunks fed with
-``feed`` and finished with ``close``. A chunk is ``str`` or ``bytes`` (decoded through a stateful incremental codec for
-the parser's ``encoding``, so a multi-byte character split across a chunk boundary decodes correctly), and the resulting
-tree is identical to parsing the joined input with :func:`turbohtml.parse`. The tokenizer reclaims the input it has
-consumed on every feed, so a document arriving over a stream never has to be held whole in memory.
+Parse a document arriving over a stream with :class:`turbohtml.IncrementalParser`, a push parser that builds a
+:class:`~turbohtml.Document` from ``str`` or ``bytes`` chunks fed with ``feed`` and finished with ``close``. The tree is
+identical to :func:`turbohtml.parse` on the joined input, and consumed input is reclaimed each feed so the document
+never has to be held whole in memory.

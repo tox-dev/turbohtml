@@ -1,4 +1,3 @@
-Add a "From parsel" section to the migration guide, mapping Scrapy parsel's extraction-oriented ``Selector`` API
-(``.css()`` / ``.xpath()`` with ``.get()`` / ``.getall()`` and the ``::text`` / ``::attr()`` pseudo-elements) onto
-turbohtml's node-returning :meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.xpath`. The benchmark suite now
-races parsel in the query comparison, and the performance page's *Querying* table reports it alongside the others.
+A new "From parsel" migration section maps Scrapy parsel's ``Selector`` API onto turbohtml's node-returning
+:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.xpath`, and the performance page now reports parsel in the
+*Querying* comparison.

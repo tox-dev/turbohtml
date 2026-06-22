@@ -1,4 +1,2 @@
-Process a stray ``<html>`` start tag in the "in column group" insertion mode with the in-body rules (merge attributes
-onto the open ``<html>``, leave the stack alone) instead of routing it through the anything-else branch. Previously the
-stray tag popped the open ``<colgroup>``, so ``parse("<table><colgroup><col><html><col>")`` produced two colgroups; it
-now keeps one colgroup with both ``<col>`` children, matching html5lib.
+A stray ``<html>`` start tag inside a ``<colgroup>`` no longer closes it, so
+``parse("<table><colgroup><col><html><col>")`` keeps one colgroup with both ``<col>`` children, matching html5lib.

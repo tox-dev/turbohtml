@@ -1,4 +1,2 @@
-Match a type selector against a custom or unknown element name case-insensitively, so ``select("MY-CARD")`` finds a
-``<my-card>`` just as ``select("DIV")`` finds a ``<div>``. Type selectors are ASCII case-insensitive in HTML documents,
-which already worked for the builtin tag names resolved through the atom table; an element outside that table fell back
-to a case-sensitive comparison against its lowercased stored name, so an uppercase selector never matched.
+A type selector now matches a custom or unknown element name case-insensitively, so ``select("MY-CARD")`` finds a
+``<my-card>`` just as ``select("DIV")`` finds a ``<div>``.

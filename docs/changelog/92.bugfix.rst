@@ -1,4 +1,3 @@
-Require an exact ASCII case-insensitive match for a MathML ``annotation-xml`` element's ``encoding`` attribute before
-treating it as an HTML integration point. The check approximated ``text/html`` by three characters and accepted any
-21-character value as ``application/xhtml+xml``, so a near miss like ``encoding="text-html"`` wrongly became an
-integration point and kept HTML children nested instead of letting them break out of the foreign subtree.
+A MathML ``annotation-xml`` element is now an HTML integration point only on an exact case-insensitive ``text/html`` or
+``application/xhtml+xml`` ``encoding`` match; a near miss like ``encoding="text-html"`` no longer wrongly keeps HTML
+children nested in the foreign subtree.

@@ -1,5 +1,2 @@
-Parse a ``template``-context fragment in the "in template" insertion mode. ``parse_fragment(..., context="template")``
-ran in the "in body" mode, so table-section start tags (``td``, ``th``, ``tr``, ``col``, ``caption``, ``tbody``,
-``tfoot``, ``thead``) were ignored and only their text survived. Per the WHATWG fragment-parsing algorithm a
-``template`` context pushes "in template" onto the template insertion mode stack, so those tags now build their
-elements.
+``parse_fragment(..., context="template")`` now parses in the "in template" insertion mode, so table-section start tags
+(``td``, ``tr``, ``caption``, ``tbody`` and friends) build their elements instead of being dropped to text.

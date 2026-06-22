@@ -1,5 +1,2 @@
-Pop an open ``<select>`` when a table-family start tag (``caption``, ``table``, ``tbody``, ``tfoot``, ``thead``, ``tr``,
-``td``, ``th``) appears in the "in select in table" context, instead of nesting the element inside the select. Per the
-WHATWG "in select in table" insertion mode the token pops the select, resets the insertion mode, and is reprocessed, so
-``parse("<table><tr><td><select><table>")`` now puts the inner table as a sibling of the (closed, empty) ``<select>`` in
-the cell, matching html5lib.
+A table-family start tag (``table``, ``tr``, ``td``, ``caption`` and friends) inside an open ``<select>`` in the "in
+select in table" context now closes the select and becomes its sibling instead of nesting inside it, matching html5lib.

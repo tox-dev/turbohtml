@@ -1,12 +1,5 @@
-Every parsed element now records where its start tag began in the source, read through
-:attr:`~turbohtml.Node.source_line`, :attr:`~turbohtml.Node.source_col`, and the :attr:`~turbohtml.Node.position` pair,
-so error locators, linters, and source-mapping tools can point back at the original markup the way ``lxml``'s
-``sourceline`` and ``BeautifulSoup``'s ``sourceline``/``sourcepos`` do. The line is 1-based and the column 0-based,
-matching :meth:`python:html.parser.HTMLParser.getpos` and the existing
-:attr:`turbohtml.Token.line`/:attr:`~turbohtml.Token.col`, so a value migrated from either is identical. The position
-rides in two compact words appended to each element node only while tracking is on; nodes with no source -- a text or
-comment node, an implied ``html``/``head``/``body``, a fragment root, or a hand-built element -- read ``None``.
-
-Tracking is on by default. Pass ``positions=False`` to :func:`turbohtml.parse`, :func:`turbohtml.parse_fragment`, or
-``IncrementalParser`` to drop it when memory or parse speed matters more than source locations, after which the
-accessors read ``None``.
+Read where each element's start tag began in the source through :attr:`~turbohtml.Node.source_line`,
+:attr:`~turbohtml.Node.source_col`, and the :attr:`~turbohtml.Node.position` pair, so error locators, linters, and
+source-mapping tools can point back at the original markup the way ``lxml`` and ``BeautifulSoup`` expose ``sourceline``.
+Tracking is on by default; pass ``positions=False`` to :func:`turbohtml.parse` to drop it when memory or speed matters
+more.

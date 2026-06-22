@@ -1,5 +1,3 @@
-Match ``#id`` and ``.class`` selectors ASCII case-insensitively in a quirks-mode document (one parsed with no doctype),
-as `Selectors-4 §6.1 <https://www.w3.org/TR/selectors-4/#class-html>`_ and `§6.2
-<https://www.w3.org/TR/selectors-4/#id-selectors>`_ require. ``select(".foo")`` now finds ``<div class=FOO>`` in a
-quirks document, while a standards-mode document (with a doctype) keeps the case-sensitive comparison. The fold reaches
-class and ID selectors nested in ``:is()``, ``:where()``, and ``:has()``.
+``#id`` and ``.class`` selectors now match ASCII case-insensitively in a quirks-mode document (parsed with no doctype),
+as Selectors-4 requires, so ``select(".foo")`` finds ``<div class=FOO>``; standards-mode documents keep the
+case-sensitive comparison.

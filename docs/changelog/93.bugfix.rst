@@ -1,5 +1,2 @@
-Pop an open ``select`` when a ``keygen`` start tag is seen in the "in select" insertion mode, so the ``keygen`` becomes
-a sibling after the now-closed ``select`` rather than nesting inside it (and is ignored in a select-context fragment).
-The ``input``/``keygen``/``textarea`` rule was only half-implemented for ``input``; ``keygen`` fell through to a plain
-insert. html5lib's library and the WHATWG algorithm both pop the ``select``; the pinned tree-construction ``.dat`` still
-encodes the older nesting, so those two cases are overridden to the spec-correct trees.
+A ``<keygen>`` start tag in the "in select" insertion mode now pops the open ``select`` so the ``keygen`` becomes a
+sibling, matching WHATWG and html5lib, instead of nesting inside the select.

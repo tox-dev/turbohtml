@@ -1,4 +1,2 @@
-Match elements that contain only document white space with ``:empty``, following `Selectors-4 §13.2
-<https://www.w3.org/TR/selectors-4/#the-empty-pseudo>`_. The matcher previously used the Level 3 rule that rejected any
-text child, so ``select("p:empty")`` missed ``<p> </p>``. Comment-only elements still match, and a non-breaking space
-(U+00A0, which is not white space) still counts as content.
+``:empty`` now matches elements containing only white space, as Selectors-4 §13.2 requires, so ``select("p:empty")``
+finds ``<p> </p>``; it previously used the Level 3 rule that rejected any text child.

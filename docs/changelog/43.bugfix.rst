@@ -1,6 +1,3 @@
-Apply the WHATWG "adjust SVG attributes" step so SVG attribute names such as ``viewbox``, ``attributename``,
-``basefrequency``, ``gradienttransform``, and ``textlength`` are cased back to ``viewBox``, ``attributeName``,
-``baseFrequency``, ``gradientTransform``, and ``textLength`` in the parsed tree and every serialization, not only the
-``#document`` debug format. ``Element.attrs`` and ``inner_html`` now report the cased names, matching html5lib, and
-attribute lookups on foreign (SVG/MathML) elements stay case-insensitive, so ``svg.attrs["viewBox"]`` and
-``svg.attrs["viewbox"]`` both resolve.
+SVG attribute names such as ``viewbox`` and ``attributename`` are now cased back to ``viewBox`` and ``attributeName`` in
+``Element.attrs``, ``inner_html``, and every serialization, matching html5lib; lookups on foreign elements stay
+case-insensitive.

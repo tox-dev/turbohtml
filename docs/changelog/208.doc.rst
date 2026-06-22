@@ -1,4 +1,3 @@
-Benchmark :class:`turbohtml.migration.stdlib.HTMLParser` against the standard library's
-:class:`python:html.parser.HTMLParser`. A new ``htmlparser`` suite in the benchmark harness (``tox -e bench
-htmlparser``) drives both through the same minimal handler, and the performance page records the result: the adapter
-runs three to four times faster on the same callback-driven workload.
+The performance page now benchmarks :class:`turbohtml.migration.stdlib.HTMLParser` against the standard library's
+:class:`python:html.parser.HTMLParser`, recording that the adapter runs three to four times faster on the same
+callback-driven workload.

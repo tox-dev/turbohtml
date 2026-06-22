@@ -1,4 +1,3 @@
-Decode the ``gbk`` and ``gb2312`` labels with the ``gb18030`` codec, since the WHATWG Encoding Standard defines GBK's
-decoder as gb18030's decoder. Python's standalone ``gbk`` codec implements only the two-byte legacy subset, so a valid
-four-byte gb18030 sequence in a GBK-labeled stream decoded to ``U+FFFD``; it now decodes to its code point. The reported
-:attr:`~turbohtml.Document.encoding` name stays ``GBK``, which the standard lists as a distinct encoding.
+The ``gbk`` and ``gb2312`` labels now decode with the ``gb18030`` codec as the WHATWG Encoding Standard requires, so a
+valid four-byte sequence decodes to its code point instead of ``U+FFFD``; the reported
+:attr:`~turbohtml.Document.encoding` name stays ``GBK``.

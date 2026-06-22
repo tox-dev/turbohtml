@@ -1,7 +1,4 @@
-Add an opt-in content-based encoding detection step to :func:`turbohtml.parse`: ``parse(data, detect_encoding=True)``
-guesses the encoding of a declaration-less byte stream the way Firefox's ``chardetng`` does. It runs strictly after the
-WHATWG sniffing steps (a BOM, the ``encoding`` argument, then the ``<meta>`` prescan) and only when those yield no
-encoding, so a declared, ``<meta>``, or BOM encoding always wins and the default behavior is unchanged. Detection covers
-UTF-8, the legacy single-byte families (Latin, Cyrillic, Greek, Arabic, Hebrew, Baltic, Thai), and the CJK multi-byte
-encodings (GBK, Big5, Shift_JIS, EUC-JP, EUC-KR, ISO-2022-JP). This closes the last gap for replacing BeautifulSoup's
-``UnicodeDammit`` without a separate ``charset-normalizer``/``chardet`` install.
+Detect the encoding of a declaration-less byte stream with :func:`turbohtml.parse` and ``detect_encoding=True``, which
+guesses the way Firefox's ``chardetng`` does. It runs only after the WHATWG sniffing steps yield no encoding, so a
+declared, ``<meta>``, or BOM encoding always wins. Detection covers UTF-8, the legacy single-byte families, and the CJK
+multi-byte encodings. It replaces BeautifulSoup's ``UnicodeDammit`` without a separate install.

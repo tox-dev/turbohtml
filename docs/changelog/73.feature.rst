@@ -1,6 +1,1 @@
-Serialize a parsed document back to HTML up to 1.6 times faster: the writer scans each text run for the next character
-that needs escaping two code points at a time with the same SWAR lane probes :func:`~turbohtml.escape` uses, recovers
-each special's position straight from the lane mask, and reserves the whole-document buffer up front so the output grows
-in a single allocation instead of a dozen reallocations. The 1-byte data-state tokenizer scan now also runs straight
-through newlines in one vector sweep, folding line and column tracking in afterwards, so prose-heavy documents parse a
-few percent faster.
+Serialize a parsed document back to HTML up to 1.6 times faster, and parse prose-heavy documents a few percent faster.

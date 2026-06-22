@@ -1,3 +1,2 @@
-Expand the standard-library migration guide with the ``html.parser`` SAX callback to token-loop mapping, noting that
-character references are always resolved (no ``convert_charrefs`` switch) and cross-linking the tokenizing benchmark -
-by :user:`gaborbernat`.
+The standard-library migration guide now maps the ``html.parser`` SAX callbacks onto turbohtml's token loop, noting that
+character references are always resolved, so ``html.parser`` users have a path across - by :user:`gaborbernat`.

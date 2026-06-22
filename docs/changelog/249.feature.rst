@@ -1,5 +1,4 @@
-Add the :meth:`~turbohtml.Node.main_content` and :meth:`~turbohtml.Node.main_text` node methods, the ``resiliparse``
-main-content extractor role. :meth:`~turbohtml.Node.main_content` returns the dominant article element under a node --
-navigation, sidebars, advertising and comment boilerplate scored out by a content-density (readability) heuristic run
-entirely in C -- or ``None`` when nothing reads as content, and :meth:`~turbohtml.Node.main_text` renders that element
-with :meth:`~turbohtml.Node.to_text` - by :user:`gaborbernat`.
+Add :meth:`~turbohtml.Node.main_content` and :meth:`~turbohtml.Node.main_text`, the ``resiliparse`` main-content
+extractor role. :meth:`~turbohtml.Node.main_content` returns the dominant article element under a node, or ``None``; a
+content-density readability heuristic scores out navigation, sidebars, advertising, and comment boilerplate.
+:meth:`~turbohtml.Node.main_text` renders that element with :meth:`~turbohtml.Node.to_text` - by :user:`gaborbernat`.

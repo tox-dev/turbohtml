@@ -1,5 +1,3 @@
-Recognize the WHATWG encoding labels the sniffer was missing instead of mis-decoding the document as windows-1252. The
-``iso-8859-3/4/6/8/8-i/10/13/14/16``, ``iso-2022-jp``, ``ibm866``, ``x-mac-cyrillic``, and ``x-user-defined`` families
-(with their spec aliases) now resolve, so ``parse(b'<meta charset=iso-8859-8>...')`` decodes byte ``0xE0`` to Hebrew
-alef rather than ``à``. ``x-user-defined`` has no CPython codec, so its bytes ``0x80``\ –\ ``0xFF`` are mapped to the
-private-use block ``U+F780``\ –\ ``U+F7FF`` directly, per the standard.
+The encoding sniffer now recognizes more WHATWG labels (``iso-8859-3/4/6/8/8-i/10/13/14/16``, ``iso-2022-jp``,
+``ibm866``, ``x-mac-cyrillic``, ``x-user-defined`` and their aliases), so a declared charset like ``iso-8859-8`` decodes
+correctly instead of falling back to windows-1252.

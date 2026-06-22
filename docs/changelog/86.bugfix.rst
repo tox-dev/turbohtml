@@ -1,5 +1,2 @@
-Carry an element's tree-construction category flags when it is constructed or reconstructed, so a raw-text element
-(``style``, ``xmp``, ``iframe`` and friends) keeps serializing its text verbatim. ``th_tree_make_element`` set the tag
-atom but left the flags zero, so an unpickled raw-text element lost its raw-text bit and began HTML-escaping its
-content, unlike :func:`copy.deepcopy`. Building one directly with :class:`~turbohtml.Element` now also serializes its
-text literally.
+A raw-text element (``style``, ``xmp``, ``iframe`` and friends) now serializes its text verbatim after being unpickled
+or built directly with :class:`~turbohtml.Element`, instead of wrongly HTML-escaping its content.

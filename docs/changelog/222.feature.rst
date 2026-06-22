@@ -1,5 +1,4 @@
 Add :class:`turbohtml.linkify.Detector`, a plain-text link detector that complements the HTML-aware
 :func:`~turbohtml.linkify.linkify`. ``Detector().find(text)`` returns a :class:`~turbohtml.linkify.LinkSpan` for every
-URL and email address, with its offsets, matched text, and normalized ``url``; ``has_link(text)`` answers the cheaper
-presence question. The detector accepts custom ``tlds`` for bare-domain matching and custom scheme-less ``schemes``
-(such as ``tel`` or ``bitcoin``), reusing the same C scanner that powers ``linkify``.
+URL and email address (with offsets, matched text, and a normalized ``url``), while ``has_link(text)`` answers the
+cheaper presence question; custom ``tlds`` and ``schemes`` extend matching.

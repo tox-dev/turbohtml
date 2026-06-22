@@ -1,5 +1,2 @@
-Synthesize the implicit ``head`` and ``body`` for a ``parse_fragment(context="html")`` fragment at end of input. An
-html-context fragment starts in the "before head" insertion mode, so the WHATWG missing-element rules run on EOF and a
-``head`` and ``body`` are always present even when no token forces them: ``""`` now yields an empty ``head`` and
-``body``, ``"<title>t</title>"`` yields ``head`` plus an empty ``body``, and a leading comment is kept before the
-synthesized pair.
+A ``parse_fragment(context="html")`` fragment now always synthesizes the implicit ``head`` and ``body``, so even an
+empty or head-only fragment yields both elements, matching html5lib.

@@ -1,5 +1,3 @@
 Add a ``converters`` keyword to :meth:`~turbohtml.Node.to_markdown`: a mapping from a lowercased tag name to a
-``callable(element, content) -> str`` that replaces how that tag renders. The callable receives the
-:class:`~turbohtml.Element` and the already-converted Markdown of its children and returns the element's Markdown, so a
-custom element or a one-off rule needs no subclass. It is the clean-break answer to ``markdownify``'s ``convert_<tag>``
-handlers, dispatched entirely in C and free unless a tag is registered.
+``callable(element, content) -> str`` that replaces how that tag renders, so a custom element or a one-off rule needs no
+subclass. It is the clean-break answer to ``markdownify``'s ``convert_<tag>`` handlers.

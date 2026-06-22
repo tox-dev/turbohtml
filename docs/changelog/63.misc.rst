@@ -1,5 +1,2 @@
-Add a dedicated regression test (``tests/dom/test_foreign_end_tag_breakout.py``) that asserts ``</p>`` and ``</br>`` end
-tags in SVG/MathML content stay *inside* the foreign root, independently of the conformance harness's overrides. This
-locks the spec-correct decision from issues #32 and #63 and stands as the standing rejection of the proposed "foreign
-breakout" divergence, which would have matched the stale ``html5lib-tests`` ``.dat`` fixtures over the literal WHATWG
-algorithm, lexbor, and html5lib's own library.
+Add a regression test asserting that ``</p>`` and ``</br>`` end tags in SVG/MathML content stay inside the foreign root,
+locking the spec-correct behavior from issues #32 and #63.

@@ -1,3 +1,2 @@
-Recognize ``0x2F`` (``/``) as a separator after ``<meta`` in the encoding prescan, so ``<meta/charset=utf-8>`` resolves
-its declared encoding. WHATWG's "prescan a byte stream" accepts whitespace or ``/`` after the tag name; only whitespace
-was honored, so a slash-separated ``<meta>`` fell through to the windows-1252 default.
+``<meta/charset=utf-8>`` now resolves its declared encoding; the prescan accepts ``/`` as a separator after ``<meta`` as
+WHATWG specifies, not just whitespace, so a slash-separated ``<meta>`` no longer falls through to windows-1252.

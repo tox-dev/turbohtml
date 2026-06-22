@@ -1,4 +1,2 @@
-Accept CSS escape sequences in :meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.select_one` identifiers. A
-backslash escape (``.foo\:bar``, ``#ab``) and a hex code-point escape (``.\A9``, ``.\0000A9``) in a class, id, type, or
-attribute-name selector are decoded per CSS Syntax Module 4.3.7 instead of raising ``ValueError('invalid CSS
-selector')``, so spec-valid selectors that name characters like ``:`` or ``.`` inside an identifier now match.
+:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` now decode CSS escape sequences in identifiers, so
+spec-valid selectors like ``.foo\:bar`` and ``.\A9`` match instead of raising ``ValueError('invalid CSS selector')``.

@@ -1,4 +1,2 @@
-Validate free-threaded safety with three layers: the free-threaded tox envs re-run the thread-safety suite under
-``pytest-run-parallel`` (one thread per core), a ``conftest`` guard fails the run if a C extension silently re-enables
-the GIL, and a new ``tox -e tsan`` env plus CI job run the suite under ThreadSanitizer in the
-``ghcr.io/nascheme/cpython-tsan`` image to detect data races directly.
+Free-threaded safety is now validated in CI under ``pytest-run-parallel`` and a ThreadSanitizer job, with a guard that
+fails the run if a C extension silently re-enables the GIL.

@@ -1,5 +1,3 @@
-Accept namespace-qualified type selectors in ``select()``/``select_one()``. ``*|E``, ``*|*``, ``|E``, ``|*``, and
-``ns|E`` were rejected with ``ValueError('invalid CSS selector')``; the namespace prefix is part of the Selectors Level
-4 type-selector grammar and, in a namespaceless HTML document, the qualified form reduces to its unqualified selector
-(``*|a`` matches ``a``, ``*|*`` matches every element). The prefix is now parsed and ignored, matching lxml.cssselect,
-selectolax, and bs4.
+``select()`` and ``select_one()`` now accept namespace-qualified type selectors (``*|E``, ``*|*``, ``|E``, ``ns|E``)
+instead of raising ``ValueError('invalid CSS selector')``; in a namespaceless HTML document the prefix is parsed and
+ignored, matching lxml.cssselect, selectolax, and bs4.

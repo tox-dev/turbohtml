@@ -13,25 +13,22 @@
 Features - 0.4.0
 ================
 
-- Build and edit the tree, not just read it. Construct ``Element``, ``Text``, and ``Comment`` nodes and assemble them
-  with ``append``, ``extend``, ``insert``, ``wrap``, ``unwrap``, ``insert_before``, ``insert_after``, ``replace_with``,
-  ``extract``, ``decompose``, and ``normalize``. ``element.attrs`` is a live mapping you assign to and delete from, and
-  ``Text``/``Comment`` take a ``.data`` setter while ``Element`` takes a ``.text`` setter. Nodes move within their tree
-  and are copied when adopted into another, and ``copy.copy``, ``copy.deepcopy``, and ``pickle`` duplicate a subtree
-  exactly. Invalid names and cycles raise ``ValueError`` - by :user:`gaborbernat`. (:issue:`19`)
-- Round out the node model: :class:`~turbohtml.ProcessingInstruction` and :class:`~turbohtml.CData` join the hierarchy
-  for building, :class:`~turbohtml.Doctype` exposes its ``public_id`` and ``system_id``, and every node type now
-  supports structural pattern matching - by :user:`gaborbernat`. (:issue:`22`)
+- Build and edit the tree, not just read it: construct ``Element``, ``Text``, and ``Comment`` nodes and rearrange them
+  with the full set of insert, wrap, extract, and normalize methods, with ``attrs`` and ``.text``/``.data`` as live
+  setters. ``copy``, ``deepcopy``, and ``pickle`` duplicate a subtree - by :user:`gaborbernat`. (:issue:`19`)
+- Round out the node model: :class:`~turbohtml.ProcessingInstruction` and :class:`~turbohtml.CData` join the hierarchy,
+  :class:`~turbohtml.Doctype` exposes its ``public_id`` and ``system_id``, and every node type supports structural
+  pattern matching - by :user:`gaborbernat`. (:issue:`22`)
 
 Improved documentation - 0.4.0
 ==============================
 
-- Document and benchmark the write path: tutorial, how-to, and explanation coverage for building and editing a tree,
-  plus ``build`` and ``edit`` benchmark suites showing turbohtml builds and rewrites trees about twice as fast as lxml
-  and an order of magnitude faster than BeautifulSoup - by :user:`gaborbernat`. (:issue:`19`)
-- Add migration guides from every library turbohtml replaces - BeautifulSoup, lxml, selectolax, html5lib, and the
-  standard library - each mapping its idioms to the turbohtml equivalent and calling out the behavior differences a
-  porting user hits - by :user:`gaborbernat`. (:issue:`23`)
+- Learn the write path through new tutorial, how-to, and explanation docs, backed by benchmarks showing turbohtml builds
+  and rewrites trees about twice as fast as lxml and an order of magnitude faster than BeautifulSoup - by
+  :user:`gaborbernat`. (:issue:`19`)
+- Port to turbohtml with migration guides from BeautifulSoup, lxml, selectolax, html5lib, and the standard library, each
+  mapping the source library's idioms to their turbohtml equivalents and flagging behavior differences - by
+  :user:`gaborbernat`. (:issue:`23`)
 
 *********************
  v0.3.0 (2026-06-16)
@@ -40,38 +37,27 @@ Improved documentation - 0.4.0
 Features - 0.3.0
 ================
 
-- Add ``select()`` and ``select_one()`` to every node: a native CSS matcher over the common selector subset - type,
-  universal, ``#id``, ``.class``, and attribute selectors with the ``=``, ``~=``, ``|=``, ``^=``, ``$=``, ``*=``
-  operators (plus the ``i``/``s`` case-sensitivity flag), combined into compounds and joined by the descendant, child
-  (``>``), adjacent (``+``), and general-sibling (``~``) combinators, with comma groups returned in document order.
-  Selectors compile against the tree so names resolve to interned atoms, making each match an integer compare. An
-  invalid selector raises ``ValueError`` - by :user:`gaborbernat`. (:issue:`14`)
-- Rework ``find()`` and ``find_all()`` into a filter grammar over a search axis. A filter is a ``str``, a compiled
-  regex, a ``bool``, a callable, or a list of those, applied to the tag and to attribute filters (keyword arguments, the
-  ``attrs`` mapping, or ``class_``, which matches the class tokens). The ``axis`` keyword (an ``Axis`` member) selects
-  descendants, children, ancestors, siblings, or document-order following/preceding. ``find_all`` takes a ``limit`` and
-  now returns a ``list`` - by :user:`gaborbernat`. (:issue:`15`)
-- Add ``matches()`` and ``closest()`` to every node. ``matches()`` returns whether the node is an Element satisfying a
-  CSS selector, evaluated against its real ancestors and siblings; ``closest()`` returns the nearest Element matching
-  the selector, testing the node itself and then each ancestor, or ``None``. Both reuse the ``select()`` matcher, so an
-  invalid selector raises ``ValueError`` - by :user:`gaborbernat`. (:issue:`16`)
-- Add traversal-axis iterators to every node: ``next_siblings``, ``previous_siblings``, ``following`` (document order,
-  excluding the node's own subtree), and ``preceding`` (reverse document order, excluding the node's ancestors), plus
-  the ``strings`` and ``stripped_strings`` text iterators - by :user:`gaborbernat`. (:issue:`17`)
-- Expose the HTML token-list attributes (``class``, ``rel``, ``rev``, ``headers``, ``accesskey``, ``dropzone``,
-  ``sizes``, ``sandbox``, ``archive``, ``accept-charset``) as a ``list[str]`` in ``Element.attrs``, split on ASCII
-  whitespace. Every other attribute stays a string and a valueless attribute stays ``None`` - by :user:`gaborbernat`.
-  (:issue:`18`)
-- Give every node a controllable serializer. ``inner_html`` returns the children only; ``serialize(formatter=...,
-  indent=...)`` and ``encode(encoding=..., formatter=..., indent=...)`` expose the escape policy through the
-  ``Formatter`` enum (``WHATWG`` minimal-conformant, ``MINIMAL`` structural-only, ``NAMED_ENTITIES`` HTML names) and a
-  pretty form keyed on ``indent`` (an int or string). The default ``html`` output stays WHATWG-conformant: minimal
-  escaping, source-order double-quoted attributes, void elements without an end tag, raw-text content verbatim, and a
-  restored leading newline in ``pre``/``textarea``/``listing`` - by :user:`gaborbernat`. (:issue:`20`)
-- ``parse()`` now accepts ``bytes``. The encoding is sniffed with the WHATWG algorithm: a byte-order mark, then the
-  ``encoding`` argument, then a ``<meta>`` charset prescan, then windows-1252. The bytes are decoded with the resolved
-  codec, replacing malformed sequences with U+FFFD, and ``Document.encoding`` reports the encoding used (``None`` for
-  ``str`` input). Validated against the html5lib-tests encoding suite - by :user:`gaborbernat`. (:issue:`21`)
+- Query any node with CSS through ``select()`` and ``select_one()``, a native matcher covering type, universal, ``#id``,
+  ``.class``, and attribute selectors (all operators plus the case-sensitivity flag) across the descendant, child,
+  adjacent, and sibling combinators, returning comma groups in document order. An invalid selector raises ``ValueError``
+  - by :user:`gaborbernat`. (:issue:`14`)
+- Search with a richer ``find()`` and ``find_all()`` filter grammar: match the tag and attributes by string, regex,
+  bool, callable, or list (including ``class_`` and the ``attrs`` mapping), and choose the search direction with the
+  ``axis`` keyword. ``find_all`` takes a ``limit`` and returns a ``list`` - by :user:`gaborbernat`. (:issue:`15`)
+- Test a node against a selector with ``matches()`` and ``closest()``: ``matches()`` reports whether the node satisfies
+  a CSS selector in context, and ``closest()`` returns the nearest matching ancestor (or the node itself), or ``None`` -
+  by :user:`gaborbernat`. (:issue:`16`)
+- Walk the tree by axis with new iterators: ``next_siblings``, ``previous_siblings``, document-order ``following`` and
+  ``preceding``, plus the ``strings`` and ``stripped_strings`` text iterators - by :user:`gaborbernat`. (:issue:`17`)
+- Read HTML token-list attributes (``class``, ``rel``, ``headers``, ``sizes``, ``sandbox``, and the rest) as a
+  ``list[str]`` in ``Element.attrs``, split on ASCII whitespace; other attributes stay strings and valueless ones stay
+  ``None`` - by :user:`gaborbernat`. (:issue:`18`)
+- Control serialization on any node: ``inner_html`` returns the children, while ``serialize()`` and ``encode()`` take a
+  ``formatter`` (the ``Formatter`` enum picks the escape policy) and an ``indent`` for pretty output. The default stays
+  WHATWG-conformant HTML - by :user:`gaborbernat`. (:issue:`20`)
+- Parse ``bytes`` directly: ``parse()`` sniffs the encoding with the WHATWG algorithm (BOM, ``encoding`` argument,
+  ``<meta>`` charset, then windows-1252), decodes with U+FFFD replacement, and reports the result in
+  ``Document.encoding`` - by :user:`gaborbernat`. (:issue:`21`)
 
 *********************
  v0.2.0 (2026-06-11)
@@ -80,21 +66,12 @@ Features - 0.3.0
 Features - 0.2.0
 ================
 
-- Add a WHATWG-conformant HTML tokenizer: :func:`turbohtml.tokenize` for whole strings, the streaming
-  :class:`turbohtml.Tokenizer`, and the :class:`turbohtml.Token` / :class:`turbohtml.TokenType` types. The C state
-  machine is validated against the html5lib-tests tokenizer conformance suite and bulk-scans text runs the way html5ever
-  does. (:issue:`6`)
-- Speed up ``escape`` and ``unescape``. ``escape`` classifies one-byte strings sixteen bytes at a time with NEON or
-  SSE2, or a SWAR word elsewhere (on NEON, a single low-nibble table lookup matches all five specials at once). The
-  sizing pass accumulates growth without branches, the writing pass copies clean stretches in bulk and rewrites only the
-  positions a match bitmask singles out, and one SWAR pass probes UCS-2 / UCS-4 text for every special character instead
-  of running one ``PyUnicode_FindChar`` sweep per character (UCS-4 uses a four-lane NEON vector). ``unescape`` hops
-  between ``&`` occurrences and bulk-copies the clean spans instead of routing every character through a per-code-point
-  emit, keeps output staging at the input's width until a reference widens it, and resolves the entities ``html.escape``
-  emits with one comparison rather than the full binary search, so unescaping escaped real HTML runs about three times
-  faster than the general lookup path alone. The benchmark now uses `pyperf <https://pyperf.readthedocs.io>`_ with
-  multi-MiB real documents referenced as pinned git submodules under ``tools/bench-data`` - by :user:`gaborbernat`.
-  (:issue:`7`)
+- Tokenize HTML directly with a WHATWG-conformant tokenizer: :func:`turbohtml.tokenize` for whole strings, the streaming
+  :class:`turbohtml.Tokenizer`, and the :class:`turbohtml.Token` / :class:`turbohtml.TokenType` types, validated against
+  the html5lib-tests tokenizer conformance suite. (:issue:`6`)
+- Run ``escape`` and ``unescape`` faster: vectorized scanning and bulk copying speed up both calls, with unescaping of
+  real escaped HTML about three times faster than the general lookup path. The benchmark now uses `pyperf
+  <https://pyperf.readthedocs.io>`_ over multi-MiB real documents - by :user:`gaborbernat`. (:issue:`7`)
 
 *********************
  v0.1.1 (2026-06-09)
@@ -103,8 +80,8 @@ Features - 0.2.0
 Packaging updates - 0.1.1
 =========================
 
-- Publish each wheel artifact in its own job so PEP 740 attestations finish within the Sigstore signing identity's
-  lifetime, fixing the ``sigstore.oidc.ExpiredIdentity`` failure that blocked the first PyPI upload - by
+- Install reliably from PyPI again: publishing each wheel in its own job keeps PEP 740 attestations within the Sigstore
+  identity's lifetime, fixing the ``sigstore.oidc.ExpiredIdentity`` failure that blocked the first upload - by
   :user:`gaborbernat`. (:issue:`4`)
 
 *********************
@@ -114,23 +91,20 @@ Packaging updates - 0.1.1
 Features - 0.1.0
 ================
 
-- Add C-accelerated :func:`turbohtml.escape` and :func:`turbohtml.unescape`, matching :func:`python:html.escape` and
-  :func:`python:html.unescape` byte for byte, with free-threading support and per-interpreter wheels for CPython 3.10
+- Speed up entity handling with C-accelerated :func:`turbohtml.escape` and :func:`turbohtml.unescape`, drop-in
+  replacements for :func:`python:html.escape` and :func:`python:html.unescape`, shipped as wheels for CPython 3.10
   through 3.15 - by :user:`gaborbernat`. (:issue:`1`)
-- Speed up ``escape`` of non-ASCII (UCS-2/UCS-4) text that needs no escaping by probing for special characters with a
-  vectorized scan instead of a scalar one, making it several times faster and ahead of :func:`python:html.escape` - by
-  :user:`gaborbernat`. (:issue:`3`)
+- Escape non-ASCII text that needs no escaping several times faster with a vectorized special-character scan, ahead of
+  :func:`python:html.escape` - by :user:`gaborbernat`. (:issue:`3`)
 
 Improved documentation - 0.1.0
 ==============================
 
-- Document the measured ``escape``/``unescape`` speedups over the standard library in the README and the docs, add a
-  reproducible benchmark behind ``tox -e bench``, and give the API reference typed signatures with intersphinx links -
-  by :user:`gaborbernat`. (:issue:`2`)
+- See the measured ``escape``/``unescape`` speedups in the README and docs, reproduce them with ``tox -e bench``, and
+  browse a typed API reference with intersphinx links - by :user:`gaborbernat`. (:issue:`2`)
 
 Miscellaneous internal changes - 0.1.0
 ======================================
 
-- Automate releases the tox-dev way: git-tag-derived versioning, a towncrier-managed changelog, and a manual
-  prepare-release workflow that tags and triggers the trusted-publishing wheel build - by :user:`gaborbernat`.
-  (:issue:`1`)
+- Automate releases with git-tag-derived versioning, a towncrier-managed changelog, and a prepare-release workflow that
+  tags and triggers the trusted-publishing wheel build - by :user:`gaborbernat`. (:issue:`1`)
