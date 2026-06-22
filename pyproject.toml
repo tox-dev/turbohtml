@@ -90,6 +90,7 @@ bench = [
   "cssselect>=1.3",
   "html-sanitizer>=2.5",
   "html2text>=2025.4",
+  "html5-parser>=0.4.12",
   "html5lib>=1.1",
   "inscriptis>=2.6",
   "linkify-it-py>=2",

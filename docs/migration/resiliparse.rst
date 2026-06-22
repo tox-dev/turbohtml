@@ -92,14 +92,3 @@ while returning a fully type annotated, mutable :class:`~turbohtml.Document` and
   for a dedicated tool there.
 - turbohtml compares nodes by identity over the underlying arena node, so two wrappers for the same element are equal
   but two separately parsed trees with identical markup are not; compare serializations or walk the tree instead.
-
-*****************
- A note on gumbo
-*****************
-
-`gumbo <https://github.com/google/gumbo-parser>`_, the C WHATWG parser behind `html5-parser
-<https://html5-parser.readthedocs.io>`_, has no migration table here. It is read-oriented and archived upstream, and its
-Python binding no longer builds on a current toolchain, so there is nothing to port from in practice. Code that read a
-gumbo tree maps onto the same :meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.select` read surface shown above. The
-maintained `html5-parser <https://github.com/kovidgoyal/html5-parser>`_ wraps the same gumbo engine and has its own
-section.

@@ -57,6 +57,13 @@ from pyquery import PyQuery
 from resiliparse.parse.html import HTMLTree  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
 from selectolax.lexbor import LexborHTMLParser
 
+# html5-parser is built against the system libxml2 and raises at import when that differs from lxml's bundled copy;
+# rebuild lxml with ``pip install --no-binary lxml lxml`` to race it. Optional so the suite still runs without it.
+try:
+    import html5_parser  # ty: ignore[unresolved-import]  # gumbo-backed WHATWG parser, returns an lxml tree, no stubs
+except (ImportError, RuntimeError):
+    html5_parser = None  # ty: ignore[assignment]
+
 import turbohtml
 from turbohtml import sanitizer as turbo_sanitizer
 from turbohtml.linkify import linkify as turbo_linkify_html
@@ -307,12 +314,18 @@ def soup_parse(text: str) -> None:
     BeautifulSoup(text, "html.parser")
 
 
+def html5_parser_parse(text: str) -> None:
+    """Parse with html5-parser, which wraps the gumbo C parser and returns an lxml tree."""
+    html5_parser.parse(text)  # ty: ignore[possibly-unbound-attribute]  # registered only when the import succeeded
+
+
 # Whole-document tree builders raced against turbohtml.parse() in the parse suite, ordered fastest to slowest.
 # Each label names the pip-installable package so the comparison stays like-for-like.
 PARSE_COMPETITORS: tuple[tuple[str, Callable[[str], None]], ...] = (
     ("lxml", lxml_parse),
     ("selectolax", lexbor_parse),
     ("resiliparse", resiliparse_parse),
+    *((("html5-parser", html5_parser_parse),) if html5_parser is not None else ()),
     ("BeautifulSoup", soup_parse),
     ("html5lib", html5lib_parse),
 )
