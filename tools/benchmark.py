@@ -60,9 +60,9 @@ from selectolax.lexbor import LexborHTMLParser
 # html5-parser is built against the system libxml2 and raises at import when that differs from lxml's bundled copy;
 # rebuild lxml with ``pip install --no-binary lxml lxml`` to race it. Optional so the suite still runs without it.
 try:
-    import html5_parser  # ty: ignore[unresolved-import]  # gumbo-backed WHATWG parser, returns an lxml tree, no stubs
+    import html5_parser  # gumbo-backed WHATWG parser, returns an lxml tree, no type stubs
 except (ImportError, RuntimeError):
-    html5_parser = None  # ty: ignore[assignment]
+    html5_parser = None  # ty: ignore[invalid-assignment]  # optional: re-bind the name when the import is unavailable
 
 import turbohtml
 from turbohtml import sanitizer as turbo_sanitizer
@@ -316,7 +316,7 @@ def soup_parse(text: str) -> None:
 
 def html5_parser_parse(text: str) -> None:
     """Parse with html5-parser, which wraps the gumbo C parser and returns an lxml tree."""
-    html5_parser.parse(text)  # ty: ignore[possibly-unbound-attribute]  # registered only when the import succeeded
+    html5_parser.parse(text)  # ty: ignore[possibly-missing-attribute]  # registered only when the import succeeded
 
 
 # Whole-document tree builders raced against turbohtml.parse() in the parse suite, ordered fastest to slowest.
