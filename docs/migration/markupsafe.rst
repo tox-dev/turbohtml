@@ -22,26 +22,32 @@ markupsafe's own C escape on the small, mostly-clean strings a template engine i
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - input
       - turbohtml
       - markupsafe
+      - speed-up
     - - clean (8 B)
-      - 63 ns
-      - 188 ns
+      - 61 ns
+      - 185 ns
+      - 3.1x
     - - clean (32 B)
-      - 71 ns
-      - 207 ns
+      - 67 ns
+      - 203 ns
+      - 3.0x
     - - clean (256 B)
-      - 138 ns
-      - 458 ns
+      - 115 ns
+      - 447 ns
+      - 3.9x
     - - name with ``'`` and ``&``
-      - 87 ns
-      - 218 ns
+      - 84 ns
+      - 213 ns
+      - 2.5x
     - - escape-heavy markup
-      - 147 ns
-      - 358 ns
+      - 141 ns
+      - 338 ns
+      - 2.4x
 
 *************
  The renames

@@ -31,32 +31,32 @@ narrows on tiny strings, where call overhead dominates.
       - 0.04 µs
       - 0.11 µs
     - - medium markup (4 KiB)
-      - 2.18 µs
+      - 2.27 µs
       - 7.19 µs
     - - no-op prose (4 MiB)
       - 0.11 ms
-      - 2.52 ms
+      - 2.53 ms
     - - book text (3 MiB)
-      - 0.60 ms
-      - 2.55 ms
+      - 0.66 ms
+      - 2.59 ms
     - - book HTML (4 MiB)
-      - 1.20 ms
-      - 4.52 ms
+      - 1.26 ms
+      - 4.58 ms
     - - spec HTML, dense (4 MiB)
-      - 4.87 ms
+      - 4.98 ms
       - 12.7 ms
     - - UCS-2 plain (4 MiB)
       - 0.70 ms
-      - 2.68 ms
+      - 2.44 ms
     - - UCS-2 markup (4 MiB)
-      - 3.59 ms
-      - 11.3 ms
+      - 3.36 ms
+      - 11.1 ms
     - - UCS-4 plain (4 MiB)
-      - 0.93 ms
-      - 5.33 ms
+      - 0.92 ms
+      - 5.29 ms
     - - UCS-4 markup (4 MiB)
-      - 3.91 ms
-      - 19.7 ms
+      - 3.93 ms
+      - 19.4 ms
 
 *******************
  Markup (escaping)
@@ -75,20 +75,20 @@ Python ``escape`` frame and ``Markup`` construction per call, so it runs roughly
       - turbohtml
       - markupsafe
     - - clean (8 B)
-      - 63 ns
-      - 188 ns
+      - 61 ns
+      - 185 ns
     - - clean (32 B)
-      - 71 ns
-      - 207 ns
+      - 67 ns
+      - 203 ns
     - - clean (256 B)
-      - 138 ns
-      - 458 ns
+      - 115 ns
+      - 447 ns
     - - name with ``'`` and ``&``
-      - 87 ns
-      - 218 ns
+      - 84 ns
+      - 213 ns
     - - escape-heavy markup
-      - 147 ns
-      - 358 ns
+      - 141 ns
+      - 338 ns
 
 *********
  Linkify
@@ -109,17 +109,17 @@ turbohtml's own tree carry it past bleach's html5lib pass by five to twenty time
       - bleach
       - linkify-it-py
     - - comment (1 link, 1 email)
-      - 2.6 µs
-      - 53 µs
+      - 2.9 µs
+      - 52 µs
       - 29 µs
     - - prose (1 KiB)
-      - 48 µs
-      - 269 µs
+      - 51 µs
+      - 272 µs
       - 310 µs
     - - markup (4 KiB)
-      - 120 µs
-      - 1580 µs
-      - 723 µs
+      - 127 µs
+      - 1562 µs
+      - 708 µs
 
 **********
  Sanitize
@@ -148,15 +148,15 @@ an allowlist, since a blocklist passes anything it did not think to name.
     - - comment (1 link, 1 script)
       - 1.5 µs
       - 5.5 µs
-      - 79.3 µs
-      - 19.3 µs
-      - 46.8 µs
+      - 78.1 µs
+      - 19.4 µs
+      - 45.3 µs
     - - post (4 KiB)
-      - 41.1 µs
-      - 121.6 µs
+      - 42.1 µs
+      - 120.1 µs
       - 1921 µs
-      - 505 µs
-      - 1559 µs
+      - 497 µs
+      - 1504 µs
 
 **********
  Markdown
@@ -178,25 +178,25 @@ reference links, padded tables, full escaping), and turbohtml stays ahead by the
       - markdownify
       - html2text
     - - article (2 KiB)
-      - 12 µs
-      - 1267 µs
-      - 573 µs
+      - 13 µs
+      - 1185 µs
+      - 542 µs
     - - list (4 KiB)
-      - 21 µs
-      - 2453 µs
-      - 1209 µs
+      - 23 µs
+      - 2381 µs
+      - 1143 µs
     - - table (4 KiB)
-      - 27 µs
-      - 2948 µs
-      - 1069 µs
+      - 26 µs
+      - 2825 µs
+      - 1017 µs
     - - configured (4 KiB)
       - 28 µs
-      - 2726 µs
-      - 1182 µs
+      - 2560 µs
+      - 1118 µs
     - - google_doc (4 KiB)
-      - 17 µs
+      - 18 µs
       - —
-      - 577 µs
+      - 560 µs
 
 The ``google_doc`` row reads the inline-CSS styling a Google Docs export carries (html2text's google_doc mode);
 markdownify has no equivalent.
@@ -218,13 +218,13 @@ builds an lxml tree and a CSS model in Python, where turbohtml does the whole la
       - inscriptis
     - - article (2 KiB)
       - 7 µs
-      - 172 µs
+      - 163 µs
     - - table (4 KiB)
-      - 26 µs
-      - 885 µs
+      - 28 µs
+      - 839 µs
     - - annotated (4 KiB)
       - 10 µs
-      - 208 µs
+      - 202 µs
 
 The ``annotated`` row labels matching elements with spans through :meth:`~turbohtml.Node.to_annotated_text` against
 inscriptis's ``get_annotated_text``.
@@ -249,31 +249,31 @@ callback per match; turbohtml hops between ``&`` occurrences in C and bulk-copie
     - - tiny plain (64 B)
       - 0.02 µs
       - 0.03 µs
-      - 0.26 µs
+      - 0.25 µs
     - - medium dense refs (4 KiB)
-      - 8.03 µs
-      - 69.5 µs
+      - 8.10 µs
+      - 69.3 µs
       - 116 µs
     - - numeric refs (4 KiB)
-      - 5.74 µs
-      - 78.7 µs
-      - 93.2 µs
+      - 5.91 µs
+      - 78.9 µs
+      - 93.1 µs
     - - book HTML, real refs (4 MiB)
-      - 2.46 ms
-      - 7.92 ms
-      - 13.3 ms
+      - 2.51 ms
+      - 8.05 ms
+      - 13.5 ms
     - - escaped book HTML (5 MiB)
-      - 1.87 ms
-      - 19.5 ms
-      - 35.5 ms
+      - 1.86 ms
+      - 19.9 ms
+      - 35.7 ms
     - - dense refs (4 MiB)
-      - 10.1 ms
-      - 74.1 ms
-      - 117 ms
+      - 9.91 ms
+      - 73.8 ms
+      - 119 ms
     - - UCS-2 refs (4 MiB)
-      - 2.66 ms
+      - 2.67 ms
       - 18.4 ms
-      - 27.5 ms
+      - 27.6 ms
 
 ************
  Tokenizing
@@ -293,57 +293,57 @@ times faster.
       - html.parser
       - html5lib
     - - typical markup
-      - 31.6 µs
-      - 441 µs
+      - 32.1 µs
+      - 437 µs
       - 815 µs
     - - text-heavy prose
-      - 0.54 µs
-      - 2.8 µs
-      - 143 µs
+      - 0.61 µs
+      - 2.9 µs
+      - 144 µs
     - - attribute-heavy
-      - 19.4 µs
-      - 298 µs
-      - 809 µs
+      - 20.4 µs
+      - 304 µs
+      - 807 µs
     - - script-heavy
-      - 12.2 µs
-      - 156 µs
-      - 486 µs
+      - 12.8 µs
+      - 158 µs
+      - 489 µs
     - - entity-heavy
-      - 20.8 µs
-      - 196 µs
+      - 21.7 µs
+      - 198 µs
       - 1.21 ms
     - - wpt page (0.6 kB)
-      - 1.5 µs
+      - 1.6 µs
       - 17.7 µs
-      - 47.5 µs
+      - 48.0 µs
     - - wpt page (4 kB)
-      - 12.9 µs
-      - 169 µs
-      - 421 µs
+      - 13.1 µs
+      - 168 µs
+      - 420 µs
     - - wpt page (9.6 kB)
-      - 30.0 µs
-      - 359 µs
+      - 31.0 µs
+      - 361 µs
       - 1.16 ms
     - - wpt page (92 kB)
-      - 336 µs
-      - 4.02 ms
-      - 9.02 ms
+      - 354 µs
+      - 4.05 ms
+      - 8.96 ms
     - - wpt page, CJK (124 kB)
-      - 586 µs
-      - 8.43 ms
+      - 609 µs
+      - 8.38 ms
       - 22.4 ms
     - - whatwg spec (235 kB)
-      - 685 µs
+      - 687 µs
       - 7.46 ms
-      - 19.3 ms
+      - 19.2 ms
     - - ecmascript spec (3 MB)
-      - 6.10 ms
-      - 54.9 ms
+      - 6.26 ms
+      - 55.5 ms
       - 180 ms
     - - whatwg spec source (7.9 MB)
-      - 36.6 ms
+      - 37.8 ms
       - 390 ms
-      - 856 ms
+      - 847 ms
 
 *********
  Parsing
@@ -376,61 +376,61 @@ longer builds on a current toolchain. turbohtml is the maintained, mutable, type
       - BeautifulSoup
       - html5lib
     - - wpt page (0.6 kB)
-      - 1.3 µs
+      - 1.4 µs
       - 3.3 µs
-      - 7.0 µs
-      - 3.9 µs
+      - 6.8 µs
+      - 3.8 µs
       - 61.3 µs
       - 101 µs
     - - wpt page (4 kB)
-      - 10.9 µs
-      - 27.2 µs
-      - 42.3 µs
-      - 12.9 µs
-      - 435 µs
-      - 615 µs
+      - 11.4 µs
+      - 27.1 µs
+      - 42.2 µs
+      - 12.7 µs
+      - 438 µs
+      - 620 µs
     - - wpt page (9.6 kB)
-      - 28.2 µs
-      - 72.8 µs
+      - 29.2 µs
+      - 72.9 µs
       - 107 µs
-      - 28.0 µs
-      - 840 µs
+      - 28.1 µs
+      - 839 µs
       - 1.45 ms
     - - wpt page (92 kB)
-      - 269 µs
-      - 633 µs
-      - 919 µs
+      - 272 µs
+      - 631 µs
+      - 917 µs
       - 282 µs
-      - 15.2 ms
+      - 15.3 ms
       - 16.7 ms
     - - wpt page, CJK (124 kB)
-      - 536 µs
+      - 540 µs
       - 1.43 ms
-      - 2.29 ms
-      - 538 µs
+      - 2.30 ms
+      - 543 µs
       - 21.8 ms
-      - 29.3 ms
+      - 29.7 ms
     - - whatwg spec (235 kB)
-      - 510 µs
-      - 1.24 ms
-      - 1.77 ms
+      - 518 µs
+      - 1.22 ms
+      - 1.78 ms
       - 505 µs
-      - 25.2 ms
+      - 25.3 ms
       - 30.9 ms
     - - ecmascript spec (3 MB)
-      - 4.48 ms
-      - 17.5 ms
+      - 4.54 ms
+      - 17.4 ms
       - 15.7 ms
-      - 5.30 ms
-      - 192 ms
-      - 260 ms
+      - 5.35 ms
+      - 193 ms
+      - 262 ms
     - - whatwg spec source (7.9 MB)
-      - 28.4 ms
-      - 84.1 ms
-      - 93.9 ms
-      - 30.0 ms
-      - 1.60 s
-      - 1.51 s
+      - 28.9 ms
+      - 83.1 ms
+      - 94.0 ms
+      - 30.1 ms
+      - 1.62 s
+      - 1.53 s
 
 **********
  Querying
@@ -455,21 +455,21 @@ times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector libr
     - - wpt page (4 kB)
       - 0.1 µs
       - 0.5 µs
-      - 2.4 µs
-      - 4.0 µs
-      - 6.1 µs
+      - 2.1 µs
+      - 3.8 µs
+      - 5.7 µs
     - - wpt page (9.6 kB)
       - 0.1 µs
       - 0.5 µs
-      - 2.7 µs
-      - 4.4 µs
-      - 9.5 µs
+      - 2.6 µs
+      - 4.2 µs
+      - 9.3 µs
     - - wpt page (92 kB)
-      - 2.0 µs
-      - 24.2 µs
-      - 47.1 µs
-      - 82.1 µs
-      - 212 µs
+      - 1.9 µs
+      - 23.3 µs
+      - 45.3 µs
+      - 79.5 µs
+      - 207 µs
 
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
 <https://github.com/scrapy/cssselect>`_, selectolax's ``css``, parsel's ``css``, BeautifulSoup's `soupsieve
@@ -490,28 +490,29 @@ to roughly twenty times on the largest page where the document walk dominates.
       - BeautifulSoup
     - - wpt page (4 kB)
       - 0.04 µs
-      - 15.5 µs
+      - 15.2 µs
       - 2.5 µs
-      - 7.4 µs
-      - 45.1 µs
+      - 7.0 µs
+      - 41.8 µs
     - - wpt page (9.6 kB)
       - 0.04 µs
-      - 17.4 µs
-      - 3.3 µs
-      - 8.6 µs
-      - 66.5 µs
+      - 16.2 µs
+      - 2.9 µs
+      - 8.0 µs
+      - 62.8 µs
     - - wpt page (92 kB)
       - 2.0 µs
-      - 39.1 µs
-      - 46.4 µs
-      - 26.8 µs
-      - 2.11 ms
+      - 33.1 µs
+      - 44.8 µs
+      - 25.4 µs
+      - 2.05 ms
 
 The relational ``:has()`` pseudo-class is the costliest selector to evaluate, since a naive matcher rescans each
-candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and stays ahead of every alternative: roughly
-three times faster than lxml and selectolax on the large page and over a hundred times faster than BeautifulSoup. The
-matcher walks each anchor's descendants once and skips the sibling scan for descendant and child relationships, so the
-relational lookup keeps the same interned-atom comparison the flat selectors use.
+candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and stays ahead of every alternative: tens of
+times faster than lxml and selectolax on the smaller pages, widening to hundreds of times on the large page, and
+hundreds to tens of thousands of times faster than BeautifulSoup. The matcher walks each anchor's descendants once and
+skips the sibling scan for descendant and child relationships, so the relational lookup keeps the same interned-atom
+comparison the flat selectors use.
 
 .. list-table::
     :header-rows: 1
@@ -523,20 +524,20 @@ relational lookup keeps the same interned-atom comparison the flat selectors use
       - selectolax
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 0.8 µs
+      - 0.5 µs
       - 16.3 µs
-      - 4.8 µs
-      - 130 µs
+      - 4.6 µs
+      - 128 µs
     - - wpt page (9.6 kB)
-      - 0.9 µs
-      - 18.2 µs
-      - 5.8 µs
-      - 154 µs
+      - 0.6 µs
+      - 18.1 µs
+      - 5.5 µs
+      - 152 µs
     - - wpt page (92 kB)
-      - 11.9 µs
-      - 33.6 µs
-      - 37.8 µs
-      - 1.40 ms
+      - 0.04 µs
+      - 32.9 µs
+      - 37.2 µs
+      - 1.38 ms
 
 XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against lxml's libxml2 engine, the XPath that
 parsel, pyquery, and html5-parser all wrap (selectolax and BeautifulSoup have none). One expression per feature class
@@ -559,49 +560,49 @@ turbohtml still leads, since lxml resolves the namespace map and option set on e
       - lxml
     - - ``//div``
       - 2.5 µs
-      - 13.9 µs
+      - 11.5 µs
     - - ``//a[@href]``
-      - 0.5 µs
-      - 3.9 µs
+      - 0.6 µs
+      - 4.1 µs
     - - ``//div//a[@href]``
-      - 2.0 µs
-      - 9.9 µs
+      - 2.1 µs
+      - 10.1 µs
     - - ``/html/body/div``
       - 1.1 µs
-      - 6.1 µs
+      - 6.4 µs
     - - ``//div//a[1]``
-      - 11.0 µs
-      - 9.9 µs
+      - 11.1 µs
+      - 10.1 µs
     - - ``//a[contains(@href, '/')]``
       - 0.5 µs
-      - 4.1 µs
+      - 4.3 µs
     - - ``//div[position() <= 3]``
-      - 6.4 µs
-      - 13.4 µs
+      - 6.6 µs
+      - 13.7 µs
     - - ``//a/ancestor::div``
-      - 0.5 µs
-      - 2.4 µs
+      - 0.6 µs
+      - 2.6 µs
     - - ``//a | //span``
-      - 0.9 µs
-      - 3.1 µs
+      - 1.0 µs
+      - 3.4 µs
     - - ``//*[local-name() = 'a']``
-      - 5.4 µs
-      - 14.1 µs
+      - 5.5 µs
+      - 14.3 µs
     - - ``count(//a)``
-      - 0.5 µs
-      - 2.4 µs
+      - 0.6 µs
+      - 2.7 µs
     - - ``//a[@href=$x]`` (variable)
       - 0.6 µs
-      - 4.1 µs
+      - 4.3 µs
     - - ``//a[re:test(@href, ...)]`` (EXSLT)
       - 0.5 µs
-      - 4.5 µs
+      - 4.6 µs
     - - ``//a/@href`` (smart_strings)
       - 0.6 µs
-      - 2.3 µs
+      - 2.6 µs
     - - ``ext(//a)`` (extensions)
       - 1.0 µs
-      - 2.9 µs
+      - 3.0 µs
 
 *************
  Serializing
@@ -624,20 +625,20 @@ fifty to sixty times faster than BeautifulSoup.
       - selectolax
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 3.7 µs
-      - 19.1 µs
-      - 12.6 µs
-      - 204 µs
+      - 3.8 µs
+      - 18.7 µs
+      - 12.4 µs
+      - 198 µs
     - - wpt page (9.6 kB)
-      - 9.5 µs
-      - 53.2 µs
-      - 30.6 µs
-      - 481 µs
+      - 9.8 µs
+      - 50.7 µs
+      - 29.8 µs
+      - 478 µs
     - - wpt page (92 kB)
       - 105 µs
-      - 385 µs
+      - 381 µs
       - 339 µs
-      - 6.30 ms
+      - 5.95 ms
 
 **********
  Building
@@ -657,17 +658,17 @@ objects. selectolax is parse-only, so it has no entry.
       - lxml
       - BeautifulSoup
     - - 100 rows
-      - 56.2 µs
-      - 133 µs
-      - 782 µs
+      - 59.6 µs
+      - 135 µs
+      - 753 µs
     - - 1000 rows
-      - 556 µs
-      - 1.36 ms
-      - 7.55 ms
+      - 580 µs
+      - 1.34 ms
+      - 7.40 ms
     - - 10000 rows
-      - 5.27 ms
-      - 13.7 ms
-      - 83.0 ms
+      - 5.71 ms
+      - 13.5 ms
+      - 79.0 ms
 
 *********
  Editing
@@ -687,17 +688,17 @@ selectolax mutation is limited, so it has no entry.
       - lxml
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 195 ns
-      - 688 ns
-      - 5.82 µs
+      - 70 ns
+      - 700 ns
+      - 5.7 µs
     - - wpt page (9.6 kB)
-      - 295 ns
-      - 760 ns
-      - 9.58 µs
+      - 72 ns
+      - 800 ns
+      - 9.3 µs
     - - wpt page (92 kB)
-      - 18.4 µs
-      - 40.9 µs
-      - 215 µs
+      - 8.4 µs
+      - 41.6 µs
+      - 212 µs
 
 *****************
  Fluent chaining
@@ -720,11 +721,11 @@ starts from one node, so it runs roughly ten times faster.
       - 0.9 µs
       - 16.0 µs
     - - wpt page (9.6 kB)
-      - 1.1 µs
+      - 1.0 µs
       - 16.5 µs
     - - wpt page (92 kB)
-      - 21.2 µs
-      - 257 µs
+      - 21.8 µs
+      - 278 µs
 
 *********************
  html.parser adapter
@@ -743,11 +744,11 @@ raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it
       - turbohtml
       - html.parser
     - - wpt page (4 kB)
-      - 40.9 µs
-      - 175 µs
+      - 39.0 µs
+      - 168 µs
     - - wpt page (9.6 kB)
-      - 89.8 µs
-      - 401 µs
+      - 82.1 µs
+      - 362 µs
     - - wpt page (92 kB)
-      - 1.43 ms
-      - 4.32 ms
+      - 1.38 ms
+      - 3.99 ms

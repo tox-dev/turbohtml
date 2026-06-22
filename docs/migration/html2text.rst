@@ -19,23 +19,28 @@ faster while covering the same options, including the Google Docs mode:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - to Markdown
       - turbohtml
       - html2text
+      - speed-up
     - - article (2 KiB)
-      - 12 µs
-      - 573 µs
+      - 13 µs
+      - 542 µs
+      - 42.2x
     - - list (4 KiB)
-      - 21 µs
-      - 1209 µs
+      - 23 µs
+      - 1143 µs
+      - 49.6x
     - - table (4 KiB)
-      - 27 µs
-      - 1069 µs
+      - 26 µs
+      - 1017 µs
+      - 38.9x
     - - google_doc (4 KiB)
-      - 17 µs
-      - 577 µs
+      - 18 µs
+      - 560 µs
+      - 31.9x
 
 *************
  The renames

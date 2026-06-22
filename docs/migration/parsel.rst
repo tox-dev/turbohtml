@@ -23,20 +23,24 @@ re-evaluates it on libxml2 per call, so a reused query is roughly thirteen to tw
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - select ``div a[href]``
       - turbohtml
       - parsel
+      - speed-up
     - - wpt page (4 kB)
       - 0.04 µs
-      - 7.4 µs
+      - 7.0 µs
+      - 167.9x
     - - wpt page (9.6 kB)
       - 0.04 µs
-      - 8.6 µs
+      - 8.0 µs
+      - 192.3x
     - - wpt page (92 kB)
       - 2.0 µs
-      - 26.8 µs
+      - 25.4 µs
+      - 12.9x
 
 *************
  The renames

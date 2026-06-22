@@ -20,20 +20,24 @@ so the same chain runs roughly ten times faster than pyquery's lxml-backed wrapp
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - select, filter, tag, read
       - turbohtml
       - pyquery
+      - speed-up
     - - wpt page (4 kB)
       - 0.9 µs
       - 16.0 µs
+      - 17.2x
     - - wpt page (9.6 kB)
-      - 1.1 µs
+      - 1.0 µs
       - 16.5 µs
+      - 16.1x
     - - wpt page (92 kB)
-      - 21.2 µs
-      - 257 µs
+      - 21.8 µs
+      - 278 µs
+      - 12.8x
 
 *************
  The renames

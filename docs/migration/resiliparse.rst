@@ -20,20 +20,24 @@ while returning a fully type annotated, mutable :class:`~turbohtml.Document` and
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - parse
       - turbohtml
       - resiliparse
+      - speed-up
     - - wpt page (4 kB)
-      - 10.9 µs
-      - 12.9 µs
+      - 11.4 µs
+      - 12.7 µs
+      - 1.1x
     - - wpt page (92 kB)
-      - 269 µs
+      - 272 µs
       - 282 µs
+      - 1.0x
     - - ecmascript spec (3 MB)
-      - 4.48 ms
-      - 5.30 ms
+      - 4.54 ms
+      - 5.35 ms
+      - 1.2x
 
 *************
  The renames

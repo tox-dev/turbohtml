@@ -19,20 +19,24 @@ type annotated and running the scan in C, so it is a drop-in that runs several t
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - unescape
       - turbohtml
       - w3lib
+      - speed-up
     - - tiny plain (64 B)
       - 0.02 µs
-      - 0.26 µs
+      - 0.25 µs
+      - 12.4x
     - - medium dense refs (4 KiB)
-      - 8.03 µs
+      - 8.10 µs
       - 116 µs
+      - 14.3x
     - - book HTML, real refs (4 MiB)
-      - 2.46 ms
-      - 13.3 ms
+      - 2.51 ms
+      - 13.5 ms
+      - 5.4x
 
 *************
  The renames

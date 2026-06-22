@@ -21,20 +21,24 @@ than the Python scanner that does strictly less work:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - linkify
       - turbohtml
       - linkify-it-py
+      - speed-up
     - - comment (1 link, 1 email)
-      - 2.6 µs
+      - 2.9 µs
       - 29 µs
+      - 10.1x
     - - prose (1 KiB)
-      - 48 µs
+      - 51 µs
       - 310 µs
+      - 6.1x
     - - markup (4 KiB)
-      - 120 µs
-      - 723 µs
+      - 127 µs
+      - 708 µs
+      - 5.6x
 
 *************
  The renames

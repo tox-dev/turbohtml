@@ -20,17 +20,20 @@ builder in C instead of an lxml parse, leading html-sanitizer by one to two orde
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - sanitize
       - turbohtml
       - html-sanitizer
+      - speed-up
     - - comment (1 link, 1 script)
       - 1.5 µs
-      - 46.8 µs
+      - 45.3 µs
+      - 30.5x
     - - post (4 KiB)
-      - 41.1 µs
-      - 1559 µs
+      - 42.1 µs
+      - 1504 µs
+      - 35.8x
 
 *************
  The renames

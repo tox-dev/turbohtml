@@ -16,10 +16,30 @@ pure-Python pass.
 
 The difference is what you get back. ``html5_parser.parse`` returns a read-oriented lxml element built on ``libxml2``,
 while :func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with a mutable, natively typed
-tree and a real ``<template>`` content document, and no ``libxml2``/gumbo build dependency. html5-parser sits in the
-same native-gumbo tier as the C parsers measured on the :doc:`/development/performance` page; because its lxml tree is
-bound to a specific ``libxml2`` build that the benchmark cannot pin portably, it is cross-linked there rather than given
-a separate row.
+tree and a real ``<template>`` content document, and no ``libxml2``/gumbo build dependency. html5-parser builds its tree
+through gumbo into ``libxml2``, where turbohtml runs its own C engine straight into the native tree, so parsing the same
+document is more than an order of magnitude faster:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - parse
+      - turbohtml
+      - html5-parser
+      - speed-up
+    - - 4 kB document
+      - 2.8 µs
+      - 64.1 µs
+      - 22.9x
+    - - 92 kB document
+      - 130 µs
+      - 1.84 ms
+      - 14.2x
+    - - 3 MB document
+      - 4.63 ms
+      - 59.7 ms
+      - 12.9x
 
 *************
  The renames

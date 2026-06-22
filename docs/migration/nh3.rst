@@ -21,17 +21,20 @@ frozen :class:`~turbohtml.sanitizer.Policy`. It also leads nh3 on the benchmark:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - sanitize
       - turbohtml
       - nh3
+      - speed-up
     - - comment (1 link, 1 script)
       - 1.5 µs
       - 5.5 µs
+      - 3.7x
     - - post (4 KiB)
-      - 41.1 µs
-      - 121.6 µs
+      - 42.1 µs
+      - 120.1 µs
+      - 2.9x
 
 *************
  The renames

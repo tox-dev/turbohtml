@@ -20,23 +20,28 @@ parsing and tokenizing are 30 to 80 times faster than the pure-Python implementa
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - input
       - turbohtml
       - html5lib
+      - speed-up
     - - parse wpt page (4 kB)
-      - 10.9 µs
-      - 615 µs
+      - 11.4 µs
+      - 620 µs
+      - 54.5x
     - - parse wpt page (92 kB)
-      - 269 µs
+      - 272 µs
       - 16.7 ms
+      - 61.6x
     - - tokenize typical markup
-      - 31.6 µs
+      - 32.1 µs
       - 815 µs
+      - 25.4x
     - - tokenize whatwg spec (235 kB)
-      - 685 µs
-      - 19.3 ms
+      - 687 µs
+      - 19.2 ms
+      - 27.9x
 
 *************
  The renames

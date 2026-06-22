@@ -21,23 +21,28 @@ to two orders of magnitude faster than BeautifulSoup over ``html.parser``:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - input
       - turbohtml
       - BeautifulSoup
+      - speed-up
     - - parse wpt page (4 kB)
-      - 10.9 µs
-      - 435 µs
+      - 11.4 µs
+      - 438 µs
+      - 38.5x
     - - parse wpt page (92 kB)
-      - 269 µs
-      - 15.2 ms
+      - 272 µs
+      - 15.3 ms
+      - 56.2x
     - - select ``div a[href]`` (4 kB)
       - 0.04 µs
-      - 45.1 µs
+      - 41.8 µs
+      - 1010.3x
     - - serialize wpt page (92 kB)
       - 105 µs
-      - 6.30 ms
+      - 5.95 ms
+      - 56.8x
 
 The :doc:`/development/performance` page benchmarks the build and edit paths against BeautifulSoup too.
 

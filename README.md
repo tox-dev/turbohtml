@@ -207,23 +207,25 @@ the other C libraries on the read-path benchmarks. Measured with [pyperf](https:
 
 - `escape` and `unescape` match the standard library byte for byte while running several times faster, up to 22× on
   no-op text and 13× on entity-dense input.
-- `turbohtml.migration.markupsafe.escape` matches markupsafe and runs 2–3× faster on the small strings template
+- `turbohtml.migration.markupsafe.escape` matches markupsafe and runs 2–4× faster on the small strings template
   autoescaping escapes.
-- `turbohtml.linkify` auto-links HTML 5–20× faster than bleach and 6–11× faster than the plain-text
+- `turbohtml.linkify` auto-links HTML 5–20× faster than bleach and 5–10× faster than the plain-text
   [linkify-it-py](https://github.com/tsutsu3/linkify-it-py) scanner, which only finds links without rewriting them.
-- `tokenize` is 9–16× faster than `html.parser` wherever markup appears.
+- `tokenize` is 9–15× faster than `html.parser` wherever markup appears.
 - `parse` builds a full WHATWG tree 2–5× faster than the C parsers [lxml](https://lxml.de) and
   [selectolax](https://github.com/rushter/selectolax), and 30–80× faster than the pure-Python
   [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) and
   [html5lib](https://github.com/html5lib/html5lib-python).
-- `find_all` and CSS `select` run 2–40× faster than lxml's C XPath and [cssselect](https://github.com/scrapy/cssselect)
-  at every size and 100× faster than BeautifulSoup.
-- serializing a tree back to HTML runs 2–4× faster than lxml and selectolax and about 40× faster than BeautifulSoup.
-- `to_markdown` exports GitHub-Flavored Markdown 40–110× faster than markdownify and html2text, which build and convert
+- `find_all` runs 9–13× faster than lxml's C `findall`, and a reused CSS `select` runs several times to hundreds of
+  times faster than lxml's [cssselect](https://github.com/scrapy/cssselect) (≈17× on the largest page, up to ≈390× on
+  small ones, since the selector compiles against the tree once); both run hundreds to over a thousand times faster than
+  BeautifulSoup.
+- serializing a tree back to HTML runs 3–5× faster than lxml and selectolax and about 50× faster than BeautifulSoup.
+- `to_markdown` exports GitHub-Flavored Markdown 30–110× faster than markdownify and html2text, which build and convert
   in Python.
-- `to_text` renders layout-aware plain text 20–35× faster than [inscriptis](https://github.com/weblyzard/inscriptis).
-- building a tree from scratch and editing a parsed one both run about twice as fast as lxml and an order of magnitude
-  faster than BeautifulSoup.
+- `to_text` renders layout-aware plain text 20–30× faster than [inscriptis](https://github.com/weblyzard/inscriptis).
+- building a tree from scratch runs about twice as fast as lxml, and editing a parsed one runs 5–11× faster; both run an
+  order of magnitude or more faster than BeautifulSoup.
 
 See the [performance page](https://turbohtml.readthedocs.io/en/latest/development/performance.html) for the full
 sectioned tables and the methodology.

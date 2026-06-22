@@ -19,23 +19,28 @@ walk over a BeautifulSoup tree, so it converts a page two orders of magnitude fa
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - to Markdown
       - turbohtml
       - markdownify
+      - speed-up
     - - article (2 KiB)
-      - 12 µs
-      - 1267 µs
+      - 13 µs
+      - 1185 µs
+      - 92.4x
     - - list (4 KiB)
-      - 21 µs
-      - 2453 µs
+      - 23 µs
+      - 2381 µs
+      - 103.2x
     - - table (4 KiB)
-      - 27 µs
-      - 2948 µs
+      - 26 µs
+      - 2825 µs
+      - 108.1x
     - - configured (4 KiB)
       - 28 µs
-      - 2726 µs
+      - 2560 µs
+      - 92.5x
 
 *************
  The renames

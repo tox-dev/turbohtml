@@ -22,17 +22,20 @@ blocklist cleaner by an order of magnitude:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - sanitize
       - turbohtml
       - lxml-html-clean
+      - speed-up
     - - comment (1 link, 1 script)
       - 1.5 µs
-      - 19.3 µs
+      - 19.4 µs
+      - 13.0x
     - - post (4 KiB)
-      - 41.1 µs
-      - 505 µs
+      - 42.1 µs
+      - 497 µs
+      - 11.8x
 
 *************
  The renames

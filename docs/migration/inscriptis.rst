@@ -20,20 +20,24 @@ twenty times faster:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - to text
       - turbohtml
       - inscriptis
+      - speed-up
     - - article (2 KiB)
       - 7 µs
-      - 172 µs
+      - 163 µs
+      - 23.5x
     - - table (4 KiB)
-      - 26 µs
-      - 885 µs
+      - 28 µs
+      - 839 µs
+      - 30.1x
     - - annotated (4 KiB)
       - 10 µs
-      - 208 µs
+      - 202 µs
+      - 20.8x
 
 *************
  The renames

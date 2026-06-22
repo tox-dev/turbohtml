@@ -23,23 +23,28 @@ matching a browser on malformed input:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - parse
       - turbohtml
       - lxml
+      - speed-up
     - - wpt page (4 kB)
-      - 10.9 µs
-      - 27.2 µs
+      - 11.4 µs
+      - 27.1 µs
+      - 2.4x
     - - wpt page (92 kB)
-      - 269 µs
-      - 633 µs
+      - 272 µs
+      - 631 µs
+      - 2.3x
     - - whatwg spec (235 kB)
-      - 510 µs
-      - 1.24 ms
+      - 518 µs
+      - 1.22 ms
+      - 2.4x
     - - ecmascript spec (3 MB)
-      - 4.48 ms
-      - 17.5 ms
+      - 4.54 ms
+      - 17.4 ms
+      - 3.8x
 
 The :doc:`/development/performance` page also benchmarks turbohtml's serializer, builder, editor, CSS, and XPath 1.0
 engine against lxml directly.

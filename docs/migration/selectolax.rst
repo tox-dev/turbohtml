@@ -20,20 +20,24 @@ heavier object layer, turbohtml's lighter native tree parses and serializes fast
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 30 30
+    :widths: 40 20 20 20
 
     - - input
       - turbohtml
       - selectolax
+      - speed-up
     - - parse wpt page (4 kB)
-      - 10.9 µs
-      - 42.3 µs
+      - 11.4 µs
+      - 42.2 µs
+      - 3.7x
     - - parse wpt page (92 kB)
-      - 269 µs
-      - 919 µs
+      - 272 µs
+      - 917 µs
+      - 3.4x
     - - serialize wpt page (92 kB)
       - 105 µs
       - 339 µs
+      - 3.2x
 
 *************
  The renames
