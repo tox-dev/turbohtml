@@ -118,12 +118,15 @@ class Linker:
         schemes: Iterable[str] | None = None,
     ) -> None:
         """
-        Configure callbacks, skipped tags, email autolinking, anchor reprocessing, and detection overrides.
+        Build a reusable linkifier.
 
-        ``process_existing`` runs the callbacks over ``<a>`` tags already present, not only freshly detected links.
-        ``extra_tlds`` adds top-level domains that make a bare domain a link, on top of the built-in IANA table.
-        ``schemes`` restricts which explicit-scheme URLs autolink (``None`` keeps every scheme); a bare domain is
-        always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+        :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
+        :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
+        :param parse_email: also autolink bare email addresses as ``mailto:`` links.
+        :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
+        :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+        :param schemes: restrict which explicit-scheme URLs autolink (``None`` keeps every scheme); a bare domain is
+            always treated as ``http`` and is governed by the TLD table, not ``schemes``.
         """
         self.callbacks = list(callbacks)
         self.skip_tags = frozenset(skip_tags or ())
