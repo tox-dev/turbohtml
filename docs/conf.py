@@ -11,6 +11,10 @@ project_copyright = "2026, Bernát Gábor and contributors"
 release = _version("turbohtml")
 version = ".".join(release.split(".")[:2])
 
+# The how-to and migration guides are split across one page per topic/library, and each page is its own doctest
+# group, so the shared ``import turbohtml`` / ``from turbohtml import parse`` the recipes lean on is set up here.
+doctest_global_setup = "import turbohtml\nfrom turbohtml import parse"
+
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",  # run the testcode/testoutput examples so the docs cannot drift from the code

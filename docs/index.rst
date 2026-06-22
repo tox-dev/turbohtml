@@ -40,8 +40,8 @@ The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
     :maxdepth: 1
 
     tutorials
-    how-to
-    migration
+    how-to/index
+    migration/index
     reference
     explanation
     performance

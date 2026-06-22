@@ -116,7 +116,7 @@ remains:
 The incomplete ``<sp`` stayed buffered until the rest of the tag arrived. That is the whole tokenizer API. If you are
 porting an existing :class:`python:html.parser.HTMLParser` subclass, :class:`turbohtml.migration.stdlib.HTMLParser`
 keeps the same ``handle_*`` callbacks over this tokenizer, so the migration is changing the base class. Head to the
-:doc:`how-to` guides for task-focused recipes or the :doc:`reference` for the exact signatures.
+:doc:`how-to/index` guides for task-focused recipes or the :doc:`reference` for the exact signatures.
 
 ********************************
  Parsing a document into a tree
@@ -403,5 +403,5 @@ selector, :meth:`~turbohtml.Node.main_content` finds the dominant content elemen
 
     Steeping green tea for three minutes draws out its flavor without turning it bitter.
 
-That is the whole tree API. Head to the :doc:`how-to` guides for task-focused recipes, the :doc:`migration` guide if you
-are coming from another HTML library, or the :doc:`reference` for the exact signatures.
+That is the whole tree API. Head to the :doc:`how-to/index` guides for task-focused recipes, the :doc:`migration/index`
+guide if you are coming from another HTML library, or the :doc:`reference` for the exact signatures.

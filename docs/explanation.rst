@@ -22,7 +22,7 @@ It is the wrong tool in a few honest cases:
 - **You depend on `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`_'s ecosystem or its forgiving,
   duck-typed API.** ``bs4`` swaps parser backends, integrates with a long tail of tools, and accepts almost any shape;
   turbohtml is one conformant parser with a sealed, typed hierarchy. Code written to ``bs4``'s contract needs the
-  :doc:`migration` guide, not a drop-in import.
+  :doc:`migration/index` guide, not a drop-in import.
 - **You need a decades-hardened dependency.** lxml and BeautifulSoup have been battle-tested for years across every
   platform and corner case; turbohtml is young.
 - **HTML is not your bottleneck.** If parsing is a rounding error in your workload, the library you already use is fine.
