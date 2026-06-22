@@ -316,7 +316,7 @@ def soup_parse(text: str) -> None:
 
 def html5_parser_parse(text: str) -> None:
     """Parse with html5-parser, which wraps the gumbo C parser and returns an lxml tree."""
-    html5_parser.parse(text)  # ty: ignore[possibly-missing-attribute]  # registered only when the import succeeded
+    html5_parser.parse(text)
 
 
 # Whole-document tree builders raced against turbohtml.parse() in the parse suite, ordered fastest to slowest.
