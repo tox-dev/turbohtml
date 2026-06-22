@@ -117,4 +117,5 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
   never holds the whole source at once, so you can parse a stream larger than the source buffer you would otherwise
   materialize for :func:`turbohtml.parse`.
 - The wider libxml2 toolchain is a deliberate clean-break scope cut: XSLT, DTD/RelaxNG/XML-Schema validation, and C14N
-  have no turbohtml equivalent, and XPath is the 1.0 engine only (XPath 2.0+ and XQuery are out of scope).
+  have no turbohtml equivalent. XPath is at parity, not a gap: both are XPath 1.0 with EXSLT (libxml2 has no XPath
+  2.0/XQuery either), so an lxml ``xpath()`` call ports directly.

@@ -75,5 +75,6 @@ the :meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar).
 Like :ref:`From lxml <migration-lxml>`, the gap is the rest of the libxml2 stack the returned tree would otherwise
 carry, dropped on purpose with the ``libxml2``/gumbo build dependency:
 
-- XSLT, DTD/RelaxNG/XML-Schema validation, and C14N have no equivalent; XPath is the 1.0 engine, not 2.0+/XQuery.
+- XSLT, DTD/RelaxNG/XML-Schema validation, and C14N have no equivalent. XPath is at parity: both run XPath 1.0 with
+  EXSLT (libxml2 has no XPath 2.0/XQuery either).
 - The ``.text``/``.tail`` model becomes real :class:`~turbohtml.Text` nodes rather than the two string fields.
