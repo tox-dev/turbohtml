@@ -39,11 +39,8 @@ class Link:
     """
     A link handed to each callback to mutate or veto.
 
-    ``url`` is the ``href``, ``text`` is what the reader sees, and ``attrs`` holds any extra attributes to put on the
-    ``<a>`` (``rel``, ``target``, ``class``, ...). ``existing`` is ``True`` when the link is an ``<a>`` already in the
-    input being reprocessed (only when ``process_existing`` is on) and ``False`` for a freshly detected one, so a
-    callback can treat the two differently. A callback returns the link to keep it, or ``None`` to drop the anchor:
-    a detected link stays plain text, an existing one is unwrapped to its contents.
+    A callback returns the link to keep it, or ``None`` to drop the anchor: a detected link stays plain text, an
+    existing one is unwrapped to its contents.
     """
 
     __slots__ = ("attrs", "existing", "text", "url")
@@ -56,7 +53,14 @@ class Link:
         *,
         existing: bool = False,
     ) -> None:
-        """Create a link from its ``href``, visible ``text``, optional extra anchor ``attrs``, and ``existing`` flag."""
+        """
+        Create a link.
+
+        :param url: the link's ``href``.
+        :param text: the visible link text the reader sees.
+        :param attrs: extra attributes to put on the ``<a>`` (``rel``, ``target``, ``class``, ...).
+        :param existing: True when reprocessing an ``<a>`` already in the input, False for a freshly detected link.
+        """
         self.url = url
         self.text = text
         self.attrs = attrs if attrs is not None else {}
@@ -82,7 +86,12 @@ def _is_web_url(url: str) -> bool:
 
 
 def nofollow(link: Link) -> Link | None:
-    """Add ``rel="nofollow"`` to a web link so search engines skip it; leave ``mailto:`` and other links alone."""
+    """
+    Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
+
+    :param link: the link to adjust.
+    :returns: the link, with ``nofollow`` added when it is a web link.
+    """
     if _is_web_url(link.url):
         rels = link.attrs.get("rel", "").split()
         if "nofollow" not in rels:
@@ -92,7 +101,12 @@ def nofollow(link: Link) -> Link | None:
 
 
 def target_blank(link: Link) -> Link | None:
-    """Open a web link in a new tab; strip a stale ``target`` from a non-web link so it cannot leak through."""
+    """
+    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
+
+    :param link: the link to adjust.
+    :returns: the link, with ``target`` set on a web link or cleared on a non-web link.
+    """
     if _is_web_url(link.url):
         link.attrs["target"] = "_blank"
     else:
@@ -136,7 +150,12 @@ class Linker:
         self.schemes = frozenset(scheme.lower() for scheme in schemes) if schemes is not None else None
 
     def linkify(self, text: str) -> str:
-        """Linkify HTML and return it, leaving everything but eligible text runs untouched."""
+        """
+        Linkify HTML, leaving everything but eligible text runs untouched.
+
+        :param text: the HTML to linkify.
+        :returns: the linkified HTML.
+        """
         root = parse_fragment(text)
         self._walk(root, linkifiable=True)
         return root.inner_html
@@ -230,9 +249,14 @@ def linkify(  # noqa: PLR0913  # configuration knobs, each independent, not a re
     """
     Find URLs and email addresses in HTML and wrap them in ``<a>`` links, leaving existing markup untouched.
 
-    ``process_existing`` also runs the callbacks over ``<a>`` tags already in the input, ``extra_tlds`` adds top-level
-    domains for bare-domain detection, and ``schemes`` restricts which explicit-scheme URLs autolink. See
-    :class:`Linker` for the details.
+    :param text: the HTML to linkify.
+    :param callbacks: callables run on each detected link to adjust or veto it.
+    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
+    :param parse_email: also autolink bare email addresses as ``mailto:`` links.
+    :param process_existing: also run the callbacks over ``<a>`` tags already in the input.
+    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+    :param schemes: restrict which explicit-scheme URLs autolink; None keeps every scheme.
+    :returns: the linkified HTML.
     """
     return Linker(
         callbacks,
@@ -245,18 +269,21 @@ def linkify(  # noqa: PLR0913  # configuration knobs, each independent, not a re
 
 
 class LinkSpan:
-    """
-    One URL or email address found in a run of plain text.
-
-    ``start`` and ``end`` are the half-open offsets of the match in the scanned text, ``text`` is the matched substring
-    exactly as it appeared, and ``url`` is the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare
-    domain, the text itself for a ``scheme://`` or registered scheme-less URL). ``is_email`` flags the ``mailto:`` case.
-    """
+    """One URL or email address found in a run of plain text."""
 
     __slots__ = ("end", "is_email", "start", "text", "url")
 
     def __init__(self, start: int, end: int, text: str, url: str, is_email: bool) -> None:  # noqa: FBT001
-        """Store the offsets, the matched substring, the normalized ``url``, and whether the match is an email."""
+        """
+        Create a link span.
+
+        :param start: the half-open start offset of the match in the scanned text.
+        :param end: the half-open end offset of the match in the scanned text.
+        :param text: the matched substring exactly as it appeared.
+        :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the text
+            itself for a ``scheme://`` or registered scheme-less URL).
+        :param is_email: whether the match is an email address.
+        """
         self.start = start
         self.end = end
         self.text = text
@@ -299,9 +326,7 @@ class Detector:
     Find the links in plain text, configured once and reused per call.
 
     Unlike :class:`Linker`, which rewrites HTML, a detector only *locates* links and hands back :class:`LinkSpan`
-    objects, leaving the text untouched. ``tlds`` adds custom top-level domains for bare-domain matching (an internal
-    ``corp``, say), and ``schemes`` registers scheme-less schemes such as ``tel`` or ``bitcoin`` so ``tel:+1-800-555``
-    is found as an opaque URL; every ``scheme://`` URL is already detected without registration.
+    objects, leaving the text untouched.
     """
 
     def __init__(
@@ -312,19 +337,37 @@ class Detector:
         tlds: Iterable[str] = (),
         schemes: Iterable[str] = (),
     ) -> None:
-        """Configure whether to detect emails and bare domains, and the extra TLDs and scheme-less schemes to accept."""
+        """
+        Build a reusable detector.
+
+        :param emails: detect bare email addresses.
+        :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
+        :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
+        :param schemes: scheme-less schemes such as ``tel`` or ``bitcoin`` to detect as opaque URLs; every
+            ``scheme://`` URL is detected without registration.
+        """
         self.emails = emails
         self.bare_domains = bare_domains
         self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})
         self._schemes = tuple({scheme.lower().rstrip(":") for scheme in schemes})
 
     def find(self, text: str) -> list[LinkSpan]:
-        """Return every link in ``text`` as a :class:`LinkSpan`, in the order it appears."""
+        """
+        Find every link in a run of text.
+
+        :param text: the text to scan.
+        :returns: every link as a :class:`LinkSpan`, in the order it appears.
+        """
         spans = _linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes)
         return [_span_from_match(text, start, end, kind) for start, end, kind in spans]
 
     def has_link(self, text: str) -> bool:
-        """Is there at least one link in ``text``? A cheaper question than :meth:`find` when only presence matters."""
+        """
+        Test a run of text for any link, cheaper than :meth:`find` when only presence matters.
+
+        :param text: the text to scan.
+        :returns: whether the text contains at least one link.
+        """
         return bool(_linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes))
 
 

@@ -118,17 +118,29 @@ class Policy:
 
     @classmethod
     def strict(cls) -> Policy:
-        """Allow no markup at all: every tag is escaped to text and every attribute dropped."""
+        """
+        Allow no markup at all: every tag is escaped to text and every attribute dropped.
+
+        :returns: the strict policy.
+        """
         return cls(tags=frozenset(), attributes=MappingProxyType({}))
 
     @classmethod
     def basic(cls) -> Policy:
-        """Allow bleach's default 12-tag set, for migration parity."""
+        """
+        Allow bleach's default 12-tag set, for migration parity.
+
+        :returns: the basic policy.
+        """
         return cls()
 
     @classmethod
     def relaxed(cls) -> Policy:
-        """Allow the richer set typical user-generated content needs: headings, tables, images, and figures."""
+        """
+        Allow the richer set typical user-generated content needs: headings, tables, images, and figures.
+
+        :returns: the relaxed policy.
+        """
         return cls(
             tags=frozenset(_RELAXED_TAGS),
             attributes=_RELAXED_ATTRIBUTES,
@@ -140,14 +152,23 @@ class Sanitizer:
     """A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread."""
 
     def __init__(self, policy: Policy | None = None) -> None:
-        """Compile a policy into the form the C walk consumes, defaulting to bleach's allowlist."""
+        """
+        Compile a policy into the form the C walk consumes.
+
+        :param policy: the policy to enforce; None uses bleach's default allowlist.
+        """
         self.policy = policy if policy is not None else Policy()
         self._attributes = dict(self.policy.attributes)
         self._link_rel = " ".join(sorted(self.policy.add_link_rel)) or None
         self._set_attributes = {tag: dict(values) for tag, values in self.policy.set_attributes.items()}
 
     def sanitize(self, html: str) -> str:
-        """Sanitize an HTML fragment and return safe HTML."""
+        """
+        Sanitize an HTML fragment.
+
+        :param html: the untrusted HTML fragment.
+        :returns: the sanitized, safe HTML.
+        """
         policy = self.policy
         root = parse_fragment(html)
         _sanitize(
@@ -168,7 +189,13 @@ class Sanitizer:
 
 
 def sanitize(html: str, policy: Policy | None = None) -> str:
-    """Sanitize an HTML fragment against ``policy`` (bleach's allowlist by default) and return safe HTML."""
+    """
+    Sanitize an HTML fragment against a policy.
+
+    :param html: the untrusted HTML fragment.
+    :param policy: the policy to enforce; None uses bleach's default allowlist.
+    :returns: the sanitized, safe HTML.
+    """
     return Sanitizer(policy).sanitize(html)
 
 

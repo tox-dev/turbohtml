@@ -50,7 +50,11 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
     """An ordered, duplicate-free set of elements with chainable traversal and mutation."""
 
     def __init__(self, source: str | Element | Document | Iterable[Element]) -> None:
-        """Wrap HTML to parse, a single element or document, or an iterable of elements."""
+        """
+        Wrap a source into a query set.
+
+        :param source: HTML to parse, a single Element or Document, or an iterable of Elements.
+        """
         if isinstance(source, str):
             source = parse(source)
         if isinstance(source, Document):
@@ -69,39 +73,73 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         return query
 
     def __call__(self, selector: str) -> Query:
-        """Select the descendants of the wrapped elements matching the selector (like ``find``)."""
+        """
+        Select the descendants of the wrapped elements matching a selector, like ``find``.
+
+        :param selector: the CSS selector.
+        :returns: a query over the matching descendants.
+        """
         return self.find(selector)
 
     def find(self, selector: str) -> Query:
-        """Select every descendant of the wrapped elements matching the selector, in document order."""
+        """
+        Select every descendant of the wrapped elements matching a selector.
+
+        :param selector: the CSS selector.
+        :returns: a query over the matching descendants in document order.
+        """
         if len(self._nodes) == 1:
             # the C select() already returns unique results in document order
             return Query._wrap(self._nodes[0].select(selector))
         return Query(_unique(match for node in self._nodes for match in node.select(selector)))
 
     def filter(self, selector: str) -> Query:
-        """Keep the wrapped elements that themselves match the selector."""
+        """
+        Keep the wrapped elements that themselves match a selector.
+
+        :param selector: the CSS selector.
+        :returns: a query over the elements that match.
+        """
         return Query([node for node in self._nodes if node.matches(selector)])
 
     def eq(self, index: int) -> Query:
-        """Reduce the set to the element at the given index, or an empty set if it is out of range."""
+        """
+        Reduce the set to the element at one index.
+
+        :param index: the position in the set.
+        :returns: a query over that element, or an empty query when the index is out of range.
+        """
         try:
             return Query([self._nodes[index]])
         except IndexError:
             return Query([])
 
     def parent(self) -> Query:
-        """Select the immediate parent of each wrapped element."""
+        """
+        Select the immediate parent of each wrapped element.
+
+        :returns: a query over the parent elements.
+        """
         return Query(node.parent for node in self._nodes if isinstance(node.parent, Element))
 
     def children(self, selector: str | None = None) -> Query:
-        """Select the element children of each wrapped element, optionally filtered by a selector."""
+        """
+        Select the element children of each wrapped element.
+
+        :param selector: an optional CSS selector to keep only matching children.
+        :returns: a query over the child elements.
+        """
         children = (child for node in self._nodes for child in node.children if isinstance(child, Element))
         result = Query(children)
         return result if selector is None else result.filter(selector)
 
     def siblings(self, selector: str | None = None) -> Query:
-        """Select the sibling elements of each wrapped element, optionally filtered by a selector."""
+        """
+        Select the sibling elements of each wrapped element.
+
+        :param selector: an optional CSS selector to keep only matching siblings.
+        :returns: a query over the sibling elements.
+        """
         result = Query(
             sibling
             for node in self._nodes
@@ -112,11 +150,20 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         return result if selector is None else result.filter(selector)
 
     def closest(self, selector: str) -> Query:
-        """Select the nearest self-or-ancestor of each wrapped element matching the selector."""
+        """
+        Select the nearest self-or-ancestor of each wrapped element matching a selector.
+
+        :param selector: the CSS selector.
+        :returns: a query over the nearest matching elements.
+        """
         return Query(found for node in self._nodes if (found := node.closest(selector)) is not None)
 
     def items(self) -> Iterator[Query]:
-        """Iterate the wrapped elements, each as its own single-element query."""
+        """
+        Iterate the wrapped elements, each as its own single-element query.
+
+        :returns: an iterator of single-element queries.
+        """
         for node in self._nodes:
             yield Query([node])
 
@@ -125,7 +172,13 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
     @overload
     def attr(self, name: str, value: str) -> Query: ...
     def attr(self, name: str, value: str | None = None) -> str | Query | None:
-        """Get the attribute from the first element, or set it on every element and return the query."""
+        """
+        Get an attribute from the first element, or set it on every element.
+
+        :param name: the attribute name.
+        :param value: the value to set; omit to read instead.
+        :returns: the attribute value when reading, or the query when setting.
+        """
         if value is None:
             if not self._nodes:
                 return None
@@ -140,7 +193,12 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
     @overload
     def text(self, value: str) -> Query: ...
     def text(self, value: str | None = None) -> str | Query:
-        """Get the combined text of every element, or set each element's text and return the query."""
+        """
+        Get the combined text of every element, or set each element's text.
+
+        :param value: the text to set; omit to read instead.
+        :returns: the combined text when reading, or the query when setting.
+        """
         if value is None:
             return " ".join(node.text for node in self._nodes)
         for node in self._nodes:
@@ -148,15 +206,29 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         return self
 
     def html(self) -> str | None:
-        """Return the inner HTML of the first element, or None when the set is empty."""
+        """
+        Return the inner HTML of the first element.
+
+        :returns: the first element's inner HTML, or None when the set is empty.
+        """
         return self._nodes[0].inner_html if self._nodes else None
 
     def has_class(self, name: str) -> bool:
-        """Return whether any wrapped element carries the class."""
+        """
+        Test the wrapped elements for a class.
+
+        :param name: the class name.
+        :returns: whether any wrapped element carries the class.
+        """
         return any(name in _class_list(node) for node in self._nodes)
 
     def add_class(self, name: str) -> Query:
-        """Add the class to every wrapped element and return the query."""
+        """
+        Add a class to every wrapped element.
+
+        :param name: the class name to add.
+        :returns: the query.
+        """
         for node in self._nodes:
             classes = _class_list(node)
             if name not in classes:
@@ -165,7 +237,12 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         return self
 
     def remove_class(self, name: str) -> Query:
-        """Remove the class from every wrapped element and return the query."""
+        """
+        Remove a class from every wrapped element.
+
+        :param name: the class name to remove.
+        :returns: the query.
+        """
         for node in self._nodes:
             classes = _class_list(node)
             if name in classes:
@@ -173,7 +250,12 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         return self
 
     def toggle_class(self, name: str) -> Query:
-        """Add the class where it is absent and remove it where present, per element."""
+        """
+        Toggle a class on each element, adding it where absent and removing it where present.
+
+        :param name: the class name to toggle.
+        :returns: the query.
+        """
         for node in self._nodes:
             classes = _class_list(node)
             node.attrs["class"] = [cls for cls in classes if cls != name] if name in classes else [*classes, name]

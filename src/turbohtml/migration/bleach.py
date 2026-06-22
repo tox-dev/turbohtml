@@ -41,7 +41,19 @@ def clean(  # noqa: PLR0913, PLR0917  # this is bleach.clean's signature, kept v
     strip_comments: bool = True,  # noqa: FBT001, FBT002  # bleach keeps strip_comments a positional flag
     css_sanitizer: object = None,
 ) -> str:
-    """Sanitize ``text`` against a bleach-style allowlist and return safe HTML, the way ``bleach.clean`` did."""
+    """
+    Sanitize HTML against a bleach-style allowlist, the way ``bleach.clean`` did.
+
+    :param text: the untrusted HTML.
+    :param tags: the allowed tag names; None uses bleach's default set.
+    :param attributes: the allowed attributes as a flat list, a per-tag dict, or a (tag, name, value) predicate;
+        None uses bleach's default.
+    :param protocols: the allowed URL schemes; None uses bleach's default.
+    :param strip: drop a disallowed tag and keep its children, rather than escaping it to text.
+    :param strip_comments: drop HTML comments from the output.
+    :param css_sanitizer: accepted for signature compatibility; passing one raises ``NotImplementedError``.
+    :returns: the sanitized, safe HTML.
+    """
     if css_sanitizer is not None:  # CSS sanitizing is a separate sub-problem, not yet ported
         msg = "css_sanitizer is not implemented yet; drop the style attribute and <style> instead"
         raise NotImplementedError(msg)

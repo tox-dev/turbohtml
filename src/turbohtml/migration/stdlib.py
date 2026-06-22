@@ -35,7 +35,11 @@ class HTMLParser:
     """A subclass-and-override callback parser over the streaming tokenizer."""
 
     def __init__(self, *, convert_charrefs: bool = True) -> None:
-        """Create a parser; ``convert_charrefs`` is accepted for compatibility but always behaves as true."""
+        """
+        Create a parser.
+
+        :param convert_charrefs: accepted for compatibility but ignored; references are always resolved.
+        """
         #: Accepted for compatibility; references are always resolved regardless of its value.
         self.convert_charrefs = convert_charrefs
         self._tokenizer = Tokenizer()
@@ -43,7 +47,11 @@ class HTMLParser:
         self._offset = 0
 
     def feed(self, data: str) -> None:
-        """Feed a chunk of HTML, dispatching the tokens it completes to the handlers."""
+        """
+        Feed a chunk of HTML, dispatching the tokens it completes to the handlers.
+
+        :param data: the next chunk of HTML.
+        """
         for token in self._tokenizer.feed(data):
             self._dispatch(token)
 
@@ -59,7 +67,11 @@ class HTMLParser:
         self._offset = 0
 
     def getpos(self) -> tuple[int, int]:
-        """Return the 1-based line and 0-based column of the token last dispatched."""
+        """
+        Report the source position of the last dispatched token.
+
+        :returns: the 1-based line and 0-based column of the token last dispatched.
+        """
         return (self._lineno, self._offset)
 
     def _dispatch(self, token: Token) -> None:
@@ -85,36 +97,78 @@ class HTMLParser:
             self.handle_decl(_doctype_decl(token))
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """Handle a start tag; override to act on it."""
+        """
+        Handle a start tag; override to act on it.
+
+        :param tag: the lowercased tag name.
+        :param attrs: the (name, value) attribute pairs, a valueless attribute's value the empty string.
+        """
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """Handle a self-closing tag; by default fire start then end, like the standard library."""
+        """
+        Handle a self-closing tag; by default fire start then end, like the standard library.
+
+        :param tag: the lowercased tag name.
+        :param attrs: the (name, value) attribute pairs.
+        """
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
-        """Handle an end tag; override to act on it."""
+        """
+        Handle an end tag; override to act on it.
+
+        :param tag: the lowercased tag name.
+        """
 
     def handle_data(self, data: str) -> None:
-        """Handle a run of text, with character references resolved."""
+        """
+        Handle a run of text, with character references resolved.
+
+        :param data: the decoded text.
+        """
 
     def handle_comment(self, data: str) -> None:
-        """Handle a comment (also processing instructions and CDATA, which are comments here)."""
+        """
+        Handle a comment (also processing instructions and CDATA, which are comments here).
+
+        :param data: the comment text, without the ``<!--`` ``-->`` delimiters.
+        """
 
     def handle_decl(self, decl: str) -> None:
-        """Handle a ``<!DOCTYPE ...>`` declaration, with the leading ``<!`` and trailing ``>`` removed."""
+        """
+        Handle a ``<!DOCTYPE ...>`` declaration, with the leading ``<!`` and trailing ``>`` removed.
+
+        :param decl: the declaration text, such as ``DOCTYPE html``.
+        """
 
     def handle_pi(self, data: str) -> None:
-        """Handle a processing instruction; never called, since PIs are comments in the HTML spec."""
+        """
+        Handle a processing instruction; never called, since PIs are comments in the HTML spec.
+
+        :param data: the instruction text.
+        """
 
     def handle_entityref(self, name: str) -> None:
-        """Handle a named reference; never called, since references are always resolved."""
+        """
+        Handle a named reference; never called, since references are always resolved.
+
+        :param name: the entity name, without the ``&`` and ``;``.
+        """
 
     def handle_charref(self, name: str) -> None:
-        """Handle a numeric reference; never called, since references are always resolved."""
+        """
+        Handle a numeric reference; never called, since references are always resolved.
+
+        :param name: the numeric reference body, without the ``&#`` and ``;``.
+        """
 
     def unknown_decl(self, data: str) -> None:
-        """Handle a CDATA section; never called, since it is a comment outside foreign content."""
+        """
+        Handle a CDATA section; never called, since it is a comment outside foreign content.
+
+        :param data: the section text.
+        """
 
 
 def _doctype_decl(token: Token) -> str:

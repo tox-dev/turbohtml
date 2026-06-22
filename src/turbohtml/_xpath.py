@@ -28,9 +28,13 @@ class XPathString(str):  # noqa: FURB189
 
     _parent: Element
     is_attribute: bool
+    """Whether the value was selected from an attribute."""
     is_text: bool
+    """Whether the value was selected from element text."""
     is_tail: bool
+    """Whether the value is tail text; always False, kept for lxml compatibility."""
     attrname: str | None
+    """The attribute name the value came from, or None for a text value."""
 
     def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # noqa: FBT001
         self = str.__new__(cls, value)

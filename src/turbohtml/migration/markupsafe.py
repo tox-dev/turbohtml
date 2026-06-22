@@ -117,7 +117,12 @@ class Markup(str):  # noqa: FURB189, PLR0904
         return f"{self.__class__.__name__}({str.__repr__(self)})"
 
     def join(self, iterable: Iterable[str], /) -> Markup:
-        """Join the items, escaping each one so the result stays safe."""
+        """
+        Join the items, escaping each one so the result stays safe.
+
+        :param iterable: the items to join.
+        :returns: the joined text as a Markup.
+        """
         return self.__class__(str.join(self, map(self.escape, iterable)))
 
     def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
@@ -133,7 +138,11 @@ class Markup(str):  # noqa: FURB189, PLR0904
         return [self.__class__(line) for line in str.splitlines(self, keepends)]
 
     def unescape(self) -> str:
-        """Resolve character references back to text, returning a plain (no longer safe) :class:`str`."""
+        """
+        Resolve character references back to text.
+
+        :returns: the resolved text as a plain (no longer safe) :class:`str`.
+        """
         return unescape(str(self))
 
     def striptags(self) -> str:
@@ -142,12 +151,19 @@ class Markup(str):  # noqa: FURB189, PLR0904
 
         This parses with turbohtml's tokenizer rather than scanning for ``<``, so references resolve and a comment
         that contains a ``<`` cannot end tag removal early.
+
+        :returns: the plain text, no longer safe markup.
         """
         return " ".join(parse_fragment(str(self)).text.split())
 
     @classmethod
     def escape(cls, s: object, /) -> Markup:
-        """Escape ``s`` to this class, the entry point the composing operations use to make operands safe."""
+        """
+        Escape a value to this class, the entry point the composing operations use to make operands safe.
+
+        :param s: the value to escape; an ``__html__`` method marks it already safe.
+        :returns: a Markup holding the escaped text.
+        """
         rv = escape(s)
         if rv.__class__ is not cls:
             return cls(rv)
@@ -240,7 +256,13 @@ class Markup(str):  # noqa: FURB189, PLR0904
         return self.__class__(left), self.__class__(middle), self.__class__(right)
 
     def format(self, *args: object, **kwargs: object) -> Markup:
-        """Format, escaping each field unless it renders itself through ``__html_format__`` or ``__html__``."""
+        """
+        Format, escaping each field unless it renders itself through ``__html_format__`` or ``__html__``.
+
+        :param args: positional values for the format fields.
+        :param kwargs: keyword values for the format fields.
+        :returns: the formatted text as a Markup.
+        """
         return self.__class__(EscapeFormatter(self.escape).vformat(self, args, kwargs))
 
     def format_map(self, mapping: _SupportsStrGetItem, /) -> Markup:
@@ -273,7 +295,13 @@ class EscapeFormatter(string.Formatter):
         super().__init__()
 
     def format_field(self, value: object, format_spec: str) -> str:
-        """Render one field: trust its safe-rendering protocol if present, else escape the formatted value."""
+        """
+        Render one field: trust its safe-rendering protocol if present, else escape the formatted value.
+
+        :param value: the field value to render.
+        :param format_spec: the field's format specification.
+        :returns: the rendered, escaped field text.
+        """
         if hasattr(value, "__html_format__"):
             rendered = cast("_HasHtmlFormat", value).__html_format__(format_spec)
         elif hasattr(value, "__html__"):
