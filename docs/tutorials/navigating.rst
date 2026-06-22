@@ -162,13 +162,13 @@ field:
     text 'Tom & '
     element a
 
-************************
+*******************
  Scrape every link
-************************
+*******************
 
-Those primitives compose into the first job most scraping scripts need: collect every link on the page with its text
-and target. :meth:`~turbohtml.Node.find_all` returns all matching descendants in document order, so one comprehension
-over the parsed tree gives you a table of anchors:
+Those primitives compose into the first job most scraping scripts need: collect every link on the page with its text and
+target. :meth:`~turbohtml.Node.find_all` returns all matching descendants in document order, so one comprehension over
+the parsed tree gives you a table of anchors:
 
 .. testcode::
 

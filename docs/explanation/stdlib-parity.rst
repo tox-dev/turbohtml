@@ -1,6 +1,6 @@
-*******************************
+###############################
  Matching the standard library
-*******************************
+###############################
 
 ``turbohtml`` reproduces the exact behavior of :func:`python:html.escape` and :func:`python:html.unescape`. ``escape``
 uses the same replacements, including ``&#x27;`` for the single quote, and ``unescape`` applies the full `HTML5

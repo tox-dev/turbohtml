@@ -13,10 +13,10 @@ one accepts. Start here for the *why*; the :doc:`/reference` has the *what*.
 turbohtml parses, queries, edits, and serializes HTML through a fast, typed, WHATWG-conformant core. Reach for it when
 you parse real-world markup and want the tree a browser builds (the `html5lib
 <https://github.com/html5lib/html5lib-python>`_ suite passes, so malformed input recovers the way it does in a browser
-rather than the way libxml2 guesses); when speed matters (the :doc:`/development/performance` page has the figures); when
-you want a modern typed API with one name per concept, ``__match_args__`` on every node, and full type stubs, alongside
-the free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a drop-in several times faster
-than the standard library.
+rather than the way libxml2 guesses); when speed matters (the :doc:`/development/performance` page has the figures);
+when you want a modern typed API with one name per concept, ``__match_args__`` on every node, and full type stubs,
+alongside the free-threaded build; or when you escape, unescape, or tokenize on a hot path and want a drop-in several
+times faster than the standard library.
 
 It is the wrong tool in a few honest cases:
 
@@ -33,14 +33,14 @@ It is the wrong tool in a few honest cases:
   turbohtml's advantage is speed and a typed API; if you need neither, switching costs more than it saves.
 
 .. toctree::
-   :maxdepth: 1
+    :maxdepth: 1
 
-   c-core
-   stdlib-parity
-   parsing
-   tree-model
-   queries
-   serialization
-   main-content
-   mutation
-   free-threading
+    c-core
+    stdlib-parity
+    parsing
+    tree-model
+    queries
+    serialization
+    main-content
+    mutation
+    free-threading

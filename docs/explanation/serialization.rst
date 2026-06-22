@@ -22,9 +22,9 @@ is one rendering of it.
         class tree src
         class html,minify,md,text,annotated out
 
-*********************************
+********************************
  Serialization modes and minify
-*********************************
+********************************
 
 A :class:`~turbohtml.Minify` is a serialization mode on that same conformant tree, and its design rule is that the
 minified bytes must reparse to the same tree: the hard part, a spec-correct parse, is already done, so minifying is only

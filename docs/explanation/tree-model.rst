@@ -1,6 +1,6 @@
-########################
+#########################
  The node and tree model
-########################
+#########################
 
 Every node in a parsed document is one of a small sealed set of types, all sharing the navigation defined on
 :class:`~turbohtml.Node`. The purple base carries the shared traversal; the green leaves are the concrete node types a

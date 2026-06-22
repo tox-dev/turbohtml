@@ -43,9 +43,9 @@ Reverse the process: turn HTML character references back into text:
 
 Stay with the string helpers below, or continue to :doc:`tokenizing` to break whole documents into tokens.
 
-*********************
+********************
  Linkify plain text
-*********************
+********************
 
 One more string-in, string-out helper rounds out the getting-started toolkit: :func:`turbohtml.linkify.linkify` finds
 the URLs in a run of text and wraps each one in an anchor, leaving the surrounding characters untouched. It is the
