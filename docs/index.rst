@@ -39,7 +39,7 @@ The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
 .. toctree::
     :maxdepth: 1
 
-    tutorials
+    tutorials/index
     how-to/index
     migration/index
     reference
