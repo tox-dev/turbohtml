@@ -35,6 +35,15 @@ submodule update --init --depth 1 tools/bench-data/whatwg-html tools/bench-data/
 <https://pyperf.readthedocs.io>`_ comparison against the standard library), and ``regen`` (regenerate the entity
 tables).
 
+*******************************
+ Before opening a pull request
+*******************************
+
+- Run ``tox r -e fix`` (formatting and linting) and ``tox r -e type``.
+- Add tests for the change and keep coverage at 100%. Mark a genuinely unreachable C branch with ``GCOVR_EXCL_BR_LINE``
+  and a comment explaining why it cannot run.
+- Keep the C output byte for byte identical to the standard library where the two overlap.
+
 ****************
  Project layout
 ****************

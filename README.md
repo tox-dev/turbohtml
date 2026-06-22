@@ -225,8 +225,8 @@ the other C libraries on the read-path benchmarks. Measured with [pyperf](https:
 - building a tree from scratch and editing a parsed one both run about twice as fast as lxml and an order of magnitude
   faster than BeautifulSoup.
 
-See the [performance page](https://turbohtml.readthedocs.io/en/latest/performance.html) for the full sectioned tables
-and the methodology.
+See the [performance page](https://turbohtml.readthedocs.io/en/latest/development/performance.html) for the full
+sectioned tables and the methodology.
 
 ## Documentation
 
