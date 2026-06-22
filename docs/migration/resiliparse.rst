@@ -14,9 +14,9 @@ text nodes, and it ships boilerplate extraction, language detection, and WARC ut
  Why turbohtml
 ***************
 
-Because both build on lexbor, :func:`turbohtml.parse` matches resiliparse's parse throughput, but it returns a fully
-type annotated, mutable :class:`~turbohtml.Document` and folds resiliparse's DOM traversal, ``get_element_by_*``
-lookups, and CSS ``query_selector`` methods into one ``find``/``find_all``/``select`` grammar:
+resiliparse wraps lexbor's native parser; turbohtml has its own C engine and matches resiliparse's parse throughput,
+while returning a fully type annotated, mutable :class:`~turbohtml.Document` and folding resiliparse's DOM traversal,
+``get_element_by_*`` lookups, and CSS ``query_selector`` methods into one ``find``/``find_all``/``select`` grammar:
 
 .. list-table::
     :header-rows: 1
@@ -90,8 +90,8 @@ lookups, and CSS ``query_selector`` methods into one ``find``/``find_all``/``sel
   :meth:`~turbohtml.Node.main_text`, a content-density (readability) heuristic over the parsed tree. Its language
   detection and the WARC/archive and crawl utilities it ships have no turbohtml equivalent and are out of scope; reach
   for a dedicated tool there.
-- turbohtml compares nodes by value, not identity, so ``find("p") == find("p")`` is ``False`` where resiliparse returns
-  the same wrapped node; compare serializations or walk the tree instead.
+- turbohtml compares nodes by identity over the underlying arena node, so two wrappers for the same element are equal
+  but two separately parsed trees with identical markup are not; compare serializations or walk the tree instead.
 
 *****************
  A note on gumbo
