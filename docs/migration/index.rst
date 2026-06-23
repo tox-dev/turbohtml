@@ -10,11 +10,10 @@ treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
 .. toctree::
     :maxdepth: 1
 
+    pandas
     markupsafe
     beautifulsoup
-    mechanicalsoup
     lxml
-    dominate
     linkify-it-py
     bleach
     markdownify
@@ -23,17 +22,18 @@ treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
     html2text
     lxml-html-clean
     w3lib
+    trafilatura
     selectolax
     parsel
-    extruct
     pyquery
+    dominate
     inscriptis
+    readability-lxml
     html-text
     resiliparse
-    trafilatura
     newspaper3k
-    readability-lxml
     html-sanitizer
+    extruct
+    mechanicalsoup
     html5-parser
-    pandas
     stdlib
