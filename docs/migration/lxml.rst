@@ -122,6 +122,51 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
     [Element('a')]
     /x
 
+********************************
+ Performance: tree and link ops
+********************************
+
+Beyond XPath and CSS, the operational renames above each beat lxml on the wpt pages from the
+:doc:`/development/performance` benchmark. :func:`turbohtml.parse_fragment` (lxml's ``lxml.html.fromstring``) parses an
+``innerHTML`` snippet in its container context; :attr:`~turbohtml.Node.text` (lxml's ``text_content()``) concatenates
+the visible text; :attr:`~turbohtml.Node.descendants` (lxml's ``iterdescendants()``) walks the subtree; and the link
+surface (:meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, :meth:`~turbohtml.Node.rewrite_links`
+against ``iterlinks``/``make_links_absolute``/``rewrite_links``) extracts and rewrites every link-bearing attribute.
+turbohtml runs each in C over its native tree (``tox -e bench fragment text navigate links``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - operation
+      - turbohtml
+      - lxml
+      - speed-up
+    - - parse fragment (2 kB)
+      - 12.6 µs
+      - 39.6 µs
+      - 3.2x
+    - - text content (92 kB)
+      - 36.9 µs
+      - 47.2 µs
+      - 1.3x
+    - - descendant walk (92 kB)
+      - 101 µs
+      - 295 µs
+      - 2.9x
+    - - extract links (92 kB)
+      - 60.6 µs
+      - 2.28 ms
+      - 37.7x
+    - - absolutize links (92 kB)
+      - 251 µs
+      - 2.76 ms
+      - 11.0x
+    - - rewrite links (92 kB)
+      - 22.3 µs
+      - 2.38 ms
+      - 106.7x
+
 *************
  Performance
 *************

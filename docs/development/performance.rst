@@ -8,9 +8,10 @@ documents: `Project Gutenberg's War and Peace <https://www.gutenberg.org/ebooks/
 source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript specification
 <https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
 <https://github.com/web-platform-tests/wpt>`_ pages. Reproduce any section with ``tox -e bench <suite>``, where the
-suite is one of ``escape``, ``unescape``, ``tokenize``, ``parse``, ``query``, ``xpath``, ``path``, ``serialize``,
-``build``, ``edit``, ``chain``, ``htmlparser``, ``markup``, ``minify``, ``tables``, ``linkify``, ``markdown``,
-``sanitize``, ``structured``, or ``article``. Numbers vary with input and hardware.
+suite is one of ``escape``, ``unescape``, ``tokenize``, ``parse``, ``fragment``, ``query``, ``text``, ``xpath``,
+``path``, ``serialize``, ``build``, ``edit``, ``navigate``, ``links``, ``chain``, ``htmlparser``, ``markup``,
+``minify``, ``tables``, ``linkify``, ``markdown``, ``sanitize``, ``structured``, or ``article``. Numbers vary with input
+and hardware.
 
 **********
  Escaping
@@ -531,6 +532,29 @@ longer builds on a current toolchain. turbohtml is the maintained, mutable, type
       - 1.62 s
       - 1.53 s
 
+******************
+ Fragment parsing
+******************
+
+:func:`turbohtml.parse_fragment` parses an ``innerHTML``-style snippet in a container's context rather than a whole
+document, against lxml's ``lxml.html.fromstring`` and html5lib's ``parseFragment``. The input is a table-row fragment
+parsed in its ``<tbody>`` context, where the WHATWG algorithm's table rules apply. turbohtml runs the same C engine it
+uses for whole documents, so it parses the fragment three times faster than lxml and roughly seventy times faster than
+the pure-Python html5lib.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 34 22 22 22
+
+    - - input
+      - turbohtml
+      - lxml
+      - html5lib
+    - - table-row fragment (2 kB)
+      - 12.6 µs
+      - 39.6 µs
+      - 867 µs
+
 **********
  Querying
 **********
@@ -780,6 +804,68 @@ sizes.
       - 526.4 µs
       - 2539.8 µs
 
+**************
+ Text content
+**************
+
+A whole-document text extraction: turbohtml's :attr:`~turbohtml.Node.text` property concatenates every descendant text
+run, against lxml's ``text_content()``, selectolax's ``text()``, and BeautifulSoup's ``get_text()``. turbohtml gathers
+the runs in one C walk into a buffer reserved up front, so it leads lxml by a small margin and selectolax and
+BeautifulSoup by roughly an order of magnitude. parsel exposes no node-level text collector, so it sits out.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18 18
+
+    - - text content
+      - turbohtml
+      - lxml
+      - selectolax
+      - BeautifulSoup
+    - - wpt page (4 kB)
+      - 0.8 µs
+      - 1.2 µs
+      - 5.2 µs
+      - 6.8 µs
+    - - wpt page (9.6 kB)
+      - 1.1 µs
+      - 1.6 µs
+      - 12.1 µs
+      - 13.3 µs
+    - - wpt page (92 kB)
+      - 36.9 µs
+      - 47.2 µs
+      - 488 µs
+      - 368 µs
+
+*****************
+ Tree navigation
+*****************
+
+Walking every descendant of a parsed tree: turbohtml's :attr:`~turbohtml.Node.descendants` iterator against lxml's
+``iterdescendants()``. The ``list(el)``, ``iterdescendants()``, and ``iterancestors()`` family ports to
+:attr:`~turbohtml.Node.children`, :attr:`~turbohtml.Node.descendants`, and :attr:`~turbohtml.Node.ancestors`; the
+descendant walk is the dominant case. Each timed call consumes the whole iterator, where turbohtml yields interned nodes
+straight from the arena three to four times faster than lxml's libxml2 proxy objects. This is the lxml race the mapping
+ports from; selectolax and BeautifulSoup have no equivalent document-wide descendant iterator.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 28 28
+
+    - - descendant walk
+      - turbohtml
+      - lxml
+    - - wpt page (4 kB)
+      - 2.0 µs
+      - 8.3 µs
+    - - wpt page (9.6 kB)
+      - 3.6 µs
+      - 12.1 µs
+    - - wpt page (92 kB)
+      - 101 µs
+      - 295 µs
+
 *************
  Serializing
 *************
@@ -939,6 +1025,39 @@ page </migration/pyquery>`).
       - 607 µs
       - 1.11 ms
       - 1.8x
+
+*******
+ Links
+*******
+
+The link surface: extract every in-document link, resolve them against a base URL, and rewrite them through a callback.
+turbohtml's :meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, and
+:meth:`~turbohtml.Node.rewrite_links` against lxml.html's ``iterlinks()``, ``make_links_absolute()``, and
+``rewrite_links()`` -- the only other library that walks the link-bearing attributes (``href``, ``src``, ``srcset``,
+...) as a set. Each timed call runs one operation over the 92 kB wpt page; extraction is read-only, while absolutize and
+rewrite are idempotent once applied. turbohtml walks the attribute set in C where lxml re-resolves each URL in Python,
+so it leads by ten to over a hundred times.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 16 16 16
+
+    - - links (92 kB page)
+      - turbohtml
+      - lxml
+      - slowdown
+    - - extract (``links`` / ``iterlinks``)
+      - 60.6 µs
+      - 2.28 ms
+      - 37.7x
+    - - absolutize (``resolve_links`` / ``make_links_absolute``)
+      - 251 µs
+      - 2.76 ms
+      - 11.0x
+    - - rewrite (``rewrite_links``)
+      - 22.3 µs
+      - 2.38 ms
+      - 106.7x
 
 *****************
  Fluent chaining

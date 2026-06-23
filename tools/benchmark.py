@@ -448,6 +448,31 @@ def bs4_find_text(soup: BeautifulSoup) -> None:
     soup.find_all(string=FIND_TEXT_PATTERN)
 
 
+# A whole-document text extraction: turbohtml's text property concatenates every descendant
+# Text node, lxml's text_content() and selectolax's text() do the same off their trees, and
+# BeautifulSoup spells it get_text(). parsel exposes no node-level text collector (only a
+# ::text selector list), so it sits this one out.
+def turbo_get_text(doc: Document) -> None:
+    """Collect the document's visible text with turbohtml's text property."""
+    _ = doc.text
+
+
+def lxml_text_content(tree: HtmlElement) -> None:
+    """Collect the document's visible text with lxml's text_content()."""
+    tree.text_content()
+
+
+def lexbor_text(tree: LexborHTMLParser) -> None:
+    """Collect the document's visible text with selectolax's text() method."""
+    if (node := tree.body or tree.root) is not None:
+        node.text(deep=True)
+
+
+def bs4_get_text(soup: BeautifulSoup) -> None:
+    """Collect the document's visible text with BeautifulSoup's get_text()."""
+    soup.get_text()
+
+
 def turbo_select(doc: Document) -> None:
     """Run the CSS selector with turbohtml's select."""
     doc.select(CSS_SELECTOR)
@@ -652,15 +677,20 @@ def print_build_table(means: dict[str, float], cases: list[str]) -> None:
         print(row)
 
 
-# Read-path competitors, fastest-first: a tree builder plus the find/select/serialize/:has/find-text ops.
-# turbohtml leads each. A None op means the library does not offer it (parsel has no serializer and its
-# cssselect cannot compile :has(); only turbohtml and bs4 search by text content).
+# Read-path competitors, fastest-first: a tree builder plus the find/select/serialize/:has/find-text/text ops.
+# turbohtml leads each. A None op means the library does not offer it (parsel has no serializer, its
+# cssselect cannot compile :has(), and it has no node-level text collector; only turbohtml and bs4 search
+# by text content).
 READPATH_LIBS: tuple[tuple[str, Callable[[str], object], tuple[Callable[..., None] | None, ...]], ...] = (
-    ("turbohtml", turbo_tree, (turbo_find, turbo_select, turbo_serialize, turbo_has_select, turbo_find_text)),
-    ("lxml", lxml_tree, (lxml_find, lxml_select, lxml_serialize, lxml_has_select, None)),
-    ("selectolax", lexbor_tree, (lexbor_find, lexbor_select, lexbor_serialize, lexbor_has_select, None)),
-    ("BeautifulSoup", bs4_tree, (bs4_find, bs4_select, bs4_serialize, bs4_has_select, bs4_find_text)),
-    ("parsel", parsel_tree, (parsel_find, parsel_select, None, None, None)),
+    (
+        "turbohtml",
+        turbo_tree,
+        (turbo_find, turbo_select, turbo_serialize, turbo_has_select, turbo_find_text, turbo_get_text),
+    ),
+    ("lxml", lxml_tree, (lxml_find, lxml_select, lxml_serialize, lxml_has_select, None, lxml_text_content)),
+    ("selectolax", lexbor_tree, (lexbor_find, lexbor_select, lexbor_serialize, lexbor_has_select, None, lexbor_text)),
+    ("BeautifulSoup", bs4_tree, (bs4_find, bs4_select, bs4_serialize, bs4_has_select, bs4_find_text, bs4_get_text)),
+    ("parsel", parsel_tree, (parsel_find, parsel_select, None, None, None, None)),
 )
 
 # wpt pages from 4 kB to 92 kB; the multi-MB specs are skipped here since every
@@ -1816,6 +1846,31 @@ def print_readpath_table(means: dict[str, float], op: str, cases: list[str]) -> 
         print(row)
 
 
+# (op_index, label, gating suite) for every read-path operation that shares run_readpath_suite.
+READPATH_OPS: tuple[tuple[int, str, str], ...] = (
+    (0, "find", "query"),
+    (1, "select", "query"),
+    (3, "select :has", "query"),
+    (4, "find-text", "query"),
+    (5, "text", "text"),
+    (2, "serialize", "serialize"),
+)
+
+
+def run_readpath_ops(bench: Callable[[str, object, object], None], suites: set[str]) -> dict[str, list[str]]:
+    """Run every read-path operation whose gating suite is selected; key the case lists by op label."""
+    return {
+        label: (run_readpath_suite(bench, index, label) if suite in suites else [])
+        for index, label, suite in READPATH_OPS
+    }
+
+
+def print_readpath_ops(means: dict[str, float], cases: dict[str, list[str]], labels: tuple[str, ...]) -> None:
+    """Print the read-path tables for the given operation labels, in order."""
+    for label in labels:
+        print_readpath_table(means, label, cases[label])
+
+
 # --- path suite: generate a unique node locator vs lxml's getpath ----------- #
 # css_path()/xpath_path() walk an element's ancestor chain to build the selector
 # that re-finds it from the root; lxml's getroottree().getpath() is the libxml2
@@ -1874,6 +1929,186 @@ def print_path_table(means: dict[str, float], cases: list[str]) -> None:
         for label in labels:
             value = means.get(f"path {name} [{label}]")
             row += f"{value * 1e6:20.1f} us" if value is not None else f"{'-':>24}"
+        print(row)
+
+
+# --- navigate suite: walk every descendant of a pre-parsed tree ------------- #
+# lxml's iterdescendants() yields every element under a node; turbohtml's
+# descendants property yields every node (elements and text). Both are the full
+# subtree walk list(el)/iterdescendants()/iterancestors() port to. Each timed
+# call consumes the whole iterator over a pre-parsed page; only turbohtml and lxml
+# expose a document-wide descendant iterator, so the table is a two-way race.
+
+
+def turbo_descendants(doc: Document) -> None:
+    """Walk every descendant node with turbohtml's descendants iterator."""
+    for _node in doc.descendants:
+        pass
+
+
+def lxml_descendants(tree: HtmlElement) -> None:
+    """Walk every descendant element with lxml's iterdescendants iterator."""
+    for _element in tree.iterdescendants():
+        pass
+
+
+NAVIGATE_LIBS: tuple[tuple[str, Callable[[str], object], Callable[..., None]], ...] = (
+    ("turbohtml", turbo_tree, turbo_descendants),
+    ("lxml", lxml_tree, lxml_descendants),
+)
+
+
+def run_navigate_suite(bench: Callable[[str, object, object], None]) -> list[str]:
+    """Benchmark a full descendant walk across each page size; return the case names."""
+    for size_name, path, enc in READPATH_CASES:
+        text = corpus_text(path, enc)
+        for label, build, walk in NAVIGATE_LIBS:
+            bench(f"navigate {size_name} [{label}]", walk, build(text))
+    return [name for name, _, _ in READPATH_CASES]
+
+
+def print_navigate_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render turbohtml's descendants walk beside lxml's iterdescendants per page size."""
+    if not cases:
+        return
+    others = [label for label, _, _ in NAVIGATE_LIBS if label != "turbohtml"]
+    print()
+    header = f"{'navigate benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+    print(header)
+    for name in cases:
+        turbo = means[f"navigate {name} [turbohtml]"]
+        row = f"{'navigate ' + name:28} {turbo * 1e6:8.1f} us"
+        for label in others:
+            other = means.get(f"navigate {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+        print(row)
+
+
+# --- links suite: extract and rewrite the in-document links ----------------- #
+# turbohtml's links()/resolve_links()/rewrite_links() against lxml.html's
+# iterlinks()/make_links_absolute()/rewrite_links(), the only other library that
+# walks the link-bearing attributes (href/src/srcset/...) as a set. extract is
+# read-only; absolutize and rewrite are idempotent once applied (an absolute URL
+# stays absolute, an identity rewrite is a no-op), so pyperf's repeated calls do
+# equal work. Run on the largest read-path page, which carries the most links.
+LINKS_BASE_URL = "https://example.com/base/"
+
+
+def turbo_links_extract(doc: Document) -> None:
+    """Collect every link with turbohtml's links()."""
+    doc.links()
+
+
+def lxml_links_extract(tree: HtmlElement) -> None:
+    """Collect every link with lxml's iterlinks()."""
+    for _link in tree.iterlinks():
+        pass
+
+
+def turbo_links_absolutize(doc: Document) -> None:
+    """Resolve every relative link against a base with turbohtml's resolve_links()."""
+    doc.resolve_links(LINKS_BASE_URL)
+
+
+def lxml_links_absolutize(tree: HtmlElement) -> None:
+    """Resolve every relative link against a base with lxml's make_links_absolute()."""
+    tree.make_links_absolute(LINKS_BASE_URL)
+
+
+def turbo_links_rewrite(doc: Document) -> None:
+    """Rewrite every link through a callback with turbohtml's rewrite_links()."""
+    doc.rewrite_links(lambda url: url)
+
+
+def lxml_links_rewrite(tree: HtmlElement) -> None:
+    """Rewrite every link through a callback with lxml's rewrite_links()."""
+    tree.rewrite_links(lambda url: url)
+
+
+# (operation label, turbohtml op, lxml op); each pairs the matching method on both sides.
+LINKS_OPS: tuple[tuple[str, Callable[..., None], Callable[..., None]], ...] = (
+    ("extract", turbo_links_extract, lxml_links_extract),
+    ("absolutize", turbo_links_absolutize, lxml_links_absolutize),
+    ("rewrite", turbo_links_rewrite, lxml_links_rewrite),
+)
+
+
+def run_links_suite(bench: Callable[[str, object, object], None]) -> list[str]:
+    """Benchmark link extraction and rewriting on the largest read-path page; return the case names."""
+    _, path, enc = READPATH_CASES[-1]
+    text = corpus_text(path, enc)
+    for op_name, turbo_op, lxml_op in LINKS_OPS:
+        bench(f"links {op_name} [turbohtml]", turbo_op, turbo_tree(text))
+        bench(f"links {op_name} [lxml]", lxml_op, lxml_tree(text))
+    return [op_name for op_name, _, _ in LINKS_OPS]
+
+
+def print_links_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render turbohtml beside lxml and its slowdown factor for each link operation."""
+    if not cases:
+        return
+    print()
+    print(f"{'links benchmark':28} {'turbohtml':>11} {'lxml':>11} {'slowdown':>9}")
+    for name in cases:
+        turbo = means[f"links {name} [turbohtml]"]
+        other = means.get(f"links {name} [lxml]")
+        row = f"{'links ' + name:28} {turbo * 1e6:8.1f} us"
+        row += f" {other * 1e6:8.1f} us {other / turbo:7.1f}x" if other is not None else f"{'-':>21}"
+        print(row)
+
+
+# --- fragment suite: parse an HTML fragment in a context --------------------- #
+# turbohtml's parse_fragment against lxml.html's fromstring (which returns a
+# fragment element) and html5lib's parseFragment. The fragment path is what each
+# library offers for innerHTML-style snippets that are not whole documents; the
+# input is a realistic table-row fragment parsed in its container context.
+FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
+
+
+def turbo_parse_fragment(text: str) -> None:
+    """Parse a fragment in its container context with turbohtml's parse_fragment."""
+    turbohtml.parse_fragment(text, context="tbody")
+
+
+def lxml_parse_fragment(text: str) -> None:
+    """Parse a fragment with lxml.html's fromstring."""
+    lxml_html.fromstring(text)
+
+
+def html5lib_parse_fragment(text: str) -> None:
+    """Parse a fragment with html5lib's parseFragment."""
+    html5lib.parseFragment(text)
+
+
+FRAGMENT_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_parse_fragment),
+    ("lxml", lxml_parse_fragment),
+    ("html5lib", html5lib_parse_fragment),
+)
+
+
+def run_fragment_suite(bench: Callable[[str, object, object], None]) -> list[str]:
+    """Benchmark fragment parsing across turbohtml, lxml, and html5lib; return the case name."""
+    case = "table-row fragment (2 kB)"
+    for label, parse in FRAGMENT_LIBS:
+        bench(f"fragment {case} [{label}]", parse, FRAGMENT_HTML)
+    return [case]
+
+
+def print_fragment_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render turbohtml beside lxml and html5lib and their slowdown factors for fragment parsing."""
+    if not cases:
+        return
+    others = [label for label, _ in FRAGMENT_LIBS if label != "turbohtml"]
+    print()
+    header = f"{'fragment benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+    print(header)
+    for name in cases:
+        turbo = means[f"fragment {name} [turbohtml]"]
+        row = f"{'fragment ' + name:28} {turbo * 1e6:8.1f} us"
+        for label in others:
+            other = means.get(f"fragment {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
         print(row)
 
 
@@ -2247,6 +2482,9 @@ def run_string_suites(bench: Callable[[str, object, object], None], suites: set[
 SIMPLE_SUITES: tuple[tuple[str, Callable[..., list[str]], Callable[[dict[str, float], list[str]], None]], ...] = (
     ("build", run_build_suite, print_build_table),
     ("edit", run_edit_suite, print_edit_table),
+    ("navigate", run_navigate_suite, print_navigate_table),
+    ("links", run_links_suite, print_links_table),
+    ("fragment", run_fragment_suite, print_fragment_table),
     ("chain", run_chain_suite, print_chain_table),
     ("htmlparser", run_htmlparser_suite, print_htmlparser_table),
     ("stream", run_stream_suite, print_stream_table),
@@ -2269,11 +2507,15 @@ def main() -> None:
             "tokenize",
             "corpus",
             "parse",
+            "fragment",
             "query",
+            "text",
             "xpath",
             "serialize",
             "build",
             "edit",
+            "navigate",
+            "links",
             "chain",
             "htmlparser",
             "stream",
@@ -2298,7 +2540,7 @@ def main() -> None:
     suites = set(
         os.environ.get(
             "TURBOHTML_BENCH_SUITES",
-            "escape,unescape,tokenize,corpus,parse,query,xpath,serialize,build,edit,chain,htmlparser,stream,markup,minify,tables,linkify,markdown,sanitize,structured,article",
+            "escape,unescape,tokenize,corpus,parse,fragment,query,text,xpath,serialize,build,edit,navigate,links,chain,htmlparser,stream,markup,minify,tables,linkify,markdown,sanitize,structured,article",
         ).split(",")
     )
     means: dict[str, float] = {}
@@ -2309,14 +2551,11 @@ def main() -> None:
 
     rows = run_string_suites(bench, suites)
     parse_cases = run_parse_suite(bench) if "parse" in suites else []
-    find_cases = run_readpath_suite(bench, 0, "find") if "query" in suites else []
-    select_cases = run_readpath_suite(bench, 1, "select") if "query" in suites else []
-    has_select_cases = run_readpath_suite(bench, 3, "select :has") if "query" in suites else []
-    find_text_cases = run_readpath_suite(bench, 4, "find-text") if "query" in suites else []
+    readpath_cases = run_readpath_ops(bench, suites)
     path_cases = run_path_suite(bench) if "query" in suites else []
     xpath_cases = run_xpath_suite(bench) if "xpath" in suites else ([], [])
     xpath_feature_cases = run_xpath_feature_suite(bench) if "xpath" in suites else []
-    serialize_cases = run_readpath_suite(bench, 2, "serialize") if "serialize" in suites else []
+    run_readpath_suite(bench, 2, "serialize") if "serialize" in suites else []
     simple_cases = {name: run_fn(bench) for name, run_fn, _ in SIMPLE_SUITES if name in suites}
     if "linkify" in suites:
         run_linkify_suite(bench)
@@ -2330,14 +2569,11 @@ def main() -> None:
         return
     print_table(means, rows)
     print_parse_table(means, parse_cases)
-    print_readpath_table(means, "find", find_cases)
-    print_readpath_table(means, "select", select_cases)
-    print_readpath_table(means, "select :has", has_select_cases)
-    print_readpath_table(means, "find-text", find_text_cases)
+    print_readpath_ops(means, readpath_cases, ("find", "select", "select :has", "find-text", "text"))
     print_path_table(means, path_cases)
     print_xpath_table(means, xpath_cases)
     print_xpath_feature_table(means, xpath_feature_cases)
-    print_readpath_table(means, "serialize", serialize_cases)
+    print_readpath_ops(means, readpath_cases, ("serialize",))
     for name, _, print_fn in SIMPLE_SUITES:
         print_fn(means, simple_cases.get(name, []))
     print_linkify_table(means, LINKIFY_CASE_NAMES if "linkify" in suites else [])

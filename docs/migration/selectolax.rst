@@ -98,6 +98,32 @@ pass these helpers exist for. turbohtml's lighter native tree runs the whole pas
       - 1.73 ms
       - 3.1x
 
+Collecting a node's visible text -- selectolax's ``text()`` method against turbohtml's :attr:`~turbohtml.Node.text`
+property -- over the wpt pages. Both walk the descendant text runs, but turbohtml concatenates them in one C pass into a
+buffer reserved up front, where selectolax crosses the lexbor boundary per node, so it runs six to thirteen times faster
+(``tox -e bench text``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - text content
+      - turbohtml
+      - selectolax
+      - speed-up
+    - - wpt page (4 kB)
+      - 0.8 µs
+      - 5.2 µs
+      - 6.4x
+    - - wpt page (9.6 kB)
+      - 1.1 µs
+      - 12.1 µs
+      - 11.4x
+    - - wpt page (92 kB)
+      - 36.9 µs
+      - 488 µs
+      - 13.2x
+
 **********
  Pitfalls
 **********
