@@ -2,8 +2,8 @@
  From html5-parser
 ###################
 
-.. image:: https://static.pepy.tech/badge/html5-parser
-    :alt: html5-parser downloads
+.. image:: https://static.pepy.tech/badge/html5-parser/month
+    :alt: html5-parser monthly downloads
     :target: https://pepy.tech/project/html5-parser
 
 `html5-parser <https://html5-parser.readthedocs.io>`_ wraps gumbo, the C WHATWG parser, and hands the result back as an

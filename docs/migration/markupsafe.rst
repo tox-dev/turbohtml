@@ -2,8 +2,8 @@
  From markupsafe
 #################
 
-.. image:: https://static.pepy.tech/badge/markupsafe
-    :alt: markupsafe downloads
+.. image:: https://static.pepy.tech/badge/markupsafe/month
+    :alt: markupsafe monthly downloads
     :target: https://pepy.tech/project/markupsafe
 
 `markupsafe <https://markupsafe.palletsprojects.com>`_ is the safe-string library behind `Jinja2

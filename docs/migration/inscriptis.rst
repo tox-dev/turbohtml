@@ -2,8 +2,8 @@
  From inscriptis
 #################
 
-.. image:: https://static.pepy.tech/badge/inscriptis
-    :alt: inscriptis downloads
+.. image:: https://static.pepy.tech/badge/inscriptis/month
+    :alt: inscriptis monthly downloads
     :target: https://pepy.tech/project/inscriptis
 
 `inscriptis <https://github.com/weblyzard/inscriptis>`_ renders HTML to *layout-aware* plain text: it keeps the visual

@@ -2,8 +2,8 @@
  From bleach
 #############
 
-.. image:: https://static.pepy.tech/badge/bleach
-    :alt: bleach downloads
+.. image:: https://static.pepy.tech/badge/bleach/month
+    :alt: bleach monthly downloads
     :target: https://pepy.tech/project/bleach
 
 `bleach <https://github.com/mozilla/bleach>`_ was the standard HTML allowlist sanitizer and linkifier, built on

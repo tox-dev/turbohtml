@@ -2,8 +2,8 @@
  From html2text
 ################
 
-.. image:: https://static.pepy.tech/badge/html2text
-    :alt: html2text downloads
+.. image:: https://static.pepy.tech/badge/html2text/month
+    :alt: html2text monthly downloads
     :target: https://pepy.tech/project/html2text
 
 `html2text <https://github.com/Alir3z4/html2text>`_ converts HTML to Markdown with a streaming ``HTMLParser`` subclass

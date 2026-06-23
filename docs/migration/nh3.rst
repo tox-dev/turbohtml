@@ -2,8 +2,8 @@
  From nh3
 ##########
 
-.. image:: https://static.pepy.tech/badge/nh3
-    :alt: nh3 downloads
+.. image:: https://static.pepy.tech/badge/nh3/month
+    :alt: nh3 monthly downloads
     :target: https://pepy.tech/project/nh3
 
 `nh3 <https://nh3.readthedocs.io>`_ is the Python binding for the Rust `ammonia

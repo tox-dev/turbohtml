@@ -2,8 +2,8 @@
  From pyquery
 ##############
 
-.. image:: https://static.pepy.tech/badge/pyquery
-    :alt: pyquery downloads
+.. image:: https://static.pepy.tech/badge/pyquery/month
+    :alt: pyquery monthly downloads
     :target: https://pepy.tech/project/pyquery
 
 `pyquery <https://github.com/gawel/pyquery>`_ puts a jQuery-style fluent, chainable wrapper over `lxml
@@ -38,6 +38,77 @@ so the same chain runs roughly ten times faster than pyquery's lxml-backed wrapp
       - 21.8 µs
       - 278 µs
       - 12.8x
+
+pyquery's content setters carry the same C advantage as the rest of its wrapper. Both libraries parse the page once
+outside the timed call, then replace a ``<body>``'s content on every run: turbohtml reparses the fragment and splices it
+in one C call, where pyquery's ``.html()`` routes through lxml's ``fromstring`` and reassembly. The numbers come from
+the 9.6 kB ``wpt`` page in the ``edit`` suite (``tox -e bench edit``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - content setter (9.6 kB page)
+      - turbohtml
+      - pyquery
+      - speed-up
+    - - :meth:`~turbohtml.Element.set_inner_html` vs ``.html()``
+      - 1.3 µs
+      - 7.7 µs
+      - 5.9x
+    - - :meth:`~turbohtml.Element.set_text` vs ``.text()``
+      - 0.13 µs
+      - 4.6 µs
+      - 35.4x
+
+Bulk tag editing over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements: dropping the matches with their
+subtrees (jQuery's ``.remove()`` against :meth:`~turbohtml.Node.remove`) and unwrapping them to keep their content
+(jQuery's ``.unwrap()`` against :meth:`~turbohtml.Node.strip_tags`). pyquery drives lxml under its wrapper, where
+turbohtml edits its native tree in C, so the same pass runs three to four times faster:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 18 18 18
+
+    - - bulk edit (92 kB)
+      - turbohtml
+      - pyquery
+      - speed-up
+    - - drop subtree (``remove`` / ``.remove()``)
+      - 554 µs
+      - 2.06 ms
+      - 3.7x
+    - - keep content (``strip_tags`` / ``.unwrap()``)
+      - 607 µs
+      - 2.35 ms
+      - 3.9x
+
+Reading a value off every match -- iterating ``for item in pq("a").items()`` and calling ``.attr("href")`` or
+``.text()`` -- against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
+:attr:`~turbohtml.Node.text` off each node. Both parse the page once outside the timed call. pyquery boxes every match
+in a fresh wrapper object, where turbohtml reads interned atoms straight off the selected nodes, so the per-match read
+runs tens of times faster (``tox -e bench extract``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - extract per match
+      - turbohtml
+      - pyquery
+      - speed-up
+    - - ``@href`` -- wpt page (9.6 kB)
+      - 0.1 µs
+      - 4.8 µs
+      - 96.6x
+    - - ``@href`` -- wpt page (92 kB)
+      - 8.2 µs
+      - 542 µs
+      - 65.8x
+    - - text -- wpt page (92 kB)
+      - 8.0 µs
+      - 297 µs
+      - 37.0x
 
 *************
  The renames
@@ -124,78 +195,6 @@ one verbatim text node; and :meth:`~turbohtml.Element.insert_adjacent_html` spli
       - :meth:`el.set_text(s) <turbohtml.Element.set_text>`
     - - ``pq(el).append(markup)``
       - :meth:`el.insert_adjacent_html("beforeend", markup) <turbohtml.Element.insert_adjacent_html>`
-
-*************
- Performance
-*************
-
-The content setters carry the same C advantage as the rest of the wrapper. Both libraries parse the page once outside
-the timed call, then replace a ``<body>``'s content on every run: turbohtml reparses the fragment and splices it in one
-C call, where pyquery's ``.html()`` routes through lxml's ``fromstring`` and reassembly. The numbers come from the 9.6
-kB ``wpt`` page in the ``edit`` suite (``tox -e bench edit``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 30 30
-
-    - - content setter (9.6 kB page)
-      - turbohtml
-      - pyquery
-    - - :meth:`~turbohtml.Element.set_inner_html` vs ``.html()``
-      - 1.3 µs
-      - 7.7 µs
-    - - :meth:`~turbohtml.Element.set_text` vs ``.text()``
-      - 0.13 µs
-      - 4.6 µs
-
-Bulk tag editing over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements: dropping the matches with their
-subtrees (jQuery's ``.remove()`` against :meth:`~turbohtml.Node.remove`) and unwrapping them to keep their content
-(jQuery's ``.unwrap()`` against :meth:`~turbohtml.Node.strip_tags`). pyquery drives lxml under its wrapper, where
-turbohtml edits its native tree in C, so the same pass runs three to four times faster:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - bulk edit (92 kB)
-      - turbohtml
-      - pyquery
-      - speed-up
-    - - drop subtree (``remove`` / ``.remove()``)
-      - 554 µs
-      - 2.06 ms
-      - 3.7x
-    - - keep content (``strip_tags`` / ``.unwrap()``)
-      - 607 µs
-      - 2.35 ms
-      - 3.9x
-
-Reading a value off every match -- iterating ``for item in pq("a").items()`` and calling ``.attr("href")`` or
-``.text()`` -- against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
-:attr:`~turbohtml.Node.text` off each node. Both parse the page once outside the timed call. pyquery boxes every match
-in a fresh wrapper object, where turbohtml reads interned atoms straight off the selected nodes, so the per-match read
-runs tens of times faster (``tox -e bench extract``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - extract per match
-      - turbohtml
-      - pyquery
-      - speed-up
-    - - ``@href`` -- wpt page (9.6 kB)
-      - 0.1 µs
-      - 4.8 µs
-      - 96.6x
-    - - ``@href`` -- wpt page (92 kB)
-      - 8.2 µs
-      - 542 µs
-      - 65.8x
-    - - text -- wpt page (92 kB)
-      - 8.0 µs
-      - 297 µs
-      - 37.0x
 
 **********
  Pitfalls

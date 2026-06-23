@@ -2,8 +2,8 @@
  From the HTML builders
 ########################
 
-.. image:: https://static.pepy.tech/badge/dominate
-    :alt: dominate downloads
+.. image:: https://static.pepy.tech/badge/dominate/month
+    :alt: dominate monthly downloads
     :target: https://pepy.tech/project/dominate
 
 The HTML *generators* -- `dominate <https://github.com/Knio/dominate>`_, `yattag <https://www.yattag.org>`_, `htpy
@@ -33,6 +33,31 @@ by exactly the rules that parse it back:
 .. testoutput::
 
     <div class="card"><h1>Title</h1><p>body</p></div>
+
+``E`` assembles the fragment in turbohtml's arena and serializes it in C; dominate and yattag stay in Python. The same
+``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built three ways, from ``tox -e bench
+build`` on the reference machine in :doc:`/development/performance`:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 24 24 24
+
+    - - build a list
+      - :data:`E <turbohtml.build.E>`
+      - dominate
+      - yattag
+    - - 100 rows
+      - 104 µs
+      - 320 µs (3.1x)
+      - 94 µs (0.9x)
+    - - 1000 rows
+      - 1.08 ms
+      - 3.34 ms (3.1x)
+      - 1.06 ms (1.0x)
+
+``E`` is about three times faster than dominate and on par with yattag, and the decisive difference is the result type:
+``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree
+you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 *************
  The mapping
@@ -69,35 +94,6 @@ attribute joins on a space so a class list reads naturally:
 .. testoutput::
 
     <my-card class="card lg">hi</my-card>
-
-*************
- Performance
-*************
-
-``E`` assembles the fragment in turbohtml's arena and serializes it in C; dominate and yattag stay in Python. The same
-``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built three ways, from ``tox -e bench
-build`` on the reference machine in :doc:`/development/performance`:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 28 24 24 24
-
-    - - build a list
-      - :data:`E <turbohtml.build.E>`
-      - dominate
-      - yattag
-    - - 100 rows
-      - 104 µs
-      - 320 µs
-      - 94 µs
-    - - 1000 rows
-      - 1.08 ms
-      - 3.34 ms
-      - 1.06 ms
-
-``E`` is about three times faster than dominate and on par with yattag, and the decisive difference is the result type:
-``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree
-you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 **********
  Pitfalls

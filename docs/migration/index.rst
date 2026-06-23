@@ -25,8 +25,8 @@ treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
     trafilatura
     selectolax
     parsel
-    pyquery
     dominate
+    pyquery
     inscriptis
     readability-lxml
     html-text

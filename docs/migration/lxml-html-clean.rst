@@ -2,8 +2,8 @@
  From lxml-html-clean
 ######################
 
-.. image:: https://static.pepy.tech/badge/lxml_html_clean
-    :alt: lxml-html-clean downloads
+.. image:: https://static.pepy.tech/badge/lxml_html_clean/month
+    :alt: lxml-html-clean monthly downloads
     :target: https://pepy.tech/project/lxml_html_clean
 
 `lxml-html-clean <https://github.com/fedora-python/lxml_html_clean>`_ is the ``Cleaner`` split out of

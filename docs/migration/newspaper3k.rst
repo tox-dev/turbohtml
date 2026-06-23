@@ -2,8 +2,8 @@
  From newspaper3k
 ##################
 
-.. image:: https://static.pepy.tech/badge/newspaper3k
-    :alt: newspaper3k downloads
+.. image:: https://static.pepy.tech/badge/newspaper3k/month
+    :alt: newspaper3k monthly downloads
     :target: https://pepy.tech/project/newspaper3k
 
 `newspaper3k <https://newspaper.readthedocs.io>`_ is a news-article scraper: an ``Article`` downloads a URL, then
@@ -57,22 +57,6 @@ bundles has no equivalent and is out of scope.
 
     Comets | Ada Lovelace | A short guide to comets. | en
 
-**********
- Pitfalls
-**********
-
-- newspaper3k downloads and caches URLs; :meth:`~turbohtml.Node.article` takes parsed HTML. Fetch the page yourself
-  (``urllib`` or ``httpx``) and pass the markup to :func:`turbohtml.parse`.
-- ``article().byline`` is a single whitespace-folded string from the first author source, where newspaper's
-  ``article.authors`` is a list; split it yourself if you need the individual names.
-- newspaper's keyword extraction, summarization, and other NLP have no turbohtml equivalent and are out of scope.
-- A page with no scoring article leaves ``element`` ``None`` and ``text`` empty while still filling the metadata, so
-  branch on ``art.element`` rather than assuming a body.
-
-*************
- Performance
-*************
-
 Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer -- measured with
 ``tox -e bench article`` on CPython 3.14 (release build, Apple M4, macOS 26). :meth:`~turbohtml.Node.article` scores and
 harvests in one C pass over the parsed tree; newspaper3k builds an lxml tree and runs its own regex-driven metadata
@@ -85,7 +69,7 @@ scan. Numbers vary with input and hardware.
     - - input
       - turbohtml
       - newspaper3k
-      - speedup
+      - speed-up
     - - post (4 KiB)
       - 23 µs
       - 3.52 ms
@@ -94,3 +78,15 @@ scan. Numbers vary with input and hardware.
       - 70 µs
       - 8.97 ms
       - 128x
+
+**********
+ Pitfalls
+**********
+
+- newspaper3k downloads and caches URLs; :meth:`~turbohtml.Node.article` takes parsed HTML. Fetch the page yourself
+  (``urllib`` or ``httpx``) and pass the markup to :func:`turbohtml.parse`.
+- ``article().byline`` is a single whitespace-folded string from the first author source, where newspaper's
+  ``article.authors`` is a list; split it yourself if you need the individual names.
+- newspaper's keyword extraction, summarization, and other NLP have no turbohtml equivalent and are out of scope.
+- A page with no scoring article leaves ``element`` ``None`` and ``text`` empty while still filling the metadata, so
+  branch on ``art.element`` rather than assuming a body.

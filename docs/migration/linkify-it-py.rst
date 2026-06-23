@@ -2,8 +2,8 @@
  From linkify-it-py
 ####################
 
-.. image:: https://static.pepy.tech/badge/linkify-it-py
-    :alt: linkify-it-py downloads
+.. image:: https://static.pepy.tech/badge/linkify-it-py/month
+    :alt: linkify-it-py monthly downloads
     :target: https://pepy.tech/project/linkify-it-py
 
 `linkify-it-py <https://github.com/tsutsu3/linkify-it-py>`_ is the pure-Python link scanner `markdown-it-py

@@ -2,8 +2,8 @@
  From trafilatura
 ##################
 
-.. image:: https://static.pepy.tech/badge/trafilatura
-    :alt: trafilatura downloads
+.. image:: https://static.pepy.tech/badge/trafilatura/month
+    :alt: trafilatura monthly downloads
     :target: https://pepy.tech/project/trafilatura
 
 `trafilatura <https://trafilatura.readthedocs.io>`_ extracts the main text and metadata from a web page: it downloads
@@ -57,21 +57,6 @@ you need them, trafilatura's heavier language and date heuristics.
 
     Comets | Ada Lovelace | 2024-05-06 | en
 
-******************************
- Publication dates (htmldate)
-******************************
-
-trafilatura's date support comes from `htmldate <https://htmldate.readthedocs.io>`_, whose ``find_date(html)`` scans
-many patterns and validates the result against a range. ``doc.article().date`` is the lightweight counterpart: it
-returns the first of a ``<time>``, an ``article:published_time`` meta, and a common date meta (``date``, ``pubdate``,
-``dc.date``) exactly as the page declares it, without parsing or normalizing the value. Wrap it in
-``datetime.date.fromisoformat`` or ``dateutil`` when you need a real date object, and keep htmldate for pages whose date
-is only inferable.
-
-*************
- Performance
-*************
-
 Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer -- measured with
 ``tox -e bench article`` on CPython 3.14 (release build, Apple M4, macOS 26). :meth:`~turbohtml.Node.article` scores and
 harvests in one C pass over the parsed tree; trafilatura builds an lxml tree in Python first. Numbers vary with input
@@ -84,7 +69,7 @@ and hardware.
     - - input
       - turbohtml
       - trafilatura
-      - speedup
+      - speed-up
     - - post (4 KiB)
       - 23 µs
       - 1.34 ms
@@ -93,6 +78,17 @@ and hardware.
       - 70 µs
       - 3.13 ms
       - 45x
+
+******************************
+ Publication dates (htmldate)
+******************************
+
+trafilatura's date support comes from `htmldate <https://htmldate.readthedocs.io>`_, whose ``find_date(html)`` scans
+many patterns and validates the result against a range. ``doc.article().date`` is the lightweight counterpart: it
+returns the first of a ``<time>``, an ``article:published_time`` meta, and a common date meta (``date``, ``pubdate``,
+``dc.date``) exactly as the page declares it, without parsing or normalizing the value. Wrap it in
+``datetime.date.fromisoformat`` or ``dateutil`` when you need a real date object, and keep htmldate for pages whose date
+is only inferable.
 
 **********
  Pitfalls

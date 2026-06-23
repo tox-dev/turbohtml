@@ -2,8 +2,8 @@
  From MechanicalSoup
 #####################
 
-.. image:: https://static.pepy.tech/badge/MechanicalSoup
-    :alt: MechanicalSoup downloads
+.. image:: https://static.pepy.tech/badge/MechanicalSoup/month
+    :alt: MechanicalSoup monthly downloads
     :target: https://pepy.tech/project/MechanicalSoup
 
 `MechanicalSoup <https://github.com/MechanicalSoup/MechanicalSoup>`_ is a stateful browser: it fetches pages with

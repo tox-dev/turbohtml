@@ -2,8 +2,8 @@
  From w3lib (Scrapy)
 #####################
 
-.. image:: https://static.pepy.tech/badge/w3lib
-    :alt: w3lib downloads
+.. image:: https://static.pepy.tech/badge/w3lib/month
+    :alt: w3lib monthly downloads
     :target: https://pepy.tech/project/w3lib
 
 `w3lib <https://w3lib.readthedocs.io>`_ collects the web utilities `Scrapy <https://scrapy.org>`_ reuses: entity
@@ -37,6 +37,46 @@ type annotated and running the scan in C, so it is a drop-in that runs several t
       - 2.51 ms
       - 13.5 ms
       - 5.4x
+
+Stripping a set of tags while keeping their text: w3lib's regex ``remove_tags`` against turbohtml's
+:meth:`~turbohtml.Node.strip_tags`, over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements. w3lib runs a
+regular-expression substitution over the string; turbohtml builds the WHATWG tree, unwraps each match in place, and
+serializes. turbohtml does the structure-aware pass a regex misreads on nested markup, and still runs it faster:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 18 18 18
+
+    - - strip tags, keep text (92 kB)
+      - turbohtml
+      - w3lib
+      - speed-up
+    - - ``strip_tags`` vs ``remove_tags``
+      - 607 µs
+      - 1.11 ms
+      - 1.8x
+
+Reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against
+:meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call, over
+a small page carrying a ``<base>`` and a meta refresh. w3lib runs a regular-expression pass; turbohtml runs the WHATWG
+tree builder and reads the hint off the parsed ``<head>``, and still comes out ahead (``tox -e bench extract``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 18 18 18
+
+    - - url hint
+      - turbohtml
+      - w3lib
+      - speed-up
+    - - ``base_url`` vs ``get_base_url``
+      - 2.9 µs
+      - 7.4 µs
+      - 2.6x
+    - - ``meta_refresh`` vs ``get_meta_refresh``
+      - 3.0 µs
+      - 6.5 µs
+      - 2.1x
 
 *************
  The renames
@@ -109,50 +149,6 @@ The two helpers that read a document's own URL hints map to the :meth:`~turbohtm
 
     http://site.com/sub/
     (5.0, 'http://site.com/next.html')
-
-*************
- Performance
-*************
-
-Stripping a set of tags while keeping their text: w3lib's regex ``remove_tags`` against turbohtml's
-:meth:`~turbohtml.Node.strip_tags`, over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements. w3lib runs a
-regular-expression substitution over the string; turbohtml builds the WHATWG tree, unwraps each match in place, and
-serializes. turbohtml does the structure-aware pass a regex misreads on nested markup, and still runs it faster:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - strip tags, keep text (92 kB)
-      - turbohtml
-      - w3lib
-      - speed-up
-    - - ``strip_tags`` vs ``remove_tags``
-      - 607 µs
-      - 1.11 ms
-      - 1.8x
-
-Reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against
-:meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call, over
-a small page carrying a ``<base>`` and a meta refresh. w3lib runs a regular-expression pass; turbohtml runs the WHATWG
-tree builder and reads the hint off the parsed ``<head>``, and still comes out ahead (``tox -e bench extract``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - url hint
-      - turbohtml
-      - w3lib
-      - speed-up
-    - - ``base_url`` vs ``get_base_url``
-      - 2.9 µs
-      - 7.4 µs
-      - 2.6x
-    - - ``meta_refresh`` vs ``get_meta_refresh``
-      - 3.0 µs
-      - 6.5 µs
-      - 2.1x
 
 **********
  Pitfalls

@@ -2,8 +2,8 @@
  From html5lib
 ###############
 
-.. image:: https://static.pepy.tech/badge/html5lib
-    :alt: html5lib downloads
+.. image:: https://static.pepy.tech/badge/html5lib/month
+    :alt: html5lib monthly downloads
     :target: https://pepy.tech/project/html5lib
 
 `html5lib <https://html5lib.readthedocs.io>`_ is the reference pure-Python implementation of the WHATWG parsing
@@ -43,6 +43,24 @@ parsing and tokenizing are 30 to 80 times faster than the pure-Python implementa
       - 19.2 ms
       - 27.9x
 
+:func:`html5lib.parseFragment() <html5lib.html5parser.parseFragment>` maps to :func:`turbohtml.parse_fragment`, which
+parses an ``innerHTML``-style snippet in its container context. Both run the WHATWG fragment algorithm, but turbohtml
+runs it in C, so a table-row fragment parsed in its ``<tbody>`` context is roughly seventy times faster (``tox -e bench
+fragment``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - input
+      - turbohtml
+      - html5lib
+      - speed-up
+    - - table-row fragment (2 kB)
+      - 12.6 µs
+      - 867 µs
+      - 69.0x
+
 *************
  The renames
 *************
@@ -75,28 +93,6 @@ parsing and tokenizing are 30 to 80 times faster than the pure-Python implementa
 .. testoutput::
 
     x
-
-*************
- Performance
-*************
-
-:func:`html5lib.parseFragment() <html5lib.html5parser.parseFragment>` maps to :func:`turbohtml.parse_fragment`, which
-parses an ``innerHTML``-style snippet in its container context. Both run the WHATWG fragment algorithm, but turbohtml
-runs it in C, so a table-row fragment parsed in its ``<tbody>`` context is roughly seventy times faster (``tox -e bench
-fragment``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - input
-      - turbohtml
-      - html5lib
-      - speed-up
-    - - table-row fragment (2 kB)
-      - 12.6 µs
-      - 867 µs
-      - 69.0x
 
 **********
  Pitfalls

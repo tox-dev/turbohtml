@@ -2,8 +2,8 @@
  From extruct / metadata_parser
 ################################
 
-.. image:: https://static.pepy.tech/badge/extruct
-    :alt: extruct downloads
+.. image:: https://static.pepy.tech/badge/extruct/month
+    :alt: extruct monthly downloads
     :target: https://pepy.tech/project/extruct
 
 `extruct <https://github.com/scrapinghub/extruct>`_ and `metadata_parser <https://github.com/jvanasco/metadata_parser>`_
@@ -45,10 +45,6 @@ extractors you happened to enable:
     {'og:title': 'Widget'}
     https://schema.org/Offer {'price': ['9.99']}
 
-*************
- Performance
-*************
-
 Both libraries start from the raw HTML string, so each parses before it extracts: ``extruct`` builds an lxml tree and
 runs a separate extractor per syntax, where :meth:`~turbohtml.Document.structured_data` parses to the WHATWG tree and
 gathers every format in one C walk. On a product page carrying JSON-LD, Microdata, and OpenGraph at once, the single
@@ -57,17 +53,20 @@ bench structured``):
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 28 28
+    :widths: 40 20 20 20
 
     - - input
       - turbohtml
       - extruct
+      - speed-up
     - - product page
       - 5.4 µs
       - 59.0 µs
+      - 10.9x
     - - catalog (8 KiB)
       - 54.5 µs
       - 494.9 µs
+      - 9.1x
 
 *************
  The renames

@@ -4,8 +4,8 @@
  From lxml
 ###########
 
-.. image:: https://static.pepy.tech/badge/lxml
-    :alt: lxml downloads
+.. image:: https://static.pepy.tech/badge/lxml/month
+    :alt: lxml monthly downloads
     :target: https://pepy.tech/project/lxml
 
 `lxml <https://lxml.de>`_ is the libxml2/libxslt binding that most Python HTML and XML processing has been built on:
@@ -122,9 +122,9 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
     [Element('a')]
     /x
 
-********************************
- Performance: tree and link ops
-********************************
+**************************
+ Tree and link operations
+**************************
 
 Beyond XPath and CSS, the operational renames above each beat lxml on the wpt pages from the
 :doc:`/development/performance` benchmark. :func:`turbohtml.parse_fragment` (lxml's ``lxml.html.fromstring``) parses an
@@ -167,9 +167,9 @@ turbohtml runs each in C over its native tree (``tox -e bench fragment text navi
       - 2.38 ms
       - 106.7x
 
-*************
- Performance
-*************
+*******
+ XPath
+*******
 
 When one expression runs against many nodes, precompile it once with :class:`~turbohtml.XPath` instead of calling
 :meth:`~turbohtml.Node.xpath`, which reparses the expression on every call. This is the same move as reaching for
@@ -326,9 +326,9 @@ generators across every page size.
   2.0/XQuery either), so an lxml ``el.xpath(...)`` call ports straight to :meth:`~turbohtml.Node.xpath` — only the
   node-synthesizing ``str:tokenize``/``str:split`` and the implicit current-date ``date:`` forms stay out of scope.
 
-*************
- Performance
-*************
+*******
+ EXSLT
+*******
 
 turbohtml's EXSLT namespaces dispatch in the same compiled-C XPath engine as the core functions, so an EXSLT predicate
 through :meth:`~turbohtml.Node.xpath` costs no registration: the prefix is built in. lxml resolves the namespace map and
@@ -338,17 +338,20 @@ wpt page:
 
 .. list-table::
     :header-rows: 1
-    :widths: 44 14 14
+    :widths: 40 20 20 20
 
     - - EXSLT (9.6 kB page)
       - turbohtml
       - lxml
+      - speed-up
     - - ``//a[re:test(@href, ...)]``
       - 0.5 µs
       - 4.6 µs
+      - 9.2x
     - - ``set:distinct(//a)``
       - 0.6 µs
       - 4.0 µs
+      - 6.7x
 
 ``re:`` dispatches to Python's :mod:`re` where lxml uses C libexslt, yet still leads because it skips the per-call
 namespace resolution; ``set:distinct`` stays in C on both sides. The :doc:`/development/performance` page sweeps these

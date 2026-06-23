@@ -2,8 +2,8 @@
  From BeautifulSoup
 ####################
 
-.. image:: https://static.pepy.tech/badge/beautifulsoup4
-    :alt: beautifulsoup4 downloads
+.. image:: https://static.pepy.tech/badge/beautifulsoup4/month
+    :alt: beautifulsoup4 monthly downloads
     :target: https://pepy.tech/project/beautifulsoup4
 
 `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ is the long-standing convenience layer over a
@@ -45,6 +45,78 @@ to two orders of magnitude faster than BeautifulSoup over ``html.parser``:
       - 56.8x
 
 The :doc:`/development/performance` page benchmarks the build and edit paths against BeautifulSoup too.
+
+Filtering elements by text through :meth:`~turbohtml.Node.find` / :meth:`~turbohtml.Node.find_all` (``text=``) gathers
+each candidate's subtree text in C and matches once, where ``bs4``'s ``find_all(string=...)`` runs the predicate in
+Python mid-walk. The :doc:`/development/performance` query suite races the two over the wpt pages:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - find ``text=`` regex
+      - turbohtml
+      - BeautifulSoup
+      - speed-up
+    - - wpt page (4 kB)
+      - 9.3 µs
+      - 19.7 µs
+      - 2.1x
+    - - wpt page (9.6 kB)
+      - 13.9 µs
+      - 38.2 µs
+      - 2.7x
+    - - wpt page (92 kB)
+      - 741 µs
+      - 989 µs
+      - 1.3x
+
+Walking the whole tree (:attr:`~turbohtml.Node.descendants` against ``soup.descendants``) and reading its text
+(:attr:`~turbohtml.Node.text` against ``soup.get_text()``) stay ahead too; both libraries parse once outside the timed
+region. The descendant walk yields comparable node counts on both sides, so the gap is narrower, while ``get_text``
+concatenates in C where ``bs4`` joins Python strings node by node:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - navigate (walk descendants)
+      - turbohtml
+      - BeautifulSoup
+      - speed-up
+    - - wpt page (4 kB)
+      - 2.0 µs
+      - 2.9 µs
+      - 1.5x
+    - - wpt page (9.6 kB)
+      - 3.7 µs
+      - 5.0 µs
+      - 1.4x
+    - - wpt page (92 kB)
+      - 100.4 µs
+      - 125.0 µs
+      - 1.2x
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - text (whole-document ``get_text``)
+      - turbohtml
+      - BeautifulSoup
+      - speed-up
+    - - wpt page (4 kB)
+      - 0.8 µs
+      - 6.7 µs
+      - 8.3x
+    - - wpt page (9.6 kB)
+      - 1.1 µs
+      - 13.7 µs
+      - 12.9x
+    - - wpt page (92 kB)
+      - 38.0 µs
+      - 372.4 µs
+      - 9.8x
 
 *********
  Parsing
@@ -198,82 +270,6 @@ text rather than a substring (use a regex to search within):
 
     Buy now
     ['Buy now']
-
-*************
- Performance
-*************
-
-Filtering elements by text through :meth:`~turbohtml.Node.find` / :meth:`~turbohtml.Node.find_all` (``text=``) gathers
-each candidate's subtree text in C and matches once, where ``bs4``'s ``find_all(string=...)`` runs the predicate in
-Python mid-walk. The :doc:`/development/performance` query suite races the two over the wpt pages:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - find ``text=`` regex
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 9.3 µs
-      - 19.7 µs
-      - 2.1x
-    - - wpt page (9.6 kB)
-      - 13.9 µs
-      - 38.2 µs
-      - 2.7x
-    - - wpt page (92 kB)
-      - 741 µs
-      - 989 µs
-      - 1.3x
-
-Walking the whole tree (:attr:`~turbohtml.Node.descendants` against ``soup.descendants``) and reading its text
-(:attr:`~turbohtml.Node.text` against ``soup.get_text()``) stay ahead too; both libraries parse once outside the timed
-region. The descendant walk yields comparable node counts on both sides, so the gap is narrower, while ``get_text``
-concatenates in C where ``bs4`` joins Python strings node by node:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - navigate (walk descendants)
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 2.0 µs
-      - 2.9 µs
-      - 1.5x
-    - - wpt page (9.6 kB)
-      - 3.7 µs
-      - 5.0 µs
-      - 1.4x
-    - - wpt page (92 kB)
-      - 100.4 µs
-      - 125.0 µs
-      - 1.2x
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - text (whole-document ``get_text``)
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 0.8 µs
-      - 6.7 µs
-      - 8.3x
-    - - wpt page (9.6 kB)
-      - 1.1 µs
-      - 13.7 µs
-      - 12.9x
-    - - wpt page (92 kB)
-      - 38.0 µs
-      - 372.4 µs
-      - 9.8x
 
 *********************
  Attributes and text

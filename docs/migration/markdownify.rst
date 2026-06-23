@@ -2,8 +2,8 @@
  From markdownify
 ##################
 
-.. image:: https://static.pepy.tech/badge/markdownify
-    :alt: markdownify downloads
+.. image:: https://static.pepy.tech/badge/markdownify/month
+    :alt: markdownify monthly downloads
     :target: https://pepy.tech/project/markdownify
 
 `markdownify <https://github.com/matthewwithanm/python-markdownify>`_ converts HTML to Markdown by walking a

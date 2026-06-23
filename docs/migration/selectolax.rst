@@ -2,8 +2,8 @@
  From selectolax
 #################
 
-.. image:: https://static.pepy.tech/badge/selectolax
-    :alt: selectolax downloads
+.. image:: https://static.pepy.tech/badge/selectolax/month
+    :alt: selectolax monthly downloads
     :target: https://pepy.tech/project/selectolax
 
 `selectolax <https://github.com/rushter/selectolax>`_ is a fast CSS-only HTML parser that wraps the `lexbor
@@ -38,47 +38,6 @@ heavier object layer, turbohtml's lighter native tree parses and serializes fast
       - 105 µs
       - 339 µs
       - 3.2x
-
-*************
- The renames
-*************
-
-.. list-table::
-    :header-rows: 1
-    :widths: 50 50
-
-    - - selectolax
-      - turbohtml
-    - - ``LexborHTMLParser(html)``
-      - :func:`turbohtml.parse`
-    - - ``parser.root``, ``parser.body``
-      - :attr:`doc.root <turbohtml.Document.root>`, :meth:`doc.find("body") <turbohtml.Node.find>`
-    - - ``node.css("a")``, ``node.css_first("a")``
-      - :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`
-    - - ``node.tag``
-      - :attr:`~turbohtml.Element.tag` (same)
-    - - ``node.attributes``
-      - :attr:`~turbohtml.Element.attrs`
-    - - ``node.text()`` (a method)
-      - :attr:`~turbohtml.Node.text` (a property), :attr:`~turbohtml.Node.strings`,
-        :attr:`~turbohtml.Node.stripped_strings`
-    - - ``node.html``, ``node.decompose()``, ``node.unwrap()``
-      - :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.decompose`, :meth:`~turbohtml.Node.unwrap`
-    - - ``parser.strip_tags(["script"])``, ``node.unwrap_tags(["b"])``
-      - :meth:`node.remove("script") <turbohtml.Node.remove>`, :meth:`node.strip_tags("b") <turbohtml.Node.strip_tags>`
-
-.. testcode::
-
-    doc = parse("<ul><li>a</li><li>b</li></ul>")
-    print([li.text for li in doc.select("li")])
-
-.. testoutput::
-
-    ['a', 'b']
-
-*************
- Performance
-*************
 
 Dropping a set of tags together with their subtrees: selectolax's ``strip_tags`` against turbohtml's
 :meth:`~turbohtml.Node.remove`, over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements. Both rewrites are
@@ -123,6 +82,43 @@ buffer reserved up front, where selectolax crosses the lexbor boundary per node,
       - 36.9 µs
       - 488 µs
       - 13.2x
+
+*************
+ The renames
+*************
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - selectolax
+      - turbohtml
+    - - ``LexborHTMLParser(html)``
+      - :func:`turbohtml.parse`
+    - - ``parser.root``, ``parser.body``
+      - :attr:`doc.root <turbohtml.Document.root>`, :meth:`doc.find("body") <turbohtml.Node.find>`
+    - - ``node.css("a")``, ``node.css_first("a")``
+      - :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`
+    - - ``node.tag``
+      - :attr:`~turbohtml.Element.tag` (same)
+    - - ``node.attributes``
+      - :attr:`~turbohtml.Element.attrs`
+    - - ``node.text()`` (a method)
+      - :attr:`~turbohtml.Node.text` (a property), :attr:`~turbohtml.Node.strings`,
+        :attr:`~turbohtml.Node.stripped_strings`
+    - - ``node.html``, ``node.decompose()``, ``node.unwrap()``
+      - :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.decompose`, :meth:`~turbohtml.Node.unwrap`
+    - - ``parser.strip_tags(["script"])``, ``node.unwrap_tags(["b"])``
+      - :meth:`node.remove("script") <turbohtml.Node.remove>`, :meth:`node.strip_tags("b") <turbohtml.Node.strip_tags>`
+
+.. testcode::
+
+    doc = parse("<ul><li>a</li><li>b</li></ul>")
+    print([li.text for li in doc.select("li")])
+
+.. testoutput::
+
+    ['a', 'b']
 
 **********
  Pitfalls
