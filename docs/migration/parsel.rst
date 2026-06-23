@@ -93,6 +93,37 @@ including their ``attr`` keyword for running a pattern over an attribute value i
     ['home', 'about']
     x
 
+*************
+ Performance
+*************
+
+Pulling the values out of a matched set is parsel's whole point: ``sel.css("a::attr(href)").getall()`` and
+``sel.css("a::text").getall()`` against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
+:attr:`~turbohtml.Node.text` off each node. Both libraries parse the page once outside the timed call. turbohtml
+compiles the selector once and reads interned atoms, where parsel re-translates the CSS to XPath on libxml2 every call,
+so reading every anchor runs tens of times faster (``tox -e bench extract``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - extract per match
+      - turbohtml
+      - parsel
+      - speed-up
+    - - ``@href`` -- wpt page (9.6 kB)
+      - 0.1 µs
+      - 4.3 µs
+      - 86.2x
+    - - ``@href`` -- wpt page (92 kB)
+      - 8.2 µs
+      - 222 µs
+      - 27.0x
+    - - text -- wpt page (92 kB)
+      - 8.0 µs
+      - 214 µs
+      - 26.6x
+
 **********
  Pitfalls
 **********

@@ -170,6 +170,33 @@ turbohtml edits its native tree in C, so the same pass runs three to four times 
       - 2.35 ms
       - 3.9x
 
+Reading a value off every match -- iterating ``for item in pq("a").items()`` and calling ``.attr("href")`` or
+``.text()`` -- against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
+:attr:`~turbohtml.Node.text` off each node. Both parse the page once outside the timed call. pyquery boxes every match
+in a fresh wrapper object, where turbohtml reads interned atoms straight off the selected nodes, so the per-match read
+runs tens of times faster (``tox -e bench extract``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - extract per match
+      - turbohtml
+      - pyquery
+      - speed-up
+    - - ``@href`` -- wpt page (9.6 kB)
+      - 0.1 µs
+      - 4.8 µs
+      - 96.6x
+    - - ``@href`` -- wpt page (92 kB)
+      - 8.2 µs
+      - 542 µs
+      - 65.8x
+    - - text -- wpt page (92 kB)
+      - 8.0 µs
+      - 297 µs
+      - 37.0x
+
 **********
  Pitfalls
 **********

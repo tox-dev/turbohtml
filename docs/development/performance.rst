@@ -9,9 +9,9 @@ source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript spec
 <https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
 <https://github.com/web-platform-tests/wpt>`_ pages. Reproduce any section with ``tox -e bench <suite>``, where the
 suite is one of ``escape``, ``unescape``, ``tokenize``, ``parse``, ``fragment``, ``query``, ``text``, ``xpath``,
-``path``, ``serialize``, ``build``, ``edit``, ``navigate``, ``links``, ``chain``, ``htmlparser``, ``markup``,
-``minify``, ``tables``, ``linkify``, ``markdown``, ``sanitize``, ``structured``, or ``article``. Numbers vary with input
-and hardware.
+``path``, ``serialize``, ``build``, ``edit``, ``navigate``, ``links``, ``extract``, ``chain``, ``htmlparser``,
+``markup``, ``minify``, ``tables``, ``linkify``, ``markdown``, ``sanitize``, ``structured``, or ``article``. Numbers
+vary with input and hardware.
 
 **********
  Escaping
@@ -824,11 +824,11 @@ sizes.
  Text content
 **************
 
-The ``text`` suite collects the visible text two ways. First, the raw text join off a pre-parsed tree, the
-``get_text`` pass: turbohtml's :attr:`~turbohtml.Node.text` property concatenates every descendant text run, against
-lxml's ``text_content()``, selectolax's ``text()``, and BeautifulSoup's ``get_text()``. turbohtml gathers the runs in
-one C walk into a buffer reserved up front, so it leads lxml by a small margin and selectolax and BeautifulSoup by
-roughly an order of magnitude. parsel exposes no node-level text collector, so it sits out.
+The ``text`` suite collects the visible text two ways. First, the raw text join off a pre-parsed tree, the ``get_text``
+pass: turbohtml's :attr:`~turbohtml.Node.text` property concatenates every descendant text run, against lxml's
+``text_content()``, selectolax's ``text()``, and BeautifulSoup's ``get_text()``. turbohtml gathers the runs in one C
+walk into a buffer reserved up front, so it leads lxml by a small margin and selectolax and BeautifulSoup by roughly an
+order of magnitude. parsel exposes no node-level text collector, so it sits out.
 
 .. list-table::
     :header-rows: 1
@@ -1130,6 +1130,81 @@ so it leads by ten to over a hundred times.
       - 22.3 µs
       - 2.38 ms
       - 106.7x
+
+************
+ Extraction
+************
+
+Pulling values out of a document, the idioms the parsel, pyquery, and w3lib migrations center on. First, reading every
+matched node's ``@href`` and visible text off a pre-parsed page: parsel's ``::attr``/``::text`` ``getall`` and a pyquery
+``.items()`` read against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
+:attr:`~turbohtml.Node.text` off each node. turbohtml compiles the selector once and reads interned atoms, where parsel
+re-translates the CSS to XPath on libxml2 per call and pyquery boxes every match in a wrapper object, so it leads by
+twenty-five to nearly a hundred times.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18
+
+    - - extract ``@href`` (per match)
+      - turbohtml
+      - parsel
+      - pyquery
+    - - wpt page (4 kB)
+      - 0.1 µs
+      - 3.9 µs
+      - 4.4 µs
+    - - wpt page (9.6 kB)
+      - 0.1 µs
+      - 4.3 µs
+      - 4.8 µs
+    - - wpt page (92 kB)
+      - 8.2 µs
+      - 222 µs
+      - 542 µs
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18
+
+    - - extract text (per match)
+      - turbohtml
+      - parsel
+      - pyquery
+    - - wpt page (4 kB)
+      - 0.1 µs
+      - 4.0 µs
+      - 4.5 µs
+    - - wpt page (9.6 kB)
+      - 0.1 µs
+      - 4.3 µs
+      - 4.9 µs
+    - - wpt page (92 kB)
+      - 8.0 µs
+      - 214 µs
+      - 297 µs
+
+Second, reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against turbohtml's
+:meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call;
+w3lib runs a regular-expression pass while turbohtml runs the WHATWG tree builder and reads the hint off the parsed
+``<head>``, so the tree builder still comes out ahead of the regex on this small document.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - url hint
+      - turbohtml
+      - w3lib
+      - speed-up
+    - - ``base_url`` / ``get_base_url``
+      - 2.9 µs
+      - 7.4 µs
+      - 2.6x
+    - - ``meta_refresh`` / ``get_meta_refresh``
+      - 3.0 µs
+      - 6.5 µs
+      - 2.1x
 
 *****************
  Fluent chaining

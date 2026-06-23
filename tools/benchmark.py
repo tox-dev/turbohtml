@@ -2335,6 +2335,135 @@ def print_fragment_table(means: dict[str, float], cases: list[str]) -> None:
         print(row)
 
 
+# --- extract suite: pull values out of a document --------------------------- #
+# The extraction idioms the parsel, pyquery, and w3lib migrations center on, none of
+# which the find/select/edit suites cover. Selector extraction reads every matched
+# node's @href and visible text -- parsel's ``::attr``/``::text`` getall and a pyquery
+# ``.items()`` read, against turbohtml selecting once and reading
+# :meth:`~turbohtml.Element.attr`/:attr:`~turbohtml.Node.text` off each node, over a
+# pre-parsed page. URL-hint extraction reads a document's own ``<base>`` and meta
+# refresh -- w3lib's ``get_base_url``/``get_meta_refresh`` against turbohtml's
+# :meth:`~turbohtml.Document.base_url`/:meth:`~turbohtml.Document.meta_refresh`; both
+# parse the string each call, so that case parses afresh.
+EXTRACT_SELECTOR = "a"
+
+
+def turbo_extract_attr(doc: Document) -> None:
+    """Read every anchor's href by selecting once and reading attr off each node."""
+    for anchor in doc.select(EXTRACT_SELECTOR):
+        anchor.attr("href")
+
+
+def turbo_extract_text(doc: Document) -> None:
+    """Read every anchor's visible text by selecting once and reading text off each node."""
+    for anchor in doc.select(EXTRACT_SELECTOR):
+        _ = anchor.text
+
+
+def parsel_extract_attr(sel: Selector) -> None:
+    """Pull every anchor's href with parsel's ``::attr(href)`` getall."""
+    sel.css("a::attr(href)").getall()
+
+
+def parsel_extract_text(sel: Selector) -> None:
+    """Pull every anchor's text with parsel's ``::text`` getall."""
+    sel.css("a::text").getall()
+
+
+def pyquery_extract_attr(page: PyQuery) -> None:
+    """Read every anchor's href by iterating a pyquery ``.items()`` set."""
+    for item in page("a").items():
+        item.attr("href")
+
+
+def pyquery_extract_text(page: PyQuery) -> None:
+    """Read every anchor's text by iterating a pyquery ``.items()`` set."""
+    for item in page("a").items():
+        item.text()
+
+
+# (label, build, (read-attr op, read-text op)); each library reads the same matched set its own way.
+EXTRACT_LIBS: tuple[tuple[str, Callable[[str], object], tuple[Callable[..., None], Callable[..., None]]], ...] = (
+    ("turbohtml", turbo_tree, (turbo_extract_attr, turbo_extract_text)),
+    ("parsel", parsel_tree, (parsel_extract_attr, parsel_extract_text)),
+    ("pyquery", pyquery_tree, (pyquery_extract_attr, pyquery_extract_text)),
+)
+EXTRACT_OP_NAMES = ("attr (@href)", "text")
+
+# A small document carrying both URL hints; w3lib and turbohtml each parse it per call.
+_URL_HINT_HTML = (
+    "<html><head><base href='/sub/'>"
+    "<meta http-equiv='refresh' content='5; url=next.html'>"
+    "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
+)
+_URL_HINT_BASE = "http://site.com/"
+
+
+def turbo_base_url(text: str) -> None:
+    """Resolve the document's base URL with turbohtml's base_url, parsing the string."""
+    turbohtml.parse(text).base_url(_URL_HINT_BASE)
+
+
+def w3lib_base_url(text: str) -> None:
+    """Resolve the document's base URL with w3lib's regex get_base_url."""
+    w3lib.html.get_base_url(text, _URL_HINT_BASE)
+
+
+def turbo_meta_refresh(text: str) -> None:
+    """Read the meta refresh hint with turbohtml's meta_refresh, parsing the string."""
+    turbohtml.parse(text).meta_refresh(_URL_HINT_BASE)
+
+
+def w3lib_meta_refresh(text: str) -> None:
+    """Read the meta refresh hint with w3lib's regex get_meta_refresh."""
+    w3lib.html.get_meta_refresh(text, _URL_HINT_BASE)
+
+
+# (label, turbohtml op, w3lib op) for each document URL hint.
+URL_HINT_OPS: tuple[tuple[str, Callable[[str], None], Callable[[str], None]], ...] = (
+    ("base url", turbo_base_url, w3lib_base_url),
+    ("meta refresh", turbo_meta_refresh, w3lib_meta_refresh),
+)
+
+
+def run_extract_suite(bench: Callable[[str, object, object], None]) -> None:
+    """Benchmark selector extraction (vs parsel/pyquery) and URL-hint extraction (vs w3lib)."""
+    for op_index, op_name in enumerate(EXTRACT_OP_NAMES):
+        for size_name, path, enc in READPATH_CASES:
+            text = corpus_text(path, enc)
+            for label, build, ops in EXTRACT_LIBS:
+                bench(f"extract {op_name} {size_name} [{label}]", ops[op_index], build(text))
+    for hint_name, turbo_op, w3lib_op in URL_HINT_OPS:
+        bench(f"extract {hint_name} [turbohtml]", turbo_op, _URL_HINT_HTML)
+        bench(f"extract {hint_name} [w3lib]", w3lib_op, _URL_HINT_HTML)
+
+
+def print_extract_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render the selector-extraction race (turbohtml/parsel/pyquery) and the URL-hint race (turbohtml/w3lib)."""
+    if not cases:
+        return
+    others = [label for label, _, _ in EXTRACT_LIBS if label != "turbohtml"]
+    for op_name in EXTRACT_OP_NAMES:
+        print()
+        header = f"{'extract ' + op_name:28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+        print(header)
+        for size_name, _, _ in READPATH_CASES:
+            turbo = means[f"extract {op_name} {size_name} [turbohtml]"]
+            row = f"{size_name:28} {turbo * 1e6:8.1f} us"
+            for label in others:
+                other = means.get(f"extract {op_name} {size_name} [{label}]")
+                row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+            print(row)
+    print()
+    print(f"{'extract url hint':28} {'turbohtml':>11}{'w3lib':>18}")
+    for hint_name, *_ in URL_HINT_OPS:
+        turbo = means[f"extract {hint_name} [turbohtml]"]
+        other = means.get(f"extract {hint_name} [w3lib]")
+        row = f"{hint_name:28} {turbo * 1e6:8.1f} us"
+        row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+        print(row)
+
+
 # --- xpath suite: evaluate the XPath feature surface over a pre-parsed tree - #
 # turbohtml.xpath against lxml's libxml2 XPath engine, the de-facto XPath in
 # Python that parsel, pyquery, and html5-parser all delegate to. selectolax and
@@ -2717,6 +2846,17 @@ SIMPLE_SUITES: tuple[tuple[str, Callable[..., list[str]], Callable[[dict[str, fl
     ("article", run_article_suite, print_article_table),
 )
 
+# Suites whose runner has no return value the orchestration reuses; each prints from its own module
+# constants below. Driving them through one table keeps main() under the complexity gate.
+VOID_SUITES: tuple[tuple[str, Callable[[Callable[[str, object, object], None]], object]], ...] = (
+    ("text", run_text_extraction_suite),
+    ("extract", run_extract_suite),
+    ("linkify", run_linkify_suite),
+    ("markdown", run_markdown_suite),
+    ("sanitize", run_sanitize_suite),
+    ("structured", run_structured_suite),
+)
+
 
 def main() -> None:
     """Run all cases under pyperf and print the speedup table in the parent."""
@@ -2739,6 +2879,7 @@ def main() -> None:
             "edit",
             "navigate",
             "links",
+            "extract",
             "chain",
             "htmlparser",
             "stream",
@@ -2763,7 +2904,7 @@ def main() -> None:
     suites = set(
         os.environ.get(
             "TURBOHTML_BENCH_SUITES",
-            "escape,unescape,tokenize,corpus,parse,fragment,query,text,xpath,serialize,build,edit,navigate,links,chain,htmlparser,stream,markup,minify,tables,linkify,markdown,sanitize,structured,article",
+            "escape,unescape,tokenize,corpus,parse,fragment,query,text,xpath,serialize,build,edit,navigate,links,extract,chain,htmlparser,stream,markup,minify,tables,linkify,markdown,sanitize,structured,article",
         ).split(",")
     )
     means: dict[str, float] = {}
@@ -2779,16 +2920,9 @@ def main() -> None:
     xpath_cases = run_xpath_suite(bench) if "xpath" in suites else ([], [])
     xpath_feature_cases = run_xpath_feature_suite(bench) if "xpath" in suites else []
     simple_cases = {name: run_fn(bench) for name, run_fn, _ in SIMPLE_SUITES if name in suites}
-    if "text" in suites:
-        run_text_extraction_suite(bench)
-    if "linkify" in suites:
-        run_linkify_suite(bench)
-    if "markdown" in suites:
-        run_markdown_suite(bench)
-    if "sanitize" in suites:
-        run_sanitize_suite(bench)
-    if "structured" in suites:
-        run_structured_suite(bench)
+    for suite_name, run_fn in VOID_SUITES:
+        if suite_name in suites:
+            run_fn(bench)
     if args.worker or not means:
         return
     print_table(means, rows)
@@ -2803,6 +2937,7 @@ def main() -> None:
     print_linkify_table(means, LINKIFY_CASE_NAMES if "linkify" in suites else [])
     print_markdown_table(means, MARKDOWN_CASE_NAMES if "markdown" in suites else [])
     print_text_table(means, TEXT_CASE_NAMES if "text" in suites else [])
+    print_extract_table(means, list(EXTRACT_OP_NAMES) if "extract" in suites else [])
     print_sanitize_table(means, [n for n, _ in SANITIZE_CASES] if "sanitize" in suites else [])
     print_structured_table(means, [n for n, _ in STRUCTURED_CASES] if "structured" in suites else [])
 

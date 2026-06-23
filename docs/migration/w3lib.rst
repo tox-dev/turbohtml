@@ -132,6 +132,28 @@ serializes. turbohtml does the structure-aware pass a regex misreads on nested m
       - 1.11 ms
       - 1.8x
 
+Reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against
+:meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call, over
+a small page carrying a ``<base>`` and a meta refresh. w3lib runs a regular-expression pass; turbohtml runs the WHATWG
+tree builder and reads the hint off the parsed ``<head>``, and still comes out ahead (``tox -e bench extract``):
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 18 18 18
+
+    - - url hint
+      - turbohtml
+      - w3lib
+      - speed-up
+    - - ``base_url`` vs ``get_base_url``
+      - 2.9 µs
+      - 7.4 µs
+      - 2.6x
+    - - ``meta_refresh`` vs ``get_meta_refresh``
+      - 3.0 µs
+      - 6.5 µs
+      - 2.1x
+
 **********
  Pitfalls
 **********
