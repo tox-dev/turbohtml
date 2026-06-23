@@ -91,6 +91,30 @@ Python ``escape`` frame and ``Markup`` construction per call, so it runs roughly
       - 141 ns
       - 338 ns
 
+The other ``Markup`` operations race markupsafe's own ``Markup`` of the same method. ``striptags`` and ``unescape`` run
+on turbohtml's tokenizer and HTML5 reference resolution where markupsafe scans with a regex, and ``format`` and ``join``
+escape each untrusted operand through the same C ``escape``.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20
+
+    - - operation
+      - turbohtml
+      - markupsafe
+    - - ``striptags``
+      - 1368 ns
+      - 2483 ns
+    - - ``unescape``
+      - 273 ns
+      - 1114 ns
+    - - ``format`` (escapes operands)
+      - 1662 ns
+      - 1973 ns
+    - - ``join`` (escapes operands)
+      - 609 ns
+      - 1217 ns
+
 *********
  Linkify
 *********
@@ -121,6 +145,31 @@ turbohtml's own tree carry it past bleach's html5lib pass by five to twenty time
       - 127 µs
       - 1562 µs
       - 708 µs
+
+The detection primitive on its own, :meth:`turbohtml.linkify.Detector.find` against ``LinkifyIt().match`` and
+:meth:`~turbohtml.linkify.Detector.has_link` against ``LinkifyIt().test``, scans a run of plain text and returns the
+spans or a boolean without rewriting any HTML, so this isolates the C scan from the full linkify rewrite above. The
+``has_link`` prose row is close because ``test`` short-circuits on the first link near the start.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20
+
+    - - detect
+      - turbohtml
+      - linkify-it-py
+    - - ``find`` comment (1 link, 1 email)
+      - 0.6 µs
+      - 29.2 µs
+    - - ``find`` prose (1 KiB)
+      - 8.8 µs
+      - 309.9 µs
+    - - ``has_link`` comment
+      - 0.3 µs
+      - 21.5 µs
+    - - ``has_link`` prose (1 KiB)
+      - 2.7 µs
+      - 4.9 µs
 
 **********
  Sanitize
@@ -201,59 +250,6 @@ reference links, padded tables, full escaping), and turbohtml stays ahead by the
 
 The ``google_doc`` row reads the inline-CSS styling a Google Docs export carries (html2text's google_doc mode);
 markdownify has no equivalent.
-
-*************
- Layout text
-*************
-
-:meth:`turbohtml.Node.to_text` against `inscriptis <https://github.com/weblyzard/inscriptis>`_, the layout-aware
-HTML-to-text renderer it succeeds, `html-text <https://github.com/zytedata/html-text>`_, Zyte's plainer visible-text
-extractor, and `resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_'s ``extract_plain_text``. inscriptis
-and html-text both build an lxml tree in Python and resiliparse renders text off the lexbor tree it parses to, where
-turbohtml does the whole layout in one C walk; inscriptis additionally lays tables out as aligned columns, which
-html-text and resiliparse skip.
-
-.. list-table::
-    :header-rows: 1
-    :widths: 28 18 18 18 18
-
-    - - input
-      - turbohtml
-      - inscriptis
-      - html-text
-      - resiliparse
-    - - article (2 KiB)
-      - 7 µs
-      - 163 µs
-      - 102 µs
-      - 23 µs
-    - - table (4 KiB)
-      - 28 µs
-      - 839 µs
-      - 258 µs
-      - 52 µs
-    - - collapsed (2 KiB)
-      - 7 µs
-      - --
-      - 101 µs
-      - --
-    - - main (4 KiB)
-      - 7 µs
-      - --
-      - --
-      - 21 µs
-    - - annotated (4 KiB)
-      - 10 µs
-      - 202 µs
-      - --
-      - --
-
-The ``collapsed`` row turns layout guessing off: turbohtml joins the :attr:`~turbohtml.Node.stripped_strings` word
-stream against html-text's ``extract_text(guess_layout=False)``; inscriptis and resiliparse have no comparable collapsed
-mode. The ``main`` row strips page boilerplate first, :meth:`~turbohtml.Node.main_text` against resiliparse's
-``extract_plain_text(main_content=True)``. The ``annotated`` row labels matching elements with spans through
-:meth:`~turbohtml.Node.to_annotated_text` against inscriptis's ``get_annotated_text``; html-text and resiliparse have no
-annotation surface, so they sit out that row.
 
 *****************
  Structured data
@@ -828,10 +824,11 @@ sizes.
  Text content
 **************
 
-A whole-document text extraction: turbohtml's :attr:`~turbohtml.Node.text` property concatenates every descendant text
-run, against lxml's ``text_content()``, selectolax's ``text()``, and BeautifulSoup's ``get_text()``. turbohtml gathers
-the runs in one C walk into a buffer reserved up front, so it leads lxml by a small margin and selectolax and
-BeautifulSoup by roughly an order of magnitude. parsel exposes no node-level text collector, so it sits out.
+The ``text`` suite collects the visible text two ways. First, the raw text join off a pre-parsed tree, the
+``get_text`` pass: turbohtml's :attr:`~turbohtml.Node.text` property concatenates every descendant text run, against
+lxml's ``text_content()``, selectolax's ``text()``, and BeautifulSoup's ``get_text()``. turbohtml gathers the runs in
+one C walk into a buffer reserved up front, so it leads lxml by a small margin and selectolax and BeautifulSoup by
+roughly an order of magnitude. parsel exposes no node-level text collector, so it sits out.
 
 .. list-table::
     :header-rows: 1
@@ -858,33 +855,88 @@ BeautifulSoup by roughly an order of magnitude. parsel exposes no node-level tex
       - 488 µs
       - 368 µs
 
+Second, the layout-aware string-to-text extraction: :meth:`turbohtml.Node.to_text` against `inscriptis
+<https://github.com/weblyzard/inscriptis>`_, the layout-aware HTML-to-text renderer it succeeds, `html-text
+<https://github.com/zytedata/html-text>`_, Zyte's plainer visible-text extractor, and `resiliparse
+<https://github.com/chatnoir-eu/chatnoir-resiliparse>`_'s ``extract_plain_text``. inscriptis and html-text both build an
+lxml tree in Python and resiliparse renders text off the lexbor tree it parses to, where turbohtml does the whole layout
+in one C walk; inscriptis additionally lays tables out as aligned columns, which html-text and resiliparse skip.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18 18
+
+    - - input
+      - turbohtml
+      - inscriptis
+      - html-text
+      - resiliparse
+    - - article (2 KiB)
+      - 7 µs
+      - 163 µs
+      - 102 µs
+      - 23 µs
+    - - table (4 KiB)
+      - 28 µs
+      - 839 µs
+      - 258 µs
+      - 52 µs
+    - - collapsed (2 KiB)
+      - 7 µs
+      - --
+      - 101 µs
+      - --
+    - - main (4 KiB)
+      - 7 µs
+      - --
+      - --
+      - 21 µs
+    - - annotated (4 KiB)
+      - 10 µs
+      - 202 µs
+      - --
+      - --
+
+The ``collapsed`` row turns layout guessing off: turbohtml joins the :attr:`~turbohtml.Node.stripped_strings` word
+stream against html-text's ``extract_text(guess_layout=False)``; inscriptis and resiliparse have no comparable collapsed
+mode. The ``main`` row strips page boilerplate first, :meth:`~turbohtml.Node.main_text` against resiliparse's
+``extract_plain_text(main_content=True)``. The ``annotated`` row labels matching elements with spans through
+:meth:`~turbohtml.Node.to_annotated_text` against inscriptis's ``get_annotated_text``; html-text and resiliparse have no
+annotation surface, so they sit out that row.
+
 *****************
  Tree navigation
 *****************
 
 Walking every descendant of a parsed tree: turbohtml's :attr:`~turbohtml.Node.descendants` iterator against lxml's
-``iterdescendants()``. The ``list(el)``, ``iterdescendants()``, and ``iterancestors()`` family ports to
-:attr:`~turbohtml.Node.children`, :attr:`~turbohtml.Node.descendants`, and :attr:`~turbohtml.Node.ancestors`; the
-descendant walk is the dominant case. Each timed call consumes the whole iterator, where turbohtml yields interned nodes
-straight from the arena three to four times faster than lxml's libxml2 proxy objects. This is the lxml race the mapping
-ports from; selectolax and BeautifulSoup have no equivalent document-wide descendant iterator.
+``iterdescendants()`` and BeautifulSoup's ``descendants``. The ``list(el)``, ``iterdescendants()``, and
+``iterancestors()`` family ports to :attr:`~turbohtml.Node.children`, :attr:`~turbohtml.Node.descendants`, and
+:attr:`~turbohtml.Node.ancestors`; the descendant walk is the dominant case. Each timed call consumes the whole
+iterator, where turbohtml yields interned nodes straight from the arena faster than lxml's libxml2 proxy objects and
+BeautifulSoup's Python ``NavigableString`` chain. The descendant walk is one of BeautifulSoup's leaner paths, so the
+margin is narrower here than on the query and serialize suites. selectolax exposes no document-wide descendant iterator,
+so it has no entry.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 28 28
+    :widths: 28 24 24 24
 
     - - descendant walk
       - turbohtml
       - lxml
+      - BeautifulSoup
     - - wpt page (4 kB)
       - 2.0 µs
       - 8.3 µs
+      - 2.9 µs
     - - wpt page (9.6 kB)
       - 3.6 µs
       - 12.1 µs
+      - 5.0 µs
     - - wpt page (92 kB)
       - 101 µs
       - 295 µs
+      - 125 µs
 
 *************
  Serializing

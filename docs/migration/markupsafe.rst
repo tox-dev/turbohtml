@@ -49,6 +49,35 @@ markupsafe's own C escape on the small, mostly-clean strings a template engine i
       - 338 ns
       - 2.4x
 
+The other ``Markup`` operations stay ahead too. ``striptags`` and ``unescape`` run on turbohtml's tokenizer and HTML5
+reference resolution rather than markupsafe's regex scan, and the composing operations (``format``, ``join``) escape
+each untrusted operand through the same C ``escape``:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - operation
+      - turbohtml
+      - markupsafe
+      - speed-up
+    - - ``striptags``
+      - 1368 ns
+      - 2483 ns
+      - 1.8x
+    - - ``unescape``
+      - 273 ns
+      - 1114 ns
+      - 4.1x
+    - - ``format`` (escapes operands)
+      - 1662 ns
+      - 1973 ns
+      - 1.2x
+    - - ``join`` (escapes operands)
+      - 609 ns
+      - 1217 ns
+      - 2.0x
+
 *************
  The renames
 *************

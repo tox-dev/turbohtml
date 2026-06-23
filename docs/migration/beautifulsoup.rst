@@ -228,6 +228,53 @@ Python mid-walk. The :doc:`/development/performance` query suite races the two o
       - 989 µs
       - 1.3x
 
+Walking the whole tree (:attr:`~turbohtml.Node.descendants` against ``soup.descendants``) and reading its text
+(:attr:`~turbohtml.Node.text` against ``soup.get_text()``) stay ahead too; both libraries parse once outside the timed
+region. The descendant walk yields comparable node counts on both sides, so the gap is narrower, while ``get_text``
+concatenates in C where ``bs4`` joins Python strings node by node:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - navigate (walk descendants)
+      - turbohtml
+      - BeautifulSoup
+      - speed-up
+    - - wpt page (4 kB)
+      - 2.0 µs
+      - 2.9 µs
+      - 1.5x
+    - - wpt page (9.6 kB)
+      - 3.7 µs
+      - 5.0 µs
+      - 1.4x
+    - - wpt page (92 kB)
+      - 100.4 µs
+      - 125.0 µs
+      - 1.2x
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - text (whole-document ``get_text``)
+      - turbohtml
+      - BeautifulSoup
+      - speed-up
+    - - wpt page (4 kB)
+      - 0.8 µs
+      - 6.7 µs
+      - 8.3x
+    - - wpt page (9.6 kB)
+      - 1.1 µs
+      - 13.7 µs
+      - 12.9x
+    - - wpt page (92 kB)
+      - 38.0 µs
+      - 372.4 µs
+      - 9.8x
+
 *********************
  Attributes and text
 *********************

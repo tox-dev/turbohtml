@@ -40,6 +40,37 @@ than the Python scanner that does strictly less work:
       - 708 µs
       - 5.6x
 
+Comparing the detection primitive alone, :meth:`Detector.find <turbohtml.linkify.Detector.find>` against
+``LinkifyIt().match`` and :meth:`~turbohtml.linkify.Detector.has_link` against ``LinkifyIt().test``, both scanning a run
+of plain text and returning the same spans (``find``/``match``) or a boolean (``has_link``/``test``), the C scan is tens
+of times faster. The one close row is ``has_link`` on prose: ``test`` short-circuits on the first link near the start,
+so it does little work:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - detect
+      - turbohtml
+      - linkify-it-py
+      - speed-up
+    - - ``find`` comment (1 link, 1 email)
+      - 0.6 µs
+      - 29.2 µs
+      - 46.9x
+    - - ``find`` prose (1 KiB)
+      - 8.8 µs
+      - 309.9 µs
+      - 35.1x
+    - - ``has_link`` comment
+      - 0.3 µs
+      - 21.5 µs
+      - 83.7x
+    - - ``has_link`` prose (1 KiB)
+      - 2.7 µs
+      - 4.9 µs
+      - 1.8x
+
 *************
  The renames
 *************

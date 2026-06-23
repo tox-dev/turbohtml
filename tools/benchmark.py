@@ -120,7 +120,9 @@ except ImportError:
 import turbohtml
 from turbohtml import sanitizer as turbo_sanitizer
 from turbohtml.build import E as TURBO_E
+from turbohtml.linkify import Detector as TurboDetector
 from turbohtml.linkify import linkify as turbo_linkify_html
+from turbohtml.migration.markupsafe import Markup as TurboMarkup
 from turbohtml.migration.markupsafe import escape as turbo_markup_escape
 from turbohtml.migration.stdlib import HTMLParser as TurboHTMLParser
 from turbohtml.query import Query as TurboQuery
@@ -935,6 +937,87 @@ def print_strip_table(means: dict[str, float]) -> None:
         print(f"{method:22} {turbo * 1e6:8.1f} us {other_label:>22} {other * 1e6:8.1f} us {other / turbo:8.1f}x")
 
 
+# --- navigate suite: walk every descendant of a pre-parsed tree ------------- #
+# A full-tree descendant walk, the traversal the lxml ``iterdescendants()`` and
+# BeautifulSoup ``descendants`` migrations port to. Each library parses once outside
+# the timed region, then walks its own tree its own way (turbohtml's
+# :attr:`Node.descendants`, lxml's ``iterdescendants``, BeautifulSoup's
+# ``descendants``); selectolax exposes no document-wide descendant iterator, so the
+# comparison stays turbohtml/lxml/BeautifulSoup like the build/edit suites.
+
+
+def turbo_navigate(doc: Document) -> None:
+    """Walk every descendant node with turbohtml's descendants iterator."""
+    for _node in doc.descendants:
+        pass
+
+
+def lxml_navigate(tree: HtmlElement) -> None:
+    """Walk every descendant element with lxml's iterdescendants iterator."""
+    for _element in tree.iterdescendants():
+        pass
+
+
+def bs4_navigate(soup: BeautifulSoup) -> None:
+    """Walk every descendant with BeautifulSoup's descendants iterator."""
+    for _node in soup.descendants:
+        pass
+
+
+NAVIGATE_LIBS: tuple[tuple[str, Callable[[str], object], Callable[..., None]], ...] = (
+    ("turbohtml", turbo_tree, turbo_navigate),
+    ("lxml", lxml_tree, lxml_navigate),
+    ("BeautifulSoup", bs4_tree, bs4_navigate),
+)
+
+
+def _run_parsed_op_suite(
+    bench: Callable[[str, object, object], None],
+    op: str,
+    libs: tuple[tuple[str, Callable[[str], object], Callable[..., None]], ...],
+) -> list[str]:
+    """Benchmark one operation over a pre-parsed tree across every library; return the case names."""
+    names: list[str] = []
+    for name, path, enc in READPATH_CASES:
+        text = corpus_text(path, enc)
+        for label, build, run in libs:
+            bench(f"{op} {name} [{label}]", run, build(text))
+        names.append(name)
+    return names
+
+
+def _print_parsed_op_table(
+    means: dict[str, float],
+    op: str,
+    libs: tuple[tuple[str, Callable[[str], object], Callable[..., None]], ...],
+    cases: list[str],
+) -> None:
+    """Render turbohtml beside each alternative and its slowdown factor for one parsed-tree operation."""
+    if not cases:
+        return
+    others = [label for label, _, _ in libs if label != "turbohtml"]
+    print()
+    header = f"{op + ' benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
+    print(header)
+    for name in cases:
+        turbo = means[f"{op} {name} [turbohtml]"]
+        row = f"{op + ' ' + name:28} {turbo * 1e6:8.1f} us"
+        for label in others:
+            other = means.get(f"{op} {name} [{label}]")
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+        print(row)
+
+
+def run_navigate_suite(bench: Callable[[str, object, object], None]) -> list[str]:
+    """Benchmark a full-tree descendant walk across turbohtml, lxml, and BeautifulSoup; return the case names."""
+    return _run_parsed_op_suite(bench, "navigate", NAVIGATE_LIBS)
+
+
+def print_navigate_table(means: dict[str, float], cases: list[str]) -> None:
+    """Render the descendant-walk race for turbohtml beside lxml and BeautifulSoup."""
+    _print_parsed_op_table(means, "navigate", NAVIGATE_LIBS, cases)
+
+
 # --- chain suite: a pyquery-style fluent chain over a pre-parsed tree ------- #
 # Each library parses once (outside the timed region), then the timed function
 # runs one fluent chain: select every anchor, keep the linked ones, take the
@@ -1152,11 +1235,82 @@ MARKUP_CASES: tuple[tuple[str, str], ...] = (
 )
 
 
+# The Markup operations beyond escape: striptags and unescape run on turbohtml's tokenizer and HTML5 reference
+# resolution where markupsafe scans with a regex, and format/join escape their untrusted operands. Each races
+# turbohtml.migration.markupsafe against markupsafe's own Markup of the same method, so the comparison is the
+# per-call operation a template engine triggers, not just the escape primitive already in the escape table above.
+# Every Markup wrapper is built once, outside the timed region, so the benchmarks measure the operation rather
+# than construction; markupsafe.Markup() takes a string literal directly, which the untrusted-input lint accepts,
+# and turbohtml's Markup wraps the same text.
+_MARKUP_FORMAT_ARGS = ("<script>alert(1)</script>", "Tom & Jerry")
+_MARKUP_JOIN_PARTS = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
+_MS_MARKUP_OPS = markupsafe.Markup(
+    "<p>Hello <b>bold</b> &amp; <i>italic</i>, see <a href='/x'>caf&eacute;</a> &#127881;</p>"
+)
+_TURBO_MARKUP_OPS = TurboMarkup(_MS_MARKUP_OPS)
+_TURBO_MARKUP_TEMPLATE = TurboMarkup("<li>{}</li><span>{}</span>")
+_MS_MARKUP_TEMPLATE = markupsafe.Markup("<li>{}</li><span>{}</span>")
+_TURBO_MARKUP_JOINER = TurboMarkup(", ")
+_MS_MARKUP_JOINER = markupsafe.Markup(", ")
+
+
+def turbo_markup_striptags(markup: TurboMarkup) -> None:
+    """Strip tags to plain text with turbohtml's tokenizer-backed striptags."""
+    markup.striptags()
+
+
+def markupsafe_striptags(markup: markupsafe.Markup) -> None:
+    """Strip tags to plain text with markupsafe's regex-based striptags."""
+    markup.striptags()
+
+
+def turbo_markup_unescape(markup: TurboMarkup) -> None:
+    """Resolve references with turbohtml's HTML5 reference resolution."""
+    markup.unescape()
+
+
+def markupsafe_unescape(markup: markupsafe.Markup) -> None:
+    """Resolve references with markupsafe's unescape."""
+    markup.unescape()
+
+
+def turbo_markup_format(args: tuple[str, ...]) -> None:
+    """Interpolate untrusted operands into a template, escaping each, with turbohtml's Markup.format."""
+    _TURBO_MARKUP_TEMPLATE.format(*args)
+
+
+def markupsafe_format(args: tuple[str, ...]) -> None:
+    """Interpolate untrusted operands into a template, escaping each, with markupsafe's Markup.format."""
+    _MS_MARKUP_TEMPLATE.format(*args)
+
+
+def turbo_markup_join(parts: tuple[str, ...]) -> None:
+    """Join untrusted parts, escaping each, with turbohtml's Markup.join."""
+    _TURBO_MARKUP_JOINER.join(parts)
+
+
+def markupsafe_join(parts: tuple[str, ...]) -> None:
+    """Join untrusted parts, escaping each, with markupsafe's Markup.join."""
+    _MS_MARKUP_JOINER.join(parts)
+
+
+# (label, turbohtml op, turbohtml input, markupsafe op, markupsafe input) for each Markup operation beyond escape.
+MARKUP_OPS: tuple[tuple[str, Callable[..., None], object, Callable[..., None], object], ...] = (
+    ("striptags", turbo_markup_striptags, _TURBO_MARKUP_OPS, markupsafe_striptags, _MS_MARKUP_OPS),
+    ("unescape", turbo_markup_unescape, _TURBO_MARKUP_OPS, markupsafe_unescape, _MS_MARKUP_OPS),
+    ("format (escape operands)", turbo_markup_format, _MARKUP_FORMAT_ARGS, markupsafe_format, _MARKUP_FORMAT_ARGS),
+    ("join (escape operands)", turbo_markup_join, _MARKUP_JOIN_PARTS, markupsafe_join, _MARKUP_JOIN_PARTS),
+)
+
+
 def run_markup_suite(bench: Callable[[str, object, object], None]) -> list[str]:
-    """Benchmark markupsafe-compatible escaping against markupsafe; return the case names."""
+    """Benchmark markupsafe-compatible escaping and the Markup operations against markupsafe; return the case names."""
     for name, text in MARKUP_CASES:
         for label, escape in MARKUP_LIBS:
             bench(f"markup {name} [{label}]", escape, text)
+    for label, turbo_run, turbo_arg, markupsafe_run, markupsafe_arg in MARKUP_OPS:
+        bench(f"markup op {label} [turbohtml]", turbo_run, turbo_arg)
+        bench(f"markup op {label} [markupsafe]", markupsafe_run, markupsafe_arg)
     return [name for name, _ in MARKUP_CASES]
 
 
@@ -1174,6 +1328,17 @@ def print_markup_table(means: dict[str, float], cases: list[str]) -> None:
         for label in others:
             other = means.get(f"markup {name} [{label}]")
             row += f" {other * 1e9:9.1f} ns {other / turbo:4.1f}x" if other is not None else f"{'-':>20}"
+        print(row)
+    if f"markup op {MARKUP_OPS[0][0]} [turbohtml]" not in means:
+        return
+    print()
+    print(f"{'markup op benchmark':28} {'turbohtml':>12}{'markupsafe':>20}")
+    for label, *_ in MARKUP_OPS:
+        if (turbo := means.get(f"markup op {label} [turbohtml]")) is None:
+            continue
+        other = means.get(f"markup op {label} [markupsafe]")
+        row = f"{'op ' + label:28} {turbo * 1e9:8.1f} ns"
+        row += f" {other * 1e9:9.1f} ns {other / turbo:4.1f}x" if other is not None else f"{'-':>20}"
         print(row)
 
 
@@ -1330,11 +1495,27 @@ def bleach_linkify(text: str) -> None:
 
 
 _LINKIFY_IT = LinkifyIt()
+_TURBO_DETECTOR = TurboDetector()
 
 
 def linkifyit_scan(text: str) -> None:
     """Scan plain text for links with linkify-it-py, which finds but does not rewrite."""
     _LINKIFY_IT.match(text)
+
+
+def turbo_detect_find(text: str) -> None:
+    """Find every link span with turbohtml's Detector.find, the C scan behind linkify-it-py's match."""
+    _TURBO_DETECTOR.find(text)
+
+
+def turbo_detect_has(text: str) -> None:
+    """Test for any link with turbohtml's Detector.has_link, the C scan behind linkify-it-py's test."""
+    _TURBO_DETECTOR.has_link(text)
+
+
+def linkifyit_test(text: str) -> None:
+    """Test for any link with linkify-it-py's test, the boolean form of match."""
+    _LINKIFY_IT.test(text)
 
 
 LINKIFY_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
@@ -1353,12 +1534,27 @@ LINKIFY_CASES: tuple[tuple[str, str], ...] = (
 )
 LINKIFY_CASE_NAMES = [name for name, _ in LINKIFY_CASES]
 
+# The like-for-like detection race: turbohtml's Detector.find/has_link against linkify-it-py's match/test, both
+# scanning a run of plain text and returning the spans (find/match) or a boolean (has_link/test) without rewriting
+# any HTML. The linkify table above times turbohtml's full HTML rewrite against linkify-it's scan; this isolates the
+# detection primitive the migration page maps one-to-one. Only the plain-text cases apply, since both libraries scan
+# raw text rather than HTML.
+DETECT_CASES = LINKIFY_CASES[:2]
+DETECT_OPS: tuple[tuple[str, Callable[[str], None], Callable[[str], None]], ...] = (
+    ("find", turbo_detect_find, linkifyit_scan),
+    ("has_link", turbo_detect_has, linkifyit_test),
+)
+
 
 def run_linkify_suite(bench: Callable[[str, object, object], None]) -> None:
-    """Benchmark HTML-aware linkifying against bleach and linkify-it-py."""
+    """Benchmark HTML-aware linkifying against bleach and linkify-it-py, plus the detection primitive."""
     for name, text in LINKIFY_CASES:
         for label, run in LINKIFY_LIBS:
             bench(f"linkify {name} [{label}]", run, text)
+    for op_label, turbo_run, linkifyit_run in DETECT_OPS:
+        for name, text in DETECT_CASES:
+            bench(f"detect {op_label} {name} [turbohtml]", turbo_run, text)
+            bench(f"detect {op_label} {name} [linkify-it]", linkifyit_run, text)
 
 
 def print_linkify_table(means: dict[str, float], cases: list[str]) -> None:
@@ -1376,6 +1572,17 @@ def print_linkify_table(means: dict[str, float], cases: list[str]) -> None:
             other = means.get(f"linkify {name} [{label}]")
             row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
         print(row)
+    for op_label, *_ in DETECT_OPS:
+        if f"detect {op_label} {DETECT_CASES[0][0]} [turbohtml]" not in means:
+            continue
+        print()
+        print(f"{'detect ' + op_label + ' benchmark':28} {'turbohtml':>11}{'linkify-it-py':>18}")
+        for name, _ in DETECT_CASES:
+            turbo = means[f"detect {op_label} {name} [turbohtml]"]
+            other = means.get(f"detect {op_label} {name} [linkify-it]")
+            row = f"{op_label + ' ' + name:28} {turbo * 1e6:8.1f} us"
+            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
+            print(row)
 
 
 # --- markdown suite: HTML to Markdown against markdownify and html2text ------ #
@@ -1596,7 +1803,7 @@ ANNOTATION_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
 
 
 def run_markdown_suite(bench: Callable[[str, object, object], None]) -> None:
-    """Benchmark Markdown against markdownify/html2text and layout text against inscriptis."""
+    """Benchmark Markdown rendering against markdownify and html2text."""
     for name, text in MARKDOWN_CASES:
         for label, run in MARKDOWN_LIBS:
             bench(f"markdown {name} [{label}]", run, text)
@@ -1604,6 +1811,10 @@ def run_markdown_suite(bench: Callable[[str, object, object], None]) -> None:
         bench(f"markdown configured 4 KiB [{label}]", run, _MARKDOWN_OPTS_HTML)
     for label, run in MARKDOWN_GOOGLE_LIBS:
         bench(f"markdown google_doc 4 KiB [{label}]", run, _MARKDOWN_GOOGLE_HTML)
+
+
+def run_text_extraction_suite(bench: Callable[[str, object, object], None]) -> None:
+    """Benchmark string-to-text extraction against inscriptis, html-text, and resiliparse."""
     for name, text in TEXT_CASES:
         for label, run in TEXT_LIBS:
             bench(f"text {name} [{label}]", run, text)
@@ -1993,58 +2204,6 @@ def print_path_table(means: dict[str, float], cases: list[str]) -> None:
         for label in labels:
             value = means.get(f"path {name} [{label}]")
             row += f"{value * 1e6:20.1f} us" if value is not None else f"{'-':>24}"
-        print(row)
-
-
-# --- navigate suite: walk every descendant of a pre-parsed tree ------------- #
-# lxml's iterdescendants() yields every element under a node; turbohtml's
-# descendants property yields every node (elements and text). Both are the full
-# subtree walk list(el)/iterdescendants()/iterancestors() port to. Each timed
-# call consumes the whole iterator over a pre-parsed page; only turbohtml and lxml
-# expose a document-wide descendant iterator, so the table is a two-way race.
-
-
-def turbo_descendants(doc: Document) -> None:
-    """Walk every descendant node with turbohtml's descendants iterator."""
-    for _node in doc.descendants:
-        pass
-
-
-def lxml_descendants(tree: HtmlElement) -> None:
-    """Walk every descendant element with lxml's iterdescendants iterator."""
-    for _element in tree.iterdescendants():
-        pass
-
-
-NAVIGATE_LIBS: tuple[tuple[str, Callable[[str], object], Callable[..., None]], ...] = (
-    ("turbohtml", turbo_tree, turbo_descendants),
-    ("lxml", lxml_tree, lxml_descendants),
-)
-
-
-def run_navigate_suite(bench: Callable[[str, object, object], None]) -> list[str]:
-    """Benchmark a full descendant walk across each page size; return the case names."""
-    for size_name, path, enc in READPATH_CASES:
-        text = corpus_text(path, enc)
-        for label, build, walk in NAVIGATE_LIBS:
-            bench(f"navigate {size_name} [{label}]", walk, build(text))
-    return [name for name, _, _ in READPATH_CASES]
-
-
-def print_navigate_table(means: dict[str, float], cases: list[str]) -> None:
-    """Render turbohtml's descendants walk beside lxml's iterdescendants per page size."""
-    if not cases:
-        return
-    others = [label for label, _, _ in NAVIGATE_LIBS if label != "turbohtml"]
-    print()
-    header = f"{'navigate benchmark':28} {'turbohtml':>11}" + "".join(f"{label:>18}" for label in others)
-    print(header)
-    for name in cases:
-        turbo = means[f"navigate {name} [turbohtml]"]
-        row = f"{'navigate ' + name:28} {turbo * 1e6:8.1f} us"
-        for label in others:
-            other = means.get(f"navigate {name} [{label}]")
-            row += f" {other * 1e6:8.1f} us {other / turbo:4.1f}x" if other is not None else f"{'-':>18}"
         print(row)
 
 
@@ -2619,8 +2778,9 @@ def main() -> None:
     path_cases = run_path_suite(bench) if "query" in suites else []
     xpath_cases = run_xpath_suite(bench) if "xpath" in suites else ([], [])
     xpath_feature_cases = run_xpath_feature_suite(bench) if "xpath" in suites else []
-    run_readpath_suite(bench, 2, "serialize") if "serialize" in suites else []
     simple_cases = {name: run_fn(bench) for name, run_fn, _ in SIMPLE_SUITES if name in suites}
+    if "text" in suites:
+        run_text_extraction_suite(bench)
     if "linkify" in suites:
         run_linkify_suite(bench)
     if "markdown" in suites:
@@ -2642,7 +2802,7 @@ def main() -> None:
         print_fn(means, simple_cases.get(name, []))
     print_linkify_table(means, LINKIFY_CASE_NAMES if "linkify" in suites else [])
     print_markdown_table(means, MARKDOWN_CASE_NAMES if "markdown" in suites else [])
-    print_text_table(means, TEXT_CASE_NAMES if "markdown" in suites else [])
+    print_text_table(means, TEXT_CASE_NAMES if "text" in suites else [])
     print_sanitize_table(means, [n for n, _ in SANITIZE_CASES] if "sanitize" in suites else [])
     print_structured_table(means, [n for n, _ in STRUCTURED_CASES] if "structured" in suites else [])
 
