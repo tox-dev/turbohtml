@@ -1,0 +1,5 @@
+Benchmark every operational migration feature against the library it replaces. The :doc:`performance guide
+</development/performance>` and the migration pages now cover fragment parsing, whole-document and layout-aware text
+extraction, tree navigation, link extraction and rewriting, and per-match value extraction (parsel ``::attr``/``::text``
+getall, pyquery ``.items()`` reads) and document URL hints (w3lib ``get_base_url``/``get_meta_refresh``), each measured
+beside lxml, selectolax, BeautifulSoup, html5lib, inscriptis, html-text, resiliparse, parsel, pyquery, and w3lib.
