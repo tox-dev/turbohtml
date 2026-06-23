@@ -207,33 +207,53 @@ markdownify has no equivalent.
 *************
 
 :meth:`turbohtml.Node.to_text` against `inscriptis <https://github.com/weblyzard/inscriptis>`_, the layout-aware
-HTML-to-text renderer it succeeds, and `html-text <https://github.com/zytedata/html-text>`_, Zyte's plainer visible-text
-extractor. inscriptis and html-text both build an lxml tree in Python; inscriptis additionally lays tables out as
-aligned columns, where turbohtml does the whole layout in one C walk and html-text skips column alignment entirely.
+HTML-to-text renderer it succeeds, `html-text <https://github.com/zytedata/html-text>`_, Zyte's plainer visible-text
+extractor, and `resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_'s ``extract_plain_text``. inscriptis
+and html-text both build an lxml tree in Python and resiliparse renders text off the lexbor tree it parses to, where
+turbohtml does the whole layout in one C walk; inscriptis additionally lays tables out as aligned columns, which
+html-text and resiliparse skip.
 
 .. list-table::
     :header-rows: 1
-    :widths: 34 22 22 22
+    :widths: 28 18 18 18 18
 
     - - input
       - turbohtml
       - inscriptis
       - html-text
+      - resiliparse
     - - article (2 KiB)
       - 7 µs
       - 163 µs
       - 102 µs
+      - 23 µs
     - - table (4 KiB)
       - 28 µs
       - 839 µs
       - 258 µs
+      - 52 µs
+    - - collapsed (2 KiB)
+      - 7 µs
+      - --
+      - 101 µs
+      - --
+    - - main (4 KiB)
+      - 7 µs
+      - --
+      - --
+      - 21 µs
     - - annotated (4 KiB)
       - 10 µs
       - 202 µs
       - --
+      - --
 
-The ``annotated`` row labels matching elements with spans through :meth:`~turbohtml.Node.to_annotated_text` against
-inscriptis's ``get_annotated_text``; html-text has no annotation surface, so it sits out that row.
+The ``collapsed`` row turns layout guessing off: turbohtml joins the :attr:`~turbohtml.Node.stripped_strings` word
+stream against html-text's ``extract_text(guess_layout=False)``; inscriptis and resiliparse have no comparable collapsed
+mode. The ``main`` row strips page boilerplate first, :meth:`~turbohtml.Node.main_text` against resiliparse's
+``extract_plain_text(main_content=True)``. The ``annotated`` row labels matching elements with spans through
+:meth:`~turbohtml.Node.to_annotated_text` against inscriptis's ``get_annotated_text``; html-text and resiliparse have no
+annotation surface, so they sit out that row.
 
 *****************
  Structured data

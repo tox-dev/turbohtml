@@ -86,6 +86,39 @@ while returning a fully type annotated, mutable :class:`~turbohtml.Document` and
     /u
     Hi link
 
+*************
+ Performance
+*************
+
+The parse table above is throughput only. resiliparse's ``extract_plain_text`` maps to :meth:`~turbohtml.Node.to_text`,
+and its ``main_content=True`` mode to :meth:`~turbohtml.Node.main_text`; both render text off the lexbor tree in a
+second pass, where turbohtml walks the WHATWG tree once in C:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 20 20 20
+
+    - - to text
+      - turbohtml
+      - resiliparse
+      - speed-up
+    - - article (2 KiB)
+      - 7 µs
+      - 23 µs
+      - 3.1x
+    - - table (4 KiB)
+      - 28 µs
+      - 52 µs
+      - 1.8x
+    - - main content (4 KiB)
+      - 7 µs
+      - 21 µs
+      - 2.9x
+
+The ``main content`` row strips page boilerplate first (:meth:`~turbohtml.Node.main_text` against
+``extract_plain_text(main_content=True)``); resiliparse matches turbohtml on the raw parse but trails it on the text
+walk, where the layout runs natively rather than over the lexbor tree.
+
 **********
  Pitfalls
 **********

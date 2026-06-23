@@ -88,9 +88,15 @@ Python.
       - 28 µs
       - 258 µs
       - 9.2x
+    - - word stream (2 KiB)
+      - 7 µs
+      - 101 µs
+      - 14.0x
 
 html-text skips the column-aligned table layout :meth:`~turbohtml.Node.to_text` renders, so its margin behind turbohtml
-narrows on table-heavy input while staying near an order of magnitude.
+narrows on table-heavy input while staying near an order of magnitude. The ``word stream`` row turns layout guessing off
+(``extract_text(guess_layout=False)``) against joining the :attr:`~turbohtml.Node.stripped_strings` iterator, the
+collapsed visible text both return without layout.
 
 **********
  Pitfalls

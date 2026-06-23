@@ -57,6 +57,9 @@ from linkify_it import LinkifyIt
 from lxml import html as lxml_html
 from parsel import Selector
 from pyquery import PyQuery
+from resiliparse.extract.html2text import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
+    extract_plain_text as resiliparse_extract_text,
+)
 from resiliparse.parse.html import HTMLTree  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
 from selectolax.lexbor import LexborHTMLParser
 
@@ -1500,17 +1503,74 @@ def html_text_text(text: str) -> None:
     html_text.extract_text(text)
 
 
+def resiliparse_text(text: str) -> None:
+    """Extract visible text with resiliparse, off the lexbor tree it shares with selectolax."""
+    resiliparse_extract_text(text)
+
+
 TEXT_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
     ("turbohtml", turbo_text),
     ("inscriptis", inscriptis_text),
     *((("html-text", html_text_text),) if html_text is not None else ()),
+    ("resiliparse", resiliparse_text),
 )
 
 TEXT_CASES: tuple[tuple[str, str], ...] = (
     ("article 2 KiB", ("<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16)),
     ("table 4 KiB", ("<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30)),
 )
-TEXT_CASE_NAMES = [name for name, _ in TEXT_CASES] + ["annotated 4 KiB"]
+TEXT_CASE_NAMES = [name for name, _ in TEXT_CASES] + ["collapsed 2 KiB", "main 4 KiB", "annotated 4 KiB"]
+
+# the collapsed case turns layout guessing off: turbohtml joins the stripped_strings word stream, the role html-text's
+# extract_text(guess_layout=False) fills, so the layout-free path is measured against its lxml word walk. inscriptis and
+# resiliparse have no comparable collapsed mode, so they sit the case out.
+_COLLAPSED_HTML = TEXT_CASES[0][1]
+
+
+def turbo_text_collapsed(text: str) -> None:
+    """Join turbohtml's stripped_strings into the collapsed word stream, html-text's layout-off output."""
+    " ".join(turbohtml.parse(text).stripped_strings)
+
+
+def html_text_collapsed(text: str) -> None:
+    """Extract the collapsed word stream with html-text, layout guessing off."""
+    html_text.extract_text(text, guess_layout=False)
+
+
+TEXT_COLLAPSED_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_text_collapsed),
+    *((("html-text", html_text_collapsed),) if html_text is not None else ()),
+)
+
+# the main case strips page boilerplate before rendering text: turbohtml's main_text against resiliparse's
+# extract_plain_text(main_content=True), both a content-density heuristic followed by a text walk. inscriptis and
+# html-text render the whole page, so they have no main-content row.
+_MAIN_TEXT_BODY = (
+    "<p>A comet is an icy small body that, when it passes close to the Sun, warms up and releases gases, forming a "
+    "glowing coma around it.</p>"
+)
+_MAIN_TEXT_HTML = (
+    "<html><head><title>Comets</title></head><body>"
+    "<nav><a href='/'>Home</a> <a href='/science'>Science</a></nav>"
+    "<article><h1>Comets</h1>" + _MAIN_TEXT_BODY * 12 + "</article>"
+    "<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
+)
+
+
+def turbo_main_text(text: str) -> None:
+    """Extract the boilerplate-stripped main text with turbohtml's main_text in one C pass."""
+    turbohtml.parse(text).main_text()
+
+
+def resiliparse_main_text(text: str) -> None:
+    """Extract the main-content text with resiliparse's extract_plain_text main_content mode."""
+    resiliparse_extract_text(text, main_content=True)
+
+
+MAIN_TEXT_LIBS: tuple[tuple[str, Callable[[str], None]], ...] = (
+    ("turbohtml", turbo_main_text),
+    ("resiliparse", resiliparse_main_text),
+)
 
 # the annotation case labels matching elements with spans, the role inscriptis's
 # get_annotated_text fills, so the labeled-span path is measured beside it.
@@ -1547,6 +1607,10 @@ def run_markdown_suite(bench: Callable[[str, object, object], None]) -> None:
     for name, text in TEXT_CASES:
         for label, run in TEXT_LIBS:
             bench(f"text {name} [{label}]", run, text)
+    for label, run in TEXT_COLLAPSED_LIBS:
+        bench(f"text collapsed 2 KiB [{label}]", run, _COLLAPSED_HTML)
+    for label, run in MAIN_TEXT_LIBS:
+        bench(f"text main 4 KiB [{label}]", run, _MAIN_TEXT_HTML)
     for label, run in ANNOTATION_LIBS:
         bench(f"text annotated 4 KiB [{label}]", run, _ANNOTATION_HTML)
 
