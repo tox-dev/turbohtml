@@ -15,6 +15,7 @@ Open a Python prompt and escape some text for safe inclusion in an HTML page:
 .. testcode::
 
     import turbohtml
+
     print(turbohtml.escape("5 > 3 & 2 < 4"))
 
 .. testoutput::
@@ -25,7 +26,7 @@ By default ``escape`` escapes quotation marks too, which you want inside an attr
 
 .. testcode::
 
-    print(turbohtml.escape("name=\"O'Brien\""))
+    print(turbohtml.escape('name="O\'Brien"'))
 
 .. testoutput::
 
@@ -54,6 +55,7 @@ quickest way to turn a plain message into clickable HTML:
 .. testcode::
 
     from turbohtml.linkify import linkify
+
     print(linkify("Visit https://example.com today"))
 
 .. testoutput::

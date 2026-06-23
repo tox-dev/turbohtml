@@ -14,6 +14,7 @@ the base class and the handlers fire as before:
 
     from turbohtml.migration.stdlib import HTMLParser
 
+
     class LinkCollector(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -22,6 +23,7 @@ the base class and the handlers fire as before:
         def handle_starttag(self, tag, attrs):
             if tag == "a":
                 self.links += [v for n, v in attrs if n == "href" and v]
+
 
     collector = LinkCollector()
     collector.feed('<a href="/x">x</a> <a href="/y">y</a>')
@@ -53,9 +55,7 @@ per-callback Python call overhead. A typical parser:
 
         def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             if tag == "a":
-                self.links.extend(
-                    value for name, value in attrs if name == "href" and value
-                )
+                self.links.extend(value for name, value in attrs if name == "href" and value)
 
 
     collector = LinkCollector()
@@ -71,9 +71,7 @@ becomes a loop:
     links = [
         href
         for token in turbohtml.tokenize(page)
-        if token.type is turbohtml.TokenType.START_TAG
-        and token.tag == "a"
-        and (href := token.attr("href"))
+        if token.type is turbohtml.TokenType.START_TAG and token.tag == "a" and (href := token.attr("href"))
     ]
 
 The events map one to one:
@@ -108,8 +106,11 @@ string for a valueless attribute and your fallback when the attribute is missing
 .. testcode::
 
     page = '<p><a href="/a">one</a> and <a href="/b" download>two</a></p>'
-    print([token.attr("href") for token in turbohtml.tokenize(page)
-     if token.type is turbohtml.TokenType.START_TAG and token.tag == "a"])
+    print([
+        token.attr("href")
+        for token in turbohtml.tokenize(page)
+        if token.type is turbohtml.TokenType.START_TAG and token.tag == "a"
+    ])
 
 .. testoutput::
 
@@ -126,6 +127,8 @@ track the enclosing tag yourself:
 .. testcode::
 
     from collections.abc import Iterator
+
+
     def visible_text(page: str) -> Iterator[str]:
         hidden = 0
         for token in turbohtml.tokenize(page):
@@ -135,6 +138,8 @@ track the enclosing tag yourself:
                 hidden -= 1
             elif token.type is turbohtml.TokenType.TEXT and not hidden:
                 yield token.data
+
+
     print("".join(visible_text("<style>p{}</style><p>Tom &amp; Jerry</p>")))
 
 .. testoutput::
@@ -188,8 +193,11 @@ the offending markup:
 .. testcode::
 
     page = "<h1>title</h1>\n<img src='a.png'>"
-    print([f"{token.tag} at {token.line}:{token.col}" for token in turbohtml.tokenize(page)
-     if token.type is turbohtml.TokenType.START_TAG and token.tag == "img"])
+    print([
+        f"{token.tag} at {token.line}:{token.col}"
+        for token in turbohtml.tokenize(page)
+        if token.type is turbohtml.TokenType.START_TAG and token.tag == "img"
+    ])
 
 .. testoutput::
 

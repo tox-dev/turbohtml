@@ -9,7 +9,7 @@ package = "skip"  # we install an instrumented editable build ourselves below
 # no gcov on Windows, so pull it in only where the coverage gate actually runs
 deps = [
   { replace = "if", condition = "factor.win32 or factor['3.15'] or factor['3.14t'] or factor['3.15t']", then = [], else = [
-    "gcovr>=8.4"
+    "gcovr>=8.6"
   ], extend = true },
 ]
 dependency_groups = [ "test" ]

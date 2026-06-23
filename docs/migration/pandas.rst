@@ -23,9 +23,9 @@ exact shape ``pandas.DataFrame`` takes, so hand them over yourself and keep pand
 
     import turbohtml
 
-    table = turbohtml.parse(
-        "<table><tr><th>name</th><th>qty</th></tr><tr><td>pen</td><td>3</td></tr></table>"
-    ).find("table")
+    table = turbohtml.parse("<table><tr><th>name</th><th>qty</th></tr><tr><td>pen</td><td>3</td></tr></table>").find(
+        "table"
+    )
     records = table.records()
     print(records)
     # pandas.DataFrame(records) builds the frame, keeping pandas optional

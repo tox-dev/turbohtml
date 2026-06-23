@@ -11,6 +11,7 @@ When you interpolate user-supplied text into HTML, escape it first so it cannot 
 .. testcode::
 
     import turbohtml
+
     comment = '<script>alert("xss")</script>'
     print(f"<p>{turbohtml.escape(comment)}</p>")
 

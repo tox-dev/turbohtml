@@ -13,6 +13,7 @@ setter fills an element with a single text child:
 .. testcode::
 
     from turbohtml import Element
+
     card = Element("article", {"class": ["card", "lg"]})
     heading = Element("h2")
     heading.text = "Title"
@@ -82,6 +83,7 @@ return it:
 .. testcode::
 
     from turbohtml import Element
+
     doc = turbohtml.parse("<section><h2>Title</h2><p>one</p><p>two</p></section>")
     section = doc.find("section")
     paragraphs = section.find_all("p")
@@ -187,6 +189,7 @@ empty text nodes, throughout the subtree (the DOM operation `BeautifulSoup
 .. testcode::
 
     from turbohtml import Text
+
     p = turbohtml.Element("p")
     p.extend([Text("Hello "), Text(""), Text("world")])
     p.normalize()
@@ -207,6 +210,7 @@ preserve processing instructions and CDATA sections exactly:
 .. testcode::
 
     import copy
+
     menu = turbohtml.parse("<ul><li>tea</li></ul>").find("ul")
     clone = copy.deepcopy(menu)
     clone.append(turbohtml.Element("li"))

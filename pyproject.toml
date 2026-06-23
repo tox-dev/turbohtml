@@ -2,7 +2,7 @@
 build-backend = "mesonpy"
 requires = [
   "meson>=1.11.1",
-  "meson-python>=0.19",
+  "meson-python>=0.20",
   "ninja>=1.13",
 ]
 
@@ -60,18 +60,18 @@ dev = [
 ]
 test = [
   "covdefaults>=2.3",
-  "jinja2>=3.1",              # the markup migration test renders templates with markupsafe swapped for turbohtml.markup
-  "markdown-it-py>=4",        # a pure-Python GFM reference to round-trip to_markdown() output back to HTML and check it
+  "jinja2>=3.1.6",              # the markup migration test renders templates with markupsafe swapped for turbohtml.markup
+  "markdown-it-py>=4.2",        # a pure-Python GFM reference to round-trip to_markdown() output back to HTML and check it
   "meson>=1.11.1",
-  "meson-python>=0.19",
+  "meson-python>=0.20",
   "ninja>=1.13",
-  "pytest>=9.0.3",
+  "pytest>=9.1.1",
   "pytest-cov>=7.1",
   "pytest-mock>=3.15.1",
-  "pytest-run-parallel>=0.8", # runs each test in many threads to surface free-threaded data races
+  "pytest-run-parallel>=0.9.1", # runs each test in many threads to surface free-threaded data races
 ]
 type = [
-  "ty>=0.0.44",
+  "ty>=0.0.52",
   { include-group = "bench" },  # tools/benchmark.py imports pyperf and html5lib
 ]
 docs = [
@@ -79,60 +79,60 @@ docs = [
   "sphinx>=9.1",
   "sphinx-autodoc-typehints>=3.11",   # 3.11 types C getset descriptors from the stub
   "sphinx-copybutton>=0.5.2",
-  "sphinx-issues>=5.0.1",
-  "sphinxcontrib-mermaid>=1",
+  "sphinx-issues>=6",
+  "sphinxcontrib-mermaid>=2.0.2",
   "sphinxcontrib-towncrier>=0.5.0a0",
   "towncrier>=25.8",
 ]
 bench = [
-  "beautifulsoup4>=4.13",
-  "bleach>=6.2",
-  "cssselect>=1.3",
-  "dominate>=2.9",
+  "beautifulsoup4>=4.15",
+  "bleach>=6.4",
+  "cssselect>=1.4",
+  "dominate>=2.9.1",
   "extruct>=0.18",
-  "html-sanitizer>=2.5",
-  "html-text>=0.7",
-  "html2text>=2025.4",
+  "html-sanitizer>=2.6",
+  "html-text>=0.7.1",
+  "html2text>=2025.4.15",
   "html5-parser>=0.4.12",
   "html5lib>=1.1",
-  "inscriptis>=2.6",
-  "linkify-it-py>=2",
-  "lxml>=6.1",
-  "lxml-html-clean>=0.4",
-  "markdownify>=1.2",
-  "markupsafe>=3",
-  "minify-html>=0.15",
+  "inscriptis>=2.7.2",
+  "linkify-it-py>=2.1",
+  "lxml>=6.1.1",
+  "lxml-html-clean>=0.4.5",
+  "markdownify>=1.2.2",
+  "markupsafe>=3.0.3",
+  "minify-html>=0.18.1",
   "newspaper3k>=0.2.8",
-  "nh3>=0.2",
-  "pandas>=2.2",
-  "parsel>=1.9",
-  "pyperf>=2.9",
-  "pyquery>=2",
+  "nh3>=0.3.6",
+  "pandas>=3.0.3",
+  "parsel>=1.11",
+  "pyperf>=2.10",
+  "pyquery>=2.0.1",
   "readability-lxml>=0.8.4.1",
   "resiliparse>=1.0.8",
-  "selectolax>=0.3.30",
-  "soupsieve>=2.8",
-  "trafilatura>=2",
-  "w3lib>=2.3",
-  "yattag>=1.15",
+  "selectolax>=0.4.10",
+  "soupsieve>=2.8.4",
+  "trafilatura>=2.1",
+  "w3lib>=2.4.1",
+  "yattag>=1.16.1",
   { include-group = "test" },
 ]
 coverage = [
   "covdefaults>=2.3",
-  "coverage[toml]>=7.14.1",
+  "coverage[toml]>=7.14.3",
 ]
 fix = [
-  "pre-commit-uv>=4.2.1",
+  "pre-commit-uv>=4.2.2",
 ]
 pkg-meta = [
   "check-wheel-contents>=0.6.3",
   "twine>=6.2",
-  "uv>=0.11.19",
+  "uv>=0.11.23",
 ]
 release = [
-  "gitpython>=3.1.46",
-  "packaging>=26",
-  "pre-commit>=4.5.1",
+  "gitpython>=3.1.50",
+  "packaging>=26.2",
+  "pre-commit>=4.6",
   "towncrier>=25.8",
 ]
 

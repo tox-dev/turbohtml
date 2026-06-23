@@ -47,6 +47,7 @@ WHATWG-conformant where ``html.parser`` is not, and the whole surface is fully t
 
     import html
     from turbohtml import escape, unescape
+
     print(escape('<a href="x">') == html.escape('<a href="x">'))
     print(unescape("caf&eacute; &#127881;") == html.unescape("caf&eacute; &#127881;"))
 

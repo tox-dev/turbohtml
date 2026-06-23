@@ -55,6 +55,7 @@ document is more than an order of magnitude faster:
 .. testcode::
 
     from turbohtml import parse
+
     doc = parse("<table><tr><td>cell</td></table>")
     print(doc.find("td").text)  # the tbody the WHATWG algorithm inserts is walked the same way
 

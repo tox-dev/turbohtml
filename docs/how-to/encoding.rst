@@ -13,6 +13,7 @@
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse(b'<meta charset="iso-8859-2"><p>\xe1</p>')
     print(doc.encoding)
     print(doc.find("p").text)

@@ -67,6 +67,7 @@ type annotated and running the scan in C, so it is a drop-in that runs several t
 .. testcode::
 
     from turbohtml import unescape
+
     print(unescape("caf&eacute; &amp; co"))
 
 .. testoutput::
@@ -80,6 +81,7 @@ comments never appear in ``text``:
 .. testcode::
 
     from turbohtml import parse
+
     print(parse("<p>Tom &amp; Jerry <b>says</b> hi</p><!--note-->").text)
 
 .. testoutput::

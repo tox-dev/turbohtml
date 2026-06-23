@@ -48,6 +48,7 @@ or from any element, searching its descendants:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<form><input name=email><input name=token type=hidden></form>")
     print(doc.find("input", type="hidden").attrs["name"])
     print([field.attrs["name"] for field in doc.find_all("input")])
@@ -115,6 +116,8 @@ node kind and unpacks the defining field (``tag`` for an :class:`~turbohtml.Elem
                 return f"<!--{data}-->"
             case _:
                 return "?"
+
+
     print([summarize(child) for child in turbohtml.parse("<p>hi<!--x--><b>bold</b></p>").find("p")])
 
 .. testoutput::
@@ -136,6 +139,7 @@ comma groups:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse('<ul><li class=on>a<li><a href="/x">b</a></ul>')
     print([li.text for li in doc.select("li.on")])
     print(doc.select_one('a[href^="/"]').text)
@@ -153,10 +157,7 @@ them:
 
 .. testcode::
 
-    table = turbohtml.parse(
-        "<ul><li class=row>a</li><li class=sep>-</li>"
-        "<li class=row>b</li><li class=row>c</li></ul>"
-    )
+    table = turbohtml.parse("<ul><li class=row>a</li><li class=sep>-</li><li class=row>b</li><li class=row>c</li></ul>")
     print([li.text for li in table.select("li:nth-child(2 of .row)")])
 
 .. testoutput::
@@ -171,10 +172,7 @@ and nests with the others (``article:not(:has(img))`` selects the image-less art
 
 .. testcode::
 
-    page = turbohtml.parse(
-        '<article><h1>Post</h1><figure><img></figure></article>'
-        "<article><h1>Note</h1></article>"
-    )
+    page = turbohtml.parse("<article><h1>Post</h1><figure><img></figure></article><article><h1>Note</h1></article>")
     print([a.select_one("h1").text for a in page.select("article:has(img)")])
     print([e.tag for e in page.select(":is(h1, figure)")])
     print([a.select_one("h1").text for a in page.select("article:not(:has(img))")])
@@ -193,8 +191,7 @@ resolved text direction. ``:scope`` is the element the query is rooted at, which
 .. testcode::
 
     form = turbohtml.parse(
-        "<form><input name=agree type=checkbox checked>"
-        "<input name=email required><input name=token disabled></form>"
+        "<form><input name=agree type=checkbox checked><input name=email required><input name=token disabled></form>"
     )
     print([e.attrs["name"] for e in form.select(":checked")])
     print([e.attrs["name"] for e in form.select(":required")])
@@ -327,6 +324,7 @@ predicates, the boolean, relational, and arithmetic operators, unions, and the c
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<table><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></table>")
     print([td.text for td in doc.xpath("//td")])
     print(doc.xpath("//tr[2]/td[1]/text()"))
@@ -355,6 +353,7 @@ the suffix, so ``//svg:rect`` finds the SVG rectangle while the unprefixed ``//r
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<svg><rect/><circle/></svg>")
     rects = doc.xpath("//svg:rect", namespaces={"svg": "http://www.w3.org/2000/svg"})
     print(len(rects))
@@ -369,6 +368,7 @@ quotes or special characters cannot break the query:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<a href='/in'>in</a><a href='/out'>out</a>")
     print([a.text for a in doc.xpath("//a[@href=$href]", href="/out")])
 
@@ -383,6 +383,7 @@ node-set joins path steps, ``count()``, unions, and predicates like any other no
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>")
     rows = doc.xpath("//tr")
     print([td.text for td in doc.xpath("$rows/td", rows=rows)])
@@ -399,6 +400,7 @@ namespace; the ``re:`` prefix dispatches to Python's :mod:`re`:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<a href='/p/12'>a</a><a href='/q'>b</a>")
     print([a.attrs["href"] for a in doc.xpath(r"//a[re:test(@href, '\d')]")])
 
@@ -418,8 +420,10 @@ iterable of elements produces a node-set that feeds later path steps and predica
     from types import SimpleNamespace
     from turbohtml import Element
 
+
     def first_two(context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
         return nodes[:2]
+
 
     doc = turbohtml.parse("<ul><li>a</li><li>b</li><li>c</li></ul>")
     result = doc.xpath("first_two(//li)/text()", extensions={(None, "first_two"): first_two})
@@ -441,6 +445,7 @@ immutable and re-entrant, so one instance can be shared across threads.
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<table><tr><td class='num'>1</td><td>x</td></tr><tr><td class='num'>2</td></tr></table>")
     cells = turbohtml.XPath(".//td[@class=$cls]")
     for row in doc.xpath("//tr"):
@@ -461,6 +466,7 @@ numbers (``min``, ``max``, ``highest``, ``lowest``, ``abs``, ``power``), and ``d
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<ul><li>3</li><li>1</li><li>1</li></ul>")
     print([li.text for li in doc.xpath("set:distinct(//li)")])
     print(doc.xpath("math:max(//li)"))
@@ -492,6 +498,7 @@ to log a match, store a stable reference, or debug a scrape:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<body><div><p>one</p><p>two</p></div></body>")
     second = doc.select("p")[1]
     print(second.css_path())
@@ -531,6 +538,7 @@ a token in the class list, and ``axis`` aims the search at something other than 
 .. testcode::
 
     import re, turbohtml
+
     doc = turbohtml.parse('<a class="btn lg" href="/a">A</a><a href="mailto:x">B</a>')
     print([a.attrs["href"] for a in doc.find_all("a", href=re.compile(r"^/"))])
     print(doc.find("a", class_="lg").text)
@@ -552,12 +560,9 @@ anything else. It composes with the tag, ``class_``, and attribute filters:
 .. testcode::
 
     import re, turbohtml
+
     doc = turbohtml.parse(
-        "<section>"
-        '<button class="buy">Add to cart</button>'
-        "<p>Price: $19</p>"
-        "<span>SKU-7788</span>"
-        "</section>"
+        '<section><button class="buy">Add to cart</button><p>Price: $19</p><span>SKU-7788</span></section>'
     ).find("section")
     print(doc.find(text="Add to cart").tag)
     print([node.tag for node in doc.find_all(text=re.compile(r"\$\d+"))])

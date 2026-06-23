@@ -36,6 +36,10 @@ repos:
       - id: ruff-format
       - id: ruff-check
         args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
+  - repo: https://github.com/pre-commit/sync-pre-commit-deps
+    rev: "v0.0.4" # v0.0.4
+    hooks:
+      - id: sync-pre-commit-deps
   - repo: https://github.com/google/yamlfmt
     rev: "v0.21.0" # v0.21.0
     hooks:
@@ -49,9 +53,9 @@ repos:
         files: ^src/turbohtml/.*\.c$
         require_serial: true
         additional_dependencies:
-          - clang-tidy==22.1.0.1
+          - clang-tidy==22.1.7
           - meson>=1.11.1
-          - ninja>=1.11.1
+          - ninja>=1.13
       - id: mdformat
         name: mdformat
         entry: mdformat --wrap 120
@@ -61,6 +65,13 @@ repos:
           - mdformat-gfm>=1
           - mdformat-ruff>=0.1.3
           - mdformat-frontmatter>=2.1.2 # keep the YAML front matter in issue templates intact
+      - id: ruff-docs
+        name: ruff (doc snippets)
+        entry: python tools/ruff_docs.py
+        language: python
+        files: ^docs/.*\.rst$
+        additional_dependencies:
+          - ruff==0.15.18 # kept on the ruff-pre-commit rev by sync-pre-commit-deps
       - id: changelogs-rst
         name: changelog filenames
         language: fail
@@ -71,7 +82,7 @@ repos:
     rev: "v2.2.0" # v2.1.0
     hooks:
       - id: docstrfmt
-        args: ["--line-length=120"]
+        args: ["--line-length=120", "--no-format-python-code-blocks"] # ruff-docs owns the Python snippets
         types_or: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/zizmorcore/zizmor-pre-commit

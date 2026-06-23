@@ -109,9 +109,10 @@ of ``(start, end, label)`` triples over its code-point offsets, taking every ``t
 
 .. testcode::
 
-    text, labels = parse("<h1>Title</h1><p>Some <b>bold</b> words.</p>").to_annotated_text(
-        {"h1": ["heading"], "b": ["emphasis"]}
-    )
+    text, labels = parse("<h1>Title</h1><p>Some <b>bold</b> words.</p>").to_annotated_text({
+        "h1": ["heading"],
+        "b": ["emphasis"],
+    })
     print(text)
     print([(label, text[start:end]) for start, end, label in labels])
 
@@ -146,9 +147,10 @@ as ``<label>...</label>`` markup, innermost span closing first).
 
     from turbohtml import annotation_surface, annotation_tags, parse
 
-    text, spans = parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text(
-        {"h1": ["heading"], "b": ["metric"]}
-    )
+    text, spans = parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text({
+        "h1": ["heading"],
+        "b": ["metric"],
+    })
     print(annotation_surface(text, spans))
     print(annotation_tags(text, spans))
 

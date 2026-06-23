@@ -19,6 +19,7 @@ browsers run, including the error recovery that inserts the missing ``html``, ``
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<h1>Hello</h1><p>Tom &amp; <a href='/x'>Jerry</a></p>")
     print(doc.root)
 
@@ -196,6 +197,7 @@ variable:
 .. testcode::
 
     from turbohtml.query import Query
+
     anchors = Query(doc).find("a")
     print(anchors.text())
     print(anchors.attr("href"))

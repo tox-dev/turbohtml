@@ -151,9 +151,11 @@ tuple keys:
 
     from turbohtml.linkify import linkify, Link
 
+
     def shorten(link: Link) -> Link | None:
         link.text = link.url.removeprefix("https://").removeprefix("http://")
         return link
+
 
     print(linkify("read https://example.com/page", callbacks=[shorten]))
 

@@ -48,9 +48,7 @@ Porting inverts the model. Instead of switching dangerous things off, declare th
     # lxml-html-clean: enumerate what to strip, keep the rest
     from lxml_html_clean import Cleaner
 
-    Cleaner(
-        scripts=True, javascript=True, comments=True, style=True, forms=True
-    ).clean_html(text)
+    Cleaner(scripts=True, javascript=True, comments=True, style=True, forms=True).clean_html(text)
 
 .. list-table::
     :header-rows: 1
@@ -71,10 +69,12 @@ Porting inverts the model. Instead of switching dangerous things off, declare th
 
     from turbohtml.sanitizer import sanitize, Policy
 
-    print(sanitize(
-        "<p>Hi<script>x()</script> <a href='javascript:1'>l</a></p>",
-        Policy(tags=frozenset({"p", "a"}), attributes={"a": frozenset({"href"})}),
-    ))
+    print(
+        sanitize(
+            "<p>Hi<script>x()</script> <a href='javascript:1'>l</a></p>",
+            Policy(tags=frozenset({"p", "a"}), attributes={"a": frozenset({"href"})}),
+        )
+    )
 
 .. testoutput::
 

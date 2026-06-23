@@ -44,9 +44,7 @@ builder in C instead of an lxml parse, leading html-sanitizer by one to two orde
     # html-sanitizer
     from html_sanitizer import Sanitizer
 
-    Sanitizer(
-        {"tags": {"a", "p"}, "attributes": {"a": {"href"}}, "add_nofollow": True}
-    ).sanitize(text)
+    Sanitizer({"tags": {"a", "p"}, "attributes": {"a": {"href"}}, "add_nofollow": True}).sanitize(text)
 
 .. list-table::
     :header-rows: 1
@@ -69,14 +67,16 @@ builder in C instead of an lxml parse, leading html-sanitizer by one to two orde
 
     from turbohtml.sanitizer import sanitize, Policy
 
-    print(sanitize(
-        '<p>Hi <a href="http://x">l</a></p>',
-        Policy(
-            tags=frozenset({"p", "a"}),
-            attributes={"a": frozenset({"href"})},
-            add_link_rel=frozenset({"nofollow"}),
-        ),
-    ))
+    print(
+        sanitize(
+            '<p>Hi <a href="http://x">l</a></p>',
+            Policy(
+                tags=frozenset({"p", "a"}),
+                attributes={"a": frozenset({"href"})},
+                add_link_rel=frozenset({"nofollow"}),
+            ),
+        )
+    )
 
 .. testoutput::
 

@@ -30,8 +30,8 @@ parser releases its work-in-progress when the block exits, so you can stop early
 .. testcode::
 
     with turbohtml.IncrementalParser(encoding="utf-8") as parser:
-        parser.feed("<p>caf".encode("utf-8"))
-        parser.feed("é</p>".encode("utf-8"))
+        parser.feed(b"<p>caf")
+        parser.feed("é</p>".encode())
         document = parser.close()
     print(document.find("p").text)
 
@@ -50,6 +50,7 @@ the source position (1-based ``line``, 0-based ``col``); a well-formed document 
 .. testcode::
 
     import turbohtml
+
     document = turbohtml.parse("<a b b>")
     for error in document.errors:
         print(f"{error.code} at {error.line}:{error.col}")

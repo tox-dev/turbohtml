@@ -10,6 +10,7 @@ Start with a small document and hand it to :func:`turbohtml.tokenize`, which ret
 .. testcode::
 
     import turbohtml
+
     for token in turbohtml.tokenize('<p class="intro">Tom &amp; Jerry</p>'):
         print(token)
 
@@ -40,8 +41,11 @@ HTML specification treats as raw, such as a script body, arrives as one text tok
 
 .. testcode::
 
-    print([token.data for token in turbohtml.tokenize("<script>if (a < b) run()</script>")
-           if token.type is turbohtml.TokenType.TEXT])
+    print([
+        token.data
+        for token in turbohtml.tokenize("<script>if (a < b) run()</script>")
+        if token.type is turbohtml.TokenType.TEXT
+    ])
 
 .. testoutput::
 

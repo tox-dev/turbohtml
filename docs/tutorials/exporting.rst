@@ -8,6 +8,7 @@ so a scraping script ends with Markdown instead of a tag soup:
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<article><h2>Tea</h2><p>Steep <em>green</em> tea for <b>3</b> minutes.</p></article>")
     print(doc.find("article").to_markdown())
 
@@ -54,6 +55,7 @@ escapes the elements it removes rather than discarding their text:
 .. testcode::
 
     from turbohtml.sanitizer import sanitize
+
     print(sanitize('<a href="javascript:alert(1)">x</a> <b onclick="y()">bold</b><script>bad()</script>'))
 
 .. testoutput::

@@ -9,6 +9,7 @@ assemble them with :meth:`~turbohtml.Element.append`; the ``text`` setter fills 
 
     import turbohtml
     from turbohtml import Element, Comment
+
     article = turbohtml.Element("article", {"class": "post"})
     title = turbohtml.Element("h1")
     title.text = "Tea"
@@ -54,6 +55,7 @@ edit without touching the original:
 .. testcode::
 
     import copy
+
     clone = copy.deepcopy(article)
     clone.append(turbohtml.Element("footer"))
     print(clone.html == article.html)
@@ -69,6 +71,7 @@ the same tree. Here the ``</li>`` tags stay because real whitespace separates th
 .. testcode::
 
     from turbohtml import Minify
+
     page = turbohtml.parse("<ul>\n  <li>one</li>\n  <li>two</li>\n</ul>")
     print(page.find("ul").serialize(layout=Minify()))
 

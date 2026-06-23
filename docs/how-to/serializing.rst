@@ -16,6 +16,7 @@ whitespace and so does not preserve meaning. :meth:`~turbohtml.Node.encode` is t
 
     import turbohtml
     from turbohtml import Formatter, Indent
+
     card = turbohtml.parse("<div><p>café &amp; co</p></div>").select_one("div")
     print(card.inner_html)
     print(card.serialize(formatter=Formatter.NAMED_ENTITIES))
@@ -47,9 +48,9 @@ strip comments; all default on. Because ``layout`` holds one mode, a :class:`~tu
 
     import turbohtml
     from turbohtml import Minify
+
     doc = turbohtml.parse(
-        "<html><head><title>Hi</title></head>"
-        "<body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"
+        "<html><head><title>Hi</title></head><body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"
     )
     print(doc.serialize(layout=Minify()))
     print(doc.serialize(layout=Minify(omit_optional_tags=False, collapse_whitespace=False)))
@@ -74,6 +75,7 @@ two serializations of equal trees diff cleanly:
 .. testcode::
 
     import turbohtml
+
     node = turbohtml.parse("<p id=main class=lead data-x=1>hi</p>").select_one("p")
     print(node.serialize(sort_attributes=True))
 
@@ -89,6 +91,7 @@ as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the enc
 .. testcode::
 
     import turbohtml
+
     doc = turbohtml.parse("<title>Hi</title>")
     print(doc.serialize(meta_charset=True))
     print(doc.encode("iso-8859-1", meta_charset=True))
@@ -110,6 +113,7 @@ second dependency and the whole walk in C:
 .. testcode::
 
     import turbohtml
+
     page = turbohtml.parse(
         "<h1>Recipe</h1><p>A <b>quick</b> loaf.</p>"
         "<ul><li>flour</li><li>water</li></ul>"
@@ -227,6 +231,7 @@ not know is ignored, and ``<script>``, ``<style>``, and ``<head>`` still vanish 
 .. testcode::
 
     import turbohtml
+
     page = turbohtml.parse(
         "<h2>Stock</h2>"
         "<table><tr><th>Item</th><th>Qty</th></tr>"
@@ -257,9 +262,11 @@ would, plus a list of ``(start, end, label)`` triples whose offsets index into t
 .. testcode::
 
     import turbohtml
-    text, labels = turbohtml.parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text(
-        {"h1": ["heading"], "b": ["metric"]}
-    )
+
+    text, labels = turbohtml.parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text({
+        "h1": ["heading"],
+        "b": ["metric"],
+    })
     print(text)
     for start, end, label in labels:
         print(label, "->", repr(text[start:end]))
@@ -288,6 +295,7 @@ sidebars, advertising and comment boilerplate scored out), so you can work on ju
 .. testcode::
 
     import turbohtml
+
     page = turbohtml.parse(
         "<body>"
         "<nav><a href='/'>Home</a> <a href='/about'>About</a></nav>"
@@ -336,6 +344,7 @@ case):
 .. testcode::
 
     import turbohtml
+
     page = turbohtml.parse(
         "<html lang='en'>"
         "<head><title>Comets — Astronomy Today</title>"
@@ -389,9 +398,11 @@ the surface forms an NLP or information-extraction pipeline consumes:
 .. testcode::
 
     import turbohtml
-    text, labels = turbohtml.parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text(
-        {"h1": ["heading"], "b": ["metric"]}
-    )
+
+    text, labels = turbohtml.parse("<h1>Q3</h1><p>Up <b>12%</b> on the year.</p>").to_annotated_text({
+        "h1": ["heading"],
+        "b": ["metric"],
+    })
     print(turbohtml.annotation_surface(text, labels))
 
 .. testoutput::
@@ -403,9 +414,7 @@ innermost span always closes first, so properly nested spans stay well-formed:
 
 .. testcode::
 
-    text, labels = turbohtml.parse("<p>a <b><i>both</i></b> c</p>").to_annotated_text(
-        {"b": ["bold"], "i": ["italic"]}
-    )
+    text, labels = turbohtml.parse("<p>a <b><i>both</i></b> c</p>").to_annotated_text({"b": ["bold"], "i": ["italic"]})
     print(turbohtml.annotation_tags(text, labels))
 
 .. testoutput::
