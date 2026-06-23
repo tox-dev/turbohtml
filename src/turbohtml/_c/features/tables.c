@@ -360,8 +360,9 @@ static th_node *next_in_subtree(th_node *current, th_node *root) {
 /* Element.rows() -> list[list[str]]. Snapshot the table under the per-tree lock, then materialize the grid. */
 PyObject *turbohtml_element_table_rows(PyObject *owner, th_tree *tree, th_node *table) {
     table_grid grid = {NULL, 0};
-    PyObject *handle = turbohtml_node_handle(owner);
     int failed;
+    PyObject *handle = turbohtml_node_handle(owner);
+    (void)handle;                      /* only the per-tree lock on free-threaded builds; a no-op argument otherwise */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: no concurrent mutation mid-walk */
     failed = build_grid_locked(tree, table, &grid) < 0;
     Py_END_CRITICAL_SECTION();
@@ -373,8 +374,9 @@ PyObject *turbohtml_element_table_rows(PyObject *owner, th_tree *tree, th_node *
 /* Element.records() -> list[dict[str, str]]. Same snapshot, keyed by the first row. */
 PyObject *turbohtml_element_table_records(PyObject *owner, th_tree *tree, th_node *table) {
     table_grid grid = {NULL, 0};
-    PyObject *handle = turbohtml_node_handle(owner);
     int failed;
+    PyObject *handle = turbohtml_node_handle(owner);
+    (void)handle;                      /* only the per-tree lock on free-threaded builds; a no-op argument otherwise */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: no concurrent mutation mid-walk */
     failed = build_grid_locked(tree, table, &grid) < 0;
     Py_END_CRITICAL_SECTION();
@@ -391,6 +393,7 @@ PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
     Py_ssize_t grid_cap = 0;
     int failed = 0;
     PyObject *handle = turbohtml_node_handle(owner);
+    (void)handle;                      /* only the per-tree lock on free-threaded builds; a no-op argument otherwise */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: no concurrent mutation mid-walk */
     for (th_node *current = root->first_child; current != NULL; current = next_in_subtree(current, root)) {
         if (current->type != TH_NODE_ELEMENT || current->atom != TH_TAG_TABLE) {

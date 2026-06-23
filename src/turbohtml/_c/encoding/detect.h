@@ -1048,7 +1048,7 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
 }
 
 /* Run one CJK candidate end to end against the strict CPython codec named by entry,
-   updating *winner/*max when it both survives and beats the running best. */
+   updating *winner and *max when it both survives and beats the running best. */
 static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
                        const char **winner, long *max) {
     const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));

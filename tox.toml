@@ -1,5 +1,19 @@
 requires = [ "tox>=4.56", "tox-uv>=1.35.2" ]
-env_list = [ "3.15", "3.14", "3.13", "3.12", "3.11", "3.10", "3.14t", "3.15t", "docs", "fix", "pkg_meta", "type" ]
+env_list = [
+  "3.15",
+  "3.14",
+  "3.13",
+  "3.12",
+  "3.11",
+  "3.10",
+  "3.14t",
+  "3.15t",
+  "docs",
+  "fix",
+  "pkg_meta",
+  "type",
+  "warnings"
+]
 skip_missing_interpreters = true
 
 [env_run_base]
@@ -154,6 +168,33 @@ commands = [
 description = "run the type checker on the code base"
 dependency_groups = [ "type" ]
 commands = [ [ "ty", "check", "--output-format", "concise", "--error-on-warning", "src", "tests", "tools" ] ]
+
+[env.warnings]
+description = "compile the C extension with -Werror so any -Wall/-Wextra warning fails the build"
+package = "skip"  # the throwaway wheel below is the gate; nothing installs it
+deps = []  # uv build pulls meson-python/meson/ninja in its own isolated build env
+dependency_groups = []  # no test deps; this env only compiles
+# CC lets CI pick gcc vs clang; INCLUDE/LIB/LIBPATH forward the MSVC toolchain env that
+# msvc-dev-cmd activates for the Windows arm64 cell, which tox would otherwise strip so cl
+# compiles with no headers or libs (on x64 meson self-detects MSVC via vswhere and needs none)
+pass_env = [ "CC", "INCLUDE", "LIB", "LIBPATH" ]
+commands_pre = []  # this env builds with -Werror itself; skip the inherited coverage install
+# uv build (the same path users hit) streams every ninja compile line and the warning that
+# trips -Werror, and its meson-python backend writes the native file that locates Python on
+# every platform — plain `meson setup` cannot find the headers for a uv-managed Windows arm64
+# interpreter. buildtype=release is uv build's default, so optimization-only gcc diagnostics
+# (-Wmaybe-uninitialized) are in scope. The wheel itself is discarded.
+commands = [
+  [
+    "uv",
+    "build",
+    "--wheel",
+    "--out-dir",
+    "{env_tmp_dir}{/}dist",
+    "--config-settings=setup-args=-Dwerror=true",
+    "{tox_root}",
+  ],
+]
 
 [env.bench]
 description = "benchmark escape/unescape/tokenize against the standard library and html5lib (not run in CI)"

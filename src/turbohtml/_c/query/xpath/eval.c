@@ -201,7 +201,7 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, const xn *step, cons
         if (emit_if_match(out, ctx, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;                                  /* GCOVR_EXCL_LINE */
         }
-        /* FALLTHROUGH: descendant-or-self is self plus the descendant walk */
+        TH_FALLTHROUGH; /* descendant-or-self is self plus the descendant walk */
     case AX_DESCENDANT:
         for (struct th_node *node = ctx->first_child; node != NULL; node = descendant_next(node, ctx)) {
             if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -215,7 +215,7 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, const xn *step, cons
         if (emit_if_match(out, ctx, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;                                  /* GCOVR_EXCL_LINE */
         }
-        /* FALLTHROUGH: ancestor-or-self is self plus the ancestor walk */
+        TH_FALLTHROUGH; /* ancestor-or-self is self plus the ancestor walk */
     case AX_ANCESTOR:
         for (struct th_node *node = ctx->parent; node != NULL; node = node->parent) {
             if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */

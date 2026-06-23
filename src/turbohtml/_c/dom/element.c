@@ -1183,6 +1183,7 @@ static PyObject *regex_source(PyObject *handle, th_tree *tree, th_node *node, co
                               Py_ssize_t attr_len, int *absent) {
     *absent = 0;
     PyObject *source = NULL;
+    (void)handle; /* only the per-tree lock on free-threaded builds; a no-op argument otherwise */
     Py_BEGIN_CRITICAL_SECTION(handle);
     if (attr_name == NULL) {
         source = str_from_accessor(th_node_text, tree, node);
@@ -2869,8 +2870,7 @@ static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len) {
 /* Whether candidate is the only element in the document carrying this id value,
    so #value selects it alone. Matched case-insensitively in quirks mode, where
    the id selector itself folds case. */
-static int path_id_unique(th_tree *tree, th_node *document, th_node *candidate, const Py_UCS4 *value, Py_ssize_t len,
-                          int ci) {
+static int path_id_unique(th_node *document, th_node *candidate, const Py_UCS4 *value, Py_ssize_t len, int ci) {
     for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
         if (node == candidate || node->type != TH_NODE_ELEMENT) {
             continue;
@@ -2936,7 +2936,7 @@ static PyObject *element_css_path(PyObject *self, PyObject *Py_UNUSED(ignored)) 
         for (Py_ssize_t index = 0; index < count; index++) {
             const th_node_attr *id = find_node_attr(chain[index], TH_ATTR_ID);
             if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len) &&
-                path_id_unique(tree, document, chain[index], id->value, id->value_len, quirks)) {
+                path_id_unique(document, chain[index], id->value, id->value_len, quirks)) {
                 top = index;
                 anchored = 1;
                 break;
@@ -2980,12 +2980,11 @@ PyDoc_STRVAR(xpath_path_doc, "xpath_path()\n--\n\n"
                              "document returns exactly this element.");
 
 static PyObject *element_xpath_path(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *node = ((NodeObject *)self)->node;
     path_buf buf = {0};
     th_node **chain = NULL;
     int error = 0;
-    Py_BEGIN_CRITICAL_SECTION(handle);
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     Py_ssize_t count = path_collect_chain(node, &chain);
     if (count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */

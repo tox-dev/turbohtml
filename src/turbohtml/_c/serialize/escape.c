@@ -121,7 +121,7 @@ static inline Py_ssize_t block_extra(const uint8_t *block, int quote) {
         extras = _mm_add_epi8(extras, _mm_and_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('\'')), _mm_set1_epi8(5)));
     }
     __m128i sums = _mm_sad_epu8(extras, _mm_setzero_si128());
-    return (Py_ssize_t)(_mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4));
+    return (Py_ssize_t)_mm_cvtsi128_si32(sums) + (Py_ssize_t)_mm_extract_epi16(sums, 4);
 }
 
 /* One mask bit per byte; SPECIAL_INDEX / SPECIAL_CLEAR hide the layout. */

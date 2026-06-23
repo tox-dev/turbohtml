@@ -458,7 +458,7 @@ PyObject *turbohtml_tokenize_states(PyObject *Py_UNUSED(module), PyObject *args)
     if (sm == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (storage_kind > PyUnicode_KIND(text)) {
+    if (storage_kind > (int)PyUnicode_KIND(text)) {
         th_tok_widen_input(sm, storage_kind);
     }
     if (last_tag != Py_None) {

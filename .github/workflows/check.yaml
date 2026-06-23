@@ -62,6 +62,101 @@ jobs:
         run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
         env:
           UV_PYTHON_PREFERENCE: only-managed
+  warnings:
+    name: 🚨 -Werror (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    # compile the C extension with -Werror so any compiler warning fails the build. The
+    # warning set differs per compiler (gcc flags fall-through clang does not) and the SIMD
+    # helpers are #if-gated per architecture (SSE2 on x86, NEON on arm64), so the gate is a
+    # compiler x SIMD-path grid: gcc and clang each over x86 and arm64. MSVC is a separate
+    # job below because it is detected without CC. macOS gcc is omitted as redundant with
+    # Linux gcc arm64 — same compiler, same NEON path, and the OS does not change the warnings.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: "ubuntu-24.04", cc: "gcc", label: "gcc · Linux x64"}
+          - {os: "ubuntu-24.04", cc: "clang", label: "clang · Linux x64"}
+          - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
+          - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Build with -Werror
+        run: uvx --with tox-uv tox run -e warnings
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+          CC: ${{ matrix.cc }}
+  warnings-msvc:
+    name: 🚨 -Werror (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    # MSVC is detected by meson without a CC override and maps -Werror to /WX; split from the matrix
+    # above so an empty CC env never shadows the auto-detection. x64 builds the SSE2 branch; on
+    # windows-11-arm meson does not self-detect MSVC, so that cell installs an arm64 dev Python and
+    # activates the native arm64 toolchain with msvc-dev-cmd (its INCLUDE/LIB ride through tox via
+    # pass_env), giving MSVC coverage of the _M_ARM64 NEON branch too.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: "windows-2025", label: "MSVC · Windows x64", arm: false}
+          - {os: "windows-11-arm", label: "MSVC · Windows arm64", arm: true}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          persist-credentials: false
+      - name: 🐍 Install arm64 dev Python (carries the .lib meson needs)
+        if: matrix.arm
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+          architecture: arm64
+      - name: 🧰 Activate native arm64 MSVC (so meson picks cl over MinGW gcc)
+        if: matrix.arm
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: arm64
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Build with -Werror
+        run: uvx --with tox-uv tox run -e warnings
+        env:
+          UV_PYTHON_PREFERENCE: ${{ matrix.arm && 'only-system' || 'only-managed' }}
+  clang-tidy:
+    name: 🧹 clang-tidy (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    # the clang-tidy pre-commit hook needs a local Meson build of the C extension, so it
+    # is skipped on pre-commit.ci; run it here where the toolchain and headers are available.
+    # both architectures run because the SIMD escape/scan helpers are #if-gated — x86 compiles
+    # the SSE2 variant, arm64 the NEON one — and clang-tidy only analyzes the branch it builds.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: "ubuntu-24.04", arch: "x64"}
+          - {os: "ubuntu-24.04-arm", arch: "arm64"}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run clang-tidy
+        run: uvx pre-commit run clang-tidy --all-files --show-diff-on-failure --color always
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
   tsan:
     name: 🧵 ThreadSanitizer
     runs-on: ubuntu-24.04

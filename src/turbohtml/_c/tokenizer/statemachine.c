@@ -66,9 +66,9 @@ static int buf_ensure(th_buf *buf, Py_ssize_t need) {
         cap *= 2;
     }
     char *grown = buf->data;
-    grown = PyMem_Resize(grown, char, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
-    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyMem_Resize(grown, char, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+    if (grown == NULL) {                    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     buf->data = grown;
     buf->cap = cap;

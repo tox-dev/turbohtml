@@ -439,7 +439,7 @@ int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *pu
 
 /* The source position where a parsed element's start tag began: 1-based line and
    0-based column, the same convention th_token and html.parser's getpos use.
-   Returns 1 with *line/*col set for an element that carries a position, or 0 when
+   Returns 1 with *line and *col set for an element that carries a position, or 0 when
    the tree was parsed without positions, the node is not an element, or it is a
    synthetic element (implied html/head/body, a fragment root, or one constructed
    by hand) with no source. */

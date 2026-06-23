@@ -486,14 +486,13 @@ static int text_candidate(const query_t *query, th_node *node) {
 static int snapshot_text_candidates(PyObject *self, const query_t *query, th_node ***out_nodes, PyObject ***out_texts,
                                     Py_ssize_t *out_count) {
     module_state *state = state_of(self);
-    PyObject *handle = ((NodeObject *)self)->handle;
     th_node *origin = ((NodeObject *)self)->node;
     th_tree *tree = tree_of(self);
     th_node **nodes = NULL;
     PyObject **texts = NULL;
     Py_ssize_t filled = 0;
     int error = 0;
-    Py_BEGIN_CRITICAL_SECTION(handle);
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     Py_ssize_t capacity = 0;
     for (th_node *node = axis_first(origin, query->axis); node != NULL; node = axis_next(node, origin, query->axis)) {
         if (text_candidate(query, node)) {

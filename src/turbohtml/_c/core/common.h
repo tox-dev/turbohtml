@@ -12,6 +12,16 @@
 
 #include <stdint.h>
 
+/* Mark an intentional switch fall-through. gcc turns on -Wimplicit-fallthrough with
+   -Wextra and only honors the fallthrough attribute across versions; the C23
+   [[fallthrough]] spelling is unavailable under c_std=c11, and MSVC has no C
+   equivalent and does not raise the warning. */
+#if defined(__GNUC__) || defined(__clang__)
+#define TH_FALLTHROUGH __attribute__((fallthrough))
+#else
+#define TH_FALLTHROUGH ((void)0)
+#endif
+
 /* Implemented in escape.c. Signature matches METH_VARARGS | METH_KEYWORDS. */
 PyObject *turbohtml_escape(PyObject *module, PyObject *args, PyObject *kwds);
 

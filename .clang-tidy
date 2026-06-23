@@ -1,6 +1,9 @@
 # clang-tidy for the C extension. We enable the deterministic, low-false-positive
-# diagnostic families — bug patterns, performance, portability — and turn every
-# remaining warning into an error so the gate is binary.
+# diagnostic families — compiler diagnostics, bug patterns, performance, portability —
+# and turn every remaining warning into an error so the gate is binary. clang-diagnostic-*
+# surfaces the same -Wall/-Wextra warnings the compile_commands.json flags (warning_level=2)
+# carry, so unused/comment/fallthrough/unsequenced slips fail the local hook too; -Wpedantic
+# is not in those flags, so the API-mandated void*/function-pointer slot casts stay quiet.
 #
 # Disabled sub-checks are either opinionated style (easily-swappable-parameters,
 # assignment-in-if-condition), inherent to the Python C API (reserved-identifier
@@ -10,7 +13,7 @@
 # generated tag table and the width-tagged th_buf union, and is better run as a
 # separate scan-build pass.
 Checks: >
-  -*, bugprone-*, performance-*, portability-*, -bugprone-easily-swappable-parameters, -bugprone-reserved-identifier, -bugprone-multi-level-implicit-pointer-conversion, -bugprone-narrowing-conversions, -bugprone-assignment-in-if-condition
+  -*, clang-diagnostic-*, bugprone-*, performance-*, portability-*, -bugprone-easily-swappable-parameters, -bugprone-reserved-identifier, -bugprone-multi-level-implicit-pointer-conversion, -bugprone-narrowing-conversions, -bugprone-assignment-in-if-condition
 
 WarningsAsErrors: "*"
 HeaderFilterRegex: "src/turbohtml/_c/.*\\.h$"
