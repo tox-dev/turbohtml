@@ -1,0 +1,3 @@
+Reorganize the README into a compact front door: a one-line value proposition, a single runnable quickstart, a
+capability table, one headline performance line, and pointers to the design principles and migration guides - by
+:user:`gaborbernat`.
