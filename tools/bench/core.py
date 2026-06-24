@@ -7,20 +7,17 @@ maps each operation to ``(timing function, label)``; the function takes the same
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import functools
 
 import turbohtml
 from turbohtml import sanitizer as _sanitizer
 from turbohtml.build import E
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
 _SANITIZER = _sanitizer.Sanitizer(_sanitizer.Policy.relaxed())
 
 
 def build(count: int) -> None:
-    """Build a ``<ul>`` of rows with turbohtml's element constructors and serialize it."""
+    """Build a ``<ul>`` of rows with turbohtml's element constructors and serialize it (the aggregate workload)."""
     ul = turbohtml.Element("ul")
     for index in range(count):
         li = turbohtml.Element("li", {"class": "item", "data-i": str(index)})
@@ -33,6 +30,29 @@ def build_e(count: int) -> None:
     """Build the same ``<ul>`` with the terse :data:`turbohtml.build.E` factory and serialize it."""
     rows = [E.li({"class": "item", "data-i": str(index)}, f"item {index}") for index in range(count)]
     _ = E.ul(*rows).serialize()
+
+
+def construct(count: int) -> None:
+    """Construct ``count`` elements with attributes and text, in isolation from serialization."""
+    for index in range(count):
+        element = turbohtml.Element("li", {"class": "item", "data-i": str(index)})
+        element.text = f"item {index}"
+
+
+@functools.cache
+def _tree(count: int) -> turbohtml.Element:
+    """Return a built ``<ul>`` of ``count`` rows, cached so ``serialize`` times only the emit step."""
+    ul = turbohtml.Element("ul")
+    for index in range(count):
+        li = turbohtml.Element("li", {"class": "item", "data-i": str(index)})
+        li.text = f"item {index}"
+        ul.append(li)
+    return ul
+
+
+def serialize(count: int) -> None:
+    """Serialize a pre-built ``count``-row tree, in isolation from construction."""
+    _ = _tree(count).html
 
 
 def socialcard(text: str) -> None:
@@ -50,9 +70,11 @@ def sanitize(text: str) -> None:
     _SANITIZER.sanitize(text)
 
 
-OPERATIONS: dict[str, tuple[Callable[..., None], str]] = {
+OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
+    "construct": (construct, "turbohtml"),
+    "serialize": (serialize, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

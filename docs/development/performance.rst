@@ -10,9 +10,11 @@ source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript spec
 <https://github.com/web-platform-tests/wpt>`_ pages. The harness benchmarks each competitor in its own isolated ``uv``
 venv -- turbohtml in a venv of its own as the shared baseline -- so one library's dependency pins never perturb
 another's. Reproduce with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
-operation), an operation name (a cross-competitor table), a package name (that competitor's own report), or ``all``. The
-isolated harness currently covers the ``build``, ``build-e`` (terse builders), ``socialcard``, ``structured``, and
-``sanitize`` operations; the remaining sections below are being migrated onto it. Numbers vary with input and hardware.
+operation), an operation name (a cross-competitor table), a package name (that competitor's own report), or ``all``.
+Operations come at two granularities: aggregate workloads swept by size (``build``, ``build-e``) and per-method
+breakdowns that isolate a single call (``construct``, ``serialize``), alongside the extraction and filtering operations
+(``socialcard``, ``structured``, ``sanitize``). The remaining sections below are being migrated onto the harness.
+Numbers vary with input and hardware.
 
 **********
  Escaping
