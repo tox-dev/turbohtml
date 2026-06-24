@@ -13,7 +13,10 @@ mutation alone rather than a tree a prior iteration already changed; read-path o
 time only the query. The corpora are real documents: `Project Gutenberg's War and Peace
 <https://www.gutenberg.org/ebooks/2600>`_, the `WHATWG HTML specification source
 <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript specification <https://github.com/tc39/ecma262>`_,
-and a size-weighted sample of `web-platform-tests <https://github.com/web-platform-tests/wpt>`_ pages. The harness
+a size-weighted sample of `web-platform-tests <https://github.com/web-platform-tests/wpt>`_ pages for the parse and
+tokenize suites, and, for the read-path suites, real saved web pages -- a blog, a news article, and a product blog from
+the `mozilla/readability <https://github.com/mozilla/readability>`_ test corpus -- so the selector, link, and edit
+operations run against genuine nested structure rather than the layout fixtures, which carry none. The harness
 benchmarks each competitor in its own isolated ``uv`` venv -- turbohtml in a venv of its own as the shared baseline --
 so one library's dependency pins never perturb another's. Every table below is one harness operation, so each is
 reproducible with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
@@ -637,31 +640,38 @@ times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector libr
       - selectolax
       - parsel
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 0.1 µs
-      - 0.6 µs (7.2x)
-      - 2.2 µs (28.4x)
-      - 4.1 µs (53.0x)
-      - 5.8 µs (75.3x)
-    - - wpt page (9.6 kB)
-      - 0.1 µs
-      - 0.6 µs (7.2x)
-      - 2.6 µs (34.0x)
-      - 4.4 µs (57.7x)
-      - 9.6 µs (124.6x)
-    - - wpt page (92 kB)
-      - 1.4 µs
-      - 25.4 µs (18.6x)
-      - 45.9 µs (33.7x)
-      - 81.6 µs (59.8x)
-      - 210 µs (154.1x)
+    - - daring fireball (10 kB)
+      - 0.4 µs
+      - 5.1 µs (11.9x)
+      - 5.6 µs (13.1x)
+      - 20.8 µs (48.7x)
+      - 13.6 µs (31.9x)
+    - - ars technica (56 kB)
+      - 1.0 µs
+      - 13.5 µs (14.1x)
+      - 15.8 µs (16.4x)
+      - 47.2 µs (49.1x)
+      - 49.1 µs (51.1x)
+    - - mozilla blog (95 kB)
+      - 1.3 µs
+      - 20.8 µs (15.7x)
+      - 28.4 µs (21.4x)
+      - 68.7 µs (51.7x)
+      - 99.9 µs (75.2x)
+    - - whatwg spec (235 kB)
+      - 1.5 µs
+      - 33.9 µs (22.8x)
+      - 74.0 µs (49.8x)
+      - 104.5 µs (70.4x)
+      - 346.7 µs (233.6x)
 
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
 <https://github.com/scrapy/cssselect>`_, selectolax's ``css``, parsel's ``css``, BeautifulSoup's `soupsieve
 <https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector against the tree once and then
-compares interned integer atoms, a reused query costs tens of nanoseconds: hundreds of times faster than lxml and parsel
-(which re-translate the selector to XPath on every call) and over a thousand times faster than BeautifulSoup, narrowing
-to roughly twenty times on the largest page where the document walk dominates.
+matches by comparing interned integer atoms, so it stays in the low microseconds across these pages. lxml and parsel
+re-translate the selector to XPath through cssselect on every call, which scales with the document and trails by tens of
+times on the small blog up to over five hundred times on the spec; BeautifulSoup's soupsieve is hundreds to a thousand
+times behind, while selectolax, the other compiled engine, stays closest at roughly ten to thirty times.
 
 .. list-table::
     :header-rows: 1
@@ -673,31 +683,37 @@ to roughly twenty times on the largest page where the document walk dominates.
       - selectolax
       - parsel
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 0.04 µs
-      - 15.2 µs (380.0x)
-      - 2.5 µs (62.5x)
-      - 7.0 µs (175.0x)
-      - 41.8 µs (1045.0x)
-    - - wpt page (9.6 kB)
-      - 0.04 µs
-      - 16.2 µs (405.0x)
-      - 2.9 µs (72.5x)
-      - 8.0 µs (200.0x)
-      - 62.8 µs (1570.0x)
-    - - wpt page (92 kB)
-      - 2.0 µs
-      - 33.1 µs (16.6x)
-      - 44.8 µs (22.4x)
-      - 25.4 µs (12.7x)
-      - 2.05 ms (1025.0x)
+    - - daring fireball (10 kB)
+      - 0.8 µs
+      - 29.4 µs (38.0x)
+      - 7.5 µs (9.7x)
+      - 32.6 µs (42.1x)
+      - 169.8 µs (219.2x)
+    - - ars technica (56 kB)
+      - 1.9 µs
+      - 126.3 µs (65.3x)
+      - 20.0 µs (10.3x)
+      - 144.6 µs (74.8x)
+      - 566.1 µs (292.8x)
+    - - mozilla blog (95 kB)
+      - 2.8 µs
+      - 830.3 µs (297.2x)
+      - 33.9 µs (12.1x)
+      - 854.9 µs (306.0x)
+      - 1.07 ms (383.1x)
+    - - whatwg spec (235 kB)
+      - 2.5 µs
+      - 1.38 ms (560.3x)
+      - 79.2 µs (32.0x)
+      - 1.41 ms (571.1x)
+      - 2.78 ms (1126.7x)
 
 The relational ``:has()`` pseudo-class is the costliest selector to evaluate, since a naive matcher rescans each
-candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and stays ahead of every alternative: tens of
-times faster than lxml and selectolax on the smaller pages, widening to hundreds of times on the large page, and
-hundreds to tens of thousands of times faster than BeautifulSoup. The matcher walks each anchor's descendants once and
-skips the sibling scan for descendant and child relationships, so the relational lookup keeps the same interned-atom
-comparison the flat selectors use.
+candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and leads every alternative: tens of times
+faster than lxml and selectolax on the smaller pages, narrowing to single digits on the link-dense mozilla blog where
+the relational match itself does real work, while BeautifulSoup trails by hundreds of times throughout. The matcher
+walks each anchor's descendants once and skips the sibling scan for descendant and child relationships, so the
+relational lookup keeps the same interned-atom comparison the flat selectors use.
 
 .. list-table::
     :header-rows: 1
@@ -708,27 +724,33 @@ comparison the flat selectors use.
       - lxml
       - selectolax
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 0.5 µs
-      - 16.3 µs (32.6x)
-      - 4.6 µs (9.2x)
-      - 128 µs (256.0x)
-    - - wpt page (9.6 kB)
-      - 0.6 µs
-      - 18.1 µs (30.2x)
-      - 5.5 µs (9.2x)
-      - 152 µs (253.3x)
-    - - wpt page (92 kB)
-      - 0.04 µs
-      - 32.9 µs (822.5x)
-      - 37.2 µs (930.0x)
-      - 1.38 ms (34500.0x)
+    - - daring fireball (10 kB)
+      - 0.3 µs
+      - 14.6 µs (53.4x)
+      - 4.9 µs (18.1x)
+      - 111.8 µs (410.0x)
+    - - ars technica (56 kB)
+      - 1.4 µs
+      - 27.7 µs (20.2x)
+      - 17.6 µs (12.8x)
+      - 490.0 µs (357.2x)
+    - - mozilla blog (95 kB)
+      - 9.3 µs
+      - 60.5 µs (6.5x)
+      - 51.1 µs (5.5x)
+      - 2.18 ms (234.4x)
+    - - whatwg spec (235 kB)
+      - 6.1 µs
+      - 71.5 µs (11.7x)
+      - 82.6 µs (13.5x)
+      - 3.15 ms (514.8x)
 
 A text-content search runs through :meth:`~turbohtml.Node.find_all` with ``text=`` (a regex matched against each
 element's collected subtree text), raced against ``BeautifulSoup.find_all(string=...)``; lxml, selectolax, and parsel
 expose no equivalent, so this is a two-way race. The predicate runs Python mid-walk, so turbohtml gathers each
-candidate's text in C and searches once, staying roughly two to three times ahead of BeautifulSoup and narrowing on the
-largest page where the text gathering dominates both sides.
+candidate's text in C and searches once, but on real pages the Python regex over every element's collected text
+dominates both sides and the two run within a small margin: turbohtml leads on the blog and the spec, ties on the
+mozilla page, and trails slightly on the news article.
 
 .. list-table::
     :header-rows: 1
@@ -738,18 +760,22 @@ largest page where the text gathering dominates both sides.
       - turbohtml
       - BeautifulSoup
       - speed-up
-    - - wpt page (4 kB)
-      - 9.3 µs
-      - 19.7 µs
-      - 2.1x
-    - - wpt page (9.6 kB)
-      - 13.9 µs
-      - 38.2 µs
-      - 2.7x
-    - - wpt page (92 kB)
-      - 741 µs
-      - 989 µs
+    - - daring fireball (10 kB)
+      - 42.5 µs
+      - 55.6 µs
       - 1.3x
+    - - ars technica (56 kB)
+      - 250.7 µs
+      - 219.0 µs
+      - 0.9x
+    - - mozilla blog (95 kB)
+      - 455.4 µs
+      - 465.0 µs
+      - 1.0x
+    - - whatwg spec (235 kB)
+      - 1173 µs
+      - 1698 µs
+      - 1.4x
 
 XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against lxml's libxml2 engine, the XPath that
 parsel, pyquery, and html5-parser all wrap (selectolax and BeautifulSoup have none). One expression per feature class
@@ -866,9 +892,12 @@ ahead per evaluation.
 :meth:`turbohtml.Element.css_path` and :meth:`~turbohtml.Element.xpath_path` return the unique locator that re-finds an
 element from the document root -- a CSS selector and a positional XPath -- against lxml's ``getroottree().getpath()``,
 the libxml2 path builder devtools' "copy selector" mirrors. lxml emits only the positional XPath, so ``getpath`` pairs
-with both turbohtml methods. Each timed call walks every element in a pre-parsed page and serializes its path, where
-turbohtml's ancestor-chain walk under the per-tree lock leads ``getpath`` by roughly three to five times across page
-sizes.
+with both turbohtml methods. Each timed call walks every element in a pre-parsed page and serializes its path.
+:meth:`~turbohtml.Element.xpath_path` leads ``getpath`` by roughly three to five times across these pages.
+:meth:`~turbohtml.Element.css_path` is comparable on the small blog but two to six times slower on the class-heavy news
+article and blog, where many elements share a class and need an ``:nth-child`` step to stay unique: that disambiguation
+walks each element's siblings, the cost of emitting a readable CSS selector rather than the raw positional path
+``getpath`` builds. The ``speed-up`` column is ``xpath_path`` against ``getpath``.
 
 .. list-table::
     :header-rows: 1
@@ -879,21 +908,26 @@ sizes.
       - turbohtml xpath_path
       - lxml getpath
       - speed-up
-    - - wpt page (4 kB)
-      - 9.0 µs
-      - 7.9 µs
-      - 40.3 µs
+    - - daring fireball (10 kB)
+      - 52.6 µs
+      - 19.1 µs
+      - 103.2 µs
+      - 5.4x
+    - - ars technica (56 kB)
+      - 946.8 µs
+      - 99.6 µs
+      - 548.0 µs
+      - 5.5x
+    - - mozilla blog (95 kB)
+      - 5.63 ms
+      - 280.4 µs
+      - 1.42 ms
       - 5.1x
-    - - wpt page (9.6 kB)
-      - 15.6 µs
-      - 14.3 µs
-      - 55.2 µs
-      - 3.9x
-    - - wpt page (92 kB)
-      - 701.3 µs
-      - 526.4 µs
-      - 2539.8 µs
-      - 4.8x
+    - - whatwg spec (235 kB)
+      - 3.94 ms
+      - 2.11 ms
+      - 5.81 ms
+      - 2.7x
 
 **************
  Text content
@@ -914,21 +948,26 @@ order of magnitude. parsel exposes no node-level text collector, so it sits out.
       - lxml
       - selectolax
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 0.8 µs
-      - 1.2 µs (1.5x)
-      - 5.2 µs (6.5x)
-      - 6.8 µs (8.5x)
-    - - wpt page (9.6 kB)
-      - 1.1 µs
-      - 1.6 µs (1.5x)
-      - 12.1 µs (11.0x)
-      - 13.3 µs (12.1x)
-    - - wpt page (92 kB)
-      - 36.9 µs
-      - 47.2 µs (1.3x)
-      - 488 µs (13.2x)
-      - 368 µs (10.0x)
+    - - daring fireball (10 kB)
+      - 2.8 µs
+      - 3.4 µs (1.2x)
+      - 21.4 µs (7.7x)
+      - 19.0 µs (6.8x)
+    - - ars technica (56 kB)
+      - 13.1 µs
+      - 15.4 µs (1.2x)
+      - 89.7 µs (6.8x)
+      - 77.3 µs (5.9x)
+    - - mozilla blog (95 kB)
+      - 23.7 µs
+      - 25.8 µs (1.1x)
+      - 202.3 µs (8.5x)
+      - 165.7 µs (7.0x)
+    - - whatwg spec (235 kB)
+      - 74.9 µs
+      - 89.6 µs (1.2x)
+      - 753.6 µs (10.1x)
+      - 579.8 µs (7.7x)
 
 Second, the layout-aware string-to-text extraction: :meth:`turbohtml.Node.to_text` against `inscriptis
 <https://github.com/weblyzard/inscriptis>`_, the layout-aware HTML-to-text renderer it succeeds, `html-text
@@ -1000,18 +1039,22 @@ so it has no entry.
       - turbohtml
       - lxml
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 1.3 µs
-      - 8.0 µs (6.1x)
-      - 2.7 µs (2.1x)
-    - - wpt page (9.6 kB)
-      - 2.3 µs
-      - 11.6 µs (5.1x)
-      - 4.8 µs (2.1x)
-    - - wpt page (92 kB)
-      - 65.2 µs
-      - 278 µs (4.3x)
-      - 123 µs (1.9x)
+    - - daring fireball (10 kB)
+      - 3.4 µs
+      - 16.0 µs (4.7x)
+      - 6.9 µs (2.0x)
+    - - ars technica (56 kB)
+      - 14.0 µs
+      - 63.7 µs (4.6x)
+      - 27.4 µs (2.0x)
+    - - mozilla blog (95 kB)
+      - 28.6 µs
+      - 135.9 µs (4.8x)
+      - 57.2 µs (2.0x)
+    - - whatwg spec (235 kB)
+      - 102.1 µs
+      - 476.7 µs (4.7x)
+      - 198.5 µs (1.9x)
 
 *************
  Serializing
@@ -1033,21 +1076,26 @@ fifty to sixty times faster than BeautifulSoup.
       - lxml
       - selectolax
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 3.8 µs
-      - 18.7 µs (4.9x)
-      - 12.4 µs (3.3x)
-      - 198 µs (52.1x)
-    - - wpt page (9.6 kB)
-      - 9.8 µs
-      - 50.7 µs (5.2x)
-      - 29.8 µs (3.0x)
-      - 478 µs (48.8x)
-    - - wpt page (92 kB)
-      - 105 µs
-      - 381 µs (3.6x)
-      - 339 µs (3.2x)
-      - 5.95 ms (56.7x)
+    - - daring fireball (10 kB)
+      - 8.4 µs
+      - 39.5 µs (4.7x)
+      - 28.7 µs (3.4x)
+      - 416.8 µs (49.8x)
+    - - ars technica (56 kB)
+      - 46.2 µs
+      - 195.0 µs (4.2x)
+      - 154.4 µs (3.3x)
+      - 1.81 ms (39.1x)
+    - - mozilla blog (95 kB)
+      - 92.5 µs
+      - 429.7 µs (4.6x)
+      - 307.2 µs (3.3x)
+      - 4.16 ms (44.9x)
+    - - whatwg spec (235 kB)
+      - 240.3 µs
+      - 820.7 µs (3.4x)
+      - 738.0 µs (3.1x)
+      - 10.98 ms (45.7x)
 
 **********
  Building
@@ -1175,18 +1223,22 @@ entry.
       - turbohtml
       - lxml
       - BeautifulSoup
-    - - wpt page (4 kB)
-      - 70 ns
-      - 700 ns (10.0x)
-      - 5.7 µs (81.4x)
-    - - wpt page (9.6 kB)
-      - 72 ns
-      - 800 ns (11.1x)
-      - 9.3 µs (129.2x)
-    - - wpt page (92 kB)
-      - 8.4 µs
-      - 41.6 µs (5.0x)
-      - 212 µs (25.2x)
+    - - daring fireball (10 kB)
+      - 2.4 µs
+      - 10.1 µs (4.2x)
+      - 14.9 µs (6.3x)
+    - - ars technica (56 kB)
+      - 5.7 µs
+      - 25.5 µs (4.4x)
+      - 52.6 µs (9.2x)
+    - - mozilla blog (95 kB)
+      - 7.9 µs
+      - 37.6 µs (4.8x)
+      - 105.2 µs (13.3x)
+    - - whatwg spec (235 kB)
+      - 8.7 µs
+      - 51.3 µs (5.9x)
+      - 350.4 µs (40.2x)
     - - add/remove a class (92 kB)
       - 11.2 µs
       - 163 µs (14.6x)
@@ -1274,18 +1326,22 @@ twenty-five to nearly a hundred times.
       - turbohtml
       - parsel
       - pyquery
-    - - wpt page (4 kB)
-      - 0.1 µs
-      - 3.9 µs (39.0x)
-      - 4.4 µs (44.0x)
-    - - wpt page (9.6 kB)
-      - 0.1 µs
-      - 4.3 µs (43.0x)
-      - 4.8 µs (48.0x)
-    - - wpt page (92 kB)
-      - 8.2 µs
-      - 222 µs (27.1x)
-      - 542 µs (66.1x)
+    - - daring fireball (10 kB)
+      - 2.7 µs
+      - 65.1 µs (24.5x)
+      - 160.4 µs (60.4x)
+    - - ars technica (56 kB)
+      - 6.8 µs
+      - 144.0 µs (21.3x)
+      - 9.8 µs (1.5x)
+    - - mozilla blog (95 kB)
+      - 9.2 µs
+      - 208.7 µs (22.7x)
+      - 521.5 µs (56.7x)
+    - - whatwg spec (235 kB)
+      - 9.7 µs
+      - 266.1 µs (27.6x)
+      - 624.3 µs (64.7x)
 
 .. list-table::
     :header-rows: 1
@@ -1295,18 +1351,22 @@ twenty-five to nearly a hundred times.
       - turbohtml
       - parsel
       - pyquery
-    - - wpt page (4 kB)
-      - 0.1 µs
-      - 4.0 µs (40.0x)
-      - 4.5 µs (45.0x)
-    - - wpt page (9.6 kB)
-      - 0.1 µs
-      - 4.3 µs (43.0x)
-      - 4.9 µs (49.0x)
-    - - wpt page (92 kB)
-      - 8.0 µs
-      - 214 µs (26.8x)
-      - 297 µs (37.1x)
+    - - daring fireball (10 kB)
+      - 2.6 µs
+      - 65.1 µs (25.4x)
+      - 91.2 µs (35.6x)
+    - - ars technica (56 kB)
+      - 6.2 µs
+      - 129.6 µs (20.8x)
+      - 9.8 µs (1.6x)
+    - - mozilla blog (95 kB)
+      - 9.5 µs
+      - 189.5 µs (20.0x)
+      - 344.0 µs (36.3x)
+    - - whatwg spec (235 kB)
+      - 10.2 µs
+      - 240.7 µs (23.6x)
+      - 386.9 µs (37.9x)
 
 Second, reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against turbohtml's
 :meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call;
@@ -1338,7 +1398,7 @@ A pyquery-style fluent chain over a pre-parsed tree: select every ``<a>``, keep 
 and read its ``href`` (turbohtml's :class:`turbohtml.query.Query` against `pyquery <https://github.com/gawel/pyquery>`_,
 whose wrapper delegates to lxml). Both wrappers are thin Python over the underlying engine, so the gap is the engine's:
 turbohtml's selector and attribute primitives run in C, and the wrapper avoids a redundant de-duplication when the chain
-starts from one node, so it runs roughly ten times faster.
+starts from one node, so it runs several to twenty times faster, depending on how much the page exercises the selector.
 
 .. list-table::
     :header-rows: 1
@@ -1348,18 +1408,22 @@ starts from one node, so it runs roughly ten times faster.
       - turbohtml
       - pyquery
       - speed-up
-    - - wpt page (4 kB)
-      - 0.9 µs
-      - 16.0 µs
-      - 17.8x
-    - - wpt page (9.6 kB)
-      - 1.0 µs
-      - 16.5 µs
-      - 16.5x
-    - - wpt page (92 kB)
-      - 21.8 µs
-      - 278 µs
-      - 12.8x
+    - - daring fireball (10 kB)
+      - 3.7 µs
+      - 81.4 µs
+      - 22.0x
+    - - ars technica (56 kB)
+      - 10.9 µs
+      - 21.2 µs
+      - 1.9x
+    - - mozilla blog (95 kB)
+      - 16.1 µs
+      - 235.6 µs
+      - 14.6x
+    - - whatwg spec (235 kB)
+      - 28.8 µs
+      - 295.7 µs
+      - 10.3x
 
 *********************
  html.parser adapter
@@ -1378,15 +1442,19 @@ raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it
       - turbohtml
       - html.parser
       - speed-up
-    - - wpt page (4 kB)
-      - 39.0 µs
-      - 168 µs
-      - 4.3x
-    - - wpt page (9.6 kB)
-      - 82.1 µs
-      - 362 µs
-      - 4.4x
-    - - wpt page (92 kB)
-      - 1.38 ms
-      - 3.99 ms
-      - 2.9x
+    - - daring fireball (10 kB)
+      - 86.3 µs
+      - 299.9 µs
+      - 3.5x
+    - - ars technica (56 kB)
+      - 384.1 µs
+      - 1.34 ms
+      - 3.5x
+    - - mozilla blog (95 kB)
+      - 826.1 µs
+      - 3.13 ms
+      - 3.8x
+    - - whatwg spec (235 kB)
+      - 2.43 ms
+      - 7.37 ms
+      - 3.0x
