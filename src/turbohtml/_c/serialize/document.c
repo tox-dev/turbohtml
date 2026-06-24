@@ -472,6 +472,26 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
+/* Copy every descendant Text node's code points of node into buf at pos, realizing
+   zero-copy spans on the way; the caller sizes buf to the subtree's text length.
+   The find(text=) C scan reuses one buffer across candidates so no per-node str is
+   built; a Text or Content child of a content fragment is descended like an element. */
+static Py_ssize_t collect_text_into(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t pos) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            memcpy(buf + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
+            pos += child->text_len;
+        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
+            pos = collect_text_into(tree, child, buf, pos);
+        }
+    }
+    return pos;
+}
+
+void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
+    collect_text_into(tree, node, buf, 0);
+}
+
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
 static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0};

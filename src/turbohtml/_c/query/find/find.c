@@ -3,6 +3,13 @@
 
 #include "dom/nodes.h"
 
+/* How the text= predicate is evaluated. A plain str matches the whole collected
+   text exactly and a literal (metacharacter-free, case-sensitive) regex matches a
+   substring of it, both decided in C against the gathered code points with no str
+   built and no Python call per element. Every other predicate (a non-literal regex,
+   a callable, a list) keeps the Python path that snapshots candidates under the lock. */
+enum th_text_scan { TH_TEXT_PY = 0, TH_TEXT_EQ, TH_TEXT_SUBSTR };
+
 /* A compiled find()/find_all() query: the tag and class_ filters, the resolved
    (atom, filter) pairs for the named attribute filters, the axis to search, and
    the result cap. Every filter PyObject is borrowed from the live call. */
@@ -10,6 +17,11 @@ typedef struct {
     PyObject *tag;          /* tag filter, or NULL for no tag constraint */
     PyObject *class_filter; /* class_ filter, or NULL */
     PyObject *text;         /* text predicate over each element's collected text, or NULL */
+    /* When the text predicate is a pure-C scan, text_scan is TH_TEXT_EQ/SUBSTR and
+       text_needle holds the expected/needle code points; otherwise TH_TEXT_PY. */
+    enum th_text_scan text_scan;
+    Py_UCS4 *text_needle;
+    Py_ssize_t text_needle_len;
     enum th_axis axis;
     Py_ssize_t limit; /* -1 for unlimited */
     uint32_t *atoms;  /* resolved name atoms for the attribute filters */
@@ -35,6 +47,7 @@ static void free_query(query_t *query) {
     PyMem_Free(query->filters);
     PyMem_Free(query->filter_plain);
     PyMem_Free(query->class_ucs4);
+    PyMem_Free(query->text_needle);
 }
 
 /* Whether a node's UCS4 value equals a str filter's code points, with no
@@ -332,6 +345,74 @@ static int is_reserved_key(PyObject *key, int is_find_all) {
            (is_find_all && PyUnicode_CompareWithASCIIString(key, "limit") == 0);
 }
 
+/* The re flag bits that keep a pattern off the literal fast path: IGNORECASE folds
+   case (the C scan is case-sensitive) and VERBOSE drops whitespace and starts # to
+   end-of-line comments, so a "literal-looking" verbose source is not literal. */
+#define TH_RE_IGNORECASE 2
+#define TH_RE_VERBOSE 64
+
+/* Whether a code point is a Python regex metacharacter; a source free of these and
+   not case-insensitive or verbose matches exactly as a literal substring. */
+static int is_regex_meta(Py_UCS4 character) {
+    static const char meta[] = ".^$*+?{}[]\\|()";
+    return character < 0x80 && memchr(meta, (int)character, sizeof(meta) - 1) != NULL;
+}
+
+/* When the text predicate reduces to a pure-C scan, record its needle on the query
+   so each candidate is tested against the gathered code points with no str built.
+   A plain str is an exact match; a literal compiled regex is a substring match.
+   Leaves text_scan TH_TEXT_PY for everything else. Returns -1 with an exception set
+   only on a (test-unreachable) allocation failure. */
+static int classify_text(module_state *state, query_t *query) {
+    if (PyUnicode_Check(query->text)) {
+        query->text_needle = PyUnicode_AsUCS4Copy(query->text);
+        if (query->text_needle == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced from a test */
+            return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        query->text_needle_len = PyUnicode_GET_LENGTH(query->text);
+        query->text_scan = TH_TEXT_EQ;
+        return 0;
+    }
+    if (!PyObject_TypeCheck(query->text, (PyTypeObject *)state->pattern_type)) {
+        return 0;
+    }
+    PyObject *source = PyObject_GetAttrString(query->text, "pattern");
+    if (source == NULL) { /* GCOVR_EXCL_BR_LINE: a Pattern always has .pattern */
+        return -1;        /* GCOVR_EXCL_LINE: attribute-error path */
+    }
+    if (!PyUnicode_Check(source)) { /* a bytes pattern never matches a str value */
+        Py_DECREF(source);
+        return 0;
+    }
+    PyObject *flags_obj = PyObject_GetAttrString(query->text, "flags");
+    if (flags_obj == NULL) { /* GCOVR_EXCL_BR_LINE: a Pattern always has .flags */
+        Py_DECREF(source);   /* GCOVR_EXCL_LINE: attribute-error path */
+        return -1;           /* GCOVR_EXCL_LINE: attribute-error path */
+    }
+    long flags = PyLong_AsLong(flags_obj); /* a RegexFlag is a small int; no overflow */
+    Py_DECREF(flags_obj);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(source);
+    int kind = PyUnicode_KIND(source);
+    const void *data = PyUnicode_DATA(source);
+    int literal = (flags & (TH_RE_IGNORECASE | TH_RE_VERBOSE)) == 0;
+    for (Py_ssize_t index = 0; literal && index < len; index++) {
+        if (is_regex_meta(PyUnicode_READ(kind, data, index))) {
+            literal = 0;
+        }
+    }
+    if (literal) {
+        query->text_needle = PyUnicode_AsUCS4Copy(source);
+        if (query->text_needle == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced from a test */
+            Py_DECREF(source);            /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        query->text_needle_len = len;
+        query->text_scan = TH_TEXT_SUBSTR;
+    }
+    Py_DECREF(source);
+    return 0;
+}
+
 /* Compile the (tag, axis, class_, attrs, limit, **filters) arguments. Always
    leaves query in a free_query-safe state, even on error. */
 static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_find_all, query_t *query) {
@@ -340,6 +421,9 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
     query->tag = NULL;
     query->class_filter = NULL;
     query->text = NULL;
+    query->text_scan = TH_TEXT_PY;
+    query->text_needle = NULL;
+    query->text_needle_len = 0;
     query->axis = TH_AXIS_DESCENDANTS;
     query->limit = -1;
     query->atoms = NULL;
@@ -442,6 +526,9 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
             return -1;
         }
     }
+    if (query->text != NULL && classify_text(state, query) < 0) { /* GCOVR_EXCL_BR_LINE: only on alloc failure */
+        return -1;                                                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     return 0;
 }
 
@@ -536,6 +623,130 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
     return error ? -1 : 0;
 }
 
+/* The total length of every descendant Text node of node, without realizing any
+   span, so a candidate's collected text is sized before it is gathered. */
+static Py_ssize_t subtree_text_len(th_node *node) {
+    Py_ssize_t total = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            total += child->text_len;
+        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
+            total += subtree_text_len(child);
+        }
+    }
+    return total;
+}
+
+/* Whether needle's code points occur as a contiguous run in hay (the literal-regex
+   substring test, mirroring re.search over a metacharacter-free pattern). */
+static int ucs4_contains(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UCS4 *needle, Py_ssize_t needle_len) {
+    for (Py_ssize_t start = 0; start + needle_len <= hay_len; start++) {
+        Py_ssize_t index = 0;
+        while (index < needle_len && hay[start + index] == needle[index]) {
+            index++;
+        }
+        if (index == needle_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Grow scratch to hold at least need code points, reusing it across candidates so
+   one buffer serves the whole walk. */
+static int scratch_ensure(Py_UCS4 **scratch, Py_ssize_t *cap, Py_ssize_t need) {
+    if (need <= *cap) {
+        return 0;
+    }
+    Py_UCS4 *grown = PyMem_Realloc(*scratch, (size_t)need * sizeof(Py_UCS4));
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    *scratch = grown;
+    *cap = need;
+    return 0;
+}
+
+/* Test one candidate's collected text against the C-scan predicate without building
+   a str: an exact length+content match for TH_TEXT_EQ, a substring search for
+   TH_TEXT_SUBSTR. Returns 1/0, or -1 on a (test-unreachable) allocation failure. */
+static int text_scan_matches(th_tree *tree, th_node *node, const query_t *query, Py_UCS4 **scratch, Py_ssize_t *cap) {
+    Py_ssize_t text_len = subtree_text_len(node);
+    if (query->text_scan == TH_TEXT_EQ && text_len != query->text_needle_len) {
+        return 0;
+    }
+    if (scratch_ensure(scratch, cap, text_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_node_collect_text(tree, node, *scratch);
+    if (query->text_scan == TH_TEXT_EQ) {
+        return text_len == 0 || memcmp(*scratch, query->text_needle, (size_t)text_len * sizeof(Py_UCS4)) == 0;
+    }
+    return ucs4_contains(*scratch, text_len, query->text_needle, query->text_needle_len);
+}
+
+/* The text= search when the predicate is a pure-C scan (an exact str or a literal
+   regex). The collected text never becomes a Python str and no Python runs per
+   element, so the whole walk stays inside the lock. node_matches applies the
+   structural filters first, exactly as the non-text path does. */
+static PyObject *find_with_text_scan(PyObject *self, const query_t *query, int want_all) {
+    module_state *state = state_of(self);
+    PyObject *handle = ((NodeObject *)self)->handle;
+    th_node *origin = ((NodeObject *)self)->node;
+    th_tree *tree = tree_of(self);
+    PyObject *result = NULL;
+    if (want_all) {
+        result = PyList_New(0);
+        if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    th_node *found = NULL;
+    int error = 0;
+    Py_UCS4 *scratch = NULL;
+    Py_ssize_t scratch_cap = 0;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    for (th_node *node = axis_first(origin, query->axis); node != NULL; node = axis_next(node, origin, query->axis)) {
+        if (want_all && query->limit >= 0 && PyList_GET_SIZE(result) >= query->limit) {
+            break;
+        }
+        int matched = node_matches(state, node, query);
+        if (matched < 0) {
+            error = 1;
+            break;
+        }
+        if (matched == 0) {
+            continue;
+        }
+        int passed = text_scan_matches(tree, node, query, &scratch, &scratch_cap);
+        if (passed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            error = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (passed == 0) {
+            continue;
+        }
+        if (!want_all) {
+            found = node;
+            break;
+        }
+        if (append_wrapped(result, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot fail */
+            error = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    Py_END_CRITICAL_SECTION();
+    PyMem_Free(scratch);
+    if (error) {
+        Py_XDECREF(result);
+        return NULL;
+    }
+    if (want_all) {
+        return result;
+    }
+    return node_wrap(state, handle, found);
+}
+
 /* Search along the axis for elements whose collected text satisfies the text
    predicate, composed with the tag, class, and attribute filters. The predicate
    (a str, compiled regex, or callable) runs over the snapshot taken under the lock;
@@ -544,6 +755,9 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
    the tree. Returns the first match (want_all 0, None when nothing matches) or the
    list of matches up to the limit (want_all 1). */
 static PyObject *find_with_text(PyObject *self, const query_t *query, int want_all) {
+    if (query->text_scan != TH_TEXT_PY) {
+        return find_with_text_scan(self, query, want_all);
+    }
     module_state *state = state_of(self);
     PyObject *handle = ((NodeObject *)self)->handle;
     th_node **nodes;

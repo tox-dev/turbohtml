@@ -40,15 +40,18 @@ to two orders of magnitude faster than BeautifulSoup over ``html.parser`` -- inc
     - - serialize wpt page (92 kB)
       - 105 µs
       - 5.95 ms (56.8x)
-    - - find ``text=`` regex (4 kB)
-      - 9.3 µs
-      - 19.7 µs (2.1x)
-    - - find ``text=`` regex (9.6 kB)
-      - 13.9 µs
-      - 38.2 µs (2.7x)
-    - - find ``text=`` regex (92 kB)
-      - 741 µs
-      - 989 µs (1.3x)
+    - - find ``text=`` regex (daring fireball, 10 kB)
+      - 36.0 µs
+      - 55.6 µs (1.5x)
+    - - find ``text=`` regex (ars technica, 56 kB)
+      - 203 µs
+      - 219.0 µs (1.1x)
+    - - find ``text=`` regex (mozilla blog, 95 kB)
+      - 321 µs
+      - 465.0 µs (1.4x)
+    - - find ``text=`` regex (whatwg spec, 235 kB)
+      - 731 µs
+      - 1698 µs (2.3x)
     - - walk descendants (4 kB)
       - 1.3 µs
       - 2.7 µs (2.1x)

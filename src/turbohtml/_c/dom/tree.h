@@ -221,6 +221,10 @@ Py_UCS4 *th_node_data(th_tree *tree, th_node *node, Py_ssize_t *out_len);
    order. PyMem-allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
+/* Gather node's concatenated descendant text into a caller-sized, reusable UCS4
+   buffer (no allocation, no str), for the find(text=) literal/exact C scan. */
+void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf);
+
 /* Serialize node and its subtree as HTML (the WHATWG fragment serialization).
    For the document node this is the whole-document markup. PyMem-allocated;
    *out_len receives the length. NULL on failure. */

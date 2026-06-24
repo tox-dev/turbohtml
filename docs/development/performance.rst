@@ -747,10 +747,11 @@ relational lookup keeps the same interned-atom comparison the flat selectors use
 
 A text-content search runs through :meth:`~turbohtml.Node.find_all` with ``text=`` (a regex matched against each
 element's collected subtree text), raced against ``BeautifulSoup.find_all(string=...)``; lxml, selectolax, and parsel
-expose no equivalent, so this is a two-way race. The predicate runs Python mid-walk, so turbohtml gathers each
-candidate's text in C and searches once, but on real pages the Python regex over every element's collected text
-dominates both sides and the two run within a small margin: turbohtml leads on the blog and the spec, ties on the
-mozilla page, and trails slightly on the news article.
+expose no equivalent, so this is a two-way race. When the ``text=`` filter is a plain string or a literal (no regex
+metacharacters, case-sensitive) compiled pattern, turbohtml gathers each candidate's collected text and matches it in C
+-- no Python ``str`` built, no per-element ``re.search`` call -- where BeautifulSoup's ``find_all(string=...)`` walks
+the tree in Python, so turbohtml now leads on every page (it previously trailed on the larger ones). A case-insensitive
+or otherwise non-literal pattern keeps the per-element Python path.
 
 .. list-table::
     :header-rows: 1
@@ -761,21 +762,21 @@ mozilla page, and trails slightly on the news article.
       - BeautifulSoup
       - speed-up
     - - daring fireball (10 kB)
-      - 42.5 µs
+      - 36.0 µs
       - 55.6 µs
-      - 1.3x
+      - 1.5x
     - - ars technica (56 kB)
-      - 250.7 µs
+      - 203 µs
       - 219.0 µs
-      - 0.9x
+      - 1.1x
     - - mozilla blog (95 kB)
-      - 455.4 µs
+      - 321 µs
       - 465.0 µs
-      - 1.0x
-    - - whatwg spec (235 kB)
-      - 1173 µs
-      - 1698 µs
       - 1.4x
+    - - whatwg spec (235 kB)
+      - 731 µs
+      - 1698 µs
+      - 2.3x
 
 XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against lxml's libxml2 engine, the XPath that
 parsel, pyquery, and html5-parser all wrap (selectolax and BeautifulSoup have none). One expression per feature class
