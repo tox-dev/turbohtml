@@ -7,11 +7,12 @@ M4 running macOS 26. pyperf runs each case in isolated worker processes and repo
 documents: `Project Gutenberg's War and Peace <https://www.gutenberg.org/ebooks/2600>`_, the `WHATWG HTML specification
 source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript specification
 <https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
-<https://github.com/web-platform-tests/wpt>`_ pages. Reproduce any section with ``tox -e bench <suite>``, where the
-suite is one of ``escape``, ``unescape``, ``tokenize``, ``parse``, ``fragment``, ``query``, ``text``, ``xpath``,
-``path``, ``serialize``, ``build``, ``edit``, ``navigate``, ``links``, ``extract``, ``chain``, ``htmlparser``,
-``markup``, ``minify``, ``tables``, ``linkify``, ``markdown``, ``sanitize``, ``structured``, or ``article``. Numbers
-vary with input and hardware.
+<https://github.com/web-platform-tests/wpt>`_ pages. The harness benchmarks each competitor in its own isolated ``uv``
+venv -- turbohtml in a venv of its own as the shared baseline -- so one library's dependency pins never perturb
+another's. Reproduce with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
+operation), an operation name (a cross-competitor table), a package name (that competitor's own report), or ``all``. The
+isolated harness currently covers the ``build``, ``build-e`` (terse builders), ``socialcard``, ``structured``, and
+``sanitize`` operations; the remaining sections below are being migrated onto it. Numbers vary with input and hardware.
 
 **********
  Escaping

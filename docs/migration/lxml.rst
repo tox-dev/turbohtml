@@ -378,7 +378,7 @@ and serialize surface above stays available on what you build:
     <ul><li class="item">one</li><li class="item">two</li></ul>
 
 The same ``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways, from ``tox -e
-bench build`` on the reference machine in :doc:`/development/performance`:
+bench build-e`` on the reference machine in :doc:`/development/performance`:
 
 .. list-table::
     :header-rows: 1

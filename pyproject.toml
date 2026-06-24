@@ -72,7 +72,7 @@ test = [
 ]
 type = [
   "ty>=0.0.52",
-  { include-group = "bench" },  # tools/benchmark.py imports pyperf and html5lib
+  { include-group = "bench" },  # type-check the bench competitor modules in tools/bench/competitors
 ]
 docs = [
   "furo>=2025.12.19",

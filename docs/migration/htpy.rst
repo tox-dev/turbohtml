@@ -33,7 +33,7 @@ parse it back:
     <div class="card"><h1>Title</h1><p>body</p></div>
 
 ``E`` assembles the fragment in turbohtml's arena and serializes it in C; htpy stays in Python. The same ``<ul>`` of
-rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways, from ``tox -e bench build`` on the
+rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways, from ``tox -e bench build-e`` on the
 reference machine in :doc:`/development/performance`:
 
 .. list-table::

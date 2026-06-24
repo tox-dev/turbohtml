@@ -33,7 +33,7 @@ parse it back:
 
 ``E`` assembles the fragment in turbohtml's arena and serializes it in C; airium stays in Python and pretty-prints with
 indentation as it goes. The same ``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built
-both ways, from ``tox -e bench build`` on the reference machine in :doc:`/development/performance`:
+both ways, from ``tox -e bench build-e`` on the reference machine in :doc:`/development/performance`:
 
 .. list-table::
     :header-rows: 1
