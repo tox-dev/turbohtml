@@ -77,6 +77,10 @@ OPERATIONS: dict[str, Operation] = {
     "construct": Operation("construct N elements (no serialize)", "us"),
     "serialize": Operation("serialize a built tree", "us"),
     "parse": Operation("parse to a tree", "us"),
+    "fragment": Operation("parse a fragment", "us"),
+    "escape": Operation("escape", "us"),
+    "unescape": Operation("unescape", "us"),
+    "tokenize": Operation("tokenize", "us"),
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
@@ -88,12 +92,30 @@ def _parse_cases() -> tuple[tuple[str, object], ...]:
     return tuple((name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES)
 
 
+_TOKENIZE_CASES = (
+    ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
+    ("text-heavy prose", "<p>" + "the quick brown fox jumps over the lazy dog " * 100 + "</p>"),
+    (
+        "attribute-heavy",
+        '<a href="https://example.com/path?q=1" title="example" rel="noopener" target="_blank" data-x=y>link</a>\n'
+        * 60,
+    ),
+    ("script-heavy", "<script>function f(a, b) { return a < b && b > a; }</script>\n" * 60),
+)
+
+_FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS[:2],
     "construct": lambda: _ROWS,
     "serialize": lambda: _ROWS,
     "parse": _parse_cases,
+    "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
+    "escape": corpus.escape_cases,
+    "unescape": corpus.unescape_cases,
+    "tokenize": lambda: _TOKENIZE_CASES,
     "socialcard": lambda: (
         ("head", _SOCIAL_HEAD),
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),

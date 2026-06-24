@@ -15,6 +15,11 @@ def parse(text: str) -> None:
     lxml_html.document_fromstring(text)
 
 
+def fragment(text: str) -> None:
+    """Parse a fragment with lxml.html's fromstring."""
+    lxml_html.fromstring(text)
+
+
 def build(count: int) -> None:
     """Build a ``<ul>`` of rows with lxml's Element factory and ``.text``, then serialize (the aggregate workload)."""
     ul = lxml_html.Element("ul")
@@ -56,6 +61,7 @@ def serialize(count: int) -> None:
 
 OPERATIONS = {
     "parse": (parse, "lxml"),
+    "fragment": (fragment, "lxml"),
     "build": (build, "lxml"),
     "build-e": (build_e, "lxml.builder"),
     "construct": (construct, "lxml"),

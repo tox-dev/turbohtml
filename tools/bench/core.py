@@ -60,6 +60,27 @@ def parse(text: str) -> None:
     turbohtml.parse(text)
 
 
+def fragment(text: str) -> None:
+    """Parse a fragment in its container context with turbohtml.parse_fragment."""
+    turbohtml.parse_fragment(text, context="tbody")
+
+
+def escape(text: str) -> None:
+    """Escape text with turbohtml.escape."""
+    turbohtml.escape(text)
+
+
+def unescape(text: str) -> None:
+    """Resolve character references with turbohtml.unescape."""
+    turbohtml.unescape(text)
+
+
+def tokenize(text: str) -> None:
+    """Consume turbohtml's token stream so lazy Token construction is included."""
+    for _ in turbohtml.tokenize(text):
+        pass
+
+
 def socialcard(text: str) -> None:
     """Read the OpenGraph/Twitter card tags with turbohtml (parse plus one C walk)."""
     turbohtml.parse(text).opengraph()
@@ -81,6 +102,10 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "construct": (construct, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
     "parse": (parse, "turbohtml"),
+    "fragment": (fragment, "turbohtml"),
+    "escape": (escape, "turbohtml"),
+    "unescape": (unescape, "turbohtml"),
+    "tokenize": (tokenize, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

@@ -12,4 +12,21 @@ def parse(text: str) -> None:
     html5lib.parse(text)
 
 
-OPERATIONS = {"parse": (parse, "html5lib")}
+def fragment(text: str) -> None:
+    """Parse a fragment with html5lib's parseFragment."""
+    html5lib.parseFragment(text)
+
+
+def tokenize(text: str) -> None:
+    """Drive html5lib's tokenizer over the input."""
+    from html5lib._tokenizer import HTMLTokenizer  # noqa: PLC0415, PLC2701  # html5lib's tokenizer is internal API
+
+    for _ in HTMLTokenizer(text):
+        pass
+
+
+OPERATIONS = {
+    "parse": (parse, "html5lib"),
+    "fragment": (fragment, "html5lib"),
+    "tokenize": (tokenize, "html5lib"),
+}
