@@ -49,6 +49,18 @@ LARGE_FILES: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
+# Real-world content pages for the read-path suite. The wpt fixtures are CSS layout tests with no
+# nested div/a or links, so the selector and link operations matched nothing on them; these are real
+# saved web pages (a blog, a news article, a product blog) from the mozilla/readability test corpus,
+# pinned by commit, so find/select/:has/edit/chain/extract all run against genuine structure.
+_READABILITY = "08be6b4bdb204dd333c9b7a0cfbc0e730b257252"
+_RP = f"https://raw.githubusercontent.com/mozilla/readability/{_READABILITY}/test/test-pages"
+REAL_PAGES: tuple[tuple[str, str, str], ...] = (
+    ("daring fireball (10 kB)", "real-daringfireball.html", f"{_RP}/daringfireball-1/source.html"),
+    ("ars technica (56 kB)", "real-ars.html", f"{_RP}/ars-1/source.html"),
+    ("mozilla blog (95 kB)", "real-mozilla.html", f"{_RP}/mozilla-1/source.html"),
+)
+
 
 def large_text(filename: str, url: str) -> str:
     """Return a multi-megabyte document, downloading and caching it on first use."""

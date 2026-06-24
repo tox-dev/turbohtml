@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from lxml.html import HtmlElement
 
-REQUIREMENTS = ("lxml>=6.1.1",)
+REQUIREMENTS = ("lxml>=6.1.1", "cssselect>=1.2")  # cssselect backs lxml.html.cssselect() for the select/:has ops
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _LINKS_BASE = "https://example.com/base/"
 

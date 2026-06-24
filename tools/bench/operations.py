@@ -129,10 +129,18 @@ def _parse_cases() -> tuple[tuple[str, object], ...]:
 
 
 def _readpath_cases() -> tuple[tuple[str, object], ...]:
-    """Return the wpt pages (4-92 kB) the read-path operations parse once then query (multi-MB specs skipped)."""
-    return tuple(
-        (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES[1:4]
-    )
+    """
+    Return the pages the read-path operations parse once then query.
+
+    Real saved web pages (a blog, a news article, a product blog) spanning 10-95 kB, plus the whatwg spec at 235 kB.
+    The wpt fixtures they replace are CSS layout tests with no nested ``div``/``a`` or links, so ``div a[href]``,
+    ``div:has(a)``, and the link/edit/chain/extract operations matched nothing and timed empty walks; these carry the
+    real structure those operations exist to traverse.
+    """
+    pages = [(name, corpus.large_text(filename, url)) for name, filename, url in corpus.REAL_PAGES]
+    label, relative, encoding = corpus.CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
+    pages.append((label, corpus.corpus_text(relative, encoding)))
+    return tuple(pages)
 
 
 def _one_page(index: int) -> tuple[tuple[str, object], ...]:
