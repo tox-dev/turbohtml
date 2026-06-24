@@ -12,4 +12,9 @@ def sanitize(text: str) -> None:
     bleach.clean(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "bleach")}
+def linkify(text: str) -> None:
+    """Auto-link URLs and emails in HTML with bleach's html5lib-based filter."""
+    bleach.linkify(text)
+
+
+OPERATIONS = {"sanitize": (sanitize, "bleach"), "linkify": (linkify, "bleach")}

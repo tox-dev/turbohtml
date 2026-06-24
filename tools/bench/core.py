@@ -9,20 +9,32 @@ from __future__ import annotations
 
 import functools
 import re
+from typing import TYPE_CHECKING, cast
 
 import turbohtml
 from turbohtml import sanitizer as _sanitizer
 from turbohtml.build import E
+from turbohtml.linkify import Detector as _Detector
+from turbohtml.linkify import linkify as _linkify
+from turbohtml.migration.markupsafe import Markup as _Markup
+from turbohtml.migration.markupsafe import escape as _markup_escape
+from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
 from turbohtml.query import Query as _Query
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SANITIZER = _sanitizer.Sanitizer(_sanitizer.Policy.relaxed())
 _LINKS_BASE = "https://example.com/base/"
+_URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
 _CSS = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP = "code, a, q"  # a bulk set of tags to drop or unwrap
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
+_DETECTOR = _Detector()
+_ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
 
 
 def build(count: int) -> None:
@@ -199,6 +211,203 @@ def sanitize(text: str) -> None:
     _SANITIZER.sanitize(text)
 
 
+def markup(text: str) -> None:
+    """Escape a string into a Markup with turbohtml's markupsafe-compatible escape."""
+    _markup_escape(text)
+
+
+_MARKUP_TEMPLATE = _Markup("<li>{}</li><span>{}</span>")
+_MARKUP_JOINER = _Markup(", ")
+
+
+@functools.cache
+def _markup_of(text: str) -> _Markup:
+    """Return a Markup wrapping the text, cached so the Markup operations time only the method call."""
+    return _Markup(text)
+
+
+def markup_op(case: tuple[str, object]) -> None:
+    """Run one Markup method (striptags/unescape/format/join) on turbohtml's Markup, by case kind."""
+    kind, payload = case
+    if kind == "striptags":
+        _markup_of(cast("str", payload)).striptags()
+    elif kind == "unescape":
+        _markup_of(cast("str", payload)).unescape()
+    elif kind == "format":
+        _MARKUP_TEMPLATE.format(*cast("tuple[str, ...]", payload))
+    else:
+        _MARKUP_JOINER.join(cast("tuple[str, ...]", payload))
+
+
+def linkify(text: str) -> None:
+    """Auto-link URLs and emails in HTML with turbohtml, parsing and rewriting the tree."""
+    _linkify(text)
+
+
+def detect(case: tuple[str, str]) -> None:
+    """Scan plain text for links with turbohtml's Detector: find the spans or test for any link."""
+    kind, text = case
+    if kind == "find":
+        _DETECTOR.find(text)
+    else:
+        _DETECTOR.has_link(text)
+
+
+def markdown(case: tuple[str, str]) -> None:
+    """Convert HTML to Markdown with turbohtml, with the default or the fully-configured option surface."""
+    kind, text = case
+    if kind == "configured":
+        _parsed(text).to_markdown(strong="__", emphasis="_", link_style="reference", pad_tables=True, escape_mode="all")
+    else:
+        _parsed(text).to_markdown()
+
+
+def markdown_google(text: str) -> None:
+    """Convert a Google Docs export to Markdown with turbohtml's google_doc mode."""
+    _parsed(text).to_markdown(google_doc=True)
+
+
+def tables(case: tuple[str, str]) -> None:
+    """Extract table grids with turbohtml: every table as rows, or the first table keyed by its header."""
+    kind, text = case
+    if kind == "rows":
+        _parsed(text).tables()
+    elif (table := _parsed(text).find("table")) is not None:
+        table.records()
+
+
+def article(text: str) -> None:
+    """Extract the content body and metadata with turbohtml in one C pass."""
+    _parsed(text).article()
+
+
+def text_render(text: str) -> None:
+    """Render layout-aware visible text with turbohtml's to_text, walking the tree in C."""
+    _parsed(text).to_text()
+
+
+def text_collapsed(text: str) -> None:
+    """Join turbohtml's stripped_strings into the collapsed, layout-free word stream."""
+    " ".join(_parsed(text).stripped_strings)
+
+
+def text_main(text: str) -> None:
+    """Extract the boilerplate-stripped main text with turbohtml's main_text in one C pass."""
+    _parsed(text).main_text()
+
+
+def text_annotated(text: str) -> None:
+    """Render annotated layout text with turbohtml, recording spans for matching elements in C."""
+    _parsed(text).to_annotated_text(_ANNOTATION_RULES)
+
+
+def extract_attr(text: str) -> None:
+    """Read every anchor's href by selecting once and reading attr off each node."""
+    for anchor in _parsed(text).select("a"):
+        anchor.attr("href")
+
+
+def extract_text(text: str) -> None:
+    """Read every anchor's visible text by selecting once and reading text off each node."""
+    for anchor in _parsed(text).select("a"):
+        _ = anchor.text
+
+
+def extract_url(case: tuple[str, str]) -> None:
+    """Read a document's own URL hint with turbohtml, parsing the string: the base URL or the meta refresh."""
+    kind, text = case
+    if kind == "base":
+        turbohtml.parse(text).base_url(_URL_HINT_BASE)
+    else:
+        turbohtml.parse(text).meta_refresh(_URL_HINT_BASE)
+
+
+class _Counter(_TurboHTMLParser):
+    """A turbohtml html.parser adapter subclass whose handler does minimal, identical work."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        super().__init__()
+        self.work = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Tally a start tag and its attribute count."""
+        self.work += len(tag) + len(attrs)
+
+
+def htmlparser(text: str) -> None:
+    """Drive turbohtml's html.parser adapter with the counting handler."""
+    parser = _Counter()
+    parser.feed(text)
+    parser.close()
+
+
+def css_path(text: str) -> None:
+    """Generate the unique CSS selector that re-finds every element with turbohtml's css_path."""
+    for node in _parsed(text).descendants:
+        if isinstance(node, turbohtml.Element):
+            node.css_path()
+
+
+def xpath_path(text: str) -> None:
+    """Generate the positional XPath that re-finds every element with turbohtml's xpath_path."""
+    for node in _parsed(text).descendants:
+        if isinstance(node, turbohtml.Element):
+            node.xpath_path()
+
+
+def _count_ext(_context: object, nodes: list[object]) -> float:
+    """Count the node-set; a trivial extension registered for the engine."""
+    return float(len(nodes))
+
+
+def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
+    """Return the first two nodes as a node-set; the cheapest non-trivial node-set return."""
+    return nodes[:2]
+
+
+_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
+_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_REUSE = turbohtml.XPath("//a[@href]")
+
+
+@functools.cache
+def _div_rows(text: str) -> list[object]:
+    """Return the document's <div> elements, cached so the node-set variable case times only the reuse."""
+    return [node for node in _parsed(text).xpath("//div") if isinstance(node, turbohtml.Element)]
+
+
+_XPATH_CALLS: dict[str, Callable[..., object]] = {
+    "//div": lambda doc, _text: doc.xpath("//div"),
+    "//a[@href]": lambda doc, _text: doc.xpath("//a[@href]"),
+    "//div//a[@href]": lambda doc, _text: doc.xpath("//div//a[@href]"),
+    "/html/body/div": lambda doc, _text: doc.xpath("/html/body/div"),
+    "//div//a[1]": lambda doc, _text: doc.xpath("//div//a[1]"),
+    "//a[contains(@href, '/')]": lambda doc, _text: doc.xpath("//a[contains(@href, '/')]"),
+    "//div[position() <= 3]": lambda doc, _text: doc.xpath("//div[position() <= 3]"),
+    "//a/ancestor::div": lambda doc, _text: doc.xpath("//a/ancestor::div"),
+    "//a | //span": lambda doc, _text: doc.xpath("//a | //span"),
+    "//*[local-name() = 'a']": lambda doc, _text: doc.xpath("//*[local-name() = 'a']"),
+    "count(//a)": lambda doc, _text: doc.xpath("count(//a)"),
+    "variable": lambda doc, _text: doc.xpath("//a[@href=$href]", href="/x"),
+    "re:test": lambda doc, _text: doc.xpath("//a[re:test(@href, '[0-9]')]"),
+    "set:distinct": lambda doc, _text: doc.xpath("set:distinct(//a)"),
+    "smart_strings": lambda doc, _text: doc.xpath("//a/@href", smart_strings=True),
+    "extension": lambda doc, _text: doc.xpath("ext_count(//a)", extensions=_COUNT_EXTENSIONS),
+    "nodeset_extension": lambda doc, _text: doc.xpath("ext_first_two(//a)/@href", extensions=_NODESET_EXTENSIONS),
+    "namespaces": lambda doc, _text: doc.xpath("//svg:rect", namespaces=_SVG_NS),
+    "node_set_variable": lambda doc, text: doc.xpath("$rows/div", rows=_div_rows(text)),
+    "precompiled": lambda doc, _text: _REUSE(doc),
+}
+
+
+def xpath(case: tuple[str, str]) -> None:
+    """Evaluate one XPath feature class with turbohtml's compiled-program engine, by case kind."""
+    kind, text = case
+    _XPATH_CALLS[kind](_parsed(text), text)
+
+
 OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
@@ -229,4 +438,23 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
+    "markup": (markup, "turbohtml"),
+    "markup-op": (markup_op, "turbohtml"),
+    "linkify": (linkify, "turbohtml"),
+    "detect": (detect, "turbohtml"),
+    "markdown": (markdown, "turbohtml"),
+    "markdown-google": (markdown_google, "turbohtml"),
+    "tables": (tables, "turbohtml"),
+    "article": (article, "turbohtml"),
+    "text-render": (text_render, "turbohtml"),
+    "text-collapsed": (text_collapsed, "turbohtml"),
+    "text-main": (text_main, "turbohtml"),
+    "text-annotated": (text_annotated, "turbohtml"),
+    "extract-attr": (extract_attr, "turbohtml"),
+    "extract-text": (extract_text, "turbohtml"),
+    "extract-url": (extract_url, "turbohtml"),
+    "htmlparser": (htmlparser, "turbohtml"),
+    "path": (css_path, "turbohtml"),
+    "path-xpath": (xpath_path, "turbohtml"),
+    "xpath": (xpath, "turbohtml"),
 }

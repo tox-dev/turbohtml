@@ -13,6 +13,7 @@ import ast
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -90,6 +91,22 @@ def _run_worker(python: Path, target: str, operation: str, workdir: Path) -> dic
     return json.loads(out.read_text(encoding="utf-8"))
 
 
+def _try_competitor(workdir: Path, competitor: str, operation: str) -> dict[str, float]:
+    """
+    Run the competitor in its venv, returning empty (with a skip note) if provisioning or the run fails.
+
+    Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies, html5-parser
+    builds against the system libxml2, metadata_parser pins an older beautifulsoup4 -- so a provisioning or run failure
+    drops just that competitor's column rather than the whole table.
+    """
+    try:
+        python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
+        return _run_worker(python, competitor, operation, workdir)
+    except subprocess.CalledProcessError:
+        print(f"skipping {competitor}: it did not install or run in its isolated venv", file=sys.stderr)
+        return {}
+
+
 def report_operation(operation: str) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -97,8 +114,7 @@ def report_operation(operation: str) -> None:
         wheel = _build_wheel(workdir)
         means = _run_worker(_venv_python(workdir, "core", (str(wheel),)), "core", operation, workdir)
         for competitor in _packages_for(operation):
-            python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
-            means.update(_run_worker(python, competitor, operation, workdir))
+            means.update(_try_competitor(workdir, competitor, operation))
         report.render(operation, means)
 
 

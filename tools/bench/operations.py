@@ -101,6 +101,25 @@ OPERATIONS: dict[str, Operation] = {
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
+    "markup": Operation("markupsafe-compatible escape", "ns"),
+    "markup-op": Operation("Markup operations", "ns"),
+    "linkify": Operation("linkify HTML", "us"),
+    "detect": Operation("detect links in text", "us"),
+    "markdown": Operation("HTML to Markdown", "us"),
+    "markdown-google": Operation("Google Docs export to Markdown", "us"),
+    "tables": Operation("extract table grids", "us"),
+    "article": Operation("article extraction", "us"),
+    "text-render": Operation("layout-aware text", "us"),
+    "text-collapsed": Operation("collapsed word stream", "us"),
+    "text-main": Operation("main-content text", "us"),
+    "text-annotated": Operation("annotated layout text", "us"),
+    "extract-attr": Operation("extract @href per match", "us"),
+    "extract-text": Operation("extract text per match", "us"),
+    "extract-url": Operation("extract URL hints", "us"),
+    "htmlparser": Operation("feed and dispatch a page", "us"),
+    "path": Operation("css_path for every element", "us"),
+    "path-xpath": Operation("xpath_path for every element", "us"),
+    "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
 }
 
 
@@ -134,6 +153,120 @@ _TOKENIZE_CASES = (
 )
 
 _FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
+
+_MARKUP_ESCAPE_CASES = (
+    ("clean (8 B)", "a value!"),
+    ("clean (32 B)", "The quick brown fox jumped ok"),
+    ("clean (256 B)", "The quick brown fox jumps over the lazy dog. " * 6),
+    ("name with ' and &", "O'Brien & Sons"),
+    ("escape-heavy markup", '<a href="/x?a=1&b=2">click & go</a>' * 2),
+)
+
+_MARKUP_OPS_HTML = "<p>Hello <b>bold</b> &amp; <i>italic</i>, see <a href='/x'>caf&eacute;</a> &#127881;</p>"
+_MARKUP_FORMAT_ARGS = ("<script>alert(1)</script>", "Tom & Jerry")
+_MARKUP_JOIN_PARTS = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
+
+_LINKIFY_CASES = (
+    ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
+    ("prose (1 KiB)", "See https://example.com/path?q=1 and visit www.example.org for more. " * 15),
+    ("markup (4 KiB)", '<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
+)
+
+_MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
+_MARKDOWN_LIST = "<ul><li>item <em>one</em></li><li>item two<ul><li>nested</li></ul></li></ul>" * 40
+_MARKDOWN_TABLE = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>" * 35
+_MARKDOWN_CONFIGURED = (
+    "<h2>H</h2><p>A <b>b</b> & <a href='/x'>l</a>.</p>"
+    "<table><tr><th>K</th><th>V</th></tr><tr><td>a</td><td>1</td></tr></table>"
+) * 18
+_MARKDOWN_GOOGLE = (
+    '<p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">italic</span> and '
+    "<span style=\"font-family:'Courier New'\">code()</span> in a line.</p>"
+) * 18
+
+_TEXT_ARTICLE = "<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16
+_TEXT_TABLE = "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
+_TEXT_MAIN = (
+    "<html><head><title>Comets</title></head><body>"
+    "<nav><a href='/'>Home</a> <a href='/science'>Science</a></nav>"
+    "<article><h1>Comets</h1>"
+    + (
+        "<p>A comet is an icy small body that, when it passes close to the Sun, warms up and releases gases, forming a "
+        "glowing coma around it.</p>" * 12
+    )
+    + "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
+)
+_TEXT_ANNOTATED = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
+
+_URL_HINT_HTML = (
+    "<html><head><base href='/sub/'>"
+    "<meta http-equiv='refresh' content='5; url=next.html'>"
+    "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
+)
+
+_SVG_FRAGMENT = "<svg><rect/><rect/></svg>"
+_XPATH_FEATURES = (
+    "//div",
+    "//a[@href]",
+    "//div//a[@href]",
+    "/html/body/div",
+    "//div//a[1]",
+    "//a[contains(@href, '/')]",
+    "//div[position() <= 3]",
+    "//a/ancestor::div",
+    "//a | //span",
+    "//*[local-name() = 'a']",
+    "count(//a)",
+)
+_XPATH_PARITY = (
+    ("//a[@href=$x] (variable)", "variable"),
+    ("//a[re:test(@href, ...)] (EXSLT)", "re:test"),
+    ("set:distinct(//a) (EXSLT)", "set:distinct"),
+    ("//a/@href (smart_strings)", "smart_strings"),
+    ("ext(//a) (extensions)", "extension"),
+    ("ext(//a)/@href (node-set extension)", "nodeset_extension"),
+    ("//svg:rect (namespaces=)", "namespaces"),
+    ("$rows/div (node-set variable)", "node_set_variable"),
+    ("//a[@href] (precompiled, reused)", "precompiled"),
+)
+
+
+def _table_html(data_rows: int) -> str:
+    """Build a header plus ``data_rows`` four-column body rows, with a colspan to exercise span resolution."""
+    header = "<tr><th>Region</th><th>Quarter</th><th>Revenue</th><th>Units</th></tr>"
+    body = "".join(
+        f"<tr><td>R{index}</td><td>Q{index % 4 + 1}</td><td colspan=2>{index * 10}</td></tr>"
+        for index in range(data_rows)
+    )
+    return f"<table>{header}{body}</table>"
+
+
+def _article_page(paragraphs: int) -> str:
+    """Build a full page -- navigation, a scored article of ``paragraphs`` paragraphs, and a footer."""
+    head = (
+        "<html lang=en><head><title>Comets: A Field Guide</title>"
+        "<meta name=author content='Ada Lovelace'>"
+        "<meta property=article:published_time content='2024-05-06'>"
+        "<meta name=description content='A short guide to comets and the tails they trail past the Sun.'></head>"
+    )
+    nav = "<body><nav><a href='/'>Home</a> <a href='/science'>Science</a> <a href='/space'>Space</a></nav>"
+    para = (
+        "<p>A comet is an icy small body that, when it passes close to the Sun, warms up, begins to release gases, "
+        "and forms a glowing coma, a thin atmosphere, around it.</p>"
+    )
+    article = f"<article class=post><h1>Comets</h1>{para * paragraphs}</article>"
+    return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
+
+
+def _xpath_cases() -> tuple[tuple[str, object], ...]:
+    """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
+    _name, relative, encoding = corpus.CORPUS_FILES[2]
+    text = corpus.corpus_text(relative, encoding)
+    structural = tuple((feature, (feature, text)) for feature in _XPATH_FEATURES)
+    parity = tuple(
+        (label, (kind, text + _SVG_FRAGMENT if kind == "namespaces" else text)) for label, kind in _XPATH_PARITY
+    )
+    return structural + parity
 
 
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
@@ -172,4 +305,48 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
+    "markup": lambda: _MARKUP_ESCAPE_CASES,
+    "markup-op": lambda: (
+        ("striptags", ("striptags", _MARKUP_OPS_HTML)),
+        ("unescape", ("unescape", _MARKUP_OPS_HTML)),
+        ("format (escapes operands)", ("format", _MARKUP_FORMAT_ARGS)),
+        ("join (escapes operands)", ("join", _MARKUP_JOIN_PARTS)),
+    ),
+    "linkify": lambda: _LINKIFY_CASES,
+    "detect": lambda: (
+        ("find comment (1 link, 1 email)", ("find", _LINKIFY_CASES[0][1])),
+        ("find prose (1 KiB)", ("find", _LINKIFY_CASES[1][1])),
+        ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
+        ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
+    ),
+    "markdown": lambda: (
+        ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
+        ("list (4 KiB)", ("default", _MARKDOWN_LIST)),
+        ("table (4 KiB)", ("default", _MARKDOWN_TABLE)),
+        ("configured (4 KiB)", ("configured", _MARKDOWN_CONFIGURED)),
+    ),
+    "markdown-google": lambda: (("google_doc (4 KiB)", _MARKDOWN_GOOGLE),),
+    "tables": lambda: (
+        ("rows (10 rows)", ("rows", _table_html(10))),
+        ("records (10 rows)", ("records", _table_html(10))),
+        ("rows (100 rows)", ("rows", _table_html(100))),
+        ("records (100 rows)", ("records", _table_html(100))),
+        ("rows (1000 rows)", ("rows", _table_html(1_000))),
+        ("records (1000 rows)", ("records", _table_html(1_000))),
+    ),
+    "article": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
+    "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
+    "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
+    "text-main": lambda: (("main (4 KiB)", _TEXT_MAIN),),
+    "text-annotated": lambda: (("annotated (4 KiB)", _TEXT_ANNOTATED),),
+    "extract-attr": _readpath_cases,
+    "extract-text": _readpath_cases,
+    "extract-url": lambda: (
+        ("base_url / get_base_url", ("base", _URL_HINT_HTML)),
+        ("meta_refresh / get_meta_refresh", ("refresh", _URL_HINT_HTML)),
+    ),
+    "htmlparser": _readpath_cases,
+    "path": _readpath_cases,
+    "path-xpath": _readpath_cases,
+    "xpath": _xpath_cases,
 }

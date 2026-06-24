@@ -26,8 +26,29 @@ def tokenize(text: str) -> None:
     parser.close()
 
 
+class _Counter(HTMLParser):
+    """A stdlib HTMLParser subclass whose handler does minimal work, matching the turbohtml adapter."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        super().__init__()
+        self.work = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Tally a start tag and its attribute count."""
+        self.work += len(tag) + len(attrs)
+
+
+def htmlparser(text: str) -> None:
+    """Drive the standard library's HTMLParser with the counting handler, the callback-driven model."""
+    parser = _Counter()
+    parser.feed(text)
+    parser.close()
+
+
 OPERATIONS = {
     "escape": (escape, "stdlib"),
     "unescape": (unescape, "stdlib"),
     "tokenize": (tokenize, "stdlib"),
+    "htmlparser": (htmlparser, "html.parser"),
 }

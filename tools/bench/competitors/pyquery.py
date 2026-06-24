@@ -47,10 +47,24 @@ def chain(text: str) -> None:
     _parsed(text)("a").filter("[href]").eq(0).add_class("seen").attr("href")
 
 
+def extract_attr(text: str) -> None:
+    """Read every anchor's href by iterating a pyquery ``.items()`` set."""
+    for item in _parsed(text)("a").items():
+        item.attr("href")
+
+
+def extract_text(text: str) -> None:
+    """Read every anchor's text by iterating a pyquery ``.items()`` set."""
+    for item in _parsed(text)("a").items():
+        item.text()
+
+
 OPERATIONS = {
     "strip-remove": (strip_remove, "pyquery"),
     "strip-tags": (strip_tags, "pyquery"),
     "set-html": (set_html, "pyquery"),
     "set-text": (set_text, "pyquery"),
     "chain": (chain, "pyquery"),
+    "extract-attr": (extract_attr, "pyquery"),
+    "extract-text": (extract_text, "pyquery"),
 }

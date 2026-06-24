@@ -17,4 +17,20 @@ def strip_tags(text: str) -> None:
     w3lib.html.remove_tags(text, which_ones=("code", "a", "q"))
 
 
-OPERATIONS = {"unescape": (unescape, "w3lib"), "strip-tags": (strip_tags, "w3lib")}
+_URL_HINT_BASE = "http://site.com/"
+
+
+def extract_url(case: tuple[str, str]) -> None:
+    """Read a document's own URL hint with w3lib's regex passes: the base URL or the meta refresh."""
+    kind, text = case
+    if kind == "base":
+        w3lib.html.get_base_url(text, _URL_HINT_BASE)
+    else:
+        w3lib.html.get_meta_refresh(text, _URL_HINT_BASE)
+
+
+OPERATIONS = {
+    "unescape": (unescape, "w3lib"),
+    "strip-tags": (strip_tags, "w3lib"),
+    "extract-url": (extract_url, "w3lib"),
+}

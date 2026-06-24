@@ -1,4 +1,4 @@
-"""parsel: Scrapy's selector library (lxml + cssselect), find and select only."""
+"""parsel: Scrapy's selector library (lxml + cssselect), find, select, and the ::attr/::text extraction idioms."""
 
 from __future__ import annotations
 
@@ -25,4 +25,19 @@ def select(text: str) -> None:
     _parsed(text).css("div a[href]")
 
 
-OPERATIONS = {"find": (find, "parsel"), "select": (select, "parsel")}
+def extract_attr(text: str) -> None:
+    """Pull every anchor's href with parsel's ``::attr(href)`` getall."""
+    _parsed(text).css("a::attr(href)").getall()
+
+
+def extract_text(text: str) -> None:
+    """Pull every anchor's text with parsel's ``::text`` getall."""
+    _parsed(text).css("a::text").getall()
+
+
+OPERATIONS = {
+    "find": (find, "parsel"),
+    "select": (select, "parsel"),
+    "extract-attr": (extract_attr, "parsel"),
+    "extract-text": (extract_text, "parsel"),
+}

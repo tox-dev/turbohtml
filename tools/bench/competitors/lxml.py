@@ -9,6 +9,8 @@ from lxml import html as lxml_html
 from lxml.builder import E
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from lxml.html import HtmlElement
 
 REQUIREMENTS = ("lxml>=6.1.1",)
@@ -139,6 +141,70 @@ def links_rewrite(text: str) -> None:
     _parsed(text).rewrite_links(lambda url: url)
 
 
+def getpath(text: str) -> None:
+    """Generate the positional XPath for every element with lxml's getroottree().getpath()."""
+    tree = _parsed(text)
+    root = tree.getroottree()
+    for element in tree.iter():
+        if isinstance(element.tag, str):  # skip the comment/PI proxies iter() also yields
+            root.getpath(element)
+
+
+_EXSLT_NS = {"re": "http://exslt.org/regular-expressions", "set": "http://exslt.org/sets"}
+_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+
+
+def _count_ext(_context: object, nodes: list[object]) -> float:
+    """Count the node-set; a trivial extension registered for the engine."""
+    return float(len(nodes))
+
+
+def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
+    """Return the first two nodes as a node-set; the cheapest non-trivial node-set return."""
+    return nodes[:2]
+
+
+_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
+_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_REUSE = lxml_html.etree.XPath("//a[@href]")
+
+
+@functools.cache
+def _div_rows(text: str) -> object:
+    """Return the document's <div> elements, cached so the node-set variable case times only the reuse."""
+    return _parsed(text).xpath("//div")
+
+
+_XPATH_CALLS: dict[str, Callable[..., object]] = {
+    "//div": lambda tree, _text: tree.xpath("//div"),
+    "//a[@href]": lambda tree, _text: tree.xpath("//a[@href]"),
+    "//div//a[@href]": lambda tree, _text: tree.xpath("//div//a[@href]"),
+    "/html/body/div": lambda tree, _text: tree.xpath("/html/body/div"),
+    "//div//a[1]": lambda tree, _text: tree.xpath("//div//a[1]"),
+    "//a[contains(@href, '/')]": lambda tree, _text: tree.xpath("//a[contains(@href, '/')]"),
+    "//div[position() <= 3]": lambda tree, _text: tree.xpath("//div[position() <= 3]"),
+    "//a/ancestor::div": lambda tree, _text: tree.xpath("//a/ancestor::div"),
+    "//a | //span": lambda tree, _text: tree.xpath("//a | //span"),
+    "//*[local-name() = 'a']": lambda tree, _text: tree.xpath("//*[local-name() = 'a']"),
+    "count(//a)": lambda tree, _text: tree.xpath("count(//a)"),
+    "variable": lambda tree, _text: tree.xpath("//a[@href=$href]", href="/x"),
+    "re:test": lambda tree, _text: tree.xpath("//a[re:test(@href, '[0-9]')]", namespaces=_EXSLT_NS),
+    "set:distinct": lambda tree, _text: tree.xpath("set:distinct(//a)", namespaces=_EXSLT_NS),
+    "smart_strings": lambda tree, _text: tree.xpath("//a/@href", smart_strings=True),
+    "extension": lambda tree, _text: tree.xpath("ext_count(//a)", extensions=_COUNT_EXTENSIONS),
+    "nodeset_extension": lambda tree, _text: tree.xpath("ext_first_two(//a)/@href", extensions=_NODESET_EXTENSIONS),
+    "namespaces": lambda tree, _text: tree.xpath("//svg:rect", namespaces=_SVG_NS),
+    "node_set_variable": lambda tree, text: tree.xpath("$rows/div", rows=_div_rows(text)),
+    "precompiled": lambda tree, _text: _REUSE(tree),
+}
+
+
+def xpath(case: tuple[str, str]) -> None:
+    """Evaluate one XPath feature class with lxml's libxml2 engine, by case kind."""
+    kind, text = case
+    _XPATH_CALLS[kind](_parsed(text), text)
+
+
 OPERATIONS = {
     "parse": (parse, "lxml"),
     "fragment": (fragment, "lxml"),
@@ -158,4 +224,7 @@ OPERATIONS = {
     "links-extract": (links_extract, "lxml"),
     "links-absolutize": (links_absolutize, "lxml"),
     "links-rewrite": (links_rewrite, "lxml"),
+    "path": (getpath, "lxml getpath"),
+    "path-xpath": (getpath, "lxml getpath"),
+    "xpath": (xpath, "lxml"),
 }
