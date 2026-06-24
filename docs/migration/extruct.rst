@@ -47,24 +47,21 @@ extractors you happened to enable:
 ``extruct`` starts from the raw HTML string, so it parses before it extracts: it builds an lxml tree and runs a separate
 extractor per syntax, where :meth:`~turbohtml.Document.structured_data` parses to the WHATWG tree and gathers every
 format in one C walk. On a product page carrying JSON-LD, Microdata, and OpenGraph at once, the single pass runs roughly
-nine to eleven times faster (pyperf, CPython 3.14 release build, Apple M4; reproduce with ``tox -e bench structured``):
+nine to eleven times faster:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - extruct
-      - speed-up
     - - product page
       - 5.6 µs
-      - 61.1 µs
-      - 11.0x
+      - 61.1 µs (11.0x)
     - - catalog (8 KiB)
       - 54.6 µs
-      - 541.5 µs
-      - 9.9x
+      - 541.5 µs (9.9x)
 
 *************
  The renames

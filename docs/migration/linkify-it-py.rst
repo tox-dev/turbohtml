@@ -16,60 +16,39 @@ leaving the caller to turn them into ``<a>`` tags and to skip text that is alrea
 
 turbohtml does both jobs, fully type annotated: :func:`~turbohtml.linkify.linkify` rewrites HTML (and, being HTML-aware,
 leaves a URL already inside an ``<a>`` or ``<script>`` alone), while :class:`~turbohtml.linkify.Detector` matches spans
-the way linkify-it-py's ``match`` does. The candidate scan runs in C, so even pure detection is several times faster
-than the Python scanner that does strictly less work:
+the way linkify-it-py's ``match`` does. The candidate scan runs in C, so both the full rewrite and the bare detection
+primitives (:meth:`Detector.find <turbohtml.linkify.Detector.find>` against ``LinkifyIt().match``, and
+:meth:`~turbohtml.linkify.Detector.has_link` against ``LinkifyIt().test``) outrun the Python scanner that does strictly
+less work. The one close row is ``has_link`` on prose, where ``test`` short-circuits on the first link near the start:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - linkify
+    - - operation
       - turbohtml
       - linkify-it-py
-      - speed-up
-    - - comment (1 link, 1 email)
+    - - linkify comment (1 link, 1 email)
       - 2.9 µs
-      - 29 µs
-      - 10.1x
-    - - prose (1 KiB)
+      - 29 µs (10.1x)
+    - - linkify prose (1 KiB)
       - 51 µs
-      - 310 µs
-      - 6.1x
-    - - markup (4 KiB)
+      - 310 µs (6.1x)
+    - - linkify markup (4 KiB)
       - 127 µs
-      - 708 µs
-      - 5.6x
-
-Comparing the detection primitive alone, :meth:`Detector.find <turbohtml.linkify.Detector.find>` against
-``LinkifyIt().match`` and :meth:`~turbohtml.linkify.Detector.has_link` against ``LinkifyIt().test``, both scanning a run
-of plain text and returning the same spans (``find``/``match``) or a boolean (``has_link``/``test``), the C scan is tens
-of times faster. The one close row is ``has_link`` on prose: ``test`` short-circuits on the first link near the start,
-so it does little work:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - detect
-      - turbohtml
-      - linkify-it-py
-      - speed-up
+      - 708 µs (5.6x)
     - - ``find`` comment (1 link, 1 email)
       - 0.6 µs
-      - 29.2 µs
-      - 46.9x
+      - 29.2 µs (46.9x)
     - - ``find`` prose (1 KiB)
       - 8.8 µs
-      - 309.9 µs
-      - 35.1x
+      - 309.9 µs (35.1x)
     - - ``has_link`` comment
       - 0.3 µs
-      - 21.5 µs
-      - 83.7x
+      - 21.5 µs (83.7x)
     - - ``has_link`` prose (1 KiB)
       - 2.7 µs
-      - 4.9 µs
-      - 1.8x
+      - 4.9 µs (1.8x)
 
 *************
  The renames

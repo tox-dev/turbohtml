@@ -38,24 +38,20 @@ Python.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - to text
       - turbohtml
       - html-text
-      - speed-up
     - - article (2 KiB)
       - 7 µs
-      - 102 µs
-      - 14.5x
+      - 102 µs (14.5x)
     - - table (4 KiB)
       - 28 µs
-      - 258 µs
-      - 9.2x
+      - 258 µs (9.2x)
     - - word stream (2 KiB)
       - 7 µs
-      - 101 µs
-      - 14.0x
+      - 101 µs (14.0x)
 
 html-text skips the column-aligned table layout :meth:`~turbohtml.Node.to_text` renders, so its margin behind turbohtml
 narrows on table-heavy input while staying near an order of magnitude. The ``word stream`` row turns layout guessing off

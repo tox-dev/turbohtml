@@ -57,27 +57,23 @@ you need them, trafilatura's heavier language and date heuristics.
 
     Comets | Ada Lovelace | 2024-05-06 | en
 
-Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer -- measured with
-``tox -e bench article`` on CPython 3.14 (release build, Apple M4, macOS 26). :meth:`~turbohtml.Node.article` scores and
-harvests in one C pass over the parsed tree; trafilatura builds an lxml tree in Python first. Numbers vary with input
-and hardware.
+Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer.
+:meth:`~turbohtml.Node.article` scores and harvests in one C pass over the parsed tree; trafilatura builds an lxml tree
+in Python first. Numbers vary with input and hardware.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - trafilatura
-      - speed-up
     - - post (4 KiB)
       - 23 µs
-      - 1.34 ms
-      - 58x
+      - 1.34 ms (58x)
     - - longform (16 KiB)
       - 70 µs
-      - 3.13 ms
-      - 45x
+      - 3.13 ms (45x)
 
 ******************************
  Publication dates (htmldate)

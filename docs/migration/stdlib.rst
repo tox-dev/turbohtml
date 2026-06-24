@@ -16,28 +16,23 @@ WHATWG-conformant where ``html.parser`` is not, and the whole surface is fully t
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - operation
       - turbohtml
       - standard library
-      - speed-up
     - - escape medium markup (4 KiB)
       - 2.27 µs
-      - 7.19 µs
-      - 3.2x
+      - 7.19 µs (3.2x)
     - - unescape medium dense refs (4 KiB)
       - 8.10 µs
-      - 69.3 µs
-      - 8.6x
+      - 69.3 µs (8.6x)
     - - tokenize typical markup
       - 34.9 µs
-      - 435 µs
-      - 12.5x
+      - 435 µs (12.5x)
     - - feed and dispatch wpt page (9.6 kB)
       - 82.1 µs
-      - 362 µs
-      - 4.4x
+      - 362 µs (4.4x)
 
 *********************
  Escape and unescape

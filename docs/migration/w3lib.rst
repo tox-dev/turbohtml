@@ -15,68 +15,38 @@ canonicalization, and response-encoding helpers. Only its ``w3lib.html`` text/en
 ***************
 
 :func:`turbohtml.unescape` resolves the same character references w3lib's regex-based ``replace_entities`` does, fully
-type annotated and running the scan in C, so it is a drop-in that runs several times faster on entity-heavy input:
+type annotated and running the scan in C, so it is a drop-in that runs several times faster on entity-heavy input. Two
+more ``w3lib.html`` helpers map onto the WHATWG tree: stripping a set of tags while keeping their text
+(:meth:`~turbohtml.Node.strip_tags` against the regex ``remove_tags``, over a 92 kB page of 839
+``<code>``/``<a>``/``<q>`` elements) and reading a document's own URL hints (:meth:`~turbohtml.Document.base_url` and
+:meth:`~turbohtml.Document.meta_refresh` against ``get_base_url`` and ``get_meta_refresh``), each a structure-aware pass
+that still beats the regex:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - unescape
+    - - operation
       - turbohtml
       - w3lib
-      - speed-up
-    - - tiny plain (64 B)
+    - - unescape tiny plain (64 B)
       - 0.02 µs
-      - 0.25 µs
-      - 12.4x
-    - - medium dense refs (4 KiB)
+      - 0.25 µs (12.4x)
+    - - unescape medium dense refs (4 KiB)
       - 8.10 µs
-      - 116 µs
-      - 14.3x
-    - - book HTML, real refs (4 MiB)
+      - 116 µs (14.3x)
+    - - unescape book HTML, real refs (4 MiB)
       - 2.51 ms
-      - 13.5 ms
-      - 5.4x
-
-Stripping a set of tags while keeping their text: w3lib's regex ``remove_tags`` against turbohtml's
-:meth:`~turbohtml.Node.strip_tags`, over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements. w3lib runs a
-regular-expression substitution over the string; turbohtml builds the WHATWG tree, unwraps each match in place, and
-serializes. turbohtml does the structure-aware pass a regex misreads on nested markup, and still runs it faster:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
+      - 13.5 ms (5.4x)
     - - strip tags, keep text (92 kB)
-      - turbohtml
-      - w3lib
-      - speed-up
-    - - ``strip_tags`` vs ``remove_tags``
       - 607 µs
-      - 1.11 ms
-      - 1.8x
-
-Reading a document's own URL hints: w3lib's ``get_base_url`` and ``get_meta_refresh`` against
-:meth:`~turbohtml.Document.base_url` and :meth:`~turbohtml.Document.meta_refresh`. Both parse the string each call, over
-a small page carrying a ``<base>`` and a meta refresh. w3lib runs a regular-expression pass; turbohtml runs the WHATWG
-tree builder and reads the hint off the parsed ``<head>``, and still comes out ahead (``tox -e bench extract``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - url hint
-      - turbohtml
-      - w3lib
-      - speed-up
-    - - ``base_url`` vs ``get_base_url``
+      - 1.11 ms (1.8x)
+    - - ``base_url`` (vs ``get_base_url``)
       - 2.9 µs
-      - 7.4 µs
-      - 2.6x
-    - - ``meta_refresh`` vs ``get_meta_refresh``
+      - 7.4 µs (2.6x)
+    - - ``meta_refresh`` (vs ``get_meta_refresh``)
       - 3.0 µs
-      - 6.5 µs
-      - 2.1x
+      - 6.5 µs (2.1x)
 
 *************
  The renames

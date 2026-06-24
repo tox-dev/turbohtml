@@ -16,72 +16,40 @@ mutation.
 
 turbohtml builds the same WHATWG tree but adds full static typing, the ``find``/``find_all`` filter grammar on top of
 CSS, a complete edit surface, and :attr:`~turbohtml.Node.text` as a property. Because selectolax wraps lexbor behind a
-heavier object layer, turbohtml's lighter native tree parses and serializes faster:
+heavier object layer, turbohtml's lighter native tree parses and serializes faster, drops a set of tags with their
+subtrees faster (:meth:`~turbohtml.Node.remove` against ``strip_tags``, over a 92 kB page of 839
+``<code>``/``<a>``/``<q>`` elements), and collects a node's visible text (:attr:`~turbohtml.Node.text` against
+selectolax's ``text()`` method) six to thirteen times faster, concatenating in one C pass where selectolax crosses the
+lexbor boundary per node:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - input
+    - - operation
       - turbohtml
       - selectolax
-      - speed-up
     - - parse wpt page (4 kB)
       - 11.4 µs
-      - 42.2 µs
-      - 3.7x
+      - 42.2 µs (3.7x)
     - - parse wpt page (92 kB)
       - 272 µs
-      - 917 µs
-      - 3.4x
+      - 917 µs (3.4x)
     - - serialize wpt page (92 kB)
       - 105 µs
-      - 339 µs
-      - 3.2x
-
-Dropping a set of tags together with their subtrees: selectolax's ``strip_tags`` against turbohtml's
-:meth:`~turbohtml.Node.remove`, over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements. Both rewrites are
-destructive, so the timed call parses the page, drops every match, and serializes the result -- the string-to-result
-pass these helpers exist for. turbohtml's lighter native tree runs the whole pass three times faster:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
+      - 339 µs (3.2x)
     - - drop tags with content (92 kB)
-      - turbohtml
-      - selectolax
-      - speed-up
-    - - ``remove`` vs ``strip_tags``
       - 554 µs
-      - 1.73 ms
-      - 3.1x
-
-Collecting a node's visible text -- selectolax's ``text()`` method against turbohtml's :attr:`~turbohtml.Node.text`
-property -- over the wpt pages. Both walk the descendant text runs, but turbohtml concatenates them in one C pass into a
-buffer reserved up front, where selectolax crosses the lexbor boundary per node, so it runs six to thirteen times faster
-(``tox -e bench text``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - text content
-      - turbohtml
-      - selectolax
-      - speed-up
-    - - wpt page (4 kB)
+      - 1.73 ms (3.1x)
+    - - text content (4 kB)
       - 0.8 µs
-      - 5.2 µs
-      - 6.4x
-    - - wpt page (9.6 kB)
+      - 5.2 µs (6.4x)
+    - - text content (9.6 kB)
       - 1.1 µs
-      - 12.1 µs
-      - 11.4x
-    - - wpt page (92 kB)
+      - 12.1 µs (11.4x)
+    - - text content (92 kB)
       - 36.9 µs
-      - 488 µs
-      - 13.2x
+      - 488 µs (13.2x)
 
 *************
  The renames

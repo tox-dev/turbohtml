@@ -19,35 +19,58 @@ adds XPath, XSLT, and schema validation.
 :func:`turbohtml.parse` builds the WHATWG document tree that libxml2's HTML parser does not, returns a fully type
 annotated :class:`~turbohtml.Document`, and folds XPath, CSS, and the ``find``/``find_all`` grammar into one node API
 instead of separate ``findall``/``xpath``/``cssselect`` entry points. It parses two to four times faster than lxml while
-matching a browser on malformed input:
+matching a browser on malformed input, and stays ahead across the operational surface -- fragment parsing, text and tree
+walks, the link helpers, XPath, and the node-path generators:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - parse
+    - - operation
       - turbohtml
       - lxml
-      - speed-up
-    - - wpt page (4 kB)
+    - - parse wpt page (4 kB)
       - 11.4 µs
-      - 27.1 µs
-      - 2.4x
-    - - wpt page (92 kB)
+      - 27.1 µs (2.4x)
+    - - parse wpt page (92 kB)
       - 272 µs
-      - 631 µs
-      - 2.3x
-    - - whatwg spec (235 kB)
+      - 631 µs (2.3x)
+    - - parse whatwg spec (235 kB)
       - 518 µs
-      - 1.22 ms
-      - 2.4x
-    - - ecmascript spec (3 MB)
+      - 1.22 ms (2.4x)
+    - - parse ecmascript spec (3 MB)
       - 4.54 ms
-      - 17.4 ms
-      - 3.8x
+      - 17.4 ms (3.8x)
+    - - parse fragment (2 kB)
+      - 12.6 µs
+      - 39.6 µs (3.2x)
+    - - text content (92 kB)
+      - 36.9 µs
+      - 47.2 µs (1.3x)
+    - - descendant walk (92 kB)
+      - 65.2 µs
+      - 278 µs (4.3x)
+    - - extract links (92 kB)
+      - 60.6 µs
+      - 2.28 ms (37.7x)
+    - - absolutize links (92 kB)
+      - 251 µs
+      - 2.76 ms (11.0x)
+    - - rewrite links (92 kB)
+      - 22.3 µs
+      - 2.38 ms (106.7x)
+    - - XPath ``//a[@href]`` precompiled
+      - 0.5 µs
+      - 2.8 µs (5.6x)
+    - - ``css_path`` node locator (9.6 kB)
+      - 15.6 µs
+      - 55.2 µs (3.5x)
+    - - ``xpath_path`` node locator (9.6 kB)
+      - 14.3 µs
+      - 55.2 µs (3.9x)
 
-The :doc:`/development/performance` page also benchmarks turbohtml's serializer, builder, editor, CSS, and XPath 1.0
-engine against lxml directly.
+The :doc:`/development/performance` page benchmarks the full serializer, builder, editor, CSS, XPath 1.0, and EXSLT
+surface against lxml directly.
 
 *************
  The renames
@@ -122,51 +145,6 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
     [Element('a')]
     /x
 
-**************************
- Tree and link operations
-**************************
-
-Beyond XPath and CSS, the operational renames above each beat lxml on the wpt pages from the
-:doc:`/development/performance` benchmark. :func:`turbohtml.parse_fragment` (lxml's ``lxml.html.fromstring``) parses an
-``innerHTML`` snippet in its container context; :attr:`~turbohtml.Node.text` (lxml's ``text_content()``) concatenates
-the visible text; :attr:`~turbohtml.Node.descendants` (lxml's ``iterdescendants()``) walks the subtree; and the link
-surface (:meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, :meth:`~turbohtml.Node.rewrite_links`
-against ``iterlinks``/``make_links_absolute``/``rewrite_links``) extracts and rewrites every link-bearing attribute.
-turbohtml runs each in C over its native tree (``tox -e bench fragment text navigate links``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - operation
-      - turbohtml
-      - lxml
-      - speed-up
-    - - parse fragment (2 kB)
-      - 12.6 µs
-      - 39.6 µs
-      - 3.2x
-    - - text content (92 kB)
-      - 36.9 µs
-      - 47.2 µs
-      - 1.3x
-    - - descendant walk (92 kB)
-      - 65.2 µs
-      - 278 µs
-      - 4.3x
-    - - extract links (92 kB)
-      - 60.6 µs
-      - 2.28 ms
-      - 37.7x
-    - - absolutize links (92 kB)
-      - 251 µs
-      - 2.76 ms
-      - 11.0x
-    - - rewrite links (92 kB)
-      - 22.3 µs
-      - 2.38 ms
-      - 106.7x
-
 *******
  XPath
 *******
@@ -175,25 +153,8 @@ When one expression runs against many nodes, precompile it once with :class:`~tu
 :meth:`~turbohtml.Node.xpath`, which reparses the expression on every call. This is the same move as reaching for
 ``lxml.etree.XPath`` over a bare ``el.xpath``: the parse happens at construction, and the call site only supplies the
 context node and any ``$name`` variables. turbohtml's compiled program is tree-independent, so a single object evaluates
-against many documents, and it stays ahead of lxml per evaluation. The numbers below are for ``//a[@href]`` over the 9.6
-kB wpt page from the :doc:`/development/performance` benchmark (``tox -e bench xpath``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - ``//a[@href]``
-      - turbohtml
-      - lxml
-      - speed-up
-    - - per call (reparsed each time)
-      - 0.6 µs
-      - 4.1 µs
-      - 6.8x
-    - - precompiled, reused
-      - 0.5 µs
-      - 2.8 µs
-      - 5.6x
+against many documents, and it stays ahead of lxml per evaluation (the precompiled ``//a[@href]`` row in the table
+above).
 
 .. testcode::
 
@@ -211,98 +172,23 @@ lxml registers custom XPath callables through ``etree.FunctionNamespace``; turbo
 ``extensions=`` mapping of :meth:`~turbohtml.Node.xpath`. Both dispatch a Python callable per match, but lxml
 re-resolves its namespace and function table on every evaluation while turbohtml binds the mapping once against the
 compiled expression, and a callable that returns an :class:`~turbohtml.Element` (or an iterable of them) is marshaled
-straight back into the evaluator's node-set so the next path step stays on the all-C fast path. Measured over the 9.6 kB
-wpt page with ``tox -e bench xpath``:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - extension call
-      - turbohtml
-      - lxml
-      - speed-up
-    - - scalar return (``ext_count(//a)``)
-      - 1.1 µs
-      - 4.1 µs
-      - 3.6x
-    - - node-set return (``ext_first_two(//a)/@href``)
-      - 1.1 µs
-      - 3.2 µs
-      - 2.9x
+straight back into the evaluator's node-set so the next path step stays on the all-C fast path.
 
 Both engines accept a node-set ``$variable``, so a prior result feeds a later expression without re-querying:
 :meth:`el.xpath("$rows/td", rows=el.xpath("//tr")) <turbohtml.Node.xpath>` binds the node-set lxml's
 ``tree.xpath("$rows/td", rows=tree.xpath("//tr"))`` would. turbohtml normalizes the bound node-set into the compiled
 program once and walks the following step over interned atoms, so binding a prior result and reusing it stays ahead of
-lxml across page sizes (``$rows/div`` reusing a prior ``//div`` result; see :doc:`/development/performance` for the full
-sweep):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - node-set variable reuse
-      - turbohtml
-      - lxml
-      - speed-up
-    - - wpt page (4 kB)
-      - 4.3 µs
-      - 6.3 µs
-      - 1.5x
-    - - wpt page (9.6 kB)
-      - 3.9 µs
-      - 6.1 µs
-      - 1.5x
+lxml across page sizes.
 
 A namespace-prefixed name test ports unchanged: pass the same ``namespaces=`` mapping to :meth:`~turbohtml.Node.xpath`
 that you give lxml. turbohtml binds the prefix at evaluation time against the per-tree cached program and resolves the
 suffix to an interned atom, while lxml re-reads the namespace map on every call, so ``//svg:rect`` with
-``namespaces={"svg": "http://www.w3.org/2000/svg"}`` runs several times faster across page sizes (``tox -e bench
-xpath``, over a page carrying an SVG block):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - ``//svg:rect`` (namespaces=)
-      - turbohtml
-      - lxml
-      - speed-up
-    - - wpt page (4 kB)
-      - 0.8 µs
-      - 3.9 µs
-      - 4.8x
-    - - wpt page (9.6 kB)
-      - 0.9 µs
-      - 3.7 µs
-      - 3.9x
-    - - wpt page (92 kB)
-      - 15.5 µs
-      - 22.5 µs
-      - 1.5x
+``namespaces={"svg": "http://www.w3.org/2000/svg"}`` runs several times faster across page sizes.
 
 ``el.getroottree().getpath(el)`` ports to :meth:`~turbohtml.Element.xpath_path` (a positional XPath) or
 :meth:`~turbohtml.Element.css_path` (a unique CSS selector, which lxml has no equivalent for). Both walk only the
 element's ancestor chain under the per-tree lock instead of indexing siblings from the root, so generating the locator
-for every node in the 9.6 kB wpt page runs several times ahead of ``getpath`` (``tox -e bench path``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - node locator (9.6 kB page)
-      - turbohtml
-      - lxml ``getpath``
-      - speed-up
-    - - :meth:`~turbohtml.Element.css_path`
-      - 15.6 µs
-      - 55.2 µs
-      - 3.5x
-    - - :meth:`~turbohtml.Element.xpath_path`
-      - 14.3 µs
-      - 55.2 µs
-      - 3.9x
+for every node runs several times ahead of ``getpath`` (the ``css_path``/``xpath_path`` rows in the table above).
 
 The :doc:`/development/performance` page benchmarks the rest of the XPath surface against lxml, and sweeps the node-path
 generators across every page size.
@@ -333,30 +219,12 @@ generators across every page size.
 turbohtml's EXSLT namespaces dispatch in the same compiled-C XPath engine as the core functions, so an EXSLT predicate
 through :meth:`~turbohtml.Node.xpath` costs no registration: the prefix is built in. lxml resolves the namespace map and
 routes each call through a ``libexslt`` function you register with ``namespaces=``, so the same expression carries a
-per-call setup cost. lxml *can* run the same EXSLT, so this is a direct race, not a no-competitor note. Over the 9.6 kB
-wpt page:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - EXSLT (9.6 kB page)
-      - turbohtml
-      - lxml
-      - speed-up
-    - - ``//a[re:test(@href, ...)]``
-      - 0.5 µs
-      - 4.6 µs
-      - 9.2x
-    - - ``set:distinct(//a)``
-      - 0.6 µs
-      - 4.0 µs
-      - 6.7x
-
-``re:`` dispatches to Python's :mod:`re` where lxml uses C libexslt, yet still leads because it skips the per-call
-namespace resolution; ``set:distinct`` stays in C on both sides. The :doc:`/development/performance` page sweeps these
-EXSLT cases — alongside the structural axes, predicates, and the core function library — across every page size, where
-lxml's streaming evaluation narrows the node-set reductions on the multi-megabyte inputs.
+per-call setup cost. lxml *can* run the same EXSLT, so this is a direct race, not a no-competitor note: a ``re:test``
+predicate runs several times ahead even though ``re:`` dispatches to Python's :mod:`re` where lxml uses C libexslt,
+because it skips the per-call namespace resolution; ``set:distinct`` stays in C on both sides. The
+:doc:`/development/performance` page sweeps these EXSLT cases — alongside the structural axes, predicates, and the core
+function library — across every page size, where lxml's streaming evaluation narrows the node-set reductions on the
+multi-megabyte inputs.
 
 ****************************
  The builder (lxml.builder)
@@ -376,20 +244,3 @@ and serialize surface above stays available on what you build:
 .. testoutput::
 
     <ul><li class="item">one</li><li class="item">two</li></ul>
-
-The same ``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways, from ``tox -e
-bench build-e`` on the reference machine in :doc:`/development/performance`:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 34 33 33
-
-    - - build a list
-      - :data:`E <turbohtml.build.E>`
-      - lxml.builder
-    - - 100 rows
-      - 139 µs
-      - 204 µs (1.5x)
-    - - 1000 rows
-      - 1.41 ms
-      - 2.13 ms (1.5x)

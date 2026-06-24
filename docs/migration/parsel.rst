@@ -19,55 +19,34 @@ turbohtml returns typed :class:`~turbohtml.Node` objects from :meth:`~turbohtml.
 :meth:`~turbohtml.Node.xpath`, so the non-standard ``::text`` / ``::attr()`` pseudo-elements become ordinary
 :attr:`~turbohtml.Node.text` and :meth:`~turbohtml.Element.attr` access. It compiles a selector against the tree once
 and matches by comparing interned integer atoms, where parsel translates every ``.css()`` to XPath with cssselect and
-re-evaluates it on libxml2 per call, so a reused query is roughly thirteen to two hundred times faster:
+re-evaluates it on libxml2 per call, so a reused query -- and pulling the values out of every match, parsel's whole
+point -- runs tens to hundreds of times faster:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - select ``div a[href]``
+    - - operation
       - turbohtml
       - parsel
-      - speed-up
-    - - wpt page (4 kB)
+    - - select ``div a[href]`` (4 kB)
       - 0.04 µs
-      - 7.0 µs
-      - 167.9x
-    - - wpt page (9.6 kB)
+      - 7.0 µs (167.9x)
+    - - select ``div a[href]`` (9.6 kB)
       - 0.04 µs
-      - 8.0 µs
-      - 192.3x
-    - - wpt page (92 kB)
+      - 8.0 µs (192.3x)
+    - - select ``div a[href]`` (92 kB)
       - 2.0 µs
-      - 25.4 µs
-      - 12.9x
-
-Pulling the values out of a matched set is parsel's whole point: ``sel.css("a::attr(href)").getall()`` and
-``sel.css("a::text").getall()`` against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
-:attr:`~turbohtml.Node.text` off each node. Both libraries parse the page once outside the timed call. turbohtml
-compiles the selector once and reads interned atoms, where parsel re-translates the CSS to XPath on libxml2 every call,
-so reading every anchor runs tens of times faster (``tox -e bench extract``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - extract per match
-      - turbohtml
-      - parsel
-      - speed-up
-    - - ``@href`` -- wpt page (9.6 kB)
+      - 25.4 µs (12.9x)
+    - - ``@href`` per match (9.6 kB)
       - 0.1 µs
-      - 4.3 µs
-      - 86.2x
-    - - ``@href`` -- wpt page (92 kB)
+      - 4.3 µs (86.2x)
+    - - ``@href`` per match (92 kB)
       - 8.2 µs
-      - 222 µs
-      - 27.0x
-    - - text -- wpt page (92 kB)
+      - 222 µs (27.0x)
+    - - text per match (92 kB)
       - 8.0 µs
-      - 214 µs
-      - 26.6x
+      - 214 µs (26.6x)
 
 *************
  The renames

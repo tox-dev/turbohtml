@@ -16,50 +16,32 @@ by default, or DOM, or lxml), and it is the conformance baseline other parsers a
 
 turbohtml runs the same WHATWG algorithm, so the *tree* matches, but it produces one typed hierarchy with navigation,
 search, and serialization built in instead of a foreign tree behind a treebuilder choice. The algorithm runs in C, so
-parsing and tokenizing are 30 to 80 times faster than the pure-Python implementation:
+parsing, tokenizing, and fragment parsing run 25 to 70 times faster than the pure-Python implementation
+(:func:`turbohtml.parse_fragment` parses an ``innerHTML``-style snippet in its container context, the same WHATWG
+fragment algorithm html5lib's :func:`~html5lib.html5parser.parseFragment` runs):
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - html5lib
-      - speed-up
     - - parse wpt page (4 kB)
       - 11.4 µs
-      - 620 µs
-      - 54.5x
+      - 620 µs (54.5x)
     - - parse wpt page (92 kB)
       - 272 µs
-      - 16.7 ms
-      - 61.6x
+      - 16.7 ms (61.6x)
     - - tokenize typical markup
       - 34.9 µs
-      - 836 µs
-      - 24.0x
+      - 836 µs (24.0x)
     - - tokenize whatwg spec (235 kB)
       - 708 µs
-      - 20.1 ms
-      - 28.4x
-
-:func:`html5lib.parseFragment() <html5lib.html5parser.parseFragment>` maps to :func:`turbohtml.parse_fragment`, which
-parses an ``innerHTML``-style snippet in its container context. Both run the WHATWG fragment algorithm, but turbohtml
-runs it in C, so a table-row fragment parsed in its ``<tbody>`` context is roughly seventy times faster (``tox -e bench
-fragment``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - input
-      - turbohtml
-      - html5lib
-      - speed-up
-    - - table-row fragment (2 kB)
+      - 20.1 ms (28.4x)
+    - - parse fragment, table row (2 kB)
       - 12.6 µs
-      - 867 µs
-      - 69.0x
+      - 867 µs (69.0x)
 
 *************
  The renames

@@ -38,40 +38,33 @@ Reading a four-column table with :meth:`~turbohtml.Element.rows` and :meth:`~tur
 ``pandas.read_html``, both parsing the markup and resolving spans into a rectangular grid. turbohtml's C cell-grid walk
 returns plain lists and dicts where ``read_html`` builds a ``DataFrame`` (importing NumPy), so it runs roughly twelve to
 ninety times faster: the gap is widest on small tables, where pandas pays a fixed per-frame cost, and narrows as the row
-count grows. Reproduce with ``tox -e bench tables``; see :doc:`/development/performance` for the methodology.
+count grows. See :doc:`/development/performance` for the methodology.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - pandas.read_html
-      - speed-up
     - - rows (10 rows)
       - 10.8 µs
-      - 943 µs
-      - 87.3x
+      - 943 µs (87.3x)
     - - records (10 rows)
       - 15.8 µs
-      - 970 µs
-      - 61.4x
+      - 970 µs (61.4x)
     - - rows (100 rows)
       - 99.7 µs
-      - 2178 µs
-      - 21.8x
+      - 2178 µs (21.8x)
     - - records (100 rows)
       - 98.5 µs
-      - 2165 µs
-      - 22.0x
+      - 2165 µs (22.0x)
     - - rows (1000 rows)
       - 853 µs
-      - 10.6 ms
-      - 12.4x
+      - 10.6 ms (12.4x)
     - - records (1000 rows)
       - 893 µs
-      - 13.0 ms
-      - 14.6x
+      - 13.0 ms (14.6x)
 
 *************
  The renames

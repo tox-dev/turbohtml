@@ -17,66 +17,46 @@ template engine can interpolate untrusted values into HTML without escaping safe
 
 ``turbohtml.migration.markupsafe`` is a drop-in for markupsafe's public surface, fully type annotated, with the escape
 and every ``Markup`` operation implemented in C. It also keeps one name per concept: :meth:`~turbohtml.escape` and the
-tokenizer back the same primitives the rest of the library uses. The escape runs roughly two to three times faster than
-markupsafe's own C escape on the small, mostly-clean strings a template engine interpolates under autoescape:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - input
-      - turbohtml
-      - markupsafe
-      - speed-up
-    - - clean (8 B)
-      - 61 ns
-      - 185 ns
-      - 3.1x
-    - - clean (32 B)
-      - 67 ns
-      - 203 ns
-      - 3.0x
-    - - clean (256 B)
-      - 115 ns
-      - 447 ns
-      - 3.9x
-    - - name with ``'`` and ``&``
-      - 84 ns
-      - 213 ns
-      - 2.5x
-    - - escape-heavy markup
-      - 141 ns
-      - 338 ns
-      - 2.4x
-
-The other ``Markup`` operations stay ahead too. ``striptags`` and ``unescape`` run on turbohtml's tokenizer and HTML5
+tokenizer back the same primitives the rest of the library uses. The escape runs two to three times faster than
+markupsafe's own C escape on the small, mostly-clean strings a template engine interpolates under autoescape, and the
+other ``Markup`` operations stay ahead too -- ``striptags`` and ``unescape`` run on turbohtml's tokenizer and HTML5
 reference resolution rather than markupsafe's regex scan, and the composing operations (``format``, ``join``) escape
 each untrusted operand through the same C ``escape``:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - operation
       - turbohtml
       - markupsafe
-      - speed-up
+    - - escape clean (8 B)
+      - 61 ns
+      - 185 ns (3.1x)
+    - - escape clean (32 B)
+      - 67 ns
+      - 203 ns (3.0x)
+    - - escape clean (256 B)
+      - 115 ns
+      - 447 ns (3.9x)
+    - - escape name with ``'`` and ``&``
+      - 84 ns
+      - 213 ns (2.5x)
+    - - escape-heavy markup
+      - 141 ns
+      - 338 ns (2.4x)
     - - ``striptags``
       - 1368 ns
-      - 2483 ns
-      - 1.8x
+      - 2483 ns (1.8x)
     - - ``unescape``
       - 273 ns
-      - 1114 ns
-      - 4.1x
+      - 1114 ns (4.1x)
     - - ``format`` (escapes operands)
       - 1662 ns
-      - 1973 ns
-      - 1.2x
+      - 1973 ns (1.2x)
     - - ``join`` (escapes operands)
       - 609 ns
-      - 1217 ns
-      - 2.0x
+      - 1217 ns (2.0x)
 
 *************
  The renames

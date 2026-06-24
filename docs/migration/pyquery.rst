@@ -15,100 +15,48 @@ chains.
 ***************
 
 turbohtml ships the same chaining idiom as :class:`turbohtml.query.Query`, fully type annotated, with the selector and
-attribute primitives running in C. The wrapper also skips a redundant de-duplication when a chain starts from one node,
-so the same chain runs roughly ten times faster than pyquery's lxml-backed wrapper:
+attribute primitives running in C. The wrapper skips a redundant de-duplication when a chain starts from one node, and
+edits its native tree in C where pyquery drives lxml under its jQuery-style wrapper, so the whole surface -- chaining a
+select/filter/read, setting content, bulk-editing tags, and reading a value off every match -- runs several to a hundred
+times faster:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - select, filter, tag, read
+    - - operation
       - turbohtml
       - pyquery
-      - speed-up
-    - - wpt page (4 kB)
+    - - select, filter, read (4 kB)
       - 0.9 µs
-      - 16.0 µs
-      - 17.2x
-    - - wpt page (9.6 kB)
+      - 16.0 µs (17.2x)
+    - - select, filter, read (9.6 kB)
       - 1.0 µs
-      - 16.5 µs
-      - 16.1x
-    - - wpt page (92 kB)
+      - 16.5 µs (16.1x)
+    - - select, filter, read (92 kB)
       - 21.8 µs
-      - 278 µs
-      - 12.8x
-
-pyquery's content setters carry the same C advantage as the rest of its wrapper. Both libraries parse the page once
-outside the timed call, then replace a ``<body>``'s content on every run: turbohtml reparses the fragment and splices it
-in one C call, where pyquery's ``.html()`` routes through lxml's ``fromstring`` and reassembly. The numbers come from
-the 9.6 kB ``wpt`` page in the ``edit`` suite (``tox -e bench edit``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - content setter (9.6 kB page)
-      - turbohtml
-      - pyquery
-      - speed-up
-    - - :meth:`~turbohtml.Element.set_inner_html` vs ``.html()``
+      - 278 µs (12.8x)
+    - - set inner HTML (9.6 kB)
       - 1.3 µs
-      - 7.7 µs
-      - 5.9x
-    - - :meth:`~turbohtml.Element.set_text` vs ``.text()``
+      - 7.7 µs (5.9x)
+    - - set text (9.6 kB)
       - 0.13 µs
-      - 4.6 µs
-      - 35.4x
-
-Bulk tag editing over a 92 kB page holding 839 ``<code>``/``<a>``/``<q>`` elements: dropping the matches with their
-subtrees (jQuery's ``.remove()`` against :meth:`~turbohtml.Node.remove`) and unwrapping them to keep their content
-(jQuery's ``.unwrap()`` against :meth:`~turbohtml.Node.strip_tags`). pyquery drives lxml under its wrapper, where
-turbohtml edits its native tree in C, so the same pass runs three to four times faster:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 46 18 18 18
-
-    - - bulk edit (92 kB)
-      - turbohtml
-      - pyquery
-      - speed-up
-    - - drop subtree (``remove`` / ``.remove()``)
+      - 4.6 µs (35.4x)
+    - - drop subtree (92 kB)
       - 554 µs
-      - 2.06 ms
-      - 3.7x
-    - - keep content (``strip_tags`` / ``.unwrap()``)
+      - 2.06 ms (3.7x)
+    - - keep content, unwrap (92 kB)
       - 607 µs
-      - 2.35 ms
-      - 3.9x
-
-Reading a value off every match -- iterating ``for item in pq("a").items()`` and calling ``.attr("href")`` or
-``.text()`` -- against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
-:attr:`~turbohtml.Node.text` off each node. Both parse the page once outside the timed call. pyquery boxes every match
-in a fresh wrapper object, where turbohtml reads interned atoms straight off the selected nodes, so the per-match read
-runs tens of times faster (``tox -e bench extract``):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - extract per match
-      - turbohtml
-      - pyquery
-      - speed-up
-    - - ``@href`` -- wpt page (9.6 kB)
+      - 2.35 ms (3.9x)
+    - - ``@href`` per match (9.6 kB)
       - 0.1 µs
-      - 4.8 µs
-      - 96.6x
-    - - ``@href`` -- wpt page (92 kB)
+      - 4.8 µs (96.6x)
+    - - ``@href`` per match (92 kB)
       - 8.2 µs
-      - 542 µs
-      - 65.8x
-    - - text -- wpt page (92 kB)
+      - 542 µs (65.8x)
+    - - text per match (92 kB)
       - 8.0 µs
-      - 297 µs
-      - 37.0x
+      - 297 µs (37.0x)
 
 *************
  The renames

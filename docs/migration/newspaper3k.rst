@@ -57,27 +57,23 @@ bundles has no equivalent and is out of scope.
 
     Comets | Ada Lovelace | A short guide to comets. | en
 
-Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer -- measured with
-``tox -e bench article`` on CPython 3.14 (release build, Apple M4, macOS 26). :meth:`~turbohtml.Node.article` scores and
-harvests in one C pass over the parsed tree; newspaper3k builds an lxml tree and runs its own regex-driven metadata
-scan. Numbers vary with input and hardware.
+Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer.
+:meth:`~turbohtml.Node.article` scores and harvests in one C pass over the parsed tree; newspaper3k builds an lxml tree
+and runs its own regex-driven metadata scan. Numbers vary with input and hardware.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - newspaper3k
-      - speed-up
     - - post (4 KiB)
       - 23 µs
-      - 3.52 ms
-      - 152x
+      - 3.52 ms (152x)
     - - longform (16 KiB)
       - 70 µs
-      - 8.97 ms
-      - 128x
+      - 8.97 ms (128x)
 
 **********
  Pitfalls

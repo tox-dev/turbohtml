@@ -20,28 +20,23 @@ magnitude and the linkifier by five to twenty times:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - input
       - turbohtml
       - bleach
-      - speed-up
     - - sanitize comment (1 link, 1 script)
       - 1.5 µs
-      - 78.1 µs
-      - 52.6x
+      - 78.1 µs (52.6x)
     - - sanitize post (4 KiB)
       - 42.1 µs
-      - 1921 µs
-      - 45.7x
+      - 1921 µs (45.7x)
     - - linkify prose (1 KiB)
       - 51 µs
-      - 272 µs
-      - 5.4x
+      - 272 µs (5.4x)
     - - linkify markup (4 KiB)
       - 127 µs
-      - 1562 µs
-      - 12.3x
+      - 1562 µs (12.3x)
 
 **************
  bleach.clean

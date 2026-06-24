@@ -22,24 +22,20 @@ document is more than an order of magnitude faster:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
     - - parse
       - turbohtml
       - html5-parser
-      - speed-up
     - - 4 kB document
       - 2.8 µs
-      - 64.1 µs
-      - 22.9x
+      - 64.1 µs (22.9x)
     - - 92 kB document
       - 130 µs
-      - 1.84 ms
-      - 14.2x
+      - 1.84 ms (14.2x)
     - - 3 MB document
       - 4.63 ms
-      - 59.7 ms
-      - 12.9x
+      - 59.7 ms (12.9x)
 
 *************
  The renames

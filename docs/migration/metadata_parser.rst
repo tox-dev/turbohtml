@@ -31,6 +31,25 @@ result is a plain dict that holds no reference back into the tree:
 
     {'og:title': 'Widget', 'twitter:card': 'summary'}
 
+Both libraries start from the raw HTML string, so each parses before it reads the tags: ``metadata_parser`` builds its
+own tree and maps the meta block in Python, where :meth:`~turbohtml.Document.opengraph` parses to the WHATWG tree and
+gathers the ``og:``/``twitter:`` tags in one C walk. On a social-card head, and on an 8 KiB article carrying that head,
+the single pass runs dozens of times faster:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - input
+      - turbohtml
+      - metadata_parser
+    - - social-card head
+      - 2.0 µs
+      - 142 µs (71.6x)
+    - - article (8 KiB)
+      - 27.9 µs
+      - 2.28 ms (81.8x)
+
 *************
  The renames
 *************
@@ -49,30 +68,6 @@ result is a plain dict that holds no reference back into the tree:
       - the ``twitter:card`` key of :meth:`~turbohtml.Document.opengraph`
     - - ``mp.get_metadata_link("image", strategy=["og"])``
       - the ``og:image`` key, absolutized yourself against :meth:`~turbohtml.Document.base_url`
-
-*************
- Performance
-*************
-
-Both libraries start from the raw HTML string, so each parses before it reads the tags: ``metadata_parser`` builds its
-own tree and maps the meta block in Python, where :meth:`~turbohtml.Document.opengraph` parses to the WHATWG tree and
-gathers the ``og:``/``twitter:`` tags in one C walk. On a social-card head, and on an 8 KiB article carrying that head,
-the single pass runs dozens of times faster (``tox -e bench socialcard`` on the reference machine in
-:doc:`/development/performance`):
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 28 32
-
-    - - input
-      - turbohtml
-      - metadata_parser
-    - - social-card head
-      - 2.0 µs
-      - 142 µs (71.6x)
-    - - article (8 KiB)
-      - 27.9 µs
-      - 2.28 ms (81.8x)
 
 **********
  Pitfalls

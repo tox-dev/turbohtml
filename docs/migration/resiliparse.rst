@@ -16,57 +16,36 @@ text nodes, and it ships boilerplate extraction, language detection, and WARC ut
 
 resiliparse wraps lexbor's native parser; turbohtml has its own C engine and matches resiliparse's parse throughput,
 while returning a fully type annotated, mutable :class:`~turbohtml.Document` and folding resiliparse's DOM traversal,
-``get_element_by_*`` lookups, and CSS ``query_selector`` methods into one ``find``/``find_all``/``select`` grammar:
+``get_element_by_*`` lookups, and CSS ``query_selector`` methods into one ``find``/``find_all``/``select`` grammar.
+Parsing is a dead heat; on text extraction (``extract_plain_text`` against :meth:`~turbohtml.Node.to_text`, and its
+``main_content=True`` mode against :meth:`~turbohtml.Node.main_text`) turbohtml walks the WHATWG tree once in C where
+resiliparse renders off the lexbor tree in a second pass:
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - parse
+    - - operation
       - turbohtml
       - resiliparse
-      - speed-up
-    - - wpt page (4 kB)
+    - - parse wpt page (4 kB)
       - 11.4 µs
-      - 12.7 µs
-      - 1.1x
-    - - wpt page (92 kB)
+      - 12.7 µs (1.1x)
+    - - parse wpt page (92 kB)
       - 272 µs
-      - 282 µs
-      - 1.0x
-    - - ecmascript spec (3 MB)
+      - 282 µs (1.0x)
+    - - parse ecmascript spec (3 MB)
       - 4.54 ms
-      - 5.35 ms
-      - 1.2x
-
-The parse table above is throughput only. resiliparse's ``extract_plain_text`` maps to :meth:`~turbohtml.Node.to_text`,
-and its ``main_content=True`` mode to :meth:`~turbohtml.Node.main_text`; both render text off the lexbor tree in a
-second pass, where turbohtml walks the WHATWG tree once in C:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - to text
-      - turbohtml
-      - resiliparse
-      - speed-up
-    - - article (2 KiB)
+      - 5.35 ms (1.2x)
+    - - to text, article (2 KiB)
       - 7 µs
-      - 23 µs
-      - 3.1x
-    - - table (4 KiB)
+      - 23 µs (3.1x)
+    - - to text, table (4 KiB)
       - 28 µs
-      - 52 µs
-      - 1.8x
+      - 52 µs (1.8x)
     - - main content (4 KiB)
       - 7 µs
-      - 21 µs
-      - 2.9x
-
-The ``main content`` row strips page boilerplate first (:meth:`~turbohtml.Node.main_text` against
-``extract_plain_text(main_content=True)``); resiliparse matches turbohtml on the raw parse but trails it on the text
-walk, where the layout runs natively rather than over the lexbor tree.
+      - 21 µs (2.9x)
 
 *************
  The renames

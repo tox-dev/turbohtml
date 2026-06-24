@@ -17,106 +17,58 @@ resulting soup with a large, alias-rich API. It shares the most surface with tur
 :func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with no parser backend to choose,
 since it always runs the WHATWG algorithm in C. The search surface is one ``find``/``find_all``/``select`` grammar with
 :class:`~turbohtml.Axis` directions instead of a dozen directional finders. And it parses, queries, and serializes one
-to two orders of magnitude faster than BeautifulSoup over ``html.parser``:
+to two orders of magnitude faster than BeautifulSoup over ``html.parser`` -- including text filtering
+(``find(text=...)`` against ``find_all(string=...)``), walking the tree (:attr:`~turbohtml.Node.descendants` against
+``soup.descendants``), and reading its text (:attr:`~turbohtml.Node.text` against ``soup.get_text()``):
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 30 30
 
-    - - input
+    - - operation
       - turbohtml
       - BeautifulSoup
-      - speed-up
     - - parse wpt page (4 kB)
       - 11.4 µs
-      - 438 µs
-      - 38.5x
+      - 438 µs (38.5x)
     - - parse wpt page (92 kB)
       - 272 µs
-      - 15.3 ms
-      - 56.2x
+      - 15.3 ms (56.2x)
     - - select ``div a[href]`` (4 kB)
       - 0.04 µs
-      - 41.8 µs
-      - 1010.3x
+      - 41.8 µs (1010.3x)
     - - serialize wpt page (92 kB)
       - 105 µs
-      - 5.95 ms
-      - 56.8x
+      - 5.95 ms (56.8x)
+    - - find ``text=`` regex (4 kB)
+      - 9.3 µs
+      - 19.7 µs (2.1x)
+    - - find ``text=`` regex (9.6 kB)
+      - 13.9 µs
+      - 38.2 µs (2.7x)
+    - - find ``text=`` regex (92 kB)
+      - 741 µs
+      - 989 µs (1.3x)
+    - - walk descendants (4 kB)
+      - 1.3 µs
+      - 2.7 µs (2.1x)
+    - - walk descendants (9.6 kB)
+      - 2.3 µs
+      - 4.8 µs (2.1x)
+    - - walk descendants (92 kB)
+      - 65.2 µs
+      - 123.3 µs (1.9x)
+    - - ``get_text`` (4 kB)
+      - 0.8 µs
+      - 6.7 µs (8.3x)
+    - - ``get_text`` (9.6 kB)
+      - 1.1 µs
+      - 13.7 µs (12.9x)
+    - - ``get_text`` (92 kB)
+      - 38.0 µs
+      - 372.4 µs (9.8x)
 
 The :doc:`/development/performance` page benchmarks the build and edit paths against BeautifulSoup too.
-
-Filtering elements by text through :meth:`~turbohtml.Node.find` / :meth:`~turbohtml.Node.find_all` (``text=``) gathers
-each candidate's subtree text in C and matches once, where ``bs4``'s ``find_all(string=...)`` runs the predicate in
-Python mid-walk. The :doc:`/development/performance` query suite races the two over the wpt pages:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - find ``text=`` regex
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 9.3 µs
-      - 19.7 µs
-      - 2.1x
-    - - wpt page (9.6 kB)
-      - 13.9 µs
-      - 38.2 µs
-      - 2.7x
-    - - wpt page (92 kB)
-      - 741 µs
-      - 989 µs
-      - 1.3x
-
-Walking the whole tree (:attr:`~turbohtml.Node.descendants` against ``soup.descendants``) and reading its text
-(:attr:`~turbohtml.Node.text` against ``soup.get_text()``) stay ahead too; both libraries parse once outside the timed
-region. The descendant walk yields comparable node counts on both sides, so the gap is narrower, while ``get_text``
-concatenates in C where ``bs4`` joins Python strings node by node:
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - navigate (walk descendants)
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 1.3 µs
-      - 2.7 µs
-      - 2.1x
-    - - wpt page (9.6 kB)
-      - 2.3 µs
-      - 4.8 µs
-      - 2.1x
-    - - wpt page (92 kB)
-      - 65.2 µs
-      - 123.3 µs
-      - 1.9x
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 20 20 20
-
-    - - text (whole-document ``get_text``)
-      - turbohtml
-      - BeautifulSoup
-      - speed-up
-    - - wpt page (4 kB)
-      - 0.8 µs
-      - 6.7 µs
-      - 8.3x
-    - - wpt page (9.6 kB)
-      - 1.1 µs
-      - 13.7 µs
-      - 12.9x
-    - - wpt page (92 kB)
-      - 38.0 µs
-      - 372.4 µs
-      - 9.8x
 
 *********
  Parsing
