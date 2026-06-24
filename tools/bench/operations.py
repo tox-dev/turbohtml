@@ -75,12 +75,18 @@ OPERATIONS: dict[str, Operation] = {
     "build": Operation("build a list (constructors)", "us"),
     "build-e": Operation("build a list (terse builders)", "us"),
     "construct": Operation("construct N elements (no serialize)", "us"),
-    "serialize": Operation("serialize a built tree", "us"),
+    "emit": Operation("emit a built tree", "us"),
     "parse": Operation("parse to a tree", "us"),
     "fragment": Operation("parse a fragment", "us"),
     "escape": Operation("escape", "us"),
     "unescape": Operation("unescape", "us"),
     "tokenize": Operation("tokenize", "us"),
+    "find": Operation("find every anchor", "us"),
+    "select": Operation("select div a[href]", "us"),
+    "select-has": Operation("select div:has(a)", "us"),
+    "find-text": Operation("find by text content", "us"),
+    "text-content": Operation("collect visible text", "us"),
+    "serialize": Operation("serialize a parsed tree", "us"),
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
@@ -90,6 +96,13 @@ OPERATIONS: dict[str, Operation] = {
 def _parse_cases() -> tuple[tuple[str, object], ...]:
     """Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule)."""
     return tuple((name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES)
+
+
+def _readpath_cases() -> tuple[tuple[str, object], ...]:
+    """Return the wpt pages (4-92 kB) the read-path operations parse once then query (multi-MB specs skipped)."""
+    return tuple(
+        (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES[1:4]
+    )
 
 
 _TOKENIZE_CASES = (
@@ -110,12 +123,18 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS[:2],
     "construct": lambda: _ROWS,
-    "serialize": lambda: _ROWS,
+    "emit": lambda: _ROWS,
     "parse": _parse_cases,
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,
     "tokenize": lambda: _TOKENIZE_CASES,
+    "find": _readpath_cases,
+    "select": _readpath_cases,
+    "select-has": _readpath_cases,
+    "find-text": _readpath_cases,
+    "text-content": _readpath_cases,
+    "serialize": _readpath_cases,
     "socialcard": lambda: (
         ("head", _SOCIAL_HEAD),
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),

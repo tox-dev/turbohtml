@@ -1,12 +1,15 @@
-"""BeautifulSoup: the constructor build plus the construct/serialize breakdown."""
+"""BeautifulSoup: parse, the constructor build, and the read-path queries."""
 
 from __future__ import annotations
 
 import functools
+import re
 
 from bs4 import BeautifulSoup
 
 REQUIREMENTS = ("beautifulsoup4>=4.15",)
+
+_FIND_TEXT_PATTERN = re.compile(r"test")
 
 
 def parse(text: str) -> None:
@@ -45,14 +48,56 @@ def _tree(count: int) -> object:
     return ul
 
 
-def serialize(count: int) -> None:
-    """Serialize a pre-built ``count``-row tree with ``.decode()``."""
+def emit(count: int) -> None:
+    """Emit a pre-built ``count``-row tree with ``.decode()``."""
     _ = _tree(count).decode()  # ty: ignore[unresolved-attribute]  # bs4 Tag has no stubs
+
+
+@functools.cache
+def _parsed(text: str) -> BeautifulSoup:
+    """Return a document parsed once, cached so the read-path operations time only the query."""
+    return BeautifulSoup(text, "html.parser")
+
+
+def find(text: str) -> None:
+    """Collect every anchor with BeautifulSoup's find_all."""
+    _parsed(text).find_all("a")
+
+
+def select(text: str) -> None:
+    """Run the CSS selector with BeautifulSoup's soupsieve select."""
+    _parsed(text).select("div a[href]")
+
+
+def select_has(text: str) -> None:
+    """Run the :has() relational selector with BeautifulSoup's soupsieve."""
+    _parsed(text).select("div:has(a)")
+
+
+def find_text(text: str) -> None:
+    """Collect every matching string with BeautifulSoup's find_all(string=...)."""
+    _parsed(text).find_all(string=_FIND_TEXT_PATTERN)
+
+
+def text_content(text: str) -> None:
+    """Collect the document's visible text with BeautifulSoup's get_text()."""
+    _parsed(text).get_text()
+
+
+def serialize(text: str) -> None:
+    """Serialize a parsed document back to HTML with BeautifulSoup's decode."""
+    _parsed(text).decode()
 
 
 OPERATIONS = {
     "parse": (parse, "BeautifulSoup"),
     "build": (build, "BeautifulSoup"),
     "construct": (construct, "BeautifulSoup"),
+    "emit": (emit, "BeautifulSoup"),
+    "find": (find, "BeautifulSoup"),
+    "select": (select, "BeautifulSoup"),
+    "select-has": (select_has, "BeautifulSoup"),
+    "find-text": (find_text, "BeautifulSoup"),
+    "text-content": (text_content, "BeautifulSoup"),
     "serialize": (serialize, "BeautifulSoup"),
 }

@@ -8,12 +8,16 @@ maps each operation to ``(timing function, label)``; the function takes the same
 from __future__ import annotations
 
 import functools
+import re
 
 import turbohtml
 from turbohtml import sanitizer as _sanitizer
 from turbohtml.build import E
 
 _SANITIZER = _sanitizer.Sanitizer(_sanitizer.Policy.relaxed())
+_FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
+_CSS = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
+_HAS = "div:has(a)"  # the :has() relational pseudo-class
 
 
 def build(count: int) -> None:
@@ -50,8 +54,8 @@ def _tree(count: int) -> turbohtml.Element:
     return ul
 
 
-def serialize(count: int) -> None:
-    """Serialize a pre-built ``count``-row tree, in isolation from construction."""
+def emit(count: int) -> None:
+    """Emit a pre-built ``count``-row tree, in isolation from construction."""
     _ = _tree(count).html
 
 
@@ -81,6 +85,42 @@ def tokenize(text: str) -> None:
         pass
 
 
+@functools.cache
+def _parsed(text: str) -> turbohtml.Document:
+    """Return a document parsed once, cached so the read-path operations time only the query."""
+    return turbohtml.parse(text)
+
+
+def find(text: str) -> None:
+    """Collect every anchor with turbohtml's find_all."""
+    _parsed(text).find_all("a")
+
+
+def select(text: str) -> None:
+    """Run the CSS selector with turbohtml's select."""
+    _parsed(text).select(_CSS)
+
+
+def select_has(text: str) -> None:
+    """Run the :has() relational selector with turbohtml's select."""
+    _parsed(text).select(_HAS)
+
+
+def find_text(text: str) -> None:
+    """Collect every element whose collected text matches the regex with turbohtml's find_all."""
+    _parsed(text).find_all(text=_FIND_TEXT_PATTERN)
+
+
+def text_content(text: str) -> None:
+    """Collect the document's visible text with turbohtml's text property."""
+    _ = _parsed(text).text
+
+
+def serialize(text: str) -> None:
+    """Serialize a parsed document back to HTML with turbohtml's html property."""
+    _ = _parsed(text).html
+
+
 def socialcard(text: str) -> None:
     """Read the OpenGraph/Twitter card tags with turbohtml (parse plus one C walk)."""
     turbohtml.parse(text).opengraph()
@@ -100,12 +140,18 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
     "construct": (construct, "turbohtml"),
-    "serialize": (serialize, "turbohtml"),
+    "emit": (emit, "turbohtml"),
     "parse": (parse, "turbohtml"),
     "fragment": (fragment, "turbohtml"),
     "escape": (escape, "turbohtml"),
     "unescape": (unescape, "turbohtml"),
     "tokenize": (tokenize, "turbohtml"),
+    "find": (find, "turbohtml"),
+    "select": (select, "turbohtml"),
+    "select-has": (select_has, "turbohtml"),
+    "find-text": (find_text, "turbohtml"),
+    "text-content": (text_content, "turbohtml"),
+    "serialize": (serialize, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

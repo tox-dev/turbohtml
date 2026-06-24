@@ -54,9 +54,40 @@ def _tree(count: int) -> object:
     return ul
 
 
-def serialize(count: int) -> None:
-    """Serialize a pre-built ``count``-row tree with ``lxml.html.tostring``."""
+def emit(count: int) -> None:
+    """Emit a pre-built ``count``-row tree with ``lxml.html.tostring``."""
     _ = lxml_html.tostring(_tree(count))
+
+
+@functools.cache
+def _parsed(text: str) -> object:
+    """Return a document parsed once, cached so the read-path operations time only the query."""
+    return lxml_html.document_fromstring(text)
+
+
+def find(text: str) -> None:
+    """Collect every anchor with lxml's XPath findall."""
+    _parsed(text).findall(".//a")  # ty: ignore[unresolved-attribute]  # cached HtmlElement
+
+
+def select(text: str) -> None:
+    """Run the CSS selector with lxml's cssselect."""
+    _parsed(text).cssselect("div a[href]")  # ty: ignore[unresolved-attribute]
+
+
+def select_has(text: str) -> None:
+    """Run the :has() relational selector with lxml's cssselect."""
+    _parsed(text).cssselect("div:has(a)")  # ty: ignore[unresolved-attribute]
+
+
+def text_content(text: str) -> None:
+    """Collect the document's visible text with lxml's text_content method."""
+    _parsed(text).text_content()  # ty: ignore[unresolved-attribute]
+
+
+def serialize(text: str) -> None:
+    """Serialize a parsed document back to HTML with lxml's tostring."""
+    lxml_html.tostring(_parsed(text))
 
 
 OPERATIONS = {
@@ -65,5 +96,10 @@ OPERATIONS = {
     "build": (build, "lxml"),
     "build-e": (build_e, "lxml.builder"),
     "construct": (construct, "lxml"),
+    "emit": (emit, "lxml"),
+    "find": (find, "lxml"),
+    "select": (select, "lxml"),
+    "select-has": (select_has, "lxml"),
+    "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
 }
