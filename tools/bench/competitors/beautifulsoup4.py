@@ -104,6 +104,12 @@ def set_html(text: str) -> None:
         body.append(node)
 
 
+def navigate(text: str) -> None:
+    """Walk every descendant with BeautifulSoup's descendants iterator."""
+    for _node in _parsed(text).descendants:
+        pass
+
+
 OPERATIONS = {
     "parse": (parse, "BeautifulSoup"),
     "build": (build, "BeautifulSoup"),
@@ -117,4 +123,5 @@ OPERATIONS = {
     "serialize": (serialize, "BeautifulSoup"),
     "edit": (edit, "BeautifulSoup"),
     "set-html": (set_html, "BeautifulSoup"),
+    "navigate": (navigate, "BeautifulSoup"),
 }

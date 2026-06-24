@@ -13,8 +13,10 @@ import re
 import turbohtml
 from turbohtml import sanitizer as _sanitizer
 from turbohtml.build import E
+from turbohtml.query import Query as _Query
 
 _SANITIZER = _sanitizer.Sanitizer(_sanitizer.Policy.relaxed())
+_LINKS_BASE = "https://example.com/base/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
 _CSS = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS = "div:has(a)"  # the :has() relational pseudo-class
@@ -156,6 +158,32 @@ def set_text(text: str) -> None:
     _parsed(text).find_all("body")[0].set_text(_SET_TEXT)
 
 
+def navigate(text: str) -> None:
+    """Walk every descendant node with turbohtml's descendants iterator."""
+    for _node in _parsed(text).descendants:
+        pass
+
+
+def chain(text: str) -> None:
+    """Run a fluent jQuery-style chain with turbohtml's Query wrapper."""
+    _Query(_parsed(text))("a").filter("[href]").eq(0).add_class("seen").attr("href")
+
+
+def links_extract(text: str) -> None:
+    """Collect every link with turbohtml's links()."""
+    _parsed(text).links()
+
+
+def links_absolutize(text: str) -> None:
+    """Resolve every relative link against a base with turbohtml's resolve_links()."""
+    _parsed(text).resolve_links(_LINKS_BASE)
+
+
+def links_rewrite(text: str) -> None:
+    """Rewrite every link through a callback with turbohtml's rewrite_links()."""
+    _parsed(text).rewrite_links(lambda url: url)
+
+
 def socialcard(text: str) -> None:
     """Read the OpenGraph/Twitter card tags with turbohtml (parse plus one C walk)."""
     turbohtml.parse(text).opengraph()
@@ -193,6 +221,11 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "strip-tags": (strip_tags, "turbohtml"),
     "set-html": (set_html, "turbohtml"),
     "set-text": (set_text, "turbohtml"),
+    "navigate": (navigate, "turbohtml"),
+    "chain": (chain, "turbohtml"),
+    "links-extract": (links_extract, "turbohtml"),
+    "links-absolutize": (links_absolutize, "turbohtml"),
+    "links-rewrite": (links_rewrite, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 REQUIREMENTS = ("lxml>=6.1.1",)
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
+_LINKS_BASE = "https://example.com/base/"
 
 
 def parse(text: str) -> None:
@@ -116,6 +117,28 @@ def set_html(text: str) -> None:
         body.append(piece)
 
 
+def navigate(text: str) -> None:
+    """Walk every descendant element with lxml's iterdescendants iterator."""
+    for _element in _parsed(text).iterdescendants():
+        pass
+
+
+def links_extract(text: str) -> None:
+    """Collect every link with lxml's iterlinks()."""
+    for _link in _parsed(text).iterlinks():
+        pass
+
+
+def links_absolutize(text: str) -> None:
+    """Resolve every relative link against a base with lxml's make_links_absolute()."""
+    _parsed(text).make_links_absolute(_LINKS_BASE)
+
+
+def links_rewrite(text: str) -> None:
+    """Rewrite every link through a callback with lxml's rewrite_links()."""
+    _parsed(text).rewrite_links(lambda url: url)
+
+
 OPERATIONS = {
     "parse": (parse, "lxml"),
     "fragment": (fragment, "lxml"),
@@ -131,4 +154,8 @@ OPERATIONS = {
     "edit": (edit, "lxml"),
     "class-edit": (class_edit, "lxml"),
     "set-html": (set_html, "lxml"),
+    "navigate": (navigate, "lxml"),
+    "links-extract": (links_extract, "lxml"),
+    "links-absolutize": (links_absolutize, "lxml"),
+    "links-rewrite": (links_rewrite, "lxml"),
 }

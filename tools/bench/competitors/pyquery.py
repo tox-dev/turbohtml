@@ -42,9 +42,15 @@ def set_text(text: str) -> None:
     _parsed(text)("body").text(_SET_TEXT)
 
 
+def chain(text: str) -> None:
+    """Run a fluent jQuery-style chain with pyquery."""
+    _parsed(text)("a").filter("[href]").eq(0).add_class("seen").attr("href")
+
+
 OPERATIONS = {
     "strip-remove": (strip_remove, "pyquery"),
     "strip-tags": (strip_tags, "pyquery"),
     "set-html": (set_html, "pyquery"),
     "set-text": (set_text, "pyquery"),
+    "chain": (chain, "pyquery"),
 }
