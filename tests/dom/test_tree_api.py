@@ -139,3 +139,43 @@ def test_types_are_not_constructible(node_type: type) -> None:
 
 def test_namespace_values() -> None:
     assert {member.value for member in Namespace} == {"html", "svg", "math"}
+
+
+# find_all()/select()/iteration recycle their node wrappers on a freelist; the count
+# exceeds the pool cap so dropping a result also frees past the pool's limit.
+_WIDE = "<ul>" + "".join(f'<li class="row">item {index}</li>' for index in range(1200)) + "</ul>"
+
+
+def test_recycled_wrapper_does_not_alias_a_held_node() -> None:
+    document = parse(_WIDE)
+    rows = document.find_all("li")
+    held = rows[0]
+    del rows  # frees every wrapper but `held`, parking them on the freelist
+    gc.collect()
+    rewrapped = document.find_all("li")  # pops the pooled wrappers and re-stamps them
+    assert held.tag == "li"  # the held wrapper is untouched by the reuse
+    assert held.attrs["class"] == ["row"]
+    assert rewrapped[0] == held  # a fresh wrapper for the same node compares equal
+
+
+def test_recycled_result_over_cap_stays_correct() -> None:
+    document = parse(_WIDE)
+    for _ in range(3):  # cycle wrappers through the pool, freeing past its cap each round
+        rows = document.find_all("li")
+        assert len(rows) == 1200
+        assert [row.text for row in rows[:2]] == ["item 0", "item 1"]
+        assert rows[-1].text == "item 1199"
+        del rows
+        gc.collect()
+
+
+def test_transient_iteration_reads_every_node() -> None:
+    # each wrapper is dropped before the next is built, the churn the pool targets
+    document = parse(_WIDE)
+    li_count = sum(1 for node in document.descendants if isinstance(node, Element) and node.tag == "li")
+    assert li_count == 1200
+
+
+def test_repeated_queries_return_equal_nodes() -> None:
+    document = parse(_WIDE)
+    assert document.find_all("li") == document.find_all("li")  # equal nodes despite recycled wrappers

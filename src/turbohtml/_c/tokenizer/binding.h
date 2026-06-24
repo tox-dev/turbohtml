@@ -62,12 +62,25 @@ typedef struct {
     PyObject *microdata_item_type;  /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
     PyObject *structured_data_type; /* turbohtml._structured_data.StructuredData, the combined-format record */
     PyObject *article_type;         /* turbohtml._article.Article, the record Node.article() yields */
+    /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one
+       NodeObject per visited node, and every node subtype shares sizeof(NodeObject)
+       (the payload lives in the C th_node), so one pool re-stamps ob_type on reuse.
+       The head is a NodeObject* (held as PyObject* since NodeObject is declared
+       later); the link rides in each pooled object's unused node field. Built only
+       on the GIL build, where the GIL serializes access; the free-threaded build
+       skips it (a shared pool would race) and keeps the tp_alloc/tp_free path. */
+    PyObject *node_freelist;
+    int node_freelist_len;
 } module_state;
 
 /* Register the types and enum into module/state. Each returns 0 or -1. */
 int token_register(PyObject *module, module_state *state);
 int tokenizer_register(PyObject *module, module_state *state);
 int tree_register(PyObject *module, module_state *state);
+
+/* Free every node wrapper parked on the freelist; called from module teardown
+   before the node types are cleared. A no-op on the free-threaded build. */
+void th_node_freelist_clear(module_state *state);
 
 /* Public navigable-tree entry points (dom/node.c), wired as parse() and
    parse_fragment(). parse() matches METH_O; parse_fragment() matches

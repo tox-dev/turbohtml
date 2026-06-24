@@ -151,9 +151,9 @@ turbohtml runs each in C over its native tree (``tox -e bench fragment text navi
       - 47.2 µs
       - 1.3x
     - - descendant walk (92 kB)
-      - 101 µs
-      - 295 µs
-      - 2.9x
+      - 65.2 µs
+      - 278 µs
+      - 4.3x
     - - extract links (92 kB)
       - 60.6 µs
       - 2.28 ms

@@ -184,9 +184,20 @@ static inline PyObject *node_wrap(module_state *state, PyObject *handle, th_node
         Py_RETURN_NONE;
     }
     PyTypeObject *type = (PyTypeObject *)type_for_node(state, node);
-    NodeObject *self = (NodeObject *)type->tp_alloc(type, 0);
-    if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    NodeObject *self;
+#ifndef Py_GIL_DISABLED
+    if (state->node_freelist != NULL) {
+        self = (NodeObject *)state->node_freelist;
+        state->node_freelist = (PyObject *)self->node; /* the next link rode in the node field */
+        state->node_freelist_len--;
+        PyObject_Init((PyObject *)self, type); /* revive: refcount 1, restamp ob_type (+incref heaptype) */
+    } else
+#endif
+    {
+        self = (NodeObject *)type->tp_alloc(type, 0);
+        if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     self->handle = Py_NewRef(handle);
     self->node = node;

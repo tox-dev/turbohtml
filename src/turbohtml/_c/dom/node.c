@@ -28,9 +28,43 @@ PyObject *turbohtml_node_wrap_in(PyObject *owner, th_node *node) {
     return node_wrap(state_of(owner), ((NodeObject *)owner)->handle, node);
 }
 
+#ifndef Py_GIL_DISABLED
+/* The pool caps the wrappers a burst of find_all()/select()/iteration may recycle
+   without pinning unbounded memory afterwards. At sizeof(NodeObject) (32 bytes) the
+   cap costs at most ~32 KiB resident per interpreter, and it covers a query result
+   or transient walk of up to this many nodes; a larger result falls back to malloc
+   for the surplus. */
+#define NODE_FREELIST_MAX 1024
+
+void th_node_freelist_clear(module_state *state) {
+    while (state->node_freelist != NULL) {
+        NodeObject *self = (NodeObject *)state->node_freelist;
+        state->node_freelist = (PyObject *)self->node;
+        Py_TYPE(self)->tp_free(self); /* the type ref was dropped on push; the types are still live here */
+    }
+    state->node_freelist_len = 0;
+}
+#else
+void th_node_freelist_clear(module_state *Py_UNUSED(state)) {
+} /* the free-threaded build keeps no pool */
+#endif
+
 static void node_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     Py_DECREF(((NodeObject *)self)->handle);
+#ifndef Py_GIL_DISABLED
+    /* Park the wrapper for reuse instead of freeing it, unless the pool is full.
+       Every node type has basicsize sizeof(NodeObject) and none accept a subclass,
+       so any node object fits a base-type reuse. */
+    module_state *state = state_of(self);
+    if (state->node_freelist_len < NODE_FREELIST_MAX) {
+        ((NodeObject *)self)->node = (th_node *)state->node_freelist; /* stash the next link in the node field */
+        state->node_freelist = self;
+        state->node_freelist_len++;
+        Py_DECREF(type); /* release this object's type ref; PyObject_Init re-takes it on revive */
+        return;
+    }
+#endif
     type->tp_free(self);
     Py_DECREF(type);
 }

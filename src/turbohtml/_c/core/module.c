@@ -186,6 +186,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
 
 static int html_clear(PyObject *module) {
     module_state *state = PyModule_GetState(module);
+    th_node_freelist_clear(state); /* free pooled wrappers while their node types are still live */
     Py_CLEAR(state->token_type);
     Py_CLEAR(state->tokenizer_type);
     Py_CLEAR(state->iter_type);

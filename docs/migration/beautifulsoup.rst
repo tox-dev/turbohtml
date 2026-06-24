@@ -85,17 +85,17 @@ concatenates in C where ``bs4`` joins Python strings node by node:
       - BeautifulSoup
       - speed-up
     - - wpt page (4 kB)
-      - 2.0 µs
-      - 2.9 µs
-      - 1.5x
+      - 1.3 µs
+      - 2.7 µs
+      - 2.1x
     - - wpt page (9.6 kB)
-      - 3.7 µs
-      - 5.0 µs
-      - 1.4x
+      - 2.3 µs
+      - 4.8 µs
+      - 2.1x
     - - wpt page (92 kB)
-      - 100.4 µs
-      - 125.0 µs
-      - 1.2x
+      - 65.2 µs
+      - 123.3 µs
+      - 1.9x
 
 .. list-table::
     :header-rows: 1

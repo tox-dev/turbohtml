@@ -632,22 +632,22 @@ times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector libr
       - BeautifulSoup
     - - wpt page (4 kB)
       - 0.1 µs
-      - 0.5 µs (5.0x)
-      - 2.1 µs (21.0x)
-      - 3.8 µs (38.0x)
-      - 5.7 µs (57.0x)
+      - 0.6 µs (7.2x)
+      - 2.2 µs (28.4x)
+      - 4.1 µs (53.0x)
+      - 5.8 µs (75.3x)
     - - wpt page (9.6 kB)
       - 0.1 µs
-      - 0.5 µs (5.0x)
-      - 2.6 µs (26.0x)
-      - 4.2 µs (42.0x)
-      - 9.3 µs (93.0x)
+      - 0.6 µs (7.2x)
+      - 2.6 µs (34.0x)
+      - 4.4 µs (57.7x)
+      - 9.6 µs (124.6x)
     - - wpt page (92 kB)
-      - 1.9 µs
-      - 23.3 µs (12.3x)
-      - 45.3 µs (23.8x)
-      - 79.5 µs (41.8x)
-      - 207 µs (108.9x)
+      - 1.4 µs
+      - 25.4 µs (18.6x)
+      - 45.9 µs (33.7x)
+      - 81.6 µs (59.8x)
+      - 210 µs (154.1x)
 
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
 <https://github.com/scrapy/cssselect>`_, selectolax's ``css``, parsel's ``css``, BeautifulSoup's `soupsieve
@@ -994,17 +994,17 @@ so it has no entry.
       - lxml
       - BeautifulSoup
     - - wpt page (4 kB)
-      - 2.0 µs
-      - 8.3 µs (4.2x)
-      - 2.9 µs (1.5x)
+      - 1.3 µs
+      - 8.0 µs (6.1x)
+      - 2.7 µs (2.1x)
     - - wpt page (9.6 kB)
-      - 3.6 µs
-      - 12.1 µs (3.4x)
-      - 5.0 µs (1.4x)
+      - 2.3 µs
+      - 11.6 µs (5.1x)
+      - 4.8 µs (2.1x)
     - - wpt page (92 kB)
-      - 101 µs
-      - 295 µs (2.9x)
-      - 125 µs (1.2x)
+      - 65.2 µs
+      - 278 µs (4.3x)
+      - 123 µs (1.9x)
 
 *************
  Serializing
