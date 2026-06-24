@@ -7,6 +7,8 @@ import re
 
 from bs4 import BeautifulSoup
 
+from bench.timing import Mutating
+
 REQUIREMENTS = ("beautifulsoup4>=4.15",)
 
 _FIND_TEXT_PATTERN = re.compile(r"test")
@@ -54,6 +56,11 @@ def emit(count: int) -> None:
     _ = _tree(count).decode()  # ty: ignore[unresolved-attribute]  # bs4 Tag has no stubs
 
 
+def _fresh(text: str) -> BeautifulSoup:
+    """Parse a fresh document for the mutating operations, which each iteration must run on an unmodified tree."""
+    return BeautifulSoup(text, "html.parser")
+
+
 @functools.cache
 def _parsed(text: str) -> BeautifulSoup:
     """Return a document parsed once, cached so the read-path operations time only the query."""
@@ -90,15 +97,15 @@ def serialize(text: str) -> None:
     _parsed(text).decode()
 
 
-def edit(text: str) -> None:
-    """Tag every link with rel=nofollow through BeautifulSoup's item assignment."""
-    for anchor in _parsed(text).find_all("a"):
+def edit(soup: BeautifulSoup) -> None:
+    """Tag every link with rel=nofollow on a freshly parsed tree through BeautifulSoup's item assignment."""
+    for anchor in soup.find_all("a"):
         anchor["rel"] = "nofollow"
 
 
-def set_html(text: str) -> None:
-    """Clear the body and append a reparsed fragment, BeautifulSoup's inner-HTML shape."""
-    body = _parsed(text).find_all("body")[0]
+def set_html(soup: BeautifulSoup) -> None:
+    """Clear a freshly parsed body and append a reparsed fragment, BeautifulSoup's inner-HTML shape."""
+    body = soup.find_all("body")[0]
     body.clear()
     for node in list(BeautifulSoup(_SET_HTML, "html.parser").children):
         body.append(node)
@@ -121,7 +128,7 @@ OPERATIONS = {
     "find-text": (find_text, "BeautifulSoup"),
     "text-content": (text_content, "BeautifulSoup"),
     "serialize": (serialize, "BeautifulSoup"),
-    "edit": (edit, "BeautifulSoup"),
-    "set-html": (set_html, "BeautifulSoup"),
+    "edit": (Mutating(_fresh, edit), "BeautifulSoup"),
+    "set-html": (Mutating(_fresh, set_html), "BeautifulSoup"),
     "navigate": (navigate, "BeautifulSoup"),
 }

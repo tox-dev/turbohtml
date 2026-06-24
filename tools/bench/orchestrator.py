@@ -77,8 +77,10 @@ def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...]) -> Path:
     return python
 
 
-def _run_worker(python: Path, target: str, operation: str, workdir: Path) -> dict[str, float]:
-    """Run the worker for one (target, operation) in the given venv and return its means."""
+def _run_worker(
+    python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
+) -> dict[str, dict[str, float]]:
+    """Run the worker for one (target, operation) in the given venv and return its per-case stats."""
     out = workdir / f"{target}-{operation}.json"
     env = {
         **os.environ,
@@ -87,11 +89,13 @@ def _run_worker(python: Path, target: str, operation: str, workdir: Path) -> dic
         "BENCH_OPERATION": operation,
         "BENCH_OUT": str(out),
     }
-    subprocess.run([str(python), "-m", "bench.worker"], check=True, env=env)
+    subprocess.run([str(python), "-m", "bench.worker", *pyperf_args], check=True, env=env)
     return json.loads(out.read_text(encoding="utf-8"))
 
 
-def _try_competitor(workdir: Path, competitor: str, operation: str) -> dict[str, float]:
+def _try_competitor(
+    workdir: Path, competitor: str, operation: str, pyperf_args: tuple[str, ...]
+) -> dict[str, dict[str, float]]:
     """
     Run the competitor in its venv, returning empty (with a skip note) if provisioning or the run fails.
 
@@ -101,24 +105,24 @@ def _try_competitor(workdir: Path, competitor: str, operation: str) -> dict[str,
     """
     try:
         python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
-        return _run_worker(python, competitor, operation, workdir)
+        return _run_worker(python, competitor, operation, workdir, pyperf_args)
     except subprocess.CalledProcessError:
         print(f"skipping {competitor}: it did not install or run in its isolated venv", file=sys.stderr)
         return {}
 
 
-def report_operation(operation: str) -> None:
+def report_operation(operation: str, pyperf_args: tuple[str, ...]) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         wheel = _build_wheel(workdir)
-        means = _run_worker(_venv_python(workdir, "core", (str(wheel),)), "core", operation, workdir)
+        stats = _run_worker(_venv_python(workdir, "core", (str(wheel),)), "core", operation, workdir, pyperf_args)
         for competitor in _packages_for(operation):
-            means.update(_try_competitor(workdir, competitor, operation))
-        report.render(operation, means)
+            stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
+        report.render(operation, stats)
 
 
-def report_package(competitor: str) -> None:
+def report_package(competitor: str, pyperf_args: tuple[str, ...]) -> None:
     """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
     reqs, operation_names = COMPETITORS[competitor]
     with tempfile.TemporaryDirectory() as tmp:
@@ -126,31 +130,36 @@ def report_package(competitor: str) -> None:
         core_python = _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
         competitor_python = _venv_python(workdir, competitor, reqs)
         for operation in operation_names:
-            means = _run_worker(core_python, "core", operation, workdir)
-            means.update(_run_worker(competitor_python, competitor, operation, workdir))
-            report.render(operation, means)
+            stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
+            stats.update(_run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
+            report.render(operation, stats)
 
 
-def report_core() -> None:
+def report_core(pyperf_args: tuple[str, ...]) -> None:
     """Render turbohtml's own baseline for every operation in a turbohtml-only venv."""
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         python = _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
         for operation in operations.OPERATIONS:
-            report.render(operation, _run_worker(python, "core", operation, workdir))
+            report.render(operation, _run_worker(python, "core", operation, workdir, pyperf_args))
 
 
-def run(command: str) -> None:
-    """Dispatch a CLI command to the matching report."""
+def run(command: str, pyperf_args: tuple[str, ...] = ()) -> None:
+    """Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker."""
+    print(
+        "tip: for low-noise results run `pyperf system tune` first (and `sudo pyperf system reset` after); pass "
+        "pyperf options like --rigorous or --affinity=<cpu> after the command to control sampling and CPU pinning.",
+        file=sys.stderr,
+    )
     if command == "core":
-        report_core()
+        report_core(pyperf_args)
     elif command == "all":
         for operation in operations.OPERATIONS:
-            report_operation(operation)
+            report_operation(operation, pyperf_args)
     elif command in COMPETITORS:
-        report_package(command)
+        report_package(command, pyperf_args)
     elif command in operations.OPERATIONS:
-        report_operation(command)
+        report_operation(command, pyperf_args)
     else:
         choices = ", ".join(["core", "all", *operations.OPERATIONS, *COMPETITORS])
         msg = f"unknown command {command!r}; choose one of: {choices}"

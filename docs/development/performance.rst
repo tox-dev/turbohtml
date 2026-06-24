@@ -3,17 +3,24 @@
 #############
 
 Every number here comes from `pyperf <https://pyperf.readthedocs.io>`_ on CPython 3.14.6 (a release build) on an Apple
-M4 running macOS 26. pyperf runs each case in isolated worker processes and reports the mean. The corpora are real
-documents: `Project Gutenberg's War and Peace <https://www.gutenberg.org/ebooks/2600>`_, the `WHATWG HTML specification
-source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript specification
-<https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
-<https://github.com/web-platform-tests/wpt>`_ pages. The harness benchmarks each competitor in its own isolated ``uv``
-venv -- turbohtml in a venv of its own as the shared baseline -- so one library's dependency pins never perturb
-another's. Every table below is one harness operation, so each is reproducible with ``tox -e bench <command>``, where
-the command is ``core`` (turbohtml's own baseline for every operation), an operation name (the cross-competitor table),
-a package name (that competitor's own report), or ``all``. Most operations are a single call; a few aggregate workloads
-(``build``, ``build-e``) sweep a size, and the ``construct`` and ``emit`` breakdowns decompose that write path into the
-constructor and the serializer in isolation. Numbers vary with input and hardware.
+M4 running macOS 26. pyperf runs each case in isolated worker processes and reports the mean; the harness prints the
+run-to-run standard deviation beside it as ``±N%`` so a real gap reads apart from noise, and these tables quote the
+mean. For the lowest-noise figures, tune the machine with ``pyperf system tune`` first (and ``sudo pyperf system reset``
+after); pyperf options like ``--rigorous`` or ``--affinity`` pass straight through after the ``tox -e bench`` command.
+Operations that mutate the tree they are handed -- the edits, the content setters, link absolutization -- are timed on a
+fresh parse rebuilt before each iteration (the rebuild itself untimed), so the figure is the repeatable cost of the
+mutation alone rather than a tree a prior iteration already changed; read-path operations reuse one cached parse and
+time only the query. The corpora are real documents: `Project Gutenberg's War and Peace
+<https://www.gutenberg.org/ebooks/2600>`_, the `WHATWG HTML specification source
+<https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript specification <https://github.com/tc39/ecma262>`_,
+and a size-weighted sample of `web-platform-tests <https://github.com/web-platform-tests/wpt>`_ pages. The harness
+benchmarks each competitor in its own isolated ``uv`` venv -- turbohtml in a venv of its own as the shared baseline --
+so one library's dependency pins never perturb another's. Every table below is one harness operation, so each is
+reproducible with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
+operation), an operation name (the cross-competitor table), a package name (that competitor's own report), or ``all``.
+Most operations are a single call; a few aggregate workloads (``build``, ``build-e``) sweep a size, and the
+``construct`` and ``emit`` breakdowns decompose that write path into the constructor and the serializer in isolation.
+Numbers vary with input and hardware.
 
 **********
  Escaping
@@ -1147,13 +1154,13 @@ price of the leading-mapping and per-child dispatch the sugar runs in Python.
  Editing
 *********
 
-Editing a parsed tree: tag every ``<a>`` with ``rel="nofollow"``, a link-rewriting pass. Each library parses once
-outside the timed region, then the timed call walks its links and sets the attribute (turbohtml through the live
-:attr:`~turbohtml.Element.attrs` mapping, lxml through ``Element.set``, BeautifulSoup through item assignment).
-selectolax mutation is limited, so it has no entry. The last row is a content-setter pass:
-:meth:`~turbohtml.Element.set_inner_html` reparses a fixed fragment in the ``<body>``'s context and replaces its
-children, against lxml clearing the body and appending ``fragments_fromstring`` and BeautifulSoup clearing it and
-appending a reparsed soup. turbohtml does the parse and splice in one C call.
+Editing a parsed tree: tag every ``<a>`` with ``rel="nofollow"``, a link-rewriting pass. Because the pass mutates the
+tree, each library rebuilds a fresh parse before every iteration outside the timed region, then the timed call walks its
+links and sets the attribute (turbohtml through the live :attr:`~turbohtml.Element.attrs` mapping, lxml through
+``Element.set``, BeautifulSoup through item assignment). selectolax mutation is limited, so it has no entry. The last
+row is a content-setter pass: :meth:`~turbohtml.Element.set_inner_html` reparses a fixed fragment in the ``<body>``'s
+context and replaces its children, against lxml clearing the body and appending ``fragments_fromstring`` and
+BeautifulSoup clearing it and appending a reparsed soup. turbohtml does the parse and splice in one C call.
 
 The last row is a second pass: a classList churn that adds then drops a token on every link (turbohtml's
 :meth:`~turbohtml.Element.add_class`/:meth:`~turbohtml.Element.remove_class` against lxml's ``classes`` set). The
@@ -1222,9 +1229,10 @@ The link surface: extract every in-document link, resolve them against a base UR
 turbohtml's :meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, and
 :meth:`~turbohtml.Node.rewrite_links` against lxml.html's ``iterlinks()``, ``make_links_absolute()``, and
 ``rewrite_links()`` -- the only other library that walks the link-bearing attributes (``href``, ``src``, ``srcset``,
-...) as a set. Each timed call runs one operation over the 92 kB wpt page; extraction is read-only, while absolutize and
-rewrite are idempotent once applied. turbohtml walks the attribute set in C where lxml re-resolves each URL in Python,
-so it leads by ten to over a hundred times.
+...) as a set. Each timed call runs one operation over the 92 kB wpt page; extraction is read-only and rewrite applies
+an identity callback, so both reuse one cached parse, while absolutize rebuilds a fresh tree before each iteration since
+``make_links_absolute`` rewrites the hrefs in place. turbohtml walks the attribute set in C where lxml re-resolves each
+URL in Python, so it leads by ten to over a hundred times.
 
 .. list-table::
     :header-rows: 1

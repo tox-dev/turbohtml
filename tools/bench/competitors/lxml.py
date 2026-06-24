@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from lxml import html as lxml_html
 from lxml.builder import E
 
+from bench.timing import Mutating
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -98,9 +100,9 @@ def serialize(text: str) -> None:
     lxml_html.tostring(_parsed(text))
 
 
-def edit(text: str) -> None:
-    """Tag every link with rel=nofollow through lxml's Element.set."""
-    for anchor in _parsed(text).findall(".//a"):
+def edit(tree: HtmlElement) -> None:
+    """Tag every link with rel=nofollow on a freshly parsed tree through lxml's Element.set."""
+    for anchor in tree.findall(".//a"):
         anchor.set("rel", "nofollow")
 
 
@@ -111,9 +113,9 @@ def class_edit(text: str) -> None:
         anchor.classes.discard("seen")
 
 
-def set_html(text: str) -> None:
-    """Clear the body and append a reparsed fragment, lxml's nearest inner-HTML shape."""
-    body = _parsed(text).findall(".//body")[0]
+def set_html(tree: HtmlElement) -> None:
+    """Clear a freshly parsed body and append a reparsed fragment, lxml's nearest inner-HTML shape."""
+    body = tree.findall(".//body")[0]
     body.clear()
     for piece in lxml_html.fragments_fromstring(_SET_HTML):
         body.append(piece)
@@ -131,9 +133,9 @@ def links_extract(text: str) -> None:
         pass
 
 
-def links_absolutize(text: str) -> None:
-    """Resolve every relative link against a base with lxml's make_links_absolute()."""
-    _parsed(text).make_links_absolute(_LINKS_BASE)
+def links_absolutize(tree: HtmlElement) -> None:
+    """Resolve every relative link on a freshly parsed tree against a base with lxml's make_links_absolute()."""
+    tree.make_links_absolute(_LINKS_BASE)
 
 
 def links_rewrite(text: str) -> None:
@@ -217,12 +219,12 @@ OPERATIONS = {
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
-    "edit": (edit, "lxml"),
+    "edit": (Mutating(lxml_html.document_fromstring, edit), "lxml"),
     "class-edit": (class_edit, "lxml"),
-    "set-html": (set_html, "lxml"),
+    "set-html": (Mutating(lxml_html.document_fromstring, set_html), "lxml"),
     "navigate": (navigate, "lxml"),
     "links-extract": (links_extract, "lxml"),
-    "links-absolutize": (links_absolutize, "lxml"),
+    "links-absolutize": (Mutating(lxml_html.document_fromstring, links_absolutize), "lxml"),
     "links-rewrite": (links_rewrite, "lxml"),
     "path": (getpath, "lxml getpath"),
     "path-xpath": (getpath, "lxml getpath"),

@@ -12,6 +12,7 @@ import re
 from typing import TYPE_CHECKING, cast
 
 import turbohtml
+from bench.timing import Mutating
 from turbohtml import sanitizer as _sanitizer
 from turbohtml.build import E
 from turbohtml.linkify import Detector as _Detector
@@ -138,9 +139,9 @@ def serialize(text: str) -> None:
     _ = _parsed(text).html
 
 
-def edit(text: str) -> None:
-    """Tag every link with rel=nofollow through turbohtml's live attribute mapping."""
-    for anchor in _parsed(text).find_all("a"):
+def edit(document: turbohtml.Document) -> None:
+    """Tag every link with rel=nofollow on a freshly parsed tree through turbohtml's live attribute mapping."""
+    for anchor in document.find_all("a"):
         anchor.attrs["rel"] = "nofollow"
 
 
@@ -160,14 +161,14 @@ def strip_tags(text: str) -> None:
     _ = turbohtml.parse(text).strip_tags(_STRIP).html
 
 
-def set_html(text: str) -> None:
-    """Replace the body's children by reparsing a fragment in context with turbohtml's set_inner_html."""
-    _parsed(text).find_all("body")[0].set_inner_html(_SET_HTML)
+def set_html(document: turbohtml.Document) -> None:
+    """Replace a freshly parsed body's children by reparsing a fragment in context with turbohtml's set_inner_html."""
+    document.find_all("body")[0].set_inner_html(_SET_HTML)
 
 
-def set_text(text: str) -> None:
-    """Replace the body's children with one verbatim text node through turbohtml's set_text."""
-    _parsed(text).find_all("body")[0].set_text(_SET_TEXT)
+def set_text(document: turbohtml.Document) -> None:
+    """Replace a freshly parsed body's children with one verbatim text node through turbohtml's set_text."""
+    document.find_all("body")[0].set_text(_SET_TEXT)
 
 
 def navigate(text: str) -> None:
@@ -186,9 +187,9 @@ def links_extract(text: str) -> None:
     _parsed(text).links()
 
 
-def links_absolutize(text: str) -> None:
-    """Resolve every relative link against a base with turbohtml's resolve_links()."""
-    _parsed(text).resolve_links(_LINKS_BASE)
+def links_absolutize(document: turbohtml.Document) -> None:
+    """Resolve every relative link on a freshly parsed tree against a base with turbohtml's resolve_links()."""
+    document.resolve_links(_LINKS_BASE)
 
 
 def links_rewrite(text: str) -> None:
@@ -424,16 +425,16 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
-    "edit": (edit, "turbohtml"),
+    "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
     "class-edit": (class_edit, "turbohtml"),
     "strip-remove": (strip_remove, "turbohtml"),
     "strip-tags": (strip_tags, "turbohtml"),
-    "set-html": (set_html, "turbohtml"),
-    "set-text": (set_text, "turbohtml"),
+    "set-html": (Mutating(turbohtml.parse, set_html), "turbohtml"),
+    "set-text": (Mutating(turbohtml.parse, set_text), "turbohtml"),
     "navigate": (navigate, "turbohtml"),
     "chain": (chain, "turbohtml"),
     "links-extract": (links_extract, "turbohtml"),
-    "links-absolutize": (links_absolutize, "turbohtml"),
+    "links-absolutize": (Mutating(turbohtml.parse, links_absolutize), "turbohtml"),
     "links-rewrite": (links_rewrite, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),

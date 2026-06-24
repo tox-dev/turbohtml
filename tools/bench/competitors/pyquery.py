@@ -6,6 +6,8 @@ import functools
 
 from pyquery import PyQuery
 
+from bench.timing import Mutating
+
 REQUIREMENTS = ("pyquery>=2.0.1",)
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
@@ -13,7 +15,7 @@ _SET_TEXT = "Replacement text, escaped & verbatim."
 
 @functools.cache
 def _parsed(text: str) -> PyQuery:
-    """Return a document parsed once, cached so the content setters time only the mutation."""
+    """Return a document parsed once, cached so the read-path operations time only the query."""
     return PyQuery(text)
 
 
@@ -32,14 +34,14 @@ def strip_tags(text: str) -> None:
     _ = str(page)
 
 
-def set_html(text: str) -> None:
-    """Replace the body's children with pyquery's html(markup)."""
-    _parsed(text)("body").html(_SET_HTML)
+def set_html(page: PyQuery) -> None:
+    """Replace a freshly parsed body's children with pyquery's html(markup)."""
+    page("body").html(_SET_HTML)
 
 
-def set_text(text: str) -> None:
-    """Replace the body's children with pyquery's text(value)."""
-    _parsed(text)("body").text(_SET_TEXT)
+def set_text(page: PyQuery) -> None:
+    """Replace a freshly parsed body's children with pyquery's text(value)."""
+    page("body").text(_SET_TEXT)
 
 
 def chain(text: str) -> None:
@@ -62,8 +64,8 @@ def extract_text(text: str) -> None:
 OPERATIONS = {
     "strip-remove": (strip_remove, "pyquery"),
     "strip-tags": (strip_tags, "pyquery"),
-    "set-html": (set_html, "pyquery"),
-    "set-text": (set_text, "pyquery"),
+    "set-html": (Mutating(PyQuery, set_html), "pyquery"),
+    "set-text": (Mutating(PyQuery, set_text), "pyquery"),
     "chain": (chain, "pyquery"),
     "extract-attr": (extract_attr, "pyquery"),
     "extract-text": (extract_text, "pyquery"),
