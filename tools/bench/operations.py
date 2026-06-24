@@ -87,6 +87,12 @@ OPERATIONS: dict[str, Operation] = {
     "find-text": Operation("find by text content", "us"),
     "text-content": Operation("collect visible text", "us"),
     "serialize": Operation("serialize a parsed tree", "us"),
+    "edit": Operation("tag every link rel=nofollow", "us"),
+    "class-edit": Operation("class add/remove on every link", "us"),
+    "strip-remove": Operation("drop tags with content (remove)", "us"),
+    "strip-tags": Operation("unwrap tags keep content (strip_tags)", "us"),
+    "set-html": Operation("replace body inner HTML", "us"),
+    "set-text": Operation("replace body text", "us"),
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
@@ -103,6 +109,12 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     return tuple(
         (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES[1:4]
     )
+
+
+def _one_page(index: int) -> tuple[tuple[str, object], ...]:
+    """Return one corpus page as a single case (for the edits that run on a representative page)."""
+    name, relative, encoding = corpus.CORPUS_FILES[index]
+    return ((name, corpus.corpus_text(relative, encoding)),)
 
 
 _TOKENIZE_CASES = (
@@ -129,6 +141,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,
     "tokenize": lambda: _TOKENIZE_CASES,
+    "edit": _readpath_cases,
+    "class-edit": lambda: _one_page(3),
+    "strip-remove": lambda: _one_page(3),
+    "strip-tags": lambda: _one_page(3),
+    "set-html": lambda: _one_page(2),
+    "set-text": lambda: _one_page(2),
     "find": _readpath_cases,
     "select": _readpath_cases,
     "select-has": _readpath_cases,

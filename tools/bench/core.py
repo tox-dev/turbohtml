@@ -18,6 +18,9 @@ _SANITIZER = _sanitizer.Sanitizer(_sanitizer.Policy.relaxed())
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
 _CSS = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS = "div:has(a)"  # the :has() relational pseudo-class
+_STRIP = "code, a, q"  # a bulk set of tags to drop or unwrap
+_SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
+_SET_TEXT = "Replacement text, escaped & verbatim."
 
 
 def build(count: int) -> None:
@@ -121,6 +124,38 @@ def serialize(text: str) -> None:
     _ = _parsed(text).html
 
 
+def edit(text: str) -> None:
+    """Tag every link with rel=nofollow through turbohtml's live attribute mapping."""
+    for anchor in _parsed(text).find_all("a"):
+        anchor.attrs["rel"] = "nofollow"
+
+
+def class_edit(text: str) -> None:
+    """Add then drop a class token on every link with turbohtml's classList mutators."""
+    for anchor in _parsed(text).find_all("a"):
+        anchor.add_class("seen").remove_class("seen")
+
+
+def strip_remove(text: str) -> None:
+    """Drop every code/a/q subtree with turbohtml's bulk remove, then serialize."""
+    _ = turbohtml.parse(text).remove(_STRIP).html
+
+
+def strip_tags(text: str) -> None:
+    """Unwrap every code/a/q element keeping its content with turbohtml's strip_tags, then serialize."""
+    _ = turbohtml.parse(text).strip_tags(_STRIP).html
+
+
+def set_html(text: str) -> None:
+    """Replace the body's children by reparsing a fragment in context with turbohtml's set_inner_html."""
+    _parsed(text).find_all("body")[0].set_inner_html(_SET_HTML)
+
+
+def set_text(text: str) -> None:
+    """Replace the body's children with one verbatim text node through turbohtml's set_text."""
+    _parsed(text).find_all("body")[0].set_text(_SET_TEXT)
+
+
 def socialcard(text: str) -> None:
     """Read the OpenGraph/Twitter card tags with turbohtml (parse plus one C walk)."""
     turbohtml.parse(text).opengraph()
@@ -152,6 +187,12 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
+    "edit": (edit, "turbohtml"),
+    "class-edit": (class_edit, "turbohtml"),
+    "strip-remove": (strip_remove, "turbohtml"),
+    "strip-tags": (strip_tags, "turbohtml"),
+    "set-html": (set_html, "turbohtml"),
+    "set-text": (set_text, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

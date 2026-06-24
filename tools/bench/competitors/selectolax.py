@@ -47,6 +47,13 @@ def serialize(text: str) -> None:
     _ = _parsed(text).html
 
 
+def strip_remove(text: str) -> None:
+    """Drop every code/a/q subtree with selectolax's strip_tags, then serialize."""
+    tree = LexborHTMLParser(text)
+    tree.strip_tags(["code", "a", "q"])
+    _ = tree.html
+
+
 OPERATIONS = {
     "parse": (parse, "selectolax"),
     "find": (find, "selectolax"),
@@ -54,4 +61,5 @@ OPERATIONS = {
     "select-has": (select_has, "selectolax"),
     "text-content": (text_content, "selectolax"),
     "serialize": (serialize, "selectolax"),
+    "strip-remove": (strip_remove, "selectolax"),
 }

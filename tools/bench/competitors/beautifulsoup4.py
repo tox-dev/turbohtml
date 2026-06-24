@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 REQUIREMENTS = ("beautifulsoup4>=4.15",)
 
 _FIND_TEXT_PATTERN = re.compile(r"test")
+_SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 
 
 def parse(text: str) -> None:
@@ -89,6 +90,20 @@ def serialize(text: str) -> None:
     _parsed(text).decode()
 
 
+def edit(text: str) -> None:
+    """Tag every link with rel=nofollow through BeautifulSoup's item assignment."""
+    for anchor in _parsed(text).find_all("a"):
+        anchor["rel"] = "nofollow"
+
+
+def set_html(text: str) -> None:
+    """Clear the body and append a reparsed fragment, BeautifulSoup's inner-HTML shape."""
+    body = _parsed(text).find_all("body")[0]
+    body.clear()
+    for node in list(BeautifulSoup(_SET_HTML, "html.parser").children):
+        body.append(node)
+
+
 OPERATIONS = {
     "parse": (parse, "BeautifulSoup"),
     "build": (build, "BeautifulSoup"),
@@ -100,4 +115,6 @@ OPERATIONS = {
     "find-text": (find_text, "BeautifulSoup"),
     "text-content": (text_content, "BeautifulSoup"),
     "serialize": (serialize, "BeautifulSoup"),
+    "edit": (edit, "BeautifulSoup"),
+    "set-html": (set_html, "BeautifulSoup"),
 }

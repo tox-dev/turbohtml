@@ -12,4 +12,9 @@ def unescape(text: str) -> None:
     w3lib.html.replace_entities(text)
 
 
-OPERATIONS = {"unescape": (unescape, "w3lib")}
+def strip_tags(text: str) -> None:
+    """Strip the code/a/q tags but keep their text with w3lib's regex remove_tags."""
+    w3lib.html.remove_tags(text, which_ones=("code", "a", "q"))
+
+
+OPERATIONS = {"unescape": (unescape, "w3lib"), "strip-tags": (strip_tags, "w3lib")}
