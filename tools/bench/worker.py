@@ -34,7 +34,7 @@ def main() -> None:
         "BENCH_OUT",
     ]
     means: dict[str, float] = {}
-    for case_name, arg in operations.OPERATIONS[operation].cases:
+    for case_name, arg in operations.INPUTS[operation]():
         name = f"{operation}|{case_name}|{label}"
         if (result := runner.bench_func(name, func, arg)) is not None and result.get_nvalue():
             means[name] = result.mean()

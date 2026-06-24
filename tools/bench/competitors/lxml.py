@@ -10,6 +10,11 @@ from lxml.builder import E
 REQUIREMENTS = ("lxml>=6.1.1",)
 
 
+def parse(text: str) -> None:
+    """Parse a whole document with lxml's libxml2-backed HTML parser."""
+    lxml_html.document_fromstring(text)
+
+
 def build(count: int) -> None:
     """Build a ``<ul>`` of rows with lxml's Element factory and ``.text``, then serialize (the aggregate workload)."""
     ul = lxml_html.Element("ul")
@@ -50,6 +55,7 @@ def serialize(count: int) -> None:
 
 
 OPERATIONS = {
+    "parse": (parse, "lxml"),
     "build": (build, "lxml"),
     "build-e": (build_e, "lxml.builder"),
     "construct": (construct, "lxml"),

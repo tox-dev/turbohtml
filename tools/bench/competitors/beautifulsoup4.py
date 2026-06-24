@@ -9,6 +9,11 @@ from bs4 import BeautifulSoup
 REQUIREMENTS = ("beautifulsoup4>=4.15",)
 
 
+def parse(text: str) -> None:
+    """Parse a whole document with BeautifulSoup over its stdlib html.parser backend."""
+    BeautifulSoup(text, "html.parser")
+
+
 def build(count: int) -> None:
     """Build a ``<ul>`` of rows with BeautifulSoup's ``new_tag`` and ``.string``, then serialize (the workload)."""
     soup = BeautifulSoup("", "html.parser")
@@ -46,6 +51,7 @@ def serialize(count: int) -> None:
 
 
 OPERATIONS = {
+    "parse": (parse, "BeautifulSoup"),
     "build": (build, "BeautifulSoup"),
     "construct": (construct, "BeautifulSoup"),
     "serialize": (serialize, "BeautifulSoup"),

@@ -1,21 +1,23 @@
 """
 Operation metadata and shared inputs: the single source of truth for what is benchmarked.
 
-Pure data, standard library only -- every layer (orchestrator, worker, renderer) imports this, in environments that may
-hold neither turbohtml nor any competitor. Each :class:`Operation` carries its display title, time unit, and the ordered
-cases every implementation runs on, so a speedup is always a like-for-like ratio over identical input.
-
-Operations come at two granularities, both feeding the documentation tables. The aggregate ones (``build``, ``build-e``)
-time a realistic workload swept by size -- building an N-row list and emitting it. The method-level ones (``construct``,
-``serialize``) isolate a single API call so the migration tables can attribute cost method by method rather than to a
-mixed pipeline. ``build``/``construct``/``serialize`` cases are integer row counts; the extraction and sanitize cases
-are HTML strings (never a parsed tree, so this module imports anywhere).
+``OPERATIONS`` (title plus time unit) is pure data the orchestrator and renderer read in any environment. ``INPUTS``
+holds the cases lazily -- a callable per operation returning ``(case name, input)`` pairs -- so corpora load only inside
+a worker that asks for them, never when the orchestrator imports this module. Both turbohtml's core timing and every
+competitor consume the identical input for an operation, so a speedup is a like-for-like ratio. ``build``-family cases
+are integer row counts; the rest are HTML strings or corpus documents.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from textwrap import dedent
+from typing import TYPE_CHECKING
+
+from bench import corpus
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _ROWS = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
 
@@ -63,32 +65,42 @@ _SANITIZE_POST = dedent("""\
 
 @dataclass(frozen=True)
 class Operation:
-    """One benchmarked operation: how its table is labeled and the inputs every implementation runs on."""
+    """One benchmarked operation: its display title and the time unit (``ns``, ``us``, ``ms``) its table prints in."""
 
     title: str
     unit: str
-    cases: tuple[tuple[str, object], ...]
 
 
 OPERATIONS: dict[str, Operation] = {
-    "build": Operation("build a list (constructors)", "us", _ROWS),
-    "build-e": Operation("build a list (terse builders)", "us", _ROWS[:2]),
-    "construct": Operation("construct N elements (no serialize)", "us", _ROWS),
-    "serialize": Operation("serialize a built tree", "us", _ROWS),
-    "socialcard": Operation(
-        "social-card extraction",
-        "us",
-        (("head", _SOCIAL_HEAD), ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>")),
+    "build": Operation("build a list (constructors)", "us"),
+    "build-e": Operation("build a list (terse builders)", "us"),
+    "construct": Operation("construct N elements (no serialize)", "us"),
+    "serialize": Operation("serialize a built tree", "us"),
+    "parse": Operation("parse to a tree", "us"),
+    "socialcard": Operation("social-card extraction", "us"),
+    "structured": Operation("structured-data extraction", "us"),
+    "sanitize": Operation("sanitize", "us"),
+}
+
+
+def _parse_cases() -> tuple[tuple[str, object], ...]:
+    """Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule)."""
+    return tuple((name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES)
+
+
+INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
+    "build": lambda: _ROWS,
+    "build-e": lambda: _ROWS[:2],
+    "construct": lambda: _ROWS,
+    "serialize": lambda: _ROWS,
+    "parse": _parse_cases,
+    "socialcard": lambda: (
+        ("head", _SOCIAL_HEAD),
+        ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),
     ),
-    "structured": Operation(
-        "structured-data extraction", "us", (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12))
-    ),
-    "sanitize": Operation(
-        "sanitize",
-        "us",
-        (
-            ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
-            ("post 4 KiB", _SANITIZE_POST * 20),
-        ),
+    "structured": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
+    "sanitize": lambda: (
+        ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
+        ("post 4 KiB", _SANITIZE_POST * 20),
     ),
 }

@@ -55,6 +55,11 @@ def serialize(count: int) -> None:
     _ = _tree(count).html
 
 
+def parse(text: str) -> None:
+    """Parse a whole document into a navigable tree through turbohtml.parse()."""
+    turbohtml.parse(text)
+
+
 def socialcard(text: str) -> None:
     """Read the OpenGraph/Twitter card tags with turbohtml (parse plus one C walk)."""
     turbohtml.parse(text).opengraph()
@@ -75,6 +80,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "build-e": (build_e, "turbohtml"),
     "construct": (construct, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
+    "parse": (parse, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),

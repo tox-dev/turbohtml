@@ -23,6 +23,16 @@ def _labels(operation: str, means: dict[str, float]) -> list[str]:
     return ["turbohtml", *(label for label in seen if label != "turbohtml")]
 
 
+def _case_names(operation: str, means: dict[str, float]) -> list[str]:
+    """Return the operation's case names in run order, recovered from the turbohtml baseline keys."""
+    names: list[str] = []
+    for key in means:
+        operation_name, case, label = key.split("|")
+        if operation_name == operation and label == "turbohtml" and case not in names:
+            names.append(case)
+    return names
+
+
 def render(operation: str, means: dict[str, float]) -> None:
     """Print the table for one operation: turbohtml against each competitor with its slowdown factor."""
     meta = operations.OPERATIONS[operation]
@@ -30,7 +40,7 @@ def render(operation: str, means: dict[str, float]) -> None:
     print()
     header = f"{meta.title:32} {'turbohtml':>12}" + "".join(f"{label:>20}" for label in competitors)
     print(header)
-    for case_name, _ in meta.cases:
+    for case_name in _case_names(operation, means):
         if (turbo := means.get(f"{operation}|{case_name}|turbohtml")) is None:
             continue
         row = f"{case_name:32} {turbo * scale:8.1f} {meta.unit}"
