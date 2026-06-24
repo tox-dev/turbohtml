@@ -35,13 +35,13 @@ parsing and tokenizing are 30 to 80 times faster than the pure-Python implementa
       - 16.7 ms
       - 61.6x
     - - tokenize typical markup
-      - 32.1 µs
-      - 815 µs
-      - 25.4x
+      - 34.9 µs
+      - 836 µs
+      - 24.0x
     - - tokenize whatwg spec (235 kB)
-      - 687 µs
-      - 19.2 ms
-      - 27.9x
+      - 708 µs
+      - 20.1 ms
+      - 28.4x
 
 :func:`html5lib.parseFragment() <html5lib.html5parser.parseFragment>` maps to :func:`turbohtml.parse_fragment`, which
 parses an ``innerHTML``-style snippet in its container context. Both run the WHATWG fragment algorithm, but turbohtml

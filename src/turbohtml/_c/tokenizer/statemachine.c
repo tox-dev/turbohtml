@@ -894,6 +894,14 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
 #define TH_HIGHS UINT64_C(0x8080808080808080)
 #define TH_HASZERO(word) (((word) - TH_ONES) & ~(word) & TH_HIGHS)
 
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+
 /* Find the first of up to four stop bytes (duplicates allowed) in the 1-byte
    input from position index on. A vector loop skips 16-byte blocks containing
    no stop byte (NEON or SSE2, the same shape html5ever's data-state fast path
@@ -944,6 +952,115 @@ static Py_ssize_t scan_stops_ucs1(const th_tokenizer *self, Py_ssize_t index, Py
     return index;
 }
 
+#if defined(TH_SCAN_NEON)
+static TH_NOINLINE Py_ssize_t scan_data_ucs1_neon_long(const th_tokenizer *self, Py_ssize_t index, Py_ssize_t newlines,
+                                                       Py_ssize_t *out_newlines, Py_ssize_t *out_last_nl) {
+    const Py_UCS1 *data = (const Py_UCS1 *)self->input.data;
+    Py_ssize_t len = self->input.len;
+    uint8x16_t amp = vdupq_n_u8('&'), lt = vdupq_n_u8('<'), nlv = vdupq_n_u8('\n');
+
+    while (index + 32 <= len) {
+        uint8x16_t left = vld1q_u8(data + index);
+        uint8x16_t left_hit = vorrq_u8(vceqq_u8(left, amp), vceqq_u8(left, lt));
+        if (vmaxvq_u8(left_hit)) {
+            goto scalar_tail;
+        }
+        newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(left, nlv), 7));
+
+        uint8x16_t right = vld1q_u8(data + index + 16);
+        uint8x16_t right_hit = vorrq_u8(vceqq_u8(right, amp), vceqq_u8(right, lt));
+        if (vmaxvq_u8(right_hit)) {
+            index += 16;
+            goto scalar_tail;
+        }
+        newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(right, nlv), 7));
+        index += 32;
+    }
+    while (index + 16 <= len) {
+        uint8x16_t block = vld1q_u8(data + index);
+        if (vmaxvq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)))) {
+            goto scalar_tail;
+        }
+        newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(block, nlv), 7)); /* 0xFF >> 7 == 1 per match */
+        index += 16;
+    }
+
+scalar_tail:
+    while (index < len && data[index] != '&' && data[index] != '<') {
+        newlines += data[index] == '\n';
+        index++;
+    }
+    *out_newlines = newlines;
+    Py_ssize_t last_nl = -1;
+    if (newlines > 0) {
+        last_nl = index - 1;
+        while (data[last_nl] != '\n') {
+            last_nl--;
+        }
+    }
+    *out_last_nl = last_nl;
+    return index;
+}
+#elif defined(TH_SCAN_SSE2)
+static TH_NOINLINE Py_ssize_t scan_data_ucs1_sse2_long(const th_tokenizer *self, Py_ssize_t index, Py_ssize_t newlines,
+                                                       Py_ssize_t *out_newlines, Py_ssize_t *out_last_nl) {
+    const Py_UCS1 *data = (const Py_UCS1 *)self->input.data;
+    Py_ssize_t len = self->input.len;
+    __m128i amp = _mm_set1_epi8('&'), lt = _mm_set1_epi8('<'), nlv = _mm_set1_epi8('\n');
+    __m128i onesv = _mm_set1_epi8(1), zerov = _mm_setzero_si128();
+
+    while (index + 32 <= len) {
+        __m128i left = _mm_loadu_si128((const __m128i *)(data + index));
+        __m128i left_hit = _mm_or_si128(_mm_cmpeq_epi8(left, amp), _mm_cmpeq_epi8(left, lt));
+        if (_mm_movemask_epi8(left_hit)) {
+            goto scalar_tail;
+        }
+        __m128i ones = _mm_and_si128(_mm_cmpeq_epi8(left, nlv), onesv);
+        __m128i sums = _mm_sad_epu8(ones, zerov);
+        newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
+
+        __m128i right = _mm_loadu_si128((const __m128i *)(data + index + 16));
+        __m128i right_hit = _mm_or_si128(_mm_cmpeq_epi8(right, amp), _mm_cmpeq_epi8(right, lt));
+        if (_mm_movemask_epi8(right_hit)) {
+            index += 16;
+            goto scalar_tail;
+        }
+        ones = _mm_and_si128(_mm_cmpeq_epi8(right, nlv), onesv);
+        sums = _mm_sad_epu8(ones, zerov);
+        newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
+        index += 32;
+    }
+    while (index + 16 <= len) {
+        __m128i block = _mm_loadu_si128((const __m128i *)(data + index));
+        if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)))) {
+            goto scalar_tail;
+        }
+        /* sum one-per-newline across the lanes with SAD (escape.c's reduction), so
+           the count needs no popcount intrinsic MSVC lacks */
+        __m128i ones = _mm_and_si128(_mm_cmpeq_epi8(block, nlv), onesv);
+        __m128i sums = _mm_sad_epu8(ones, zerov);
+        newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
+        index += 16;
+    }
+
+scalar_tail:
+    while (index < len && data[index] != '&' && data[index] != '<') {
+        newlines += data[index] == '\n';
+        index++;
+    }
+    *out_newlines = newlines;
+    Py_ssize_t last_nl = -1;
+    if (newlines > 0) {
+        last_nl = index - 1;
+        while (data[last_nl] != '\n') {
+            last_nl--;
+        }
+    }
+    *out_last_nl = last_nl;
+    return index;
+}
+#endif
+
 /* The DATA-state text scan: find the next '&' or '<' from index on while folding
    in line/column tracking, so a multi-line prose run between tags is one vector
    sweep rather than one scan per wrapped line. *out_newlines receives how many
@@ -965,6 +1082,9 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
         }
         newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(block, nlv), 7)); /* 0xFF >> 7 == 1 per match */
         index += 16;
+        if (index + 32 <= len) {
+            return scan_data_ucs1_neon_long(self, index, newlines, out_newlines, out_last_nl);
+        }
     }
 #elif defined(TH_SCAN_SSE2)
     __m128i amp = _mm_set1_epi8('&'), lt = _mm_set1_epi8('<'), nlv = _mm_set1_epi8('\n');
@@ -979,6 +1099,9 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
         __m128i sums = _mm_sad_epu8(ones, _mm_setzero_si128());
         newlines += _mm_cvtsi128_si32(sums) + _mm_extract_epi16(sums, 4);
         index += 16;
+        if (index + 32 <= len) {
+            return scan_data_ucs1_sse2_long(self, index, newlines, out_newlines, out_last_nl);
+        }
     }
 #else
     uint64_t amp = TH_ONES * '&', lt = TH_ONES * '<', nlv = TH_ONES * '\n';

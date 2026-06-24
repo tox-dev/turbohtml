@@ -150,6 +150,7 @@ _TOKENIZE_CASES = (
         * 60,
     ),
     ("script-heavy", "<script>function f(a, b) { return a < b && b > a; }</script>\n" * 60),
+    ("entity-heavy", "<p>caf&eacute; &amp; r&eacute;sum&eacute; &#127881; &lt;tag&gt;</p>\n" * 60),
 )
 
 _FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
@@ -269,6 +270,15 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     return structural + parity
 
 
+def _tokenize_cases() -> tuple[tuple[str, object], ...]:
+    """Return synthetic and corpus documents for the tokenization table."""
+    corpus_cases = tuple(
+        (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES
+    )
+    large_cases = tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.LARGE_FILES)
+    return _TOKENIZE_CASES + corpus_cases + large_cases
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS[:2],
@@ -278,7 +288,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,
-    "tokenize": lambda: _TOKENIZE_CASES,
+    "tokenize": _tokenize_cases,
     "edit": _readpath_cases,
     "class-edit": lambda: _one_page(3),
     "strip-remove": lambda: _one_page(3),

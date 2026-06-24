@@ -31,9 +31,9 @@ WHATWG-conformant where ``html.parser`` is not, and the whole surface is fully t
       - 69.3 µs
       - 8.6x
     - - tokenize typical markup
-      - 32.1 µs
-      - 437 µs
-      - 13.6x
+      - 34.9 µs
+      - 435 µs
+      - 12.5x
     - - feed and dispatch wpt page (9.6 kB)
       - 82.1 µs
       - 362 µs
