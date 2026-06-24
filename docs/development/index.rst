@@ -32,8 +32,8 @@ submodule update --init --depth 1 tools/bench-data/whatwg-html tools/bench-data/
 ``tox r -e 3.14`` builds the extension, runs the test suite, and **fails unless both Python and C coverage are 100%**
 (line and branch). Other environments: ``type`` (`ty <https://github.com/astral-sh/ty>`_), ``docs`` (Sphinx), ``fix``
 (`pre-commit <https://pre-commit.com>`_), ``pkg_meta`` (wheel/sdist metadata), ``bench`` (`pyperf
-<https://pyperf.readthedocs.io>`_ comparison against the standard library), and ``regen`` (regenerate the entity
-tables).
+<https://pyperf.readthedocs.io>`_ comparison against each competitor library, each in its own isolated ``uv`` venv; see
+the :doc:`performance` page), and ``regen`` (regenerate the entity tables).
 
 *******************************
  Before opening a pull request

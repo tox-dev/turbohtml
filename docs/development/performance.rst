@@ -9,12 +9,11 @@ source <https://github.com/whatwg/html/blob/main/source>`_, the `ECMAScript spec
 <https://github.com/tc39/ecma262>`_, and a size-weighted sample of `web-platform-tests
 <https://github.com/web-platform-tests/wpt>`_ pages. The harness benchmarks each competitor in its own isolated ``uv``
 venv -- turbohtml in a venv of its own as the shared baseline -- so one library's dependency pins never perturb
-another's. Reproduce with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
-operation), an operation name (a cross-competitor table), a package name (that competitor's own report), or ``all``.
-Operations come at two granularities: aggregate workloads swept by size (``build``, ``build-e``) and per-method
-breakdowns that isolate a single call (``construct``, ``serialize``), alongside the extraction and filtering operations
-(``socialcard``, ``structured``, ``sanitize``). The remaining sections below are being migrated onto the harness.
-Numbers vary with input and hardware.
+another's. Every table below is one harness operation, so each is reproducible with ``tox -e bench <command>``, where
+the command is ``core`` (turbohtml's own baseline for every operation), an operation name (the cross-competitor table),
+a package name (that competitor's own report), or ``all``. Most operations are a single call; a few aggregate workloads
+(``build``, ``build-e``) sweep a size, and the ``construct`` and ``emit`` breakdowns decompose that write path into the
+constructor and the serializer in isolation. Numbers vary with input and hardware.
 
 **********
  Escaping
@@ -1072,6 +1071,54 @@ objects. selectolax is parse-only, so it has no entry.
       - 5.71 ms
       - 13.5 ms (2.4x)
       - 79.0 ms (13.8x)
+
+The ``construct`` and ``emit`` commands split that aggregate into its two halves over the same tree: ``construct``
+builds the rows and stops before serialization, and ``emit`` serializes a tree built once outside the timed region. The
+split shows where each library spends the time -- turbohtml's arena keeps construction roughly twice as fast as lxml,
+and its SWAR serializer pulls emit ahead by nearly six times, while BeautifulSoup pays its Python object cost on both
+halves.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 24 24 24
+
+    - - construct (no serialize)
+      - turbohtml
+      - lxml
+      - BeautifulSoup
+    - - 100 rows
+      - 47.5 µs
+      - 94.0 µs (2.0x)
+      - 264 µs (5.5x)
+    - - 1000 rows
+      - 481 µs
+      - 953 µs (2.0x)
+      - 2.58 ms (5.4x)
+    - - 10000 rows
+      - 4.89 ms
+      - 9.53 ms (1.9x)
+      - 25.3 ms (5.2x)
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 24 24 24
+
+    - - emit a built tree
+      - turbohtml
+      - lxml
+      - BeautifulSoup
+    - - 100 rows
+      - 5.7 µs
+      - 33.4 µs (5.8x)
+      - 391 µs (68.0x)
+    - - 1000 rows
+      - 58.0 µs
+      - 323 µs (5.6x)
+      - 3.92 ms (67.5x)
+    - - 10000 rows
+      - 563 µs
+      - 3.28 ms (5.8x)
+      - 39.3 ms (69.8x)
 
 The terse :data:`turbohtml.build.E` builder spells the same ``<ul>`` declaratively, raced against the dedicated HTML
 generators `dominate <https://github.com/Knio/dominate>`_ and `yattag <https://www.yattag.org>`_. ``E`` is roughly three
