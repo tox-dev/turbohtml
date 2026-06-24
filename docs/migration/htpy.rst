@@ -54,7 +54,7 @@ real :class:`~turbohtml.Element`, not a string, so the call that builds the mark
 edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 *************
- The mapping
+ The renames
 *************
 
 htpy carries attributes in the call and children in a subscript; turbohtml passes both to one call:

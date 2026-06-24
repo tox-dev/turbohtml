@@ -54,7 +54,7 @@ both ways:
 and re-:meth:`~turbohtml.Node.serialize`.
 
 *************
- The mapping
+ The renames
 *************
 
 airium tracks structure by call depth inside ``with`` blocks; turbohtml tracks it in the tree:

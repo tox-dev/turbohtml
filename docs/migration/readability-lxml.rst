@@ -19,6 +19,28 @@ record, adding the byline, date, description and language readability-lxml leave
 unchanged rather than rewriting the DOM into a cleaned fragment, so pair it with :class:`~turbohtml.sanitizer.Sanitizer`
 when you need a scrubbed body.
 
+Scoring the content body of a full page -- navigation, a scored article, and a footer. :meth:`~turbohtml.Node.article`
+runs the same content-density heuristic in C and selects the live element; readability-lxml builds an lxml tree and
+rewrites it into a cleaned summary fragment. Numbers vary with input and hardware.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - input
+      - turbohtml
+      - readability-lxml
+    - - post (4 KiB)
+      - 23 µs
+      - 1.26 ms (55x)
+    - - longform (16 KiB)
+      - 70 µs
+      - 2.54 ms (36x)
+
+*************
+ The renames
+*************
+
 .. list-table::
     :header-rows: 1
     :widths: 50 50
@@ -50,24 +72,6 @@ when you need a scrubbed body.
 .. testoutput::
 
     Comets | article
-
-Scoring the content body of a full page -- navigation, a scored article, and a footer. :meth:`~turbohtml.Node.article`
-runs the same content-density heuristic in C and selects the live element; readability-lxml builds an lxml tree and
-rewrites it into a cleaned summary fragment. Numbers vary with input and hardware.
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 30 30
-
-    - - input
-      - turbohtml
-      - readability-lxml
-    - - post (4 KiB)
-      - 23 µs
-      - 1.26 ms (55x)
-    - - longform (16 KiB)
-      - 70 µs
-      - 2.54 ms (36x)
 
 **********
  Pitfalls

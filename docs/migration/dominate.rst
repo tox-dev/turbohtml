@@ -53,7 +53,7 @@ rows -- a class, a ``data`` attribute, and a text child apiece -- built both way
 and re-:meth:`~turbohtml.Node.serialize`.
 
 *************
- The mapping
+ The renames
 *************
 
 dominate spells nesting with ``with`` blocks or positional children; the translation is mechanical:

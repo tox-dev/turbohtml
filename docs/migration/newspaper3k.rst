@@ -19,6 +19,28 @@ scored ``element`` and its ``text``, plus the harvested ``title``, ``byline``, `
 turbohtml does not fetch URLs, so download the page yourself and parse the markup; the keyword and summary NLP newspaper
 bundles has no equivalent and is out of scope.
 
+Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer.
+:meth:`~turbohtml.Node.article` scores and harvests in one C pass over the parsed tree; newspaper3k builds an lxml tree
+and runs its own regex-driven metadata scan. Numbers vary with input and hardware.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 30 30
+
+    - - input
+      - turbohtml
+      - newspaper3k
+    - - post (4 KiB)
+      - 23 µs
+      - 3.52 ms (152x)
+    - - longform (16 KiB)
+      - 70 µs
+      - 8.97 ms (128x)
+
+*************
+ The renames
+*************
+
 .. list-table::
     :header-rows: 1
     :widths: 50 50
@@ -56,24 +78,6 @@ bundles has no equivalent and is out of scope.
 .. testoutput::
 
     Comets | Ada Lovelace | A short guide to comets. | en
-
-Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer.
-:meth:`~turbohtml.Node.article` scores and harvests in one C pass over the parsed tree; newspaper3k builds an lxml tree
-and runs its own regex-driven metadata scan. Numbers vary with input and hardware.
-
-.. list-table::
-    :header-rows: 1
-    :widths: 40 30 30
-
-    - - input
-      - turbohtml
-      - newspaper3k
-    - - post (4 KiB)
-      - 23 µs
-      - 3.52 ms (152x)
-    - - longform (16 KiB)
-      - 70 µs
-      - 8.97 ms (128x)
 
 **********
  Pitfalls
