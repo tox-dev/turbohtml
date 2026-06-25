@@ -978,6 +978,8 @@ static void handle_drop_index(PyObject *handle_obj) {
     handle->index_offsets = NULL;
     handle->index_nodes = NULL;
     handle->index_built = 0;
+    path_id_map_free(handle->path_ids);
+    handle->path_ids = NULL;
 }
 
 /* The tag atom every alternative of compiled selects as its subject (rightmost
@@ -2867,26 +2869,90 @@ static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len) {
     return 1;
 }
 
-/* Whether candidate is the only element in the document carrying this id value,
-   so #value selects it alone. Matched case-insensitively in quirks mode, where
-   the id selector itself folds case. */
-static int path_id_unique(th_node *document, th_node *candidate, const Py_UCS4 *value, Py_ssize_t len, int ci) {
-    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
-        if (node == candidate || node->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        const th_node_attr *id = find_node_attr(node, TH_ATTR_ID);
-        if (id != NULL && id->value != NULL && sel_eq(id->value, id->value_len, value, len, ci)) {
-            return 0;
-        }
+/* FNV-1a over an id value, folding case in quirks mode so values that the id
+   selector treats as equal hash equal. */
+static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci) {
+    uint64_t hash = 14695981039346656037u;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hash ^= (uint64_t)sel_fold(value[index], ci);
+        hash *= 1099511628211u;
     }
-    return 1;
+    return hash;
 }
 
-/* Whether node has an element sibling of its own type on either side, so a
-   positional index is needed to single it out among same-type siblings. */
-static int path_needs_index(th_node *node) {
-    return !sel_no_sibling(node, 0, 1) || !sel_no_sibling(node, 1, 1);
+/* Build the document's id-occurrence map: every element's id value mapped to how
+   many elements carry it, so the anchor test is an O(id-length) probe instead of a
+   whole-document scan. ci folds id case the way the quirks-mode id selector does.
+   Returns the map (the caller caches it) or NULL on allocation failure. */
+static path_id_map *path_id_map_build(th_node *document, int ci) {
+    Py_ssize_t id_count = 0;
+    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+        if (id != NULL && id->value != NULL) {
+            id_count++;
+        }
+    }
+    size_t capacity = 8;
+    while (capacity < (size_t)id_count * 2) {
+        capacity *= 2;
+    }
+    path_id_map *map = PyMem_Malloc(sizeof(path_id_map));
+    if (map == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    map->slots = PyMem_Calloc(capacity, sizeof(path_id_slot));
+    if (map->slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(map);      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    map->mask = capacity - 1;
+    map->ci = ci;
+    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+        if (id == NULL || id->value == NULL) {
+            continue;
+        }
+        size_t slot = (size_t)path_id_hash(id->value, id->value_len, ci) & map->mask;
+        while (map->slots[slot].value != NULL &&
+               !sel_eq(map->slots[slot].value, map->slots[slot].len, id->value, id->value_len, ci)) {
+            slot = (slot + 1) & map->mask;
+        }
+        if (map->slots[slot].value == NULL) {
+            map->slots[slot].value = id->value;
+            map->slots[slot].len = id->value_len;
+            map->slots[slot].count = 1;
+        } else {
+            map->slots[slot].count++;
+        }
+    }
+    return map;
+}
+
+/* Whether value names exactly one element, so #value selects it alone. The probed
+   candidate's own id is always present in the map, so a count of one means unique;
+   sel_eq returns false on an empty slot (a length mismatch) so the probe walks past
+   any collision and always terminates on the candidate's slot. */
+static int path_id_unique(const path_id_map *map, const Py_UCS4 *value, Py_ssize_t len) {
+    size_t slot = (size_t)path_id_hash(value, len, map->ci) & map->mask;
+    while (!sel_eq(map->slots[slot].value, map->slots[slot].len, value, len, map->ci)) {
+        slot = (slot + 1) & map->mask;
+    }
+    return map->slots[slot].count == 1;
+}
+
+/* The 1-based position of node among its same-type element siblings, setting
+   *needs_index when more than one such sibling exists so the position disambiguates
+   it. Scans preceding siblings once (their count is the position), and only scans
+   following siblings when node is the first, mirroring libxml2's xmlGetNodePath. */
+static int path_step_index(th_node *node, int *needs_index) {
+    int index = 1;
+    for (th_node *sibling = node->prev_sibling; sibling != NULL; sibling = sibling->prev_sibling) {
+        if (sibling->type == TH_NODE_ELEMENT && sel_same_type(node, sibling)) {
+            index++;
+        }
+    }
+    *needs_index = index > 1 ? 1 : !sel_no_sibling(node, 1, 1);
+    return index;
 }
 
 /* Snapshot the element ancestor chain, node first up to the topmost element
@@ -2924,19 +2990,23 @@ static PyObject *element_css_path(PyObject *self, PyObject *Py_UNUSED(ignored)) 
     th_node **chain = NULL;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle);
-    th_tree *tree = ((HandleObject *)handle)->tree;
+    HandleObject *handle_obj = (HandleObject *)handle;
+    th_tree *tree = handle_obj->tree;
+    th_node *document = th_tree_document(tree);
     Py_ssize_t count = path_collect_chain(node, &chain);
-    if (count < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        error = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
-    } else {         /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
-        th_node *document = th_tree_document(tree);
-        int quirks = th_tree_quirks(tree);
+    if (document != NULL && handle_obj->path_ids == NULL) {
+        handle_obj->path_ids = path_id_map_build(document, th_tree_quirks(tree));
+    }
+    if (count < 0 || (document != NULL && handle_obj->path_ids == NULL)) { /* GCOVR_EXCL_BR_LINE: alloc failure */
+        error = 1;                                                         /* GCOVR_EXCL_LINE: alloc-failure */
+    } else { /* GCOVR_EXCL_LINE: brace of the alloc-failure branch */
+        const path_id_map *id_map = handle_obj->path_ids;
         Py_ssize_t top = count - 1;
         int anchored = 0;
         for (Py_ssize_t index = 0; index < count; index++) {
             const th_node_attr *id = find_node_attr(chain[index], TH_ATTR_ID);
-            if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len) &&
-                path_id_unique(document, chain[index], id->value, id->value_len, quirks)) {
+            if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len) && id_map != NULL &&
+                path_id_unique(id_map, id->value, id->value_len)) {
                 top = index;
                 anchored = 1;
                 break;
@@ -2953,9 +3023,11 @@ static PyObject *element_css_path(PyObject *self, PyObject *Py_UNUSED(ignored)) 
                 path_put_ucs4(&buf, id->value, id->value_len);
             } else {
                 path_put_ucs4(&buf, element->text, element->text_len);
-                if (path_needs_index(element)) {
+                int needs_index;
+                int sibling_index = path_step_index(element, &needs_index);
+                if (needs_index) {
                     path_puts(&buf, ":nth-of-type(");
-                    path_put_int(&buf, sel_sibling_index(element, 0, 1));
+                    path_put_int(&buf, sibling_index);
                     path_puts(&buf, ")");
                 }
             }
@@ -2993,9 +3065,11 @@ static PyObject *element_xpath_path(PyObject *self, PyObject *Py_UNUSED(ignored)
             th_node *element = chain[index];
             path_puts(&buf, "/");
             path_put_ucs4(&buf, element->text, element->text_len);
-            if (path_needs_index(element)) {
+            int needs_index;
+            int sibling_index = path_step_index(element, &needs_index);
+            if (needs_index) {
                 path_puts(&buf, "[");
-                path_put_int(&buf, sel_sibling_index(element, 0, 1));
+                path_put_int(&buf, sibling_index);
                 path_puts(&buf, "]");
             }
         }

@@ -892,12 +892,12 @@ ahead per evaluation.
 :meth:`turbohtml.Element.css_path` and :meth:`~turbohtml.Element.xpath_path` return the unique locator that re-finds an
 element from the document root -- a CSS selector and a positional XPath -- against lxml's ``getroottree().getpath()``,
 the libxml2 path builder devtools' "copy selector" mirrors. lxml emits only the positional XPath, so ``getpath`` pairs
-with both turbohtml methods. Each timed call walks every element in a pre-parsed page and serializes its path.
-:meth:`~turbohtml.Element.xpath_path` leads ``getpath`` by roughly three to five times across these pages.
-:meth:`~turbohtml.Element.css_path` is comparable on the small blog but two to six times slower on the class-heavy news
-article and blog, where many elements share a class and need an ``:nth-child`` step to stay unique: that disambiguation
-walks each element's siblings, the cost of emitting a readable CSS selector rather than the raw positional path
-``getpath`` builds. The ``speed-up`` column is ``xpath_path`` against ``getpath``.
+with both turbohtml methods. Each timed call walks every element in a pre-parsed page and serializes its path. Both
+methods lead ``getpath`` by roughly five times across these pages, narrowing to under threefold on the spec.
+:meth:`~turbohtml.Element.css_path` previously rescanned the whole document to test each element's id uniqueness, an
+O(N\ :sup:`2`) cost over a page that made it slower than ``getpath`` on id-heavy pages; a cached per-tree id-occurrence
+map (dropped with the element index on any mutation) now answers that test in O(1), so ``css_path`` keeps pace with the
+positional ``xpath_path``. The ``speed-up`` column is ``xpath_path`` against ``getpath``.
 
 .. list-table::
     :header-rows: 1
@@ -909,25 +909,25 @@ walks each element's siblings, the cost of emitting a readable CSS selector rath
       - lxml getpath
       - speed-up
     - - daring fireball (10 kB)
-      - 52.6 µs
-      - 19.1 µs
-      - 103.2 µs
-      - 5.4x
-    - - ars technica (56 kB)
-      - 946.8 µs
-      - 99.6 µs
-      - 548.0 µs
+      - 18.9 µs
+      - 18.9 µs
+      - 103.8 µs
       - 5.5x
+    - - ars technica (56 kB)
+      - 91.4 µs
+      - 98.8 µs
+      - 557.1 µs
+      - 5.6x
     - - mozilla blog (95 kB)
-      - 5.63 ms
-      - 280.4 µs
-      - 1.42 ms
-      - 5.1x
+      - 227.0 µs
+      - 277.3 µs
+      - 1.43 ms
+      - 5.2x
     - - whatwg spec (235 kB)
-      - 3.94 ms
-      - 2.11 ms
-      - 5.81 ms
-      - 2.7x
+      - 2.24 ms
+      - 2.20 ms
+      - 6.11 ms
+      - 2.8x
 
 **************
  Text content

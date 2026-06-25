@@ -35,6 +35,26 @@ typedef struct {
     xp_program *prog;
 } xpath_cache_entry;
 
+/* One bucket of the css_path id-occurrence map: an id value (a stable pointer into
+   the tree's attribute storage), its length, and the number of elements carrying it
+   (so the anchor uniqueness test reads "exactly one" in O(id-length)). A NULL value
+   marks a free slot. */
+typedef struct {
+    const Py_UCS4 *value;
+    Py_ssize_t len;
+    Py_ssize_t count;
+} path_id_slot;
+
+/* Lazy per-tree open-addressed map from id value to its occurrence count, built on
+   the first css_path and dropped with the element index on any structural mutation.
+   ci folds id case the way the quirks-mode id selector does, so the map's keys
+   compare exactly as path_id_unique used to. */
+typedef struct {
+    path_id_slot *slots;
+    size_t mask; /* capacity - 1; capacity is a power of two */
+    int ci;
+} path_id_map;
+
 typedef struct {
     PyObject_HEAD th_tree *tree;
     PyObject *source;   /* the input str whose storage the tree's spans borrow */
@@ -47,6 +67,7 @@ typedef struct {
     th_node **index_nodes;
     Py_ssize_t *index_offsets; /* th_tag_count + 2 entries; NULL until built */
     int index_built;
+    path_id_map *path_ids; /* css_path id-occurrence map; NULL until first css_path */
     sel_cache_entry sel_cache[SEL_CACHE_CAP];
     int sel_cache_len;
     xpath_cache_entry xpath_cache[XPATH_CACHE_CAP];
@@ -351,6 +372,14 @@ static inline const th_node_attr *find_node_attr(th_node *node, uint32_t atom) {
         }
     }
     return NULL;
+}
+
+/* Release the css_path id-occurrence map, if any. */
+static inline void path_id_map_free(path_id_map *map) {
+    if (map != NULL) {
+        PyMem_Free(map->slots);
+        PyMem_Free(map);
+    }
 }
 
 /* Build the per-atom element index for the whole tree. Returns 0 on success (the

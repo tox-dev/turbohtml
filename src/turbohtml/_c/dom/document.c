@@ -379,6 +379,7 @@ static void handle_dealloc(PyObject *self) {
     handle_clear_caches(handle);
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
+    path_id_map_free(handle->path_ids);
     th_tree_free(handle->tree);
     Py_XDECREF(handle->source);
     Py_XDECREF(handle->encoding);

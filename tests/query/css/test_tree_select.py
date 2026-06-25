@@ -639,6 +639,25 @@ def _css_path(html: str, selector: str, index: int = 0) -> str:
             "html > body > div:nth-of-type(2) > p",
             id="quirks-mode-case-insensitive-id-collision",
         ),
+        # "a0" and "a8" hash to the same id-map bucket, so anchoring on the inner
+        # one probes past the outer's slot before matching its own
+        pytest.param(
+            '<!doctype html><div id="a0"><div id="a8"><p>x</p></div></div>',
+            "p",
+            0,
+            "#a8 > p",
+            id="hash-colliding-ids-probe-past-collision",
+        ),
+        # more ids than the id map's initial capacity, so it grows before anchoring
+        pytest.param(
+            "<body>"
+            + "".join(f'<div id="d{number}"></div>' for number in range(6))
+            + '<section id="t"><p>x</p></section></body>',
+            "p",
+            0,
+            "#t > p",
+            id="many-ids-grow-map",
+        ),
         pytest.param(
             "<body><my-widget>a</my-widget><my-widget>b</my-widget></body>",
             "my-widget",
@@ -672,6 +691,13 @@ def test_css_path_of_detached_element_is_its_tag() -> None:
 
 def test_css_path_constructed_empty_string_id_is_not_an_anchor() -> None:
     container = Element("div", {"id": ""})
+    paragraph = Element("p")
+    container.append(paragraph)
+    assert paragraph.css_path() == "div > p"
+
+
+def test_css_path_detached_subtree_id_is_not_an_anchor() -> None:
+    container = Element("div", {"id": "main"})
     paragraph = Element("p")
     container.append(paragraph)
     assert paragraph.css_path() == "div > p"

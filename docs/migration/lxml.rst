@@ -62,12 +62,12 @@ walks, the link helpers, XPath, and the node-path generators:
     - - XPath ``//a[@href]`` precompiled
       - 0.5 µs
       - 2.8 µs (5.6x)
-    - - ``css_path`` node locator (9.6 kB)
-      - 15.6 µs
-      - 55.2 µs (3.5x)
-    - - ``xpath_path`` node locator (9.6 kB)
-      - 14.3 µs
-      - 55.2 µs (3.9x)
+    - - ``css_path`` node locator (ars technica, 56 kB)
+      - 91.4 µs
+      - 557.1 µs (6.1x)
+    - - ``xpath_path`` node locator (ars technica, 56 kB)
+      - 98.8 µs
+      - 565.0 µs (5.7x)
 
 The :doc:`/development/performance` page benchmarks the full serializer, builder, editor, CSS, XPath 1.0, and EXSLT
 surface against lxml directly.
