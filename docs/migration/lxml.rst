@@ -19,8 +19,8 @@ adds XPath, XSLT, and schema validation.
 :func:`turbohtml.parse` builds the WHATWG document tree that libxml2's HTML parser does not, returns a fully type
 annotated :class:`~turbohtml.Document`, and folds XPath, CSS, and the ``find``/``find_all`` grammar into one node API
 instead of separate ``findall``/``xpath``/``cssselect`` entry points. It parses two to four times faster than lxml while
-matching a browser on malformed input, and stays ahead across the operational surface -- fragment parsing, text and tree
-walks, the link helpers, XPath, and the node-path generators:
+matching a browser on malformed input, and stays ahead across the operational surface -- fragment parsing, CSS
+selection, text and tree walks, the link helpers, XPath, and the node-path generators:
 
 .. list-table::
     :header-rows: 1
@@ -44,6 +44,18 @@ walks, the link helpers, XPath, and the node-path generators:
     - - parse fragment (2 kB)
       - 12.6 µs
       - 39.6 µs (3.2x)
+    - - select ``div a[href]`` (Daring Fireball, 10 kB)
+      - 0.7 µs
+      - 30.8 µs (43.9x)
+    - - select ``div a[href]`` (Ars Technica, 56 kB)
+      - 1.6 µs
+      - 135.0 µs (82.2x)
+    - - select ``div a[href]`` (Mozilla Blog, 95 kB)
+      - 2.4 µs
+      - 865.3 µs (364.5x)
+    - - select ``div a[href]`` (WHATWG spec, 235 kB)
+      - 2.1 µs
+      - 1.44 ms (689.5x)
     - - text content (92 kB)
       - 36.9 µs
       - 47.2 µs (1.3x)

@@ -16,8 +16,8 @@ mutation.
 
 turbohtml builds the same WHATWG tree but adds full static typing, the ``find``/``find_all`` filter grammar on top of
 CSS, a complete edit surface, and :attr:`~turbohtml.Node.text` as a property. Because selectolax wraps lexbor behind a
-heavier object layer, turbohtml's lighter native tree parses and serializes faster, drops a set of tags with their
-subtrees faster (:meth:`~turbohtml.Node.remove` against ``strip_tags``, over a 92 kB page of 839
+heavier object layer, turbohtml's lighter native tree parses, selects, and serializes faster, drops a set of tags with
+their subtrees faster (:meth:`~turbohtml.Node.remove` against ``strip_tags``, over a 92 kB page of 839
 ``<code>``/``<a>``/``<q>`` elements), and collects a node's visible text (:attr:`~turbohtml.Node.text` against
 selectolax's ``text()`` method) six to thirteen times faster, concatenating in one C pass where selectolax crosses the
 lexbor boundary per node:
@@ -35,6 +35,18 @@ lexbor boundary per node:
     - - parse wpt page (92 kB)
       - 272 µs
       - 917 µs (3.4x)
+    - - select ``div a[href]`` (Daring Fireball, 10 kB)
+      - 0.7 µs
+      - 7.7 µs (11.0x)
+    - - select ``div a[href]`` (Ars Technica, 56 kB)
+      - 1.6 µs
+      - 20.4 µs (12.4x)
+    - - select ``div a[href]`` (Mozilla Blog, 95 kB)
+      - 2.4 µs
+      - 34.9 µs (14.7x)
+    - - select ``div a[href]`` (WHATWG spec, 235 kB)
+      - 2.1 µs
+      - 81.6 µs (39.1x)
     - - serialize wpt page (92 kB)
       - 105 µs
       - 339 µs (3.2x)

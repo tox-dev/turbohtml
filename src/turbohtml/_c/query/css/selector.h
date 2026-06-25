@@ -1595,6 +1595,14 @@ static int sel_match_compound(th_node *node, const sel_compound *compound, const
     return 1;
 }
 
+static uint16_t sel_compound_known_type_atom(const sel_compound *compound) {
+    if (compound->count != 1) {
+        return TH_TAG_UNKNOWN;
+    }
+    const sel_simple *simple = &compound->simples[0];
+    return simple->kind == 'e' ? simple->tag_atom : TH_TAG_UNKNOWN;
+}
+
 static th_node *sel_prev_element(th_node *node) {
     for (th_node *sibling = node->prev_sibling; sibling != NULL; sibling = sibling->prev_sibling) {
         if (sibling->type == TH_NODE_ELEMENT) {
@@ -1636,19 +1644,35 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
         }
     }
     const sel_compound *target = &complex->compounds[index - 1];
+    uint16_t target_atom = sel_compound_known_type_atom(target);
     switch (complex->compounds[index].combinator) {
     case '>': {
         /* a matched node is an element, so it always has a parent (the document
            at the root), which sel_match_compound rejects as a non-element */
         th_node *parent = node->parent;
+        if (target_atom != TH_TAG_UNKNOWN) {
+            return parent != NULL && parent->type == TH_NODE_ELEMENT && parent->atom == target_atom &&
+                   sel_match_from(parent, complex, index - 1, anchor, ctx);
+        }
         return sel_match_compound(parent, target, ctx) && sel_match_from(parent, complex, index - 1, anchor, ctx);
     }
     case '+': {
         th_node *prev = sel_prev_element(node);
+        if (target_atom != TH_TAG_UNKNOWN) {
+            return prev != NULL && prev->atom == target_atom && sel_match_from(prev, complex, index - 1, anchor, ctx);
+        }
         return prev != NULL && sel_match_compound(prev, target, ctx) &&
                sel_match_from(prev, complex, index - 1, anchor, ctx);
     }
     case '~':
+        if (target_atom != TH_TAG_UNKNOWN) {
+            for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
+                if (prev->atom == target_atom && sel_match_from(prev, complex, index - 1, anchor, ctx)) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
         for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
             if (sel_match_compound(prev, target, ctx) && sel_match_from(prev, complex, index - 1, anchor, ctx)) {
                 return 1;
@@ -1656,6 +1680,15 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
         }
         return 0;
     default: /* descendant */
+        if (target_atom != TH_TAG_UNKNOWN) {
+            for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+                if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == target_atom &&
+                    sel_match_from(ancestor, complex, index - 1, anchor, ctx)) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
         for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
             if (sel_match_compound(ancestor, target, ctx) &&
                 sel_match_from(ancestor, complex, index - 1, anchor, ctx)) {

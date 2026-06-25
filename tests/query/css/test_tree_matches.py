@@ -40,6 +40,10 @@ def test_matches_non_element_is_false() -> None:
     assert not heading.children[0].matches("h2")  # a Text node never matches
 
 
+def test_matches_child_combinator_on_standalone_element() -> None:
+    assert not Element("a").matches("div > a")
+
+
 def test_closest_returns_self_when_it_matches() -> None:
     article = parse(_DOC).select_one("article")
     assert article is not None

@@ -17,7 +17,7 @@ resulting soup with a large, alias-rich API. It shares the most surface with tur
 :func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with no parser backend to choose,
 since it always runs the WHATWG algorithm in C. The search surface is one ``find``/``find_all``/``select`` grammar with
 :class:`~turbohtml.Axis` directions instead of a dozen directional finders. And it parses, queries, and serializes one
-to two orders of magnitude faster than BeautifulSoup over ``html.parser`` -- including text filtering
+to three orders of magnitude faster than BeautifulSoup over ``html.parser`` -- including text filtering
 (``find(text=...)`` against ``find_all(string=...)``), walking the tree (:attr:`~turbohtml.Node.descendants` against
 ``soup.descendants``), and reading its text (:attr:`~turbohtml.Node.text` against ``soup.get_text()``):
 
@@ -34,9 +34,18 @@ to two orders of magnitude faster than BeautifulSoup over ``html.parser`` -- inc
     - - parse wpt page (92 kB)
       - 272 µs
       - 15.3 ms (56.2x)
-    - - select ``div a[href]`` (4 kB)
-      - 0.04 µs
-      - 41.8 µs (1010.3x)
+    - - select ``div a[href]`` (Daring Fireball, 10 kB)
+      - 0.7 µs
+      - 175.9 µs (250.6x)
+    - - select ``div a[href]`` (Ars Technica, 56 kB)
+      - 1.6 µs
+      - 622.7 µs (379.2x)
+    - - select ``div a[href]`` (Mozilla Blog, 95 kB)
+      - 2.4 µs
+      - 1.20 ms (505.0x)
+    - - select ``div a[href]`` (WHATWG spec, 235 kB)
+      - 2.1 µs
+      - 3.29 ms (1573.9x)
     - - serialize wpt page (92 kB)
       - 105 µs
       - 5.95 ms (56.8x)

@@ -668,10 +668,11 @@ times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector libr
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, lxml's `cssselect
 <https://github.com/scrapy/cssselect>`_, selectolax's ``css``, parsel's ``css``, BeautifulSoup's `soupsieve
 <https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector against the tree once and then
-matches by comparing interned integer atoms, so it stays in the low microseconds across these pages. lxml and parsel
+matches by comparing interned integer atoms, it stays in the low microseconds across these pages. lxml and parsel
 re-translate the selector to XPath through cssselect on every call, which scales with the document and trails by tens of
-times on the small blog up to over five hundred times on the spec; BeautifulSoup's soupsieve is hundreds to a thousand
-times behind, while selectolax, the other compiled engine, stays closest at roughly ten to thirty times.
+times on the small blog up to roughly seven hundred times on the spec; BeautifulSoup's soupsieve is hundreds to more
+than fifteen hundred times behind, while selectolax, the other compiled engine, stays closest at roughly eleven to forty
+times.
 
 .. list-table::
     :header-rows: 1
@@ -684,29 +685,29 @@ times behind, while selectolax, the other compiled engine, stays closest at roug
       - parsel
       - BeautifulSoup
     - - daring fireball (10 kB)
-      - 0.8 µs
-      - 29.4 µs (38.0x)
-      - 7.5 µs (9.7x)
-      - 32.6 µs (42.1x)
-      - 169.8 µs (219.2x)
+      - 0.7 µs
+      - 30.8 µs (43.9x)
+      - 7.7 µs (11.0x)
+      - 34.0 µs (48.4x)
+      - 175.9 µs (250.6x)
     - - ars technica (56 kB)
-      - 1.9 µs
-      - 126.3 µs (65.3x)
-      - 20.0 µs (10.3x)
-      - 144.6 µs (74.8x)
-      - 566.1 µs (292.8x)
+      - 1.6 µs
+      - 135.0 µs (82.2x)
+      - 20.4 µs (12.4x)
+      - 148.8 µs (90.6x)
+      - 622.7 µs (379.2x)
     - - mozilla blog (95 kB)
-      - 2.8 µs
-      - 830.3 µs (297.2x)
-      - 33.9 µs (12.1x)
-      - 854.9 µs (306.0x)
-      - 1.07 ms (383.1x)
+      - 2.4 µs
+      - 865.3 µs (364.5x)
+      - 34.9 µs (14.7x)
+      - 897.8 µs (378.2x)
+      - 1.20 ms (505.0x)
     - - whatwg spec (235 kB)
-      - 2.5 µs
-      - 1.38 ms (560.3x)
-      - 79.2 µs (32.0x)
-      - 1.41 ms (571.1x)
-      - 2.78 ms (1126.7x)
+      - 2.1 µs
+      - 1.44 ms (689.5x)
+      - 81.6 µs (39.1x)
+      - 1.48 ms (705.8x)
+      - 3.29 ms (1573.9x)
 
 The relational ``:has()`` pseudo-class is the costliest selector to evaluate, since a naive matcher rescans each
 candidate's subtree. turbohtml runs ``div:has(a)`` against the same pages and leads every alternative: tens of times

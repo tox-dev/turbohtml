@@ -29,15 +29,18 @@ point -- runs tens to hundreds of times faster:
     - - operation
       - turbohtml
       - parsel
-    - - select ``div a[href]`` (4 kB)
-      - 0.04 µs
-      - 7.0 µs (167.9x)
-    - - select ``div a[href]`` (9.6 kB)
-      - 0.04 µs
-      - 8.0 µs (192.3x)
-    - - select ``div a[href]`` (92 kB)
-      - 2.0 µs
-      - 25.4 µs (12.9x)
+    - - select ``div a[href]`` (Daring Fireball, 10 kB)
+      - 0.7 µs
+      - 34.0 µs (48.4x)
+    - - select ``div a[href]`` (Ars Technica, 56 kB)
+      - 1.6 µs
+      - 148.8 µs (90.6x)
+    - - select ``div a[href]`` (Mozilla Blog, 95 kB)
+      - 2.4 µs
+      - 897.8 µs (378.2x)
+    - - select ``div a[href]`` (WHATWG spec, 235 kB)
+      - 2.1 µs
+      - 1.48 ms (705.8x)
     - - ``@href`` per match (9.6 kB)
       - 0.1 µs
       - 4.3 µs (86.2x)
