@@ -112,18 +112,12 @@ def test_dates_original_falls_back_to_modified_when_unpublished() -> None:
 
 
 def test_dates_picks_latest_within_a_pool() -> None:
-    html = (
-        "<head><meta property=article:published_time content=2019-01-01>"
-        "<meta name=date content=2021-12-31></head>"
-    )
+    html = "<head><meta property=article:published_time content=2019-01-01><meta name=date content=2021-12-31></head>"
     assert dates(html) == "2021-12-31"
 
 
 def test_dates_ignores_metas_without_a_key_or_content() -> None:
-    html = (
-        "<head><meta charset=utf-8><meta name=date>"
-        "<meta property=article:published_time content=2024-05-06></head>"
-    )
+    html = "<head><meta charset=utf-8><meta name=date><meta property=article:published_time content=2024-05-06></head>"
     assert dates(html) == "2024-05-06"
 
 
@@ -161,8 +155,5 @@ def test_dates_ignores_dateless_urls() -> None:
 
 
 def test_dates_original_prefers_generic_time_over_modified() -> None:
-    html = (
-        "<head><meta property=article:modified_time content=2022-03-04></head>"
-        "<body><time>2010-01-01</time></body>"
-    )
+    html = "<head><meta property=article:modified_time content=2022-03-04></head><body><time>2010-01-01</time></body>"
     assert dates(html, DateExtraction.published()) == "2010-01-01"

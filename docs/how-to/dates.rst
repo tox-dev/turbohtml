@@ -58,5 +58,5 @@ reject dates outside the range you trust:
     None
 
 ``DateExtraction.fast()`` turns off the URL-pattern fallback when you trust only the structured ``<meta>``, JSON-LD, and
-``<time>`` signals. A page that declares no valid date -- or whose only date falls outside the window -- yields ``None``,
-so branch on the result rather than assuming a date.
+``<time>`` signals. A page that declares no valid date -- or whose only date falls outside the window -- yields
+``None``, so branch on the result rather than assuming a date.
