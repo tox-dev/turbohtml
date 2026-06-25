@@ -120,6 +120,7 @@ OPERATIONS: dict[str, Operation] = {
     "path": Operation("css_path for every element", "us"),
     "path-xpath": Operation("xpath_path for every element", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
+    "encoding": Operation("detect byte-stream encoding", "us"),
 }
 
 
@@ -272,6 +273,27 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     return structural + parity
 
 
+# Declaration-less prose in several scripts, each repeated to a few KiB so the detector and
+# every competitor weigh a realistic body of evidence rather than a one-line snippet.
+_ENCODING_SAMPLES: tuple[tuple[str, str], ...] = (
+    ("utf-8", "Café résumé naïve — Москва, 日本語, and Ελληνικά in one document. "),
+    ("windows-1252", "Voilà l'été à Paris où le garçon préfère une crêpe très chère. "),
+    ("windows-1251", "Привет мир, как у тебя дела сегодня, надеюсь всё хорошо у вас. "),  # noqa: RUF001 -- genuine Cyrillic sample
+    ("shift_jis", "こんにちは世界、今日はいい天気ですね、散歩でもしませんか。"),
+    ("gbk", "你好世界，今天天气很好啊，我们一起出去走走看看风景吧。"),  # noqa: RUF001 -- genuine CJK sample with fullwidth punctuation
+    ("ascii", "The quick brown fox jumps over the lazy dog near the riverbank. "),
+)
+
+
+def _encoding_cases() -> tuple[tuple[str, object], ...]:
+    """Encode each script sample to a few KiB of declaration-less bytes for the detector to sniff."""
+    return tuple(
+        (f"{codec} ({len(encoded) // 1024 or 1} KiB)", encoded)
+        for codec, text in _ENCODING_SAMPLES
+        if (encoded := (text * 64).encode(codec))
+    )
+
+
 def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     """Return synthetic and corpus documents for the tokenization table."""
     corpus_cases = tuple(
@@ -361,4 +383,5 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
     "xpath": _xpath_cases,
+    "encoding": _encoding_cases,
 }

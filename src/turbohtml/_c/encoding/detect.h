@@ -1047,25 +1047,6 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
     Py_DECREF(flush);
 }
 
-/* Run one CJK candidate end to end against the strict CPython codec named by entry,
-   updating *winner and *max when it both survives and beats the running best. */
-static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
-                       const char **winner, long *max) {
-    const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
-    PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
-    if (decoder == NULL) { /* GCOVR_EXCL_START -- every CJK codec name is a built-in codec */
-        PyErr_Clear();
-        return;
-    } /* GCOVR_EXCL_STOP */
-    th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
-    th_cjk_feed(&cand, buf, len);
-    Py_DECREF(decoder);
-    if (cand.alive && cand.score > *max) {
-        *max = cand.score;
-        *winner = label;
-    }
-}
-
 /* ISO-2022-JP is 7-bit and escape-driven: chardetng returns it when the stream has
    no high byte, contains an escape, and decodes cleanly as ISO-2022-JP. */
 static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
@@ -1089,34 +1070,81 @@ static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
     return 1;
 }
 
-/* Guess the encoding of a declaration-less byte stream, or NULL when it is pure
-   ASCII (the caller then keeps the windows-1252 fallback, which decodes ASCII
-   identically). ISO-2022-JP and UTF-8 are resolved structurally; otherwise the CJK
-   and single-byte candidates compete in chardetng's strict-max, defaulting to
-   windows-1252, with the Hebrew visual/logical tiebreak applied last. */
-static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len) {
-    int has_non_ascii;
-    int is_utf8 = th_detect_is_utf8(buf, len, &has_non_ascii);
-    if (!has_non_ascii) {
-        if (th_iso2022jp_alive(buf, len)) {
-            return th_encoding_lookup("iso-2022-jp", 11);
-        }
-        return NULL;
-    }
-    if (is_utf8) {
-        return th_encoding_lookup("utf-8", 5);
-    }
+/* ---- standalone detection (issue #315) -------------------------------------
 
-    const char *winner = "windows-1252";
-    long max = 0;
+   The opt-in parse path needs only the single winning encoding, but the standalone
+   turbohtml.detect surface also exposes the ranked alternatives (detect_all) and a
+   calibrated confidence. Both read from one source of truth: th_encoding_detect_all
+   collects every encoding the chardetng competition keeps, best first, and
+   th_encoding_detect returns its top entry. */
 
-    /* CJK candidates run first, matching chardetng's index order so the strict ">"
-       below resolves ties the same way (an earlier candidate keeps a tie). */
-    th_cjk_run(TH_CJK_GBK, "gbk", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_JP, "euc-jp", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_KR, "euc-kr", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_BIG5, "big5", buf, len, &winner, &max);
+/* A scored detector candidate: the detector label (the caller resolves it to a
+   canonical name and codec) and its chardetng score. */
+typedef struct {
+    const char *label;
+    long score;
+} th_detect_scored;
+
+/* How the encoding was reached, so the facade can calibrate confidence: a structural
+   certainty (UTF-8 validity, an escape-driven 7-bit stream, or pure ASCII) versus the
+   heuristic candidate competition. */
+typedef enum {
+    TH_DETECT_PURE_ASCII,  /* no high byte: nothing to detect */
+    TH_DETECT_UTF8,        /* structurally valid multi-byte UTF-8 */
+    TH_DETECT_ISO_2022_JP, /* 7-bit, escape-driven */
+    TH_DETECT_HEURISTIC,   /* the chardetng candidate competition */
+} th_detect_method;
+
+/* every single-byte candidate plus the five CJK candidates can be ranked at once */
+#define TH_DETECT_MAX_CANDIDATES (TH_SB_COUNT + 5)
+
+/* Insert (label, score) keeping out[] sorted by score descending, stable so an earlier
+   candidate keeps a tie -- the same rule chardetng's strict ">" winner applies. */
+static int th_detect_insert(th_detect_scored *out, int count, const char *label, long score) {
+    int pos = count;
+    while (pos > 0 && out[pos - 1].score < score) {
+        out[pos] = out[pos - 1];
+        pos--;
+    }
+    out[pos].label = label;
+    out[pos].score = score;
+    return count + 1;
+}
+
+/* Run one CJK candidate and, when it survives with positive evidence, rank it. Mirrors
+   th_cjk_run but collects every survivor instead of tracking only the winner. */
+static int th_detect_collect_cjk(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
+                                 th_detect_scored *out, int count) {
+    const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+    PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
+    if (decoder == NULL) { /* GCOVR_EXCL_START -- every CJK codec name is a built-in codec */
+        PyErr_Clear();
+        return count;
+    } /* GCOVR_EXCL_STOP */
+    th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
+    th_cjk_feed(&cand, buf, len);
+    Py_DECREF(decoder);
+    if (cand.alive && cand.score > 0) {
+        return th_detect_insert(out, count, label, cand.score);
+    }
+    return count;
+}
+
+/* Rank every encoding the chardetng competition keeps for a non-ASCII, non-UTF-8
+   stream into out[], best first. windows-1252 (the chardetng default) is always present
+   with its score floored at 0, so it wins whenever no candidate finds positive evidence;
+   every other survivor with positive evidence is ranked against it. The Hebrew
+   visual/logical tiebreak is applied to the winner last. Returns the count; out[0] is
+   exactly th_encoding_detect's winner. */
+static int th_detect_heuristic(const unsigned char *buf, Py_ssize_t len, th_detect_scored *out) {
+    int count = 0;
+    /* CJK candidates run first, matching chardetng's index order so a tie keeps the
+       earlier candidate, exactly as the stable insert below does. */
+    count = th_detect_collect_cjk(TH_CJK_GBK, "gbk", buf, len, out, count);
+    count = th_detect_collect_cjk(TH_CJK_EUC_JP, "euc-jp", buf, len, out, count);
+    count = th_detect_collect_cjk(TH_CJK_EUC_KR, "euc-kr", buf, len, out, count);
+    count = th_detect_collect_cjk(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, out, count);
+    count = th_detect_collect_cjk(TH_CJK_BIG5, "big5", buf, len, out, count);
 
     th_sb_candidate candidates[TH_SB_COUNT];
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
@@ -1128,25 +1156,69 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
     th_sb_init(&visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
     th_sb_feed(&visual, buf, len);
 
-    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+    /* windows-1252 is the guaranteed fallback even when its own candidate was
+       disqualified (its score is floored at 0); slot 0 holds it, so the loop skips it. */
+    long w1252;
+    long w1252_score = (th_sb_final_score(&candidates[0], &w1252) && w1252 > 0) ? w1252 : 0;
+    count = th_detect_insert(out, count, "windows-1252", w1252_score);
+    for (int slot = 1; slot < TH_SB_COUNT; slot++) {
         long score;
-        if (th_sb_final_score(&candidates[slot], &score) && score > max) {
-            max = score;
-            winner = candidates[slot].data->label;
+        if (th_sb_final_score(&candidates[slot], &score) && score > 0) {
+            count = th_detect_insert(out, count, candidates[slot].data->label, score);
         }
     }
-    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
-       score Hebrew text identically -- they differ only in punctuation plausibility --
-       so the visual order can only ever tie windows-1255, never outscore the field;
-       chardetng's visual_score > max test is dead here and dropped. The branches are
-       fully nested so each decision is counted on its own. */
+    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) orders score
+       Hebrew identically -- they differ only in punctuation plausibility -- so the visual
+       order can only ever tie windows-1255 as the winner, never outscore the field; when it
+       does and reads more plausibly, the winner is relabelled. The branches are fully nested
+       (final-score guard outermost) so each decision is counted on its own. */
     long visual_score;
     if (th_sb_final_score(&visual, &visual_score)) {
-        if (strcmp(winner, "windows-1255") == 0) {
+        if (strcmp(out[0].label, "windows-1255") == 0) {
             if (visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
-                winner = "iso-8859-8";
+                out[0].label = "iso-8859-8";
             }
         }
     }
-    return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
+    return count;
+}
+
+/* Rank a declaration-less byte stream's candidate encodings into out[], reporting how
+   the result was reached in *method. ISO-2022-JP and UTF-8 are resolved structurally (a
+   single ranked entry); pure ASCII yields none; otherwise the heuristic competition
+   fills out[]. Returns the candidate count. */
+static int th_encoding_detect_all(const unsigned char *buf, Py_ssize_t len, th_detect_scored *out,
+                                  th_detect_method *method) {
+    int has_non_ascii;
+    int is_utf8 = th_detect_is_utf8(buf, len, &has_non_ascii);
+    if (!has_non_ascii) {
+        if (th_iso2022jp_alive(buf, len)) {
+            *method = TH_DETECT_ISO_2022_JP;
+            out[0].label = "iso-2022-jp";
+            out[0].score = 0;
+            return 1;
+        }
+        *method = TH_DETECT_PURE_ASCII;
+        return 0;
+    }
+    if (is_utf8) {
+        *method = TH_DETECT_UTF8;
+        out[0].label = "utf-8";
+        out[0].score = 0;
+        return 1;
+    }
+    *method = TH_DETECT_HEURISTIC;
+    return th_detect_heuristic(buf, len, out);
+}
+
+/* Guess the encoding of a declaration-less byte stream, or NULL when it is pure ASCII
+   (the caller then keeps the windows-1252 fallback, which decodes ASCII identically). */
+static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len) {
+    th_detect_scored ranked[TH_DETECT_MAX_CANDIDATES];
+    th_detect_method method;
+    int count = th_encoding_detect_all(buf, len, ranked, &method);
+    if (count == 0) {
+        return NULL;
+    }
+    return th_encoding_lookup(ranked[0].label, (Py_ssize_t)strlen(ranked[0].label));
 }

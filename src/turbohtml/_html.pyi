@@ -71,6 +71,9 @@ from ._stubs.dom import (
 from ._stubs.dom import (
     parse_fragment as parse_fragment,
 )
+from ._stubs.encoding import (
+    _detect as _detect,
+)
 from ._stubs.features import (
     _linkify_find as _linkify_find,
 )

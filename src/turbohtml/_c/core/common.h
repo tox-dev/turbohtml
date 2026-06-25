@@ -106,6 +106,11 @@ PyObject *turbohtml_node_tables(PyObject *owner, struct th_tree *tree, struct th
 PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_tokenize_states(PyObject *module, PyObject *args);
 
+/* Implemented in dom/document.c, the engine behind turbohtml.detect: sniff a byte
+   stream's encoding (BOM, <meta> prescan, then the chardetng content competition) and
+   return (method, ((canonical-name, score), ...)). Signature matches METH_O. */
+PyObject *turbohtml_detect(PyObject *module, PyObject *arg);
+
 /* Implemented in dom/binding.c. The internal conformance hooks _parse_tree
    and _parse_fragment return the html5lib "#document" serialization of a parsed
    document / innerHTML fragment. */

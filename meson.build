@@ -69,6 +69,7 @@ py.install_sources(
         'src/turbohtml/_xpath.py',
         'src/turbohtml/build.py',
         'src/turbohtml/clean.py',
+        'src/turbohtml/detect.py',
         'src/turbohtml/extract.py',
         'src/turbohtml/query.py',
         'src/turbohtml/py.typed',
@@ -80,6 +81,7 @@ py.install_sources(
     [
         'src/turbohtml/_stubs/__init__.pyi',
         'src/turbohtml/_stubs/dom.pyi',
+        'src/turbohtml/_stubs/encoding.pyi',
         'src/turbohtml/_stubs/features.pyi',
         'src/turbohtml/_stubs/query.pyi',
         'src/turbohtml/_stubs/serialize.pyi',

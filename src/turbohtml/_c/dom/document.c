@@ -535,6 +535,69 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     return node;
 }
 
+/* Build the ((canonical-name, score), ...) rows the detect facade ranks. The score is
+   the chardetng evidence; the facade derives a confidence and the implied language. */
+static PyObject *detect_rows(const th_detect_scored *ranked, int count) {
+    PyObject *rows = PyTuple_New(count);
+    if (rows == NULL) { /* GCOVR_EXCL_START -- allocation failure cannot be forced from a test */
+        return NULL;
+    } /* GCOVR_EXCL_STOP */
+    for (int index = 0; index < count; index++) {
+        const th_encoding_entry *entry =
+            th_encoding_lookup(ranked[index].label, (Py_ssize_t)strlen(ranked[index].label));
+        PyObject *row = Py_BuildValue("(sl)", entry->canonical, ranked[index].score);
+        if (row == NULL) { /* GCOVR_EXCL_START -- allocation failure cannot be forced from a test */
+            Py_DECREF(rows);
+            return NULL;
+        } /* GCOVR_EXCL_STOP */
+        PyTuple_SET_ITEM(rows, index, row);
+    }
+    return rows;
+}
+
+/* The engine behind turbohtml.detect: sniff a byte stream's encoding the WHATWG way --
+   a BOM, then a <meta> prescan -- before falling through to the opt-in chardetng
+   competition, and return (method, rows). The facade in turbohtml/detect.py turns the
+   method and per-candidate scores into EncodingMatch records. Signature matches METH_O. */
+PyObject *turbohtml_detect(PyObject *Py_UNUSED(module), PyObject *arg) {
+    Py_buffer view;
+    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
+        return NULL; /* TypeError: a bytes-like object is required */
+    }
+    const unsigned char *bytes = view.buf;
+    Py_ssize_t len = view.len;
+
+    th_detect_scored ranked[TH_DETECT_MAX_CANDIDATES];
+    int count;
+    const char *method;
+    const th_encoding_entry *declared = NULL;
+    th_encoding_bom(bytes, len, &declared);
+    if (declared == NULL) {
+        declared = th_encoding_prescan(bytes, len);
+        method = "meta";
+    } else {
+        method = "bom";
+    }
+    if (declared != NULL) {
+        ranked[0].label = declared->label;
+        ranked[0].score = 0;
+        count = 1;
+    } else {
+        th_detect_method how;
+        count = th_encoding_detect_all(bytes, len, ranked, &how);
+        method = how == TH_DETECT_UTF8          ? "utf-8"
+                 : how == TH_DETECT_ISO_2022_JP ? "iso-2022-jp"
+                 : how == TH_DETECT_PURE_ASCII  ? "ascii"
+                                                : "heuristic";
+    }
+    PyBuffer_Release(&view);
+    PyObject *rows = detect_rows(ranked, count);
+    if (rows == NULL) { /* GCOVR_EXCL_START -- allocation failure cannot be forced from a test */
+        return NULL;
+    } /* GCOVR_EXCL_STOP */
+    return Py_BuildValue("(sN)", method, rows);
+}
+
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"markup", "encoding", "strict", "detect_encoding", "positions", NULL};
     PyObject *markup;

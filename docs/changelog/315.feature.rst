@@ -1,0 +1,6 @@
+Add :mod:`turbohtml.detect`, a standalone ``bytes -> encoding`` detector that exposes the WHATWG content-detection
+engine -- previously reachable only via ``parse(detect_encoding=True)`` -- as a drop-in for ``chardet``,
+``charset-normalizer``, and ``cchardet``. :func:`~turbohtml.detect.detect` returns the best
+:class:`~turbohtml.detect.EncodingMatch` (encoding, confidence, language), :func:`~turbohtml.detect.detect_all` ranks
+the alternatives, and the incremental :class:`~turbohtml.detect.Detector` mirrors chardet's ``UniversalDetector``; all
+three take one immutable :class:`~turbohtml.detect.Detection` config.

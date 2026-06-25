@@ -38,6 +38,7 @@ It is the wrong tool in a few honest cases:
     c-core
     stdlib-parity
     parsing
+    detection
     tree-model
     queries
     structured-data

@@ -18,6 +18,7 @@ from turbohtml import clean as _clean
 from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
+from turbohtml.detect import detect as _detect
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -365,6 +366,11 @@ def xpath_path(text: str) -> None:
             node.xpath_path()
 
 
+def encoding(data: bytes) -> None:
+    """Sniff a declaration-less byte stream's encoding with turbohtml's standalone detector."""
+    _detect(data)
+
+
 def _count_ext(_context: object, nodes: list[object]) -> float:
     """Count the node-set; a trivial extension registered for the engine."""
     return float(len(nodes))
@@ -466,4 +472,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
+    "encoding": (encoding, "turbohtml"),
 }

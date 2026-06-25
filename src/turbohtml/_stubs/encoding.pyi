@@ -1,0 +1,3 @@
+# Subsystem: encoding (_c/encoding) — standalone byte-stream encoding detection.
+
+def _detect(data: bytes | bytearray | memoryview, /) -> tuple[str, tuple[tuple[str, int], ...]]: ...
