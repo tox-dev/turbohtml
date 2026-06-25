@@ -291,6 +291,10 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
         return;
     }
     simple->attr_atom = sel_attr_atom(parser->tree, name, name_len);
+    /* keep the decoded attribute name so the CSS->XPath translator can emit it; the
+       matcher resolves attributes by atom and never reads name for a '[' simple */
+    simple->name = name;
+    simple->name_len = name_len;
     sel_skip_ws(parser);
     Py_UCS4 ch = parser->pos < parser->len ? parser->src[parser->pos] : 0;
     if (ch == ']') {

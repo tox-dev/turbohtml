@@ -236,6 +236,7 @@ ini_options.filterwarnings = [
 # the free-threaded builds, or Windows, so the module importorskips itself there; measuring
 # it would make the gate interpreter-dependent. It still runs and validates wherever lxml exists.
 run.omit = [
+  "tests/query/css/test_translate_lxml.py",
   "tests/query/xpath/test_xpath_differential.py",
 ]
 run.parallel = true

@@ -15,6 +15,7 @@ import turbohtml
 from bench.timing import Mutating
 from turbohtml import Markdown as _Markdown
 from turbohtml import clean as _clean
+from turbohtml import convert as _convert
 from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
@@ -123,6 +124,11 @@ def select(text: str) -> None:
 def select_has(text: str) -> None:
     """Run the :has() relational selector with turbohtml's select."""
     _parsed(text).select(_HAS)
+
+
+def translate(selector: str) -> None:
+    """Translate a CSS selector to XPath with turbohtml's native convert, the in-process cssselect successor."""
+    _convert.css_to_xpath(selector)
 
 
 def find_text(text: str) -> None:
@@ -430,6 +436,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find": (find, "turbohtml"),
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
+    "translate": (translate, "turbohtml"),
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),

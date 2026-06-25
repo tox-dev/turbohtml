@@ -1,0 +1,8 @@
+Translate a CSS selector to the equivalent XPath 1.0 expression with the new :mod:`turbohtml.convert` namespace:
+:func:`turbohtml.convert.css_to_xpath` for the one-call form and :class:`turbohtml.convert.Translator` (re-exported as
+``HTMLTranslator``) for a `cssselect <https://github.com/scrapy/cssselect>`__-shaped, mechanically portable
+``translator.css_to_xpath(css)`` call. turbohtml carries both a CSS and an XPath engine in-process, so the translation
+needs no second library and the emitted XPath -- HTML semantics, selecting the same nodes as the CSS engine -- runs
+unchanged through :meth:`turbohtml.Node.xpath`. An untranslatable selector (a relational ``:has()``, an input-state
+pseudo-class, ``:lang()``, or an ``*-of-type`` without a concrete element type) raises
+:class:`turbohtml.convert.SelectorSyntaxError`.

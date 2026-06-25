@@ -113,6 +113,11 @@ PyObject *turbohtml_parse_tree(PyObject *module, PyObject *arg);
 PyObject *turbohtml_parse_fragment(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
 
+/* Implemented in query/css/translate.h (included by dom/element.c). _css_to_xpath translates a CSS
+   selector to an equivalent XPath 1.0 location-path union, the engine behind turbohtml.convert;
+   signature matches METH_VARARGS taking (selector, prefix). */
+PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
+
 /* Implemented in query/xpath/functions.c. _xpath_parse compiles an XPath expression and returns a
    canonical S-expression of the parsed AST; the conformance hook the parser tests
    diff against. Signature matches METH_O. */

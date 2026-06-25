@@ -84,6 +84,7 @@ OPERATIONS: dict[str, Operation] = {
     "find": Operation("find every anchor", "us"),
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
+    "translate": Operation("translate CSS to XPath", "us"),
     "find-text": Operation("find by text content", "us"),
     "text-content": Operation("collect visible text", "us"),
     "serialize": Operation("serialize a parsed tree", "us"),
@@ -272,6 +273,20 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     return structural + parity
 
 
+_TRANSLATE_CASES = (
+    ("type.class", "div.content"),
+    ("descendant attr", "div.card a[href]"),
+    ("child + sibling", "header > nav a + a"),
+    ("nth-child", "ul li:nth-child(2n+1)"),
+    (":not + id", "#main p:not(.note)"),
+)
+
+
+def _translate_cases() -> tuple[tuple[str, object], ...]:
+    """Return representative CSS selectors for the CSS-to-XPath translation table; the input is the selector string."""
+    return _TRANSLATE_CASES
+
+
 def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     """Return synthetic and corpus documents for the tokenization table."""
     corpus_cases = tuple(
@@ -305,6 +320,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find": _readpath_cases,
     "select": _readpath_cases,
     "select-has": _readpath_cases,
+    "translate": _translate_cases,
     "find-text": _readpath_cases,
     "text-content": _readpath_cases,
     "serialize": _readpath_cases,
