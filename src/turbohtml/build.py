@@ -14,6 +14,12 @@ A call takes its arguments in order: a leading mapping is the element's attribut
 
     doc = E.div({"class": "card"}, E.h1("Title"), E.p("body"))
     print(doc.serialize())  # <div class="card"><h1>Title</h1><p>body</p></div>
+
+Attributes may instead be passed as keyword arguments, the idiom the function-based builders (``htbuilder``,
+``hyperpython``, ``fast-html``) use: a trailing underscore is dropped and the remaining underscores become hyphens, so
+``class_`` sets ``class`` and ``data_i`` sets ``data-i``. Keyword attributes merge over a leading mapping::
+
+    E.li("item 0", class_="item", data_i="0")  # <li class="item" data-i="0">item 0</li>
 """
 
 from __future__ import annotations
@@ -34,10 +40,18 @@ Attributes: TypeAlias = "Mapping[str, str | list[str] | None]"
 #: :class:`turbohtml.Text` node.
 Content: TypeAlias = "Attributes | Node | str"
 
+#: One attribute value passed as a keyword argument: a string, a token list, or ``None`` for a bare boolean attribute.
+AttributeValue: TypeAlias = "str | list[str] | None"
+
 
 def _is_attributes(arg: Content) -> TypeGuard[Attributes]:
     """Treat a mapping argument as the element's attributes and any other argument as a child."""
     return isinstance(arg, Mapping)
+
+
+def _mangle(name: str) -> str:
+    """Map a keyword-argument name to its attribute name: drop a trailing underscore, then ``_`` becomes ``-``."""
+    return name.removesuffix("_").replace("_", "-")
 
 
 def _to_node(arg: Content) -> Node:
@@ -50,13 +64,17 @@ def _to_node(arg: Content) -> Node:
     return arg
 
 
-def _build(tag: str, args: tuple[Content, ...]) -> Element:
-    """Build one element: a leading mapping sets its attributes, and the rest become children in order."""
+def _build(tag: str, args: tuple[Content, ...], keywords: dict[str, AttributeValue]) -> Element:
+    """Build one element: a leading mapping and any keyword attributes set its attributes, the rest become children."""
     attrs: Attributes | None = None
     children = args
     if args and _is_attributes(args[0]):
         attrs = args[0]
         children = args[1:]
+    if keywords:
+        merged: dict[str, AttributeValue] = dict(attrs) if attrs is not None else {}
+        merged.update((_mangle(name), value) for name, value in keywords.items())
+        attrs = merged
     element = Element(tag, attrs)
     element.extend(_to_node(arg) for arg in children)
     return element
@@ -71,9 +89,9 @@ class _TagFactory:
         """Remember the tag name this factory builds."""
         self._tag = tag
 
-    def __call__(self, *args: Content) -> Element:
-        """Build the element from a leading attribute mapping and the child nodes and strings that follow."""
-        return _build(self._tag, args)
+    def __call__(self, *args: Content, **attributes: AttributeValue) -> Element:
+        """Build the element from a leading mapping, keyword attributes, and the child nodes and strings that follow."""
+        return _build(self._tag, args, attributes)
 
 
 class ElementMaker:
@@ -90,15 +108,16 @@ class ElementMaker:
             raise AttributeError(tag)
         return _TagFactory(tag)
 
-    def __call__(self, tag: str, /, *args: Content) -> Element:
-        """Build ``tag`` from a leading attribute mapping and the child nodes and strings that follow."""
-        return _build(tag, args)
+    def __call__(self, tag: str, /, *args: Content, **attributes: AttributeValue) -> Element:
+        """Build ``tag`` from a leading mapping, keyword attributes, and the child nodes and strings that follow."""
+        return _build(tag, args, attributes)
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
 E = ElementMaker()
 
 __all__ = [
+    "AttributeValue",
     "Attributes",
     "Content",
     "E",

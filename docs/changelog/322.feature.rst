@@ -1,0 +1,6 @@
+Pass attributes to the :data:`turbohtml.build.E` builder as keyword arguments, the idiom the function-based HTML
+builders use: a trailing underscore is dropped and the remaining underscores become hyphens, so
+``E.li("item", class_="item", data_i="0")`` builds ``<li class="item" data-i="0">item</li>``. Keyword attributes merge
+over a leading mapping, giving ``htbuilder``, ``hyperpython``, and ``fast-html`` users a natural port. The benchmark
+suite now covers ``htbuilder``, ``simple-html``, ``markyp-html``, and ``fast-html`` against turbohtml's ``build-e``
+operation - by :user:`gaborbernat`.

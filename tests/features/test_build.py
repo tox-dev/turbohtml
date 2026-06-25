@@ -46,6 +46,26 @@ def maker() -> ElementMaker:
         pytest.param(lambda: E("div", "body"), "<div>body</div>", id="call-form-names-the-tag"),
         pytest.param(lambda: E("a", {"href": "/x"}, "link"), '<a href="/x">link</a>', id="call-form-leading-mapping"),
         pytest.param(lambda: E("my-widget"), "<my-widget></my-widget>", id="call-form-non-identifier-tag"),
+        pytest.param(lambda: E.div(class_="card"), '<div class="card"></div>', id="keyword-trailing-underscore-drops"),
+        pytest.param(lambda: E.li(data_i="0"), '<li data-i="0"></li>', id="keyword-underscore-becomes-hyphen"),
+        pytest.param(lambda: E.input(disabled=None), '<input disabled="">', id="keyword-none-is-valueless"),
+        pytest.param(lambda: E.span(class_=["a", "b"]), '<span class="a b"></span>', id="keyword-list-joins"),
+        pytest.param(
+            lambda: E.li("item 0", class_="item", data_i="0"),
+            '<li class="item" data-i="0">item 0</li>',
+            id="keyword-attributes-with-text-child",
+        ),
+        pytest.param(
+            lambda: E.div({"id": "x"}, class_="card"),
+            '<div id="x" class="card"></div>',
+            id="keyword-merges-over-leading-mapping",
+        ),
+        pytest.param(
+            lambda: E.div({"class": "a"}, class_="b"),
+            '<div class="b"></div>',
+            id="keyword-overrides-leading-mapping",
+        ),
+        pytest.param(lambda: E("a", href="/x"), '<a href="/x"></a>', id="call-form-keyword-attributes"),
     ],
 )
 def test_serialize(build: Callable[[], Element], expected: str) -> None:
