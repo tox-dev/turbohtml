@@ -5,8 +5,8 @@
 .. module:: turbohtml.match
 
 A `soupsieve <https://facelessuser.github.io/soupsieve/>`_-shaped CSS matching surface over turbohtml's native selector
-engine, for code migrating off soupsieve (BeautifulSoup's selector library) or a bs4 ``Tag.select`` stack. :func:`compile`
-returns a reusable :class:`Matcher` carrying soupsieve's matcher methods, and the module-level
+engine, for code migrating off soupsieve (BeautifulSoup's selector library) or a bs4 ``Tag.select`` stack.
+:func:`compile` returns a reusable :class:`Matcher` carrying soupsieve's matcher methods, and the module-level
 :func:`select`/:func:`select_one`/:func:`iselect`/:func:`match`/:func:`filter`/:func:`closest` helpers compile a
 one-shot matcher per call. Every entry point runs the same engine as :meth:`~turbohtml.Node.select`/
 :meth:`~turbohtml.Node.matches`/:meth:`~turbohtml.Node.closest`, so the matching is identical to the node methods --
@@ -26,9 +26,9 @@ this surface.
 .. autoclass:: Matcher
     :members: select, select_one, iselect, match, filter, closest, pattern, namespaces, flags
 
-************************
+**********************
  Module-level helpers
-************************
+**********************
 
 Each helper compiles the selector for the single call and delegates to the matching :class:`Matcher` method, mirroring
 soupsieve's free functions. Reuse a :func:`compile` result instead when matching the same selector repeatedly.
@@ -45,9 +45,9 @@ soupsieve's free functions. Reuse a :func:`compile` result instead when matching
 
 .. autofunction:: closest
 
-*********************
+***************
  Configuration
-*********************
+***************
 
 .. autoclass:: Matching
     :members: soupsieve

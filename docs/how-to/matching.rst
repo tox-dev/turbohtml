@@ -7,9 +7,9 @@
 ``Tag.select``) codebase is then an import swap: ``import soupsieve`` becomes ``from turbohtml import match``, and the
 calls keep their shape while running on the native engine.
 
-************************
+*********************
  Compile once, reuse
-************************
+*********************
 
 :func:`~turbohtml.match.compile` validates the selector up front and returns a :class:`~turbohtml.match.Matcher` you
 reuse across trees. Its methods mirror soupsieve's ``select`` / ``select_one`` / ``iselect`` / ``match`` / ``filter`` /
@@ -44,9 +44,9 @@ element, its direct children):
     on
     ['/a', '/b']
 
-************************
+******************
  One-shot helpers
-************************
+******************
 
 The module-level functions take ``(selector, node, ...)`` and compile internally, matching soupsieve's free functions
 for a quick call:
@@ -61,9 +61,9 @@ for a quick call:
     ['/a']
     True
 
-*********************************
+******************************
  Building selectors from data
-*********************************
+******************************
 
 :func:`~turbohtml.match.escape` turns an arbitrary string into a safe CSS identifier, so an id or class read from data
 cannot break out of the selector:
@@ -80,7 +80,7 @@ cannot break out of the selector:
     \31 2\ col
     found
 
-A malformed selector raises :class:`~turbohtml.match.SelectorSyntaxError` (a :class:`ValueError` subclass, so soupsieve's
-exception name and the native engine's ``ValueError`` both catch it). soupsieve's ``namespaces`` and ``flags`` arguments
-are carried on a :class:`~turbohtml.match.Matching` config for API parity but do not change which elements match -- see
-:doc:`the reference </reference/match>` for that limitation.
+A malformed selector raises :class:`~turbohtml.match.SelectorSyntaxError` (a :class:`ValueError` subclass, so
+soupsieve's exception name and the native engine's ``ValueError`` both catch it). soupsieve's ``namespaces`` and
+``flags`` arguments are carried on a :class:`~turbohtml.match.Matching` config for API parity but do not change which
+elements match -- see :doc:`the reference </reference/match>` for that limitation.
