@@ -87,6 +87,7 @@ OPERATIONS: dict[str, Operation] = {
     "find-text": Operation("find by text content", "us"),
     "text-content": Operation("collect visible text", "us"),
     "serialize": Operation("serialize a parsed tree", "us"),
+    "minify": Operation("minify a document", "us"),
     "edit": Operation("tag every link rel=nofollow", "us"),
     "class-edit": Operation("class add/remove on every link", "us"),
     "strip-remove": Operation("drop tags with content (remove)", "us"),
@@ -308,6 +309,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find-text": _readpath_cases,
     "text-content": _readpath_cases,
     "serialize": _readpath_cases,
+    "minify": _readpath_cases,
     "socialcard": lambda: (
         ("head", _SOCIAL_HEAD),
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),

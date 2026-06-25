@@ -1,0 +1,3 @@
+Add :func:`turbohtml.clean.minify`, a one-call HTML minifier that parses then serializes through the round-trip-safe
+:class:`~turbohtml.Minify` layout, folding insignificant whitespace, omitting optional tags, unquoting attributes, and
+stripping comments. It is idempotent (``minify(minify(x)) == minify(x)``) and replaces ``minify-html`` and ``htmlmin``.

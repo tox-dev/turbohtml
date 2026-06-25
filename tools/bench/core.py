@@ -18,6 +18,7 @@ from turbohtml import clean as _clean
 from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
+from turbohtml.clean import minify as _minify
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -138,6 +139,11 @@ def text_content(text: str) -> None:
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with turbohtml's html property."""
     _ = _parsed(text).html
+
+
+def minify(text: str) -> None:
+    """Minify an HTML document with turbohtml, parsing then serializing through the round-trip-safe Minify layout."""
+    _minify(text)
 
 
 def edit(document: turbohtml.Document) -> None:
@@ -433,6 +439,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
+    "minify": (minify, "turbohtml"),
     "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
     "class-edit": (class_edit, "turbohtml"),
     "strip-remove": (strip_remove, "turbohtml"),

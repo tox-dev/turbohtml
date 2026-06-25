@@ -54,6 +54,23 @@ each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 .. autoclass:: LinkSpan
     :members:
 
+***********
+ Minifying
+***********
+
+:func:`minify` shrinks an HTML document in one call -- it parses the input and serializes it through the round-trip-safe
+:class:`~turbohtml.Minify` layout, so the output reparses to the same tree and minifying is idempotent
+(``minify(minify(x)) == minify(x)``). It replaces ``minify-html`` and ``htmlmin``. The four transforms (fold
+insignificant whitespace, omit optional tags, unquote attributes, strip comments) default on; pass a
+:class:`~turbohtml.Minify` to turn any off.
+
+.. autofunction:: minify
+
+turbohtml does not bundle a CSS or JavaScript minifier, so ``minify-html``'s ``minify_css`` / ``minify_js`` have no
+counterpart; ``<style>`` and ``<script>`` bodies are emitted verbatim. The doctype is always normalized to ``<!doctype
+html>`` (``minify-html``'s ``minify_doctype`` is implicit), and HTML has no processing instructions to drop
+(``remove_processing_instructions`` is moot under the WHATWG parser, which reads them as bogus comments).
+
 turbohtml.migration.bleach
 ==========================
 

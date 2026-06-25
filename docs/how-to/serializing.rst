@@ -65,6 +65,19 @@ Whitespace-significant elements (``pre``, ``textarea``, ``listing``) and raw-tex
 their content verbatim, and a tag is never dropped when omitting it would let the reparse reconstruct a formatting
 element across the boundary.
 
+When the input is a string rather than a built tree -- the ``minify-html`` and ``htmlmin`` use case --
+:func:`turbohtml.clean.minify` parses and minifies in one call, taking the same :class:`~turbohtml.Minify` options:
+
+.. testcode::
+
+    from turbohtml.clean import minify
+
+    print(minify("<html><head><title>Hi</title></head><body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"))
+
+.. testoutput::
+
+    <title>Hi</title><p class=lead>one</p> <p>two
+
 ***********************************
  Normalize attributes and encoding
 ***********************************
