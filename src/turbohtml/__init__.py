@@ -42,6 +42,7 @@ from ._structured_data import (  # registers the JSON-LD parser and record class
 )
 from ._xpath import XPathString  # registers the smart-string type with the C core on import
 from .build import E, ElementMaker
+from .extract import DateExtraction, dates
 
 __version__ = version("turbohtml")
 """The installed package version."""
@@ -51,6 +52,7 @@ __all__ = [
     "Axis",
     "CData",
     "Comment",
+    "DateExtraction",
     "Doctype",
     "Document",
     "E",
@@ -80,6 +82,7 @@ __all__ = [
     "__version__",
     "annotation_surface",
     "annotation_tags",
+    "dates",
     "escape",
     "parse",
     "parse_fragment",

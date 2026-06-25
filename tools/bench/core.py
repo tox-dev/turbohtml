@@ -290,6 +290,11 @@ def article(text: str) -> None:
     _parsed(text).article()
 
 
+def date(text: str) -> None:
+    """Extract the publication date with turbohtml, reusing the article date-scoring path."""
+    turbohtml.dates(text)
+
+
 def text_render(text: str) -> None:
     """Render layout-aware visible text with turbohtml's to_text, walking the tree in C."""
     _parsed(text).to_text()
@@ -455,6 +460,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "markdown-google": (markdown_google, "turbohtml"),
     "tables": (tables, "turbohtml"),
     "article": (article, "turbohtml"),
+    "date": (date, "turbohtml"),
     "text-render": (text_render, "turbohtml"),
     "text-collapsed": (text_collapsed, "turbohtml"),
     "text-main": (text_main, "turbohtml"),

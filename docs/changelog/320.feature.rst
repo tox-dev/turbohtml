@@ -1,0 +1,7 @@
+Extract a document's publication date with :func:`turbohtml.dates`, a standalone successor to ``htmldate.find_date``. It
+reuses the declared-metadata path :meth:`~turbohtml.Node.article` already walks -- ``<time>`` elements,
+``article:published_time`` and common date ``<meta>`` tags -- and layers JSON-LD ``datePublished``/``dateModified``,
+last-modified metas, and a ``/YYYY/MM/DD/`` date in the canonical or OpenGraph URL on top. A frozen
+:class:`turbohtml.DateExtraction` config carries the knobs (``original``, ``output_format``, ``min_date``, ``max_date``,
+``extensive_search``), with :meth:`~turbohtml.DateExtraction.published` and :meth:`~turbohtml.DateExtraction.fast`
+presets mirroring htmldate's modes.

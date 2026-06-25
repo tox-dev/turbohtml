@@ -109,6 +109,7 @@ OPERATIONS: dict[str, Operation] = {
     "markdown-google": Operation("Google Docs export to Markdown", "us"),
     "tables": Operation("extract table grids", "us"),
     "article": Operation("article extraction", "us"),
+    "date": Operation("publication-date extraction", "us"),
     "text-render": Operation("layout-aware text", "us"),
     "text-collapsed": Operation("collapsed word stream", "us"),
     "text-main": Operation("main-content text", "us"),
@@ -261,6 +262,26 @@ def _article_page(paragraphs: int) -> str:
     return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 
 
+_DATE_META = dedent("""\
+    <html lang=en><head><title>Comets: A Field Guide</title>
+    <meta property="article:published_time" content="2024-05-06T08:00:00Z">
+    <meta property="article:modified_time" content="2024-06-18T11:30:00Z"></head>
+    <body><article class=post><h1>Comets</h1>
+    <p>A comet is an icy small body that warms as it nears the Sun and grows a glowing coma.</p>
+    </article></body></html>""")
+
+_DATE_JSON_LD = dedent("""\
+    <html lang=en><head><title>Comets: A Field Guide</title>
+    <link rel="canonical" href="https://example.test/2024/05/06/comets">
+    <script type="application/ld+json">
+    {"@context": "https://schema.org", "@type": "NewsArticle", "headline": "Comets",
+     "datePublished": "2024-05-06T08:00:00Z", "dateModified": "2024-06-18T11:30:00Z"}
+    </script></head>
+    <body><article class=post><h1>Comets</h1>
+    <p>A comet is an icy small body that warms as it nears the Sun and grows a glowing coma.</p>
+    </article></body></html>""")
+
+
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
     """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
     _name, relative, encoding = corpus.CORPUS_FILES[2]
@@ -347,6 +368,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("records (1000 rows)", ("records", _table_html(1_000))),
     ),
     "article": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
+    "date": lambda: (("meta tags", _DATE_META), ("json-ld + url", _DATE_JSON_LD)),
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
     "text-main": lambda: (("main (4 KiB)", _TEXT_MAIN),),
