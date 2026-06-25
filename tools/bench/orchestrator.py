@@ -97,18 +97,19 @@ def _try_competitor(
     workdir: Path, competitor: str, operation: str, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float]]:
     """
-    Run the competitor in its venv, returning empty (with a skip note) if provisioning or the run fails.
+    Provision the competitor's venv then run it; a run failure propagates and fails the benchmark.
 
     Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies, html5-parser
-    builds against the system libxml2, metadata_parser pins an older beautifulsoup4 -- so a provisioning or run failure
-    drops just that competitor's column rather than the whole table.
+    builds against the system libxml2, metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops
+    just that competitor's column with a note. Once installed, a crash or timeout while measuring is a real benchmark
+    error, not an environment quirk, so it is left to propagate rather than silently blanking the column.
     """
     try:
         python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
-        return _run_worker(python, competitor, operation, workdir, pyperf_args)
     except subprocess.CalledProcessError:
-        print(f"skipping {competitor}: it did not install or run in its isolated venv", file=sys.stderr)
+        print(f"skipping {competitor}: it did not install in its isolated venv", file=sys.stderr)
         return {}
+    return _run_worker(python, competitor, operation, workdir, pyperf_args)
 
 
 def report_operation(operation: str, pyperf_args: tuple[str, ...]) -> None:
