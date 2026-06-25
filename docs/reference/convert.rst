@@ -5,10 +5,10 @@
 .. module:: turbohtml.convert
 
 Translate a CSS selector into the XPath 1.0 expression that selects the same elements. turbohtml runs both a CSS engine
-and an XPath engine in one process, so the translation needs no second library: it is a successor to
-`cssselect <https://github.com/scrapy/cssselect>`_, the package ``lxml``/``parsel``/``pyquery`` use for exactly this
-step. The emitted XPath uses HTML semantics -- element and attribute names lower-cased, the HTML case-insensitive
-attribute set compared case-insensitively -- so it matches turbohtml's own CSS engine and runs unchanged through
+and an XPath engine in one process, so the translation needs no second library: it is a successor to `cssselect
+<https://github.com/scrapy/cssselect>`_, the package ``lxml``/``parsel``/``pyquery`` use for exactly this step. The
+emitted XPath uses HTML semantics -- element and attribute names lower-cased, the HTML case-insensitive attribute set
+compared case-insensitively -- so it matches turbohtml's own CSS engine and runs unchanged through
 :meth:`turbohtml.Node.xpath`.
 
 .. autofunction:: css_to_xpath

@@ -36,9 +36,7 @@ _ROOT = cast("turbohtml.Element", _DOC.root)
 def _by_xpath(selector: str) -> list[turbohtml.Element]:
     """Return the elements the translated XPath selects, dropping the context root that select excludes."""
     return [
-        node
-        for node in _ROOT.xpath(css_to_xpath(selector))
-        if isinstance(node, turbohtml.Element) and node != _ROOT
+        node for node in _ROOT.xpath(css_to_xpath(selector)) if isinstance(node, turbohtml.Element) and node != _ROOT
     ]
 
 

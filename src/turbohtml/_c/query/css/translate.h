@@ -36,9 +36,9 @@ static int xtr_reserve(xtr_buf *buf, Py_ssize_t extra) {
         cap *= 2;
     }
     Py_UCS4 *grown = PyMem_Realloc(buf->data, (size_t)cap * sizeof(Py_UCS4));
-    if (grown == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        buf->error = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        buf->error = 1;  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     buf->data = grown;
     buf->cap = cap;
@@ -237,7 +237,7 @@ static void xtr_nth(xtr_buf *buf, const char *count_open, const xtr_type *type, 
     do {                                                                                                               \
         xtr_puts(buf, count_open);                                                                                     \
         if (has_type) {                                                                                                \
-            xtr_slice(buf, type->name, type->name_len, 1);                                                            \
+            xtr_slice(buf, type->name, type->name_len, 1);                                                             \
         } else {                                                                                                       \
             xtr_puts(buf, "*");                                                                                        \
         }                                                                                                              \
@@ -351,8 +351,9 @@ static int xtr_pseudo_condition(xtr_buf *buf, const sel_simple *simple, const xt
             PyErr_SetString(PyExc_ValueError, "the :nth-child(... of S) form has no XPath 1.0 translation");
             return -1;
         }
-        xtr_nth(buf, simple->pseudo == PSEUDO_NTH_CHILD ? "count(preceding-sibling::" : "count(following-sibling::",
-                type, 0, simple->nth_a, simple->nth_b);
+        xtr_nth(buf,
+                simple->pseudo == PSEUDO_NTH_CHILD ? "count(preceding-sibling::" : "count(following-sibling::", type, 0,
+                simple->nth_a, simple->nth_b);
         return 0;
     case PSEUDO_NTH_OF_TYPE:
     case PSEUDO_NTH_LAST_OF_TYPE:
@@ -360,8 +361,9 @@ static int xtr_pseudo_condition(xtr_buf *buf, const sel_simple *simple, const xt
             PyErr_SetString(PyExc_ValueError, "the *-of-type pseudo-class needs a concrete element type to translate");
             return -1;
         }
-        xtr_nth(buf, simple->pseudo == PSEUDO_NTH_OF_TYPE ? "count(preceding-sibling::" : "count(following-sibling::",
-                type, 1, simple->nth_a, simple->nth_b);
+        xtr_nth(buf,
+                simple->pseudo == PSEUDO_NTH_OF_TYPE ? "count(preceding-sibling::" : "count(following-sibling::", type,
+                1, simple->nth_a, simple->nth_b);
         return 0;
     case PSEUDO_NOT: {
         for (int arm = 0; arm < simple->sub_count; arm++) {

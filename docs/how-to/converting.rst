@@ -1,10 +1,10 @@
-##################################
+###################################
  Translate a CSS selector to XPath
-##################################
+###################################
 
-*******************************************
+******************************************
  Get the XPath for a selector (cssselect)
-*******************************************
+******************************************
 
 :func:`turbohtml.convert.css_to_xpath` turns a CSS selector into the XPath 1.0 expression that selects the same
 elements, the job `cssselect <https://github.com/scrapy/cssselect>`_ does for ``lxml``/``parsel``/``pyquery``. Because
@@ -36,13 +36,13 @@ selects from anywhere under the context node. The two engines agree on the resul
 
     ['/a'] ['/a']
 
-*******************************************
+*************************
  Port code off cssselect
-*******************************************
+*************************
 
 Code that called ``cssselect.HTMLTranslator().css_to_xpath(css)`` swaps the import for
-:class:`turbohtml.convert.Translator` (re-exported as ``HTMLTranslator``) and keeps the call. Pass a tighter
-``prefix`` -- ``child::`` or ``""`` -- to scope the match instead of searching the whole subtree:
+:class:`turbohtml.convert.Translator` (re-exported as ``HTMLTranslator``) and keeps the call. Pass a tighter ``prefix``
+-- ``child::`` or ``""`` -- to scope the match instead of searching the whole subtree:
 
 .. testcode::
 
@@ -57,13 +57,13 @@ Code that called ``cssselect.HTMLTranslator().css_to_xpath(css)`` swaps the impo
     descendant-or-self::p[(count(preceding-sibling::*)) >= 0 and (count(preceding-sibling::*)) mod 2 = 0]
     child::li
 
-*******************************************
+***********************************
  Handle an untranslatable selector
-*******************************************
+***********************************
 
-XPath 1.0 cannot express a relational ``:has()``, the input-state pseudo-classes, ``:lang()``, or an ``*-of-type``
-with no concrete element type, so those raise :class:`turbohtml.convert.SelectorSyntaxError`. Run the selector
-directly with :meth:`turbohtml.Node.select` instead, which has the full CSS engine:
+XPath 1.0 cannot express a relational ``:has()``, the input-state pseudo-classes, ``:lang()``, or an ``*-of-type`` with
+no concrete element type, so those raise :class:`turbohtml.convert.SelectorSyntaxError`. Run the selector directly with
+:meth:`turbohtml.Node.select` instead, which has the full CSS engine:
 
 .. testcode::
 

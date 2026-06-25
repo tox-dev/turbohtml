@@ -65,14 +65,13 @@ def test_concat_literal_for_value_with_both_quotes() -> None:
 
 def test_double_quote_literal_for_single_quote_value() -> None:
     r"""A value with a single quote but no double quote is wrapped in double quotes."""
-    assert css_to_xpath(r"[title=a\'b]") == "descendant-or-self::*[@title = \"a'b\"]"
+    assert css_to_xpath(r"[title=a\'b]") == 'descendant-or-self::*[@title = "a\'b"]'
 
 
 def test_case_insensitive_attribute_folds_both_sides() -> None:
     """An HTML case-insensitive attribute compares a translate()-lowered value to a lowered literal."""
     assert css_to_xpath("[type=TEXT]") == (
-        "descendant-or-self::*[translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', "
-        "'abcdefghijklmnopqrstuvwxyz') = 'text']"
+        "descendant-or-self::*[translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = 'text']"
     )
 
 
