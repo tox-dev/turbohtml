@@ -1,4 +1,5 @@
-"""cchardet: the C uchardet binding, via the maintained ``faust-cchardet`` drop-in (same ``import cchardet`` + API).
+"""
+cchardet: the C uchardet binding, via the maintained ``faust-cchardet`` drop-in (same ``import cchardet`` + API).
 
 The original ``cchardet`` is unmaintained and no longer builds on current CPython; ``faust-cchardet`` is its actively
 maintained continuation, shipping the identical module name, ``detect()`` surface, and underlying uchardet engine.

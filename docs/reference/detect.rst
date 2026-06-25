@@ -34,9 +34,9 @@ the stateless functions, a detector is stateful and not safe to share across thr
  Configuration
 ***************
 
-All three entry points take one immutable :class:`Detection` config -- a confidence floor, a language hint, and
-encoding allow/deny sets -- so the same tuning applies across the surface. :meth:`Detection.chardet` reproduces
-chardet's default confidence threshold.
+All three entry points take one immutable :class:`Detection` config -- a confidence floor, a language hint, and encoding
+allow/deny sets -- so the same tuning applies across the surface. :meth:`Detection.chardet` reproduces chardet's default
+confidence threshold.
 
 .. autoclass:: Detection
     :members: chardet
