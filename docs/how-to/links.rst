@@ -101,3 +101,63 @@ their opaque URLs are found too (every ``scheme://`` URL is detected without reg
 .. testoutput::
 
     ['http://wiki.corp', 'tel:+1-800-555-0100']
+
+**************************************
+ Clean tracking junk off a single URL
+**************************************
+
+A URL copied out of a page often carries tracking parameters, an escaped ``&amp;``, or stray markup.
+:func:`turbohtml.extract.clean_url` scrubs and canonicalizes it the way ``courlan``'s ``clean_url`` did, returning
+``None`` when nothing usable is left so you can filter a stream of dirty hrefs in one pass:
+
+.. testcode::
+
+    from turbohtml.extract import clean_url
+
+    print(clean_url("  https://Example.COM:443/a//b/?utm_source=news&id=7#sec  "))
+    print(clean_url("   "))
+
+.. testoutput::
+
+    https://example.com/a/b/?id=7#sec
+    None
+
+When the URL is already absolute and you only want it in a canonical form -- lowercased host, default port dropped,
+query sorted -- use :func:`turbohtml.extract.normalize_url`. Share one :class:`~turbohtml.extract.UrlCleaning` config
+across both; :meth:`~turbohtml.extract.UrlCleaning.aggressive` keeps only content-bearing query parameters and drops the
+fragment and trailing slash, which is what you want to deduplicate a crawl frontier:
+
+.. testcode::
+
+    from turbohtml.extract import UrlCleaning, normalize_url
+
+    raw = "http://example.com/p/?id=3&utm_campaign=promo&color=red#frag"
+    print(normalize_url(raw))
+    print(normalize_url(raw, UrlCleaning.aggressive()))
+
+.. testoutput::
+
+    http://example.com/p/?color=red&id=3#frag
+    http://example.com/p/?id=3
+
+*******************************************
+ Harvest the clean web links out of a page
+*******************************************
+
+:func:`turbohtml.extract.extract_links` rolls the whole pipeline into one call: it parses the HTML, finds every link
+(``srcset`` and CSS ``url()`` included, not only ``<a href>``), absolutizes each against ``base_url``, then returns the
+cleaned ``http``/``https`` links as a deduplicated set. Like ``courlan``'s ``extract_links``, it keeps the page's own
+internal links by default; pass ``external_only=True`` for the links that leave the host:
+
+.. testcode::
+
+    from turbohtml.extract import extract_links
+
+    page = "<a href='/a?utm_source=x'>a</a><a href='/a?utm_source=y'>dup</a><a href='https://other.example/z'>out</a>"
+    print(sorted(extract_links(page, "https://example.com/")))
+    print(sorted(extract_links(page, "https://example.com/", external_only=True)))
+
+.. testoutput::
+
+    ['https://example.com/a']
+    ['https://other.example/z']

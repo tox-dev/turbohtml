@@ -116,6 +116,7 @@ OPERATIONS: dict[str, Operation] = {
     "extract-attr": Operation("extract @href per match", "us"),
     "extract-text": Operation("extract text per match", "us"),
     "extract-url": Operation("extract URL hints", "us"),
+    "urls": Operation("clean/normalize/extract URLs", "us"),
     "htmlparser": Operation("feed and dispatch a page", "us"),
     "path": Operation("css_path for every element", "us"),
     "path-xpath": Operation("xpath_path for every element", "us"),
@@ -205,6 +206,15 @@ _URL_HINT_HTML = (
     "<html><head><base href='/sub/'>"
     "<meta http-equiv='refresh' content='5; url=next.html'>"
     "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
+)
+
+_DIRTY_URL = "  https://Example.COM:443/a//b/../c/?utm_source=news&id=7&ref=feed#section  "
+_URL_PAGE_BASE = "https://example.com/blog/"
+_URL_PAGE = (
+    "<html><body><nav>"
+    + "".join(f"<a href='/post/{index}?utm_campaign=promo'>post {index}</a>" for index in range(40))
+    + "<a href='https://other.example.org/x?gclid=abc'>external</a>"
+    "<a href='mailto:hi@example.com'>mail</a></nav></body></html>"
 )
 
 _SVG_FRAGMENT = "<svg><rect/><rect/></svg>"
@@ -356,6 +366,11 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "extract-url": lambda: (
         ("base_url / get_base_url", ("base", _URL_HINT_HTML)),
         ("meta_refresh / get_meta_refresh", ("refresh", _URL_HINT_HTML)),
+    ),
+    "urls": lambda: (
+        ("clean dirty URL", ("clean", _DIRTY_URL)),
+        ("normalize URL", ("normalize", _DIRTY_URL.strip())),
+        ("extract links (page)", ("extract", (_URL_PAGE, _URL_PAGE_BASE))),
     ),
     "htmlparser": _readpath_cases,
     "path": _readpath_cases,

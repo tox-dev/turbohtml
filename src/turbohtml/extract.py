@@ -13,10 +13,15 @@ from __future__ import annotations
 from ._article import Article
 from ._links import Link
 from ._structured_data import MicrodataItem, StructuredData
+from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
 __all__ = [
     "Article",
     "Link",
     "MicrodataItem",
     "StructuredData",
+    "UrlCleaning",
+    "clean_url",
+    "extract_links",
+    "normalize_url",
 ]

@@ -88,6 +88,7 @@ bench = [
   "airium>=0.2.7",
   "beautifulsoup4>=4.15",
   "bleach>=6.4",
+  "courlan>=1.4",
   "cssselect>=1.4",
   "dominate>=2.9.1",
   "extruct>=0.18",

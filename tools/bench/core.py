@@ -18,6 +18,9 @@ from turbohtml import clean as _clean
 from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
+from turbohtml.extract import clean_url as _clean_url
+from turbohtml.extract import extract_links as _extract_links
+from turbohtml.extract import normalize_url as _normalize_url
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -331,6 +334,18 @@ def extract_url(case: tuple[str, str]) -> None:
         turbohtml.parse(text).meta_refresh(_URL_HINT_BASE)
 
 
+def urls(case: tuple[str, object]) -> None:
+    """Clean, normalize, or extract URLs with turbohtml's extract helpers, matching courlan's three calls."""
+    kind, payload = case
+    if kind == "clean":
+        _clean_url(cast("str", payload))
+    elif kind == "normalize":
+        _normalize_url(cast("str", payload))
+    else:
+        html, base_url = cast("tuple[str, str]", payload)
+        _extract_links(html, base_url)
+
+
 class _Counter(_TurboHTMLParser):
     """A turbohtml html.parser adapter subclass whose handler does minimal, identical work."""
 
@@ -462,6 +477,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "extract-attr": (extract_attr, "turbohtml"),
     "extract-text": (extract_text, "turbohtml"),
     "extract-url": (extract_url, "turbohtml"),
+    "urls": (urls, "turbohtml"),
     "htmlparser": (htmlparser, "turbohtml"),
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),

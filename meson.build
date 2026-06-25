@@ -66,6 +66,7 @@ py.install_sources(
         'src/turbohtml/_render.py',
         'src/turbohtml/_sanitizer.py',
         'src/turbohtml/_structured_data.py',
+        'src/turbohtml/_urls.py',
         'src/turbohtml/_xpath.py',
         'src/turbohtml/build.py',
         'src/turbohtml/clean.py',
