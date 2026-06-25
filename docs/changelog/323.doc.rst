@@ -1,4 +1,3 @@
-The benchmark suite now measures structured-data extraction against `microdata
-<https://github.com/edsu/microdata>`__ and OpenGraph card extraction against `opengraph_py3
-<https://github.com/erikriver/opengraph>`__, each isolated in its own venv, so the Microdata and OpenGraph comparisons
-carry competitor baselines - by :user:`gaborbernat`.
+The benchmark suite now measures structured-data extraction against `microdata <https://github.com/edsu/microdata>`__
+and OpenGraph card extraction against `opengraph_py3 <https://github.com/erikriver/opengraph>`__, each isolated in its
+own venv, so the Microdata and OpenGraph comparisons carry competitor baselines - by :user:`gaborbernat`.
