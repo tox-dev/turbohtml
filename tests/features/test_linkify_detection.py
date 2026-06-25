@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from turbohtml._html import _linkify_scan
-from turbohtml.linkify import linkify
+from turbohtml.linkify import Linkify, linkify
 
 if TYPE_CHECKING:
     from turbohtml.linkify import Callback
@@ -16,41 +16,41 @@ def _no_callbacks() -> list[Callback]:
 
 
 def test_extra_tlds_links_custom_bare_domain() -> None:
-    out = linkify("visit foo.internal here", callbacks=_no_callbacks(), extra_tlds=["internal"])
+    out = linkify("visit foo.internal here", Linkify(callbacks=_no_callbacks(), extra_tlds=["internal"]))
     assert out == 'visit <a href="http://foo.internal">foo.internal</a> here'
 
 
 def test_extra_tlds_is_case_insensitive() -> None:
-    out = linkify("foo.LOCAL", callbacks=_no_callbacks(), extra_tlds=["local"])
+    out = linkify("foo.LOCAL", Linkify(callbacks=_no_callbacks(), extra_tlds=["local"]))
     assert out == '<a href="http://foo.LOCAL">foo.LOCAL</a>'
 
 
 def test_extra_tlds_absent_leaves_unknown_tld_plain() -> None:
-    assert linkify("foo.internal here", callbacks=_no_callbacks()) == "foo.internal here"
+    assert linkify("foo.internal here", Linkify(callbacks=_no_callbacks())) == "foo.internal here"
 
 
 def test_extra_tlds_still_links_builtin_tld() -> None:
-    out = linkify("example.com", callbacks=_no_callbacks(), extra_tlds=["internal"])
+    out = linkify("example.com", Linkify(callbacks=_no_callbacks(), extra_tlds=["internal"]))
     assert out == '<a href="http://example.com">example.com</a>'
 
 
 def test_schemes_blocks_unlisted_scheme() -> None:
-    out = linkify("ftp://x.com and http://y.com", callbacks=_no_callbacks(), schemes=["http"])
+    out = linkify("ftp://x.com and http://y.com", Linkify(callbacks=_no_callbacks(), schemes=["http"]))
     assert out == 'ftp://x.com and <a href="http://y.com">http://y.com</a>'
 
 
 def test_schemes_is_case_insensitive() -> None:
-    out = linkify("HTTP://x.com", callbacks=_no_callbacks(), schemes=["http"])
+    out = linkify("HTTP://x.com", Linkify(callbacks=_no_callbacks(), schemes=["http"]))
     assert out == '<a href="HTTP://x.com">HTTP://x.com</a>'
 
 
 def test_schemes_does_not_gate_bare_domains() -> None:
-    out = linkify("see example.com", callbacks=_no_callbacks(), schemes=["https"])
+    out = linkify("see example.com", Linkify(callbacks=_no_callbacks(), schemes=["https"]))
     assert out == 'see <a href="http://example.com">example.com</a>'
 
 
 def test_schemes_none_allows_every_scheme() -> None:
-    out = linkify("ftp://x.com", callbacks=_no_callbacks())
+    out = linkify("ftp://x.com", Linkify(callbacks=_no_callbacks()))
     assert out == '<a href="ftp://x.com">ftp://x.com</a>'
 
 

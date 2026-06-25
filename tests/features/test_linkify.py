@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from turbohtml._html import _linkify_scan
-from turbohtml.linkify import DEFAULT_CALLBACKS, Link, Linker, linkify, nofollow, target_blank
+from turbohtml.linkify import DEFAULT_CALLBACKS, Link, Linker, Linkify, linkify, nofollow, target_blank
 
 if TYPE_CHECKING:
     from turbohtml.linkify import Callback
@@ -103,7 +103,7 @@ def _no_callbacks() -> list[Callback]:
     ],
 )
 def test_linkify_plain(text: str, expected: str) -> None:
-    assert linkify(text, callbacks=_no_callbacks()) == expected
+    assert linkify(text, Linkify(callbacks=_no_callbacks())) == expected
 
 
 @pytest.mark.parametrize(
@@ -115,7 +115,7 @@ def test_linkify_plain(text: str, expected: str) -> None:
 )  # fmt: skip
 def test_linkify_each_unicode_space_ends_url(cp: int) -> None:
     # every Unicode White_Space code point bounds the host the way an ASCII space does
-    out = linkify(f"http://x.com{chr(cp)}y", callbacks=_no_callbacks())
+    out = linkify(f"http://x.com{chr(cp)}y", Linkify(callbacks=_no_callbacks()))
     assert out.startswith('<a href="http://x.com">http://x.com</a>')
 
 
@@ -125,7 +125,7 @@ def test_linkify_default_callback_adds_nofollow() -> None:
 
 def test_linkify_leaves_existing_anchor_untouched() -> None:
     html = '<a href="http://x.com">http://y.com</a> and http://z.com'
-    assert linkify(html, callbacks=_no_callbacks()) == (
+    assert linkify(html, Linkify(callbacks=_no_callbacks())) == (
         '<a href="http://x.com">http://y.com</a> and <a href="http://z.com">http://z.com</a>'
     )
 
@@ -133,25 +133,25 @@ def test_linkify_leaves_existing_anchor_untouched() -> None:
 @pytest.mark.parametrize("tag", ["script", "style"])
 def test_linkify_skips_raw_text_elements(tag: str) -> None:
     html = f"<{tag}>http://x.com</{tag}>http://y.com"
-    out = linkify(html, callbacks=_no_callbacks())
+    out = linkify(html, Linkify(callbacks=_no_callbacks()))
     assert f"<{tag}>http://x.com</{tag}>" in out
     assert '<a href="http://y.com">' in out
 
 
 def test_linkify_skip_tags() -> None:
     html = "<code>http://x.com</code> http://y.com"
-    out = linkify(html, skip_tags=["code"], callbacks=_no_callbacks())
+    out = linkify(html, Linkify(skip_tags=["code"], callbacks=_no_callbacks()))
     assert out == '<code>http://x.com</code> <a href="http://y.com">http://y.com</a>'
 
 
 def test_linkify_nested_skip_tag_stays_skipped() -> None:
     html = "<code><span>http://x.com</span></code>"
-    assert linkify(html, skip_tags=["code"], callbacks=_no_callbacks()) == html
+    assert linkify(html, Linkify(skip_tags=["code"], callbacks=_no_callbacks())) == html
 
 
 def test_linkify_leaves_comment_nodes_untouched() -> None:
     html = "<!-- http://skip.com --> http://link.com"
-    out = linkify(html, callbacks=_no_callbacks())
+    out = linkify(html, Linkify(callbacks=_no_callbacks()))
     assert out == '<!-- http://skip.com --> <a href="http://link.com">http://link.com</a>'
 
 
@@ -160,23 +160,23 @@ def test_linkify_email_off_by_default() -> None:
 
 
 def test_linkify_email_when_enabled() -> None:
-    out = linkify("reach bob@example.com now", parse_email=True, callbacks=_no_callbacks())
+    out = linkify("reach bob@example.com now", Linkify(parse_email=True, callbacks=_no_callbacks()))
     assert out == 'reach <a href="mailto:bob@example.com">bob@example.com</a> now'
 
 
 def test_linkify_email_local_part_ends_at_unicode_space() -> None:
     # Unicode whitespace bounds the email local part the way an ASCII space does (issue #53)
-    out = linkify("foo\xa0bar@example.com", parse_email=True, callbacks=_no_callbacks())
+    out = linkify("foo\xa0bar@example.com", Linkify(parse_email=True, callbacks=_no_callbacks()))
     assert out == 'foo&nbsp;<a href="mailto:bar@example.com">bar@example.com</a>'
 
 
 def test_linkify_email_keeps_non_ascii_local_part() -> None:
-    out = linkify("naïve@example.com", parse_email=True, callbacks=_no_callbacks())
+    out = linkify("naïve@example.com", Linkify(parse_email=True, callbacks=_no_callbacks()))
     assert out == '<a href="mailto:naïve@example.com">naïve@example.com</a>'
 
 
 def test_linkify_veto_callback_keeps_plain_text() -> None:
-    assert linkify("http://x.com", callbacks=[lambda link: None]) == "http://x.com"  # noqa: ARG005
+    assert linkify("http://x.com", Linkify(callbacks=[lambda link: None])) == "http://x.com"  # noqa: ARG005
 
 
 def test_linkify_callback_can_change_text() -> None:
@@ -184,7 +184,7 @@ def test_linkify_callback_can_change_text() -> None:
         link.text = "link"
         return link
 
-    assert linkify("http://x.com", callbacks=[shorten]) == '<a href="http://x.com">link</a>'
+    assert linkify("http://x.com", Linkify(callbacks=[shorten])) == '<a href="http://x.com">link</a>'
 
 
 def test_linkify_callback_can_add_attribute() -> None:
@@ -192,16 +192,17 @@ def test_linkify_callback_can_add_attribute() -> None:
         link.attrs["class"] = "ext"
         return link
 
-    assert linkify("http://x.com", callbacks=[add_class]) == '<a href="http://x.com" class="ext">http://x.com</a>'
+    out = linkify("http://x.com", Linkify(callbacks=[add_class]))
+    assert out == '<a href="http://x.com" class="ext">http://x.com</a>'
 
 
 def test_linkify_callback_chain_runs_in_order() -> None:
-    out = linkify("http://x.com", callbacks=[nofollow, target_blank])
+    out = linkify("http://x.com", Linkify(callbacks=[nofollow, target_blank]))
     assert out == '<a href="http://x.com" rel="nofollow" target="_blank">http://x.com</a>'
 
 
 def test_linker_is_reusable() -> None:
-    linker = Linker(callbacks=_no_callbacks())
+    linker = Linker(Linkify(callbacks=_no_callbacks()))
     assert linker.linkify("http://a.example.com") == '<a href="http://a.example.com">http://a.example.com</a>'
     assert linker.linkify("http://b.example.com") == '<a href="http://b.example.com">http://b.example.com</a>'
 
@@ -242,7 +243,7 @@ def test_target_blank(url: str, attrs: dict[str, str], expected: dict[str, str])
 
 
 def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
-    out = linkify("go example.com/r?u=http://evil.com end", callbacks=_no_callbacks())
+    out = linkify("go example.com/r?u=http://evil.com end", Linkify(callbacks=_no_callbacks()))
     assert out == 'go <a href="http://example.com/r?u=http://evil.com">example.com/r?u=http://evil.com</a> end'
 
 

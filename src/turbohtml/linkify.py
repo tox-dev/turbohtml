@@ -12,6 +12,7 @@ mutate or veto before it is written as an ``<a>``, and the tree serializes back 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
 from ._html import Element, Text, _linkify_find, _linkify_scan, parse_fragment
@@ -116,9 +117,12 @@ def target_blank(link: Link) -> Link | None:
 DEFAULT_CALLBACKS = (nofollow,)
 
 
-class Linker:
+@dataclass(frozen=True)
+class Linkify:
     """
-    A reusable linkifier; build it once with a configuration and call :meth:`linkify` per document.
+    An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
+
+    Build one and reuse it across threads.
 
     :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
     :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
@@ -129,23 +133,30 @@ class Linker:
         always treated as ``http`` and is governed by the TLD table, not ``schemes``.
     """
 
-    def __init__(  # noqa: PLR0913  # configuration knobs, each independent, not a refactor candidate
-        self,
-        callbacks: Iterable[Callback] = DEFAULT_CALLBACKS,
-        skip_tags: Iterable[str] | None = None,
-        parse_email: bool = False,  # noqa: FBT001, FBT002  # parse_email is a flag, not a boolean trap, and stays positional
-        *,
-        process_existing: bool = False,
-        extra_tlds: Iterable[str] | None = None,
-        schemes: Iterable[str] | None = None,
-    ) -> None:
-        """Build a reusable linkifier."""
-        self.callbacks = list(callbacks)
-        self.skip_tags = frozenset(skip_tags or ())
-        self.parse_email = parse_email
-        self.process_existing = process_existing
-        self.extra_tlds = tuple(sorted({tld.lower() for tld in extra_tlds})) if extra_tlds else ()
-        self.schemes = frozenset(scheme.lower() for scheme in schemes) if schemes is not None else None
+    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
+    skip_tags: Iterable[str] | None = None
+    parse_email: bool = False
+    process_existing: bool = False
+    extra_tlds: Iterable[str] | None = None
+    schemes: Iterable[str] | None = None
+
+
+class Linker:
+    """
+    A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
+
+    :param config: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    """
+
+    def __init__(self, config: Linkify | None = None) -> None:
+        """Compile a configuration into the form the walk consumes."""
+        config = config if config is not None else Linkify()
+        self.callbacks = list(config.callbacks)
+        self.skip_tags = frozenset(config.skip_tags or ())
+        self.parse_email = config.parse_email
+        self.process_existing = config.process_existing
+        self.extra_tlds = tuple(sorted({tld.lower() for tld in config.extra_tlds})) if config.extra_tlds else ()
+        self.schemes = frozenset(scheme.lower() for scheme in config.schemes) if config.schemes is not None else None
 
     def linkify(self, text: str) -> str:
         """
@@ -234,36 +245,15 @@ class Linker:
         return anchor
 
 
-def linkify(  # noqa: PLR0913  # configuration knobs, each independent, not a refactor candidate
-    text: str,
-    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS,
-    skip_tags: Iterable[str] | None = None,
-    parse_email: bool = False,  # noqa: FBT001, FBT002  # parse_email is a flag, not a boolean trap, and stays positional
-    *,
-    process_existing: bool = False,
-    extra_tlds: Iterable[str] | None = None,
-    schemes: Iterable[str] | None = None,
-) -> str:
+def linkify(text: str, config: Linkify | None = None) -> str:
     """
     Find URLs and email addresses in HTML and wrap them in ``<a>`` links, leaving existing markup untouched.
 
     :param text: the HTML to linkify.
-    :param callbacks: callables run on each detected link to adjust or veto it.
-    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-    :param parse_email: also autolink bare email addresses as ``mailto:`` links.
-    :param process_existing: also run the callbacks over ``<a>`` tags already in the input.
-    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
-    :param schemes: restrict which explicit-scheme URLs autolink; None keeps every scheme.
+    :param config: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
     :returns: the linkified HTML.
     """
-    return Linker(
-        callbacks,
-        skip_tags,
-        parse_email,
-        process_existing=process_existing,
-        extra_tlds=extra_tlds,
-        schemes=schemes,
-    ).linkify(text)
+    return Linker(config).linkify(text)
 
 
 class LinkSpan:
@@ -374,6 +364,7 @@ __all__ = [
     "Link",
     "LinkSpan",
     "Linker",
+    "Linkify",
     "linkify",
     "nofollow",
     "target_blank",

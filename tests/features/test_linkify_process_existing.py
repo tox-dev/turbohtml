@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from turbohtml.linkify import Link, linkify, nofollow, target_blank
+from turbohtml.linkify import Link, Linkify, linkify, nofollow, target_blank
 
 if TYPE_CHECKING:
     from turbohtml.linkify import Callback
@@ -22,17 +22,17 @@ def test_link_existing_can_be_set() -> None:
 
 def test_existing_anchor_untouched_without_flag() -> None:
     html = '<a href="http://x.com">x</a>'
-    assert linkify(html, callbacks=[nofollow]) == html
+    assert linkify(html, Linkify(callbacks=[nofollow])) == html
 
 
 def test_process_existing_runs_callbacks_over_anchor() -> None:
     html = '<a href="http://x.com">x</a>'
-    assert linkify(html, process_existing=True) == '<a href="http://x.com" rel="nofollow">x</a>'
+    assert linkify(html, Linkify(process_existing=True)) == '<a href="http://x.com" rel="nofollow">x</a>'
 
 
 def test_process_existing_veto_unwraps_anchor() -> None:
     html = '<a href="http://x.com">click</a>'
-    assert linkify(html, callbacks=[lambda _link: None], process_existing=True) == "click"
+    assert linkify(html, Linkify(callbacks=[lambda _link: None], process_existing=True)) == "click"
 
 
 def test_process_existing_can_change_text() -> None:
@@ -41,7 +41,7 @@ def test_process_existing_can_change_text() -> None:
         return link
 
     html = '<a href="http://x.com">original</a>'
-    assert linkify(html, callbacks=[relabel], process_existing=True) == '<a href="http://x.com">link</a>'
+    assert linkify(html, Linkify(callbacks=[relabel], process_existing=True)) == '<a href="http://x.com">link</a>'
 
 
 def test_process_existing_keeps_inner_markup_when_text_unchanged() -> None:
@@ -50,28 +50,31 @@ def test_process_existing_keeps_inner_markup_when_text_unchanged() -> None:
         return link
 
     html = '<a href="http://x.com"><b>x</b></a>'
-    assert linkify(html, callbacks=[add_rel], process_existing=True) == '<a href="http://x.com" rel="ext"><b>x</b></a>'
+    out = linkify(html, Linkify(callbacks=[add_rel], process_existing=True))
+    assert out == '<a href="http://x.com" rel="ext"><b>x</b></a>'
 
 
 def test_process_existing_callback_can_remove_attr() -> None:
     html = '<a href="mailto:a@b.com" target="_blank">mail</a>'
-    assert linkify(html, callbacks=[target_blank], process_existing=True) == '<a href="mailto:a@b.com">mail</a>'
+    out = linkify(html, Linkify(callbacks=[target_blank], process_existing=True))
+    assert out == '<a href="mailto:a@b.com">mail</a>'
 
 
 def test_process_existing_preserves_token_list_attr() -> None:
     html = '<a href="http://x.com" class="a b">x</a>'
-    assert linkify(html, callbacks=_no_callbacks(), process_existing=True) == '<a href="http://x.com" class="a b">x</a>'
+    out = linkify(html, Linkify(callbacks=_no_callbacks(), process_existing=True))
+    assert out == '<a href="http://x.com" class="a b">x</a>'
 
 
 def test_process_existing_flattens_valueless_attr() -> None:
     html = "<a download>x</a>"
-    out = linkify(html, callbacks=_no_callbacks(), process_existing=True)
+    out = linkify(html, Linkify(callbacks=_no_callbacks(), process_existing=True))
     assert out == '<a download="">x</a>'
 
 
 def test_process_existing_anchor_without_href_stays_bare() -> None:
     html = "<a>plain</a>"
-    assert linkify(html, callbacks=[nofollow], process_existing=True) == "<a>plain</a>"
+    assert linkify(html, Linkify(callbacks=[nofollow], process_existing=True)) == "<a>plain</a>"
 
 
 def test_existing_flag_distinguishes_existing_from_detected() -> None:
@@ -80,20 +83,20 @@ def test_existing_flag_distinguishes_existing_from_detected() -> None:
         return link
 
     html = '<a href="http://x.com">x</a> see http://y.com'
-    out = linkify(html, callbacks=[mark], process_existing=True)
+    out = linkify(html, Linkify(callbacks=[mark], process_existing=True))
     assert '<a href="http://x.com" data-kind="existing">x</a>' in out
     assert 'data-kind="new"' in out
 
 
 def test_process_existing_still_detects_links_in_other_tags() -> None:
     html = "<p>see http://x.com</p>"
-    out = linkify(html, callbacks=_no_callbacks(), process_existing=True)
+    out = linkify(html, Linkify(callbacks=_no_callbacks(), process_existing=True))
     assert out == '<p>see <a href="http://x.com">http://x.com</a></p>'
 
 
 def test_process_existing_leaves_anchor_in_skip_tag_alone() -> None:
     html = '<code><a href="http://x.com">x</a></code>'
-    assert linkify(html, callbacks=[nofollow], skip_tags=["code"], process_existing=True) == html
+    assert linkify(html, Linkify(callbacks=[nofollow], skip_tags=["code"], process_existing=True)) == html
 
 
 def test_how_to_doctest_scenario() -> None:
@@ -102,7 +105,9 @@ def test_how_to_doctest_scenario() -> None:
         return link
 
     html = '<a href="https://docs.example">docs</a>, ping app.internal, skip ftp://x.example'
-    out = linkify(html, callbacks=[annotate], process_existing=True, extra_tlds=["internal"], schemes=["https"])
+    out = linkify(
+        html, Linkify(callbacks=[annotate], process_existing=True, extra_tlds=["internal"], schemes=["https"])
+    )
     assert out == (
         '<a href="https://docs.example" data-seen="author">docs</a>, '
         'ping <a href="http://app.internal" data-seen="auto">app.internal</a>, skip ftp://x.example'

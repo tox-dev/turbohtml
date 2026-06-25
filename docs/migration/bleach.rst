@@ -111,7 +111,7 @@ The entry points keep bleach's names, so the import changes and the common case 
     from bleach.callbacks import nofollow, target_blank
 
     # turbohtml
-    from turbohtml.linkify import linkify, Linker, DEFAULT_CALLBACKS, nofollow, target_blank
+    from turbohtml.linkify import linkify, Linker, Linkify, DEFAULT_CALLBACKS, nofollow, target_blank
 
 .. list-table::
     :header-rows: 1
@@ -132,11 +132,12 @@ The entry points keep bleach's names, so the import changes and the common case 
     - - ``new`` flag
       - ``Link.existing`` (inverted)
     - - ``protocols=``
-      - ``schemes=``
+      - ``Linkify.schemes``
 
-``linkify(text, callbacks=..., skip_tags=..., parse_email=...)``, the reusable :class:`~turbohtml.linkify.Linker`, and
-the ``nofollow``/``target_blank`` defaults work as before. Only custom callbacks change shape. bleach passed ``(attrs,
-new)`` where ``attrs`` was keyed by ``(namespace, name)`` tuples with a ``"_text"`` pseudo-key for the visible text;
+``linkify(text, Linkify(callbacks=..., skip_tags=..., parse_email=...))``, the reusable
+:class:`~turbohtml.linkify.Linker`, and the ``nofollow``/``target_blank`` defaults work as before: the six knobs are now
+fields of a frozen :class:`~turbohtml.linkify.Linkify` config. Only custom callbacks change shape. bleach passed
+``(attrs, new)`` where ``attrs`` was keyed by ``(namespace, name)`` tuples with a ``"_text"`` pseudo-key for the text;
 turbohtml passes a single :class:`~turbohtml.linkify.Link` with plain ``url``, ``text``, and ``attrs`` (a ``dict[str,
 str]``), and a callback returns it to keep the link or ``None`` to leave the text bare. bleach's ``new`` flag becomes
 ``Link.existing`` (inverted: ``new=True`` is ``existing=False``). Porting a callback means reading fields instead of
@@ -144,7 +145,7 @@ tuple keys:
 
 .. testcode::
 
-    from turbohtml.linkify import linkify, Link
+    from turbohtml.linkify import Link, Linkify, linkify
 
 
     def shorten(link: Link) -> Link | None:
@@ -152,19 +153,19 @@ tuple keys:
         return link
 
 
-    print(linkify("read https://example.com/page", callbacks=[shorten]))
+    print(linkify("read https://example.com/page", Linkify(callbacks=[shorten])))
 
 .. testoutput::
 
     read <a href="https://example.com/page">example.com/page</a>
 
-bleach's ``protocols`` maps to ``schemes``, which restricts the explicit URL schemes that autolink, and bleach's
-custom-TLD support maps to ``extra_tlds``, on top of a current IANA table you can regenerate where bleach shipped a
-frozen list. A bare domain such as ``example.com`` still links only when its last label is a known TLD.
+bleach's ``protocols`` maps to the ``Linkify.schemes`` field, which restricts the explicit URL schemes that autolink,
+and bleach's custom-TLD support maps to ``Linkify.extra_tlds``, on top of a current IANA table you can regenerate where
+bleach shipped a frozen list. A bare domain such as ``example.com`` still links only when its last label is a known TLD.
 
 Pitfalls
 ========
 
 - turbohtml leaves an existing ``<a>`` untouched so linkifying is idempotent, where bleach always reprocessed present
-  links. Opt back in with ``process_existing=True`` to run the callbacks over author-written anchors too (the callback
-  reads ``Link.existing`` to branch).
+  links. Opt back in with the ``Linkify.process_existing`` field to run the callbacks over author-written anchors too
+  (the callback reads ``Link.existing`` to branch).

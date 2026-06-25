@@ -31,27 +31,29 @@ returning ``None`` leaves a link untouched.
 
 To linkify user-entered text the way `bleach.linkify <https://github.com/mozilla/bleach>`_ did, use
 :func:`turbohtml.linkify.linkify`. It parses the HTML, so it links only in text the reader sees, never inside an
-existing ``<a>``, a ``<script>``, or a tag you list in ``skip_tags``. Email autolinking is behind ``parse_email``
-because not every page wants it. The default ``nofollow`` callback marks web links, and leaves a ``mailto:`` link alone:
+existing ``<a>``, a ``<script>``, or a tag you list in the ``Linkify.skip_tags`` field. Email autolinking is behind the
+``Linkify.parse_email`` field because not every page wants it. The default ``nofollow`` callback marks web links, and
+leaves a ``mailto:`` link alone:
 
 .. testcode::
 
-    from turbohtml.linkify import linkify
+    from turbohtml.linkify import Linkify, linkify
 
-    print(linkify("email bob@example.com or visit https://example.com", parse_email=True))
+    print(linkify("email bob@example.com or visit https://example.com", Linkify(parse_email=True)))
 
 .. testoutput::
 
     email <a href="mailto:bob@example.com">bob@example.com</a> or visit <a href="https://example.com" rel="nofollow">https://example.com</a>
 
-By default the callbacks only see freshly detected links; pass ``process_existing=True`` to also run them over ``<a>``
-tags already in the input. A callback reads ``link.existing`` to tell an author's anchor from a detected one, and
-returning ``None`` for an existing anchor unwraps it to its text. Use ``extra_tlds`` to link bare domains on a private
-suffix the IANA table does not know, and ``schemes`` to autolink only an allowlist of explicit URL schemes:
+By default the callbacks only see freshly detected links; set the ``Linkify.process_existing`` field to ``True`` to also
+run them over ``<a>`` tags already in the input. A callback reads ``link.existing`` to tell an author's anchor from a
+detected one, and returning ``None`` for an existing anchor unwraps it to its text. Use the ``Linkify.extra_tlds`` field
+to link bare domains on a private suffix the IANA table does not know, and ``Linkify.schemes`` to autolink only an
+allowlist of explicit URL schemes:
 
 .. testcode::
 
-    from turbohtml.linkify import Link, linkify
+    from turbohtml.linkify import Link, Linkify, linkify
 
 
     def annotate(link: Link) -> Link:
@@ -60,7 +62,8 @@ suffix the IANA table does not know, and ``schemes`` to autolink only an allowli
 
 
     html = '<a href="https://docs.example">docs</a>, ping app.internal, skip ftp://x.example'
-    print(linkify(html, callbacks=[annotate], process_existing=True, extra_tlds=["internal"], schemes=["https"]))
+    config = Linkify(callbacks=[annotate], process_existing=True, extra_tlds=["internal"], schemes=["https"])
+    print(linkify(html, config))
 
 .. testoutput::
 
