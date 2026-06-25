@@ -70,6 +70,7 @@ py.install_sources(
         'src/turbohtml/build.py',
         'src/turbohtml/clean.py',
         'src/turbohtml/extract.py',
+        'src/turbohtml/match.py',
         'src/turbohtml/query.py',
         'src/turbohtml/py.typed',
     ],
