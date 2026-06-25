@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import Minify
-from turbohtml.clean import minify
 from turbohtml.clean import Minify as CleanMinify
+from turbohtml.clean import minify
 
 _DOC = "<html><head><title>Hi</title></head><body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"
 
@@ -42,7 +42,8 @@ def test_minify_keep_comments_retains_comment() -> None:
 
 def test_minify_keep_optional_tags_retains_html_and_body() -> None:
     out = minify(_DOC, Minify(omit_optional_tags=False))
-    assert out.startswith("<html><head>") and "<body>" in out
+    assert out.startswith("<html><head>")
+    assert "<body>" in out
 
 
 def test_minify_keep_quotes_retains_attribute_quotes() -> None:
