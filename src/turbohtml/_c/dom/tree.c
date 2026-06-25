@@ -562,7 +562,7 @@ static void insertion_location(th_tree *tree, th_node **parent, th_node **before
 }
 
 static th_node *insert_element(th_tree *tree, const th_token *token) {
-    th_node *node = node_new(tree, TH_NODE_ELEMENT);
+    th_node *node = node_new_with_attrs(tree, TH_NODE_ELEMENT, token->attr_count);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
@@ -576,11 +576,6 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
     }
     node->text = buf_to_ucs4(tree, &token->name, &node->text_len);
     if (token->attr_count > 0) {
-        node->attrs = arena_alloc(tree, token->attr_count * (Py_ssize_t)sizeof(th_node_attr));
-        if (node->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
-        node->attr_count = token->attr_count;
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *src = &token->attrs[index];
             th_node_attr *dst = &node->attrs[index];

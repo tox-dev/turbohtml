@@ -185,6 +185,36 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     return node;
 }
 
+/* Like node_new but co-allocates attr_count attribute slots in the same arena
+   bump, right after the node (and its optional position slots). The arena is
+   16-byte aligned and the struct size is a multiple of th_node_attr's alignment,
+   so node->attrs lands aligned without a second allocation. node->attrs stays
+   NULL when attr_count is 0. merge_attrs may later realloc attrs elsewhere, so
+   callers never assume the slots remain adjacent. */
+static inline th_node *node_new_with_attrs(th_tree *tree, enum th_node_type type, Py_ssize_t attr_count) {
+    /* only called for elements, so (unlike node_new) the type is not re-tested:
+       that comparison would never take its false branch here */
+    int positioned = tree->track_positions;
+    Py_ssize_t pos_bytes = positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0;
+    Py_ssize_t size = (Py_ssize_t)sizeof(th_node) + pos_bytes + attr_count * (Py_ssize_t)sizeof(th_node_attr);
+    th_node *node = arena_alloc(tree, size);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    memset(node, 0, sizeof(*node));
+    if (positioned) {
+        node_pos(node)[0] = 0; /* line; 0 = no source until insert_element sets it */
+        node_pos(node)[1] = 0; /* col */
+    }
+    node->type = type;
+    node->atom = TH_TAG_UNKNOWN;
+    if (attr_count > 0) {
+        node->attrs = (th_node_attr *)((char *)node + sizeof(th_node) + pos_bytes);
+        node->attr_count = attr_count;
+    }
+    return node;
+}
+
 static inline void node_append(th_node *parent, th_node *child) {
     child->parent = parent;
     child->prev_sibling = parent->last_child;
