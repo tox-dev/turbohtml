@@ -26,9 +26,9 @@ title, byline, date, description, and language -- as one :class:`~turbohtml.Arti
 
     Comets | article
 
-**********************************************
+*********************************************
  Label every block as content or boilerplate
-**********************************************
+*********************************************
 
 When you need the finer ``justext`` / ``boilerpy3`` view -- a verdict for *every* block of text, not just the single
 winning element -- use :func:`turbohtml.extract.boilerplate`. It reuses the same content scoring to find the article
@@ -66,9 +66,9 @@ Keep only the article text by filtering on the flag, dropping headings too if yo
 
     A comet is an icy body that releases gas, forming a glowing tail as it nears the Sun.
 
-************************
+*********************
  Tune the thresholds
-************************
+*********************
 
 Pass an :class:`~turbohtml.extract.Extraction` config to change how strict the verdict is: ``min_text_length`` sets the
 shortest block that can count as content, ``max_link_density`` the largest fraction of a block that may sit inside links

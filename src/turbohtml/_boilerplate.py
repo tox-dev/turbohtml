@@ -139,11 +139,7 @@ def boilerplate(markup: str | bytes, options: Extraction | None = None, /) -> li
     document = parse(markup)
     content = document.main_content()
     inside = set() if content is None else {content, *content.descendants}
-    paragraphs = []
-    for block in _leaf_blocks(document):
-        if text := _fold(block.text):
-            paragraphs.append(_classify(block, text, in_content=block in inside, options=settings))
-    return paragraphs
+    return [_classify(block, text, in_content=block in inside, options=settings) for block in _leaf_blocks(document) if (text := _fold(block.text))]
 
 
 _DEFAULT = Extraction()

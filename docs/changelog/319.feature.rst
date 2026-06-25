@@ -3,5 +3,5 @@ Add :func:`turbohtml.extract.boilerplate`, a paragraph-level content/boilerplate
 layer over the same C content scoring as :meth:`~turbohtml.Node.main_content`, locating the article region and then
 labelling each block against the :class:`~turbohtml.extract.Extraction` thresholds (minimum length, link density,
 heading handling, with :meth:`~turbohtml.extract.Extraction.justext` and :meth:`~turbohtml.extract.Extraction.goose3`
-presets). This is the per-paragraph view ``justext`` and ``boilerpy3`` expose, which
-:meth:`~turbohtml.Node.article` -- returning only the single winning element -- did not previously cover.
+presets). This is the per-paragraph view ``justext`` and ``boilerpy3`` expose, which :meth:`~turbohtml.Node.article` --
+returning only the single winning element -- did not previously cover.

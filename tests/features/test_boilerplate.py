@@ -46,7 +46,12 @@ def test_returns_paragraph_records() -> None:
 
 
 def test_keeps_document_order() -> None:
-    assert texts(boilerplate(PAGE)) == ["Comets", PROSE, PROSE_TWO, "Copyright notice, all rights reserved here forever and ever amen."]
+    assert texts(boilerplate(PAGE)) == [
+        "Comets",
+        PROSE,
+        PROSE_TWO,
+        "Copyright notice, all rights reserved here forever and ever amen.",
+    ]
 
 
 def test_article_prose_is_content() -> None:
