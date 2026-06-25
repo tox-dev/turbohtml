@@ -4,13 +4,15 @@
 #include "dom/nodes.h"
 
 static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"collapse_whitespace", "omit_optional_tags", "unquote_attributes", "strip_comments",
-                               NULL};
+    static char *keywords[] = {"collapse_whitespace", "omit_optional_tags", "unquote_attributes",
+                               "strip_comments",      "minify_css",         NULL};
     int collapse = 1;
     int omit = 1;
     int unquote = 1;
     int strip = 1;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$pppp:Minify", keywords, &collapse, &omit, &unquote, &strip)) {
+    int css = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppppp:Minify", keywords, &collapse, &omit, &unquote, &strip,
+                                     &css)) {
         return NULL;
     }
     MinifyObject *self = (MinifyObject *)type->tp_alloc(type, 0);
@@ -21,6 +23,7 @@ static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
     self->omit_optional_tags = (unsigned char)omit;
     self->unquote_attributes = (unsigned char)unquote;
     self->strip_comments = (unsigned char)strip;
+    self->minify_css = (unsigned char)css;
     return (PyObject *)self;
 }
 
@@ -40,19 +43,24 @@ static PyObject *minify_get_strip(PyObject *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(((MinifyObject *)self)->strip_comments);
 }
 
+static PyObject *minify_get_css(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(((MinifyObject *)self)->minify_css);
+}
+
 static PyGetSetDef minify_getset[] = {
     {"collapse_whitespace", minify_get_collapse, NULL, "fold insignificant whitespace runs to a single space", NULL},
     {"omit_optional_tags", minify_get_omit, NULL, "drop the start/end tags the WHATWG rules make optional", NULL},
     {"unquote_attributes", minify_get_unquote, NULL, "drop redundant attribute quotes and empty values", NULL},
     {"strip_comments", minify_get_strip, NULL, "remove comment nodes", NULL},
+    {"minify_css", minify_get_css, NULL, "fold whitespace and drop comments in <style> CSS and style attributes", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
-/* Pack the four flags into the low bits so equality and hashing reduce to one
+/* Pack the five flags into the low bits so equality and hashing reduce to one
    integer compare. */
 static long minify_bits(MinifyObject *self) {
     return self->collapse_whitespace | self->omit_optional_tags << 1 | self->unquote_attributes << 2 |
-           self->strip_comments << 3;
+           self->strip_comments << 3 | self->minify_css << 4;
 }
 
 static PyObject *minify_richcompare(PyObject *self, PyObject *other, int op) {
@@ -74,22 +82,25 @@ static Py_hash_t minify_hash(PyObject *self) {
 
 static PyObject *minify_repr(PyObject *self) {
     MinifyObject *minify = (MinifyObject *)self;
-    return PyUnicode_FromFormat(
-        "Minify(collapse_whitespace=%s, omit_optional_tags=%s, unquote_attributes=%s, "
-        "strip_comments=%s)",
-        minify->collapse_whitespace ? "True" : "False", minify->omit_optional_tags ? "True" : "False",
-        minify->unquote_attributes ? "True" : "False", minify->strip_comments ? "True" : "False");
+    return PyUnicode_FromFormat("Minify(collapse_whitespace=%s, omit_optional_tags=%s, unquote_attributes=%s, "
+                                "strip_comments=%s, minify_css=%s)",
+                                minify->collapse_whitespace ? "True" : "False",
+                                minify->omit_optional_tags ? "True" : "False",
+                                minify->unquote_attributes ? "True" : "False",
+                                minify->strip_comments ? "True" : "False", minify->minify_css ? "True" : "False");
 }
 
 PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags=True, unquote_attributes=True, "
-                         "strip_comments=True)\n--\n\n"
+                         "strip_comments=True, minify_css=True)\n--\n\n"
                          "A serialize(layout=...)/encode(layout=...) mode that shrinks the output. Each\n"
-                         "flag toggles one round-trip-safe transform: the minified output always reparses\n"
-                         "to the same tree.\n\n"
+                         "flag toggles one transform; every one is idempotent under reparse, so minifying\n"
+                         "an already-minified document is a no-op.\n\n"
                          ":param collapse_whitespace: collapse runs of insignificant whitespace.\n"
                          ":param omit_optional_tags: drop start/end tags the parser can infer.\n"
                          ":param unquote_attributes: remove quotes around attribute values that allow it.\n"
-                         ":param strip_comments: remove comments.");
+                         ":param strip_comments: remove comments.\n"
+                         ":param minify_css: fold whitespace and drop comments in ``<style>`` CSS and ``style`` "
+                         "attributes.");
 
 static PyType_Slot minify_slots[] = {
     {Py_tp_doc, (void *)minify_doc},

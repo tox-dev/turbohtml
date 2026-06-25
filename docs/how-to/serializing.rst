@@ -40,10 +40,10 @@ meaning. :meth:`~turbohtml.Node.encode` is the same but returns bytes, with the 
 *******************
 
 Set the :class:`~turbohtml.Html` config's ``layout`` field to a :class:`~turbohtml.Minify` to shrink the markup. Every
-transform is round-trip safe: the minified bytes reparse to the same tree, so minifying never changes meaning. The four
-flags fold insignificant whitespace, omit the start/end tags the WHATWG rules make optional, drop redundant attribute
-quotes, and strip comments; all default on. Because ``layout`` holds one mode, a :class:`~turbohtml.Minify` and an
-:class:`~turbohtml.Indent` cannot be combined.
+transform is idempotent: minifying an already-minified document is a no-op, so the result never drifts. The five flags
+fold insignificant whitespace, omit the start/end tags the WHATWG rules make optional, drop redundant attribute quotes,
+strip comments, and minify the CSS inside ``<style>`` elements; all default on. Because ``layout`` holds one mode, a
+:class:`~turbohtml.Minify` and an :class:`~turbohtml.Indent` cannot be combined.
 
 .. testcode::
 
@@ -61,9 +61,10 @@ quotes, and strip comments; all default on. Because ``layout`` holds one mode, a
     <title>Hi</title><p class=lead>one</p> <p>two
     <html><head><title>Hi</title></head><body><p class=lead>one</p>  <p>two</p></body></html>
 
-Whitespace-significant elements (``pre``, ``textarea``, ``listing``) and raw-text elements (``script``, ``style``) keep
-their content verbatim, and a tag is never dropped when omitting it would let the reparse reconstruct a formatting
-element across the boundary.
+Whitespace-significant elements (``pre``, ``textarea``, ``listing``) and ``<script>`` keep their content verbatim;
+``<style>`` CSS is folded conservatively, removing whitespace only around the structural ``{ } ; ,`` and dropping
+comments, so the descendant combinator, ``calc()`` spacing, and declaration values are untouched. A tag is never dropped
+when omitting it would let the reparse reconstruct a formatting element across the boundary.
 
 ***********************************
  Normalize attributes and encoding

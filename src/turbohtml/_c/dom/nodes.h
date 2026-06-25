@@ -118,7 +118,7 @@ typedef struct {
     th_node *node; /* the element whose live attributes this view exposes */
 } AttrsObject;
 
-/* The serialize(minify=...) options object: four independent round-trip-safe
+/* The serialize(minify=...) options object: five independent round-trip-safe
    transforms, each a bool. Immutable and reference-free, so it lives outside the
    garbage collector like Token. */
 typedef struct {
@@ -126,6 +126,7 @@ typedef struct {
     unsigned char omit_optional_tags;
     unsigned char unquote_attributes;
     unsigned char strip_comments;
+    unsigned char minify_css;
 } MinifyObject;
 
 /* The serialize(layout=...) pretty-print mode: a per-level whitespace unit. Like

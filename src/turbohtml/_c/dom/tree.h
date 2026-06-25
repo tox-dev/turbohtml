@@ -258,6 +258,7 @@ typedef struct {
     int omit_optional_tags;  /* drop the start/end tags the WHATWG optional-tag rules allow */
     int unquote_attributes;  /* drop redundant attribute quotes and write empty values as bare names */
     int strip_comments;      /* skip comment nodes */
+    int minify_css;          /* fold whitespace and drop comments in <style> CSS and style attributes */
 } th_minify_opts;
 
 /* Serialize node and its subtree minified under minify and the output options.

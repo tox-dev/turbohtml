@@ -2,11 +2,12 @@
    optional tags, quotes, and whitespace the spec lets us fold without changing
    what the bytes reparse to.
 
-   Minification is a serialization mode over the already-conformant parse tree:
-   the four transforms below only ever drop or fold what the WHATWG parser
-   reconstructs on the way back in, so the minified bytes reparse to the same
-   tree. That round-trip equivalence is the correctness gate, enforced by the
-   idempotence test over the conformance corpus. It reuses the shared sbuf
+   Minification is a serialization mode over the already-conformant parse tree.
+   Four of the five transforms only drop or fold what the WHATWG parser
+   reconstructs on the way back in; the fifth rewrites the CSS inside <style>
+   elements to an equivalent, shorter form. All five are idempotent under reparse
+   -- minifying an already-minified document is a no-op -- which is the correctness
+   gate the conformance-corpus suite enforces. It reuses the shared sbuf
    buffer, the escape helpers, ser_close_tag, is_rawtext_element,
    ser_needs_leading_newline and doctype_name_len from serialize/internal.h. */
 
@@ -96,6 +97,142 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
             index++;
         }
         *last_was_space = 0;
+    }
+}
+
+/* A code point that ends an ordinary token run: ASCII whitespace and the punctuators that
+   take per-token handling. A switch keeps the branch gate exact where a chained || of the
+   same set would leave short-circuit edges unmeasured. */
+static inline int mini_css_boundary(Py_UCS4 character) {
+    if (mini_is_ascii_ws(character)) {
+        return 1;
+    }
+    switch (character) {
+    case '"':
+    case '\'':
+    case '{':
+    case '}':
+    case ';':
+    case ',':
+    case '/':
+    case '(':
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Whether css[at] (a '(') opens a url() token: the three code points before it spell `url`
+   in any case. A ``*url(`` custom function also matches, but copying its body verbatim is
+   harmless, and the loop keeps the branch gate to one decision instead of a chain. */
+static int mini_css_opens_url(const Py_UCS4 *css, Py_ssize_t at) {
+    static const char url[] = {'u', 'r', 'l'};
+    if (at < 3) {
+        return 0;
+    }
+    for (int letter = 0; letter < 3; letter++) {
+        if ((css[at - 3 + letter] | 0x20) != (Py_UCS4)url[letter]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Stream a CSS fragment (a <style> body, one text child at a time) into the buffer,
+   minified. Conservative and round-trip safe: whitespace is removed only around the
+   always-insignificant punctuators { } ; , and every other run folds to one space, so
+   the descendant combinator (.a .b), calc()'s required +/- spacing, the declaration ':'
+   and space-separated values all survive. Comments are dropped, except license comments,
+   which are kept verbatim, and never folded away so as to merge two tokens. Strings, escapes
+   (\x), and url() bodies pass through verbatim, so a ; } or comment inside them is never
+   mistaken for structure. Ordinary token runs are bulk-copied, so scanning is the only
+   per-code-point cost. *pending_space and *after_struct thread the boundary state across
+   the element's text children. */
+static void mini_put_css(sbuf *out, const Py_UCS4 *css, Py_ssize_t len, int *pending_space, int *after_struct) {
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_UCS4 c = css[index];
+        if (mini_is_ascii_ws(c)) {
+            do {
+                index++;
+            } while (index < len && mini_is_ascii_ws(css[index]));
+            *pending_space = 1;
+            continue;
+        }
+        if (c == '/' && index + 1 < len && css[index + 1] == '*') {
+            Py_ssize_t scan = index + 2;
+            while (scan + 1 < len && !(css[scan] == '*' && css[scan + 1] == '/')) {
+                scan++;
+            }
+            Py_ssize_t end = scan + 1 < len ? scan + 2 : len;
+            if (index + 2 < len && css[index + 2] == '!') {
+                if (*pending_space && !*after_struct) {
+                    sbuf_putc(out, ' ');
+                }
+                sbuf_put_run(out, &css[index], end - index);
+                *pending_space = 0;
+                *after_struct = 0;
+            } else { /* a dropped comment still separates the tokens it sat between */
+                *pending_space = 1;
+            }
+            index = end;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            if (*pending_space && !*after_struct) {
+                sbuf_putc(out, ' ');
+            }
+            Py_ssize_t start = index++;
+            while (index < len) {
+                if (css[index] == '\\' && index + 1 < len) {
+                    index += 2;
+                    continue;
+                }
+                Py_UCS4 s = css[index++];
+                if (s == c) {
+                    break;
+                }
+            }
+            sbuf_put_run(out, &css[start], index - start);
+            *pending_space = 0;
+            *after_struct = 0;
+            continue;
+        }
+        if (c == '(' && mini_css_opens_url(css, index)) {
+            Py_ssize_t start = index++;
+            while (index < len && css[index] != ')') {
+                index += css[index] == '\\' && index + 1 < len ? 2 : 1;
+            }
+            if (index < len) {
+                index++;
+            }
+            sbuf_put_run(out, &css[start], index - start);
+            *pending_space = 0;
+            *after_struct = 0;
+            continue;
+        }
+        if (c == '{' || c == '}' || c == ';' || c == ',') {
+            sbuf_putc(out, c);
+            index++;
+            *pending_space = 0;
+            *after_struct = 1;
+            continue;
+        }
+        if (*pending_space && !*after_struct) {
+            sbuf_putc(out, ' ');
+        }
+        Py_ssize_t start = index;
+        if (c == '\\' && index + 1 < len) { /* an escape and its escaped code point are one unit */
+            index += 2;
+        } else {
+            index++;
+        }
+        while (index < len && !mini_css_boundary(css[index])) {
+            index += css[index] == '\\' && index + 1 < len ? 2 : 1;
+        }
+        sbuf_put_run(out, &css[start], index - start);
+        *pending_space = 0;
+        *after_struct = 0;
     }
 }
 
@@ -377,8 +514,16 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node)) {
-                for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                    sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                if (opts->minify_css && node->atom == TH_TAG_STYLE) { /* is_rawtext_element already pinned ns to HTML */
+                    int pending_space = 0;                            /* a folded whitespace run not yet emitted */
+                    int after_struct = 1; /* start of the sheet: suppress any leading space */
+                    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+                        mini_put_css(out, need_text(tree, child), child->text_len, &pending_space, &after_struct);
+                    }
+                } else {
+                    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+                        sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                    }
                 }
                 ser_close_tag(out, node); /* a raw-text element's end tag is never one the optional-tag rules omit */
                 break;

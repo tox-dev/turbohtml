@@ -1424,6 +1424,7 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
         opts->omit_optional_tags = minify->omit_optional_tags;
         opts->unquote_attributes = minify->unquote_attributes;
         opts->strip_comments = minify->strip_comments;
+        opts->minify_css = minify->minify_css;
         *mode = TH_LAYOUT_MINIFY;
         return 0;
     }

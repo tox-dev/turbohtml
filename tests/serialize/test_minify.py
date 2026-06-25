@@ -29,7 +29,8 @@ def frag(source: str, **flags: bool) -> str:
 
 def test_minify_defaults_all_on() -> None:
     m = Minify()
-    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments) == (
+    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments, m.minify_css) == (
+        True,
         True,
         True,
         True,
@@ -38,8 +39,15 @@ def test_minify_defaults_all_on() -> None:
 
 
 def test_minify_flags_independent() -> None:
-    m = Minify(collapse_whitespace=False, omit_optional_tags=False, unquote_attributes=False, strip_comments=False)
-    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments) == (
+    m = Minify(
+        collapse_whitespace=False,
+        omit_optional_tags=False,
+        unquote_attributes=False,
+        strip_comments=False,
+        minify_css=False,
+    )
+    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments, m.minify_css) == (
+        False,
         False,
         False,
         False,
@@ -49,10 +57,14 @@ def test_minify_flags_independent() -> None:
 
 def test_minify_repr_roundtrips_through_eval() -> None:
     assert repr(Minify(omit_optional_tags=False)) == (
-        "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True)"
+        "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True, "
+        "minify_css=True)"
     )
-    assert repr(Minify(collapse_whitespace=False, unquote_attributes=False, strip_comments=False)) == (
-        "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False)"
+    assert repr(
+        Minify(collapse_whitespace=False, unquote_attributes=False, strip_comments=False, minify_css=False)
+    ) == (
+        "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False, "
+        "minify_css=False)"
     )
 
 
@@ -476,3 +488,74 @@ def test_foreign_end_tags_kept() -> None:
 
 def test_rawtext_script_preserved() -> None:
     assert frag("<script>a  <  b</script>", omit_optional_tags=False) == "<script>a  <  b</script>"
+
+
+def style_css(css: str, **flags: bool) -> str:
+    out = parse(f"<style>{css}</style>").serialize(Html(layout=Minify(**flags)))
+    assert out.startswith("<style>")
+    assert out.endswith("</style>")
+    return out[len("<style>") : -len("</style>")]
+
+
+# Conservative on purpose: whitespace is removed only around the always-insignificant { } ; ,
+# so the descendant combinator, calc()'s required +/- spacing, and the declaration ':' survive
+# unchanged. Each expectation is the research-validated minification, pinned exactly.
+_CSS_CASES = [
+    pytest.param("  .a {  color : red ;  }  ", ".a{color : red;}", id="whitespace-and-structural"),
+    pytest.param(".b   .c{x:1}", ".b .c{x:1}", id="descendant-combinator-kept"),
+    pytest.param("a > b , c{x:1}", "a > b,c{x:1}", id="child-combinator-kept-comma-trimmed"),
+    pytest.param(".g{w:calc(1px + 2px)}", ".g{w:calc(1px + 2px)}", id="calc-operator-spacing-kept"),
+    pytest.param("a{color: red}", "a{color: red}", id="declaration-colon-spacing-kept"),
+    pytest.param("a{x:1}/* c */b{y:2}", "a{x:1}b{y:2}", id="comment-dropped"),
+    pytest.param("x/* c */y{a:1}", "x y{a:1}", id="comment-between-idents-keeps-space"),
+    pytest.param("a{x:1} /*! lic */ b{y:2}", "a{x:1}/*! lic */ b{y:2}", id="license-comment-after-struct"),
+    pytest.param("a /*!k*/ b{c:1}", "a /*!k*/ b{c:1}", id="license-comment-after-token-keeps-space"),
+    pytest.param("/*!keep*/a{x:1}", "/*!keep*/a{x:1}", id="license-comment-at-start"),
+    pytest.param("a{x:1}/*unterminated", "a{x:1}", id="unterminated-comment-dropped"),
+    pytest.param("a{x:1}/", "a{x:1}/", id="trailing-slash-at-eof"),
+    pytest.param("a{x:1}/*", "a{x:1}", id="bare-comment-open-at-eof"),
+    pytest.param('a{} "x"', 'a{}"x"', id="string-after-struct-and-space"),
+    pytest.param('a{c:"x\\', 'a{c:"x\\', id="string-with-trailing-backslash-at-eof"),
+    pytest.param("a{b:url(a\\)b)}", "a{b:url(a\\)b)}", id="escaped-paren-in-url"),
+    pytest.param("a{b:url(x\\", "a{b:url(x\\", id="url-with-trailing-backslash-at-eof"),
+    pytest.param("a{x:1}\\", "a{x:1}\\", id="run-leading-backslash-at-eof"),
+    pytest.param("a{x:1}/*!lic to eof", "a{x:1}/*!lic to eof", id="unterminated-license-kept"),
+    pytest.param('a{content:"};{"}', 'a{content:"};{"}', id="structural-inside-string-kept"),
+    pytest.param("a{content : 'x'}", "a{content : 'x'}", id="space-before-string"),
+    pytest.param("a{content:'x'}", "a{content:'x'}", id="single-quote-string-after-token"),
+    pytest.param("a{x:1;y:2}", "a{x:1;y:2}", id="semicolon-after-token"),
+    pytest.param("a,b{x:1}", "a,b{x:1}", id="comma-after-token"),
+    pytest.param(".a{w:12px/1.5}", ".a{w:12px/1.5}", id="slash-in-value-kept"),
+    pytest.param('a{content:"a\\"b"}', 'a{content:"a\\"b"}', id="escaped-quote-in-string"),
+    pytest.param('a{content:"abc', 'a{content:"abc', id="unterminated-string-kept"),
+    pytest.param("a{bg:url( /x;y.png )}", "a{bg:url( /x;y.png )}", id="url-body-verbatim"),
+    pytest.param("a{bg:url(http://x/*y)}", "a{bg:url(http://x/*y)}", id="comment-marker-in-url-not-a-comment"),
+    pytest.param("a{bg:url(/x", "a{bg:url(/x", id="unterminated-url-kept"),
+    pytest.param("a(b){x:1}", "a(b){x:1}", id="paren-near-start-not-url"),
+    pytest.param("a{m:max( 1px , 2px )}", "a{m:max( 1px,2px )}", id="function-comma-trimmed-spaces-kept"),
+    pytest.param("a\\;b\\{c{y:1}", "a\\;b\\{c{y:1}", id="escaped-structural-not-structural"),
+    pytest.param("\\.x{a:1}", "\\.x{a:1}", id="escape-leads-a-run"),
+    pytest.param("a{x:1}z\\", "a{x:1}z\\", id="trailing-backslash"),
+    pytest.param("a{x:myurl( y )}", "a{x:myurl( y )}", id="non-url-function-not-url"),
+    pytest.param("   ", "", id="whitespace-only"),
+    pytest.param("", "", id="empty"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _CSS_CASES)
+def test_minify_css(source: str, expected: str) -> None:
+    assert style_css(source) == expected
+    assert style_css(expected) == expected
+
+
+def test_minify_css_off_leaves_style_verbatim() -> None:
+    assert style_css("  a {  x : 1 } /* c */ ", minify_css=False) == "  a {  x : 1 } /* c */ "
+
+
+def test_minify_css_default_on() -> None:
+    assert style_css("  a  {  x : 1  }  ") == "a{x : 1}"
+
+
+def test_minify_does_not_touch_script() -> None:
+    out = parse("<script>var  x = 1 ; /* keep */</script>").serialize(Html(layout=Minify()))
+    assert out == "<script>var  x = 1 ; /* keep */</script>"
