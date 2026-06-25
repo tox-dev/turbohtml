@@ -18,11 +18,18 @@ _CLEAN_SANITIZE = (
     "sanitize",
 )
 _CLEAN_LINKIFY = ("Detector", "LinkSpan", "Linker", "Linkify", "linkify", "nofollow", "target_blank")
+_EXTRACT_BOILERPLATE = ("Extraction", "Paragraph", "boilerplate")
 
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _EXTRACT_RECORDS])
 def test_extract_reexports_package_root_records(name: str) -> None:
     assert getattr(extract, name) is getattr(turbohtml, name)
+
+
+@pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _EXTRACT_BOILERPLATE])
+def test_extract_exposes_boilerplate(name: str) -> None:
+    assert name in extract.__all__
+    assert hasattr(extract, name)
 
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in (*_CLEAN_SANITIZE, *_CLEAN_LINKIFY)])

@@ -60,6 +60,7 @@ py.install_sources(
     [
         'src/turbohtml/__init__.py',
         'src/turbohtml/_article.py',
+        'src/turbohtml/_boilerplate.py',
         'src/turbohtml/_html.pyi',
         'src/turbohtml/_linkify.py',
         'src/turbohtml/_links.py',

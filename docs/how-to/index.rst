@@ -19,5 +19,6 @@ page is a short, self-contained walkthrough you can lift straight into your own 
     building
     serializing
     links
+    extracting
     structured-data
     sanitizing
