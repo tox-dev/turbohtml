@@ -48,24 +48,22 @@ _TRACKERS = re.compile(
 )
 
 # Under strict cleaning only these content-bearing identifiers survive in the query string; every other parameter goes.
-_ALLOWED_PARAMS = frozenset(
-    {
-        "aid",
-        "article_id",
-        "artnr",
-        "id",
-        "itemid",
-        "objectid",
-        "p",
-        "page",
-        "pagenum",
-        "page_id",
-        "pid",
-        "post",
-        "postid",
-        "product_id",
-    }
-)
+_ALLOWED_PARAMS = frozenset({
+    "aid",
+    "article_id",
+    "artnr",
+    "id",
+    "itemid",
+    "objectid",
+    "p",
+    "page",
+    "pagenum",
+    "page_id",
+    "pid",
+    "post",
+    "postid",
+    "product_id",
+})
 
 # Only web links survive extraction and normalization; mailto/tel/javascript and bare fragments are not crawlable URLs.
 _WEB_SCHEMES = frozenset({"http", "https"})
@@ -164,8 +162,7 @@ def _scrub(url: str) -> str:
         url = url[len("<![CDATA[") : -len("]]>")]
     url = _REMAINING_MARKUP.sub("", url)
     url = url.replace("&amp;", "&")
-    if url.endswith("/&"):
-        url = url[:-2]
+    url = url.removesuffix("/&")
     if (match := _TRAILING_PARTS.match(url)) is not None:
         url = match[1]
     if url.count("/") == 3 or url.count("://") > 1:

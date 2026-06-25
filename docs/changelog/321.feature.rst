@@ -1,8 +1,8 @@
-Clean, canonicalize, and harvest URLs with :func:`turbohtml.extract.clean_url`,
-:func:`turbohtml.extract.normalize_url`, and :func:`turbohtml.extract.extract_links`, the successors to `courlan
-<https://github.com/adbar/courlan>`__ and ``w3lib.url``. They layer a small normalization pass over the existing link
-engine: ``clean_url`` scrubs tracking parameters and stray markup off a raw href, ``normalize_url`` canonicalizes a
-single absolute URL, and ``extract_links`` returns a page's cleaned, deduplicated ``http``/``https`` links (internal by
-default, ``external_only`` for the rest). A shared, immutable :class:`turbohtml.extract.UrlCleaning` config -- with an
+Clean, canonicalize, and harvest URLs with :func:`turbohtml.extract.clean_url`, :func:`turbohtml.extract.normalize_url`,
+and :func:`turbohtml.extract.extract_links`, the successors to `courlan <https://github.com/adbar/courlan>`__ and
+``w3lib.url``. They layer a small normalization pass over the existing link engine: ``clean_url`` scrubs tracking
+parameters and stray markup off a raw href, ``normalize_url`` canonicalizes a single absolute URL, and ``extract_links``
+returns a page's cleaned, deduplicated ``http``/``https`` links (internal by default, ``external_only`` for the rest). A
+shared, immutable :class:`turbohtml.extract.UrlCleaning` config -- with an
 :meth:`~turbohtml.extract.UrlCleaning.aggressive` preset -- controls how hard each one rewrites. Unlike courlan, they do
 not guess a page's language or rank a link's crawl-worthiness.

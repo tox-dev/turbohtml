@@ -38,7 +38,9 @@ def test_non_web_scheme_keeps_its_port_but_lowercases_host() -> None:
 
 def test_keep_tracker_when_stripping_is_off() -> None:
     options = UrlCleaning(strip_trackers=False)
-    assert normalize_url("http://example.com/p?utm_source=ad&id=9", options) == "http://example.com/p?id=9&utm_source=ad"
+    assert (
+        normalize_url("http://example.com/p?utm_source=ad&id=9", options) == "http://example.com/p?id=9&utm_source=ad"
+    )
 
 
 def test_trailing_slash_trimmed_only_when_no_query() -> None:
@@ -53,4 +55,6 @@ def test_strict_keeps_only_the_allowlist_and_drops_the_fragment() -> None:
 
 
 def test_strip_fragment_without_strict() -> None:
-    assert normalize_url("http://example.com/p?a=1#frag", UrlCleaning(strip_fragment=True)) == "http://example.com/p?a=1"
+    assert (
+        normalize_url("http://example.com/p?a=1#frag", UrlCleaning(strip_fragment=True)) == "http://example.com/p?a=1"
+    )
