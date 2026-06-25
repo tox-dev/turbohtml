@@ -143,12 +143,6 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     return tuple(pages)
 
 
-def _one_page(index: int) -> tuple[tuple[str, object], ...]:
-    """Return one corpus page as a single case (for the edits that run on a representative page)."""
-    name, relative, encoding = corpus.CORPUS_FILES[index]
-    return ((name, corpus.corpus_text(relative, encoding)),)
-
-
 _TOKENIZE_CASES = (
     ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
     ("text-heavy prose", "<p>" + "the quick brown fox jumps over the lazy dog " * 100 + "</p>"),
@@ -289,7 +283,7 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
 
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
-    "build-e": lambda: _ROWS[:2],
+    "build-e": lambda: _ROWS,
     "construct": lambda: _ROWS,
     "emit": lambda: _ROWS,
     "parse": _parse_cases,
@@ -298,16 +292,16 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "unescape": corpus.unescape_cases,
     "tokenize": _tokenize_cases,
     "edit": _readpath_cases,
-    "class-edit": lambda: _one_page(3),
-    "strip-remove": lambda: _one_page(3),
-    "strip-tags": lambda: _one_page(3),
-    "set-html": lambda: _one_page(2),
-    "set-text": lambda: _one_page(2),
+    "class-edit": _readpath_cases,
+    "strip-remove": _readpath_cases,
+    "strip-tags": _readpath_cases,
+    "set-html": _readpath_cases,
+    "set-text": _readpath_cases,
     "navigate": _readpath_cases,
     "chain": _readpath_cases,
-    "links-extract": lambda: _one_page(3),
-    "links-absolutize": lambda: _one_page(3),
-    "links-rewrite": lambda: _one_page(3),
+    "links-extract": _readpath_cases,
+    "links-absolutize": _readpath_cases,
+    "links-rewrite": _readpath_cases,
     "find": _readpath_cases,
     "select": _readpath_cases,
     "select-has": _readpath_cases,

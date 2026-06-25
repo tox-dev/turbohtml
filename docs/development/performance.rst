@@ -1176,10 +1176,11 @@ halves.
       - 39.3 ms (69.8x)
 
 The terse :data:`turbohtml.build.E` builder spells the same ``<ul>`` declaratively, raced against the dedicated HTML
-generators `dominate <https://github.com/Knio/dominate>`_ and `yattag <https://www.yattag.org>`_. ``E`` is roughly three
-times faster than dominate and on par with yattag, and unlike either it returns a real, queryable turbohtml tree rather
-than a string. That tree costs about three-quarters again the raw :class:`~turbohtml.Element` constructor above -- the
-price of the leading-mapping and per-child dispatch the sugar runs in Python.
+generators `dominate <https://github.com/Knio/dominate>`_ and `yattag <https://www.yattag.org>`_. ``E`` is two to three
+times faster than dominate and on par with yattag -- a touch behind it on the larger sweeps -- and unlike either it
+returns a real, queryable turbohtml tree rather than a string. That tree costs a little over twice the raw
+:class:`~turbohtml.Element` constructor above -- the price of the leading-mapping and per-child dispatch the sugar runs
+in Python.
 
 .. list-table::
     :header-rows: 1
@@ -1190,13 +1191,17 @@ price of the leading-mapping and per-child dispatch the sugar runs in Python.
       - dominate
       - yattag
     - - 100 rows
-      - 104 µs
-      - 320 µs (3.1x)
-      - 94 µs (0.9x)
+      - 142 µs
+      - 451 µs (3.2x)
+      - 149 µs (1.1x)
     - - 1000 rows
-      - 1.08 ms
-      - 3.34 ms (3.1x)
-      - 1.06 ms (1.0x)
+      - 1.60 ms
+      - 4.55 ms (2.8x)
+      - 1.45 ms (0.9x)
+    - - 10000 rows
+      - 18.9 ms
+      - 47.3 ms (2.5x)
+      - 14.5 ms (0.8x)
 
 *********
  Editing
@@ -1205,15 +1210,7 @@ price of the leading-mapping and per-child dispatch the sugar runs in Python.
 Editing a parsed tree: tag every ``<a>`` with ``rel="nofollow"``, a link-rewriting pass. Because the pass mutates the
 tree, each library rebuilds a fresh parse before every iteration outside the timed region, then the timed call walks its
 links and sets the attribute (turbohtml through the live :attr:`~turbohtml.Element.attrs` mapping, lxml through
-``Element.set``, BeautifulSoup through item assignment). selectolax mutation is limited, so it has no entry. The last
-row is a content-setter pass: :meth:`~turbohtml.Element.set_inner_html` reparses a fixed fragment in the ``<body>``'s
-context and replaces its children, against lxml clearing the body and appending ``fragments_fromstring`` and
-BeautifulSoup clearing it and appending a reparsed soup. turbohtml does the parse and splice in one C call.
-
-The last row is a second pass: a classList churn that adds then drops a token on every link (turbohtml's
-:meth:`~turbohtml.Element.add_class`/:meth:`~turbohtml.Element.remove_class` against lxml's ``classes`` set). The
-add-then-remove is a net no-op, so each repeat does equal work. BeautifulSoup has no class-token mutator, so it has no
-entry.
+``Element.set``, BeautifulSoup through item assignment). selectolax mutation is limited, so it has no entry.
 
 .. list-table::
     :header-rows: 1
@@ -1239,39 +1236,144 @@ entry.
       - 8.7 µs
       - 51.3 µs (5.9x)
       - 350.4 µs (40.2x)
-    - - add/remove a class (92 kB)
-      - 11.2 µs
-      - 163 µs (14.6x)
-      - —
-    - - set inner html (9.6 kB)
-      - 1.3 µs
-      - 5.1 µs (3.9x)
-      - 60.6 µs (46.6x)
 
-A third pass is a bulk tag edit over the 92 kB page (839 ``<code>``/``<a>``/``<q>`` elements):
-:meth:`~turbohtml.Node.remove` drops each match with its subtree, and :meth:`~turbohtml.Node.strip_tags` unwraps each
-match but keeps its content. Both rewrites are destructive, so the timed call parses the page afresh -- the
-string-to-result transform these helpers perform -- and races each library's own bulk tag helper. selectolax's
-``strip_tags`` drops the matches with their content, so it pairs with ``remove``; w3lib's regex ``remove_tags`` keeps
-the content, so it pairs with ``strip_tags`` (pyquery's ``.remove()``/``.unwrap()`` numbers are in its :doc:`migration
-page </migration/pyquery>`).
+A second pass churns the class list: add then drop a token on every link (turbohtml's
+:meth:`~turbohtml.Element.add_class`/:meth:`~turbohtml.Element.remove_class` against lxml's ``classes`` set). The
+add-then-remove is a net no-op, so each repeat does equal work. BeautifulSoup has no class-token mutator, so it has no
+entry.
 
 .. list-table::
     :header-rows: 1
-    :widths: 40 20 20 20
+    :widths: 40 28 28
 
-    - - bulk strip/remove (92 kB)
+    - - class add/remove on every link
       - turbohtml
-      - library
-      - speed-up
-    - - ``remove`` vs selectolax ``strip_tags``
-      - 554 µs
-      - 1.73 ms
-      - 3.1x
-    - - ``strip_tags`` vs w3lib ``remove_tags``
-      - 607 µs
-      - 1.11 ms
-      - 1.8x
+      - lxml
+    - - daring fireball (10 kB)
+      - 4.6 µs
+      - 51.8 µs (11.2x)
+    - - ars technica (56 kB)
+      - 15.0 µs
+      - 139 µs (9.2x)
+    - - mozilla blog (95 kB)
+      - 13.3 µs
+      - 181 µs (13.6x)
+    - - whatwg spec (235 kB)
+      - 13.4 µs
+      - 214 µs (16.0x)
+
+Two content setters replace the body's children on a freshly parsed tree. :meth:`~turbohtml.Element.set_inner_html`
+reparses a fixed fragment in the ``<body>``'s context and splices it in one C call, against lxml clearing the body and
+appending ``fragments_fromstring``, BeautifulSoup clearing it and appending a reparsed soup, and pyquery's ``.html()``.
+:meth:`~turbohtml.Element.set_text` replaces the children with one verbatim text node, against pyquery's ``.text()``.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 24 14 22 16 16
+
+    - - replace body inner HTML
+      - turbohtml
+      - BeautifulSoup
+      - lxml
+      - pyquery
+    - - daring fireball (10 kB)
+      - 2.6 µs
+      - 93.8 µs (35.9x)
+      - 17.6 µs (6.7x)
+      - 20.8 µs (8.0x)
+    - - ars technica (56 kB)
+      - 10.2 µs
+      - 157 µs (15.5x)
+      - 53.2 µs (5.2x)
+      - 14.8 µs (1.5x)
+    - - mozilla blog (95 kB)
+      - 15.1 µs
+      - 228 µs (15.1x)
+      - 122 µs (8.1x)
+      - 131 µs (8.7x)
+    - - whatwg spec (235 kB)
+      - 43.2 µs
+      - 906 µs (20.9x)
+      - 290 µs (6.7x)
+      - 380 µs (8.8x)
+
+.. list-table::
+    :header-rows: 1
+    :widths: 40 28 28
+
+    - - replace body text
+      - turbohtml
+      - pyquery
+    - - daring fireball (10 kB)
+      - 1.4 µs
+      - 16.1 µs (11.9x)
+    - - ars technica (56 kB)
+      - 8.2 µs
+      - 13.4 µs (1.6x)
+    - - mozilla blog (95 kB)
+      - 15.3 µs
+      - 126 µs (8.3x)
+    - - whatwg spec (235 kB)
+      - 43.1 µs
+      - 374 µs (8.7x)
+
+A bulk tag edit over each page's ``<code>``/``<a>``/``<q>`` elements: :meth:`~turbohtml.Node.remove` drops each match
+with its subtree, and :meth:`~turbohtml.Node.strip_tags` unwraps each match but keeps its content. Both rewrites are
+destructive, so the timed call parses the page afresh -- the string-to-result transform these helpers perform -- and
+races each library's own bulk tag helper. ``remove`` pairs with selectolax's ``strip_tags`` (which drops matches with
+their content) and pyquery's ``.remove()``; ``strip_tags`` pairs with w3lib's regex ``remove_tags`` (which keeps the
+content) and pyquery's unwrap. turbohtml's single C pass leads by roughly two to six times, the margin widest on the
+smaller pages where the competitors' per-match Python work has the least bulk text to hide behind.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18
+
+    - - ``remove`` (drop with content)
+      - turbohtml
+      - pyquery
+      - selectolax
+    - - daring fireball (10 kB)
+      - 30.9 µs
+      - 162 µs (5.3x)
+      - 101 µs (3.3x)
+    - - ars technica (56 kB)
+      - 155 µs
+      - 341 µs (2.2x)
+      - 496 µs (3.2x)
+    - - mozilla blog (95 kB)
+      - 348 µs
+      - 1.20 ms (3.4x)
+      - 1.61 ms (4.6x)
+    - - whatwg spec (235 kB)
+      - 861 µs
+      - 2.80 ms (3.3x)
+      - 3.07 ms (3.6x)
+
+.. list-table::
+    :header-rows: 1
+    :widths: 28 18 18 18
+
+    - - ``strip_tags`` (unwrap keep content)
+      - turbohtml
+      - pyquery
+      - w3lib
+    - - daring fireball (10 kB)
+      - 31.0 µs
+      - 178 µs (5.7x)
+      - 70.0 µs (2.3x)
+    - - ars technica (56 kB)
+      - 156 µs
+      - 336 µs (2.2x)
+      - 336 µs (2.2x)
+    - - mozilla blog (95 kB)
+      - 341 µs
+      - 1.22 ms (3.6x)
+      - 673 µs (2.0x)
+    - - whatwg spec (235 kB)
+      - 844 µs
+      - 3.04 ms (3.6x)
+      - 2.15 ms (2.6x)
 
 *******
  Links
@@ -1281,31 +1383,86 @@ The link surface: extract every in-document link, resolve them against a base UR
 turbohtml's :meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.resolve_links`, and
 :meth:`~turbohtml.Node.rewrite_links` against lxml.html's ``iterlinks()``, ``make_links_absolute()``, and
 ``rewrite_links()`` -- the only other library that walks the link-bearing attributes (``href``, ``src``, ``srcset``,
-...) as a set. Each timed call runs one operation over the 92 kB wpt page; extraction is read-only and rewrite applies
-an identity callback, so both reuse one cached parse, while absolutize rebuilds a fresh tree before each iteration since
-``make_links_absolute`` rewrites the hrefs in place. turbohtml walks the attribute set in C where lxml re-resolves each
-URL in Python, so it leads by ten to over a hundred times.
+...) as a set. Each operation runs over the three real saved pages and the 235 kB WHATWG spec; extraction is read-only
+and rewrite applies an identity callback, so both reuse one cached parse, while absolutize rebuilds a fresh tree before
+each iteration since ``make_links_absolute`` rewrites the hrefs in place. turbohtml walks the attribute set in C where
+lxml re-resolves each URL in Python, so it leads from low single digits up to over a hundred times, the gap widening
+with the link count on the page.
 
 .. list-table::
     :header-rows: 1
     :widths: 46 16 16 16
 
-    - - links (92 kB page)
+    - - extract (``links`` / ``iterlinks``)
       - turbohtml
       - lxml
       - speed-up
-    - - extract (``links`` / ``iterlinks``)
-      - 60.6 µs
-      - 2.28 ms
-      - 37.6x
+    - - daring fireball (10 kB)
+      - 9.0 µs
+      - 144 µs
+      - 15.9x
+    - - ars technica (56 kB)
+      - 28.3 µs
+      - 543 µs
+      - 19.2x
+    - - mozilla blog (95 kB)
+      - 51.6 µs
+      - 1.20 ms
+      - 23.2x
+    - - whatwg spec (235 kB)
+      - 87.1 µs
+      - 4.20 ms
+      - 48.2x
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 16 16 16
+
     - - absolutize (``resolve_links`` / ``make_links_absolute``)
-      - 251 µs
-      - 2.76 ms
-      - 11.0x
+      - turbohtml
+      - lxml
+      - speed-up
+    - - daring fireball (10 kB)
+      - 103 µs
+      - 255 µs
+      - 2.5x
+    - - ars technica (56 kB)
+      - 249 µs
+      - 842 µs
+      - 3.4x
+    - - mozilla blog (95 kB)
+      - 488 µs
+      - 1.76 ms
+      - 3.6x
+    - - whatwg spec (235 kB)
+      - 314 µs
+      - 4.82 ms
+      - 15.3x
+
+.. list-table::
+    :header-rows: 1
+    :widths: 46 16 16 16
+
     - - rewrite (``rewrite_links``)
-      - 22.3 µs
-      - 2.38 ms
-      - 106.7x
+      - turbohtml
+      - lxml
+      - speed-up
+    - - daring fireball (10 kB)
+      - 3.2 µs
+      - 155 µs
+      - 48.0x
+    - - ars technica (56 kB)
+      - 19.5 µs
+      - 591 µs
+      - 30.3x
+    - - mozilla blog (95 kB)
+      - 24.2 µs
+      - 2.67 ms
+      - 110.3x
+    - - whatwg spec (235 kB)
+      - 41.8 µs
+      - 5.20 ms
+      - 124.5x
 
 ************
  Extraction
