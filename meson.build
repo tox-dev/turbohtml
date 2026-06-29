@@ -35,6 +35,7 @@ py.extension_module(
         'src/turbohtml/_c/serialize/markup.c',
         'src/turbohtml/_c/serialize/document.c',
         'src/turbohtml/_c/serialize/minify.c',
+        'src/turbohtml/_c/serialize/css.c',
         'src/turbohtml/_c/serialize/markdown.c',
         'src/turbohtml/_c/serialize/text.c',
         'src/turbohtml/_c/serialize/readability.c',
@@ -60,6 +61,7 @@ py.install_sources(
     [
         'src/turbohtml/__init__.py',
         'src/turbohtml/_article.py',
+        'src/turbohtml/_cssmin.py',
         'src/turbohtml/_html.pyi',
         'src/turbohtml/_linkify.py',
         'src/turbohtml/_links.py',

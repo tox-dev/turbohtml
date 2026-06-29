@@ -88,6 +88,9 @@ bench = [
   "airium>=0.2.7",
   "beautifulsoup4>=4.15",
   "bleach>=6.4",
+  "css-html-js-minify>=2.5",
+  "csscompressor>=0.9",
+  "cssmin>=0.2",
   "cssselect>=1.4",
   "dominate>=2.9.1",
   "extruct>=0.18",
@@ -110,6 +113,7 @@ bench = [
   "parsel>=1.11",
   "pyperf>=2.10",
   "pyquery>=2.0.1",
+  "rcssmin>=1.2",
   "readability-lxml>=0.8.4.1",
   "resiliparse>=1.0.8",
   "selectolax>=0.4.10",
@@ -207,8 +211,8 @@ lint.preview = true
 
 [tool.codespell]
 builtin = "clear,usage,en-GB_to_en-US"
-ignore-words-list = "caf,notin,afe,hava"  # café, the &notin; entity, and afe (active formatting elements)
-skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h"  # generated tables of HTML5 / IANA names
+ignore-words-list = "caf,notin,afe,hava,vave"  # café, the &notin; entity, afe (active formatting elements), and vave (a CSS-minify test value)
+skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/css_colors.h"  # generated tables of HTML5 / IANA / CSS names
 count = true
 quiet-level = 3
 

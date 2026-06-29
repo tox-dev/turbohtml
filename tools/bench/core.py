@@ -423,6 +423,11 @@ def xpath(case: tuple[str, str]) -> None:
     _XPATH_CALLS[kind](_parsed(text), text)
 
 
+def minify_css(css: str) -> None:
+    """Minify a stylesheet with turbohtml's value-safe CSS minifier."""
+    _clean.minify_css(css)
+
+
 OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
@@ -473,4 +478,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
+    "minify-css": (minify_css, "turbohtml"),
 }

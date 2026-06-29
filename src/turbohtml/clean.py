@@ -2,12 +2,17 @@
 turbohtml.clean: scrub and tidy HTML -- sanitize against an allowlist, auto-link plain URLs, and minify.
 
 The sanitizer replaces `bleach <https://github.com/mozilla/bleach>`__/``nh3``/``html-sanitizer``, the linkifier
-replaces ``bleach.linkify``/``linkify-it-py``, and ``minify`` replaces ``minify-html``/``htmlmin``. Every configurable
-entry point takes a frozen, thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`).
+replaces ``bleach.linkify``/``linkify-it-py``, ``minify`` replaces ``minify-html``/``htmlmin``, and the CSS minifier
+(:func:`minify_css`) replaces ``rcssmin``/``csscompressor``/``tdewolff/minify``. Every configurable entry point takes a
+frozen, thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`).
 """
 
 from __future__ import annotations
 
+from ._cssmin import (
+    minify_css,
+    minify_css_inline,
+)
 from ._html import Minify
 from ._linkify import (
     DEFAULT_CALLBACKS,
@@ -51,6 +56,8 @@ __all__ = [
     "Sanitizer",
     "linkify",
     "minify",
+    "minify_css",
+    "minify_css_inline",
     "nofollow",
     "sanitize",
     "target_blank",

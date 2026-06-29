@@ -1647,3 +1647,120 @@ raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it
       - 2.43 ms
       - 7.37 ms
       - 3.0x
+
+******************
+ CSS minification
+******************
+
+:func:`turbohtml.clean.minify_css` against the CSS minifiers on PyPI, over the unminified source CSS those frameworks
+publish. Two work in turbohtml's class -- rewriting values to their shortest equivalent form (colors to hex, numbers,
+``calc()``, shorthands), not merely stripping whitespace -- `csscompressor <https://github.com/sprymix/csscompressor>`_
+(the YUI port) and `cssmin <https://github.com/zacharyvoase/cssmin>`_ (its BSD descendant); both are pure-Python regex
+passes that turn quadratic on a large stylesheet, so turbohtml's C engine leads them by 40x to 650x. `rcssmin
+<https://github.com/ndparker/rcssmin>`_ is a C extension and faster than turbohtml, but it is non-destructive -- it
+strips comments and whitespace and rewrites nothing -- so it does strictly less work and leaves a larger result; the
+migration guides put the output sizes side by side. `css-html-js-minify
+<https://github.com/juancarlospaco/css-html-js-minify>`_ is a pure-Python rewriter and the slowest of the set.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 22 13 14 17 16 18
+
+    - - input
+      - turbohtml
+      - rcssmin
+      - csscompressor
+      - cssmin
+      - css-html-js-minify
+    - - normalize.css (6 kB)
+      - 16.2 µs
+      - 5.12 µs (0.3x)
+      - 1.11 ms (69x)
+      - 387 µs (24x)
+      - 464 µs (29x)
+    - - animate.css (93 kB)
+      - 646 µs
+      - 165 µs (0.3x)
+      - 24.8 ms (38x)
+      - 7.20 ms (11x)
+      - 9.88 ms (15x)
+    - - pico.css (90 kB)
+      - 519 µs
+      - 194 µs (0.4x)
+      - 35.1 ms (68x)
+      - 218 ms (420x)
+      - 224 ms (432x)
+    - - foundation.css (164 kB)
+      - 1.18 ms
+      - 382 µs (0.3x)
+      - 58.8 ms (50x)
+      - 493 ms (418x)
+      - 512 ms (434x)
+    - - bootstrap.css (274 kB)
+      - 1.85 ms
+      - 625 µs (0.3x)
+      - 80.9 ms (44x)
+      - 580 ms (314x)
+      - 593 ms (321x)
+    - - bulma.css (745 kB)
+      - 4.24 ms
+      - 1.73 ms (0.4x)
+      - 538 ms (127x)
+      - 2.75 s (649x)
+      - 2.78 s (656x)
+
+Size is the other axis, and the reason to rewrite values at all. turbohtml's output is the smallest on every stylesheet;
+the ratio in parentheses is each minifier's output size against turbohtml's. These byte counts are deterministic, not a
+timed measurement:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 22 13 14 17 16 18
+
+    - - input
+      - turbohtml
+      - rcssmin
+      - csscompressor
+      - cssmin
+      - css-html-js-minify
+    - - normalize.css (6 kB)
+      - 1.7 kB
+      - 1.7 kB (1.00x)
+      - 1.8 kB (1.04x)
+      - 1.8 kB (1.04x)
+      - 1.8 kB (1.04x)
+    - - animate.css (93 kB)
+      - 71.7 kB
+      - 73.9 kB (1.03x)
+      - 74.0 kB (1.03x)
+      - 74.0 kB (1.03x)
+      - 74.0 kB (1.03x)
+    - - pico.css (90 kB)
+      - 79.2 kB
+      - 80.2 kB (1.01x)
+      - 79.7 kB (1.01x)
+      - 79.9 kB (1.01x)
+      - 80.0 kB (1.01x)
+    - - foundation.css (164 kB)
+      - 129.3 kB
+      - 133.5 kB (1.03x)
+      - 133.2 kB (1.03x)
+      - 133.1 kB (1.03x)
+      - 133.3 kB (1.03x)
+    - - bootstrap.css (274 kB)
+      - 223.3 kB
+      - 227.7 kB (1.02x)
+      - 228.7 kB (1.02x)
+      - 226.9 kB (1.02x)
+      - 228.8 kB (1.02x)
+    - - bulma.css (745 kB)
+      - 661.8 kB
+      - 664.0 kB (1.00x)
+      - 665.4 kB (1.01x)
+      - 663.4 kB (1.00x)
+      - 665.4 kB (1.01x)
+
+`lightningcss <https://github.com/lightningcss-python/lightningcss>`_, the Rust binding, is a full cascade-aware
+optimizer rather than a minifier and sits in a different class: it produces a smaller result by transforms that depend
+on a browser-target set (it is not in scope here), and on this corpus it raised a parse error on ``foundation.css``,
+where turbohtml minified all six stylesheets, so it is left out of the table.

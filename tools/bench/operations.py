@@ -121,6 +121,7 @@ OPERATIONS: dict[str, Operation] = {
     "path": Operation("css_path for every element", "us"),
     "path-xpath": Operation("xpath_path for every element", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
+    "minify-css": Operation("minify CSS", "us"),
 }
 
 
@@ -282,6 +283,11 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     return _TOKENIZE_CASES + corpus_cases + large_cases
 
 
+def _minify_cases() -> tuple[tuple[str, object], ...]:
+    """Return the real-world stylesheets the CSS-minify suite runs over (fetched and cached on first use)."""
+    return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS)
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS,
@@ -363,4 +369,5 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
     "xpath": _xpath_cases,
+    "minify-css": _minify_cases,
 }

@@ -193,6 +193,42 @@ all-time totals and each library's documentation sit alongside for context.
             :alt: html-sanitizer total downloads
             :target: https://pepy.tech/project/html-sanitizer
 
+******************
+ CSS minification
+******************
+
+:func:`turbohtml.clean.minify_css` is a value-safe CSS minifier -- it rewrites every value to its shortest equivalent
+form, so the output is the smallest of any round-trip-safe minifier (the :doc:`performance </development/performance>`
+page benchmarks all of them).
+
+.. list-table::
+    :header-rows: 1
+    :widths: auto
+
+    - - #
+      - Library
+      - Docs
+      - Monthly downloads
+      - Total downloads
+    - - 1
+      - :doc:`rcssmin <rcssmin>`
+      - `docs <https://opensource.perlig.de/rcssmin/>`__
+      - .. image:: https://static.pepy.tech/badge/rcssmin/month
+            :alt: rcssmin monthly downloads
+            :target: https://pepy.tech/project/rcssmin
+      - .. image:: https://static.pepy.tech/badge/rcssmin
+            :alt: rcssmin total downloads
+            :target: https://pepy.tech/project/rcssmin
+    - - 2
+      - :doc:`csscompressor <csscompressor>`
+      - `docs <https://github.com/sprymix/csscompressor>`__
+      - .. image:: https://static.pepy.tech/badge/csscompressor/month
+            :alt: csscompressor monthly downloads
+            :target: https://pepy.tech/project/csscompressor
+      - .. image:: https://static.pepy.tech/badge/csscompressor
+            :alt: csscompressor total downloads
+            :target: https://pepy.tech/project/csscompressor
+
 ***************************
  Text, Markdown & escaping
 ***************************
@@ -403,6 +439,8 @@ all-time totals and each library's documentation sit alongside for context.
     lxml
     linkify-it-py
     bleach
+    rcssmin
+    csscompressor
     markdownify
     nh3
     html5lib

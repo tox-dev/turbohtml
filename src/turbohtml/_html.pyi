@@ -126,6 +126,12 @@ from ._stubs.serialize import (
     _markup_soft_str as _markup_soft_str,
 )
 from ._stubs.serialize import (
+    _minify_css as _minify_css,
+)
+from ._stubs.serialize import (
+    _minify_css_inline as _minify_css_inline,
+)
+from ._stubs.serialize import (
     escape as escape,
 )
 from ._stubs.serialize import (

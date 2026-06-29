@@ -221,6 +221,11 @@ commands = [
   [ "python", "{tox_root}{/}tools{/}generate_tags.py", "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}tag_atom.h" ],
   [ "python", "{tox_root}{/}tools{/}generate_attrs.py", "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}attr_atom.h" ],
   [ "python", "{tox_root}{/}tools{/}generate_tlds.py", "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}tld_table.h" ],
+  [
+    "python",
+    "{tox_root}{/}tools{/}generate_css_colors.py",
+    "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}css_colors.h"
+  ],
 ]
 
 [env.release]

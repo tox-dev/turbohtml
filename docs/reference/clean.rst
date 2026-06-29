@@ -66,10 +66,23 @@ insignificant whitespace, omit optional tags, unquote attributes, strip comments
 
 .. autofunction:: minify
 
-turbohtml does not bundle a CSS or JavaScript minifier, so ``minify-html``'s ``minify_css`` / ``minify_js`` have no
-counterpart; ``<style>`` and ``<script>`` bodies are emitted verbatim. The doctype is always normalized to ``<!doctype
-html>`` (``minify-html``'s ``minify_doctype`` is implicit), and HTML has no processing instructions to drop
+The HTML minify layout emits ``<style>`` and ``<script>`` bodies verbatim; to also minify embedded CSS, run
+:func:`minify_css` (below) over a ``<style>`` body yourself, which is what ``minify-html``'s ``minify_css`` did inline.
+``minify-html``'s ``minify_js`` has no counterpart. The doctype is always normalized to ``<!doctype html>``
+(``minify-html``'s ``minify_doctype`` is implicit), and HTML has no processing instructions to drop
 (``remove_processing_instructions`` is moot under the WHATWG parser, which reads them as bogus comments).
+
+******************
+ CSS minification
+******************
+
+Minify CSS the value-safe way: every transform produces output that parses to the same cascade, so there is nothing to
+configure. :func:`minify_css` takes a whole stylesheet; :func:`minify_css_inline` takes a bare declaration list, the
+value of an HTML ``style`` attribute.
+
+.. autofunction:: minify_css
+
+.. autofunction:: minify_css_inline
 
 turbohtml.migration.bleach
 ==========================

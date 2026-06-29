@@ -1,0 +1,5 @@
+Minify CSS with :func:`turbohtml.clean.minify_css` and :func:`turbohtml.clean.minify_css_inline`, a value-safe minifier
+ported from `tdewolff/minify <https://github.com/tdewolff/minify>`__ that rewrites every value to its shortest
+equivalent form. It produces the smallest output of any round-trip-safe minifier on PyPI, replacing `rcssmin
+<https://github.com/ndparker/rcssmin>`__ and `csscompressor <https://github.com/sprymix/csscompressor>`__, which have
+migration guides - by :user:`gaborbernat`.

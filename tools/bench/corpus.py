@@ -1,9 +1,10 @@
 """
-Real and generated corpora for the parse, string, and read-path operations.
+Real and generated corpora for the parse, string, read-path, and CSS-minify operations.
 
 Standard library only, so it loads in any worker venv. Documents come from two vendored submodules under ``tools/`` --
-the html5lib-python wpt sample and Project Gutenberg's War and Peace -- plus two multi-megabyte specs downloaded and
-cached on first use (too large to vendor). The generated escape/unescape inputs are seeded, so every run is identical.
+the html5lib-python wpt sample and Project Gutenberg's War and Peace -- plus the multi-megabyte specs and the framework
+stylesheets, downloaded and cached on first use (too large or too many to vendor). The generated escape/unescape inputs
+are seeded, so every run is identical.
 """
 
 from __future__ import annotations
@@ -59,6 +60,34 @@ REAL_PAGES: tuple[tuple[str, str, str], ...] = (
     ("daring fireball (10 kB)", "real-daringfireball.html", f"{_RP}/daringfireball-1/source.html"),
     ("ars technica (56 kB)", "real-ars.html", f"{_RP}/ars-1/source.html"),
     ("mozilla blog (95 kB)", "real-mozilla.html", f"{_RP}/mozilla-1/source.html"),
+)
+
+
+# Real-world stylesheets for the CSS-minify suite, pinned to release tags and fetched on first use (too many to
+# vendor), spanning a 6 kB reset to a 745 kB framework -- the unminified source CSS those projects publish.
+STYLESHEETS: tuple[tuple[str, str, str], ...] = (
+    (
+        "normalize.css (6 kB)",
+        "normalize.css",
+        "https://raw.githubusercontent.com/necolas/normalize.css/8.0.1/normalize.css",
+    ),
+    ("pico.css (90 kB)", "pico.css", "https://raw.githubusercontent.com/picocss/pico/v2.0.6/css/pico.css"),
+    (
+        "animate.css (93 kB)",
+        "animate.css",
+        "https://raw.githubusercontent.com/animate-css/animate.css/v4.1.1/animate.css",
+    ),
+    (
+        "foundation.css (164 kB)",
+        "foundation.css",
+        "https://raw.githubusercontent.com/foundation/foundation-sites/v6.8.1/dist/css/foundation.css",
+    ),
+    (
+        "bootstrap.css (274 kB)",
+        "bootstrap.css",
+        "https://raw.githubusercontent.com/twbs/bootstrap/v5.3.3/dist/css/bootstrap.css",
+    ),
+    ("bulma.css (745 kB)", "bulma.css", "https://raw.githubusercontent.com/jgthms/bulma/1.0.2/css/bulma.css"),
 )
 
 
