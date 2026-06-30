@@ -119,6 +119,37 @@ def test_minify_css(source: str, expected: str) -> None:
         pytest.param("@media (a:b) c{x:1}", "@media(a:b) c{x:1}", id="media-keep-space-before-non-combinator"),
         pytest.param("@media (a:b),(c:d){a{x:1}}", "@media(a:b),(c:d){a{x:1}}", id="media-comma-after-paren"),
         pytest.param("@media (a:b)0{x:1}", "@media(a:b)0{x:1}", id="media-non-ident-after-paren"),
+        pytest.param(
+            "@media (min-width:1px){a{x:1}}@media (min-width:1px){b{y:2}}",
+            "@media(min-width:1px){a{x:1}b{y:2}}",
+            id="merge-adjacent-identical-media",
+        ),
+        pytest.param(
+            "@media screen{a{x:1}}@media print{b{y:2}}",
+            "@media screen{a{x:1}}@media print{b{y:2}}",
+            id="no-merge-different-media",
+        ),
+        pytest.param(
+            "@media (a:b){x{y:1}}c{d:e}@media (a:b){z{w:1}}",
+            "@media(a:b){x{y:1}}c{d:e}@media(a:b){z{w:1}}",
+            id="no-merge-media-across-rule",
+        ),
+        pytest.param("@media{a{x:1}}@media{b{y:2}}", "@media{a{x:1}b{y:2}}", id="merge-media-empty-prelude"),
+        pytest.param(
+            "@media (a:b){x{y:1}}@media (c:d){z{w:1}}",
+            "@media(a:b){x{y:1}}@media(c:d){z{w:1}}",
+            id="no-merge-media-same-length-prelude",
+        ),
+        pytest.param(
+            "@layer a{x{y:1}}@layer a{z{w:1}}", "@layer a{x{y:1}}@layer a{z{w:1}}", id="no-merge-layer-blocks"
+        ),
+        pytest.param(
+            "@media-foo{a{b:c}}@media-foo{d{e:f}}",
+            "@media-foo{a{b:c}}@media-foo{d{e:f}}",
+            id="no-merge-media-prefixed-keyword",
+        ),
+        pytest.param('@import "a";@import "b";', '@import "a";@import "b"', id="no-merge-at-statements"),
+        pytest.param("@x{}@media (a:b){c{d:e}}", "@x{}@media(a:b){c{d:e}}", id="short-at-block-before-media"),
         pytest.param("a::before{x:1}", "a:before{x:1}", id="legacy-pseudo-before-single-colon"),
         pytest.param("a::after{x:1}", "a:after{x:1}", id="legacy-pseudo-after-single-colon"),
         pytest.param("a::first-line{x:1}", "a:first-line{x:1}", id="legacy-pseudo-first-line"),

@@ -4308,17 +4308,59 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     cbuf_free(&combined);
 }
 
-/* Merge consecutive qualified rules: same selector -> combine declaration bodies; identical body -> combine
-   selectors into a list. Only adjacent rules merge (an opaque node between them resets adjacency), so the cascade is
-   never reordered. */
+/* For a rendered at-rule node, the length of an @media block's prelude through the first '{', or -1 when the node is
+   not a mergeable @media block. @media is the only conditional-group rule merged here: @layer declares cascade order,
+   and @supports/@keyframes/@font-face have no safe identical-prelude merge in this corpus. The char after "@media"
+   must end the keyword (space, '(' or '{'), so "@media-foo" is excluded. */
+static Py_ssize_t css_media_prelude_len(const css_char *text, Py_ssize_t len, int at_statement) {
+    if (at_statement || len < 7 || memcmp(text, "@media", 6) != 0 ||
+        (text[6] != ' ' && text[6] != '(' && text[6] != '{')) {
+        return -1;
+    }
+    for (Py_ssize_t index = 6; index < len; index++) { /* GCOVR_EXCL_BR_LINE: a non-statement @media block has a '{' */
+        if (text[index] == '{') {
+            return index + 1;
+        }
+    }
+    return -1; /* GCOVR_EXCL_LINE: a rendered @media block always carries its '{' */
+}
+
+/* Merge consecutive qualified rules: same selector -> combine declaration bodies; identical body -> combine selectors
+   into a list. Consecutive @media blocks with an identical prelude fold into one wrapper. Only adjacent nodes merge (an
+   opaque node between them resets adjacency), so the cascade is never reordered. */
 static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline) {
     Py_ssize_t prev = -1;
+    Py_ssize_t media_prev = -1;
+    Py_ssize_t media_prev_prelude = 0;
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
             prev = -1;
+            /* every non-rule item carries text (the push guard drops empty rules), so text_len is always positive */
+            Py_ssize_t prelude = css_media_prelude_len(pool->data + it->text_off, it->text_len, it->at_statement);
+            if (prelude < 0) {
+                media_prev = -1;
+                continue;
+            }
+            if (media_prev >= 0 && media_prev_prelude == prelude &&
+                memcmp(pool->data + items->items[media_prev].text_off, pool->data + it->text_off, (size_t)prelude) ==
+                    0) {
+                /* drop the previous block's trailing '}' and this block's "@media ...{" prelude, fusing the bodies */
+                rule_item *target = &items->items[media_prev];
+                css_buf merged = {NULL, 0, 0, 0};
+                cbuf_put_run(&merged, pool->data + target->text_off, target->text_len - 1);
+                cbuf_put_run(&merged, pool->data + it->text_off + prelude, it->text_len - prelude);
+                target->text_off = pool_run(pool, merged.data, merged.len);
+                target->text_len = merged.len;
+                cbuf_free(&merged);
+                it->dropped = 1;
+                continue;
+            }
+            media_prev = index;
+            media_prev_prelude = prelude;
             continue;
         }
+        media_prev = -1;
         if (prev >= 0) {
             rule_item *target = &items->items[prev];
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
