@@ -76,13 +76,20 @@ The HTML minify layout emits ``<style>`` and ``<script>`` bodies verbatim; to al
  CSS minification
 ******************
 
-Minify CSS the value-safe way: every transform produces output that parses to the same cascade, so there is nothing to
-configure. :func:`minify_css` takes a whole stylesheet; :func:`minify_css_inline` takes a bare declaration list, the
-value of an HTML ``style`` attribute.
+Minify CSS the value-safe way: every transform produces output that parses to the same cascade. :func:`minify_css` takes
+a whole stylesheet; :func:`minify_css_inline` takes a bare declaration list, the value of an HTML ``style`` attribute.
+Both are value-safe at any :class:`Baseline`; the optional :class:`CSSMinify` only bounds how new the output *syntax*
+may be.
 
 .. autofunction:: minify_css
 
 .. autofunction:: minify_css_inline
+
+.. autoclass:: Baseline
+    :members:
+
+.. autoclass:: CSSMinify
+    :members:
 
 Transformations
 ===============
@@ -125,19 +132,27 @@ Shorthands
   <https://www.w3.org/TR/css-backgrounds-3/#backgrounds>`__), ``flex`` (`Flexbox 1 §7.1.1
   <https://www.w3.org/TR/css-flexbox-1/#flex-property>`__) and ``font`` (`Fonts 4 §2.7
   <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form.
+- Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow`` and ``align-content`` + ``justify-content`` into
+  ``place-content`` (`Box Alignment 3 <https://www.w3.org/TR/css-align-3/#place-content>`__). With
+  ``Baseline.NEWLY_AVAILABLE`` also merge ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
+  <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), the two ``overflow`` longhands, and the flex ``gap``.
 
 Structure and selectors
 -----------------------
 
 - Collapse insignificant whitespace and strip comments, keeping a ``/*! … */`` bang comment (`Syntax 3 §3.3
   <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__).
-- Drop a declaration an identically-keyed later one overrides, remove an empty rule, and merge adjacent rules with the
-  same selector or an identical body (`Cascade 5 §6.4.4 <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__).
-- Lower-case type selectors, trim combinator whitespace, and unquote an attribute value that is a valid identifier
-  (`Selectors 4 §6.1 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__); a custom-property name keeps its case
-  (`Variables 1 §2 <https://www.w3.org/TR/css-variables-1/#defining-variables>`__).
+- Drop a declaration an identically-keyed later one overrides, remove an empty rule, merge adjacent rules with the same
+  selector or an identical body, and fuse consecutive ``@media`` blocks that share a prelude (`Cascade 5 §6.4.4
+  <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__).
+- Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
+  four legacy pseudo-elements with one colon (``::before`` → ``:before``), and unquote an attribute value that is a
+  valid identifier (`Selectors 4 §5–6 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8
+  <https://www.w3.org/TR/css-pseudo-4/#css2-compat>`__); a custom-property name keeps its case (`Variables 1 §2
+  <https://www.w3.org/TR/css-variables-1/#defining-variables>`__).
 - Rewrite a ``@keyframes`` ``from`` selector to ``0%`` (`Animations 1
-  <https://www.w3.org/TR/css-animations-1/#keyframes>`__).
+  <https://www.w3.org/TR/css-animations-1/#keyframes>`__), and drop the space before ``and``/``or`` after a ``)`` in a
+  media query (`Media Queries 4 <https://www.w3.org/TR/mediaqueries-4/#mq-syntax>`__).
 
 turbohtml.migration.bleach
 ==========================

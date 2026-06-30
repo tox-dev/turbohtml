@@ -17,7 +17,9 @@ every value-safe rewrite as well -- so the result is smaller while still parsing
 
 turbohtml rewrites each value to its shortest equivalent form -- colors to their shortest hex or name, redundant zeros
 and units dropped, constant ``calc()`` folded, longhands merged into shorthands, adjacent equal-bodied rules combined --
-where rcssmin leaves values verbatim. The output is smaller on every framework; rcssmin's whitespace-only pass is faster
+where rcssmin leaves values verbatim. turbohtml's output is smaller on every framework except the custom-property-heavy
+``bulma.css``, where rcssmin edges ahead only by stripping the custom-property whitespace `CSS Variables 1 §3
+<https://www.w3.org/TR/css-variables-1/#defining-variables>`_ preserves; rcssmin's whitespace-only pass is faster
 because it does strictly less work. Each cell shows the figure with its ratio to turbohtml:
 
 .. list-table::
@@ -40,23 +42,23 @@ because it does strictly less work. Each cell shows the figure with its ratio to
       - 646 µs
       - 165 µs (0.3x)
     - - pico.css (90 kB)
-      - 81.1 kB
+      - 81.0 kB
       - 82.1 kB (1.01x)
       - 519 µs
       - 194 µs (0.4x)
     - - foundation.css (164 kB)
-      - 132.3 kB
-      - 136.7 kB (1.03x)
+      - 131.4 kB
+      - 136.7 kB (1.04x)
       - 1.18 ms
       - 382 µs (0.3x)
     - - bootstrap.css (274 kB)
-      - 228.7 kB
+      - 229.4 kB
       - 233.2 kB (1.02x)
       - 1.85 ms
       - 625 µs (0.3x)
     - - bulma.css (745 kB)
-      - 678.2 kB
-      - 680.0 kB (1.00x)
+      - 682.2 kB
+      - 680.0 kB (0.996x)
       - 4.24 ms
       - 1.73 ms (0.4x)
 

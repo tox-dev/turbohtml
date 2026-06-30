@@ -15,9 +15,11 @@ produces a smaller result and runs in C rather than chained regular expressions.
  Why turbohtml
 ***************
 
-turbohtml's output is smaller on every framework, and its C engine is 40x to 130x faster -- csscompressor's regex passes
-turn quadratic on a large stylesheet, where turbohtml stays linear. Each cell shows the figure with its ratio to
-turbohtml:
+turbohtml's output is smaller on every framework except the custom-property-heavy ``bulma.css``, where csscompressor
+edges ahead only by rewriting the custom-property whitespace `CSS Variables 1 §3
+<https://www.w3.org/TR/css-variables-1/#defining-variables>`_ preserves. Its C engine is also 40x to 130x faster --
+csscompressor's regex passes turn quadratic on a large stylesheet, where turbohtml stays linear. Each cell shows the
+figure with its ratio to turbohtml:
 
 .. list-table::
     :header-rows: 1
@@ -39,23 +41,23 @@ turbohtml:
       - 646 µs
       - 24.8 ms (38x)
     - - pico.css (90 kB)
-      - 81.1 kB
+      - 81.0 kB
       - 81.6 kB (1.01x)
       - 519 µs
       - 35.1 ms (68x)
     - - foundation.css (164 kB)
-      - 132.3 kB
-      - 136.4 kB (1.03x)
+      - 131.4 kB
+      - 136.4 kB (1.04x)
       - 1.18 ms
       - 58.8 ms (50x)
     - - bootstrap.css (274 kB)
-      - 228.7 kB
+      - 229.4 kB
       - 234.2 kB (1.02x)
       - 1.85 ms
       - 80.9 ms (44x)
     - - bulma.css (745 kB)
-      - 678.2 kB
-      - 681.3 kB (1.00x)
+      - 682.2 kB
+      - 681.3 kB (0.999x)
       - 4.24 ms
       - 538 ms (127x)
 
