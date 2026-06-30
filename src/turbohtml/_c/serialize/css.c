@@ -4053,8 +4053,14 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             pending_ws = 0;
             continue;
         }
-        if (pending_ws && out->len > mark && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
-            out->data[out->len - 1] != ':') {
+        /* `)and`/`)or` tokenizes the same as `) and`/`) or` (Syntax 3 §4: a ')' then an ident), so the space before a
+           combinator after a ')' is dropped; the space *after* it is kept by the '(' branch above, since `and(` would
+           otherwise be one function token. */
+        int after_paren_combinator =
+            out->len > mark && out->data[out->len - 1] == ')' && token->kind == CSS_IDENT &&
+            (css_run_ieq(token->text, token->text_len, "and") || css_run_ieq(token->text, token->text_len, "or"));
+        if (pending_ws && !after_paren_combinator && out->len > mark && out->data[out->len - 1] != '(' &&
+            out->data[out->len - 1] != ',' && out->data[out->len - 1] != ':') {
             cbuf_putc(out, ' ');
         }
         pending_ws = 0;

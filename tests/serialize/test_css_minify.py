@@ -108,6 +108,17 @@ def test_minify_css(source: str, expected: str) -> None:
             id="keyframes-from-to-percent",
         ),
         pytest.param('a{font-family:"serif"}', 'a{font-family:"serif"}', id="keep-quotes-generic-family"),
+        pytest.param(
+            "@media (min-width:1px) and (max-width:2px){a{x:1}}",
+            "@media(min-width:1px)and (max-width:2px){a{x:1}}",
+            id="media-drop-space-before-and",
+        ),
+        pytest.param(
+            "@supports (a:b) or (c:d){a{x:1}}", "@supports(a:b)or (c:d){a{x:1}}", id="supports-drop-space-before-or"
+        ),
+        pytest.param("@media (a:b) c{x:1}", "@media(a:b) c{x:1}", id="media-keep-space-before-non-combinator"),
+        pytest.param("@media (a:b),(c:d){a{x:1}}", "@media(a:b),(c:d){a{x:1}}", id="media-comma-after-paren"),
+        pytest.param("@media (a:b)0{x:1}", "@media(a:b)0{x:1}", id="media-non-ident-after-paren"),
         pytest.param("a::before{x:1}", "a:before{x:1}", id="legacy-pseudo-before-single-colon"),
         pytest.param("a::after{x:1}", "a:after{x:1}", id="legacy-pseudo-after-single-colon"),
         pytest.param("a::first-line{x:1}", "a:first-line{x:1}", id="legacy-pseudo-first-line"),

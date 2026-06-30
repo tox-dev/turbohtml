@@ -3856,8 +3856,8 @@
 ],
 [
 "@media (min-width: 100px) and (max-width:200px){a{x:1}}",
-"@media(min-width:100px) and (max-width:200px){a{x:1}}",
-"@media(min-width:100px) and (max-width:200px){a{x:1}}"
+"@media(min-width:100px)and (max-width:200px){a{x:1}}",
+"@media(min-width:100px)and (max-width:200px){a{x:1}}"
 ],
 [
 "@media screen , print{a{x:1}}",
