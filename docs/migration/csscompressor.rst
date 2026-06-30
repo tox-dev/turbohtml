@@ -33,33 +33,33 @@ figure with its ratio to turbohtml:
     - - normalize.css (6 kB)
       - 1.8 kB
       - 1.8 kB (1.04x)
-      - 16.2 µs
-      - 1.11 ms (69x)
+      - 15.9 µs
+      - 1.11 ms (70x)
     - - animate.css (93 kB)
       - 72.8 kB
       - 75.7 kB (1.04x)
-      - 646 µs
-      - 24.8 ms (38x)
+      - 605 µs
+      - 24.8 ms (41x)
     - - pico.css (90 kB)
       - 81.0 kB
       - 81.6 kB (1.01x)
-      - 519 µs
-      - 35.1 ms (68x)
+      - 457 µs
+      - 35.1 ms (77x)
     - - foundation.css (164 kB)
       - 131.4 kB
       - 136.4 kB (1.04x)
-      - 1.18 ms
-      - 58.8 ms (50x)
+      - 1.09 ms
+      - 58.8 ms (54x)
     - - bootstrap.css (274 kB)
       - 229.4 kB
       - 234.2 kB (1.02x)
-      - 1.85 ms
-      - 80.9 ms (44x)
+      - 1.65 ms
+      - 80.9 ms (49x)
     - - bulma.css (745 kB)
       - 682.2 kB
       - 681.3 kB (0.999x)
-      - 4.24 ms
-      - 538 ms (127x)
+      - 3.46 ms
+      - 538 ms (155x)
 
 turbohtml also folds constant ``calc()``, merges box longhands into shorthands, and combines adjacent equal-bodied
 rules, none of which csscompressor attempts, so the size gap widens on framework CSS that leans on those forms.

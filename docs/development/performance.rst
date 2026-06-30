@@ -1656,7 +1656,7 @@ raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it
 publish. Two work in turbohtml's class -- rewriting values to their shortest equivalent form (colors to hex, numbers,
 ``calc()``, shorthands), not merely stripping whitespace -- `csscompressor <https://github.com/sprymix/csscompressor>`_
 (the YUI port) and `cssmin <https://github.com/zacharyvoase/cssmin>`_ (its BSD descendant); both are pure-Python regex
-passes that turn quadratic on a large stylesheet, so turbohtml's C engine leads them by 40x to 650x. `rcssmin
+passes that turn quadratic on a large stylesheet, so turbohtml's C engine leads them by 40x to 800x. `rcssmin
 <https://github.com/ndparker/rcssmin>`_ is a C extension and faster than turbohtml, but it is non-destructive -- it
 strips comments and whitespace and rewrites nothing -- so it does strictly less work and leaves a larger result; the
 migration guides put the output sizes side by side. `css-html-js-minify
@@ -1673,41 +1673,41 @@ migration guides put the output sizes side by side. `css-html-js-minify
       - cssmin
       - css-html-js-minify
     - - normalize.css (6 kB)
-      - 16.2 µs
+      - 15.9 µs
       - 5.12 µs (0.3x)
-      - 1.11 ms (69x)
+      - 1.11 ms (70x)
       - 387 µs (24x)
       - 464 µs (29x)
     - - animate.css (93 kB)
-      - 646 µs
+      - 605 µs
       - 165 µs (0.3x)
-      - 24.8 ms (38x)
-      - 7.20 ms (11x)
-      - 9.88 ms (15x)
+      - 24.8 ms (41x)
+      - 7.20 ms (12x)
+      - 9.88 ms (16x)
     - - pico.css (90 kB)
-      - 519 µs
+      - 457 µs
       - 194 µs (0.4x)
-      - 35.1 ms (68x)
-      - 218 ms (420x)
-      - 224 ms (432x)
+      - 35.1 ms (77x)
+      - 218 ms (477x)
+      - 224 ms (490x)
     - - foundation.css (164 kB)
-      - 1.18 ms
-      - 382 µs (0.3x)
-      - 58.8 ms (50x)
-      - 493 ms (418x)
-      - 512 ms (434x)
+      - 1.09 ms
+      - 382 µs (0.4x)
+      - 58.8 ms (54x)
+      - 493 ms (453x)
+      - 512 ms (470x)
     - - bootstrap.css (274 kB)
-      - 1.85 ms
-      - 625 µs (0.3x)
-      - 80.9 ms (44x)
-      - 580 ms (314x)
-      - 593 ms (321x)
+      - 1.65 ms
+      - 625 µs (0.4x)
+      - 80.9 ms (49x)
+      - 580 ms (351x)
+      - 593 ms (359x)
     - - bulma.css (745 kB)
-      - 4.24 ms
-      - 1.73 ms (0.4x)
-      - 538 ms (127x)
-      - 2.75 s (649x)
-      - 2.78 s (656x)
+      - 3.46 ms
+      - 1.73 ms (0.5x)
+      - 538 ms (155x)
+      - 2.75 s (794x)
+      - 2.78 s (802x)
 
 Size is the other axis, and the reason to rewrite values at all. turbohtml's output is the smallest of any value-safe
 minifier; the ratio in parentheses is each minifier's output size against turbohtml's. On ``bulma.css`` -- built almost

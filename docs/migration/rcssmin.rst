@@ -34,33 +34,33 @@ because it does strictly less work. Each cell shows the figure with its ratio to
     - - normalize.css (6 kB)
       - 1.8 kB
       - 1.8 kB (1.00x)
-      - 16.2 µs
+      - 15.9 µs
       - 5.12 µs (0.3x)
     - - animate.css (93 kB)
       - 72.8 kB
       - 75.7 kB (1.04x)
-      - 646 µs
+      - 605 µs
       - 165 µs (0.3x)
     - - pico.css (90 kB)
       - 81.0 kB
       - 82.1 kB (1.01x)
-      - 519 µs
+      - 457 µs
       - 194 µs (0.4x)
     - - foundation.css (164 kB)
       - 131.4 kB
       - 136.7 kB (1.04x)
-      - 1.18 ms
-      - 382 µs (0.3x)
+      - 1.09 ms
+      - 382 µs (0.4x)
     - - bootstrap.css (274 kB)
       - 229.4 kB
       - 233.2 kB (1.02x)
-      - 1.85 ms
-      - 625 µs (0.3x)
+      - 1.65 ms
+      - 625 µs (0.4x)
     - - bulma.css (745 kB)
       - 682.2 kB
       - 680.0 kB (0.996x)
-      - 4.24 ms
-      - 1.73 ms (0.4x)
+      - 3.46 ms
+      - 1.73 ms (0.5x)
 
 Both round-trip safely -- the output parses to the same cascade -- and both are idempotent. turbohtml is still far
 faster than every *other* value-rewriting minifier, which are pure-Python and turn quadratic on a large stylesheet.
