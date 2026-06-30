@@ -116,6 +116,14 @@ _NAME_TO_HEX: Final[dict[str, str]] = {
     "yellow": "#ff0",
     "lightyellow": "#ffffe0",
     "white": "#fff",
+    # transparent is the keyword for rgba(0,0,0,0); its 4-digit hex #0000 is shorter (CSS Color 4 §5.2, §6.1)
+    "transparent": "#0000",
+    # British spellings are exact aliases of the gray-family names (CSS Color 4 §6.1)
+    "darkgrey": "#a9a9a9",
+    "lightgrey": "#d3d3d3",
+    "slategrey": "#708090",
+    "darkslategrey": "#2f4f4f",
+    "lightslategrey": "#789",
 }
 
 # hash -> shortest keyword form (when the keyword is shorter than the hash)

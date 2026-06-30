@@ -14,7 +14,7 @@ typedef struct {
 } th_css_color_entry;
 
 /* keyword -> shortest hash, sorted by keyword for a first-byte bucketed scan. */
-static const int th_css_name_count = 98;
+static const int th_css_name_count = 104;
 static const th_css_color_entry th_css_name_to_hex[] = {
     {"aliceblue", 9u, "#f0f8ff", 7u},
     {"antiquewhite", 12u, "#faebd7", 7u},
@@ -33,6 +33,7 @@ static const th_css_color_entry th_css_name_to_hex[] = {
     {"darkgoldenrod", 13u, "#b8860b", 7u},
     {"darkgray", 8u, "#a9a9a9", 7u},
     {"darkgreen", 9u, "#006400", 7u},
+    {"darkgrey", 8u, "#a9a9a9", 7u},
     {"darkkhaki", 9u, "#bdb76b", 7u},
     {"darkmagenta", 11u, "#8b008b", 7u},
     {"darkolivegreen", 14u, "#556b2f", 7u},
@@ -42,6 +43,7 @@ static const th_css_color_entry th_css_name_to_hex[] = {
     {"darkseagreen", 12u, "#8fbc8f", 7u},
     {"darkslateblue", 13u, "#483d8b", 7u},
     {"darkslategray", 13u, "#2f4f4f", 7u},
+    {"darkslategrey", 13u, "#2f4f4f", 7u},
     {"darkturquoise", 13u, "#00ced1", 7u},
     {"darkviolet", 10u, "#9400d3", 7u},
     {"deeppink", 8u, "#ff1493", 7u},
@@ -67,11 +69,13 @@ static const th_css_color_entry th_css_name_to_hex[] = {
     {"lightgoldenrodyellow", 20u, "#fafad2", 7u},
     {"lightgray", 9u, "#d3d3d3", 7u},
     {"lightgreen", 10u, "#90ee90", 7u},
+    {"lightgrey", 9u, "#d3d3d3", 7u},
     {"lightpink", 9u, "#ffb6c1", 7u},
     {"lightsalmon", 11u, "#ffa07a", 7u},
     {"lightseagreen", 13u, "#20b2aa", 7u},
     {"lightskyblue", 12u, "#87cefa", 7u},
     {"lightslateblue", 14u, "#789", 4u},
+    {"lightslategrey", 14u, "#789", 4u},
     {"lightsteelblue", 14u, "#b0c4de", 7u},
     {"lightyellow", 11u, "#ffffe0", 7u},
     {"limegreen", 9u, "#32cd32", 7u},
@@ -107,8 +111,10 @@ static const th_css_color_entry th_css_name_to_hex[] = {
     {"seashell", 8u, "#fff5ee", 7u},
     {"slateblue", 9u, "#6a5acd", 7u},
     {"slategray", 9u, "#708090", 7u},
+    {"slategrey", 9u, "#708090", 7u},
     {"springgreen", 11u, "#00ff7f", 7u},
     {"steelblue", 9u, "#4682b4", 7u},
+    {"transparent", 11u, "#0000", 5u},
     {"turquoise", 9u, "#40e0d0", 7u},
     {"white", 5u, "#fff", 4u},
     {"whitesmoke", 10u, "#f5f5f5", 7u},
@@ -119,15 +125,18 @@ static const th_css_color_entry th_css_name_to_hex[] = {
 /* th_css_name_first[c] is the first table index whose keyword starts with a byte >= c, so the keywords
    beginning with byte c are [th_css_name_first[c], th_css_name_first[c + 1]). */
 static const uint16_t th_css_name_first[257] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  3,  7,  12, 31, 31, 35, 39, 40, 41, 41, 41, 59, 73, 74, 76, 83, 83, 85,
-    93, 94, 94, 94, 96, 96, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98,
-    98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98,
-    98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98,
-    98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98,
-    98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98, 98};
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   3,   7,   12,  33,  33,  37,  41,  42,  43,  43,  43,  63,
+    77,  78,  80,  87,  87,  89,  98,  100, 100, 100, 102, 102, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104,
+    104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104};
 
 /* hash -> shortest keyword, sorted by hash string for a binary search (every hash shares the '#' byte). */
 static const int th_css_hex_count = 32;

@@ -29,33 +29,33 @@ turbohtml:
       - turbohtml time
       - csscompressor time
     - - normalize.css (6 kB)
-      - 1.7 kB
+      - 1.8 kB
       - 1.8 kB (1.04x)
       - 16.2 µs
       - 1.11 ms (69x)
     - - animate.css (93 kB)
-      - 71.7 kB
-      - 74.0 kB (1.03x)
+      - 72.8 kB
+      - 75.7 kB (1.04x)
       - 646 µs
       - 24.8 ms (38x)
     - - pico.css (90 kB)
-      - 79.2 kB
-      - 79.7 kB (1.01x)
+      - 81.1 kB
+      - 81.6 kB (1.01x)
       - 519 µs
       - 35.1 ms (68x)
     - - foundation.css (164 kB)
-      - 129.3 kB
-      - 133.2 kB (1.03x)
+      - 132.3 kB
+      - 136.4 kB (1.03x)
       - 1.18 ms
       - 58.8 ms (50x)
     - - bootstrap.css (274 kB)
-      - 223.3 kB
-      - 228.7 kB (1.02x)
+      - 228.7 kB
+      - 234.2 kB (1.02x)
       - 1.85 ms
       - 80.9 ms (44x)
     - - bulma.css (745 kB)
-      - 661.8 kB
-      - 665.4 kB (1.01x)
+      - 678.2 kB
+      - 681.3 kB (1.00x)
       - 4.24 ms
       - 538 ms (127x)
 

@@ -1709,9 +1709,12 @@ migration guides put the output sizes side by side. `css-html-js-minify
       - 2.75 s (649x)
       - 2.78 s (656x)
 
-Size is the other axis, and the reason to rewrite values at all. turbohtml's output is the smallest on every stylesheet;
-the ratio in parentheses is each minifier's output size against turbohtml's. These byte counts are deterministic, not a
-timed measurement:
+Size is the other axis, and the reason to rewrite values at all. turbohtml's output is the smallest of any value-safe
+minifier; the ratio in parentheses is each minifier's output size against turbohtml's. On ``bulma.css`` -- built almost
+entirely from custom properties -- the others shave a few hundred bytes only by rewriting custom-property values (the
+internal whitespace `CSS Variables 1 §3 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ preserves), and
+``cssmin`` and ``css-html-js-minify`` also collapse whitespace inside strings; turbohtml keeps both byte-exact, so its
+output round-trips where theirs can change the cascade. These byte counts are deterministic, not a timed measurement:
 
 .. list-table::
     :header-rows: 1
@@ -1724,43 +1727,43 @@ timed measurement:
       - cssmin
       - css-html-js-minify
     - - normalize.css (6 kB)
-      - 1.7 kB
-      - 1.7 kB (1.00x)
+      - 1.8 kB
+      - 1.8 kB (1.00x)
       - 1.8 kB (1.04x)
       - 1.8 kB (1.04x)
       - 1.8 kB (1.04x)
     - - animate.css (93 kB)
-      - 71.7 kB
-      - 73.9 kB (1.03x)
-      - 74.0 kB (1.03x)
-      - 74.0 kB (1.03x)
-      - 74.0 kB (1.03x)
+      - 72.8 kB
+      - 75.7 kB (1.04x)
+      - 75.7 kB (1.04x)
+      - 75.8 kB (1.04x)
+      - 75.8 kB (1.04x)
     - - pico.css (90 kB)
-      - 79.2 kB
-      - 80.2 kB (1.01x)
-      - 79.7 kB (1.01x)
-      - 79.9 kB (1.01x)
-      - 80.0 kB (1.01x)
+      - 81.0 kB
+      - 82.1 kB (1.01x)
+      - 81.6 kB (1.01x)
+      - 81.8 kB (1.01x)
+      - 81.9 kB (1.01x)
     - - foundation.css (164 kB)
-      - 129.3 kB
-      - 133.5 kB (1.03x)
-      - 133.2 kB (1.03x)
-      - 133.1 kB (1.03x)
-      - 133.3 kB (1.03x)
+      - 131.7 kB
+      - 136.7 kB (1.04x)
+      - 136.4 kB (1.04x)
+      - 136.3 kB (1.03x)
+      - 136.5 kB (1.04x)
     - - bootstrap.css (274 kB)
-      - 223.3 kB
-      - 227.7 kB (1.02x)
-      - 228.7 kB (1.02x)
-      - 226.9 kB (1.02x)
-      - 228.8 kB (1.02x)
+      - 229.4 kB
+      - 233.2 kB (1.02x)
+      - 234.2 kB (1.02x)
+      - 232.4 kB (1.01x)
+      - 234.3 kB (1.02x)
     - - bulma.css (745 kB)
-      - 661.8 kB
-      - 664.0 kB (1.00x)
-      - 665.4 kB (1.01x)
-      - 663.4 kB (1.00x)
-      - 665.4 kB (1.01x)
+      - 682.3 kB
+      - 680.0 kB (0.996x)
+      - 681.3 kB (0.999x)
+      - 679.3 kB (0.996x)
+      - 681.3 kB (0.999x)
 
-`lightningcss <https://github.com/lightningcss-python/lightningcss>`_, the Rust binding, is a full cascade-aware
-optimizer rather than a minifier and sits in a different class: it produces a smaller result by transforms that depend
-on a browser-target set (it is not in scope here), and on this corpus it raised a parse error on ``foundation.css``,
-where turbohtml minified all six stylesheets, so it is left out of the table.
+`lightningcss <https://github.com/pydsigner/python-lightningcss>`_, the Rust binding, is a full cascade-aware optimizer
+rather than a minifier and sits in a different class: it produces a smaller result by transforms that depend on a
+browser-target set (it is not in scope here), and on this corpus it raised a parse error on ``foundation.css``, where
+turbohtml minified all six stylesheets, so it is left out of the table.

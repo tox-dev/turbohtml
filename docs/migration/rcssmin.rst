@@ -30,33 +30,33 @@ because it does strictly less work. Each cell shows the figure with its ratio to
       - turbohtml time
       - rcssmin time
     - - normalize.css (6 kB)
-      - 1.7 kB
-      - 1.7 kB (1.00x)
+      - 1.8 kB
+      - 1.8 kB (1.00x)
       - 16.2 µs
       - 5.12 µs (0.3x)
     - - animate.css (93 kB)
-      - 71.7 kB
-      - 73.9 kB (1.03x)
+      - 72.8 kB
+      - 75.7 kB (1.04x)
       - 646 µs
       - 165 µs (0.3x)
     - - pico.css (90 kB)
-      - 79.2 kB
-      - 80.2 kB (1.01x)
+      - 81.1 kB
+      - 82.1 kB (1.01x)
       - 519 µs
       - 194 µs (0.4x)
     - - foundation.css (164 kB)
-      - 129.3 kB
-      - 133.5 kB (1.03x)
+      - 132.3 kB
+      - 136.7 kB (1.03x)
       - 1.18 ms
       - 382 µs (0.3x)
     - - bootstrap.css (274 kB)
-      - 223.3 kB
-      - 227.7 kB (1.02x)
+      - 228.7 kB
+      - 233.2 kB (1.02x)
       - 1.85 ms
       - 625 µs (0.3x)
     - - bulma.css (745 kB)
-      - 661.8 kB
-      - 664.0 kB (1.00x)
+      - 678.2 kB
+      - 680.0 kB (1.00x)
       - 4.24 ms
       - 1.73 ms (0.4x)
 

@@ -1,11 +1,13 @@
-/* Aggressive, round-trip-safe CSS minification, porting tdewolff/minify's CSS algorithm.
+/* Aggressive, value-safe CSS minification. Every transform preserves the computed value per the CSS specifications
+   (Syntax 3, Values 4, Color 4, Selectors 4, and the shorthand modules), so the output always parses to the same
+   cascade as the input. The value-rewriting strategy is informed by tdewolff/minify, but spec conformance -- not
+   parity with any implementation -- is the contract: where tdewolff diverges from a spec, the spec wins.
 
-   Two entry points mirror tdewolff's two modes: th_minify_css for a full stylesheet (rules, at-rules, nesting) and
-   th_minify_css_inline for a bare declaration list as in a style= attribute. The pipeline is: a zero-copy tokenizer
-   that points its tokens straight into the source code-point buffer and hops whitespace with the shared SWAR lane
-   probe; a recursive-descent grammar over those tokens; and a value engine that shortens numbers, dimensions and
-   colors and folds a handful of shorthands. Every transform is value-preserving, so the output reparses to the same
-   declared styles.
+   Two entry points: th_minify_css for a full stylesheet (rules, at-rules, nesting) and th_minify_css_inline for a bare
+   declaration list as in a style= attribute. The pipeline is: a zero-copy tokenizer that points its tokens straight
+   into the source code-point buffer and hops whitespace with the shared SWAR lane probe; a recursive-descent grammar
+   over those tokens; and a value engine that shortens numbers, dimensions and colors and folds a handful of
+   shorthands.
 
    Rendered value components are interned into a per-call code-point pool; a component refers to its text by
    (offset, length) into that pool so the pool can grow without invalidating components.
@@ -321,7 +323,7 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
         } else if (character == '@' && pos + 1 < length && css_is_ident(source[pos + 1])) {
             Py_ssize_t scan = pos + 1;
             while (scan < length && css_is_ident(source[scan])) {
-                scan++;
+                scan += (source[scan] == '\\' && scan + 1 < length) ? 2 : 1; /* keep an escaped char in the name */
             }
             token.kind = CSS_AT;
             token.text = &source[pos];
@@ -331,7 +333,7 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
         } else if (character == '#' && pos + 1 < length && css_is_ident(source[pos + 1])) {
             Py_ssize_t scan = pos + 1;
             while (scan < length && css_is_ident(source[scan])) {
-                scan++;
+                scan += (source[scan] == '\\' && scan + 1 < length) ? 2 : 1; /* keep an escaped char in the hash */
             }
             token.kind = CSS_HASH;
             token.text = &source[pos];
@@ -520,8 +522,8 @@ static void pool_put_int(css_buf *pool, int value) {
     }
 }
 
-/* Shorten a numeric run into the pool (tdewolff minifyNumber): drop a leading +, redundant zeros, and use e-notation
-   when shorter (only when scientific, i.e. for dimensions/percentages). Returns the rendered (offset, length). */
+/* Shorten a numeric run into the pool (CSS Syntax 3 §4.3.3, Values 4 §6.1): drop a leading +, drop redundant zeros,
+   and use e-notation when shorter (only when scientific, i.e. for dimensions/percentages). Returns (offset, length). */
 static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t numlen, int scientific,
                               Py_ssize_t *out_off, Py_ssize_t *out_len) {
     /* every caller passes a number-token or built-rational text with at least one digit, so numlen >= 1 */
@@ -633,9 +635,11 @@ static int css_unit_known(const css_char *unit, Py_ssize_t len) {
     return 0;
 }
 
+/* CSS Values 4 §5.2: a zero length may drop its unit (bare 0 is a valid <length>). No other dimension type may --
+   bare 0 is not a valid <angle>/<time>/<frequency>/<resolution>/<flex>, so angle/time/etc. units stay. */
 static int css_unit_zero_droppable(const css_char *unit, Py_ssize_t len) {
-    static const char *const zero_units[] = {"ch", "cm", "deg", "em",  "ex",   "grad", "in",   "mm",   "pc", "pt",
-                                             "px", "q",  "rad", "rem", "turn", "vh",   "vmax", "vmin", "vw"};
+    static const char *const zero_units[] = {"ch", "cm", "em",  "ex", "in",   "mm",   "pc", "pt",
+                                             "px", "q",  "rem", "vh", "vmax", "vmin", "vw"};
     for (size_t index = 0; index < sizeof(zero_units) / sizeof(zero_units[0]); index++) {
         if (css_run_ieq(unit, len, zero_units[index])) {
             return 1;
@@ -645,7 +649,7 @@ static int css_unit_zero_droppable(const css_char *unit, Py_ssize_t len) {
 }
 
 /* Render a dimension (number + unit) into the pool: shorten the number, lower-case a known unit, and drop the unit
-   when the value is 0 and the unit is a length/angle. */
+   when the value is 0 and the unit is a length (CSS Values 4 §5.2). */
 static void css_format_dimension(css_buf *pool, const css_token *token, int drop_zero_unit, Py_ssize_t *out_off,
                                  Py_ssize_t *out_len) {
     Py_ssize_t off;
@@ -786,15 +790,17 @@ static void css_strip_continuations(css_buf *pool, const css_char *text, Py_ssiz
     }
 }
 
-/* Whether a url body can drop its quotes: non-empty and free of whitespace, quotes, parens and backslash. */
+/* Whether a url body can drop its quotes and stay a url-token (CSS Syntax 3 §4): non-empty and free of whitespace,
+   quotes, parens, backslash, and any non-printable code point (U+0000-08, U+000B, U+000E-1F, U+007F) -- a quoted
+   string may carry those raw, but in url-token position they force a <bad-url-token>. */
 static int css_url_unquotable(const css_char *text, Py_ssize_t len) {
     if (len == 0) {
         return 0;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
         css_char character = text[index];
-        if (css_is_ws(character) || character == '"' || character == '\'' || character == '(' || character == ')' ||
-            character == '\\') {
+        if (css_is_ws(character) || character < 0x20 || character == 0x7f || character == '"' || character == '\'' ||
+            character == '(' || character == ')' || character == '\\') {
             return 0;
         }
     }
@@ -860,9 +866,6 @@ static void css_minify_url(css_buf *pool, const css_char *text, Py_ssize_t len, 
     *out_len = pool->len - off;
 }
 
-/* Values within this of 0 or 1 snap to 0/1, matching tdewolff's alpha and percentage rounding. */
-#define CSS_EPS 1e-5
-
 static double css_run_to_double(const css_char *text, Py_ssize_t len) {
     char buffer[64];
     Py_ssize_t copy = len < 63 ? len : 63;
@@ -900,12 +903,25 @@ static void css_hsl_to_rgb(double hue, double saturation, double lightness, doub
     *blue = css_hue_to_rgb(lower, upper, hue - 1.0 / 3.0);
 }
 
-/* Render an opaque rgb triple as the shortest hex or color keyword. */
-static void css_rgb_to_hex(css_buf *pool, double red, double green, double blue, Py_ssize_t *out_off,
-                           Py_ssize_t *out_len) {
-    int channels[3] = {(int)(red * 255.0 + 0.5), (int)(green * 255.0 + 0.5), (int)(blue * 255.0 + 0.5)};
+/* An rgb channel (a fraction in [0,1]) folds to a hex byte only when it lands exactly on an 8-bit value. CSS Color 4
+   §4.1/§15 lets modern (space-separated) syntax keep more than 8 bits of precision, so rounding a fractional channel
+   to 8-bit hex changes the value; we fold only the exact case and keep the functional form otherwise. Out-of-range
+   values are clamped to [0,255] first (§15), which is itself value-safe. Returns 1 and the byte on an exact fold. */
+static int css_channel_to_bits(double channel, int *out) {
+    double bits = channel * 255.0;
+    bits = bits < 0.0 ? 0.0 : (bits > 255.0 ? 255.0 : bits);
+    double rounded = floor(bits + 0.5);
+    if (fabs(bits - rounded) > 1e-6) {
+        return 0;
+    }
+    *out = (int)rounded;
+    return 1;
+}
+
+/* Render an opaque rgb triple (exact 8-bit channels) as the shortest hex or color keyword. */
+static void css_rgb_to_hex(css_buf *pool, int red, int green, int blue, Py_ssize_t *out_off, Py_ssize_t *out_len) {
     char hex[8];
-    snprintf(hex, sizeof(hex), "#%02x%02x%02x", channels[0], channels[1], channels[2]);
+    snprintf(hex, sizeof(hex), "#%02x%02x%02x", red, green, blue);
     css_char wide[7];
     for (int index = 0; index < 7; index++) {
         wide[index] = (css_char)(unsigned char)hex[index];
@@ -926,7 +942,8 @@ static void css_rgb_to_hex(css_buf *pool, double red, double green, double blue,
     *out_len = 7;
 }
 
-/* Append num_pct(text): swap between number and percentage forms, whichever is shorter (tdewolff). */
+/* Append an alpha value in its shorter form, swapping between number and percentage (CSS Color 4 §15: a percentage and
+   its equivalent number are interchangeable). */
 static void css_append_num_pct(css_buf *out, const css_char *text, Py_ssize_t len) {
     if (len == 3 && text[len - 1] == '%' && text[1] == '0') {
         cbuf_putc(out, '.');
@@ -979,34 +996,31 @@ static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     int has_comma = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
-        if (token->kind == CSS_COMMENT) {
+        if (token->kind == CSS_COMMENT || token->kind == CSS_WS) {
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '/') {
             has_slash = 1;
+            continue;
         }
         if (token->kind == CSS_DELIM && token->delim == ',') {
             has_comma = 1;
+            continue;
         }
-        if (token->kind == CSS_NUM) {
-            if (count >= 4) {
-                return 0;
-            }
-            double magnitude = css_run_to_double(token->text, token->text_len);
-            int is_pct = token->unit_len == 1 && (token->text + token->text_len)[0] == '%';
-            if (is_pct) {
-                magnitude /= 100.0;
-                if (magnitude < CSS_EPS) {
-                    magnitude = 0.0;
-                } else if (magnitude > 1.0 - CSS_EPS) {
-                    magnitude = 1.0;
-                }
-            }
-            values[count] = magnitude;
-            types[count] = is_pct;
-            raws[count] = token;
-            count++;
+        if (token->kind != CSS_NUM || count >= 4) {
+            /* a var()/env()/none/calc() argument (or a 5th component) means this is not a plain numeric color we can
+               fold; keep the function verbatim rather than drop or reorder its arguments */
+            return 0;
         }
+        double magnitude = css_run_to_double(token->text, token->text_len);
+        int is_pct = token->unit_len == 1 && (token->text + token->text_len)[0] == '%';
+        if (is_pct) {
+            magnitude /= 100.0;
+        }
+        values[count] = magnitude;
+        types[count] = is_pct;
+        raws[count] = token;
+        count++;
     }
     if (count < 3) {
         return 0;
@@ -1014,56 +1028,56 @@ static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     double alpha = 1.0;
     int has_alpha = count == 4;
     if (has_alpha) {
-        int all_zero = 1;
-        for (int index = 0; index < count; index++) {
-            if (values[index] >= CSS_EPS) {
-                all_zero = 0;
-            }
-        }
-        if (all_zero) {
-            *out_off = pool_cstr(pool, "transparent");
-            *out_len = 11;
+        /* alpha clamps to [0,1], so any alpha <= 0 over a zero rgb triple is the keyword transparent (rgba(0,0,0,0)) */
+        int all_zero = values[0] == 0.0 && values[1] == 0.0 && values[2] == 0.0 && values[3] <= 0.0;
+        if (all_zero) { /* rgba(0,0,0,0) is the keyword transparent, whose shortest form is the 4-digit hex #0000 */
+            *out_off = pool_cstr(pool, "#0000");
+            *out_len = 5;
             return 1;
         }
-        if (values[3] > 1.0 - CSS_EPS) {
+        if (values[3] >= 1.0) { /* alpha clamps to [0,1] (Color 4 §17), so any alpha >= 1 is opaque and droppable */
             has_alpha = 0;
             count = 3;
         } else {
             alpha = values[3];
         }
     }
-    /* alpha stays exactly 1.0 only on the paths that also clear has_alpha (count==3, or a >=1 fourth value) */
+    /* alpha stays exactly 1.0 only on the paths that also clear has_alpha (count==3, or a fourth value of 1) */
     if (alpha == 1.0) {
+        int bits[3];
+        int foldable = 1;
         if (is_rgb) {
-            double channels[3];
             for (int index = 0; index < 3; index++) {
-                double channel = values[index];
-                if (!types[index]) {
-                    channel /= 255.0;
-                    channel = channel < CSS_EPS ? 0.0 : (channel > 1.0 - CSS_EPS ? 1.0 : channel);
+                if (!css_channel_to_bits(types[index] ? values[index] : values[index] / 255.0, &bits[index])) {
+                    foldable = 0;
                 }
-                channels[index] = channel;
             }
-            css_rgb_to_hex(pool, channels[0], channels[1], channels[2], out_off, out_len);
-            return 1;
-        }
-        /* the is_rgb block above always returns, and a color func is rgb or hsl, so reaching here means is_hsl */
-        if (!types[0] && types[1] && types[2]) {
+        } else if (!types[0] && types[1] && types[2]) {
             double hue = values[0] / 360.0;
-            hue -= floor(hue);
-            double red;
-            double green;
-            double blue;
-            css_hsl_to_rgb(hue, values[1], values[2], &red, &green, &blue);
-            css_rgb_to_hex(pool, red, green, blue, out_off, out_len);
+            hue -= floor(hue); /* hue is modulo 360; saturation and lightness clamp to [0,1] (Color 4 §7) */
+            double sat = values[1] < 0.0 ? 0.0 : (values[1] > 1.0 ? 1.0 : values[1]);
+            double light = values[2] < 0.0 ? 0.0 : (values[2] > 1.0 ? 1.0 : values[2]);
+            double channels[3];
+            css_hsl_to_rgb(hue, sat, light, &channels[0], &channels[1], &channels[2]);
+            for (int index = 0; index < 3; index++) {
+                if (!css_channel_to_bits(channels[index], &bits[index])) {
+                    foldable = 0;
+                }
+            }
+        } else {
+            foldable = 0; /* an hsl() whose hue is a percentage or saturation/lightness a number is not a color */
+        }
+        if (foldable) {
+            css_rgb_to_hex(pool, bits[0], bits[1], bits[2], out_off, out_len);
             return 1;
         }
     }
-    /* not opaque: rebuild the function in shortest form, keeping rgb percentages as integers when exact 20% steps */
+    /* opaque-but-inexact or non-opaque: rebuild the function in shortest form, keeping rgb percentages as integers
+       when they fall on exact 20% steps (51/102/.../255) */
     css_buf result = {NULL, 0, 0, 0};
-    for (Py_ssize_t index = 0; index < name_len; index++) {
-        cbuf_putc(&result, css_lower(name[index]));
-    }
+    /* rgb()/hsl() are the modern aliases of rgba()/hsla() and take an optional alpha, so always use the shorter
+       three-letter name (CSS Color 4 §4): rgba(...) -> rgb(...), hsla(...) -> hsl(...) */
+    cbuf_puts(&result, is_rgb ? "rgb" : "hsl");
     cbuf_putc(&result, '(');
     const char *separator = has_slash ? " " : (has_comma ? "," : " ");
     int exact = is_rgb;
@@ -1171,6 +1185,7 @@ static void css_rtrim(css_buf *buffer) {
 
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
                                  Py_ssize_t name_len, css_buf *out);
+static int css_is_ident_string(const css_char *text, Py_ssize_t len);
 
 static int css_arg_is_zero(const css_char *text, Py_ssize_t len) {
     return (len == 1 && text[0] == '0') || (len == 2 && text[0] == '0' && text[1] == '%');
@@ -1547,6 +1562,15 @@ static csum calc_parse_sum(calc_parser *parser) {
         if (!is_plus && !is_sub) {
             break;
         }
+        /* CSS Values 4 §10.1: a '+'/'-' operator must have whitespace on both sides. The operand to the left always
+           consumed its trailing whitespace, so check the raw token stream around the operator; if either side lacks a
+           space the input is invalid (a conformant parser drops the declaration), so bail and keep the calc() verbatim
+           rather than fold malformed input into a valid value. */
+        if (parser->vec->items[parser->pos - 1].kind != CSS_WS || parser->pos + 1 >= parser->end ||
+            parser->vec->items[parser->pos + 1].kind != CSS_WS) {
+            acc.ok = 0;
+            return acc;
+        }
         parser->pos++;
         csum rhs = calc_parse_product(parser);
         if (!rhs.ok) {
@@ -1745,7 +1769,7 @@ static void css_emit_function(css_buf *pool, token_vec *vec, Py_ssize_t name_ind
     *ends_paren = 1;
 }
 
-/* Minify a function's argument list into out (tdewolff minifyFunctionArgs), recursing for nested functions. var()
+/* Minify a function's argument list into out, recursing for nested functions. var()
    keeps its raw fallback; calc/min/max/clamp keep their spaced operators. */
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
                                  Py_ssize_t name_len, css_buf *out) {
@@ -1813,8 +1837,10 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             Py_ssize_t off;
             Py_ssize_t len;
             css_minify_string(pool, token->text, token->text_len, &off, &len);
+            /* local(<font-family-name>): a quoted name drops its quotes only when it is a valid identifier (Fonts 4
+               §src local()); local("123") must keep its quotes since 123 is a <number>, not a <custom-ident>. */
             if (!is_var && css_run_ieq(name, name_len, "local") && len >= 2 &&
-                css_url_unquotable(pool->data + off + 1, len - 2)) {
+                css_is_ident_string(pool->data + off + 1, len - 2)) {
                 cbuf_put_run(out, pool->data + off + 1, len - 2);
             } else {
                 cbuf_put_run(out, pool->data + off, len);
@@ -2099,7 +2125,6 @@ static void css_handle_flex_shrink(css_buf *pool, comp_vec *comps) {
 static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     int currentcolor_init =
         css_prop_in(prop, prop_len, CSS_CURRENTCOLOR_INIT, sizeof(CSS_CURRENTCOLOR_INIT) / sizeof(char *));
-    int is_background = css_run_ieq(prop, prop_len, "background-color");
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         css_comp *comp = &comps->items[index];
         if (comp->kind == CK_SEP) {
@@ -2110,9 +2135,6 @@ static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_ch
             continue;
         }
         css_minify_color_comp(pool, comp);
-        if (is_background && css_comp_kw(pool, comp, "transparent")) {
-            css_set_comp(pool, comp, "initial", CK_IDENT);
-        }
     }
 }
 
@@ -2554,7 +2576,7 @@ static void css_pv_del(pos_val *vals, Py_ssize_t *count, Py_ssize_t index) {
     (*count)--;
 }
 
-/* Resolve a 1-4 value background-position run to the shortest equivalent offsets, porting tdewolff's bgPosRun. */
+/* Resolve a 1-4 value background-position run to the shortest equivalent offsets (CSS Backgrounds 3 §3.6). */
 static void css_normalize_position_run(css_buf *pool, pos_val *vals, Py_ssize_t *count_io) {
     Py_ssize_t count = *count_io;
     if (count == 3 || count == 4) {
@@ -2796,7 +2818,7 @@ static void css_position_single(css_buf *pool, const css_comp *items, Py_ssize_t
     css_emit_position_run(out, run, resolved);
 }
 
-/* Resolve one background layer in place, porting tdewolff's minifyBackground over a single comma-separated run. */
+/* Resolve one background layer in place over a single comma-separated run (CSS Backgrounds 3 §3.10). */
 static void css_background_run(css_buf *pool, comp_vec *run) {
     int had_tokens = run->len > 0;
     Py_ssize_t index = 0;
@@ -2845,8 +2867,8 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
                 index++;
                 continue;
             }
-            if (css_comp_kw(pool, comp, "none") || css_comp_kw(pool, comp, "scroll") ||
-                css_comp_kw(pool, comp, "transparent")) {
+            if (css_comp_kw(pool, comp, "none") || css_comp_kw(pool, comp, "scroll")) {
+                /* a transparent background-color reaches here as the hash #0000 (handled below), never the keyword */
                 comp_vec_splice(run, index, 1, NULL, 0);
                 continue;
             }
@@ -2951,7 +2973,7 @@ static int css_comp_single_digit(css_buf *pool, const css_comp *comp) {
     return comp->len == 1 && pool->data[comp->off] >= '0' && pool->data[comp->off] <= '9';
 }
 
-/* Collapse the flex shorthand to its shortest equivalent (tdewolff flexCollapse). */
+/* Collapse the flex shorthand to its shortest equivalent (CSS Flexbox 1 §7.1.1, the flex keyword expansions). */
 static void css_handle_flex(css_buf *pool, comp_vec *comps) {
     if (comps->len == 3 && css_comp_single_digit(pool, &comps->items[0]) &&
         css_comp_single_digit(pool, &comps->items[1])) {
@@ -2980,22 +3002,31 @@ static void css_handle_flex(css_buf *pool, comp_vec *comps) {
     }
 }
 
+static int css_is_name_start(css_char character) {
+    return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_';
+}
+
+/* Whether text is a valid <ident-token> (CSS Syntax 3 §4.3.11): a name-start (ASCII letter or _), or a leading "-"
+   followed by a name-start or a second "-" (a custom-ident), then name code points. Decides when a quoted
+   attribute/local() value can drop its quotes; a leading digit, lone "-", escape, or non-ASCII keeps them. */
 static int css_is_ident_string(const css_char *text, Py_ssize_t len) {
     if (len == 0) {
         return 0;
     }
-    Py_ssize_t index = text[0] == '-' ? 1 : 0;
-    if (index >= len) {
+    Py_ssize_t index;
+    if (text[0] == '-') {
+        if (len < 2 || !(text[1] == '-' || css_is_name_start(text[1]))) {
+            return 0;
+        }
+        index = 2;
+    } else if (css_is_name_start(text[0])) {
+        index = 1;
+    } else {
         return 0;
     }
-    css_char first = text[index];
-    if (!((first >= 'a' && first <= 'z') || first == '_')) {
-        return 0;
-    }
-    for (index++; index < len; index++) {
+    for (; index < len; index++) {
         css_char character = text[index];
-        if (!((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_' ||
-              character == '-')) {
+        if (!(css_is_name_start(character) || (character >= '0' && character <= '9') || character == '-')) {
             return 0;
         }
     }
@@ -3003,6 +3034,21 @@ static int css_is_ident_string(const css_char *text, Py_ssize_t len) {
 }
 
 /* Lower-case a quoted font-family name, dropping the quotes when every space-separated word is a bare identifier. */
+/* A quoted family name equal to a generic-family or CSS-wide keyword must keep its quotes: unquoted, "serif" would
+   become the generic serif family and "inherit" the CSS-wide keyword, both different from a family of that name. */
+static int css_is_reserved_family(const css_char *text, Py_ssize_t len) {
+    static const char *const reserved[] = {"serif",     "sans-serif", "monospace",     "cursive",      "fantasy",
+                                           "system-ui", "ui-serif",   "ui-sans-serif", "ui-monospace", "ui-rounded",
+                                           "math",      "emoji",      "fangsong",      "inherit",      "initial",
+                                           "unset",     "revert",     "revert-layer",  "default"};
+    for (size_t index = 0; index < sizeof(reserved) / sizeof(reserved[0]); index++) {
+        if (css_run_ieq(text, len, reserved[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
     if (comp.kind != CK_STR || comp.len <= 2) {
         return comp;
@@ -3015,7 +3061,8 @@ static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
     for (Py_ssize_t index = 0; index < body_len; index++) {
         cbuf_putc(&lowered, css_lower(pool->data[body_start + index]));
     }
-    int all_ident = lowered.len > 0;
+    int all_ident =
+        !css_is_reserved_family(lowered.data, lowered.len); /* the comp.len <= 2 guard ensures lowered.len > 0 */
     Py_ssize_t word_start = 0;
     for (Py_ssize_t index = 0; all_ident && index <= lowered.len; index++) {
         if (index == lowered.len || lowered.data[index] == ' ') {
@@ -3078,8 +3125,9 @@ static int css_comp_is_comma(css_buf *pool, const css_comp *comp) {
     return pool->data[comp->off] == ','; /* a SEP comp is always len 1 */
 }
 
-/* Minify the font shorthand: lower-case the family, normalize font-weight (normal->drop, bold->700, 400->drop) and
-   drop a normal line-height, porting tdewolff's minifyFont. */
+/* Minify the font shorthand (CSS Fonts 4 §2.7): lower-case the family, normalize font-weight (normal->drop, bold->700,
+   400->drop) and drop a normal line-height. The shorthand resets every pre-size longhand to its initial value, so
+   dropping a `normal` token there is safe whichever longhand it nominally binds to. */
 static void css_handle_font(css_buf *pool, comp_vec *comps) {
     Py_ssize_t non_sep = 0;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
@@ -3230,8 +3278,23 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
     css_assemble(pool, scratch, out);
 }
 
+/* The four pseudo-elements CSS Pseudo-Elements 4 §2 lets a selector spell with one colon (the legacy form) as well as
+   two, with identical specificity and match; `::before` -> `:before` etc. saves a byte. */
+static int css_is_legacy_pseudo_element(const css_token *token) {
+    static const char *const names[] = {"before", "after", "first-line", "first-letter"};
+    if (token->kind != CSS_IDENT) {
+        return 0;
+    }
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
+        if (css_run_ieq(token->text, token->text_len, names[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Minify a selector token run [start, end) into out. */
-static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
+static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int keyframe, css_buf *out) {
     int pending_ws = 0;
     int attr_depth = 0;
     for (Py_ssize_t index = start; index < end; index++) {
@@ -3278,26 +3341,37 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             }
         }
         pending_ws = 0;
+        if (token->kind == CSS_DELIM && token->delim == ':' && attr_depth == 0 && index + 2 < end &&
+            vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == ':' &&
+            css_is_legacy_pseudo_element(&vec->items[index + 2])) {
+            cbuf_putc(out, ':'); /* legacy pseudo-element: emit one colon, drop the second; the name renders next */
+            index++;
+            continue;
+        }
+        if (token->kind == CSS_DELIM && token->delim == '*' && index + 1 < end &&
+            (vec->items[index + 1].kind == CSS_HASH ||
+             (vec->items[index + 1].kind == CSS_DELIM &&
+              (vec->items[index + 1].delim == '.' || vec->items[index + 1].delim == '[' ||
+               vec->items[index + 1].delim == ':')))) {
+            /* a `*` only reaches here at attr-depth 0; inside [...] the `*=` operator is consumed above. A universal
+               `*` glued to a subclass/pseudo is redundant (Selectors 4 §5.2): *:hover -> :hover */
+            continue;
+        }
         /* '#' before an ident always merges into a single HASH token, so the prior char is never a bare '#' here */
         int after_combinator = out->len > 0 && (out->data[out->len - 1] == '.' || out->data[out->len - 1] == ':');
         int is_custom = token->text_len >= 2 && token->text[0] == '-' && token->text[1] == '-';
-        if (token->kind == CSS_IDENT && attr_depth == 0 && !after_combinator && !is_custom) {
+        if (keyframe && token->kind == CSS_IDENT && css_run_ieq(token->text, token->text_len, "from")) {
+            cbuf_puts(out, "0%"); /* CSS Animations 1: the keyframe selector "from" is equivalent to 0% (and shorter) */
+        } else if (token->kind == CSS_IDENT && attr_depth == 0 && !after_combinator && !is_custom) {
             for (Py_ssize_t pos = 0; pos < token->text_len; pos++) {
                 cbuf_putc(out, css_lower(token->text[pos]));
             }
         } else if (token->kind == CSS_STR && attr_depth > 0) {
-            /* an attribute value string drops its quotes when the inner text is a bare identifier word */
+            /* Selectors 4 §6.1: an attribute-selector value is an <ident-token> or a <string>; the quotes drop only
+               when the inner text is a valid <ident-token> (so [x="123"] keeps its quotes -- 123 is not an ident). */
             const css_char *inner = token->text + 1;
             Py_ssize_t inner_len = token->text_len - 2;
-            int bare = inner_len > 0;
-            for (Py_ssize_t pos = 0; bare && pos < inner_len; pos++) {
-                css_char character = inner[pos];
-                if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-                      (character >= '0' && character <= '9') || character == '_' || character == '-')) {
-                    bare = 0;
-                }
-            }
-            if (bare) {
+            if (css_is_ident_string(inner, inner_len)) {
                 cbuf_put_run(out, inner, inner_len);
             } else {
                 cbuf_put_run(out, token->text, token->text_len);
@@ -3382,29 +3456,34 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
                 cbuf_putc(pool, css_lower((token->text + token->text_len)[pos]));
             }
         } else if (token->kind != CSS_WS) {
+            /* custom-property names are case-sensitive (CSS Variables 1 §2: "--foo" and "--FOO" are distinct), so a
+               --* name is kept verbatim; every other property name is ASCII case-insensitive and lower-cased. */
             for (Py_ssize_t pos = 0; pos < token->text_len; pos++) {
-                cbuf_putc(pool, css_lower(token->text[pos]));
+                cbuf_putc(pool, is_custom ? token->text[pos] : css_lower(token->text[pos]));
             }
         }
     }
     Py_ssize_t prop_len = pool->len - prop_off;
 
-    /* scan the value for a trailing !important */
+    /* !important is significant only as the value's trailing "!" "important" pair (CSS Syntax 3 §5.4.4): scan back over
+       trailing whitespace/comments to the last two significant tokens. A "!important" anywhere else -- mid-value, or
+       nested inside a function (where the last token is the ")") -- is ordinary value text and must be kept. */
     Py_ssize_t value_start = colon + 1;
     Py_ssize_t value_end = end;
     int important = 0;
-    for (Py_ssize_t index = value_start; index < value_end; index++) {
-        if (vec->items[index].kind == CSS_DELIM && vec->items[index].delim == '!') {
-            Py_ssize_t rest = index + 1;
-            while (rest < value_end && vec->items[rest].kind == CSS_WS) {
-                rest++;
-            }
-            if (rest < value_end && vec->items[rest].kind == CSS_IDENT &&
-                css_run_ieq(vec->items[rest].text, vec->items[rest].text_len, "important")) {
-                important = 1;
-                value_end = index;
-            }
-            break;
+    Py_ssize_t last = value_end - 1;
+    while (last >= value_start && (vec->items[last].kind == CSS_WS || vec->items[last].kind == CSS_COMMENT)) {
+        last--;
+    }
+    if (last > value_start && vec->items[last].kind == CSS_IDENT &&
+        css_run_ieq(vec->items[last].text, vec->items[last].text_len, "important")) {
+        Py_ssize_t bang = last - 1;
+        while (bang > value_start && (vec->items[bang].kind == CSS_WS || vec->items[bang].kind == CSS_COMMENT)) {
+            bang--;
+        }
+        if (vec->items[bang].kind == CSS_DELIM && vec->items[bang].delim == '!') {
+            important = 1;
+            value_end = bang;
         }
     }
 
@@ -3804,11 +3883,52 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
     css_dedup(pool, decls);
 }
 
+/* Merge two longhands into a two-value shorthand (longhand0 then longhand1, collapsing to one value when both are
+   equal), under the same value-safety gates as css_merge_box: both present, same importance, no var()/env(), and any
+   CSS-wide keyword the identical sole value for both. */
+static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand, const char *longhand0,
+                           const char *longhand1) {
+    Py_ssize_t idx0 = css_find_active_decl(decls, pool, longhand0);
+    Py_ssize_t idx1 = css_find_active_decl(decls, pool, longhand1);
+    if (idx0 < 0 || idx1 < 0) {
+        return;
+    }
+    if (decls->items[idx0].important != decls->items[idx1].important ||
+        css_decl_has_substitution(pool, &decls->items[idx0]) || css_decl_has_substitution(pool, &decls->items[idx1])) {
+        return;
+    }
+    int wide0 = css_decl_is_wide_keyword(pool, &decls->items[idx0]);
+    if (wide0 || css_decl_is_wide_keyword(pool, &decls->items[idx1])) {
+        if (!wide0 || !css_decl_is_wide_keyword(pool, &decls->items[idx1]) ||
+            !css_decl_value_eq(pool, &decls->items[idx0], &decls->items[idx1])) {
+            return;
+        }
+    }
+    css_buf value = {NULL, 0, 0, 0};
+    cbuf_put_run(&value, pool->data + decls->items[idx0].val_off, decls->items[idx0].val_len);
+    if (!css_decl_value_eq(pool, &decls->items[idx0], &decls->items[idx1])) {
+        cbuf_putc(&value, ' ');
+        cbuf_put_run(&value, pool->data + decls->items[idx1].val_off, decls->items[idx1].val_len);
+    }
+    Py_ssize_t last = idx0 > idx1 ? idx0 : idx1;
+    css_decl *merged = &decls->items[last];
+    merged->prop_off = pool_cstr(pool, shorthand);
+    merged->prop_len = (Py_ssize_t)strlen(shorthand);
+    merged->val_off = pool_run(pool, value.data, value.len);
+    merged->val_len = value.len;
+    merged->important = decls->items[idx0].important;
+    decls->items[idx0 > idx1 ? idx1 : idx0].dropped = 1;
+    cbuf_free(&value);
+    css_dedup(pool, decls);
+}
+
 static void css_merge_shorthands(css_buf *pool, decl_vec *decls) {
     static const char *const margin[4] = {"margin-top", "margin-right", "margin-bottom", "margin-left"};
     static const char *const padding[4] = {"padding-top", "padding-right", "padding-bottom", "padding-left"};
     css_merge_box(pool, decls, "margin", margin, "margin-");
     css_merge_box(pool, decls, "padding", padding, "padding-");
+    css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
+    css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
 }
 
 static void css_render_declarations(css_buf *pool, decl_vec *decls, css_buf *out) {
@@ -3844,10 +3964,11 @@ static int css_is_nested_rule_at(const css_char *name, Py_ssize_t len) {
 }
 
 static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls);
-static void css_parse_rules(css_buf *pool, cursor *cur, int top, css_buf *out);
+static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, css_buf *out);
 
 /* Render an at-rule prelude into out (a leading space unless it opens with '('). */
-static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
+static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, int allow_url_string,
+                           css_buf *out) {
     Py_ssize_t mark = out->len;
     int pending_ws = 0;
     for (Py_ssize_t index = start; index < end; index++) {
@@ -3860,9 +3981,20 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             continue;
         }
         if (token->kind == CSS_URL) {
-            Py_ssize_t off;
-            Py_ssize_t len;
-            /* an at-rule url() keeps a quoted body, or wraps a bare body in quotes */
+            if (pending_ws && out->len > mark && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',') {
+                cbuf_putc(out, ' ');
+            }
+            pending_ws = 0;
+            if (!allow_url_string) {
+                /* outside @import/@namespace the url() is part of a tested value (e.g. @supports (background:url(x))),
+                   so minify it in place; unwrapping it to a string would change the condition the rule tests */
+                Py_ssize_t off;
+                Py_ssize_t len;
+                css_minify_url(pool, token->text, token->text_len, &off, &len);
+                cbuf_put_run(out, pool->data + off, len);
+                continue;
+            }
+            /* an @import/@namespace url() keeps a quoted body, or wraps a bare body in quotes */
             if (token->text_len > 4 && token->text[token->text_len - 1] == ')') {
                 Py_ssize_t body_start = 4;
                 Py_ssize_t body_end = token->text_len - 1;
@@ -3872,10 +4004,6 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
                 while (body_end > body_start && css_is_ws(token->text[body_end - 1])) {
                     body_end--;
                 }
-                if (pending_ws && out->len > mark && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',') {
-                    cbuf_putc(out, ' ');
-                }
-                pending_ws = 0;
                 if (body_end > body_start && (token->text[body_start] == '"' || token->text[body_start] == '\'')) {
                     cbuf_put_run(out, token->text + body_start, body_end - body_start);
                 } else {
@@ -3885,13 +4013,7 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
                 }
                 continue;
             }
-            if (pending_ws && out->len > mark && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',') {
-                cbuf_putc(out, ' ');
-            }
-            pending_ws = 0;
             cbuf_put_run(out, token->text, token->text_len);
-            (void)off;
-            (void)len;
             continue;
         }
         if (token->kind == CSS_DELIM && (token->delim == ':' || token->delim == ',')) {
@@ -3943,6 +4065,7 @@ static void css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
     const css_char *name = name_token->text;
     Py_ssize_t name_len = name_token->text_len;
     cur->index++;
+    int allow_url_string = css_run_ieq(name, name_len, "@import") || css_run_ieq(name, name_len, "@namespace");
     Py_ssize_t prelude_start = cur->index;
     Py_ssize_t prelude_end = css_read_until(cur, ";{}");
     css_token *token = cursor_peek(cur);
@@ -3952,10 +4075,15 @@ static void css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
         for (Py_ssize_t pos = 0; pos < name_len; pos++) {
             cbuf_putc(out, css_lower(name[pos]));
         }
-        css_at_prelude(pool, cur->vec, prelude_start, prelude_end, out);
+        css_at_prelude(pool, cur->vec, prelude_start, prelude_end, allow_url_string, out);
         cbuf_putc(out, '{');
-        if (css_is_nested_rule_at(name, name_len)) {
-            css_parse_rules(pool, cur, 0, out);
+        int is_keyframes =
+            css_run_ieq(name, name_len, "@keyframes") || css_run_ieq(name, name_len, "@-webkit-keyframes") ||
+            css_run_ieq(name, name_len, "@-moz-keyframes") || css_run_ieq(name, name_len, "@-o-keyframes");
+        if (is_keyframes || css_is_nested_rule_at(name, name_len)) {
+            /* a @keyframes body is a rule list (its "selectors" are keyframe selectors), so parse it as rules -- not as
+               a declaration list, which would wrongly join the keyframe blocks with ';' */
+            css_parse_rules(pool, cur, 0, is_keyframes, out);
         } else {
             decl_vec decls = {NULL, 0, 0, 0};
             css_parse_declarations(pool, cur, &decls);
@@ -3971,7 +4099,7 @@ static void css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
     for (Py_ssize_t pos = 0; pos < name_len; pos++) {
         cbuf_putc(out, css_lower(name[pos]));
     }
-    css_at_prelude(pool, cur->vec, prelude_start, prelude_end, out);
+    css_at_prelude(pool, cur->vec, prelude_start, prelude_end, allow_url_string, out);
 }
 
 /* Parse a declaration list (between { }); appends declarations (and nested rules) to decls. */
@@ -4007,7 +4135,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
             decl_vec inner = {NULL, 0, 0, 0};
             css_parse_declarations(pool, cur, &inner);
             css_buf selector = {NULL, 0, 0, 0};
-            css_minify_selector(cur->vec, segment_start, segment_end, &selector);
+            css_minify_selector(cur->vec, segment_start, segment_end, 0, &selector);
             css_buf body = {NULL, 0, 0, 0};
             css_render_declarations(pool, &inner, &body);
             css_decl decl = {0};
@@ -4077,7 +4205,7 @@ static void rule_vec_push(rule_vec *vec, rule_item item) {
 }
 
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
-static void css_parse_qualified(css_buf *pool, cursor *cur, rule_item *item) {
+static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_item *item) {
     item->is_rule = 0;
     item->dropped = 0;
     item->at_statement = 0;
@@ -4099,7 +4227,7 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, rule_item *item) {
                uses the pool as value scratch, so it is interned afterwards */
             item->is_rule = 1;
             item->sel_off = pool->len;
-            css_minify_selector(cur->vec, prelude_start, prelude_end, pool);
+            css_minify_selector(cur->vec, prelude_start, prelude_end, keyframe, pool);
             item->sel_len = pool->len - item->sel_off;
             item->body_off = pool_run(pool, body.data, body.len);
             item->body_len = body.len;
@@ -4193,7 +4321,7 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items) {
 
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. */
-static void css_parse_rules(css_buf *pool, cursor *cur, int top, css_buf *out) {
+static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, css_buf *out) {
     rule_vec items = {NULL, 0, 0, 0};
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
@@ -4245,7 +4373,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, css_buf *out) {
             cbuf_free(&piece);
         } else {
             rule_item item = {0};
-            css_parse_qualified(pool, cur, &item);
+            css_parse_qualified(pool, cur, keyframe, &item);
             if (item.is_rule || item.text_len > 0) {
                 rule_vec_push(&items, item);
             }
@@ -4300,7 +4428,7 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         css_render_declarations(&pool, &decls, &out);
         css_free(decls.items);
     } else {
-        css_parse_rules(&pool, &cur, 1, &out);
+        css_parse_rules(&pool, &cur, 1, 0, &out);
     }
     css_free(tokens.items);
     cbuf_free(&pool);

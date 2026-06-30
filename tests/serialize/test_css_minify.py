@@ -19,7 +19,7 @@ from turbohtml.clean import minify_css, minify_css_inline
         pytest.param("a{color:#AABBCC}", "a{color:#abc}", id="hex-lowercase-and-shorten"),
         pytest.param("a{color:#ff0000}", "a{color:red}", id="hex-to-shorter-name"),
         pytest.param("a{color:rgb(255,0,0)}", "a{color:red}", id="rgb-to-name"),
-        pytest.param("a{color:rgba(0,0,0,0)}", "a{color:transparent}", id="rgba-zero-to-transparent"),
+        pytest.param("a{color:rgba(0,0,0,0)}", "a{color:#0000}", id="rgba-zero-to-hex"),
         pytest.param("a{color:hsl(0,100%,50%)}", "a{color:red}", id="hsl-to-name"),
         pytest.param("a{color:WHITE}", "a{color:#fff}", id="name-to-shorter-hex"),
         pytest.param("a{margin:0px}", "a{margin:0}", id="drop-unit-on-zero-length"),
@@ -59,6 +59,142 @@ from turbohtml.clean import minify_css, minify_css_inline
     ],
 )
 def test_minify_css(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{transform:rotate(0deg)}", "a{transform:rotate(0deg)}", id="keep-zero-angle-unit"),
+        pytest.param("a{transform:rotate(0grad)}", "a{transform:rotate(0grad)}", id="keep-zero-grad-unit"),
+        pytest.param("a{filter:hue-rotate(0rad)}", "a{filter:hue-rotate(0rad)}", id="keep-zero-rad-in-function"),
+        pytest.param(
+            "a{transform:rotate(calc(45deg - 45deg))}", "a{transform:rotate(0deg)}", id="calc-keeps-angle-unit"
+        ),
+        pytest.param('[data-x="123"]{x:1}', '[data-x="123"]{x:1}', id="attr-keep-quotes-leading-digit"),
+        pytest.param('[a="Foo"]{x:1}', "[a=Foo]{x:1}", id="attr-unquote-uppercase-ident"),
+        pytest.param('[a="--x"]{x:1}', "[a=--x]{x:1}", id="attr-unquote-custom-ident"),
+        pytest.param("a{background:url('a\x01b')}", "a{background:url('a\x01b')}", id="url-keep-quotes-control-char"),
+        pytest.param('a{src:local("123")}', 'a{src:local("123")}', id="local-keep-quotes-non-ident"),
+        pytest.param('a{src:local("Arial")}', "a{src:local(Arial)}", id="local-unquote-ident"),
+        pytest.param(
+            "a{--Foo:1;--foo:2;color:var(--Foo)}",
+            "a{--Foo:1;--foo:2;color:var(--Foo)}",
+            id="custom-property-name-case-preserved",
+        ),
+        pytest.param(
+            "a{transition:all .5s!important,color 1s}",
+            "a{transition:all .5s!important,color 1s}",
+            id="important-not-last-keeps-value",
+        ),
+        pytest.param("a{c:fn(x !important)}", "a{c:fn(x !important)}", id="important-inside-function-kept"),
+        pytest.param("a{color:rgb(0 254.5 0)}", "a{color:rgb(0 254.5 0)}", id="no-fold-inexact-modern-channel"),
+        pytest.param("a{color:rgba(0,0,0,-1)}", "a{color:#0000}", id="negative-alpha-clamps-to-hex"),
+        pytest.param("a{color:rgba(255,0,0,2)}", "a{color:red}", id="alpha-over-one-clamps-opaque"),
+        pytest.param("a{color:hsl(120,100%,50%)}", "a{color:#0f0}", id="fold-exact-hsl"),
+        pytest.param("a{color:rgb(50%,0,0)}", "a{color:rgb(50%,0,0)}", id="no-fold-inexact-percentage"),
+        pytest.param("a{color:rgba(1,2,3,.5)}", "a{color:rgb(1,2,3,.5)}", id="rgba-alias-to-rgb"),
+        pytest.param("a{width:calc(1px+ 2px)}", "a{width:calc(1px + 2px)}", id="calc-one-sided-operator-not-folded"),
+        pytest.param(
+            "@supports (background:url(x)){a{c:d}}",
+            "@supports(background:url(x)){a{c:d}}",
+            id="supports-url-not-unwrapped",
+        ),
+        pytest.param(
+            "@keyframes k{from{opacity:0}to{opacity:1}}",
+            "@keyframes k{0%{opacity:0}to{opacity:1}}",
+            id="keyframes-from-to-percent",
+        ),
+        pytest.param('a{font-family:"serif"}', 'a{font-family:"serif"}', id="keep-quotes-generic-family"),
+        pytest.param("a::before{x:1}", "a:before{x:1}", id="legacy-pseudo-before-single-colon"),
+        pytest.param("a::after{x:1}", "a:after{x:1}", id="legacy-pseudo-after-single-colon"),
+        pytest.param("a::first-line{x:1}", "a:first-line{x:1}", id="legacy-pseudo-first-line"),
+        pytest.param("a::first-letter{x:1}", "a:first-letter{x:1}", id="legacy-pseudo-first-letter"),
+        pytest.param("a::selection{x:1}", "a::selection{x:1}", id="non-legacy-pseudo-keeps-double-colon"),
+        pytest.param("*:hover{x:1}", ":hover{x:1}", id="drop-universal-before-pseudo-class"),
+        pytest.param("*.foo{x:1}", ".foo{x:1}", id="drop-universal-before-class"),
+        pytest.param("*::before{x:1}", ":before{x:1}", id="drop-universal-before-pseudo-element"),
+        pytest.param("*#i{x:1}", "#i{x:1}", id="drop-universal-before-id"),
+        pytest.param("*[a]{x:1}", "[a]{x:1}", id="drop-universal-before-attr"),
+        pytest.param("*,*::before{x:1}", "*,:before{x:1}", id="keep-standalone-universal"),
+        pytest.param("a>*{x:1}", "a>*{x:1}", id="keep-child-universal"),
+        pytest.param("a:hover{x:1}", "a:hover{x:1}", id="single-colon-pseudo-class-kept"),
+        pytest.param("a:{x:1}", "a:{x:1}", id="trailing-colon-no-pseudo"),
+        pytest.param("[href=a:b]{x:1}", "[href=a:b]{x:1}", id="colon-inside-attr-selector"),
+        pytest.param("[a*=b]{x:1}", "[a*=b]{x:1}", id="star-inside-attr-selector"),
+        pytest.param("a:: c{y:1}", "a:: c{y:1}", id="double-colon-without-pseudo-name"),
+        pytest.param("a:[b]{x:1}", "a:[b]{x:1}", id="colon-then-non-colon-delim"),
+        pytest.param("*+b{x:1}", "*+b{x:1}", id="star-then-combinator-kept"),
+        pytest.param("* p{x:1}", "* p{x:1}", id="descendant-universal-kept"),
+        pytest.param(
+            "a{flex-direction:var(--d);flex-wrap:wrap}",
+            "a{flex-direction:var(--d);flex-wrap:wrap}",
+            id="no-merge-pair-first-has-var",
+        ),
+        pytest.param(
+            "a{align-content:center;justify-content:inherit}",
+            "a{align-content:center;justify-content:inherit}",
+            id="no-merge-pair-second-wide-only",
+        ),
+        pytest.param(
+            "a{align-content:inherit;justify-content:initial}",
+            "a{align-content:inherit;justify-content:initial}",
+            id="no-merge-pair-different-wide-keywords",
+        ),
+        pytest.param("a{flex-direction:row}", "a{flex-direction:row}", id="no-merge-pair-single-longhand"),
+        pytest.param(
+            "a{flex-direction:row!important;flex-wrap:wrap}",
+            "a{flex-direction:row!important;flex-wrap:wrap}",
+            id="no-merge-pair-importance-mismatch",
+        ),
+        pytest.param(
+            "a{align-content:inherit;justify-content:center}",
+            "a{align-content:inherit;justify-content:center}",
+            id="no-merge-pair-one-wide-keyword",
+        ),
+        pytest.param("a{flex-wrap:wrap;flex-direction:row}", "a{flex-flow:row wrap}", id="merge-pair-reversed-order"),
+        pytest.param("a{flex-direction:row;flex-wrap:wrap}", "a{flex-flow:row wrap}", id="merge-flex-flow"),
+        pytest.param(
+            "a{align-content:center;justify-content:center}", "a{place-content:center}", id="merge-place-content-equal"
+        ),
+        pytest.param(
+            "a{align-content:start;justify-content:end}", "a{place-content:start end}", id="merge-place-content-pair"
+        ),
+        pytest.param(
+            "a{align-content:inherit;justify-content:inherit}",
+            "a{place-content:inherit}",
+            id="merge-pair-wide-keyword",
+        ),
+        pytest.param(
+            "a{flex-direction:row;flex-wrap:var(--w)}",
+            "a{flex-direction:row;flex-wrap:var(--w)}",
+            id="no-merge-pair-with-var",
+        ),
+        pytest.param("a{color:transparent}", "a{color:#0000}", id="transparent-to-hex"),
+        pytest.param("a{color:lightgrey}", "a{color:#d3d3d3}", id="british-grey-to-hex"),
+        pytest.param(
+            "a{color:hsla(210,var(--s),50%,1)}", "a{color:hsla(210,var(--s),50%,1)}", id="color-func-var-kept"
+        ),
+        pytest.param(r"@a\,b{c:d}", r"@a\,b{c:d}", id="escaped-at-keyword-kept"),
+        pytest.param(r"#a\9 b{x:1}", r"#a\9 b{x:1}", id="escaped-hash-selector-kept"),
+        pytest.param("a{background:url('a\x7fb')}", "a{background:url('a\x7fb')}", id="url-keep-quotes-del-char"),
+        pytest.param("a{color:rgb(18,52,86)}", "a{color:#123456}", id="fold-to-six-digit-hex"),
+        pytest.param("a{color:rgb(17,171,0)}", "a{color:#11ab00}", id="six-digit-hex-first-pair-equal"),
+        pytest.param("a{color:rgb(17,17,171)}", "a{color:#1111ab}", id="six-digit-hex-two-pairs-equal"),
+        pytest.param("a{x:1 *important}", "a{x:1*important}", id="trailing-important-after-non-bang-delim"),
+        pytest.param("a{color:rgba(0,1,0,0)}", "a{color:rgb(0,1,0,0)}", id="non-zero-green-not-transparent"),
+        pytest.param("a{color:rgba(0,0,1,0)}", "a{color:rgb(0,0,1,0)}", id="non-zero-blue-not-transparent"),
+        pytest.param("a{width:calc(1px +(2px))}", "a{width:calc(1px + (2px))}", id="calc-no-space-after-operator"),
+        pytest.param("a{width:calc(1px +)}", "a{width:calc(1px +)}", id="calc-operator-at-end"),
+        pytest.param('[a="-9"]{x:1}', '[a="-9"]{x:1}', id="attr-keep-quotes-dash-digit"),
+        pytest.param("a{color:red! important}", "a{color:red!important}", id="important-space-after-bang"),
+        pytest.param("a{x:1 important}", "a{x:1 important}", id="trailing-important-without-bang"),
+        pytest.param(r"@-webkit-keyframes k{from{x:1}}", r"@-webkit-keyframes k{0%{x:1}}", id="webkit-keyframes-from"),
+        pytest.param(r"@-moz-keyframes k{0%{x:1}}", r"@-moz-keyframes k{0%{x:1}}", id="moz-keyframes"),
+        pytest.param(r"@-o-keyframes k{to{x:1}}", r"@-o-keyframes k{to{x:1}}", id="o-keyframes"),
+    ],
+)
+def test_minify_css_spec_fixes(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 

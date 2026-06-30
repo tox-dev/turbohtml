@@ -84,6 +84,61 @@ value of an HTML ``style`` attribute.
 
 .. autofunction:: minify_css_inline
 
+Transformations
+===============
+
+Every transformation below preserves the computed value: the output parses to the same cascade as the input on any
+conformant browser. Each links to the specification that establishes the equivalence.
+
+Numbers and dimensions
+----------------------
+
+- Drop a leading ``+``, redundant leading and trailing zeros, and switch to ``e``-notation when it is shorter (`Syntax 3
+  §4.3.3 <https://www.w3.org/TR/css-syntax-3/#consume-a-number>`__, `Values 4 §6.1
+  <https://www.w3.org/TR/css-values-4/#numbers>`__).
+- Lower-case a known unit and drop the unit on a zero ``<length>`` (``0px`` → ``0``); angle, time, frequency and other
+  dimensions keep their unit, since a bare ``0`` is a ``<length>`` only (`Values 4 §5.2
+  <https://www.w3.org/TR/css-values-4/#lengths>`__).
+- Fold a ``calc()`` of constant, like-united operands with exact rational arithmetic; a non-combinable or
+  non-terminating result is kept verbatim, and ``+``/``-`` without surrounding whitespace is left untouched (`Values 4
+  §10 <https://www.w3.org/TR/css-values-4/#calc-func>`__).
+
+Colors
+------
+
+- Swap a named color and its hex for whichever is shorter, and shorten ``#rrggbb`` → ``#rgb`` and ``#rrggbbaa`` →
+  ``#rgba`` (`Color 4 §5.2 <https://www.w3.org/TR/css-color-4/#hex-notation>`__, `§6.1
+  <https://www.w3.org/TR/css-color-4/#named-colors>`__).
+- Fold an opaque ``rgb()``/``hsl()`` to hex only when every channel lands on an exact 8-bit value; a fractional channel
+  is kept functional, since rounding it changes the color (`Color 4 §15
+  <https://www.w3.org/TR/css-color-4/#rgb-functions>`__).
+- Collapse ``transparent`` and ``rgba(0,0,0,0)`` to ``#0000``, drop an alpha of ``1``, and use the shorter ``rgb()``/
+  ``hsl()`` alias of ``rgba()``/``hsla()`` (`Color 4 §4 <https://www.w3.org/TR/css-color-4/#color-syntax>`__).
+
+Shorthands
+----------
+
+- Collapse a 1–4 value box shorthand when mirrored edges are equal, and merge the four physical longhands back into the
+  shorthand (`Box 3 §6–7 <https://www.w3.org/TR/css-box-3/#margins>`__, `Cascade 5 §2.2
+  <https://www.w3.org/TR/css-cascade-5/#shorthand>`__).
+- Collapse the ``background``, ``background-position``, ``background-repeat`` (`Backgrounds 3 §3
+  <https://www.w3.org/TR/css-backgrounds-3/#backgrounds>`__), ``flex`` (`Flexbox 1 §7.1.1
+  <https://www.w3.org/TR/css-flexbox-1/#flex-property>`__) and ``font`` (`Fonts 4 §2.7
+  <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form.
+
+Structure and selectors
+-----------------------
+
+- Collapse insignificant whitespace and strip comments, keeping a ``/*! … */`` bang comment (`Syntax 3 §3.3
+  <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__).
+- Drop a declaration an identically-keyed later one overrides, remove an empty rule, and merge adjacent rules with the
+  same selector or an identical body (`Cascade 5 §6.4.4 <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__).
+- Lower-case type selectors, trim combinator whitespace, and unquote an attribute value that is a valid identifier
+  (`Selectors 4 §6.1 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__); a custom-property name keeps its case
+  (`Variables 1 §2 <https://www.w3.org/TR/css-variables-1/#defining-variables>`__).
+- Rewrite a ``@keyframes`` ``from`` selector to ``0%`` (`Animations 1
+  <https://www.w3.org/TR/css-animations-1/#keyframes>`__).
+
 turbohtml.migration.bleach
 ==========================
 
