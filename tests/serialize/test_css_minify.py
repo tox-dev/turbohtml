@@ -220,6 +220,8 @@ def test_minify_css(source: str, expected: str) -> None:
             "a{color:hsla(210,var(--s),50%,1)}", "a{color:hsla(210,var(--s),50%,1)}", id="color-func-var-kept"
         ),
         pytest.param(r"@a\,b{c:d}", r"@a\,b{c:d}", id="escaped-at-keyword-kept"),
+        pytest.param("/*a*b*/x{y:1}", "x{y:1}", id="comment-with-lone-star"),
+        pytest.param("a{x:1}/* unterminated", "a{x:1}", id="unterminated-comment"),
         pytest.param("@a\\", "@a\\", id="escaped-at-keyword-backslash-at-eof"),
         pytest.param("x{}#a\\", "#a\\", id="escaped-hash-backslash-at-eof"),
         pytest.param("a{x:1!important/*c*/}", "a{x:1!important}", id="important-trailing-comment"),

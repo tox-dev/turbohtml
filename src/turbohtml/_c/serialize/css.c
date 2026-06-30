@@ -21,6 +21,7 @@
 #include "data/css_colors.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,6 +48,72 @@ static inline int css_add_overflow(long long left, long long right, long long *o
     return __builtin_add_overflow(left, right, out);
 }
 #endif
+
+#if defined(_MSC_VER)
+static inline int css_ctz64(uint64_t value) {
+    unsigned long index;
+    _BitScanForward64(&index, value);
+    return (int)index;
+}
+#else
+#define css_ctz64(value) __builtin_ctzll(value)
+#endif
+
+/* Scanning an identifier is the tokenizer's hottest loop, so its common run -- ASCII letters, digits, '-' and '_' with
+   no escape or non-ASCII byte -- advances sixteen bytes per step on NEON/SSE2 (a scalar byte loop elsewhere). The
+   caller resumes scalar handling at the first byte the fast run rejects (a '\' escape, a non-ASCII byte, or a stop
+   character), so the result is byte-identical to a pure scalar scan; only the plain stretch is skipped faster. */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define CSS_IDENT_SIMD 1
+static inline uint64_t css_ident_stop_mask(const unsigned char *p) {
+    uint8x16_t bytes = vld1q_u8(p);
+    uint8x16_t plain = vorrq_u8(vorrq_u8(vandq_u8(vcgeq_u8(bytes, vdupq_n_u8('0')), vcleq_u8(bytes, vdupq_n_u8('9'))),
+                                         vandq_u8(vcgeq_u8(bytes, vdupq_n_u8('A')), vcleq_u8(bytes, vdupq_n_u8('Z')))),
+                                vorrq_u8(vandq_u8(vcgeq_u8(bytes, vdupq_n_u8('a')), vcleq_u8(bytes, vdupq_n_u8('z'))),
+                                         vorrq_u8(vceqq_u8(bytes, vdupq_n_u8('-')), vceqq_u8(bytes, vdupq_n_u8('_')))));
+    uint8x16_t stop = vmvnq_u8(plain);
+    return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(stop), 4)), 0);
+}
+#define CSS_IDENT_STOP_INDEX(mask) (css_ctz64(mask) >> 2)
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#define CSS_IDENT_SIMD 1
+static inline uint64_t css_ident_stop_mask(const unsigned char *p) {
+    __m128i bytes = _mm_loadu_si128((const __m128i *)p);
+    __m128i digit =
+        _mm_and_si128(_mm_cmpgt_epi8(bytes, _mm_set1_epi8('0' - 1)), _mm_cmplt_epi8(bytes, _mm_set1_epi8('9' + 1)));
+    __m128i upper =
+        _mm_and_si128(_mm_cmpgt_epi8(bytes, _mm_set1_epi8('A' - 1)), _mm_cmplt_epi8(bytes, _mm_set1_epi8('Z' + 1)));
+    __m128i lower =
+        _mm_and_si128(_mm_cmpgt_epi8(bytes, _mm_set1_epi8('a' - 1)), _mm_cmplt_epi8(bytes, _mm_set1_epi8('z' + 1)));
+    __m128i punct = _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('-')), _mm_cmpeq_epi8(bytes, _mm_set1_epi8('_')));
+    __m128i plain = _mm_or_si128(_mm_or_si128(digit, upper), _mm_or_si128(lower, punct));
+    return (~(uint64_t)(unsigned int)_mm_movemask_epi8(plain)) & 0xFFFFULL;
+}
+#define CSS_IDENT_STOP_INDEX(mask) css_ctz64(mask)
+#endif
+
+/* The count of leading plain-identifier bytes (ASCII alnum, '-', '_') in [p, p+avail). */
+static inline Py_ssize_t css_ident_plain_run(const unsigned char *p, Py_ssize_t avail) {
+    Py_ssize_t index = 0;
+#if defined(CSS_IDENT_SIMD)
+    for (; index + 16 <= avail; index += 16) {
+        uint64_t stop = css_ident_stop_mask(p + index);
+        if (stop != 0) {
+            return index + (Py_ssize_t)CSS_IDENT_STOP_INDEX(stop);
+        }
+    }
+#endif
+    while (index < avail) {
+        unsigned char c = p[index];
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-' || c == '_')) {
+            break;
+        }
+        index++;
+    }
+    return index;
+}
 
 /* The engine works on the input's UTF-8 bytes, one byte per code unit. CSS structure is pure ASCII, so a non-ASCII
    byte (>= 0x80) only ever appears inside a string, comment, url or identifier, where it is copied through verbatim;
@@ -118,9 +185,7 @@ static inline void cbuf_puts(css_buf *buffer, const char *text) {
     if (buffer->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        buffer->data[buffer->len + index] = (css_char)(unsigned char)text[index];
-    }
+    memcpy(buffer->data + buffer->len, text, (size_t)len);
     buffer->len += len;
 }
 
@@ -290,10 +355,19 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             pos = scan;
         } else if (character == '/' && pos + 1 < length && source[pos + 1] == '*') {
             Py_ssize_t scan = pos + 2;
-            while (scan + 1 < length && !(source[scan] == '*' && source[scan + 1] == '/')) {
+            Py_ssize_t end = length; /* an unterminated comment runs to EOF */
+            while (scan + 1 < length) {
+                const css_char *star = memchr(source + scan, '*', (size_t)(length - scan - 1));
+                if (star == NULL) {
+                    break;
+                }
+                scan = (Py_ssize_t)(star - source);
+                if (source[scan + 1] == '/') {
+                    end = scan + 2;
+                    break;
+                }
                 scan++;
             }
-            Py_ssize_t end = scan + 1 < length ? scan + 2 : length;
             token.kind = CSS_COMMENT;
             token.text = &source[pos];
             token.text_len = end - pos;
@@ -380,7 +454,12 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             pos = scan;
         } else if (css_is_ident(character)) {
             Py_ssize_t scan = pos;
-            while (scan < length && css_is_ident(source[scan])) {
+            for (;;) {
+                scan += css_ident_plain_run(source + scan, length - scan);
+                if (scan >= length || !css_is_ident(source[scan])) {
+                    break;
+                }
+                /* a non-plain ident byte: a '\' escape advances two, a non-ASCII continuation one */
                 scan += (source[scan] == '\\' && scan + 1 < length) ? 2 : 1;
             }
             int is_url = scan - pos == 3 && css_lower(source[pos]) == 'u' && css_lower(source[pos + 1]) == 'r' &&
