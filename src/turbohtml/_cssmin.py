@@ -1,35 +1,66 @@
 """
 Minify CSS to the smallest output that still parses to the same cascade.
 
-The Python minifiers (``rcssmin``, ``csscompressor``) are non-destructive byte rewriters: they strip comments and
-whitespace but never touch values, so ``#ffffff`` and ``0.5px`` survive untouched. turbohtml ports tdewolff/minify's
-value-rewriting algorithm into C and then goes past it with optimizations that are *value-safe* -- they produce a
-stylesheet that parses to the same cascade -- so colors collapse to their shortest hex, numbers drop redundant zeros
-and units, ``calc()`` with constant operands is folded, and adjacent equal-bodied rules merge. The result is the
-smallest round-trip-safe output of the CSS minifiers on PyPI.
+The other CSS minifiers on PyPI shrink stylesheets either by stripping whitespace (``rcssmin``) or by rewriting values
+(``csscompressor``, ``cssmin``), but each of them rewrites the *internal* whitespace of a custom-property value, which
+CSS Variables 1 §3 says to preserve; ``cssmin`` and ``css-html-js-minify`` also collapse whitespace inside strings.
+turbohtml applies every value-rewriting optimization that is provably value-safe -- colors collapse to their shortest
+form, numbers and units drop what is redundant, constant ``calc()`` folds, shorthands and adjacent rules merge -- while
+keeping custom-property values and string contents byte-exact, so it is the smallest output that round-trips.
 
-This module is the policy-free facade; the whole tokenizer, grammar, and value engine run in C
-(``turbohtml._html._minify_css``), working directly on the input's UTF-8 bytes. There are no options to tune: every
-transformation is one whose output is guaranteed equivalent to the input, so a bare :func:`minify_css` is safe by
-construction.
+The whole tokenizer, grammar, and value engine run in C (``turbohtml._html._minify_css``), working directly on the
+input's UTF-8 bytes. Every transform is value-safe at any :class:`Baseline`; the baseline only bounds how new the output
+*syntax* may be, so the result always parses to the same cascade as the input.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import IntEnum
+
 from ._html import _minify_css, _minify_css_inline
 
+__all__ = [
+    "Baseline",
+    "CSSMinify",
+    "minify_css",
+    "minify_css_inline",
+]
 
-def minify_css(css: str) -> str:
+
+class Baseline(IntEnum):
+    """
+    The browser baseline whose syntax the output may use.
+
+    Both levels are value-safe; the level only decides how new the *output syntax* may be. ``WIDELY_AVAILABLE`` (the
+    default) emits only syntax that has been interoperable for years -- four-digit hex, ``transparent`` as ``#0000``.
+    ``NEWLY_AVAILABLE`` additionally merges the longhands whose shorthand reached interop around 2021: ``inset``, the
+    flex ``gap``, and the two-value ``overflow``.
+    """
+
+    WIDELY_AVAILABLE = 0
+    NEWLY_AVAILABLE = 1
+
+
+@dataclass(frozen=True, slots=True)
+class CSSMinify:
+    """Options for :func:`minify_css` and :func:`minify_css_inline`; ``baseline`` bounds the output syntax."""
+
+    baseline: Baseline = Baseline.WIDELY_AVAILABLE
+
+
+def minify_css(css: str, options: CSSMinify | None = None) -> str:
     """
     Minify a full CSS stylesheet.
 
     :param css: the stylesheet source (rules, at-rules, comments).
+    :param options: the minification options; defaults to :class:`CSSMinify` (the widely-available baseline).
     :returns: the minified stylesheet.
     """
-    return _minify_css(css)
+    return _minify_css(css, (options or CSSMinify()).baseline)
 
 
-def minify_css_inline(css: str) -> str:
+def minify_css_inline(css: str, options: CSSMinify | None = None) -> str:
     """
     Minify an inline declaration list, the value of an HTML ``style`` attribute.
 
@@ -37,12 +68,7 @@ def minify_css_inline(css: str) -> str:
     surrounding selector or braces.
 
     :param css: the declaration-list source.
+    :param options: the minification options; defaults to :class:`CSSMinify` (the widely-available baseline).
     :returns: the minified declaration list.
     """
-    return _minify_css_inline(css)
-
-
-__all__ = [
-    "minify_css",
-    "minify_css_inline",
-]
+    return _minify_css_inline(css, (options or CSSMinify()).baseline)

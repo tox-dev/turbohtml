@@ -9,7 +9,9 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import clean
-from turbohtml.clean import minify_css, minify_css_inline
+from turbohtml.clean import Baseline, CSSMinify, minify_css, minify_css_inline
+
+_NEWLY = CSSMinify(baseline=Baseline.NEWLY_AVAILABLE)
 
 
 @pytest.mark.parametrize(
@@ -211,6 +213,41 @@ def test_minify_css_inline(source: str, expected: str) -> None:
     assert minify_css_inline(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "widely", "newly"),
+    [
+        pytest.param(
+            "a{top:0;right:0;bottom:0;left:0}", "a{top:0;right:0;bottom:0;left:0}", "a{inset:0}", id="inset-merge"
+        ),
+        pytest.param(
+            "a{overflow-x:hidden;overflow-y:auto}",
+            "a{overflow-x:hidden;overflow-y:auto}",
+            "a{overflow:hidden auto}",
+            id="overflow-merge",
+        ),
+        pytest.param(
+            "a{row-gap:1em;column-gap:2em}",
+            "a{row-gap:1em;column-gap:2em}",
+            "a{gap:1em 2em}",
+            id="gap-merge-row-column",
+        ),
+        pytest.param(
+            "a{top:0;right:0;bottom:0}",
+            "a{top:0;right:0;bottom:0}",
+            "a{top:0;right:0;bottom:0}",
+            id="inset-three-not-merged",
+        ),
+    ],
+)
+def test_minify_css_baseline(source: str, widely: str, newly: str) -> None:
+    assert minify_css(source) == widely
+    assert minify_css(source, _NEWLY) == newly
+
+
+def test_minify_css_inline_takes_baseline() -> None:
+    assert minify_css_inline("top:0;right:0;bottom:0;left:0", _NEWLY) == "inset:0"
+
+
 def test_empty_input() -> None:
     assert (minify_css(""), minify_css_inline("")) == ("", "")
 
@@ -218,12 +255,19 @@ def test_empty_input() -> None:
 def test_public_api_is_exported() -> None:
     assert clean.minify_css is minify_css
     assert clean.minify_css_inline is minify_css_inline
-    assert {"minify_css", "minify_css_inline"} <= set(clean.__all__)
+    assert (clean.Baseline, clean.CSSMinify) == (Baseline, CSSMinify)
+    assert {"minify_css", "minify_css_inline", "Baseline", "CSSMinify"} <= set(clean.__all__)
 
 
 def test_non_str_argument_raises_type_error() -> None:
     with pytest.raises(TypeError, match="argument must be str"):
         minify_css(123)  # ty: ignore[invalid-argument-type]  # intentional non-str exercises the C str guard
+
+
+def test_non_int_baseline_raises_type_error() -> None:
+    with pytest.raises(TypeError):
+        # a non-int baseline reaches the C argument parser, which rejects it
+        minify_css("a{}", CSSMinify(baseline="newest"))  # ty: ignore[invalid-argument-type]
 
 
 def test_lone_surrogate_raises_encode_error() -> None:

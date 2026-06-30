@@ -28,9 +28,9 @@ PyObject *turbohtml_escape(PyObject *module, PyObject *args, PyObject *kwds);
 /* Implemented in unescape.c. Signature matches METH_O. */
 PyObject *turbohtml_unescape(PyObject *module, PyObject *arg);
 
-/* Implemented in css.c, the tdewolff-parity CSS minifier. Both match METH_O. */
-PyObject *turbohtml_minify_css(PyObject *module, PyObject *arg);
-PyObject *turbohtml_minify_css_inline(PyObject *module, PyObject *arg);
+/* Implemented in css.c, the value-safe CSS minifier. Both match METH_VARARGS: (source, baseline). */
+PyObject *turbohtml_minify_css(PyObject *module, PyObject *args);
+PyObject *turbohtml_minify_css_inline(PyObject *module, PyObject *args);
 
 /* Implemented in markup.c, the markupsafe-compatible escape surface. escape,
    escape_silent, soft_str, and _register_markup all match METH_O. */

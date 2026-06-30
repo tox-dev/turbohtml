@@ -94,8 +94,8 @@ PyDoc_STRVAR(annotation_tags_doc, "annotation_tags(text, spans, /)\n--\n\n"
 static PyMethodDef html_methods[] = {
     {"escape", (PyCFunction)(void (*)(void))turbohtml_escape, METH_VARARGS | METH_KEYWORDS, escape_doc},
     {"unescape", turbohtml_unescape, METH_O, unescape_doc},
-    {"_minify_css", turbohtml_minify_css, METH_O, NULL},
-    {"_minify_css_inline", turbohtml_minify_css_inline, METH_O, NULL},
+    {"_minify_css", turbohtml_minify_css, METH_VARARGS, NULL},
+    {"_minify_css_inline", turbohtml_minify_css_inline, METH_VARARGS, NULL},
     {"_markup_escape", turbohtml_markup_escape, METH_O, markup_escape_doc},
     {"_markup_escape_silent", turbohtml_markup_escape_silent, METH_O, markup_escape_silent_doc},
     {"_markup_soft_str", turbohtml_markup_soft_str, METH_O, markup_soft_str_doc},

@@ -1117,10 +1117,18 @@ static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     return 1;
 }
 
-/* A token cursor for the grammar. */
+/* The browser baseline a caller targets. WIDELY emits only syntax that has been interoperable for years (the default);
+   NEWLY also emits the ~2021 longhand-merge shorthands (inset, gap, the two-value overflow). Every level is value-safe;
+   the level only bounds how new the output syntax may be. Mirrors the Python turbohtml.clean.Baseline enum. */
+#define CSS_BASELINE_WIDELY 0
+#define CSS_BASELINE_NEWLY 1
+
+/* A token cursor for the grammar. baseline carries the requested browser baseline (CSS_BASELINE_*), so the renderer
+   can gate transforms whose output syntax reached interop only recently (inset/gap/overflow merges). */
 typedef struct {
     token_vec *vec;
     Py_ssize_t index;
+    int baseline;
 } cursor;
 
 static css_token *cursor_peek(cursor *cur) {
@@ -3821,8 +3829,8 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
             return;
         }
     }
-    if (css_count_active_prefixed(decls, pool, prefix, (Py_ssize_t)strlen(prefix)) != 4) {
-        return;
+    if (prefix != NULL && css_count_active_prefixed(decls, pool, prefix, (Py_ssize_t)strlen(prefix)) != 4) {
+        return; /* a NULL prefix (inset) needs no logical-sibling guard: its four longhands share no prefix */
     }
     int important = decls->items[idx[0]].important;
     for (int edge = 0; edge < 4; edge++) {
@@ -3922,18 +3930,27 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
     css_dedup(pool, decls);
 }
 
-static void css_merge_shorthands(css_buf *pool, decl_vec *decls) {
+static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     static const char *const margin[4] = {"margin-top", "margin-right", "margin-bottom", "margin-left"};
     static const char *const padding[4] = {"padding-top", "padding-right", "padding-bottom", "padding-left"};
+    static const char *const inset[4] = {"top", "right", "bottom", "left"};
     css_merge_box(pool, decls, "margin", margin, "margin-");
     css_merge_box(pool, decls, "padding", padding, "padding-");
     css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
     css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
+    if (baseline >= CSS_BASELINE_NEWLY) {
+        /* inset, the two-value overflow, and the flex `gap` reached interop ~2021; emit them only when the caller
+           opts into the newer baseline. inset has no shared longhand prefix and resets nothing else, so it merges
+           with no prefix guard. */
+        css_merge_box(pool, decls, "inset", inset, NULL);
+        css_merge_pair(pool, decls, "overflow", "overflow-x", "overflow-y");
+        css_merge_pair(pool, decls, "gap", "row-gap", "column-gap");
+    }
 }
 
-static void css_render_declarations(css_buf *pool, decl_vec *decls, css_buf *out) {
+static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline, css_buf *out) {
     css_dedup(pool, decls);
-    css_merge_shorthands(pool, decls);
+    css_merge_shorthands(pool, decls, baseline);
     int first = 1;
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *decl = &decls->items[index];
@@ -4087,7 +4104,7 @@ static void css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
         } else {
             decl_vec decls = {NULL, 0, 0, 0};
             css_parse_declarations(pool, cur, &decls);
-            css_render_declarations(pool, &decls, out);
+            css_render_declarations(pool, &decls, cur->baseline, out);
             css_free(decls.items);
         }
         cbuf_putc(out, '}');
@@ -4137,7 +4154,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
             css_buf selector = {NULL, 0, 0, 0};
             css_minify_selector(cur->vec, segment_start, segment_end, 0, &selector);
             css_buf body = {NULL, 0, 0, 0};
-            css_render_declarations(pool, &inner, &body);
+            css_render_declarations(pool, &inner, cur->baseline, &body);
             css_decl decl = {0};
             decl.prop_off = pool->len;
             cbuf_put_run(pool, selector.data, selector.len);
@@ -4220,7 +4237,7 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_i
         decl_vec decls = {NULL, 0, 0, 0};
         css_parse_declarations(pool, cur, &decls);
         css_buf body = {NULL, 0, 0, 0};
-        css_render_declarations(pool, &decls, &body);
+        css_render_declarations(pool, &decls, cur->baseline, &body);
         if (body.len > 0) {
             /* render the selector straight into the pool (it reads only the source tokens, never the pool scratch),
                which avoids a per-rule temporary buffer allocation; the body needs its own buffer because rendering it
@@ -4265,18 +4282,18 @@ static int rule_run_eq(const css_buf *pool, Py_ssize_t a_off, Py_ssize_t a_len, 
 
 /* Re-minify "prev_body;it_body" so a same-selector merge dedups overlapping declarations the same way one rule would.
  */
-static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_item *it) {
+static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_item *it, int baseline) {
     css_buf combined = {NULL, 0, 0, 0};
     cbuf_put_run(&combined, pool->data + prev->body_off, prev->body_len);
     cbuf_putc(&combined, ';');
     cbuf_put_run(&combined, pool->data + it->body_off, it->body_len);
     token_vec tokens = {NULL, 0, 0, 0};
     css_tokenize(combined.data, combined.len, &tokens);
-    cursor inner = {&tokens, 0};
+    cursor inner = {&tokens, 0, baseline};
     decl_vec decls = {NULL, 0, 0, 0};
     css_parse_declarations(pool, &inner, &decls);
     css_buf body = {NULL, 0, 0, 0};
-    css_render_declarations(pool, &decls, &body);
+    css_render_declarations(pool, &decls, baseline, &body);
     prev->body_off = pool_run(pool, body.data, body.len);
     prev->body_len = body.len;
     css_free(tokens.items);
@@ -4288,7 +4305,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
 /* Merge consecutive qualified rules: same selector -> combine declaration bodies; identical body -> combine
    selectors into a list. Only adjacent rules merge (an opaque node between them resets adjacency), so the cascade is
    never reordered. */
-static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items) {
+static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline) {
     Py_ssize_t prev = -1;
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
@@ -4299,7 +4316,7 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items) {
         if (prev >= 0) {
             rule_item *target = &items->items[prev];
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-                css_merge_rule_bodies(pool, target, it);
+                css_merge_rule_bodies(pool, target, it, baseline);
                 it->dropped = 1;
                 continue;
             }
@@ -4379,7 +4396,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
             }
         }
     }
-    css_merge_adjacent_rules(pool, &items);
+    css_merge_adjacent_rules(pool, &items, cur->baseline);
     int prev_at_statement = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
@@ -4405,7 +4422,8 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
    harness and the CPython binding both call this; it touches no CPython runtime. */
-css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, Py_ssize_t *out_len) {
+css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
+                              Py_ssize_t *out_len) {
     token_vec tokens = {NULL, 0, 0, 0};
     /* presize from the input: tokens average a few code points each and the output never exceeds the input, so one
        allocation up front avoids the geometric realloc churn (and its repeated copies) on a large stylesheet */
@@ -4421,11 +4439,11 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     /* the pool holds the value scratch plus every interned selector and body, so it runs to roughly twice the input */
     cbuf_reserve(&pool, length * 2);
     cbuf_reserve(&out, length);
-    cursor cur = {&tokens, 0};
+    cursor cur = {&tokens, 0, baseline};
     if (inline_mode) {
         decl_vec decls = {NULL, 0, 0, 0};
         css_parse_declarations(&pool, &cur, &decls);
-        css_render_declarations(&pool, &decls, &out);
+        css_render_declarations(&pool, &decls, baseline, &out);
         css_free(decls.items);
     } else {
         css_parse_rules(&pool, &cur, 1, 0, &out);
@@ -4437,20 +4455,25 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
 }
 
 #ifndef CSS_MINIFY_STANDALONE
-static PyObject *css_minify_entry(PyObject *arg, int inline_mode) {
-    if (!PyUnicode_Check(arg)) {
+static PyObject *css_minify_entry(PyObject *args, int inline_mode) {
+    PyObject *source = NULL;
+    int baseline = CSS_BASELINE_WIDELY;
+    if (!PyArg_ParseTuple(args, inline_mode ? "Oi:_minify_css_inline" : "Oi:_minify_css", &source, &baseline)) {
+        return NULL;
+    }
+    if (!PyUnicode_Check(source)) {
         PyErr_SetString(PyExc_TypeError, "argument must be str");
         return NULL;
     }
     /* the str's UTF-8 view is cached and, for an ASCII str, aliases its storage (no copy); a str with a lone
        surrogate has no UTF-8 form and is rejected with the encode error */
     Py_ssize_t length = 0;
-    const char *utf8 = PyUnicode_AsUTF8AndSize(arg, &length);
+    const char *utf8 = PyUnicode_AsUTF8AndSize(source, &length);
     if (utf8 == NULL) {
         return NULL;
     }
     Py_ssize_t out_len = 0;
-    css_char *data = th_minify_css_bytes((const css_char *)utf8, length, inline_mode, &out_len);
+    css_char *data = th_minify_css_bytes((const css_char *)utf8, length, inline_mode, baseline, &out_len);
     if (data == NULL && out_len != 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory();        /* GCOVR_EXCL_LINE */
     }
@@ -4459,11 +4482,11 @@ static PyObject *css_minify_entry(PyObject *arg, int inline_mode) {
     return result;
 }
 
-PyObject *turbohtml_minify_css(PyObject *Py_UNUSED(module), PyObject *arg) {
-    return css_minify_entry(arg, 0);
+PyObject *turbohtml_minify_css(PyObject *Py_UNUSED(module), PyObject *args) {
+    return css_minify_entry(args, 0);
 }
 
-PyObject *turbohtml_minify_css_inline(PyObject *Py_UNUSED(module), PyObject *arg) {
-    return css_minify_entry(arg, 1);
+PyObject *turbohtml_minify_css_inline(PyObject *Py_UNUSED(module), PyObject *args) {
+    return css_minify_entry(args, 1);
 }
 #endif /* !CSS_MINIFY_STANDALONE */
