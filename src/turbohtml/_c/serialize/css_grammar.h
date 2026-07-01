@@ -723,6 +723,23 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
     }
 }
 
+/* An empty conditional group rule (@media/@supports/@container with a `{}` body) has no effect, so it is dropped. Other
+   empty at-rules are kept: an empty @layer still declares its place in the cascade order, and an empty @keyframes still
+   fires animation events, so removing either is observable. */
+static int css_is_empty_conditional_atrule(const css_char *text, Py_ssize_t len) {
+    if (text[len - 1] != '}' || text[len - 2] != '{') {
+        return 0;
+    }
+    Py_ssize_t keyword = 1;
+    /* the guard above proved the text ends with a `{}` body, so the scan always stops at the `{` before running off
+       the end; no length bound is needed. */
+    while (css_is_ident(text[keyword])) {
+        keyword++;
+    }
+    return css_run_ieq(text + 1, keyword - 1, "media") || css_run_ieq(text + 1, keyword - 1, "supports") ||
+           css_run_ieq(text + 1, keyword - 1, "container");
+}
+
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. */
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, css_buf *out) {
@@ -768,12 +785,14 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
             css_buf piece = {NULL, 0, 0, 0};
             css_parse_at(pool, cur, &piece);
             /* css_parse_at always emits at least the lowercased at-rule name, so piece is never empty */
-            rule_item item = {0};
-            item.text_off = pool_run(pool, piece.data, piece.len);
-            item.text_len = piece.len;
-            /* an at-statement produced no block: detect by the absence of a closing '}' */
-            item.at_statement = piece.data[piece.len - 1] != '}';
-            rule_vec_push(&items, item);
+            if (!css_is_empty_conditional_atrule(piece.data, piece.len)) {
+                rule_item item = {0};
+                item.text_off = pool_run(pool, piece.data, piece.len);
+                item.text_len = piece.len;
+                /* an at-statement produced no block: detect by the absence of a closing '}' */
+                item.at_statement = piece.data[piece.len - 1] != '}';
+                rule_vec_push(&items, item);
+            }
             cbuf_free(&piece);
         } else {
             rule_item item = {0};

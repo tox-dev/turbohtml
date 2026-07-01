@@ -143,6 +143,14 @@ _NEWLY = CSSMinify(baseline=2021)
             "@media screen and (min-width:100px){a{color:red}}",
             id="at-media-block",
         ),
+        pytest.param("@media screen{}", "", id="drop-empty-media"),
+        pytest.param("@supports (x:y){}", "", id="drop-empty-supports"),
+        pytest.param("@container x{}", "", id="drop-empty-container"),
+        pytest.param("a{}@media print{b{}}", "", id="drop-media-emptied-by-nested"),
+        pytest.param("@media screen{a{color:red}}", "@media screen{a{color:red}}", id="keep-non-empty-media"),
+        pytest.param("@layer x{}", "@layer x{}", id="keep-empty-layer"),
+        pytest.param("@keyframes x{}", "@keyframes x{}", id="keep-empty-keyframes"),
+        pytest.param('@import "x"', '@import "x"', id="keep-import-statement"),
     ],
 )
 def test_minify_css(source: str, expected: str) -> None:
