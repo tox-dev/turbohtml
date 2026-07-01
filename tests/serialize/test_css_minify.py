@@ -39,6 +39,56 @@ _NEWLY = CSSMinify(baseline=2021)
             id="merge-longhands-to-shorthand",
         ),
         pytest.param(
+            "a{outline-width:1px;outline-style:solid;outline-color:red}",
+            "a{outline:1px solid red}",
+            id="merge-outline",
+        ),
+        pytest.param(
+            "a{outline-color:red;outline-style:solid;outline-width:1px}",
+            "a{outline:1px solid red}",
+            id="merge-outline-canonical-order",
+        ),
+        pytest.param(
+            "a{outline-width:inherit;outline-style:inherit;outline-color:inherit}",
+            "a{outline:inherit}",
+            id="merge-outline-wide-keyword",
+        ),
+        pytest.param(
+            "a{outline-width:inherit;outline-style:solid;outline-color:red}",
+            "a{outline-width:inherit;outline-style:solid;outline-color:red}",
+            id="no-merge-outline-mixed-wide",
+        ),
+        pytest.param(
+            "a{outline-width:inherit;outline-style:initial;outline-color:unset}",
+            "a{outline-width:inherit;outline-style:initial;outline-color:unset}",
+            id="no-merge-outline-differing-wide",
+        ),
+        pytest.param(
+            "a{outline-width:1px!important;outline-style:solid;outline-color:red}",
+            "a{outline-width:1px!important;outline-style:solid;outline-color:red}",
+            id="no-merge-outline-importance-mismatch",
+        ),
+        pytest.param(
+            "a{outline-width:var(--w);outline-style:solid;outline-color:red}",
+            "a{outline-width:var(--w);outline-style:solid;outline-color:red}",
+            id="no-merge-outline-with-var",
+        ),
+        pytest.param(
+            "a{outline-width:1px;outline-style:solid}",
+            "a{outline-width:1px;outline-style:solid}",
+            id="no-merge-outline-missing-color",
+        ),
+        pytest.param(
+            "a{outline-style:solid;outline-color:red}",
+            "a{outline-style:solid;outline-color:red}",
+            id="no-merge-outline-missing-width",
+        ),
+        pytest.param(
+            "a{outline-width:1px;outline-color:red}",
+            "a{outline-width:1px;outline-color:red}",
+            id="no-merge-outline-missing-style",
+        ),
+        pytest.param(
             "a{border-top-left-radius:1px;border-top-right-radius:1px;border-bottom-right-radius:1px;"
             "border-bottom-left-radius:1px}",
             "a{border-radius:1px}",

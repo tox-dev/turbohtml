@@ -203,6 +203,62 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
     css_dedup(pool, decls);
 }
 
+/* Merge three longhands into a space-joined shorthand (lh0 lh1 lh2, always three parts) under the same value-safety
+   gates as css_merge_pair: all present, same importance, no var()/env(), and -- if any is a CSS-wide keyword -- all
+   three the identical keyword. Used for outline, whose shorthand covers only width/style/color and resets nothing
+   else, so no sibling can be reordered against it. */
+static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shorthand, const char *lh0, const char *lh1,
+                             const char *lh2) {
+    Py_ssize_t idx[3] = {css_find_active_decl(decls, pool, lh0), css_find_active_decl(decls, pool, lh1),
+                         css_find_active_decl(decls, pool, lh2)};
+    if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0) {
+        return;
+    }
+    int important = decls->items[idx[0]].important;
+    int any_wide = 0;
+    for (int part = 0; part < 3; part++) {
+        if (decls->items[idx[part]].important != important ||
+            css_decl_has_substitution(pool, &decls->items[idx[part]])) {
+            return;
+        }
+        any_wide |= css_decl_is_wide_keyword(pool, &decls->items[idx[part]]);
+    }
+    css_buf value = {NULL, 0, 0, 0};
+    if (any_wide) {
+        for (int part = 0; part < 3; part++) {
+            if (!css_decl_is_wide_keyword(pool, &decls->items[idx[part]]) ||
+                !css_decl_value_eq(pool, &decls->items[idx[part]], &decls->items[idx[0]])) {
+                return;
+            }
+        }
+        cbuf_put_run(&value, pool->data + decls->items[idx[0]].val_off, decls->items[idx[0]].val_len);
+    } else {
+        for (int part = 0; part < 3; part++) {
+            if (part > 0) {
+                cbuf_putc(&value, ' ');
+            }
+            cbuf_put_run(&value, pool->data + decls->items[idx[part]].val_off, decls->items[idx[part]].val_len);
+        }
+    }
+    Py_ssize_t last = idx[0] > idx[1] ? idx[0] : idx[1];
+    if (idx[2] > last) {
+        last = idx[2];
+    }
+    css_decl *merged = &decls->items[last];
+    merged->prop_off = pool_cstr(pool, shorthand);
+    merged->prop_len = (Py_ssize_t)strlen(shorthand);
+    merged->val_off = pool_run(pool, value.data, value.len);
+    merged->val_len = value.len;
+    merged->important = important;
+    for (int part = 0; part < 3; part++) {
+        if (idx[part] != last) {
+            decls->items[idx[part]].dropped = 1;
+        }
+    }
+    cbuf_free(&value);
+    css_dedup(pool, decls);
+}
+
 static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     static const char *const margin[4] = {"margin-top", "margin-right", "margin-bottom", "margin-left"};
     static const char *const padding[4] = {"padding-top", "padding-right", "padding-bottom", "padding-left"};
@@ -216,6 +272,7 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     /* border-radius takes the four corners in TL, TR, BR, BL order; a logical corner in the rule could reorder against
        the shorthand, and an elliptical corner is multi-part, so both block the merge. */
     css_merge_box(pool, decls, "border-radius", radius, NULL, radius_logical, 1);
+    css_merge_triple(pool, decls, "outline", "outline-width", "outline-style", "outline-color");
     css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
     css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
     css_merge_pair(pool, decls, "place-items", "align-items", "justify-items");
