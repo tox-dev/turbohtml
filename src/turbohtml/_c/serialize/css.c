@@ -1196,14 +1196,9 @@ static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     return 1;
 }
 
-/* The browser baseline a caller targets. WIDELY emits only syntax that has been interoperable for years (the default);
-   NEWLY also emits the ~2021 longhand-merge shorthands (inset, gap, the two-value overflow). Every level is value-safe;
-   the level only bounds how new the output syntax may be. Mirrors the Python turbohtml.clean.Baseline enum. */
-#define CSS_BASELINE_WIDELY 0
-#define CSS_BASELINE_NEWLY 1
-
-/* A token cursor for the grammar. baseline carries the requested browser baseline (CSS_BASELINE_*), so the renderer
-   can gate transforms whose output syntax reached interop only recently (inset/gap/overflow merges). */
+/* A token cursor for the grammar. baseline is the Baseline year the caller targets (0 = only long-interoperable
+   syntax), so the renderer can gate a transform on the year its output syntax reached Baseline: a transform tagged
+   with year Y is emitted only when baseline >= Y. */
 typedef struct {
     token_vec *vec;
     Py_ssize_t index;
@@ -4019,10 +4014,10 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
     css_merge_pair(pool, decls, "place-items", "align-items", "justify-items");
     css_merge_pair(pool, decls, "place-self", "align-self", "justify-self");
-    if (baseline >= CSS_BASELINE_NEWLY) {
-        /* inset, the two-value overflow, and the flex `gap` reached interop ~2021; emit them only when the caller
-           opts into the newer baseline. inset has no shared longhand prefix and resets nothing else, so it merges
-           with no prefix guard. */
+    if (baseline >= 2021) {
+        /* inset, the two-value overflow, and the flex `gap` reached Baseline in 2021, so emit them only when the
+           caller targets that year or later. inset has no shared longhand prefix and resets nothing else, so it
+           merges with no prefix guard. */
         css_merge_box(pool, decls, "inset", inset, NULL);
         css_merge_pair(pool, decls, "overflow", "overflow-x", "overflow-y");
         css_merge_pair(pool, decls, "gap", "row-gap", "column-gap");
@@ -4586,7 +4581,7 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
 #ifndef CSS_MINIFY_STANDALONE
 static PyObject *css_minify_entry(PyObject *args, int inline_mode) {
     PyObject *source = NULL;
-    int baseline = CSS_BASELINE_WIDELY;
+    int baseline = 0;
     if (!PyArg_ParseTuple(args, inline_mode ? "Oi:_minify_css_inline" : "Oi:_minify_css", &source, &baseline)) {
         return NULL;
     }

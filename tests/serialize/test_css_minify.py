@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import clean
-from turbohtml.clean import Baseline, CSSMinify, minify_css, minify_css_inline
+from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 
-_NEWLY = CSSMinify(baseline=Baseline.NEWLY_AVAILABLE)
+_NEWLY = CSSMinify(baseline=2021)
 
 
 @pytest.mark.parametrize(
@@ -305,6 +305,12 @@ def test_minify_css_baseline(source: str, widely: str, newly: str) -> None:
     assert minify_css(source, _NEWLY) == newly
 
 
+def test_minify_css_baseline_year_is_a_threshold() -> None:
+    source = "a{top:0;right:0;bottom:0;left:0}"
+    assert minify_css(source, CSSMinify(baseline=2020)) == source
+    assert minify_css(source, CSSMinify(baseline=2021)) == "a{inset:0}"
+
+
 def test_minify_css_inline_takes_baseline() -> None:
     assert minify_css_inline("top:0;right:0;bottom:0;left:0", _NEWLY) == "inset:0"
 
@@ -316,8 +322,8 @@ def test_empty_input() -> None:
 def test_public_api_is_exported() -> None:
     assert clean.minify_css is minify_css
     assert clean.minify_css_inline is minify_css_inline
-    assert (clean.Baseline, clean.CSSMinify) == (Baseline, CSSMinify)
-    assert {"minify_css", "minify_css_inline", "Baseline", "CSSMinify"} <= set(clean.__all__)
+    assert clean.CSSMinify is CSSMinify
+    assert {"minify_css", "minify_css_inline", "CSSMinify"} <= set(clean.__all__)
 
 
 def test_non_str_argument_raises_type_error() -> None:

@@ -78,15 +78,12 @@ The HTML minify layout emits ``<style>`` and ``<script>`` bodies verbatim; to al
 
 Minify CSS the value-safe way: every transform produces output that parses to the same cascade. :func:`minify_css` takes
 a whole stylesheet; :func:`minify_css_inline` takes a bare declaration list, the value of an HTML ``style`` attribute.
-Both are value-safe at any :class:`Baseline`; the optional :class:`CSSMinify` only bounds how new the output *syntax*
-may be.
+Both are value-safe at any baseline; the optional :class:`CSSMinify` ``baseline`` year only bounds how new the output
+*syntax* may be.
 
 .. autofunction:: minify_css
 
 .. autofunction:: minify_css_inline
-
-.. autoclass:: Baseline
-    :members:
 
 .. autoclass:: CSSMinify
     :members:
@@ -135,9 +132,7 @@ Shorthands
 - Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow``, and each Box Alignment axis pair into its ``place-``
   shorthand -- ``align-content`` + ``justify-content`` into ``place-content``, ``align-items`` + ``justify-items`` into
   ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
-  <https://www.w3.org/TR/css-align-3/#place-content>`__). With ``Baseline.NEWLY_AVAILABLE`` also merge
-  ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
-  <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), the two ``overflow`` longhands, and the flex ``gap``.
+  <https://www.w3.org/TR/css-align-3/#place-content>`__).
 
 Structure and selectors
 -----------------------
@@ -155,6 +150,28 @@ Structure and selectors
 - Rewrite a ``@keyframes`` ``from`` selector to ``0%`` (`Animations 1
   <https://www.w3.org/TR/css-animations-1/#keyframes>`__), and drop the space before ``and``/``or`` after a ``)`` in a
   media query (`Media Queries 4 <https://www.w3.org/TR/mediaqueries-4/#mq-syntax>`__).
+
+Baseline
+--------
+
+Every transform above is value-safe and, by default, applies to every stylesheet -- its output syntax has been
+interoperable for years. A few emit a shorthand whose interop is more recent, so they are gated on the ``baseline`` year
+(:attr:`CSSMinify.baseline`) and stay off unless you target that year or later. Each row lists the year a transform's
+output syntax reached `Baseline <https://web.dev/baseline>`__; a transform tagged year ``Y`` runs when ``baseline >=
+Y``.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 18 82
+
+    - - Baseline year
+      - Transforms enabled
+    - - any (``None``, default)
+      - Every transform in the sections above: numbers, colors, box/flex/``place-`` shorthands, structure, selectors.
+    - - ``2021``
+      - Merge ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
+        <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), merge the two ``overflow`` longhands into
+        ``overflow``, and merge ``row-gap`` + ``column-gap`` into the flex ``gap``.
 
 turbohtml.migration.bleach
 ==========================

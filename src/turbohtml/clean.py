@@ -10,7 +10,6 @@ frozen, thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Mi
 from __future__ import annotations
 
 from ._cssmin import (
-    Baseline,
     CSSMinify,
     minify_css,
     minify_css_inline,
@@ -46,7 +45,6 @@ __all__ = [
     "DEFAULT_CSS_PROPERTIES",
     "DEFAULT_SCHEMES",
     "DEFAULT_TAGS",
-    "Baseline",
     "CSSMinify",
     "Callback",
     "Detector",

@@ -9,44 +9,36 @@ form, numbers and units drop what is redundant, constant ``calc()`` folds, short
 keeping custom-property values and string contents byte-exact, so it is the smallest output that round-trips.
 
 The whole tokenizer, grammar, and value engine run in C (``turbohtml._html._minify_css``), working directly on the
-input's UTF-8 bytes. Every transform is value-safe at any :class:`Baseline`; the baseline only bounds how new the output
+input's UTF-8 bytes. Every transform is value-safe at any baseline; the baseline only bounds how new the output
 *syntax* may be, so the result always parses to the same cascade as the input.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
 
 from ._html import _minify_css, _minify_css_inline
 
 __all__ = [
-    "Baseline",
     "CSSMinify",
     "minify_css",
     "minify_css_inline",
 ]
 
 
-class Baseline(IntEnum):
-    """
-    The browser baseline whose syntax the output may use.
-
-    Both levels are value-safe; the level only decides how new the *output syntax* may be. ``WIDELY_AVAILABLE`` (the
-    default) emits only syntax that has been interoperable for years -- four-digit hex, ``transparent`` as ``#0000``.
-    ``NEWLY_AVAILABLE`` additionally merges the longhands whose shorthand reached interop around 2021: ``inset``, the
-    flex ``gap``, and the two-value ``overflow``.
-    """
-
-    WIDELY_AVAILABLE = 0
-    NEWLY_AVAILABLE = 1
-
-
 @dataclass(frozen=True, slots=True)
 class CSSMinify:
-    """Options for :func:`minify_css` and :func:`minify_css_inline`; ``baseline`` bounds the output syntax."""
+    """
+    Options for :func:`minify_css` and :func:`minify_css_inline`.
 
-    baseline: Baseline = Baseline.WIDELY_AVAILABLE
+    ``baseline`` is the `Baseline <https://web.dev/baseline>`__ year the output may target: the minifier applies a
+    transform whose output syntax reached Baseline in year ``Y`` only when ``baseline >= Y``. ``None`` (the default)
+    emits only long-interoperable syntax; ``2021`` additionally merges the shorthands that reached Baseline that year
+    (``inset``, the flex ``gap``, the two-value ``overflow``). Every year is value-safe -- the year bounds only how new
+    the output syntax may be, never the cascade it parses to.
+    """
+
+    baseline: int | None = None
 
 
 def minify_css(css: str, options: CSSMinify | None = None) -> str:
@@ -54,10 +46,10 @@ def minify_css(css: str, options: CSSMinify | None = None) -> str:
     Minify a full CSS stylesheet.
 
     :param css: the stylesheet source (rules, at-rules, comments).
-    :param options: the minification options; defaults to :class:`CSSMinify` (the widely-available baseline).
+    :param options: the minification options; defaults to :class:`CSSMinify` (the most compatible output).
     :returns: the minified stylesheet.
     """
-    return _minify_css(css, (options or CSSMinify()).baseline)
+    return _minify_css(css, (options or CSSMinify()).baseline or 0)
 
 
 def minify_css_inline(css: str, options: CSSMinify | None = None) -> str:
@@ -68,7 +60,7 @@ def minify_css_inline(css: str, options: CSSMinify | None = None) -> str:
     surrounding selector or braces.
 
     :param css: the declaration-list source.
-    :param options: the minification options; defaults to :class:`CSSMinify` (the widely-available baseline).
+    :param options: the minification options; defaults to :class:`CSSMinify` (the most compatible output).
     :returns: the minified declaration list.
     """
-    return _minify_css_inline(css, (options or CSSMinify()).baseline)
+    return _minify_css_inline(css, (options or CSSMinify()).baseline or 0)
