@@ -139,6 +139,72 @@ _NEWLY = CSSMinify(baseline=2021)
         pytest.param(".x{color:red}.y{color:red}", ".x,.y{color:red}", id="merge-identical-bodies-to-selector-list"),
         pytest.param("a{color:red}a{background:blue}", "a{color:red;background:blue}", id="merge-same-selector-bodies"),
         pytest.param(
+            "a{color:red}b{margin:0}a{font-size:2px}",
+            "a{color:red;font-size:2px}b{margin:0}",
+            id="merge-nonadjacent-same-selector",
+        ),
+        pytest.param(
+            ".a{color:red}.c{margin:0}.b{color:red}",
+            ".a,.b{color:red}.c{margin:0}",
+            id="merge-nonadjacent-identical-body",
+        ),
+        pytest.param("a{color:red}a{margin:0}a{padding:0}", "a{color:red;margin:0;padding:0}", id="merge-triple-run"),
+        pytest.param(
+            "a{color:red}b{background:url(x)}a{font-size:2px}",
+            "a{color:red;font-size:2px}b{background:url(x)}",
+            id="merge-nonadjacent-past-url-value",
+        ),
+        pytest.param(
+            "a{color:red}b{margin:0;padding:0}a{font-size:2px}",
+            "a{color:red;font-size:2px}b{margin:0;padding:0}",
+            id="merge-nonadjacent-past-multi-declaration",
+        ),
+        pytest.param(
+            "a{color:red}b{color:blue}a{color:green}",
+            "a{color:red}b{color:blue}a{color:green}",
+            id="no-merge-conflicting-property",
+        ),
+        pytest.param(
+            "a{color:red}b{margin:0}a{margin-top:1px}",
+            "a{color:red}b{margin:0}a{margin-top:1px}",
+            id="no-merge-shorthand-blocks-longhand",
+        ),
+        pytest.param(
+            "a{color:red}b{margin-top:0}a{margin:1px}",
+            "a{color:red}b{margin-top:0}a{margin:1px}",
+            id="no-merge-longhand-blocks-shorthand",
+        ),
+        pytest.param(
+            "a{color:red}b{all:unset}a{font-size:2px}",
+            "a{color:red}b{all:unset}a{font-size:2px}",
+            id="no-merge-across-all",
+        ),
+        pytest.param(
+            'a{color:red}x{content:"a;b"}a{font-size:2px}',
+            'a{color:red}x{content:"a;b"}a{font-size:2px}',
+            id="no-merge-across-double-quoted-body",
+        ),
+        pytest.param(
+            "a{color:red}x{content:'a;b'}a{font-size:2px}",
+            "a{color:red}x{content:'a;b'}a{font-size:2px}",
+            id="no-merge-across-single-quoted-body",
+        ),
+        pytest.param(
+            "a{color:red}b{c:d;& e{f:g}}a{margin:0}",
+            "a{color:red}b{c:d;& e{f:g}}a{margin:0}",
+            id="no-merge-across-nested-rule",
+        ),
+        pytest.param(
+            'a{color:red}b{margin:0}a{content:"x;y"}',
+            'a{color:red}b{margin:0}a{content:"x;y"}',
+            id="no-merge-when-moved-body-is-opaque",
+        ),
+        pytest.param(
+            "a{color:red}/*!x*/a{margin:0}",
+            "a{color:red}/*!x*/a{margin:0}",
+            id="no-merge-across-bang-comment",
+        ),
+        pytest.param(
             "@media screen and (min-width:100px){a{color:red}}",
             "@media screen and (min-width:100px){a{color:red}}",
             id="at-media-block",

@@ -684,17 +684,101 @@ static Py_ssize_t css_media_prelude_len(const css_char *text, Py_ssize_t len, in
     return -1; /* GCOVR_EXCL_LINE: a rendered @media block always carries its '{' */
 }
 
-/* Merge consecutive qualified rules: same selector -> combine declaration bodies; identical body -> combine selectors
-   into a list. Consecutive @media blocks with an identical prelude fold into one wrapper. Only adjacent nodes merge (an
-   opaque node between them resets adjacency), so the cascade is never reordered. */
+/* Two properties conflict when one could override the other on an element: the same name, a shorthand and one of its
+   longhands, or `all` (which resets every property). Conflict decides whether a declaration can be moved past another
+   rule without changing the cascade. */
+static int css_props_conflict(const css_char *a, Py_ssize_t a_len, const css_char *b, Py_ssize_t b_len) {
+    if (css_run_ieq(a, a_len, "all") || css_run_ieq(b, b_len, "all")) {
+        return 1;
+    }
+    if (a_len == b_len && memcmp(a, b, (size_t)a_len * sizeof(css_char)) == 0) {
+        return 1;
+    }
+    const char *a_longhands = css_longhand_list(a, a_len);
+    if (a_longhands != NULL && css_prop_in_list(b, b_len, a_longhands)) {
+        return 1;
+    }
+    const char *b_longhands = css_longhand_list(b, b_len);
+    return b_longhands != NULL && css_prop_in_list(a, a_len, b_longhands);
+}
+
+/* Advance *pos over one declaration of a rendered body [0,len), returning its property-name run [*start,*end) -- the
+   ident up to the declaration's ':'. A property name holds no parenthesis, so the first ':' is always the separator;
+   the value's terminating ';' is read at paren depth 0, since a ';' can sit inside an unquoted data URL. The callers
+   have already excluded a body carrying a string or a nested rule, so no quote or brace state is tracked. Returns 0 at
+   the end. */
+static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *pos, Py_ssize_t *start,
+                              Py_ssize_t *end) {
+    if (*pos >= len) {
+        return 0;
+    }
+    *start = *pos;
+    Py_ssize_t index = *pos;
+    while (body[index] != ':') {
+        index++;
+    }
+    *end = index;
+    int depth = 0;
+    for (; index < len; index++) {
+        css_char character = body[index];
+        if (character == '(') {
+            depth++;
+        } else if (character == ')') {
+            depth--;
+        } else if (depth == 0 && character == ';') {
+            break;
+        }
+    }
+    *pos = index < len ? index + 1 : index;
+    return 1;
+}
+
+/* A body the flat property scan cannot analyze: it nests a rule (`{`) or carries a string (a quote), inside which a
+   ';' would be misread as a declaration boundary. Such a body is treated as conflicting, so it never moves. */
+static int css_body_is_opaque(const css_char *body, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (body[index] == '{' || body[index] == '"' || body[index] == '\'') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether moving one rendered body past another could change the cascade: either is opaque, or they set a conflicting
+   property. */
+static int css_bodies_conflict(const css_buf *pool, Py_ssize_t a_off, Py_ssize_t a_len, Py_ssize_t b_off,
+                               Py_ssize_t b_len) {
+    const css_char *a = pool->data + a_off;
+    const css_char *b = pool->data + b_off;
+    if (css_body_is_opaque(a, a_len) || css_body_is_opaque(b, b_len)) {
+        return 1;
+    }
+    Py_ssize_t a_pos = 0;
+    Py_ssize_t a_start = 0;
+    Py_ssize_t a_end = 0;
+    while (css_body_next_prop(a, a_len, &a_pos, &a_start, &a_end)) {
+        Py_ssize_t b_pos = 0;
+        Py_ssize_t b_start = 0;
+        Py_ssize_t b_end = 0;
+        while (css_body_next_prop(b, b_len, &b_pos, &b_start, &b_end)) {
+            if (css_props_conflict(a + a_start, a_end - a_start, b + b_start, b_end - b_start)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Merge qualified rules: same selector -> combine declaration bodies; identical body -> combine selectors into a list.
+   A rule may merge with an earlier one across intervening rules, but only while every rule between them sets no
+   property the moved body sets (so the cascade cannot change); an opaque node (a bang comment) or a conflicting rule
+   ends the reach. Consecutive @media blocks with an identical prelude fold into one wrapper. */
 static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline) {
-    Py_ssize_t prev = -1;
     Py_ssize_t media_prev = -1;
     Py_ssize_t media_prev_prelude = 0;
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
-            prev = -1;
             /* every non-rule item carries text (the push guard drops empty rules), so text_len is always positive */
             Py_ssize_t prelude = css_media_prelude_len(pool->data + it->text_off, it->text_len, it->at_statement);
             if (prelude < 0) {
@@ -720,12 +804,21 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
             continue;
         }
         media_prev = -1;
-        if (prev >= 0) {
-            rule_item *target = &items->items[prev];
+        /* Reach back for a rule to merge into, keeping the merged rule at the earlier position so this rule's body
+           moves back. Each intervening rule that sets a property this body sets ends the reach; an opaque node does
+           too. */
+        for (Py_ssize_t back = index - 1; back >= 0; back--) {
+            rule_item *target = &items->items[back];
+            if (target->dropped) {
+                continue;
+            }
+            if (!target->is_rule) {
+                break;
+            }
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
                 css_merge_rule_bodies(pool, target, it, baseline);
                 it->dropped = 1;
-                continue;
+                break;
             }
             if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len)) {
                 css_buf selector = {NULL, 0, 0, 0};
@@ -736,10 +829,12 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
                 target->sel_len = selector.len;
                 cbuf_free(&selector);
                 it->dropped = 1;
-                continue;
+                break;
+            }
+            if (css_bodies_conflict(pool, target->body_off, target->body_len, it->body_off, it->body_len)) {
+                break;
             }
         }
-        prev = index;
     }
 }
 
