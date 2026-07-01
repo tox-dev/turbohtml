@@ -99,57 +99,67 @@ Numbers and dimensions
 
 - Drop a leading ``+``, redundant leading and trailing zeros, and switch to ``e``-notation when it is shorter (`Syntax 3
   §4.3.3 <https://www.w3.org/TR/css-syntax-3/#consume-a-number>`__, `Values 4 §6.1
-  <https://www.w3.org/TR/css-values-4/#numbers>`__).
+  <https://www.w3.org/TR/css-values-4/#numbers>`__). ``a{width:+0.50px}`` → ``a{width:.5px}``, ``a{margin:100000px}`` →
+  ``a{margin:1e5px}``.
 - Lower-case a known unit and drop the unit on a zero ``<length>`` (``0px`` → ``0``); angle, time, frequency and other
   dimensions keep their unit, since a bare ``0`` is a ``<length>`` only (`Values 4 §5.2
-  <https://www.w3.org/TR/css-values-4/#lengths>`__).
+  <https://www.w3.org/TR/css-values-4/#lengths>`__). ``a{margin:0PX}`` → ``a{margin:0}``, while
+  ``a{transform:rotate(0deg)}`` is unchanged.
 - Fold a ``calc()`` of constant, like-united operands with exact rational arithmetic; a non-combinable or
   non-terminating result is kept verbatim, and ``+``/``-`` without surrounding whitespace is left untouched (`Values 4
-  §10 <https://www.w3.org/TR/css-values-4/#calc-func>`__).
+  §10 <https://www.w3.org/TR/css-values-4/#calc-func>`__). ``a{width:calc(1px + 2px)}`` → ``a{width:3px}``.
 
 Colors
 ------
 
 - Swap a named color and its hex for whichever is shorter, and shorten ``#rrggbb`` → ``#rgb`` and ``#rrggbbaa`` →
   ``#rgba`` (`Color 4 §5.2 <https://www.w3.org/TR/css-color-4/#hex-notation>`__, `§6.1
-  <https://www.w3.org/TR/css-color-4/#named-colors>`__).
+  <https://www.w3.org/TR/css-color-4/#named-colors>`__). ``a{color:#ffffff}`` → ``a{color:#fff}``, ``a{color:#000080}``
+  → ``a{color:navy}``.
 - Fold an opaque ``rgb()``/``hsl()`` to hex only when every channel lands on an exact 8-bit value; a fractional channel
   is kept functional, since rounding it changes the color (`Color 4 §15
-  <https://www.w3.org/TR/css-color-4/#rgb-functions>`__).
+  <https://www.w3.org/TR/css-color-4/#rgb-functions>`__). ``a{color:rgb(255,0,0)}`` → ``a{color:red}``.
 - Collapse ``transparent`` and ``rgba(0,0,0,0)`` to ``#0000``, drop an alpha of ``1``, and use the shorter ``rgb()``/
   ``hsl()`` alias of ``rgba()``/``hsla()`` (`Color 4 §4 <https://www.w3.org/TR/css-color-4/#color-syntax>`__).
+  ``a{color:transparent}`` → ``a{color:#0000}``, ``a{color:rgba(1,2,3,.5)}`` → ``a{color:rgb(1,2,3,.5)}``.
 
 Shorthands
 ----------
 
 - Collapse a 1–4 value box shorthand when mirrored edges are equal, and merge the four physical longhands back into the
   shorthand (`Box 3 §6–7 <https://www.w3.org/TR/css-box-3/#margins>`__, `Cascade 5 §2.2
-  <https://www.w3.org/TR/css-cascade-5/#shorthand>`__).
+  <https://www.w3.org/TR/css-cascade-5/#shorthand>`__). ``a{margin:1px 1px 1px 1px}`` → ``a{margin:1px}``.
 - Collapse the ``background``, ``background-position``, ``background-repeat`` (`Backgrounds 3 §3
   <https://www.w3.org/TR/css-backgrounds-3/#backgrounds>`__), ``flex`` (`Flexbox 1 §7.1.1
   <https://www.w3.org/TR/css-flexbox-1/#flex-property>`__) and ``font`` (`Fonts 4 §2.7
-  <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form.
+  <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form. ``a{font:bold 12px
+  x}`` → ``a{font:700 12px x}``.
 - Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow``, and each Box Alignment axis pair into its ``place-``
   shorthand -- ``align-content`` + ``justify-content`` into ``place-content``, ``align-items`` + ``justify-items`` into
   ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
-  <https://www.w3.org/TR/css-align-3/#place-content>`__).
+  <https://www.w3.org/TR/css-align-3/#place-content>`__). ``a{align-items:center;justify-items:center}`` →
+  ``a{place-items:center}``.
 
 Structure and selectors
 -----------------------
 
 - Collapse insignificant whitespace and strip comments, keeping a ``/*! … */`` bang comment (`Syntax 3 §3.3
-  <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__).
+  <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__). ``/*c*/a{color:red}`` → ``a{color:red}``, while ``/*!
+  keep */a{color:red}`` → ``/*!keep*/a{color:red}``.
 - Drop a declaration an identically-keyed later one overrides, remove an empty rule, merge adjacent rules with the same
   selector or an identical body, and fuse consecutive ``@media`` blocks that share a prelude (`Cascade 5 §6.4.4
-  <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__).
+  <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__). ``a{}b{c:d}`` → ``b{c:d}``, and
+  ``.x{color:red}.y{color:red}`` → ``.x,.y{color:red}``.
 - Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
   four legacy pseudo-elements with one colon (``::before`` → ``:before``), and unquote an attribute value that is a
   valid identifier (`Selectors 4 §5–6 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8
   <https://www.w3.org/TR/css-pseudo-4/#css2-compat>`__); a custom-property name keeps its case (`Variables 1 §2
-  <https://www.w3.org/TR/css-variables-1/#defining-variables>`__).
+  <https://www.w3.org/TR/css-variables-1/#defining-variables>`__). ``A{X:1}`` → ``a{x:1}``, ``[a="Foo"]{x:1}`` →
+  ``[a=Foo]{x:1}``.
 - Rewrite a ``@keyframes`` ``from`` selector to ``0%`` (`Animations 1
   <https://www.w3.org/TR/css-animations-1/#keyframes>`__), and drop the space before ``and``/``or`` after a ``)`` in a
-  media query (`Media Queries 4 <https://www.w3.org/TR/mediaqueries-4/#mq-syntax>`__).
+  media query (`Media Queries 4 <https://www.w3.org/TR/mediaqueries-4/#mq-syntax>`__). ``@keyframes k{from{opacity:0}}``
+  → ``@keyframes k{0%{opacity:0}}``.
 
 Baseline
 --------
@@ -171,7 +181,8 @@ Y``.
     - - ``2021``
       - Merge ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
         <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), merge the two ``overflow`` longhands into
-        ``overflow``, and merge ``row-gap`` + ``column-gap`` into the flex ``gap``.
+        ``overflow``, and merge ``row-gap`` + ``column-gap`` into the flex ``gap``. At ``baseline=2021``,
+        ``a{top:0;right:0;bottom:0;left:0}`` → ``a{inset:0}``.
 
 turbohtml.migration.bleach
 ==========================
