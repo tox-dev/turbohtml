@@ -172,10 +172,10 @@ Baseline
 --------
 
 Every transform above is value-safe and, by default, applies to every stylesheet -- its output syntax has been
-interoperable for years. A few emit a shorthand whose interop is more recent, so they are gated on the ``baseline`` year
-(:attr:`CSSMinify.baseline`) and stay off unless you target that year or later. Each row lists the year a transform's
-output syntax reached `Baseline <https://web.dev/baseline>`__; a transform tagged year ``Y`` runs when ``baseline >=
-Y``.
+interoperable for years. A few emit a shorthand whose interop is more recent, so they are gated on the
+:class:`CSSMinify` ``baseline`` year and stay off unless you target that year or later. Each row lists the year a
+transform's output syntax reached `Baseline <https://web.dev/baseline>`__; a transform tagged year ``Y`` runs when
+``baseline >= Y``.
 
 .. list-table::
     :header-rows: 1
