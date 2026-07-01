@@ -166,13 +166,20 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
 
 /* Merge two longhands into a two-value shorthand (longhand0 then longhand1, collapsing to one value when both are
    equal), under the same value-safety gates as css_merge_box: both present, same importance, no var()/env(), and any
-   CSS-wide keyword the identical sole value for both. */
+   CSS-wide keyword the identical sole value for both. A non-NULL forbidden list names siblings whose presence blocks
+   the merge -- the physical longhand a logical one aliases (margin-inline-start resolves to margin-left or -right by
+   writing mode), which the shorthand could reorder against. */
 static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand, const char *longhand0,
-                           const char *longhand1) {
+                           const char *longhand1, const char *const *forbidden) {
     Py_ssize_t idx0 = css_find_active_decl(decls, pool, longhand0);
     Py_ssize_t idx1 = css_find_active_decl(decls, pool, longhand1);
     if (idx0 < 0 || idx1 < 0) {
         return;
+    }
+    for (int sibling = 0; forbidden != NULL && forbidden[sibling] != NULL; sibling++) {
+        if (css_find_active_decl(decls, pool, forbidden[sibling]) >= 0) {
+            return;
+        }
     }
     if (decls->items[idx0].important != decls->items[idx1].important ||
         css_decl_has_substitution(pool, &decls->items[idx0]) || css_decl_has_substitution(pool, &decls->items[idx1])) {
@@ -273,17 +280,30 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
        the shorthand, and an elliptical corner is multi-part, so both block the merge. */
     css_merge_box(pool, decls, "border-radius", radius, NULL, radius_logical, 1);
     css_merge_triple(pool, decls, "outline", "outline-width", "outline-style", "outline-color");
-    css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
-    css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
-    css_merge_pair(pool, decls, "place-items", "align-items", "justify-items");
-    css_merge_pair(pool, decls, "place-self", "align-self", "justify-self");
+    css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap", NULL);
+    css_merge_pair(pool, decls, "place-content", "align-content", "justify-content", NULL);
+    css_merge_pair(pool, decls, "place-items", "align-items", "justify-items", NULL);
+    css_merge_pair(pool, decls, "place-self", "align-self", "justify-self", NULL);
     if (baseline >= 2021) {
-        /* inset, the two-value overflow, and the flex `gap` reached Baseline in 2021, so emit them only when the
-           caller targets that year or later. inset has no shared longhand prefix and resets nothing else, so it
-           merges with no prefix guard. */
+        /* These shorthands reached Baseline in 2021, so emit them only when the caller targets that year or later.
+           inset resets nothing else and shares no prefix, so it merges with no guard; each logical margin/padding/inset
+           pair is blocked when its physical alias is in the rule, which the shorthand could reorder against. */
+        static const char *const margin_inline_alias[] = {"margin-left", "margin-right", "margin", NULL};
+        static const char *const margin_block_alias[] = {"margin-top", "margin-bottom", "margin", NULL};
+        static const char *const padding_inline_alias[] = {"padding-left", "padding-right", "padding", NULL};
+        static const char *const padding_block_alias[] = {"padding-top", "padding-bottom", "padding", NULL};
+        static const char *const inset_inline_alias[] = {"left", "right", "inset", NULL};
+        static const char *const inset_block_alias[] = {"top", "bottom", "inset", NULL};
         css_merge_box(pool, decls, "inset", inset, NULL, NULL, 0);
-        css_merge_pair(pool, decls, "overflow", "overflow-x", "overflow-y");
-        css_merge_pair(pool, decls, "gap", "row-gap", "column-gap");
+        css_merge_pair(pool, decls, "overflow", "overflow-x", "overflow-y", NULL);
+        css_merge_pair(pool, decls, "gap", "row-gap", "column-gap", NULL);
+        css_merge_pair(pool, decls, "margin-inline", "margin-inline-start", "margin-inline-end", margin_inline_alias);
+        css_merge_pair(pool, decls, "margin-block", "margin-block-start", "margin-block-end", margin_block_alias);
+        css_merge_pair(pool, decls, "padding-inline", "padding-inline-start", "padding-inline-end",
+                       padding_inline_alias);
+        css_merge_pair(pool, decls, "padding-block", "padding-block-start", "padding-block-end", padding_block_alias);
+        css_merge_pair(pool, decls, "inset-inline", "inset-inline-start", "inset-inline-end", inset_inline_alias);
+        css_merge_pair(pool, decls, "inset-block", "inset-block-start", "inset-block-end", inset_block_alias);
     }
 }
 

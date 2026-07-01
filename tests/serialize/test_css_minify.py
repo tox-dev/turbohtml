@@ -383,6 +383,24 @@ def test_minify_css_inline(source: str, expected: str) -> None:
             id="gap-merge-row-column",
         ),
         pytest.param(
+            "a{margin-inline-start:1px;margin-inline-end:2px}",
+            "a{margin-inline-start:1px;margin-inline-end:2px}",
+            "a{margin-inline:1px 2px}",
+            id="margin-inline-merge",
+        ),
+        pytest.param(
+            "a{padding-block-start:1px;padding-block-end:1px}",
+            "a{padding-block-start:1px;padding-block-end:1px}",
+            "a{padding-block:1px}",
+            id="padding-block-merge-collapsed",
+        ),
+        pytest.param(
+            "a{inset-inline-start:1px;inset-inline-end:2px}",
+            "a{inset-inline-start:1px;inset-inline-end:2px}",
+            "a{inset-inline:1px 2px}",
+            id="inset-inline-merge",
+        ),
+        pytest.param(
             "a{top:0;right:0;bottom:0}",
             "a{top:0;right:0;bottom:0}",
             "a{top:0;right:0;bottom:0}",
@@ -399,6 +417,12 @@ def test_minify_css_baseline_year_is_a_threshold() -> None:
     source = "a{top:0;right:0;bottom:0;left:0}"
     assert minify_css(source, CSSMinify(baseline=2020)) == source
     assert minify_css(source, CSSMinify(baseline=2021)) == "a{inset:0}"
+
+
+def test_logical_shorthand_kept_when_physical_alias_present() -> None:
+    # margin-inline-start aliases margin-left by writing mode, so the shorthand could reorder against it: no merge.
+    source = "a{margin-left:9px;margin-inline-start:1px;margin-inline-end:2px}"
+    assert minify_css(source, CSSMinify(baseline=2021)) == source
 
 
 def test_minify_css_inline_takes_baseline() -> None:
