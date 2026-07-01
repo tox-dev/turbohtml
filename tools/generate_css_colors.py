@@ -1,11 +1,17 @@
 """
-Generate src/turbohtml/_c/data/css_colors.h from tdewolff/minify's CSS color maps.
+Generate src/turbohtml/_c/data/css_colors.h from the CSS Color 4 named-color table.
 
-The CSS minifier rewrites a color to its shortest equivalent: a hash to a shorter keyword (``#000080`` -> ``navy``) and
-a keyword to a shorter hash (``black`` -> ``#000``). tdewolff hand-picked which direction is shorter for each color, so
-those two maps are the source of truth here. This emits a generated header shaped like ``tld_table.h``: the keyword
-table is sorted by keyword with a 256-entry first-byte index, so a keyword is matched by bucketing on its first byte;
-the hash table is sorted by hash string for a binary search, since every hash shares the ``#`` first byte.
+The minifier rewrites a color to its shortest equivalent form: a keyword to a shorter hash (``black`` -> ``#000``) or a
+hash to a shorter keyword (``#000080`` -> ``navy``). Rather than hand-pick a direction per color, this derives both maps
+from the authoritative named-color list in `CSS Color 4 §6.1 <https://www.w3.org/TR/css-color-4/#named-colors>`__ (plus
+``transparent`` from §6.2): for each color it computes the shortest hash form, then keeps whichever of keyword or hash
+is strictly shorter. Deriving the maps keeps them complete (every §6.1 color is covered) and value-safe: a name that
+§6.1 does not define, such as the X11-only ``lightslateblue``, is never emitted, so an invalid keyword is never
+rewritten into a valid color.
+
+The emitted header is shaped like ``tld_table.h``: the keyword table is sorted by keyword with a 256-entry first-byte
+index for a bucketed scan; the hash table is sorted by hash string for a binary search, since every hash shares the
+``#`` first byte.
 
 Usage:  python tools/generate_css_colors.py src/turbohtml/_c/data/css_colors.h
 """
@@ -16,151 +22,186 @@ import sys
 from pathlib import Path
 from typing import Final
 
-# keyword -> shortest hash form (when the hash is shorter than the keyword)
-_NAME_TO_HEX: Final[dict[str, str]] = {
-    "black": "#000",
-    "darkblue": "#00008b",
-    "mediumblue": "#0000cd",
-    "darkgreen": "#006400",
-    "darkcyan": "#008b8b",
-    "deepskyblue": "#00bfff",
-    "darkturquoise": "#00ced1",
-    "mediumspringgreen": "#00fa9a",
-    "springgreen": "#00ff7f",
-    "midnightblue": "#191970",
-    "dodgerblue": "#1e90ff",
-    "lightseagreen": "#20b2aa",
-    "forestgreen": "#228b22",
-    "seagreen": "#2e8b57",
-    "darkslategray": "#2f4f4f",
-    "limegreen": "#32cd32",
-    "mediumseagreen": "#3cb371",
-    "turquoise": "#40e0d0",
-    "royalblue": "#4169e1",
-    "steelblue": "#4682b4",
-    "darkslateblue": "#483d8b",
-    "mediumturquoise": "#48d1cc",
-    "darkolivegreen": "#556b2f",
-    "cadetblue": "#5f9ea0",
-    "cornflowerblue": "#6495ed",
-    "mediumaquamarine": "#66cdaa",
-    "slateblue": "#6a5acd",
-    "olivedrab": "#6b8e23",
-    "slategray": "#708090",
-    "lightslateblue": "#789",
-    "mediumslateblue": "#7b68ee",
-    "lawngreen": "#7cfc00",
-    "chartreuse": "#7fff00",
-    "aquamarine": "#7fffd4",
-    "lightskyblue": "#87cefa",
-    "blueviolet": "#8a2be2",
-    "darkmagenta": "#8b008b",
-    "saddlebrown": "#8b4513",
-    "darkseagreen": "#8fbc8f",
-    "lightgreen": "#90ee90",
-    "mediumpurple": "#9370db",
-    "darkviolet": "#9400d3",
-    "palegreen": "#98fb98",
-    "darkorchid": "#9932cc",
-    "yellowgreen": "#9acd32",
-    "darkgray": "#a9a9a9",
-    "lightblue": "#add8e6",
-    "greenyellow": "#adff2f",
-    "paleturquoise": "#afeeee",
-    "lightsteelblue": "#b0c4de",
-    "powderblue": "#b0e0e6",
-    "firebrick": "#b22222",
-    "darkgoldenrod": "#b8860b",
-    "mediumorchid": "#ba55d3",
-    "rosybrown": "#bc8f8f",
-    "darkkhaki": "#bdb76b",
-    "mediumvioletred": "#c71585",
-    "indianred": "#cd5c5c",
-    "chocolate": "#d2691e",
-    "lightgray": "#d3d3d3",
-    "goldenrod": "#daa520",
-    "palevioletred": "#db7093",
-    "gainsboro": "#dcdcdc",
-    "burlywood": "#deb887",
-    "lightcyan": "#e0ffff",
-    "lavender": "#e6e6fa",
-    "darksalmon": "#e9967a",
-    "palegoldenrod": "#eee8aa",
-    "lightcoral": "#f08080",
-    "aliceblue": "#f0f8ff",
-    "honeydew": "#f0fff0",
-    "sandybrown": "#f4a460",
-    "whitesmoke": "#f5f5f5",
-    "mintcream": "#f5fffa",
-    "ghostwhite": "#f8f8ff",
-    "antiquewhite": "#faebd7",
-    "lightgoldenrodyellow": "#fafad2",
-    "fuchsia": "#f0f",
-    "magenta": "#f0f",
-    "deeppink": "#ff1493",
-    "orangered": "#ff4500",
-    "darkorange": "#ff8c00",
-    "lightsalmon": "#ffa07a",
-    "lightpink": "#ffb6c1",
-    "peachpuff": "#ffdab9",
-    "navajowhite": "#ffdead",
-    "moccasin": "#ffe4b5",
-    "mistyrose": "#ffe4e1",
-    "blanchedalmond": "#ffebcd",
-    "papayawhip": "#ffefd5",
-    "lavenderblush": "#fff0f5",
-    "seashell": "#fff5ee",
-    "cornsilk": "#fff8dc",
-    "lemonchiffon": "#fffacd",
-    "floralwhite": "#fffaf0",
-    "yellow": "#ff0",
-    "lightyellow": "#ffffe0",
-    "white": "#fff",
-    # transparent is the keyword for rgba(0,0,0,0); its 4-digit hex #0000 is shorter (CSS Color 4 §5.2, §6.1)
-    "transparent": "#0000",
-    # British spellings are exact aliases of the gray-family names (CSS Color 4 §6.1)
-    "darkgrey": "#a9a9a9",
-    "lightgrey": "#d3d3d3",
-    "slategrey": "#708090",
-    "darkslategrey": "#2f4f4f",
-    "lightslategrey": "#789",
+# The CSS Color 4 §6.1 named colors, each mapped to its six-digit sRGB value (the spec gives these as the normative
+# definition of every keyword). British ``grey`` spellings alias their ``gray`` twins; ``rebeccapurple`` is the Color 4
+# addition. ``transparent`` (§6.2) is handled separately below since it is the only keyword with a non-opaque value.
+_NAMED_COLORS: Final[dict[str, str]] = {
+    "aliceblue": "f0f8ff",
+    "antiquewhite": "faebd7",
+    "aqua": "00ffff",
+    "aquamarine": "7fffd4",
+    "azure": "f0ffff",
+    "beige": "f5f5dc",
+    "bisque": "ffe4c4",
+    "black": "000000",
+    "blanchedalmond": "ffebcd",
+    "blue": "0000ff",
+    "blueviolet": "8a2be2",
+    "brown": "a52a2a",
+    "burlywood": "deb887",
+    "cadetblue": "5f9ea0",
+    "chartreuse": "7fff00",
+    "chocolate": "d2691e",
+    "coral": "ff7f50",
+    "cornflowerblue": "6495ed",
+    "cornsilk": "fff8dc",
+    "crimson": "dc143c",
+    "cyan": "00ffff",
+    "darkblue": "00008b",
+    "darkcyan": "008b8b",
+    "darkgoldenrod": "b8860b",
+    "darkgray": "a9a9a9",
+    "darkgreen": "006400",
+    "darkgrey": "a9a9a9",
+    "darkkhaki": "bdb76b",
+    "darkmagenta": "8b008b",
+    "darkolivegreen": "556b2f",
+    "darkorange": "ff8c00",
+    "darkorchid": "9932cc",
+    "darkred": "8b0000",
+    "darksalmon": "e9967a",
+    "darkseagreen": "8fbc8f",
+    "darkslateblue": "483d8b",
+    "darkslategray": "2f4f4f",
+    "darkslategrey": "2f4f4f",
+    "darkturquoise": "00ced1",
+    "darkviolet": "9400d3",
+    "deeppink": "ff1493",
+    "deepskyblue": "00bfff",
+    "dimgray": "696969",
+    "dimgrey": "696969",
+    "dodgerblue": "1e90ff",
+    "firebrick": "b22222",
+    "floralwhite": "fffaf0",
+    "forestgreen": "228b22",
+    "fuchsia": "ff00ff",
+    "gainsboro": "dcdcdc",
+    "ghostwhite": "f8f8ff",
+    "gold": "ffd700",
+    "goldenrod": "daa520",
+    "gray": "808080",
+    "green": "008000",
+    "greenyellow": "adff2f",
+    "grey": "808080",
+    "honeydew": "f0fff0",
+    "hotpink": "ff69b4",
+    "indianred": "cd5c5c",
+    "indigo": "4b0082",
+    "ivory": "fffff0",
+    "khaki": "f0e68c",
+    "lavender": "e6e6fa",
+    "lavenderblush": "fff0f5",
+    "lawngreen": "7cfc00",
+    "lemonchiffon": "fffacd",
+    "lightblue": "add8e6",
+    "lightcoral": "f08080",
+    "lightcyan": "e0ffff",
+    "lightgoldenrodyellow": "fafad2",
+    "lightgray": "d3d3d3",
+    "lightgreen": "90ee90",
+    "lightgrey": "d3d3d3",
+    "lightpink": "ffb6c1",
+    "lightsalmon": "ffa07a",
+    "lightseagreen": "20b2aa",
+    "lightskyblue": "87cefa",
+    "lightslategray": "778899",
+    "lightslategrey": "778899",
+    "lightsteelblue": "b0c4de",
+    "lightyellow": "ffffe0",
+    "lime": "00ff00",
+    "limegreen": "32cd32",
+    "linen": "faf0e6",
+    "magenta": "ff00ff",
+    "maroon": "800000",
+    "mediumaquamarine": "66cdaa",
+    "mediumblue": "0000cd",
+    "mediumorchid": "ba55d3",
+    "mediumpurple": "9370db",
+    "mediumseagreen": "3cb371",
+    "mediumslateblue": "7b68ee",
+    "mediumspringgreen": "00fa9a",
+    "mediumturquoise": "48d1cc",
+    "mediumvioletred": "c71585",
+    "midnightblue": "191970",
+    "mintcream": "f5fffa",
+    "mistyrose": "ffe4e1",
+    "moccasin": "ffe4b5",
+    "navajowhite": "ffdead",
+    "navy": "000080",
+    "oldlace": "fdf5e6",
+    "olive": "808000",
+    "olivedrab": "6b8e23",
+    "orange": "ffa500",
+    "orangered": "ff4500",
+    "orchid": "da70d6",
+    "palegoldenrod": "eee8aa",
+    "palegreen": "98fb98",
+    "paleturquoise": "afeeee",
+    "palevioletred": "db7093",
+    "papayawhip": "ffefd5",
+    "peachpuff": "ffdab9",
+    "peru": "cd853f",
+    "pink": "ffc0cb",
+    "plum": "dda0dd",
+    "powderblue": "b0e0e6",
+    "purple": "800080",
+    "rebeccapurple": "663399",
+    "red": "ff0000",
+    "rosybrown": "bc8f8f",
+    "royalblue": "4169e1",
+    "saddlebrown": "8b4513",
+    "salmon": "fa8072",
+    "sandybrown": "f4a460",
+    "seagreen": "2e8b57",
+    "seashell": "fff5ee",
+    "sienna": "a0522d",
+    "silver": "c0c0c0",
+    "skyblue": "87ceeb",
+    "slateblue": "6a5acd",
+    "slategray": "708090",
+    "slategrey": "708090",
+    "snow": "fffafa",
+    "springgreen": "00ff7f",
+    "steelblue": "4682b4",
+    "tan": "d2b48c",
+    "teal": "008080",
+    "thistle": "d8bfd8",
+    "tomato": "ff6347",
+    "turquoise": "40e0d0",
+    "violet": "ee82ee",
+    "wheat": "f5deb3",
+    "white": "ffffff",
+    "whitesmoke": "f5f5f5",
+    "yellow": "ffff00",
+    "yellowgreen": "9acd32",
 }
 
-# hash -> shortest keyword form (when the keyword is shorter than the hash)
-_HEX_TO_NAME: Final[dict[str, str]] = {
-    "#000080": "navy",
-    "#008000": "green",
-    "#008080": "teal",
-    "#4b0082": "indigo",
-    "#800000": "maroon",
-    "#800080": "purple",
-    "#808000": "olive",
-    "#808080": "gray",
-    "#a0522d": "sienna",
-    "#a52a2a": "brown",
-    "#c0c0c0": "silver",
-    "#cd853f": "peru",
-    "#d2b48c": "tan",
-    "#da70d6": "orchid",
-    "#dda0dd": "plum",
-    "#ee82ee": "violet",
-    "#f0e68c": "khaki",
-    "#f0ffff": "azure",
-    "#f5deb3": "wheat",
-    "#f5f5dc": "beige",
-    "#fa8072": "salmon",
-    "#faf0e6": "linen",
-    "#ff6347": "tomato",
-    "#ff7f50": "coral",
-    "#ffa500": "orange",
-    "#ffc0cb": "pink",
-    "#ffd700": "gold",
-    "#ffe4c4": "bisque",
-    "#fffafa": "snow",
-    "#fffff0": "ivory",
-    "#ff0000": "red",
-    "#f00": "red",
-}
+# transparent is rgba(0,0,0,0); its four-digit hash #0000 is shorter than the keyword (CSS Color 4 §6.2).
+_TRANSPARENT_HASH: Final[str] = "#0000"
+
+
+def _shortest_hash(rgb: str) -> str:
+    """Collapse a six-digit sRGB value to ``#rgb`` when each channel is a doubled nibble, else keep ``#rrggbb``."""
+    if rgb[0] == rgb[1] and rgb[2] == rgb[3] and rgb[4] == rgb[5]:
+        return f"#{rgb[0]}{rgb[2]}{rgb[4]}"
+    return f"#{rgb}"
+
+
+def _build_maps() -> tuple[dict[str, str], dict[str, str]]:
+    """Return (keyword -> shorter hash, hash -> shorter keyword), derived from the named-color table."""
+    name_to_hex: dict[str, str] = {"transparent": _TRANSPARENT_HASH}
+    hex_to_name: dict[str, str] = {}
+    for name, rgb in _NAMED_COLORS.items():
+        short = _shortest_hash(rgb)
+        if len(short) < len(name):
+            name_to_hex[name] = short
+            continue
+        if len(name) < len(short):
+            # the minifier may present either the collapsed or the six-digit hash, so key both; keep the shortest name.
+            for form in {short, f"#{rgb}"}:
+                if len(name) < len(form) and (form not in hex_to_name or len(name) < len(hex_to_name[form])):
+                    hex_to_name[form] = name
+    return name_to_hex, hex_to_name
 
 
 def _entry_rows(pairs: list[tuple[str, str]]) -> str:
@@ -183,11 +224,12 @@ def _first_byte_index(keys: list[str]) -> str:
 
 def generate(out_path: Path) -> None:
     """Write the generated CSS-color-table C header to *out_path*."""
-    by_name = sorted(_NAME_TO_HEX.items())
-    by_hex = sorted(_HEX_TO_NAME.items())
+    name_to_hex, hex_to_name = _build_maps()
+    by_name = sorted(name_to_hex.items())
+    by_hex = sorted(hex_to_name.items())
     out_path.write_text(
         "/* Auto-generated by tools/generate_css_colors.py - do not edit. */\n"
-        "/* tdewolff/minify's CSS color maps: the shortest keyword<->hash form for each color. */\n\n"
+        "/* Shortest keyword<->hash form for every CSS Color 4 named color. */\n\n"
         "#ifndef TURBOHTML_CSS_COLORS_H\n"
         "#define TURBOHTML_CSS_COLORS_H\n\n"
         "#include <stdint.h>\n\n"
