@@ -132,9 +132,11 @@ Shorthands
   <https://www.w3.org/TR/css-backgrounds-3/#backgrounds>`__), ``flex`` (`Flexbox 1 §7.1.1
   <https://www.w3.org/TR/css-flexbox-1/#flex-property>`__) and ``font`` (`Fonts 4 §2.7
   <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form.
-- Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow`` and ``align-content`` + ``justify-content`` into
-  ``place-content`` (`Box Alignment 3 <https://www.w3.org/TR/css-align-3/#place-content>`__). With
-  ``Baseline.NEWLY_AVAILABLE`` also merge ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
+- Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow``, and each Box Alignment axis pair into its ``place-``
+  shorthand -- ``align-content`` + ``justify-content`` into ``place-content``, ``align-items`` + ``justify-items`` into
+  ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
+  <https://www.w3.org/TR/css-align-3/#place-content>`__). With ``Baseline.NEWLY_AVAILABLE`` also merge
+  ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
   <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), the two ``overflow`` longhands, and the flex ``gap``.
 
 Structure and selectors

@@ -205,6 +205,16 @@ def test_minify_css(source: str, expected: str) -> None:
             "a{align-content:start;justify-content:end}", "a{place-content:start end}", id="merge-place-content-pair"
         ),
         pytest.param(
+            "a{align-items:center;justify-items:center}", "a{place-items:center}", id="merge-place-items-equal"
+        ),
+        pytest.param(
+            "a{align-items:start;justify-items:legacy}", "a{place-items:start legacy}", id="merge-place-items-pair"
+        ),
+        pytest.param("a{align-self:center;justify-self:center}", "a{place-self:center}", id="merge-place-self-equal"),
+        pytest.param(
+            "a{align-self:auto;justify-self:stretch}", "a{place-self:auto stretch}", id="merge-place-self-pair"
+        ),
+        pytest.param(
             "a{align-content:inherit;justify-content:inherit}",
             "a{place-content:inherit}",
             id="merge-pair-wide-keyword",

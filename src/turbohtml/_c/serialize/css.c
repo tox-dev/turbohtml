@@ -4017,6 +4017,8 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     css_merge_box(pool, decls, "padding", padding, "padding-");
     css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
     css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
+    css_merge_pair(pool, decls, "place-items", "align-items", "justify-items");
+    css_merge_pair(pool, decls, "place-self", "align-self", "justify-self");
     if (baseline >= CSS_BASELINE_NEWLY) {
         /* inset, the two-value overflow, and the flex `gap` reached interop ~2021; emit them only when the caller
            opts into the newer baseline. inset has no shared longhand prefix and resets nothing else, so it merges
