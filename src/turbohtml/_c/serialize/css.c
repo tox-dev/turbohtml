@@ -1,7 +1,7 @@
 /* Aggressive, value-safe CSS minification. Every transform preserves the computed value per the CSS specifications
-   (Syntax 3, Values 4, Color 4, Selectors 4, and the shorthand modules), so the output always parses to the same
-   cascade as the input. The value-rewriting strategy is informed by tdewolff/minify, but spec conformance -- not
-   parity with any implementation -- is the contract: where tdewolff diverges from a spec, the spec wins.
+   (Syntax 3, Values 4, Color 4, Selectors 4, and the shorthand modules), so the output parses to the same cascade as
+   the input. The contract is spec conformance: each rewrite cites the spec section that establishes its equivalence,
+   and the minifier emits nothing a spec does not permit.
 
    Two entry points: th_minify_css for a full stylesheet (rules, at-rules, nesting) and th_minify_css_inline for a bare
    declaration list as in a style= attribute. The pipeline is: a zero-copy tokenizer that points its tokens straight

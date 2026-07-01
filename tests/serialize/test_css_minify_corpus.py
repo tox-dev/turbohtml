@@ -1,11 +1,12 @@
-"""Golden-snapshot and round-trip safety of the CSS minifier over tdewolff's corpus plus a branch-coverage corpus.
+"""Golden-snapshot and round-trip safety of the CSS minifier over a third-party suite and a coverage corpus.
 
 ``data/css_minify_golden.json`` is a reviewed snapshot of the validated engine: one ``[source, stylesheet, inline]``
-row per input, spanning tdewolff's real TestCSS/TestCSSInline cases and inputs engineered to exercise every branch of
-the C engine. Pinning the exact output of each makes a regression in any value-engine or structural branch change an
-output and fail here -- an idempotence check alone would pass even if a transform silently became a no-op.
+row per input. The snapshot spans the real ``TestCSS``/``TestCSSInline`` cases from `tdewolff/minify
+<https://github.com/tdewolff/minify>`__, used as an independent oracle, and inputs engineered to exercise every branch
+of the C engine. Pinning the exact output catches any value-engine or structural regression that an idempotence check
+would miss, since idempotence still holds when a transform becomes a no-op.
 
-A handful of tdewolff's cases are malformed past recovery (an unterminated string or ``url(``, an unbalanced
+A handful of the third-party cases are malformed past recovery (an unterminated string or ``url(``, an unbalanced
 ``calc(``), so error recovery has no fixed point; those are pinned for output but excluded from the round-trip check.
 """
 

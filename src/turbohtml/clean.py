@@ -3,7 +3,7 @@ turbohtml.clean: scrub and tidy HTML -- sanitize against an allowlist, auto-link
 
 The sanitizer replaces `bleach <https://github.com/mozilla/bleach>`__/``nh3``/``html-sanitizer``, the linkifier
 replaces ``bleach.linkify``/``linkify-it-py``, ``minify`` replaces ``minify-html``/``htmlmin``, and the CSS minifier
-(:func:`minify_css`) replaces ``rcssmin``/``csscompressor``/``tdewolff/minify``. Every configurable entry point takes a
+(:func:`minify_css`) replaces ``rcssmin``/``csscompressor``/``cssmin``. Every configurable entry point takes a
 frozen, thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`).
 """
 
