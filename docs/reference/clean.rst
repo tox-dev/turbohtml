@@ -139,6 +139,11 @@ Shorthands
   ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
   <https://www.w3.org/TR/css-align-3/#place-content>`__). ``a{align-items:center;justify-items:center}`` →
   ``a{place-items:center}``.
+- Merge the four ``border-*-radius`` corners into ``border-radius`` (`Backgrounds 3 §6
+  <https://www.w3.org/TR/css-backgrounds-3/#border-radius>`__) and ``outline-width`` + ``outline-style`` +
+  ``outline-color`` into ``outline`` (`UI 4 §3.1 <https://www.w3.org/TR/css-ui-4/#outline>`__); each resets only its own
+  longhands, and the corner merge stands down for an elliptical corner or a logical sibling. ``a{outline-width:1px;
+  outline-style:solid;outline-color:red}`` → ``a{outline:1px solid red}``.
 
 Structure and selectors
 -----------------------
@@ -146,10 +151,11 @@ Structure and selectors
 - Collapse insignificant whitespace and strip comments, keeping a ``/*! … */`` bang comment (`Syntax 3 §3.3
   <https://www.w3.org/TR/css-syntax-3/#input-preprocessing>`__). ``/*c*/a{color:red}`` → ``a{color:red}``, while ``/*!
   keep */a{color:red}`` → ``/*!keep*/a{color:red}``.
-- Drop a declaration an identically-keyed later one overrides, remove an empty rule, merge adjacent rules with the same
-  selector or an identical body, and fuse consecutive ``@media`` blocks that share a prelude (`Cascade 5 §6.4.4
-  <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__). ``a{}b{c:d}`` → ``b{c:d}``, and
-  ``.x{color:red}.y{color:red}`` → ``.x,.y{color:red}``.
+- Drop a declaration an identically-keyed later one overrides, remove an empty rule or an empty ``@media``/
+  ``@supports``/``@container`` (an empty ``@layer`` or ``@keyframes`` is kept, since either is observable), merge
+  adjacent rules with the same selector or an identical body, and fuse consecutive ``@media`` blocks that share a
+  prelude (`Cascade 5 §6.4.4 <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__). ``a{}b{c:d}`` → ``b{c:d}``,
+  ``@media print{}`` is dropped, and ``.x{color:red}.y{color:red}`` → ``.x,.y{color:red}``.
 - Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
   four legacy pseudo-elements with one colon (``::before`` → ``:before``), and unquote an attribute value that is a
   valid identifier (`Selectors 4 §5–6 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8
@@ -179,10 +185,13 @@ Y``.
     - - any (``None``, default)
       - Every transform in the sections above: numbers, colors, box/flex/``place-`` shorthands, structure, selectors.
     - - ``2021``
-      - Merge ``top``/``right``/``bottom``/``left`` into ``inset`` (`Logical Properties 1
-        <https://www.w3.org/TR/css-logical-1/#inset-properties>`__), merge the two ``overflow`` longhands into
-        ``overflow``, and merge ``row-gap`` + ``column-gap`` into the flex ``gap``. At ``baseline=2021``,
-        ``a{top:0;right:0;bottom:0;left:0}`` → ``a{inset:0}``.
+      - Merge ``top``/``right``/``bottom``/``left`` into ``inset``, merge the two ``overflow`` longhands into
+        ``overflow``, merge ``row-gap`` + ``column-gap`` into the flex ``gap``, and merge each logical inline/block pair
+        into its shorthand -- ``margin-inline``, ``margin-block``, ``padding-inline``, ``padding-block``,
+        ``inset-inline``, ``inset-block`` (`Logical Properties 1 <https://www.w3.org/TR/css-logical-1/>`__); a logical
+        merge stands down when the physical longhand it aliases is in the rule. At ``baseline=2021``,
+        ``a{top:0;right:0;bottom:0;left:0}`` → ``a{inset:0}`` and ``a{margin-inline-start:1px;margin-inline-end:2px}`` →
+        ``a{margin-inline:1px 2px}``.
 
 turbohtml.migration.bleach
 ==========================
