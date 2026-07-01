@@ -58,12 +58,33 @@ static int css_count_active_prefixed(const decl_vec *decls, const css_buf *pool,
     return count;
 }
 
-/* Merge the four box longhands (top, right, bottom, left order) into their shorthand when it is value-safe: all four
-   present and the only sub-properties of that prefix in the rule (so no logical margin-inline/-block to reorder),
-   same importance, no var()/env() substitution, and -- if any is a CSS-wide keyword -- all four the identical
-   keyword. The shorthand replaces the last longhand and a re-dedup removes any now-redundant earlier declaration. */
+/* Whether a value carries a space outside any parentheses, which marks a multi-part value such as an elliptical
+   border-radius corner (``1px 2px``); a space inside ``calc(...)`` is not one. The only caller passes a length value,
+   which nests solely with parentheses, so it does not track brackets. */
+static int css_value_has_top_space(const css_buf *pool, const css_decl *decl) {
+    int depth = 0;
+    const css_char *value = pool->data + decl->val_off;
+    for (Py_ssize_t index = 0; index < decl->val_len; index++) {
+        css_char character = value[index];
+        if (character == '(') {
+            depth++;
+        } else if (character == ')') {
+            depth--;
+        } else if (depth == 0 && css_is_ws(character)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Merge four longhands (top, right, bottom, left order) into their shorthand when it is value-safe: all four present
+   and the only sub-properties of that prefix in the rule (so no logical margin-inline/-block to reorder), same
+   importance, no var()/env() substitution, and -- if any is a CSS-wide keyword -- all four the identical keyword. A
+   non-NULL forbidden list names sibling longhands (the logical border-radius corners) whose presence blocks the merge
+   for the same reordering reason; single_value blocks it when any value is multi-part (an elliptical corner needs the
+   ``/`` syntax). The shorthand replaces the last longhand and a re-dedup removes any now-redundant earlier one. */
 static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand, const char *const longhands[4],
-                          const char *prefix) {
+                          const char *prefix, const char *const *forbidden, int single_value) {
     Py_ssize_t idx[4];
     for (int edge = 0; edge < 4; edge++) {
         idx[edge] = css_find_active_decl(decls, pool, longhands[edge]);
@@ -73,6 +94,16 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
     }
     if (prefix != NULL && css_count_active_prefixed(decls, pool, prefix, (Py_ssize_t)strlen(prefix)) != 4) {
         return; /* a NULL prefix (inset) needs no logical-sibling guard: its four longhands share no prefix */
+    }
+    for (int sibling = 0; forbidden != NULL && forbidden[sibling] != NULL; sibling++) {
+        if (css_find_active_decl(decls, pool, forbidden[sibling]) >= 0) {
+            return;
+        }
+    }
+    for (int edge = 0; single_value && edge < 4; edge++) {
+        if (css_value_has_top_space(pool, &decls->items[idx[edge]])) {
+            return;
+        }
     }
     int important = decls->items[idx[0]].important;
     for (int edge = 0; edge < 4; edge++) {
@@ -176,8 +207,15 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     static const char *const margin[4] = {"margin-top", "margin-right", "margin-bottom", "margin-left"};
     static const char *const padding[4] = {"padding-top", "padding-right", "padding-bottom", "padding-left"};
     static const char *const inset[4] = {"top", "right", "bottom", "left"};
-    css_merge_box(pool, decls, "margin", margin, "margin-");
-    css_merge_box(pool, decls, "padding", padding, "padding-");
+    static const char *const radius[4] = {"border-top-left-radius", "border-top-right-radius",
+                                          "border-bottom-right-radius", "border-bottom-left-radius"};
+    static const char *const radius_logical[] = {"border-start-start-radius", "border-start-end-radius",
+                                                 "border-end-start-radius", "border-end-end-radius", NULL};
+    css_merge_box(pool, decls, "margin", margin, "margin-", NULL, 0);
+    css_merge_box(pool, decls, "padding", padding, "padding-", NULL, 0);
+    /* border-radius takes the four corners in TL, TR, BR, BL order; a logical corner in the rule could reorder against
+       the shorthand, and an elliptical corner is multi-part, so both block the merge. */
+    css_merge_box(pool, decls, "border-radius", radius, NULL, radius_logical, 1);
     css_merge_pair(pool, decls, "flex-flow", "flex-direction", "flex-wrap");
     css_merge_pair(pool, decls, "place-content", "align-content", "justify-content");
     css_merge_pair(pool, decls, "place-items", "align-items", "justify-items");
@@ -186,7 +224,7 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
         /* inset, the two-value overflow, and the flex `gap` reached Baseline in 2021, so emit them only when the
            caller targets that year or later. inset has no shared longhand prefix and resets nothing else, so it
            merges with no prefix guard. */
-        css_merge_box(pool, decls, "inset", inset, NULL);
+        css_merge_box(pool, decls, "inset", inset, NULL, NULL, 0);
         css_merge_pair(pool, decls, "overflow", "overflow-x", "overflow-y");
         css_merge_pair(pool, decls, "gap", "row-gap", "column-gap");
     }

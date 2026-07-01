@@ -38,6 +38,38 @@ _NEWLY = CSSMinify(baseline=2021)
             "a{margin:1px 2px 3px 4px}",
             id="merge-longhands-to-shorthand",
         ),
+        pytest.param(
+            "a{border-top-left-radius:1px;border-top-right-radius:1px;border-bottom-right-radius:1px;"
+            "border-bottom-left-radius:1px}",
+            "a{border-radius:1px}",
+            id="merge-border-radius-collapsed",
+        ),
+        pytest.param(
+            "a{border-top-left-radius:1px;border-top-right-radius:2px;border-bottom-right-radius:3px;"
+            "border-bottom-left-radius:4px}",
+            "a{border-radius:1px 2px 3px 4px}",
+            id="merge-border-radius-four-values",
+        ),
+        pytest.param(
+            "a{border-top-left-radius:calc(100% - 1px);border-top-right-radius:calc(100% - 1px);"
+            "border-bottom-right-radius:calc(100% - 1px);border-bottom-left-radius:calc(100% - 1px)}",
+            "a{border-radius:calc(100% - 1px)}",
+            id="merge-border-radius-calc-corner",
+        ),
+        pytest.param(
+            "a{border-top-left-radius:1px 2px;border-top-right-radius:1px 2px;border-bottom-right-radius:1px 2px;"
+            "border-bottom-left-radius:1px 2px}",
+            "a{border-top-left-radius:1px 2px;border-top-right-radius:1px 2px;border-bottom-right-radius:1px 2px;"
+            "border-bottom-left-radius:1px 2px}",
+            id="no-merge-elliptical-border-radius",
+        ),
+        pytest.param(
+            "a{border-top-left-radius:1px;border-top-right-radius:1px;border-bottom-right-radius:1px;"
+            "border-bottom-left-radius:1px;border-start-start-radius:9px}",
+            "a{border-top-left-radius:1px;border-top-right-radius:1px;border-bottom-right-radius:1px;"
+            "border-bottom-left-radius:1px;border-start-start-radius:9px}",
+            id="no-merge-border-radius-with-logical-corner",
+        ),
         pytest.param("a{color:red;color:blue}", "a{color:blue}", id="dedup-later-wins"),
         pytest.param("a{width:calc(1px + 2px)}", "a{width:3px}", id="calc-add"),
         pytest.param("a{width:calc(10px / 2)}", "a{width:5px}", id="calc-divide"),
