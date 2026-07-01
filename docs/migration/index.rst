@@ -228,6 +228,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/csscompressor
             :alt: csscompressor total downloads
             :target: https://pepy.tech/project/csscompressor
+    - - 3
+      - :doc:`lightningcss <lightningcss>`
+      - `docs <https://pypi.org/project/lightningcss/>`__
+      - .. image:: https://static.pepy.tech/badge/lightningcss/month
+            :alt: lightningcss monthly downloads
+            :target: https://pepy.tech/project/lightningcss
+      - .. image:: https://static.pepy.tech/badge/lightningcss
+            :alt: lightningcss total downloads
+            :target: https://pepy.tech/project/lightningcss
 
 ***************************
  Text, Markdown & escaping
@@ -441,6 +450,7 @@ page benchmarks all of them).
     bleach
     rcssmin
     csscompressor
+    lightningcss
     markdownify
     nh3
     html5lib
