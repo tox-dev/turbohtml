@@ -22,45 +22,41 @@ where rcssmin leaves values verbatim. turbohtml's output is smaller on every fra
 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ preserves; rcssmin's whitespace-only pass is faster
 because it does strictly less work. Each cell shows the figure with its ratio to turbohtml:
 
+Each row pairs the two outputs and reads the difference in the unit that fits its scale -- size as a percent, since it
+moves a few points, and speed as a factor, since it spans an order of magnitude:
+
 .. list-table::
     :header-rows: 1
-    :widths: 24 19 19 19 19
+    :widths: 24 22 22 32
 
     - - stylesheet
-      - turbohtml size
-      - rcssmin size
-      - turbohtml time
-      - rcssmin time
+      - turbohtml
+      - rcssmin
+      - rcssmin vs turbohtml
     - - normalize.css (6 kB)
-      - 1.8 kB
-      - 1.8 kB (1.00x)
-      - 15.9 µs
-      - 5.12 µs (0.3x)
+      - 1.8 kB · 15.9 µs
+      - 1.8 kB · 5.12 µs
+      - same size · 3.1× faster
     - - animate.css (93 kB)
-      - 72.8 kB
-      - 75.7 kB (1.04x)
-      - 605 µs
-      - 165 µs (0.3x)
+      - 72.8 kB · 605 µs
+      - 75.7 kB · 165 µs
+      - 4% larger · 3.7× faster
     - - pico.css (90 kB)
-      - 81.0 kB
-      - 82.1 kB (1.01x)
-      - 457 µs
-      - 194 µs (0.4x)
+      - 81.0 kB · 457 µs
+      - 82.1 kB · 194 µs
+      - 1% larger · 2.4× faster
     - - foundation.css (164 kB)
-      - 131.4 kB
-      - 136.7 kB (1.04x)
-      - 1.09 ms
-      - 382 µs (0.4x)
+      - 131.4 kB · 1.09 ms
+      - 136.7 kB · 382 µs
+      - 4% larger · 2.9× faster
     - - bootstrap.css (274 kB)
-      - 229.4 kB
-      - 233.2 kB (1.02x)
-      - 1.65 ms
-      - 625 µs (0.4x)
+      - 229.4 kB · 1.65 ms
+      - 233.2 kB · 625 µs
+      - 2% larger · 2.6× faster
     - - bulma.css (745 kB)
-      - 682.2 kB
-      - 680.0 kB (0.996x)
-      - 3.46 ms
-      - 1.73 ms (0.5x)
+      - 682.2 kB · 3.46 ms
+      - 680.0 kB · 1.73 ms
+      - 0.3% smaller · 2.0× faster
 
 Both round-trip safely -- the output parses to the same cascade -- and both are idempotent. turbohtml is still far
 faster than every *other* value-rewriting minifier, which are pure-Python and turn quadratic on a large stylesheet.
