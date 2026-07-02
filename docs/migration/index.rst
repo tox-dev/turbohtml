@@ -93,6 +93,42 @@ port from come first. The all-time totals and each library's documentation sit a
       - Bundled with Python
       - --
 
+********************
+ Encoding detection
+********************
+
+:func:`turbohtml.detect.detect` sniffs the character encoding of raw bytes with the same C pipeline
+:func:`turbohtml.parse` runs -- the WHATWG sniff, then Firefox's chardetng scoring -- so it answers what these libraries
+answer, with the result a browser would pick.
+
+.. list-table::
+    :header-rows: 1
+    :widths: auto
+
+    - - #
+      - Library
+      - Docs
+      - Monthly downloads
+      - Total downloads
+    - - 1
+      - :doc:`charset-normalizer <charset-normalizer>`
+      - `docs <https://charset-normalizer.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/charset-normalizer/month
+            :alt: charset-normalizer monthly downloads
+            :target: https://pepy.tech/project/charset-normalizer
+      - .. image:: https://static.pepy.tech/badge/charset-normalizer
+            :alt: charset-normalizer total downloads
+            :target: https://pepy.tech/project/charset-normalizer
+    - - 2
+      - :doc:`chardet <chardet>` (also covers ``cchardet``)
+      - `docs <https://chardet.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/chardet/month
+            :alt: chardet monthly downloads
+            :target: https://pepy.tech/project/chardet
+      - .. image:: https://static.pepy.tech/badge/chardet
+            :alt: chardet total downloads
+            :target: https://pepy.tech/project/chardet
+
 *********************
  Query — CSS & XPath
 *********************
@@ -510,9 +546,11 @@ page benchmarks all of them).
     :hidden:
     :maxdepth: 1
 
+    charset-normalizer
     pandas
     markupsafe
     beautifulsoup
+    chardet
     soupsieve
     lxml
     linkify-it-py

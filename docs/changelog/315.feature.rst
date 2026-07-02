@@ -1,0 +1,8 @@
+Detect the character encoding of bytes without parsing them via the new :mod:`turbohtml.detect` module:
+:func:`~turbohtml.detect.detect` returns a typed :class:`~turbohtml.detect.EncodingMatch` (encoding, confidence,
+language), :func:`~turbohtml.detect.detect_all` ranks every surviving candidate, and the incremental
+:class:`~turbohtml.detect.Detector` accumulates a stream chunk by chunk, all configured by a frozen
+:class:`~turbohtml.detect.Detection` options object. The engine is the existing C pipeline
+``parse(detect_encoding=True)`` runs -- the WHATWG sniff, then a port of Firefox's chardetng -- so turbohtml replaces
+``chardet``, ``charset-normalizer``, and ``cchardet``, each with a migration guide and benchmark - by
+:user:`gaborbernat`.

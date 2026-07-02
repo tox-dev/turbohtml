@@ -22,3 +22,47 @@
 
     ISO-8859-2
     á
+
+************************************
+ Detect an encoding without parsing
+************************************
+
+When you only need the encoding, say to decode a file or a response body, run the same sniff standalone with
+:func:`turbohtml.detect.detect`; it replaces ``chardet.detect`` and ``charset_normalizer.from_bytes``:
+
+.. testcode::
+
+    from turbohtml.detect import detect
+
+    raw = "Précédemment, la créativité française".encode("cp1252")
+    match = detect(raw)
+    print(match.encoding, match.language)
+    print(raw.decode(match.encoding))
+
+.. testoutput::
+
+    windows-1252 None
+    Précédemment, la créativité française
+
+Every name :func:`~turbohtml.detect.detect` can return is a valid :mod:`python:codecs` alias, so the decode call works
+directly. Rank the alternatives with :func:`~turbohtml.detect.detect_all`, constrain or threshold them with a
+:class:`~turbohtml.detect.Detection` config, and feed a stream chunk by chunk with a
+:class:`~turbohtml.detect.Detector`:
+
+.. testcode::
+
+    from io import BytesIO
+
+    from turbohtml.detect import Detector
+
+    stream = BytesIO("\ufeffstreamed UTF-8 content".encode())
+    detector = Detector()
+    for chunk in iter(lambda: stream.read(4096), b""):
+        detector.feed(chunk)
+        if detector.done:  # the byte-order mark already decided the stream
+            break
+    print(detector.close().encoding)
+
+.. testoutput::
+
+    UTF-8

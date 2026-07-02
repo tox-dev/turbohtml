@@ -24,6 +24,24 @@ green stage is the navigable tree you query.
         class tok,tree engine
         class dom output
 
+*****************************
+ How the encoding is decided
+*****************************
+
+For ``bytes`` input the first stage resolves an encoding in the `WHATWG order
+<https://html.spec.whatwg.org/multipage/parsing.html#determining-the-character-encoding>`_: a byte-order mark wins
+outright, then the caller's ``encoding`` argument, then a prescan of the first 1024 bytes for a ``<meta>`` charset
+declaration, and windows-1252 stands in when nothing matched. Passing ``detect_encoding=True`` inserts one step before
+that fallback: a content-based detector ported from Firefox's `chardetng <https://github.com/hsivonen/chardetng>`_,
+which validates UTF-8 structurally and otherwise lets the CJK and single-byte candidates compete on character-pair
+frequencies, where a single decode error or C1 control disqualifies a candidate. The step is opt-in and strictly
+subordinate: a declared encoding always wins, so spec conformance is untouched, and pure ASCII stays windows-1252 (the
+two decode ASCII identically).
+
+The same pipeline, minus the decode and the parse, is the standalone :func:`turbohtml.detect.detect` -- the
+:doc:`chardet and charset-normalizer replacement </reference/detect>` -- which is why a standalone detection and
+``parse(data, detect_encoding=True)`` can never disagree about the same bytes.
+
 ************************
  A spec-exact tokenizer
 ************************

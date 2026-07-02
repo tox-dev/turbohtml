@@ -579,3 +579,19 @@ size with the time to produce it; both ratios are against turbohtml.
 
 .. bench-table::
     :file: bench/js-minification.json
+
+********************
+ Encoding detection
+********************
+
+:func:`turbohtml.detect.detect` against the encoding detectors it replaces: `chardet <https://chardet.readthedocs.io/>`_
+(the pure-Python prober ensemble), `charset-normalizer <https://charset-normalizer.readthedocs.io/>`_ (decode-and-score,
+what ``requests`` uses), and `faust-cchardet <https://github.com/faust-streaming/cChardet>`_ (the maintained C binding
+of uchardet; the original cchardet stops compiling at Python 3.11). turbohtml resolves certain input -- a byte-order
+mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII -- structurally before any scoring, which is where the 90x-2000x
+rows come from, and its chardetng frequency scoring keeps declaration-less single-byte text about 3x ahead of chardet.
+The one workload it loses is CJK-heavy bytes, where each CJK candidate drives a CPython incremental codec and uchardet's
+native tables stay ahead.
+
+.. bench-table::
+    :file: bench/encoding-detection.json
