@@ -4,10 +4,10 @@
 
 .. package-meta:: htmlmin mankyd/htmlmin
 
-`htmlmin <https://github.com/mankyd/htmlmin>`_ is a pure-Python minifier built on the standard library's
-``HTMLParser``; ``htmlmin.minify(html, **flags)`` collapses whitespace runs to one space and can drop comments and
-redundant attribute quotes, and ``htmlmin.Minifier`` exposes the same folds over incremental input. Its last release,
-0.1.12 from 2017, imports the ``cgi`` module Python 3.13 removed, so it no longer installs on current interpreters.
+`htmlmin <https://github.com/mankyd/htmlmin>`_ is a pure-Python minifier built on the standard library's ``HTMLParser``;
+``htmlmin.minify(html, **flags)`` collapses whitespace runs to one space and can drop comments and redundant attribute
+quotes, and ``htmlmin.Minifier`` exposes the same folds over incremental input. Its last release, 0.1.12 from 2017,
+imports the ``cgi`` module Python 3.13 removed, so it no longer installs on current interpreters.
 
 ***************
  Why turbohtml
