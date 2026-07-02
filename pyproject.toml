@@ -95,6 +95,7 @@ bench = [
   "cssselect>=1.4",
   "dominate>=2.9.1",
   "extruct>=0.18",
+  "htbuilder>=0.9",
   "html-sanitizer>=2.6",
   "html-text>=0.7.1",
   "html2text>=2025.4.15",
