@@ -85,8 +85,8 @@ paragraph in Python. Numbers vary with input and hardware.
 - justext has no notion of *where* the article is -- each paragraph stands alone -- while turbohtml first picks the
   content body and only paragraphs inside it can be good. On a page with several disjoint content islands, only the
   best-scoring island survives.
-- There are no ``neargood`` / ``short`` intermediate classes and no context-sensitive revision pass:
-  ``is_boilerplate`` is a final yes or no.
+- There are no ``neargood`` / ``short`` intermediate classes and no context-sensitive revision pass: ``is_boilerplate``
+  is a final yes or no.
 - justext's defaults are tuned stricter than turbohtml's: pass :meth:`Extraction.justext()
   <turbohtml.extract.Extraction.justext>` to keep its 70-character floor and 0.2 link density when you want output close
   to a justext port, or stay with the defaults to keep shorter prose paragraphs.
