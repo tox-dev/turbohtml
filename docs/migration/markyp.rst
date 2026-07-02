@@ -5,8 +5,8 @@
 .. package-meta:: markyp-html volfpeter/markyp-html
 
 `markyp <https://github.com/volfpeter/markyp>`_ assembles HTML in Python from the other direction than a parser: its
-`markyp-html <https://github.com/volfpeter/markyp-html>`_ package provides one element class per tag, split across
-topic modules (``markyp_html.block.div``, ``markyp_html.text.h1``, ``markyp_html.lists.li``), each taking children
+`markyp-html <https://github.com/volfpeter/markyp-html>`_ package provides one element class per tag, split across topic
+modules (``markyp_html.block.div``, ``markyp_html.text.h1``, ``markyp_html.lists.li``), each taking children
 positionally and attributes as trailing keywords, and stringifying the root renders the tree. turbohtml replaces both
 packages with the terse :data:`turbohtml.build.E` builder.
 
@@ -82,8 +82,8 @@ attribute joins on a space so a class list reads naturally:
 
 - ``E`` builds a fragment, not a document: there is no implicit ``<html>``/``<head>``/``<body>`` wrapper and no doctype.
   Serialize the element you built, or append it under a parsed document when you need the full page shell.
-- markyp strips a trailing underscore (``class_`` to ``class``) but keeps other underscores, so hyphenated names need
-  an unpacked dict already; ``E`` takes the real attribute name as a plain dict key everywhere.
+- markyp strips a trailing underscore (``class_`` to ``class``) but keeps other underscores, so hyphenated names need an
+  unpacked dict already; ``E`` takes the real attribute name as a plain dict key everywhere.
 - markyp pretty-prints -- a newline between children and a space after a bare tag name (``<h1 >``); ``E`` serializes
   compact markup. Parse and re-serialize, or use a formatter, when you need indented output.
 - The result is an ordinary :class:`~turbohtml.Element`, so the whole edit and query surface (``append``, ``find``,
