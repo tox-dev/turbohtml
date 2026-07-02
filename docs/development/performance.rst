@@ -145,12 +145,13 @@ the smallest, where pandas pays its fixed per-frame construction cost.
 
 :meth:`turbohtml.Node.article` against `trafilatura <https://trafilatura.readthedocs.io>`_, `readability-lxml
 <https://github.com/buriy/python-readability>`_, `newspaper3k <https://newspaper.readthedocs.io>`_, `goose3
-<https://goose3.readthedocs.io>`_, and `readabilipy <https://readabilipy.readthedocs.io>`_, the article extractors it
-succeeds. Each scores the dominant content body and (trafilatura, newspaper3k, and goose3) harvests the page metadata
-beside it; the lxml-backed four build their tree in Python first, readabilipy's Python mode parses with html5lib into
-BeautifulSoup and cleans without scoring, and turbohtml does the scoring and the harvest in one C pass over the parsed
-tree. The inputs are full pages -- navigation, a scored article, and a footer -- so the boilerplate the heuristic
-discounts is part of the measured cost.
+<https://goose3.readthedocs.io>`_, `readabilipy <https://readabilipy.readthedocs.io>`_, and `news-please
+<https://github.com/fhamborg/news-please>`_, the article extractors it succeeds. Each scores the dominant content body
+and (trafilatura, newspaper3k, goose3, and news-please) harvests the page metadata beside it; the lxml-backed four build
+their tree in Python first, readabilipy's Python mode parses with html5lib into BeautifulSoup and cleans without
+scoring, news-please merges the votes of several such extractors, and turbohtml does the scoring and the harvest in one
+C pass over the parsed tree. The inputs are full pages -- navigation, a scored article, and a footer -- so the
+boilerplate the heuristic discounts is part of the measured cost.
 
 .. bench-table::
     :file: bench/article-extraction.json

@@ -1,0 +1,20 @@
+{
+  "label": "input",
+  "parties": [
+    "turbohtml",
+    "news-please"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "post (4 KiB)",
+      8.45e-06,
+      0.00525
+    ],
+    [
+      "longform (16 KiB)",
+      3.3e-05,
+      0.0147
+    ]
+  ]
+}

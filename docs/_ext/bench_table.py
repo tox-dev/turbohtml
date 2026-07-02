@@ -84,6 +84,7 @@ _HOMEPAGES: Final = {
     "markyp": "https://github.com/volfpeter/markyp-html",
     "metadata_parser": "https://github.com/jvanasco/metadata_parser",
     "minify-html": "https://github.com/wilsonzlin/minify-html",
+    "news-please": "https://github.com/fhamborg/news-please",
     "newspaper3k": "https://github.com/codelucas/newspaper",
     "nh3": "https://nh3.readthedocs.io/",
     "pandas": "https://pandas.pydata.org/",

@@ -463,6 +463,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/goose3
             :alt: goose3 total downloads
             :target: https://pepy.tech/project/goose3
+    - - 11
+      - :doc:`news-please <news-please>`
+      - `docs <https://github.com/fhamborg/news-please>`__
+      - .. image:: https://static.pepy.tech/badge/news-please/month
+            :alt: news-please monthly downloads
+            :target: https://pepy.tech/project/news-please
+      - .. image:: https://static.pepy.tech/badge/news-please
+            :alt: news-please total downloads
+            :target: https://pepy.tech/project/news-please
 
 *****************
  Structured data
@@ -673,6 +682,7 @@ page benchmarks all of them).
     newspaper3k
     boilerpy3
     goose3
+    news-please
     html-sanitizer
     yattag
     extruct
