@@ -127,6 +127,8 @@ OPERATIONS: dict[str, Operation] = {
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
+    "urls-clean": Operation("clean and normalize 100 URLs", "us"),
+    "links-filter": Operation("extract filtered page links", "us"),
 }
 
 
@@ -306,6 +308,15 @@ def _minify_js_cases() -> tuple[tuple[str, object], ...]:
     return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
 
 
+_URL_SHAPES = (
+    "https://www.example.org/dir/page-{index}.html",
+    "HTTPS://EXAMPLE.ORG:443/dir/../page/{index}?utm_source=rss&utm_medium=email&id={index}",
+    "https://example.org/de/beitrag-{index}?lang=de&page={index}#frag",
+    " https://sub.example.org//double/{index}/&amp;x=1 ",
+    "http://münchen.example/straße/{index}?b=2&a=1",
+)
+_URL_BATCH = tuple(shape.format(index=index) for index in range(20) for shape in _URL_SHAPES)
+
 _ENCODING_ASCII = "The quick brown fox jumps over the lazy dog near the river bank early today. "
 _ENCODING_FRENCH = "Précédemment, la créativité française était très développée près de Paris ici. "
 _ENCODING_RUSSIAN = "Программирование помогает понять структуру вычислительных систем сегодня здесь. "
@@ -417,4 +428,9 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
     "encoding": _encoding_cases,
+    "urls-clean": lambda: (
+        ("clean 100 URLs", ("clean", _URL_BATCH)),
+        ("normalize 100 URLs", ("normalize", _URL_BATCH)),
+    ),
+    "links-filter": _readpath_cases,
 }

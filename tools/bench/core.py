@@ -23,6 +23,9 @@ from turbohtml.clean import minify as _minify
 from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
 from turbohtml.extract import boilerplate as _extract_boilerplate
+from turbohtml.extract import clean_url as _clean_url
+from turbohtml.extract import extract_links as _extract_links
+from turbohtml.extract import normalize_url as _normalize_url
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -459,6 +462,19 @@ def translate(selector: str) -> None:
     _css_to_xpath(selector)
 
 
+def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
+    """Run turbohtml's URL scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind."""
+    kind, batch = case
+    transform = _clean_url if kind == "clean" else _normalize_url
+    for url in batch:
+        transform(url)
+
+
+def links_filter(text: str) -> None:
+    """Collect the cleaned, deduplicated page links with turbohtml's extract_links, parsing the cold string."""
+    _extract_links(text, _LINKS_BASE)
+
+
 OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
@@ -515,4 +531,6 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
     "encoding": (encoding, "turbohtml"),
+    "urls-clean": (urls_clean, "turbohtml"),
+    "links-filter": (links_filter, "turbohtml"),
 }
