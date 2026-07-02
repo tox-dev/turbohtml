@@ -107,6 +107,15 @@ port from come first. The all-time totals and each library's documentation sit a
       - Monthly downloads
       - Total downloads
     - - 1
+      - :doc:`soupsieve <soupsieve>`
+      - `docs <https://facelessuser.github.io/soupsieve/>`__
+      - .. image:: https://static.pepy.tech/badge/soupsieve/month
+            :alt: soupsieve monthly downloads
+            :target: https://pepy.tech/project/soupsieve
+      - .. image:: https://static.pepy.tech/badge/soupsieve
+            :alt: soupsieve total downloads
+            :target: https://pepy.tech/project/soupsieve
+    - - 2
       - :doc:`parsel <parsel>`
       - `docs <https://parsel.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/parsel/month
@@ -115,7 +124,7 @@ port from come first. The all-time totals and each library's documentation sit a
       - .. image:: https://static.pepy.tech/badge/parsel
             :alt: parsel total downloads
             :target: https://pepy.tech/project/parsel
-    - - 2
+    - - 3
       - :doc:`pyquery <pyquery>`
       - `docs <https://pyquery.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/pyquery/month
@@ -486,6 +495,7 @@ page benchmarks all of them).
     pandas
     markupsafe
     beautifulsoup
+    soupsieve
     lxml
     linkify-it-py
     bleach

@@ -1,0 +1,7 @@
+Add :mod:`turbohtml.match`, a `soupsieve <https://facelessuser.github.io/soupsieve/>`__-shaped CSS matching surface over
+the native selector engine for porting a BeautifulSoup stack. :func:`turbohtml.match.compile` validates a selector and
+returns a reusable :class:`~turbohtml.match.Matcher` with soupsieve's
+``select``/``select_one``/``iselect``/``match``/``filter``/``closest`` methods, the same names exist as module-level
+helpers taking ``(selector, node, ...)``, :func:`~turbohtml.match.escape` mirrors ``soupsieve.escape``, a malformed
+selector raises :class:`~turbohtml.match.SelectorSyntaxError` (a :class:`ValueError`), and soupsieve's ``namespaces``
+and ``flags`` ride on a frozen :class:`~turbohtml.match.Matching` config for API parity.

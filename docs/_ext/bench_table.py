@@ -84,6 +84,7 @@ _HOMEPAGES: Final = {
     "readability-lxml": "https://github.com/buriy/python-readability",
     "resiliparse": "https://resiliparse.chatnoir.eu/",
     "selectolax": "https://github.com/rushter/selectolax",
+    "soupsieve": "https://facelessuser.github.io/soupsieve/",
     "terser": "https://terser.org/",
     "standard library": "https://docs.python.org/3/library/html.parser.html",
     "trafilatura": "https://trafilatura.readthedocs.io/",

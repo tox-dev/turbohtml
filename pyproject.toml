@@ -241,10 +241,12 @@ ini_options.filterwarnings = [
 ]
 
 [tool.coverage]
-# lxml, the XPath oracle this differential suite diffs against, ships no wheels for 3.15,
-# the free-threaded builds, or Windows, so the module importorskips itself there; measuring
-# it would make the gate interpreter-dependent. It still runs and validates wherever lxml exists.
+# The differential suites diff against oracle libraries that are bench, not test, dependencies
+# (lxml additionally ships no wheels for 3.15, the free-threaded builds, or Windows), so each
+# module importorskips itself where its oracle is absent; measuring them would make the gate
+# environment-dependent. They still run and validate wherever the oracle installs (the dev env).
 run.omit = [
+  "tests/match/test_soupsieve_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
 ]
 run.parallel = true

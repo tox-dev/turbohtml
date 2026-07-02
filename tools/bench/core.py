@@ -15,6 +15,7 @@ import turbohtml
 from bench.timing import Mutating
 from turbohtml import Markdown as _Markdown
 from turbohtml import clean as _clean
+from turbohtml import match as _match
 from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
@@ -124,6 +125,13 @@ def select(text: str) -> None:
 def select_has(text: str) -> None:
     """Run the :has() relational selector with turbohtml's select."""
     _parsed(text).select(_HAS)
+
+
+def match(text: str) -> None:
+    """Test every anchor against a selector with the soupsieve-shaped turbohtml.match matcher."""
+    matcher = _match.compile(_CSS)
+    for anchor in _parsed(text).find_all("a"):
+        matcher.match(anchor)
 
 
 def find_text(text: str) -> None:
@@ -446,6 +454,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find": (find, "turbohtml"),
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
+    "match": (match, "turbohtml"),
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),

@@ -1,0 +1,50 @@
+{
+  "label": "operation",
+  "parties": [
+    "turbohtml",
+    "soupsieve"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "select ``div a[href]`` (Daring Fireball, 10 kB)",
+      7.57e-07,
+      0.000148
+    ],
+    [
+      "select ``div a[href]`` (Ars Technica, 56 kB)",
+      1.69e-06,
+      0.000486
+    ],
+    [
+      "select ``div a[href]`` (Mozilla Blog, 95 kB)",
+      2.42e-06,
+      0.000899
+    ],
+    [
+      "select ``div a[href]`` (WHATWG spec, 235 kB)",
+      2.07e-06,
+      0.00233
+    ],
+    [
+      "match each anchor (Daring Fireball, 10 kB)",
+      1.92e-06,
+      0.00018
+    ],
+    [
+      "match each anchor (Ars Technica, 56 kB)",
+      4.44e-06,
+      0.000538
+    ],
+    [
+      "match each anchor (Mozilla Blog, 95 kB)",
+      6e-06,
+      0.000663
+    ],
+    [
+      "match each anchor (WHATWG spec, 235 kB)",
+      6.68e-06,
+      0.00103
+    ]
+  ]
+}

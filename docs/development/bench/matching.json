@@ -1,0 +1,30 @@
+{
+  "label": "match each anchor against div a[href]",
+  "parties": [
+    "turbohtml",
+    "soupsieve"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "daring fireball (10 kB)",
+      1.92e-06,
+      0.00018
+    ],
+    [
+      "ars technica (56 kB)",
+      4.44e-06,
+      0.000538
+    ],
+    [
+      "mozilla blog (95 kB)",
+      6e-06,
+      0.000663
+    ],
+    [
+      "whatwg spec (235 kB)",
+      6.68e-06,
+      0.00103
+    ]
+  ]
+}
