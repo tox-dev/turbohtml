@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from newspaper import Article
 
-REQUIREMENTS = ("newspaper3k>=0.2.8",)
+# lxml-html-clean restores the lxml.html.clean module newspaper imports, split out of lxml 5.2
+REQUIREMENTS = ("newspaper3k>=0.2.8", "lxml-html-clean>=0.4.5")
 
 
 def article(text: str) -> None:

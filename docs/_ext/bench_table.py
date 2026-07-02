@@ -58,6 +58,7 @@ _HOMEPAGES: Final = {
     "extruct": "https://github.com/scrapinghub/extruct",
     "fast-html": "https://github.com/pcarbonn/fast_html",
     "faust-cchardet": "https://github.com/faust-streaming/cChardet",
+    "goose3": "https://goose3.readthedocs.io/",
     "html-sanitizer": "https://github.com/matthiask/html-sanitizer",
     "html-text": "https://github.com/zytedata/html-text",
     "html.escape": "https://docs.python.org/3/library/html.html",

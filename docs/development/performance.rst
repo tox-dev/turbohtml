@@ -144,11 +144,11 @@ the smallest, where pandas pays its fixed per-frame construction cost.
 ********************
 
 :meth:`turbohtml.Node.article` against `trafilatura <https://trafilatura.readthedocs.io>`_, `readability-lxml
-<https://github.com/buriy/python-readability>`_, and `newspaper3k <https://newspaper.readthedocs.io>`_, the article
-extractors it succeeds. Each scores the dominant content body and (trafilatura and newspaper3k) harvests the page
-metadata beside it; the others build an lxml tree in Python first, where turbohtml does the scoring and the harvest in
-one C pass over the parsed tree. The inputs are full pages -- navigation, a scored article, and a footer -- so the
-boilerplate the heuristic discounts is part of the measured cost.
+<https://github.com/buriy/python-readability>`_, `newspaper3k <https://newspaper.readthedocs.io>`_, and `goose3
+<https://goose3.readthedocs.io>`_, the article extractors it succeeds. Each scores the dominant content body and
+(trafilatura, newspaper3k, and goose3) harvests the page metadata beside it; the others build an lxml tree in Python
+first, where turbohtml does the scoring and the harvest in one C pass over the parsed tree. The inputs are full pages --
+navigation, a scored article, and a footer -- so the boilerplate the heuristic discounts is part of the measured cost.
 
 .. bench-table::
     :file: bench/article-extraction.json

@@ -436,6 +436,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/boilerpy3
             :alt: boilerpy3 total downloads
             :target: https://pepy.tech/project/boilerpy3
+    - - 8
+      - :doc:`goose3 <goose3>`
+      - `docs <https://goose3.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/goose3/month
+            :alt: goose3 monthly downloads
+            :target: https://pepy.tech/project/goose3
+      - .. image:: https://static.pepy.tech/badge/goose3
+            :alt: goose3 total downloads
+            :target: https://pepy.tech/project/goose3
 
 *****************
  Structured data
@@ -643,6 +652,7 @@ page benchmarks all of them).
     csscompressor
     newspaper3k
     boilerpy3
+    goose3
     html-sanitizer
     yattag
     extruct

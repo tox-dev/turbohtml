@@ -2,28 +2,19 @@
   "label": "input",
   "parties": [
     "turbohtml",
-    "goose3",
-    "newspaper3k",
-    "readability-lxml",
-    "trafilatura"
+    "goose3"
   ],
   "metrics": [],
   "rows": [
     [
       "post (4 KiB)",
       9.65e-06,
-      0.00274,
-      0.00196,
-      0.000552,
-      0.000662
+      0.00274
     ],
     [
       "longform (16 KiB)",
       3.56e-05,
-      0.00902,
-      0.00561,
-      0.00153,
-      0.00178
+      0.00902
     ]
   ]
 }
