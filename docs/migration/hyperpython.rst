@@ -32,16 +32,16 @@ parse it back:
 
     <div class="card"><h1>Title</h1><p>body</p></div>
 
-``E`` assembles the fragment in turbohtml's arena and serializes it in C; hyperpython stays in Python. The same
-``<ul>`` of rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways (hyperpython measured on
-its last importable dependency pin):
+``E`` assembles the fragment in turbohtml's arena and serializes it in C; hyperpython stays in Python. The same ``<ul>``
+of rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways (hyperpython measured on its last
+importable dependency pin):
 
 .. bench-table::
     :file: bench/hyperpython.json
 
-``E`` is about two and a half times faster than hyperpython, and the decisive difference is the result type: ``E``
-hands back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can query, edit, and
-re-:meth:`~turbohtml.Node.serialize`.
+``E`` is about two and a half times faster than hyperpython, and the decisive difference is the result type: ``E`` hands
+back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can
+query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 *************
  The renames
