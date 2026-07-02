@@ -11,6 +11,9 @@ importable from the package root.
 and marks each one good or boilerplate, the call shape ``justext`` and ``boilerpy3`` expose. The classification is a
 thin layer over the same C main-content scoring :meth:`turbohtml.Node.main_content` runs, refined per paragraph by
 the length and link-density thresholds a frozen :class:`Extraction` config carries.
+
+The URL helpers live here directly: :func:`clean_url`, :func:`normalize_url`, and :func:`extract_links`, configured
+by a frozen :class:`UrlCleaning`, replace ``courlan`` and the ``w3lib.url`` canonicalization surface.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from ._article import Article
 from ._html import Element, parse
 from ._links import Link
 from ._structured_data import MicrodataItem, StructuredData
+from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
 __all__ = [
     "Article",
@@ -30,7 +34,11 @@ __all__ = [
     "MicrodataItem",
     "Paragraph",
     "StructuredData",
+    "UrlCleaning",
     "boilerplate",
+    "clean_url",
+    "extract_links",
+    "normalize_url",
 ]
 
 _HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
