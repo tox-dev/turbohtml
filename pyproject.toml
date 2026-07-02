@@ -106,6 +106,7 @@ bench = [
   "html5lib>=1.1",
   "htmlmin2>=0.1.13",
   "htpy>=26.5.1",
+  "hyperpython>=1.1.1",
   "inscriptis>=2.7.2",
   "jsmin>=3",
   "lightningcss>=0.3",
@@ -126,6 +127,7 @@ bench = [
   "resiliparse>=1.0.8",
   "rjsmin>=1.2",
   "selectolax>=0.4.10",
+  "sidekick<0.7",              # hyperpython dependency; 0.7+ crashes at import on Python 3.11+
   "simple-html>=3.1.1",
   "soupsieve>=2.8.4",
   "trafilatura>=2.1",

@@ -1,3 +1,5 @@
-New "From htbuilder" and "From simple-html" migration guides map `htbuilder <https://github.com/tvst/htbuilder>`__'s
-attributes-then-children calls and `simple-html <https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first
-calls onto :data:`turbohtml.build.E`, each benchmarked against the builder it replaces - by :user:`gaborbernat`.
+New "From htbuilder", "From simple-html", and "From hyperpython" migration guides map `htbuilder
+<https://github.com/tvst/htbuilder>`__'s attributes-then-children calls, `simple-html
+<https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first calls, and `hyperpython
+<https://github.com/fabiommendes/hyperpython>`__'s subscript-children syntax onto :data:`turbohtml.build.E`, each
+benchmarked against the builder it replaces - by :user:`gaborbernat`.

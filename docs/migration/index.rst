@@ -509,6 +509,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/simple-html
             :alt: simple-html total downloads
             :target: https://pepy.tech/project/simple-html
+    - - 7
+      - :doc:`hyperpython <hyperpython>`
+      - `docs <https://github.com/fabiommendes/hyperpython>`__
+      - .. image:: https://static.pepy.tech/badge/hyperpython/month
+            :alt: hyperpython monthly downloads
+            :target: https://pepy.tech/project/hyperpython
+      - .. image:: https://static.pepy.tech/badge/hyperpython
+            :alt: hyperpython total downloads
+            :target: https://pepy.tech/project/hyperpython
 
 *************************
  JavaScript minification
@@ -598,4 +607,5 @@ page benchmarks all of them).
     metadata_parser
     lightningcss
     simple-html
+    hyperpython
     stdlib

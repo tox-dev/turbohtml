@@ -1,0 +1,25 @@
+{
+  "label": "build a list",
+  "parties": [
+    ":data:`E <turbohtml.build.E>`",
+    "hyperpython"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "100 rows",
+      0.000141,
+      0.00036
+    ],
+    [
+      "1k rows",
+      0.001618,
+      0.004128
+    ],
+    [
+      "10k rows",
+      0.017278,
+      0.040956
+    ]
+  ]
+}
