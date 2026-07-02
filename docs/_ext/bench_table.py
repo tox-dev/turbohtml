@@ -47,6 +47,7 @@ _HOMEPAGES: Final = {
     "airium": "https://pypi.org/project/airium/",
     "BeautifulSoup": "https://www.crummy.com/software/BeautifulSoup/",
     "bleach": "https://bleach.readthedocs.io/",
+    "boilerpy3": "https://github.com/jmriebold/BoilerPy3",
     "calmjs.parse": "https://github.com/calmjs/calmjs.parse",
     "chardet": "https://chardet.readthedocs.io/",
     "charset-normalizer": "https://charset-normalizer.readthedocs.io/",

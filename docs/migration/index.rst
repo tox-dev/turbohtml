@@ -427,6 +427,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/newspaper3k
             :alt: newspaper3k total downloads
             :target: https://pepy.tech/project/newspaper3k
+    - - 7
+      - :doc:`boilerpy3 <boilerpy3>`
+      - `docs <https://github.com/jmriebold/BoilerPy3>`__
+      - .. image:: https://static.pepy.tech/badge/boilerpy3/month
+            :alt: boilerpy3 monthly downloads
+            :target: https://pepy.tech/project/boilerpy3
+      - .. image:: https://static.pepy.tech/badge/boilerpy3
+            :alt: boilerpy3 total downloads
+            :target: https://pepy.tech/project/boilerpy3
 
 *****************
  Structured data
@@ -624,6 +633,7 @@ page benchmarks all of them).
     htmlmin
     csscompressor
     newspaper3k
+    boilerpy3
     html-sanitizer
     yattag
     extruct

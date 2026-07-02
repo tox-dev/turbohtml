@@ -2,22 +2,19 @@
   "label": "input",
   "parties": [
     "turbohtml",
-    "boilerpy3",
-    "justext"
+    "boilerpy3"
   ],
   "metrics": [],
   "rows": [
     [
       "post (4 KiB)",
       2.76e-05,
-      0.000251,
-      0.000816
+      0.000251
     ],
     [
       "longform (16 KiB)",
       0.000104,
-      0.00087,
-      0.00336
+      0.00087
     ]
   ]
 }

@@ -157,10 +157,11 @@ boilerplate the heuristic discounts is part of the measured cost.
  Boilerplate classification
 ****************************
 
-:func:`turbohtml.extract.boilerplate` against `justext <https://github.com/miso-belica/jusText>`_, the per-paragraph
-boilerplate classifier. Both segment the page into paragraph units and mark each good or boilerplate; justext scores
-every paragraph in Python over an lxml tree (length, link density, stopword density), where turbohtml scores the tree
-once in C and classifies the units in a thin Python layer. The inputs are the article-extraction pages, so the
+:func:`turbohtml.extract.boilerplate` against `justext <https://github.com/miso-belica/jusText>`_ and `boilerpy3
+<https://github.com/jmriebold/BoilerPy3>`_, the per-block boilerplate classifiers. All three segment the page into units
+and mark each good or boilerplate; justext scores every paragraph in Python over an lxml tree (length, link density,
+stopword density), boilerpy3 classifies the blocks of its own SAX stream with boilerpipe's rules, and turbohtml scores
+the tree once in C and classifies the units in a thin Python layer. The inputs are the article-extraction pages, so the
 navigation and footer each classifier must reject are part of the measured cost.
 
 .. bench-table::
