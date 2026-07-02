@@ -290,7 +290,11 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     if (parser->error) {
         return;
     }
-    simple->attr_atom = sel_attr_atom(parser->tree, name, name_len);
+    /* the attribute name slice feeds the CSS-to-XPath translator, which parses with no
+       tree and so cannot resolve (and does not need) the per-tree attribute atom */
+    simple->name = name;
+    simple->name_len = name_len;
+    simple->attr_atom = parser->tree != NULL ? sel_attr_atom(parser->tree, name, name_len) : 0;
     sel_skip_ws(parser);
     Py_UCS4 ch = parser->pos < parser->len ? parser->src[parser->pos] : 0;
     if (ch == ']') {

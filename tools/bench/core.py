@@ -20,6 +20,7 @@ from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
+from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
@@ -447,6 +448,11 @@ def encoding(data: bytes) -> None:
     _detect_encoding(data)
 
 
+def translate(selector: str) -> None:
+    """Translate one CSS selector to XPath 1.0 with turbohtml's C translator."""
+    _css_to_xpath(selector)
+
+
 OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
@@ -497,6 +503,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "htmlparser": (htmlparser, "turbohtml"),
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
+    "translate": (translate, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),

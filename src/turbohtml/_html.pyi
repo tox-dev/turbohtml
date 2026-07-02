@@ -105,6 +105,9 @@ from ._stubs.query import (
     XPath as XPath,
 )
 from ._stubs.query import (
+    _css_to_xpath as _css_to_xpath,
+)
+from ._stubs.query import (
     _register_xpath_string as _register_xpath_string,
 )
 from ._stubs.query import (

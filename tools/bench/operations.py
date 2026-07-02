@@ -121,6 +121,7 @@ OPERATIONS: dict[str, Operation] = {
     "htmlparser": Operation("feed and dispatch a page", "us"),
     "path": Operation("css_path for every element", "us"),
     "path-xpath": Operation("xpath_path for every element", "us"),
+    "translate": Operation("CSS selector to XPath 1.0", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
@@ -210,6 +211,14 @@ _URL_HINT_HTML = (
     "<html><head><base href='/sub/'>"
     "<meta http-equiv='refresh' content='5; url=next.html'>"
     "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
+)
+
+_TRANSLATE_CASES = (
+    ("type", "div"),
+    ("compound", "div.item a[href^='https']"),
+    ("structural", "ul li:nth-child(2n+1)"),
+    ("complex", "nav ul > li a[href$='.pdf']:not(.external)"),
+    ("group", "h1, h2, h3, section .title"),
 )
 
 _SVG_FRAGMENT = "<svg><rect/><rect/></svg>"
@@ -401,6 +410,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "htmlparser": _readpath_cases,
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
+    "translate": lambda: _TRANSLATE_CASES,
     "xpath": _xpath_cases,
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,

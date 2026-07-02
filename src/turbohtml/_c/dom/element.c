@@ -4,6 +4,7 @@
 #include "dom/nodes.h"
 
 #include "query/css/selector.h"
+#include "query/css/to_xpath.h"
 
 void handle_clear_caches(HandleObject *handle) {
     for (int index = 0; index < handle->sel_cache_len; index++) {

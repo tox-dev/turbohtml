@@ -253,6 +253,7 @@ ini_options.filterwarnings = [
 # environment-dependent. They still run and validate wherever the oracle installs (the dev env).
 run.omit = [
   "tests/match/test_soupsieve_differential.py",
+  "tests/query/css/test_css_to_xpath_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
 ]
 run.parallel = true

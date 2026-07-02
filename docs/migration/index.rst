@@ -152,6 +152,15 @@ answer, with the result a browser would pick.
             :alt: soupsieve total downloads
             :target: https://pepy.tech/project/soupsieve
     - - 2
+      - :doc:`cssselect <cssselect>`
+      - `docs <https://cssselect.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/cssselect/month
+            :alt: cssselect monthly downloads
+            :target: https://pepy.tech/project/cssselect
+      - .. image:: https://static.pepy.tech/badge/cssselect
+            :alt: cssselect total downloads
+            :target: https://pepy.tech/project/cssselect
+    - - 3
       - :doc:`parsel <parsel>`
       - `docs <https://parsel.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/parsel/month
@@ -160,7 +169,7 @@ answer, with the result a browser would pick.
       - .. image:: https://static.pepy.tech/badge/parsel
             :alt: parsel total downloads
             :target: https://pepy.tech/project/parsel
-    - - 3
+    - - 4
       - :doc:`pyquery <pyquery>`
       - `docs <https://pyquery.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/pyquery/month
@@ -562,6 +571,7 @@ page benchmarks all of them).
     chardet
     soupsieve
     lxml
+    cssselect
     linkify-it-py
     bleach
     markdownify

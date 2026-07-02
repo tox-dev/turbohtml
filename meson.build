@@ -81,6 +81,7 @@ py.install_sources(
         'src/turbohtml/_xpath.py',
         'src/turbohtml/build.py',
         'src/turbohtml/clean.py',
+        'src/turbohtml/convert.py',
         'src/turbohtml/detect.py',
         'src/turbohtml/extract.py',
         'src/turbohtml/match.py',

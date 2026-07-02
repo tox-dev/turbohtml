@@ -49,6 +49,11 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
    (winner, certain, ranked scores) tuple into EncodingMatch results. METH_O. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
 
+/* Implemented in query/css/to_xpath.h (#included into dom/element.c beside the
+   selector parser it reuses). _css_to_xpath(selector, prefix) translates a CSS
+   selector list to an equivalent XPath 1.0 expression; matches METH_VARARGS. */
+PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
+
 /* Implemented in linkify.c. _linkify_scan finds URL/email spans in a text run;
    _linkify_find adds the detector's custom TLD and scheme-less scheme config.
    Both signatures match METH_VARARGS. */
