@@ -114,6 +114,7 @@ bench = [
   "lxml-html-clean>=0.4.5",
   "markdownify>=1.2.2",
   "markupsafe>=3.0.3",
+  "markyp-html>=0.2306.2",
   "minify-html>=0.18.1",
   "newspaper3k>=0.2.8",
   "nh3>=0.3.6",

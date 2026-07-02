@@ -510,6 +510,15 @@ page benchmarks all of them).
             :alt: airium total downloads
             :target: https://pepy.tech/project/airium
     - - 6
+      - :doc:`markyp <markyp>`
+      - `docs <https://github.com/volfpeter/markyp-html>`__
+      - .. image:: https://static.pepy.tech/badge/markyp-html/month
+            :alt: markyp-html monthly downloads
+            :target: https://pepy.tech/project/markyp-html
+      - .. image:: https://static.pepy.tech/badge/markyp-html
+            :alt: markyp-html total downloads
+            :target: https://pepy.tech/project/markyp-html
+    - - 7
       - :doc:`simple-html <simple-html>`
       - `docs <https://github.com/keithasaurus/simple_html>`__
       - .. image:: https://static.pepy.tech/badge/simple-html/month
@@ -518,7 +527,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/simple-html
             :alt: simple-html total downloads
             :target: https://pepy.tech/project/simple-html
-    - - 7
+    - - 8
       - :doc:`hyperpython <hyperpython>`
       - `docs <https://github.com/fabiommendes/hyperpython>`__
       - .. image:: https://static.pepy.tech/badge/hyperpython/month
@@ -613,6 +622,7 @@ page benchmarks all of them).
     mechanicalsoup
     airium
     calmjs-parse
+    markyp
     html5-parser
     metadata_parser
     lightningcss

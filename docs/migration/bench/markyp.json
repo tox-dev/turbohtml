@@ -1,0 +1,25 @@
+{
+  "label": "build a list",
+  "parties": [
+    ":data:`E <turbohtml.build.E>`",
+    "markyp"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "100 rows",
+      0.000145,
+      0.000106
+    ],
+    [
+      "1k rows",
+      0.001689,
+      0.001043
+    ],
+    [
+      "10k rows",
+      0.017607,
+      0.011906
+    ]
+  ]
+}

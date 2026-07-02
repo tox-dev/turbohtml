@@ -1,5 +1,6 @@
-New "From htbuilder", "From simple-html", and "From hyperpython" migration guides map `htbuilder
+New "From htbuilder", "From simple-html", "From hyperpython", and "From markyp" migration guides map `htbuilder
 <https://github.com/tvst/htbuilder>`__'s attributes-then-children calls, `simple-html
-<https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first calls, and `hyperpython
-<https://github.com/fabiommendes/hyperpython>`__'s subscript-children syntax onto :data:`turbohtml.build.E`, each
-benchmarked against the builder it replaces - by :user:`gaborbernat`.
+<https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first calls, `hyperpython
+<https://github.com/fabiommendes/hyperpython>`__'s subscript-children syntax, and `markyp
+<https://github.com/volfpeter/markyp-html>`__'s per-tag element classes onto :data:`turbohtml.build.E`, each benchmarked
+against the builder it replaces - by :user:`gaborbernat`.
