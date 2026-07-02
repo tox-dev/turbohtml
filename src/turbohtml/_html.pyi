@@ -132,6 +132,18 @@ from ._stubs.serialize import (
     _minify_css_inline as _minify_css_inline,
 )
 from ._stubs.serialize import (
+    _minify_js as _minify_js,
+)
+from ._stubs.serialize import (
+    _minify_js_parse as _minify_js_parse,
+)
+from ._stubs.serialize import (
+    _minify_js_tokens as _minify_js_tokens,
+)
+from ._stubs.serialize import (
+    _register_js_minify as _register_js_minify,
+)
+from ._stubs.serialize import (
     escape as escape,
 )
 from ._stubs.serialize import (

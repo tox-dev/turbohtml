@@ -122,6 +122,19 @@ PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
    diff against. Signature matches METH_O. */
 PyObject *turbohtml_xpath_parse(PyObject *module, PyObject *arg);
 
+/* Implemented in serialize/js/lexdump.c. minify_js is the one minifier, exposed as
+   _minify_js(source, fold, mangle) (METH_VARARGS); the _tokens / _parse hooks are not
+   minifiers but conformance dumps of the token stream and the AST that the JS lexer and
+   parser tests diff against (METH_O). */
+PyObject *turbohtml_minify_js(PyObject *module, PyObject *args);
+PyObject *turbohtml_minify_js_tokens(PyObject *module, PyObject *arg);
+PyObject *turbohtml_minify_js_parse(PyObject *module, PyObject *arg);
+
+/* Implemented in dom/formatters.c: stores the JSMinify config type in module state so
+   Minify(minify_js=...) validation and its getter reach it with a pointer load rather than
+   an import (METH_O); turbohtml._minify registers it on import. */
+PyObject *turbohtml_register_js_minify(PyObject *module, PyObject *type);
+
 /* SWAR lane probes over a 64-bit word holding four UCS-2 / two UCS-4 code
    points. The has-zero test is exact as an existence test: the subtraction can
    only borrow across a lane when that lane itself is zero, so the mask is

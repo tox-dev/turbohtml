@@ -104,6 +104,7 @@ static PyMethodDef html_methods[] = {
     {"_register_links", turbohtml_register_links, METH_O, NULL},
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},
+    {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
     {"parse_fragment", (PyCFunction)(void (*)(void))turbohtml_tree_parse_fragment, METH_VARARGS | METH_KEYWORDS,
@@ -116,6 +117,9 @@ static PyMethodDef html_methods[] = {
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},
+    {"_minify_js", turbohtml_minify_js, METH_VARARGS, NULL},
+    {"_minify_js_tokens", turbohtml_minify_js_tokens, METH_O, NULL},
+    {"_minify_js_parse", turbohtml_minify_js_parse, METH_O, NULL},
     {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
@@ -177,6 +181,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->microdata_item_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->structured_data_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->article_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->js_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -229,6 +234,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->microdata_item_type);
     Py_CLEAR(state->structured_data_type);
     Py_CLEAR(state->article_type);
+    Py_CLEAR(state->js_minify_type);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }

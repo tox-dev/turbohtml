@@ -1,0 +1,23 @@
+[
+  {
+    "after": "a??b",
+    "before": "a==null?b:a",
+    "input": "a==null?b:a",
+    "line": 971,
+    "version": 2020
+  },
+  {
+    "after": "try{}catch{}",
+    "before": "try{}catch(a){}",
+    "input": "try{}catch(a){}",
+    "line": 972,
+    "version": 2019
+  },
+  {
+    "after": "`\u003cdiv onclick=\"alert('test')\"\u003e`",
+    "before": "\"\u003cdiv onclick=\\\"alert('test')\\\"\u003e\"",
+    "input": "\"\u003cdiv onclick=\\\"alert('test')\\\"\u003e\"",
+    "line": 973,
+    "version": 2015
+  }
+]

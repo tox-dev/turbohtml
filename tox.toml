@@ -196,6 +196,14 @@ commands = [
   ],
 ]
 
+[env.asan-js]
+description = "compile the JS minifier engine standalone and fuzz the corpus under ASan/UBSan (+LSan on Linux)"
+package = "skip"
+deps = []
+dependency_groups = []
+commands_pre = []  # no extension install; the engine compiles standalone with the system allocator
+commands = [ [ "python", "{tox_root}{/}tools{/}js_sanitize.py" ] ]
+
 [env.bench]
 description = "benchmark turbohtml against each competitor isolated in its own uv venv (not run in CI)"
 package = "skip"

@@ -103,6 +103,17 @@ def large_text(filename: str, url: str) -> str:
 
 _DATA_DIR = _TOOLS / "bench-data"
 
+# Real-world un-minified JavaScript libraries for the minify suite, a size ladder every
+# benchmarked minifier (including ES5-only calmjs.parse) parses. Downloaded and cached on
+# first use through large_text, like the multi-megabyte specs, rather than vendored.
+JS_FILES: tuple[tuple[str, str, str], ...] = (
+    ("underscore 1.13 (67 kB)", "underscore-1.13.6.js", "https://cdn.jsdelivr.net/npm/underscore@1.13.6/underscore.js"),
+    ("backbone 1.6 (79 kB)", "backbone-1.6.0.js", "https://cdn.jsdelivr.net/npm/backbone@1.6.0/backbone.js"),
+    ("jquery 3.7 (279 kB)", "jquery-3.7.1.js", "https://code.jquery.com/jquery-3.7.1.js"),
+    ("lodash 4.17 (531 kB)", "lodash-4.17.21.js", "https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.js"),
+)
+
+
 _ASCII_WORDS = (
     "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dogs", "while", "zealous",
     "wizards", "vex", "sphinx", "judges", "of", "black", "quartz", "monoliths",

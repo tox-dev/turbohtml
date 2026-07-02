@@ -1,0 +1,7 @@
+Minify JavaScript with :func:`~turbohtml.minify_js`, a native-C minifier configured by a :class:`~turbohtml.JSMinify`
+options object: it always folds whitespace, comments and number literals, while ``mangle`` renames function-local
+bindings by reference count and ``fold`` runs constant folding and dead-code elimination. Passing a
+:class:`~turbohtml.JSMinify` as :class:`~turbohtml.Minify`'s ``minify_js`` extends HTML minification into inline
+``<script>`` content; only scripts the ``type`` attribute marks as JavaScript are rewritten, and a script the parser
+cannot handle is emitted verbatim, so one bad ``<script>`` never breaks serialization. turbohtml replaces ``rjsmin``,
+``jsmin`` and ``calmjs.parse``.

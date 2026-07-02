@@ -62,6 +62,25 @@ escapes the elements it removes rather than discarding their text:
 
     <a>x</a> <b>bold</b>&lt;script&gt;bad()&lt;/script&gt;
 
+*******************
+ Shrink the output
+*******************
+
+When you serialize a page to ship it, pass a :class:`~turbohtml.Minify` layout to drop the whitespace, optional tags and
+quotes the parser can put back. Hand its ``minify_js`` a :class:`~turbohtml.JSMinify` and inline ``<script>`` JavaScript
+is minified in the same pass, with local names renamed and constants folded:
+
+.. testcode::
+
+    from turbohtml import Html, Minify, JSMinify
+
+    doc = turbohtml.parse('<p>Hi</p>  <script>function greet(who) { return "hi " + who; }</script>')
+    print(doc.serialize(Html(layout=Minify(minify_js=JSMinify()))))
+
+.. testoutput::
+
+    <p>Hi</p> <script>function greet(a){return"hi "+a}</script>
+
 That is the whole tree API. Head to the :doc:`/how-to/index` guides for task-focused recipes, the
 :doc:`/migration/index` guide if you are coming from another HTML library, or the :doc:`/reference` for the exact
 signatures.

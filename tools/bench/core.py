@@ -146,6 +146,11 @@ def minify(text: str) -> None:
     _minify(text)
 
 
+def minify_js(source: str) -> None:
+    """Minify a JavaScript source with turbohtml's native lex-parse-optimize-print minifier."""
+    _ = turbohtml.minify_js(source)
+
+
 def edit(document: turbohtml.Document) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through turbohtml's live attribute mapping."""
     for anchor in document.find_all("a"):
@@ -479,4 +484,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "path-xpath": (xpath_path, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
+    "minify-js": (minify_js, "turbohtml"),
 }

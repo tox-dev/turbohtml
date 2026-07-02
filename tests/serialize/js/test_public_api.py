@@ -1,0 +1,67 @@
+"""The public ``turbohtml.minify_js`` entry point and its ``JSMinify`` options.
+
+These exercise the configuration surface end to end: each ``JSMinify`` toggle maps to
+one optional pass (folding, mangling) over the always-on whitespace minification, the
+function fails loudly on input the parser cannot handle, and the options object is a
+frozen, comparable value.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from turbohtml import JSMinify, _html, minify_js
+
+_SOURCE = "function f(){var longName=true;return longName}"
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        pytest.param(None, "function f(){return!0}", id="default-is-full"),
+        pytest.param(JSMinify(), "function f(){return!0}", id="explicit-full"),
+        pytest.param(JSMinify(mangle=False), "function f(){var longName=!0;return longName}", id="fold-keep-names"),
+        pytest.param(JSMinify(fold=False), "function f(){return true}", id="mangle-no-fold"),
+        pytest.param(
+            JSMinify(mangle=False, fold=False),
+            "function f(){var longName=true;return longName}",
+            id="whitespace-only",
+        ),
+    ],
+)
+def test_minify_js_options(options: JSMinify | None, expected: str) -> None:
+    assert minify_js(_SOURCE, options) == expected
+
+
+def test_minify_js_raises_on_unhandled_syntax() -> None:
+    with pytest.raises(ValueError, match="at offset"):
+        minify_js("function (")
+
+
+def test_minify_js_rejects_non_string() -> None:
+    with pytest.raises(TypeError, match="source must be a str"):
+        minify_js(123)  # ty: ignore[invalid-argument-type]  # wrong type on purpose, to test the guard
+
+
+def test_low_level_binding_requires_three_arguments() -> None:
+    # the public wrapper always passes (source, fold, mangle); the seam rejects a short call
+    with pytest.raises(TypeError):
+        _html._minify_js("x")  # ty: ignore[missing-argument]  # too few args on purpose
+
+
+@pytest.mark.parametrize(
+    ("options", "text"),
+    [
+        pytest.param(JSMinify(), "JSMinify(mangle=True, fold=True)", id="defaults"),
+        pytest.param(JSMinify(mangle=False), "JSMinify(mangle=False, fold=True)", id="no-mangle"),
+    ],
+)
+def test_jsminify_repr(options: JSMinify, text: str) -> None:
+    assert repr(options) == text
+
+
+def test_jsminify_is_frozen_and_comparable() -> None:
+    assert JSMinify() == JSMinify(mangle=True, fold=True)
+    assert JSMinify(fold=False) != JSMinify()
+    with pytest.raises(AttributeError):
+        JSMinify().mangle = False  # ty: ignore[invalid-assignment]  # frozen on purpose

@@ -1,20 +1,23 @@
 """
-Minify HTML the way ``minify-html`` and ``htmlmin`` did, by parsing then serializing through the shipped C minifier.
+The public HTML and JavaScript minifier entry points and the JavaScript options object.
 
-The minifier already lives in ``_c/serialize/minify.c`` and is reachable as the :class:`~turbohtml.Minify` layout passed
-to :meth:`~turbohtml.Node.serialize`; this module is the one-call convenience those libraries expose. The model is the
-one every safe minifier converged on: parse the input into a real WHATWG tree, then emit it once with the folds engaged,
-so every transform is round-trip safe -- the output reparses to the same tree. That is the property the acceptance gate
-checks as idempotence: ``minify(minify(x)) == minify(x)``.
-
-This module is a thin facade; the whitespace fold, optional-tag omission, attribute unquoting, and comment stripping all
-run in C below :func:`minify`, configured by the existing immutable :class:`~turbohtml.Minify` options object.
+:func:`minify` parses an HTML document and serializes it back through the shipped C
+minifier (the :class:`~turbohtml.Minify` layout), the one-call convenience ``minify-html``
+and ``htmlmin`` expose; every transform is round-trip safe, so the output reparses to the
+same tree. :func:`minify_js` is the separate JavaScript minifier: the C extension exposes
+only the numeric seam ``_minify_js(source, fold, mangle)``, and this layer gives it a typed,
+defaulted surface plus the :class:`JSMinify` options object that the HTML serializer's
+``Minify(minify_js=...)`` hook also accepts, so the standalone call and the
+inline-``<script>`` path are configured the same way.
 """
 
 from __future__ import annotations
 
-from ._html import Minify, parse
+from ._html import Minify, _minify_js, parse
+from ._jsminify import JSMinify
 from ._render import Html
+
+__all__ = ["JSMinify", "Minify", "minify", "minify_js"]
 
 _DEFAULT = Minify()
 
@@ -34,4 +37,12 @@ def minify(html: str, options: Minify | None = None) -> str:
     return parse(html).serialize(Html(layout=options if options is not None else _DEFAULT))
 
 
-__all__ = ["Minify", "minify"]
+def minify_js(source: str, options: JSMinify | None = None) -> str:
+    """
+    Minify a JavaScript source string, returning the shortest equivalent program.
+
+    Raises :class:`ValueError` (carrying the byte offset) on a construct the parser does
+    not handle, so an unminifiable script fails loudly rather than passing through
+    unchanged. ``options`` defaults to the full pipeline.
+    """
+    return _minify_js(source, (config := options or JSMinify()).fold, config.mangle)

@@ -551,3 +551,21 @@ optimization is the same idea as turbohtml's ``baseline`` option carried further
 the time half of each cell: it runs about 3x slower than turbohtml, and it rejects ``foundation.css`` with a parse error
 on a media query the WHATWG recovery rules accept, where turbohtml minifies all six. turbohtml gives the smallest output
 that stays value-safe at the most compatible baseline and recovers from malformed input.
+
+*************************
+ JavaScript minification
+*************************
+
+:func:`turbohtml.minify_js` against the PyPI JavaScript minifiers it replaces -- `rjsmin
+<https://opensource.perlig.de/rjsmin/>`_ (a regex substitution), `jsmin <https://github.com/tikitu/jsmin>`_ (Crockford's
+character state machine), and `calmjs.parse <https://github.com/calmjs/calmjs.parse>`_ (a full ES5 parser with an
+obfuscating printer) -- plus `terser <https://terser.org/>`_, the JavaScript ecosystem's reference minifier, run
+in-process under Node as the size bar. The inputs are real un-minified libraries, a size ladder every tool parses.
+turbohtml renames every local binding (function and class declarations included) and runs the structural folds, so it
+beats calmjs.parse's heavier global obfuscation on size everywhere while running forty to eighty times faster, and it
+lands within one percent of terser's size at thirteen to twenty-five times less time; it trails only rjsmin on time,
+which buys its speed by doing far less and leaving output roughly twice the size. Each cell pairs a minifier's output
+size with the time to produce it; both ratios are against turbohtml.
+
+.. bench-table::
+    :file: bench/js-minification.json

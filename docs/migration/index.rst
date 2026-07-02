@@ -438,6 +438,47 @@ page benchmarks all of them).
             :alt: airium total downloads
             :target: https://pepy.tech/project/airium
 
+*************************
+ JavaScript minification
+*************************
+
+.. list-table::
+    :header-rows: 1
+    :widths: auto
+
+    - - #
+      - Library
+      - Docs
+      - Monthly downloads
+      - Total downloads
+    - - 1
+      - :doc:`rjsmin <rjsmin>`
+      - `docs <https://opensource.perlig.de/rjsmin/>`__
+      - .. image:: https://static.pepy.tech/badge/rjsmin/month
+            :alt: rjsmin monthly downloads
+            :target: https://pepy.tech/project/rjsmin
+      - .. image:: https://static.pepy.tech/badge/rjsmin
+            :alt: rjsmin total downloads
+            :target: https://pepy.tech/project/rjsmin
+    - - 2
+      - :doc:`jsmin <jsmin>`
+      - `docs <https://github.com/tikitu/jsmin>`__
+      - .. image:: https://static.pepy.tech/badge/jsmin/month
+            :alt: jsmin monthly downloads
+            :target: https://pepy.tech/project/jsmin
+      - .. image:: https://static.pepy.tech/badge/jsmin
+            :alt: jsmin total downloads
+            :target: https://pepy.tech/project/jsmin
+    - - 3
+      - :doc:`calmjs.parse <calmjs-parse>`
+      - `docs <https://github.com/calmjs/calmjs.parse>`__
+      - .. image:: https://static.pepy.tech/badge/calmjs.parse/month
+            :alt: calmjs.parse monthly downloads
+            :target: https://pepy.tech/project/calmjs.parse
+      - .. image:: https://static.pepy.tech/badge/calmjs.parse
+            :alt: calmjs.parse total downloads
+            :target: https://pepy.tech/project/calmjs.parse
+
 .. toctree::
     :hidden:
     :maxdepth: 1
@@ -458,12 +499,14 @@ page benchmarks all of them).
     selectolax
     parsel
     rcssmin
+    rjsmin
     dominate
     pyquery
     readability-lxml
     inscriptis
     minify-html
     html-text
+    jsmin
     resiliparse
     csscompressor
     newspaper3k
@@ -473,6 +516,7 @@ page benchmarks all of them).
     htpy
     mechanicalsoup
     airium
+    calmjs-parse
     html5-parser
     metadata_parser
     lightningcss

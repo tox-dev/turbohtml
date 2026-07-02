@@ -122,6 +122,7 @@ OPERATIONS: dict[str, Operation] = {
     "path-xpath": Operation("xpath_path for every element", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
     "minify-css": Operation("minify CSS", "us"),
+    "minify-js": Operation("minify a JS library", "ms"),
 }
 
 
@@ -288,6 +289,11 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
     return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS)
 
 
+def _minify_js_cases() -> tuple[tuple[str, object], ...]:
+    """Return the real-world JavaScript libraries the minify operation shrinks, a size ladder."""
+    return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS,
@@ -370,4 +376,5 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "path-xpath": _readpath_cases,
     "xpath": _xpath_cases,
     "minify-css": _minify_cases,
+    "minify-js": _minify_js_cases,
 }

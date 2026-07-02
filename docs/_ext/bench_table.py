@@ -47,6 +47,7 @@ _HOMEPAGES: Final = {
     "airium": "https://pypi.org/project/airium/",
     "BeautifulSoup": "https://www.crummy.com/software/BeautifulSoup/",
     "bleach": "https://bleach.readthedocs.io/",
+    "calmjs.parse": "https://github.com/calmjs/calmjs.parse",
     "css-html-js-minify": "https://pypi.org/project/css-html-js-minify/",
     "csscompressor": "https://github.com/sprymix/csscompressor",
     "cssmin": "https://github.com/zacharyvoase/cssmin",
@@ -62,6 +63,7 @@ _HOMEPAGES: Final = {
     "html5lib": "https://html5lib.readthedocs.io/",
     "htpy": "https://htpy.dev/",
     "inscriptis": "https://github.com/weblyzard/inscriptis",
+    "jsmin": "https://github.com/tikitu/jsmin",
     "lightningcss": "https://pypi.org/project/lightningcss/",
     "linkify-it-py": "https://github.com/tsutsu3/linkify-it-py",
     "lxml": "https://lxml.de/",
@@ -78,9 +80,11 @@ _HOMEPAGES: Final = {
     "parsel": "https://parsel.readthedocs.io/",
     "pyquery": "https://pyquery.readthedocs.io/",
     "rcssmin": "https://opensource.perlig.de/rcssmin/",
+    "rjsmin": "https://opensource.perlig.de/rjsmin/",
     "readability-lxml": "https://github.com/buriy/python-readability",
     "resiliparse": "https://resiliparse.chatnoir.eu/",
     "selectolax": "https://github.com/rushter/selectolax",
+    "terser": "https://terser.org/",
     "standard library": "https://docs.python.org/3/library/html.parser.html",
     "trafilatura": "https://trafilatura.readthedocs.io/",
     "w3lib": "https://w3lib.readthedocs.io/",
@@ -104,7 +108,10 @@ def _format_ratio(ratio: float, metric: str) -> str:
         # sizes sit near 1.0, so keep enough decimals to tell 0.999x from parity
         decimals = 2 if abs(ratio - 1) >= 0.005 else 3
         return f"({ratio:.{decimals}f}x)"
-    return f"({ratio:.0f}x)" if ratio >= 100 else f"({ratio:.1f}x)"
+    # time ratios round up at the displayed precision, so a 0.04x never collapses to a flat 0.0x
+    if ratio >= 100:
+        return f"({math.ceil(ratio)}x)"
+    return f"({math.ceil(ratio * 10) / 10:.1f}x)"
 
 
 def _order_columns(parties: list[str], metrics: list[str], rows: list[list[Any]]) -> tuple[list[str], list[list[Any]]]:

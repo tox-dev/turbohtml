@@ -12,19 +12,29 @@ import pytest
 from turbohtml import Element, Formatter, Html, Minify, Text, parse, parse_fragment
 
 
-def frag(source: str, **flags: bool) -> str:
+def frag(
+    source: str,
+    *,
+    collapse_whitespace: bool = True,
+    omit_optional_tags: bool = True,
+    unquote_attributes: bool = True,
+    strip_comments: bool = True,
+) -> str:
     """Minify source parsed in a <div> fragment context, returning the inner markup.
 
     A <div> is never an optional tag and carries no attributes, so it survives every
     transform unchanged and strips cleanly, leaving just the minified content.
     """
-    out = parse_fragment(source, "div").serialize(Html(layout=Minify(**flags)))
+    layout = Minify(
+        collapse_whitespace=collapse_whitespace,
+        omit_optional_tags=omit_optional_tags,
+        unquote_attributes=unquote_attributes,
+        strip_comments=strip_comments,
+    )
+    out = parse_fragment(source, "div").serialize(Html(layout=layout))
     assert out.startswith("<div>")
     assert out.endswith("</div>")
     return out[len("<div>") : -len("</div>")]
-
-
-# --------------------------------------------------------------- options object
 
 
 def test_minify_defaults_all_on() -> None:
@@ -49,10 +59,12 @@ def test_minify_flags_independent() -> None:
 
 def test_minify_repr_roundtrips_through_eval() -> None:
     assert repr(Minify(omit_optional_tags=False)) == (
-        "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True)"
+        "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True, "
+        "minify_js=None)"
     )
     assert repr(Minify(collapse_whitespace=False, unquote_attributes=False, strip_comments=False)) == (
-        "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False)"
+        "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False, "
+        "minify_js=None)"
     )
 
 
@@ -83,9 +95,6 @@ def test_minify_rejects_positional() -> None:
         Minify(True)  # ty: ignore[too-many-positional-arguments]  # noqa: FBT003  # keyword-only
 
 
-# ------------------------------------------------------------- serialize wiring
-
-
 def test_serialize_without_minify_is_unchanged() -> None:
     assert parse("<p>x</p>").serialize().startswith("<html>")
 
@@ -101,9 +110,6 @@ def test_serialize_rejects_non_layout() -> None:
 
 def test_encode_minify() -> None:
     assert parse("<p>a</p>").encode(options=Html(layout=Minify())) == b"<p>a"
-
-
-# ---------------------------------------------------------------- whitespace
 
 
 def test_collapse_runs_to_single_space() -> None:
@@ -155,9 +161,6 @@ def test_collapse_named_formatter() -> None:
     assert out == "<div>caf&eacute; &amp; th&eacute;</div>"
 
 
-# ----------------------------------------------------------------- attributes
-
-
 def test_unquote_safe_value() -> None:
     assert frag("<a href='x'>t</a>", omit_optional_tags=False) == "<a href=x>t</a>"
 
@@ -192,18 +195,12 @@ def test_unquote_off_keeps_quotes() -> None:
     assert frag("<a href='x'>t</a>", unquote_attributes=False, omit_optional_tags=False) == '<a href="x">t</a>'
 
 
-# ------------------------------------------------------------------- comments
-
-
 def test_strip_comment() -> None:
     assert frag("<p>a</p><!--c--><p>b</p>", omit_optional_tags=False) == "<p>a</p><p>b</p>"
 
 
 def test_keep_comment_when_off() -> None:
     assert frag("<!--c-->x", strip_comments=False, omit_optional_tags=False) == "<!--c-->x"
-
-
-# -------------------------------------------------------------- optional tags
 
 
 @pytest.mark.parametrize(
@@ -463,9 +460,6 @@ def test_omit_kept_for_p_in_foreign_parent() -> None:
     para.append(Text("x"))
     math.append(para)
     assert math.serialize(Html(layout=Minify())).endswith("<p>x</p></math>")
-
-
-# -------------------------------------------------------------------- foreign
 
 
 def test_foreign_end_tags_kept() -> None:

@@ -62,6 +62,7 @@ typedef struct {
     PyObject *microdata_item_type;  /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
     PyObject *structured_data_type; /* turbohtml._structured_data.StructuredData, the combined-format record */
     PyObject *article_type;         /* turbohtml._article.Article, the record Node.article() yields */
+    PyObject *js_minify_type;       /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
     /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one
        NodeObject per visited node, and every node subtype shares sizeof(NodeObject)
        (the payload lives in the C th_node), so one pool re-stamps ob_type on reuse.

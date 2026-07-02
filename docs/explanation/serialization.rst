@@ -36,6 +36,98 @@ otherwise reconstruct one across the gap and shift the tree; and a value is unqu
 re-open it. The transforms that would *not* round-trip (deleting whitespace between block elements, or omitting a tag
 whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 
+**********************
+ Minifying JavaScript
+**********************
+
+Markup minification copies inline ``<script>`` text verbatim, because shrinking JavaScript is a different problem with a
+different correctness rule. :func:`~turbohtml.minify_js` is turbohtml's own minifier, a native-C subsystem built on the
+same infrastructure as the rest of the library, not a port of any existing tool. It is a real front end: lex, parse to a
+flat arena AST, run the size-reducing passes, print back as code. A tokenizer-only minifier of the ``jsmin`` school
+cannot tell a ``/`` that starts a regular expression from a ``/`` that means division (that needs grammar position, not
+just the token stream), so it is *known-incorrect*, and turbohtml's spec-authoritative rule rules it out. The same
+lex-parse-optimize-print shape already runs, correctly and fast, in the XPath engine.
+
+The passes split the way ``esbuild`` and ``terser`` split them. Whitespace, comment and number-literal minification is
+unconditional; ``mangle`` renames bindings and ``fold`` runs the structural rewrites and dead-code elimination, each
+toggled by :class:`~turbohtml.JSMinify`. Renaming is scope-aware: a script's top level is the global scope, whose names
+are observable, so only bindings local to a function are renamed, by reference count (the most-used binding in a scope
+gets the shortest base-54 name, the frequency model ``esbuild`` uses). The correctness gate is idempotence plus AST
+equivalence: the un-mangled output must reparse to the same tree, and ``minify(minify(x))`` must equal ``minify(x)``,
+checked across the competitors' own conformance corpora rather than a homegrown oracle.
+
+Every transform names the ECMA-262 clause that makes it behavior-preserving; the spec is the authority, not parity with
+another tool. ``§`` numbers below link into the `ECMA-262 standard <https://tc39.es/ecma262/>`_.
+
+.. list-table:: JavaScript minification transforms
+    :header-rows: 1
+    :widths: 30 44 26
+
+    - - transform
+      - example
+      - spec
+    - - whitespace / comment removal, explicit ``;``
+      - ``a ;\n b`` to ``a;b``
+      - `§12.2 <https://tc39.es/ecma262/#sec-white-space>`_, `§12.10 ASI
+        <https://tc39.es/ecma262/#sec-automatic-semicolon-insertion>`_
+    - - number canonicalisation
+      - ``0x0d`` to ``13``, ``1000`` to ``1e3``, ``0.5`` to ``.5``
+      - `§12.9.3 <https://tc39.es/ecma262/#sec-literals-numeric-literals>`_
+    - - BigInt separator removal
+      - ``1_000n`` to ``1000n``
+      - `§12.9.3 <https://tc39.es/ecma262/#sec-literals-numeric-literals>`_
+    - - ``true`` / ``false`` to ``!0`` / ``!1``
+      - ``x=true`` to ``x=!0``
+      - `§13.5.7 <https://tc39.es/ecma262/#sec-logical-not-operator>`_
+    - - ``undefined`` to ``void 0`` (unless shadowed)
+      - ``x=undefined`` to ``x=void 0``
+      - `§13.4.2 <https://tc39.es/ecma262/#sec-void-operator>`_
+    - - constant fold / dead-code elimination
+      - ``if(0)a;else b`` to ``b``; ``1&&x`` to ``x``
+      - `§13.13 <https://tc39.es/ecma262/#sec-binary-logical-operators>`_, `§14.6
+        <https://tc39.es/ecma262/#sec-if-statement>`_
+    - - member ``a["x"]`` to ``a.x``, key ``{"x":1}`` to ``{x:1}``
+      - ``a["x"]`` to ``a.x``
+      - `§13.3.2 <https://tc39.es/ecma262/#sec-property-accessors>`_, `§13.2.5
+        <https://tc39.es/ecma262/#sec-object-initializer>`_
+    - - identifier mangling (locals, nested function/class names, labels)
+      - ``function f(){function g(){}}`` to ``function f(){function a(){}}``
+      - `§8 <https://tc39.es/ecma262/#sec-syntax-directed-operations-scope-analysis>`_, `§14.13
+        <https://tc39.es/ecma262/#sec-labelled-statements>`_
+    - - ``if`` to logical / conditional
+      - ``if(c)a()`` to ``c&&a()``; ``if(c)a;else b`` to ``c?a:b``
+      - `§14.6 <https://tc39.es/ecma262/#sec-if-statement>`_, `§13.14
+        <https://tc39.es/ecma262/#sec-conditional-operator>`_
+    - - guard clause to conditional return
+      - ``if(c)return a;return b`` to ``return c?a:b``
+      - `§14.10 <https://tc39.es/ecma262/#sec-return-statement>`_, `§13.14
+        <https://tc39.es/ecma262/#sec-conditional-operator>`_
+    - - statement to comma sequence
+      - ``a();b();return c`` to ``return a(),b(),c``
+      - `§13.16 <https://tc39.es/ecma262/#sec-comma-operator>`_
+    - - negation flip
+      - ``!x?a:b`` to ``x?b:a``; ``!!x?a:b`` to ``x?a:b``
+      - `§13.5.7 <https://tc39.es/ecma262/#sec-logical-not-operator>`_, `§13.14
+        <https://tc39.es/ecma262/#sec-conditional-operator>`_
+    - - declaration merge
+      - ``var a=1;var b=2`` to ``var a=1,b=2``
+      - `§14.3 <https://tc39.es/ecma262/#sec-let-and-const-declarations>`_
+
+Each transform carries the guard its clause forces: a constant branch drops only when it hoists no ``var`` or function
+(`§B.3.3 <https://tc39.es/ecma262/#sec-block-level-function-declarations-web-legacy-compatibility-semantics>`_), a
+function declaration renames only in a function scope (a block declaration keeps its Annex-B hoisted twin), ``with`` and
+direct ``eval`` (`§19.2.1 <https://tc39.es/ecma262/#sec-eval-x>`_) leave the whole program unrenamed, and a
+``__proto__`` data key keeps its quotes. Arithmetic folding (``1+2`` to ``3``) is deliberately omitted: an equivalence
+proof across ``-0``, ``NaN``, IEEE-754 rounding and ``valueOf`` coercion is where minifiers ship miscompiles.
+
+Inside HTML the pass is opt-in (:class:`~turbohtml.Minify`'s ``minify_js``) and conservative. A ``<script>`` is
+rewritten only when its ``type`` marks it as JavaScript - absent, empty, ``module``, or a WHATWG JavaScript MIME essence
+- so a ``type="application/json"`` or ``importmap`` block, which is data that merely resembles code, is never handed to
+the JS parser; minifying it as JavaScript could change its quoting or numbers and break it. And a script the parser
+cannot handle is emitted byte-for-byte, so a single malformed or not-yet-supported ``<script>`` degrades to verbatim
+rather than breaking the surrounding document. The standalone :func:`~turbohtml.minify_js`, by contrast, raises on such
+input, because a caller asking to minify one script wants to hear that it could not.
+
 ***********************
  Exporting to Markdown
 ***********************

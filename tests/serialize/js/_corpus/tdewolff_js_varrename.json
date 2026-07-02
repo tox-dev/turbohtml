@@ -1,0 +1,267 @@
+[
+  {
+    "expected": "x=function(){var a;a}",
+    "input": "x=function(){var name;name}",
+    "line": 890
+  },
+  {
+    "expected": "x=function(){var a,b;a,b++}",
+    "input": "x=function(){var once,twice;once,twice++}",
+    "line": 891
+  },
+  {
+    "expected": "x=function(){try{var a;a}catch(b){a,b}}",
+    "input": "x=function(){try{var x;x}catch(y){x,y}}",
+    "line": 892
+  },
+  {
+    "expected": "x=function(){try{var a;a}catch(a){a}}",
+    "input": "x=function(){try{var x;x}catch(x){x}}",
+    "line": 893
+  },
+  {
+    "expected": "x=function(){function a(){}}",
+    "input": "x=function(){function name(){}}",
+    "line": 894
+  },
+  {
+    "expected": "x=function(){}",
+    "input": "x=function name(){}",
+    "line": 895
+  },
+  {
+    "expected": "x=function(){let a;{let b;b,a}}",
+    "input": "x=function(){let a;{let b;b,a}}",
+    "line": 896
+  },
+  {
+    "expected": "x=function({foo:a,bar:b}){}",
+    "input": "x=function({foo, bar}){}",
+    "line": 898
+  },
+  {
+    "expected": "x=function(){class a{}}",
+    "input": "x=function(){class Wheel{}}",
+    "line": 899
+  },
+  {
+    "expected": "x=function(){function a(a,b){return a,b}}",
+    "input": "x=function(){function name(arg1, arg2){return arg1, arg2}}",
+    "line": 900
+  },
+  {
+    "expected": "x=function(){function a(a,b){return a,b}return arg1}",
+    "input": "x=function(){function name(arg1, arg2){return arg1, arg2} return arg1}",
+    "line": 901
+  },
+  {
+    "expected": "x=function(){function b(a,b){return a,b}return a}",
+    "input": "x=function(){function name(arg1, arg2){return arg1, arg2} return a}",
+    "line": 902
+  },
+  {
+    "expected": "x=function(){function a(b,c){return a(b,c)}function b(b,c){return-a(b,c)}}",
+    "input": "x=function(){function add(l,r){return add(l,r)}function nadd(l,r){return-add(l,r)}}",
+    "line": 903
+  },
+  {
+    "expected": "function a(){var a;a}",
+    "input": "function a(){var b;b}",
+    "line": 904
+  },
+  {
+    "expected": "!function(){x=function(){return a()};var a=function(){return 0}}",
+    "input": "!function(){x=function(){return fun()};var fun=function(){return 0}}",
+    "line": 905
+  },
+  {
+    "expected": "!function(){var b=function(){return a};const a=5;b,a}",
+    "input": "!function(){var x=function(){return y};const y=5;x,y}",
+    "line": 906
+  },
+  {
+    "expected": "!function(){{const a=5;a,5}var a=function(){return x};a}",
+    "input": "!function(){if(1){const x=5;x;5}var y=function(){return x};y}",
+    "line": 907
+  },
+  {
+    "expected": "!function(){var a=function(){return y};a;{const a=5;a,5}}",
+    "input": "!function(){var x=function(){return y};x;if(1){const y=5;y;5}}",
+    "line": 908
+  },
+  {
+    "expected": "!function(){var a,b=function(){return a};b,z\u0026\u0026(a=5)}",
+    "input": "!function(){var x=function(){return y};x;if(z)var y=5}",
+    "line": 909
+  },
+  {
+    "expected": "!function(){var a,b=function(){return a};b,z\u0026\u0026(a=5,5)}",
+    "input": "!function(){var x=function(){return y};x;if(z){var y=5;5}}",
+    "line": 910
+  },
+  {
+    "expected": "!function(){var a,b,c=(a,b)=\u003ea+b;a,b,c}",
+    "input": "!function(){var x,y,z=(x,y)=\u003ex+y;x,y,z}",
+    "line": 911
+  },
+  {
+    "expected": "!function(){var a;print({await:a})}",
+    "input": "!function(){var await;print({await});}",
+    "line": 912
+  },
+  {
+    "expected": "function a(){var a;return{name:a}}",
+    "input": "function a(){var name; return {name}}",
+    "line": 913
+  },
+  {
+    "expected": "function a(){try{}catch(a){a}}",
+    "input": "function a(){try{}catch(arg){arg}}",
+    "line": 914
+  },
+  {
+    "expected": "function a(){var a,b;b;try{}catch{}}",
+    "input": "function a(){var name,z;z;try{}catch(name){var name}}",
+    "line": 915
+  },
+  {
+    "expected": "function a(){var a,b;b;try{}catch{}}",
+    "input": "function a(){var name,z;z;try{}catch(arg){var name}}",
+    "line": 916
+  },
+  {
+    "expected": "function a(a){function b(b){a[b]}}",
+    "input": "function a(b){function c(d){b[d]}}",
+    "line": 917
+  },
+  {
+    "expected": "function r(a){function b(b){z[b]||!a[b]}}",
+    "input": "function r(o){function l(t){if(!z[t]){if(!o[t]);}}}",
+    "line": 918
+  },
+  {
+    "expected": "!function(a){a;for(var b=0;;);};var c,d",
+    "input": "!function(a){a;for(var b=0;;);};var c;var d;",
+    "line": 919
+  },
+  {
+    "expected": "!function(){var a,b;b,a=x,a}",
+    "input": "!function(){var b;b;{(T=x),T}{var T}}",
+    "line": 920
+  },
+  {
+    "expected": "var T;T,!function(){var a,b;b,a=x,a}",
+    "input": "var T;T;!function(){var b;b;{(T=x),T}{var T}}",
+    "line": 921
+  },
+  {
+    "expected": "!function(){let a=b,b=c,c=d,d=e,e=f,f=g,g=h,h=a,i;for(let a=0;;)i=4}",
+    "input": "!function(){let a=b,b=c,c=d,d=e,e=f,f=g,g=h,h=a,j;for(let i=0;;)j=4}",
+    "line": 922
+  },
+  {
+    "expected": "function a(){var name;with(z)name}function b(){var a;a}",
+    "input": "function a(){var name;with(z){name}} function b(){var name;name}",
+    "line": 923
+  },
+  {
+    "expected": "!function(){var a;a,!function(){a;var b;b}}",
+    "input": "!function(){var name;{name;!function(){name;var other;other}}}",
+    "line": 924
+  },
+  {
+    "expected": "name=function(){var a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,_,$,aa,ba,ca,da,ea,fa,ga,ha,ia,ja,ka,la,ma,na,oa,pa,qa,ra,sa,ta,ua,va,wa,xa,ya,za,Aa,Ba,Ca,Da,Ea,Fa,Ga,Ha,Ia,Ja,Ka,La,Ma,Na,Oa,Pa,Qa,Ra,Sa,Ta,Ua,Va,Wa,Xa,Ya,Za,_a,$a,ab,bb,cb,db,eb,fb,gb,hb,ib,jb,kb;a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,_,$,aa,ba,ca,da,ea,fa,ga,ha,ia,ja,ka,la,ma,na,oa,pa,qa,ra,sa,ta,ua,va,wa,xa,ya,za,Aa,Ba,Ca,Da,Ea,Fa,Ga,Ha,Ia,Ja,Ka,La,Ma,Na,Oa,Pa,Qa,Ra,Sa,Ta,Ua,Va,Wa,Xa,Ya,Za,_a,$a,ab,bb,cb,db,eb,fb,gb,hb,ib,jb,kb}",
+    "input": "name=function(){var a001,a002,a003,a004,a005,a006,a007,a008,a009,a010,a011,a012,a013,a014,a015,a016,a017,a018,a019,a020,a021,a022,a023,a024,a025,a026,a027,a028,a029,a030,a031,a032,a033,a034,a035,a036,a037,a038,a039,a040,a041,a042,a043,a044,a045,a046,a047,a048,a049,a050,a051,a052,a053,a054,a055,a056,a057,a058,a059,a060,a061,a062,a063,a064,a065,a066,a067,a068,a069,a070,a071,a072,a073,a074,a075,a076,a077,a078,a079,a080,a081,a082,a083,a084,a085,a086,a087,a088,a089,a090,a091,a092,a093,a094,a095,a096,a097,a098,a099,a100,a101,a102,a103,a104,a105,a106,a107,a108,a109,a110,a111,a112,a113,a114,a115,a116,a117,a118,a119;a001,a002,a003,a004,a005,a006,a007,a008,a009,a010,a011,a012,a013,a014,a015,a016,a017,a018,a019,a020,a021,a022,a023,a024,a025,a026,a027,a028,a029,a030,a031,a032,a033,a034,a035,a036,a037,a038,a039,a040,a041,a042,a043,a044,a045,a046,a047,a048,a049,a050,a051,a052,a053,a054,a055,a056,a057,a058,a059,a060,a061,a062,a063,a064,a065,a066,a067,a068,a069,a070,a071,a072,a073,a074,a075,a076,a077,a078,a079,a080,a081,a082,a083,a084,a085,a086,a087,a088,a089,a090,a091,a092,a093,a094,a095,a096,a097,a098,a099,a100,a101,a102,a103,a104,a105,a106,a107,a108,a109,a110,a111,a112,a113,a114,a115,a116,a117,a118,a119}",
+    "line": 925
+  },
+  {
+    "expected": "a=\u003e{for(let d of c){d,a;var b}}",
+    "input": "a=\u003e{for(let b of c){b,a;{var d}}}",
+    "line": 927
+  },
+  {
+    "expected": "function f(a){let c=0;if(a===0)break;let b=3;b;break}",
+    "input": "function f(a){let b=0;if(a===0){break}else{let b=3;b;break}}",
+    "line": 929
+  },
+  {
+    "expected": "!function(a){let c=0;if(a===0)break;let b=3;b;break}",
+    "input": "!function(a){let b=0;if(a===0){break}else{let b=3;b;break}}",
+    "line": 930
+  },
+  {
+    "expected": "a=\u003e{let c=0;if(a===0)break;let b=3;b;break}",
+    "input": "a=\u003e{let b=0;if(a===0){break}else{let b=3;b;break}}",
+    "line": 931
+  },
+  {
+    "expected": "{let c=0;if(a===0)break;let b=3;b;break}",
+    "input": "{let b=0;if(a===0){break}else{let b=3;b;break}}",
+    "line": 932
+  },
+  {
+    "expected": "class x{f(a){let c=0;if(a===0)break;let b=3;b;break}}",
+    "input": "class x{f(a){let b=0;if(a===0){break}else{let b=3;b;break}}}",
+    "line": 933
+  },
+  {
+    "expected": "for(;;){let c=0;if(a===0)break;let b=3;b;break}",
+    "input": "for(;;){let b=0;if(a===0){break}else{let b=3;b;break}}",
+    "line": 934
+  },
+  {
+    "expected": "try{let c=0;if(a===0)break;let b=3;b;break}catch{}",
+    "input": "try{let b=0;if(a===0){break}else{let b=3;b;break}}catch{}",
+    "line": 935
+  },
+  {
+    "expected": "let a=0;switch(a){case 0:let a=1;case 1:let b=2}",
+    "input": "let a=0;switch(a){case 0:let b=1;case 1:let c=2}",
+    "line": 936
+  },
+  {
+    "expected": "({a=1}={})=\u003ea",
+    "input": "({a:b=1}={})=\u003eb",
+    "line": 937
+  },
+  {
+    "expected": "()=\u003e{if(x){const b=0;for(var a;!0;);}}",
+    "input": "()=\u003e{var a;if(x){const b=0;while(true);}}",
+    "line": 938
+  },
+  {
+    "expected": "(a,b)=\u003e{a=\u003e0,b(a(b))}",
+    "input": "(e,s)=\u003e{e=\u003e0,s(e(s))}",
+    "line": 939
+  },
+  {
+    "expected": "()=\u003e{var b;try{a}catch{b}}",
+    "input": "()=\u003e{var c;try {a} catch(b) {c}}",
+    "line": 940
+  },
+  {
+    "expected": "()=\u003e{let a;a\u003c0?-a:a}",
+    "input": "()=\u003e{let foo;Math.abs(foo)}",
+    "line": 941
+  },
+  {
+    "expected": "()=\u003e{let a;isNaN(a)}",
+    "input": "()=\u003e{let foo;isNaN(foo)}",
+    "line": 942
+  },
+  {
+    "expected": "()=\u003e{let a;a(foo)}",
+    "input": "()=\u003e{let isNaN;isNaN(foo)}",
+    "line": 943
+  },
+  {
+    "expected": "class a{#a=1;#b(){this.#a++}}",
+    "input": "class a { #foo = 1; #bar() { this.#foo++ } }",
+    "line": 944
+  },
+  {
+    "expected": "var ÆÆ=t,ÆÆ=v,a=ÿ",
+    "input": "var ÆÆ,ÆÆ=t;var ÆÆ=v,a=ÿ",
+    "line": 947
+  }
+]

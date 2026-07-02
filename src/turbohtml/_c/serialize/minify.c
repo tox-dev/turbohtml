@@ -14,6 +14,7 @@
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
+#include "serialize/js/minify.h"
 
 #include <string.h>
 
@@ -348,6 +349,86 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
               first->atom == TH_TAG_STYLE || first->atom == TH_TAG_TEMPLATE));
 }
 
+/* Whether a <script>'s type marks it as JavaScript the minifier may rewrite: absent,
+   empty, "module", or a WHATWG JavaScript MIME type essence. Any other type
+   (application/json, importmap, a text/html template, ...) is data, not script, and must
+   pass through untouched, so it is never handed to the JS minifier. A type padded with
+   whitespace is treated conservatively as non-JS — rare, and verbatim is always safe. */
+static int script_is_js(th_tree *tree, th_node *node) {
+    Py_ssize_t type_index = th_node_attr_find(tree, node, "type", 4);
+    if (type_index < 0) {
+        return 1; /* no type attribute: a classic script */
+    }
+    const Py_UCS4 *value = node->attrs[type_index].value;
+    Py_ssize_t len = node->attrs[type_index].value_len;
+    if (len == 0) {
+        return 1; /* type="": a classic script */
+    }
+    static const char *const js_types[] = {
+        "module",
+        "text/javascript",
+        "application/javascript",
+        "text/ecmascript",
+        "application/ecmascript",
+        "application/x-ecmascript",
+        "application/x-javascript",
+        "text/javascript1.0",
+        "text/javascript1.1",
+        "text/javascript1.2",
+        "text/javascript1.3",
+        "text/javascript1.4",
+        "text/javascript1.5",
+        "text/jscript",
+        "text/livescript",
+        "text/x-ecmascript",
+        "text/x-javascript",
+    };
+    for (size_t index = 0; index < sizeof(js_types) / sizeof(js_types[0]); index++) {
+        if (ser_value_iequals(value, len, js_types[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Emit a <script>'s JavaScript content minified, returning 1 when it did. Returns 0 —
+   leaving the caller to emit the content verbatim — for a non-JS script, an empty one, or
+   a script the JS minifier cannot parse, so one bad <script> never breaks serialization. */
+static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th_minify_opts *opts) {
+    if (node->atom != TH_TAG_SCRIPT) {
+        return 0; /* style/textarea/title and other raw-text elements are never JavaScript */
+    }
+    if (!script_is_js(tree, node)) {
+        return 0;
+    }
+    Py_ssize_t total = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        total += child->text_len;
+    }
+    if (total == 0) {
+        return 0; /* an empty <script>: the verbatim path emits nothing either */
+    }
+    Py_UCS4 *src = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+    if (src == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return 0;      /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t pos = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
+        pos += child->text_len;
+    }
+    /* errlen 0: the HTML path discards the message and falls back to verbatim instead */
+    Py_ssize_t out_len;
+    Py_UCS4 *result = th_js_minify(src, total, opts->minify_js_fold, opts->minify_js_mangle, &out_len, NULL, 0);
+    PyMem_Free(src);
+    if (result == NULL) {
+        return 0; /* a parse error (or allocation failure): emit the script verbatim */
+    }
+    sbuf_put_ucs4(out, result, out_len);
+    PyMem_Free(result);
+    return 1;
+}
+
 /* Minified outer serialization. The walk is iterative like serialize_compact,
    descending through first_child and ascending through parent pointers, with a
    preserve counter so text inside pre/textarea/listing skips whitespace
@@ -377,8 +458,10 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node)) {
-                for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                    sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                if (!(opts->minify_js && mini_emit_script_js(out, tree, node, opts))) {
+                    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+                        sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                    }
                 }
                 ser_close_tag(out, node); /* a raw-text element's end tag is never one the optional-tag rules omit */
                 break;

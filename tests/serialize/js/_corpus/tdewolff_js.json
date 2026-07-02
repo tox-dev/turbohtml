@@ -1,0 +1,3662 @@
+[
+  {
+    "expected": "#!shebang",
+    "input": "#!shebang",
+    "line": 21
+  },
+  {
+    "expected": "a",
+    "input": "/*comment*/a",
+    "line": 22
+  },
+  {
+    "expected": "/*!comment*/a",
+    "input": "/*!comment*/a",
+    "line": 23
+  },
+  {
+    "expected": "//!comment1\n//!comment2\na",
+    "input": "//!comment1\n\n//!comment2\na",
+    "line": 24
+  },
+  {
+    "expected": "debugger",
+    "input": "debugger",
+    "line": 25
+  },
+  {
+    "expected": "\"use strict\"",
+    "input": "\"use strict\"",
+    "line": 26
+  },
+  {
+    "expected": "1",
+    "input": "1.0",
+    "line": 27
+  },
+  {
+    "expected": "12.03",
+    "input": "1_2.0_3",
+    "line": 28
+  },
+  {
+    "expected": "1e3",
+    "input": "1000",
+    "line": 29
+  },
+  {
+    "expected": "1e10",
+    "input": "1e10",
+    "line": 30
+  },
+  {
+    "expected": "1e-10",
+    "input": "1e-10",
+    "line": 31
+  },
+  {
+    "expected": "5e3",
+    "input": "5_000",
+    "line": 32
+  },
+  {
+    "expected": "5000n",
+    "input": "5_000n",
+    "line": 33
+  },
+  {
+    "expected": "9",
+    "input": "0b1001",
+    "line": 34
+  },
+  {
+    "expected": "9",
+    "input": "0b10_01",
+    "line": 35
+  },
+  {
+    "expected": "9n",
+    "input": "0b10_01n",
+    "line": 36
+  },
+  {
+    "expected": "9",
+    "input": "0o11",
+    "line": 37
+  },
+  {
+    "expected": "9n",
+    "input": "0o11n",
+    "line": 38
+  },
+  {
+    "expected": "13",
+    "input": "0x0D",
+    "line": 39
+  },
+  {
+    "expected": "13",
+    "input": "0x0d",
+    "line": 40
+  },
+  {
+    "expected": "13n",
+    "input": "0x0dn",
+    "line": 41
+  },
+  {
+    "expected": "0x53DCAA254718n",
+    "input": "0x53DCAA254718n",
+    "line": 42
+  },
+  {
+    "expected": "+ +x",
+    "input": "+ +x",
+    "line": 45
+  },
+  {
+    "expected": "- -x",
+    "input": "- -x",
+    "line": 46
+  },
+  {
+    "expected": "-+x",
+    "input": "- +x",
+    "line": 47
+  },
+  {
+    "expected": "+ ++x",
+    "input": "+ ++x",
+    "line": 48
+  },
+  {
+    "expected": "- --x",
+    "input": "- --x",
+    "line": 49
+  },
+  {
+    "expected": "-++x",
+    "input": "- ++x",
+    "line": 50
+  },
+  {
+    "expected": "a+ ++b",
+    "input": "a + ++b",
+    "line": 51
+  },
+  {
+    "expected": "a- --b",
+    "input": "a - --b",
+    "line": 52
+  },
+  {
+    "expected": "a+++b",
+    "input": "a++ +b",
+    "line": 53
+  },
+  {
+    "expected": "a---b",
+    "input": "a-- -b",
+    "line": 54
+  },
+  {
+    "expected": "a-++b",
+    "input": "a - ++b",
+    "line": 55
+  },
+  {
+    "expected": "a-- \u003eb",
+    "input": "a-- \u003e b",
+    "line": 56
+  },
+  {
+    "expected": "a-- \u003eb",
+    "input": "(a--) \u003e b",
+    "line": 57
+  },
+  {
+    "expected": "a--\u003cb",
+    "input": "a-- \u003c b",
+    "line": 58
+  },
+  {
+    "expected": "a\u003c! --b",
+    "input": "a \u003c !--b",
+    "line": 59
+  },
+  {
+    "expected": "a\u003e!--b",
+    "input": "a \u003e !--b",
+    "line": 60
+  },
+  {
+    "expected": "!--b",
+    "input": "!--b",
+    "line": 61
+  },
+  {
+    "expected": "/a/+b",
+    "input": "/a/ + b",
+    "line": 62
+  },
+  {
+    "expected": "/a/ instanceof b",
+    "input": "/a/ instanceof b",
+    "line": 63
+  },
+  {
+    "expected": "[a]instanceof b",
+    "input": "[a] instanceof b",
+    "line": 64
+  },
+  {
+    "expected": "let a=5;a",
+    "input": "let a = 5;a",
+    "line": 65
+  },
+  {
+    "expected": "let a=5,b;a,b",
+    "input": "let a = 5,b;a,b",
+    "line": 66
+  },
+  {
+    "expected": "let a,b=5;a,b",
+    "input": "let a,b = 5;a,b",
+    "line": 67
+  },
+  {
+    "expected": "function a(){}",
+    "input": "function a(){}",
+    "line": 68
+  },
+  {
+    "expected": "function a(b){b}",
+    "input": "function a(b){b}",
+    "line": 69
+  },
+  {
+    "expected": "function a(b,c,...d){}",
+    "input": "function a(b, c, ...d){}",
+    "line": 70
+  },
+  {
+    "expected": "function*a(){}",
+    "input": "function * a(){}",
+    "line": 71
+  },
+  {
+    "expected": "function a(){}break",
+    "input": "function a(){}; break",
+    "line": 72
+  },
+  {
+    "expected": "x=function(){}",
+    "input": "x = function (){}",
+    "line": 73
+  },
+  {
+    "expected": "x=function(){}",
+    "input": "x = function a(){}",
+    "line": 74
+  },
+  {
+    "expected": "x=function(a){a}",
+    "input": "x = function (a){a}",
+    "line": 75
+  },
+  {
+    "expected": "x=function(a,b,...c){}",
+    "input": "x = function (a, b, ...c){}",
+    "line": 76
+  },
+  {
+    "expected": "x=function(){},y=z",
+    "input": "x = function (){};y=z",
+    "line": 77
+  },
+  {
+    "expected": "function f(){return 5}",
+    "input": "function f(){return 5}",
+    "line": 78
+  },
+  {
+    "expected": "function f(){return.5}",
+    "input": "function f(){return .5}",
+    "line": 79
+  },
+  {
+    "expected": "function f(){return-5}",
+    "input": "function f(){return-5}",
+    "line": 80
+  },
+  {
+    "expected": "break a",
+    "input": "break a",
+    "line": 81
+  },
+  {
+    "expected": "continue a",
+    "input": "continue a",
+    "line": 82
+  },
+  {
+    "expected": "label:b",
+    "input": "label: b",
+    "line": 83
+  },
+  {
+    "expected": "typeof a",
+    "input": "typeof a",
+    "line": 84
+  },
+  {
+    "expected": "new RegExp",
+    "input": "new RegExp()",
+    "line": 85
+  },
+  {
+    "expected": "switch(a){case b:5;default:6}",
+    "input": "switch (a) { case b: 5; default: 6}",
+    "line": 86
+  },
+  {
+    "expected": "switch(a){case b:{var c;c;break}default:6}",
+    "input": "switch (a) { case b: {var c;c;break}; default: 6}",
+    "line": 87
+  },
+  {
+    "expected": "switch(a){case b:5}for(;b;);",
+    "input": "switch (a) { case b: 5 }while(b);",
+    "line": 88
+  },
+  {
+    "expected": "switch(a){case\"text\":5}",
+    "input": "switch (a) { case \"text\": 5}",
+    "line": 89
+  },
+  {
+    "expected": "let a=5;switch(b){case 0:let a=5}",
+    "input": "let a=5;switch(b){case 0:let a=5}",
+    "line": 90
+  },
+  {
+    "expected": "with(a=b)x",
+    "input": "with (a = b) x",
+    "line": 91
+  },
+  {
+    "expected": "with(a=b)x",
+    "input": "with (a = b) {x}",
+    "line": 92
+  },
+  {
+    "expected": "import\"path\"",
+    "input": "import \"path\"",
+    "line": 93
+  },
+  {
+    "expected": "import x from\"path\"",
+    "input": "import x from \"path\"",
+    "line": 94
+  },
+  {
+    "expected": "import*as b from\"path\"",
+    "input": "import * as b from \"path\"",
+    "line": 95
+  },
+  {
+    "expected": "",
+    "input": "import {} from \"path\"",
+    "line": 96
+  },
+  {
+    "expected": "import{a as b}from\"path\"",
+    "input": "import {a as b} from \"path\"",
+    "line": 97
+  },
+  {
+    "expected": "import{a as b,c}from\"path\"",
+    "input": "import {a as b, c} from \"path\"",
+    "line": 98
+  },
+  {
+    "expected": "import x,*as b from\"path\"",
+    "input": "import x, * as b from \"path\"",
+    "line": 99
+  },
+  {
+    "expected": "import x,{a as b,c}from\"path\"",
+    "input": "import x, {a as b, c} from \"path\"",
+    "line": 100
+  },
+  {
+    "expected": "export*from\"path\"",
+    "input": "export * from \"path\"",
+    "line": 101
+  },
+  {
+    "expected": "export*as ns from\"path\"",
+    "input": "export * as ns from \"path\"",
+    "line": 102
+  },
+  {
+    "expected": "export{a as b}from\"path\"",
+    "input": "export {a as b} from \"path\"",
+    "line": 103
+  },
+  {
+    "expected": "export{a as b,c}from\"path\"",
+    "input": "export {a as b, c} from \"path\"",
+    "line": 104
+  },
+  {
+    "expected": "export{a as b,c}",
+    "input": "export {a as b, c}",
+    "line": 105
+  },
+  {
+    "expected": "export var a=b",
+    "input": "export var a = b",
+    "line": 106
+  },
+  {
+    "expected": "export function a(){}",
+    "input": "export function a(){}",
+    "line": 107
+  },
+  {
+    "expected": "export default a=b",
+    "input": "export default a = b",
+    "line": 108
+  },
+  {
+    "expected": "export default a=b;c=d",
+    "input": "export default a = b;c=d",
+    "line": 109
+  },
+  {
+    "expected": "export default function(){}c=d",
+    "input": "export default function a(){};c=d",
+    "line": 110
+  },
+  {
+    "expected": "!class{}",
+    "input": "!class {}",
+    "line": 111
+  },
+  {
+    "expected": "class a{}",
+    "input": "class a {}",
+    "line": 112
+  },
+  {
+    "expected": "class a extends b{}",
+    "input": "class a extends b {}",
+    "line": 113
+  },
+  {
+    "expected": "class a extends(!b){}",
+    "input": "class a extends(!b){}",
+    "line": 114
+  },
+  {
+    "expected": "class a{f(a){a}}",
+    "input": "class a { f(a) {a} }",
+    "line": 115
+  },
+  {
+    "expected": "class a{f(a){a}static g(b){b}}",
+    "input": "class a { f(a) {a}; static g(b) {b} }",
+    "line": 116
+  },
+  {
+    "expected": "class a{static}",
+    "input": "class a { static }",
+    "line": 117
+  },
+  {
+    "expected": "class a{static b}",
+    "input": "class a { static b }",
+    "line": 118
+  },
+  {
+    "expected": "class a{f(c){c}}",
+    "input": "class a { f(c){c} }",
+    "line": 119
+  },
+  {
+    "expected": "class a{static#d=5}",
+    "input": "class a { static #d=5 }",
+    "line": 120
+  },
+  {
+    "expected": "class a{static{b=this.f(5)}}",
+    "input": "class a { static { b = this.f(5) } }",
+    "line": 121
+  },
+  {
+    "expected": "class a{#a(){}}",
+    "input": "class a { #a(){} }",
+    "line": 122
+  },
+  {
+    "expected": "class a{#b=1;#c(){}}",
+    "input": "class a { #b = 1; #c() {} }",
+    "line": 123
+  },
+  {
+    "expected": "for(var a=5;a\u003c10;a++)a",
+    "input": "for (var a = 5; a \u003c 10; a++){a}",
+    "line": 124
+  },
+  {
+    "expected": "for(a,b=5;a\u003c10;a++)a",
+    "input": "for (a,b = 5; a \u003c 10; a++){a}",
+    "line": 125
+  },
+  {
+    "expected": "async function f(){for await(var a of b)a}",
+    "input": "async function f(){for await (var a of b){a}}",
+    "line": 126
+  },
+  {
+    "expected": "for(var a in b)a",
+    "input": "for (var a in b){a}",
+    "line": 127
+  },
+  {
+    "expected": "for(a in b)a",
+    "input": "for (a in b){a}",
+    "line": 128
+  },
+  {
+    "expected": "for(var a of b)a",
+    "input": "for (var a of b){a}",
+    "line": 129
+  },
+  {
+    "expected": "for(a of b)a",
+    "input": "for (a of b){a}",
+    "line": 130
+  },
+  {
+    "expected": "for(;;){let a;a}",
+    "input": "for (;;){let a;a}",
+    "line": 131
+  },
+  {
+    "expected": "for(var a,b;;){let a;a++}a,b",
+    "input": "var a;for(var b;;){let a;a++}a,b",
+    "line": 132
+  },
+  {
+    "expected": "for(var a,b;;){let c=10;c++}a,b",
+    "input": "var a;for(var b;;){let c = 10;c++}a,b",
+    "line": 133
+  },
+  {
+    "expected": "for(;a\u003c10;)a",
+    "input": "while(a \u003c 10){a}",
+    "line": 134
+  },
+  {
+    "expected": "for(;a\u003c10;)a,b",
+    "input": "while(a \u003c 10){a;b}",
+    "line": 135
+  },
+  {
+    "expected": "for(;a\u003c10;){for(;b;);c}",
+    "input": "while(a \u003c 10){while(b);c}",
+    "line": 136
+  },
+  {
+    "expected": "do a;while(a\u003c10)",
+    "input": "do {a} while(a \u003c 10)",
+    "line": 138
+  },
+  {
+    "expected": "do[a]=5;while(a\u003c10)",
+    "input": "do [a]=5; while(a \u003c 10)",
+    "line": 139
+  },
+  {
+    "expected": "do[a]=5;while(a\u003c10)break",
+    "input": "do [a]=5; while(a \u003c 10);break",
+    "line": 140
+  },
+  {
+    "expected": "throw a",
+    "input": "throw a",
+    "line": 141
+  },
+  {
+    "expected": "throw[a]",
+    "input": "throw [a]",
+    "line": 142
+  },
+  {
+    "expected": "try{a}catch{b}",
+    "input": "try {a} catch {b}",
+    "line": 143
+  },
+  {
+    "expected": "try{a}catch(b){b}",
+    "input": "try {a} catch(b) {b}",
+    "line": 144
+  },
+  {
+    "expected": "try{a}catch(b){b}finally{c}",
+    "input": "try {a} catch(b) {b} finally {c}",
+    "line": 145
+  },
+  {
+    "expected": "try{a}finally{c}",
+    "input": "try {a} finally {c}",
+    "line": 146
+  },
+  {
+    "expected": "try{a}catch{c}",
+    "input": "try {a} catch(b) {c}",
+    "line": 147
+  },
+  {
+    "expected": "a=b,c=d",
+    "input": "a=b;c=d",
+    "line": 148
+  },
+  {
+    "expected": "\"\"",
+    "input": "\"\"",
+    "line": 151
+  },
+  {
+    "expected": "\"\\x7\"",
+    "input": "\"\\x7\"",
+    "line": 152
+  },
+  {
+    "expected": "\"string'string\"",
+    "input": "\"string\\'string\"",
+    "line": 153
+  },
+  {
+    "expected": "'string\"string'",
+    "input": "'string\\\"string'",
+    "line": 154
+  },
+  {
+    "expected": "\"string\t\f\u000b\bstring\"",
+    "input": "\"string\\t\\f\\v\\bstring\"",
+    "line": 155
+  },
+  {
+    "expected": "\"stringac'string\"",
+    "input": "\"string\\a\\c\\'string\"",
+    "line": 156
+  },
+  {
+    "expected": "\"string∀string\"",
+    "input": "\"string\\∀string\"",
+    "line": 157
+  },
+  {
+    "expected": "\"string\\0￿string\"",
+    "input": "\"string\\0\\uFFFFstring\"",
+    "line": 158
+  },
+  {
+    "expected": "`string\\x00U\n\\r\"'string`",
+    "input": "\"string\\x00\\x55\\x0A\\x0D\\x22\\x27string\"",
+    "line": 159
+  },
+  {
+    "expected": "`string\\0\n\\r\"'!1string`",
+    "input": "\"string\\000\\12\\015\\042\\47\\411string\"",
+    "line": 160
+  },
+  {
+    "expected": "\"\\x005\"",
+    "input": "\"\\x005\"",
+    "line": 161
+  },
+  {
+    "expected": "`\\r`",
+    "input": "`\\r`",
+    "line": 162
+  },
+  {
+    "expected": "`string\n\\rstring`",
+    "input": "'string\\n\\rstring'",
+    "line": 163
+  },
+  {
+    "expected": "\"stringstringstringstringstringstring\"",
+    "input": "'string\\\r\nstring\\\nstring\\\rstring\\\u2028string\\\u2029string'",
+    "line": 164
+  },
+  {
+    "expected": "\"\\x7H\\u877H\"",
+    "input": "\"\\x7H\\u877H\"",
+    "line": 165
+  },
+  {
+    "expected": "\"ƬǞƇƠ\"",
+    "input": "\"\\u01ac\\u01de\\u0187\\u{0001a0}\"",
+    "line": 166
+  },
+  {
+    "expected": "\"str1ngstr2ng\"",
+    "input": "\"str1ng\" + \"str2ng\"",
+    "line": 167
+  },
+  {
+    "expected": "\"str1ngstr2ngstr3ng\"",
+    "input": "\"str1ng\" + \"str2ng\" + \"str3ng\"",
+    "line": 168
+  },
+  {
+    "expected": "\"padding\"+this",
+    "input": "\"padding\" + this",
+    "line": 169
+  },
+  {
+    "expected": "\"\u003c\\/script\u003e\"",
+    "input": "\"\u003c\\/script\u003e\"",
+    "line": 170
+  },
+  {
+    "expected": "\"\u003c\\/script\u003e\"",
+    "input": "\"\u003c/scr\"+\"ipt\u003e\"",
+    "line": 171
+  },
+  {
+    "expected": "'\"'",
+    "input": "\"\\\"\"",
+    "line": 172
+  },
+  {
+    "expected": "`'\"\"`",
+    "input": "'\\'\"\"'",
+    "line": 173
+  },
+  {
+    "expected": "`\"\"a'`",
+    "input": "\"\\\"\\\"a'\"",
+    "line": 174
+  },
+  {
+    "expected": "`'\"`",
+    "input": "\"'\" + '\"'",
+    "line": 175
+  },
+  {
+    "expected": "`\"'`",
+    "input": "'\"' + \"'\"",
+    "line": 176
+  },
+  {
+    "expected": "`\n'$\\${`",
+    "input": "`\\n\\'\\$\\$\\{`",
+    "line": 177
+  },
+  {
+    "expected": "\"ab\"+5",
+    "input": "\"a\"+\"b\"+5",
+    "line": 178
+  },
+  {
+    "expected": "5+\"ab\"",
+    "input": "5+\"a\"+\"b\"",
+    "line": 179
+  },
+  {
+    "expected": "\"ab\"+5+\"cd\"",
+    "input": "\"a\"+\"b\"+5+\"c\"+\"d\"",
+    "line": 180
+  },
+  {
+    "expected": "\"ab\"+5+6+\"d\"",
+    "input": "\"a\"+\"b\"+5+6+\"d\"",
+    "line": 181
+  },
+  {
+    "expected": "`$${foo}`",
+    "input": "`$${foo}`",
+    "line": 182
+  },
+  {
+    "expected": "`\n\nCheck the render method of \\``",
+    "input": "'\\n\\nCheck the render method of `'",
+    "line": 183
+  },
+  {
+    "expected": "x=!0",
+    "input": "x=true",
+    "line": 186
+  },
+  {
+    "expected": "x=!1",
+    "input": "x=false",
+    "line": 187
+  },
+  {
+    "expected": "x=(!1)()",
+    "input": "x=false()",
+    "line": 188
+  },
+  {
+    "expected": "!1",
+    "input": "false",
+    "line": 189
+  },
+  {
+    "expected": "x=0[0]",
+    "input": "x=void 0",
+    "line": 190
+  },
+  {
+    "expected": "x=0[0]",
+    "input": "x=undefined",
+    "line": 191
+  },
+  {
+    "expected": "x=0[0]()",
+    "input": "x=undefined()",
+    "line": 192
+  },
+  {
+    "expected": "x=0[0].a",
+    "input": "x=undefined.a",
+    "line": 193
+  },
+  {
+    "expected": "{const undefined=5;x=undefined}",
+    "input": "{const undefined=5;x=undefined}",
+    "line": 194
+  },
+  {
+    "expected": "x=1/0",
+    "input": "x=Infinity",
+    "line": 195
+  },
+  {
+    "expected": "x=(1/0)()",
+    "input": "x=Infinity()",
+    "line": 196
+  },
+  {
+    "expected": "x=2**(1/0)",
+    "input": "x=2**Infinity",
+    "line": 197
+  },
+  {
+    "expected": "{const Infinity=5;x=Infinity}",
+    "input": "{const Infinity=5;x=Infinity}",
+    "line": 198
+  },
+  {
+    "expected": "!0",
+    "input": "!\"\"",
+    "line": 199
+  },
+  {
+    "expected": "!1",
+    "input": "!\"foobar\"",
+    "line": 200
+  },
+  {
+    "expected": "class a extends 0[0]{}",
+    "input": "class a extends undefined {}",
+    "line": 201
+  },
+  {
+    "expected": "new(!0)",
+    "input": "new true",
+    "line": 202
+  },
+  {
+    "expected": "function*a(){yield}",
+    "input": "function*a(){yield undefined}",
+    "line": 203
+  },
+  {
+    "expected": "function*a(){let undefined;yield undefined}",
+    "input": "function*a(){let undefined;yield undefined}",
+    "line": 204
+  },
+  {
+    "expected": "function*a(){yield*0[0]}",
+    "input": "function*a(){yield*undefined}",
+    "line": 205
+  },
+  {
+    "expected": "function f(){if(a)return b}",
+    "input": "function f(){if(a){return b}}",
+    "line": 208
+  },
+  {
+    "expected": "function f(){if(a)return b=5,b}",
+    "input": "function f(){if(a){b = 5;return b}}",
+    "line": 209
+  },
+  {
+    "expected": "a",
+    "input": "if(a)",
+    "line": 210
+  },
+  {
+    "expected": "a",
+    "input": "if(a){}",
+    "line": 211
+  },
+  {
+    "expected": "a\u0026\u0026a",
+    "input": "if(a) a",
+    "line": 212
+  },
+  {
+    "expected": "a\u0026\u0026b",
+    "input": "if(a) b",
+    "line": 213
+  },
+  {
+    "expected": "a,b\u0026\u0026c",
+    "input": "if(a,b) c",
+    "line": 214
+  },
+  {
+    "expected": "a",
+    "input": "if(a){}else;",
+    "line": 215
+  },
+  {
+    "expected": "a",
+    "input": "if(a){}else{}",
+    "line": 216
+  },
+  {
+    "expected": "a",
+    "input": "if(a){}else{;}",
+    "line": 217
+  },
+  {
+    "expected": "a||b",
+    "input": "if(a){}else{b}",
+    "line": 218
+  },
+  {
+    "expected": "a||b",
+    "input": "if(a)a;else b",
+    "line": 219
+  },
+  {
+    "expected": "a,b",
+    "input": "if(a)b;else b",
+    "line": 220
+  },
+  {
+    "expected": "a?b=c:d\u0026\u0026(e=f)",
+    "input": "if(a){b=c}else if(d){e=f}",
+    "line": 221
+  },
+  {
+    "expected": "a?(b=c,y=z):d\u0026\u0026(e=f)",
+    "input": "if(a){b=c;y=z}else if(d){e=f}",
+    "line": 222
+  },
+  {
+    "expected": "if(a)for(;b;)c,d;else e",
+    "input": "if(a)while(b){c;d}else e",
+    "line": 223
+  },
+  {
+    "expected": "if(a)for(;b;)c;else e",
+    "input": "if(a)while(b){c}else e",
+    "line": 224
+  },
+  {
+    "expected": "a\u0026\u0026b\u0026\u0026c",
+    "input": "if(a){ if(b) c }",
+    "line": 225
+  },
+  {
+    "expected": "a?b\u0026\u0026c:e",
+    "input": "if(a){ if(b) c } else e",
+    "line": 226
+  },
+  {
+    "expected": "a?b?c:d:e",
+    "input": "if(a){ if(b) c; else d} else e",
+    "line": 227
+  },
+  {
+    "expected": "if(a)if(b)c;else for(x;y;z)f=g;else e",
+    "input": "if(a){ if(b) c; else for(x;y;z){f=g}} else e",
+    "line": 228
+  },
+  {
+    "expected": "if(a)if(b)c;else for(x;y;z)f=g;else e",
+    "input": "if(a){ if(b) c; else {for(x;y;z){f=g}}} else e",
+    "line": 229
+  },
+  {
+    "expected": "a?a={b}:e",
+    "input": "if(a)a={b};else e",
+    "line": 230
+  },
+  {
+    "expected": "a?a:[e]=4",
+    "input": "if(a) a; else [e]=4",
+    "line": 231
+  },
+  {
+    "expected": "a?a=b?c:function(d){d}:e",
+    "input": "if(a){ a = b?c:function(d){d} } else e",
+    "line": 232
+  },
+  {
+    "expected": "if(a)for(;b;)c?d:e;else f",
+    "input": "if(a)while(b){if(c)d; else e}else f",
+    "line": 233
+  },
+  {
+    "expected": "a\u0026\u0026(b=c)",
+    "input": "if(a)b=c",
+    "line": 234
+  },
+  {
+    "expected": "a||(b=c)",
+    "input": "if(!a)b=c",
+    "line": 235
+  },
+  {
+    "expected": "(a||d)\u0026\u0026(b=c)",
+    "input": "if(a||d)b=c",
+    "line": 236
+  },
+  {
+    "expected": "a||(b=c)",
+    "input": "if(a);else b=c",
+    "line": 237
+  },
+  {
+    "expected": "a\u0026\u0026(b=c)",
+    "input": "if(!a);else b=c",
+    "line": 238
+  },
+  {
+    "expected": "a?b=c:e",
+    "input": "if(a)b=c;else e",
+    "line": 239
+  },
+  {
+    "expected": "a?(b=c,f):e",
+    "input": "if(a)b=c,f;else e",
+    "line": 240
+  },
+  {
+    "expected": "a?b=c:d?e=f:g=h",
+    "input": "if(a){b=c}else{if(d){e=f}else{g=h}}",
+    "line": 241
+  },
+  {
+    "expected": "a?b=c:d?e=f:g\u0026\u0026(h=i)",
+    "input": "if(a){b=c}else if(d){e=f}else if(g){h=i}",
+    "line": 242
+  },
+  {
+    "expected": "a?b?c:d:e",
+    "input": "if(a){if(b)c;else d}else{e}",
+    "line": 243
+  },
+  {
+    "expected": "a\u0026\u0026b?c:d",
+    "input": "if(a){if(b)c;else d}else{d}",
+    "line": 244
+  },
+  {
+    "expected": "a?!!b\u0026\u0026c:d",
+    "input": "if(a){if(b)c;else false}else{d}",
+    "line": 245
+  },
+  {
+    "expected": "!!a\u0026\u0026(b?c:d)",
+    "input": "if(a){if(b)c;else d}else{false}",
+    "line": 246
+  },
+  {
+    "expected": "!!a\u0026\u0026!!b\u0026\u0026c",
+    "input": "if(a){if(b)c;else false}else{false}",
+    "line": 247
+  },
+  {
+    "expected": "function f(){return a||b}",
+    "input": "function f(){if(a)return a;else return b}",
+    "line": 248
+  },
+  {
+    "expected": "function f(){if(a)return a;a++}",
+    "input": "function f(){if(a)return a;else a++}",
+    "line": 249
+  },
+  {
+    "expected": "function f(){if(a)return b;a++}",
+    "input": "function f(){if(a)return b;else a++}",
+    "line": 250
+  },
+  {
+    "expected": "if(a)throw b;a++",
+    "input": "if(a)throw b;else a++",
+    "line": 251
+  },
+  {
+    "expected": "if(a)break;a++",
+    "input": "if(a)break;else a++",
+    "line": 252
+  },
+  {
+    "expected": "function f(){a}",
+    "input": "function f(){if(a)return;else return}",
+    "line": 253
+  },
+  {
+    "expected": "throw a||b",
+    "input": "if(a)throw a;else throw b",
+    "line": 254
+  },
+  {
+    "expected": "function f(){if(a)return a;a=b}",
+    "input": "function f(){if(a)return a;else a=b}",
+    "line": 255
+  },
+  {
+    "expected": "function f(){if(a)return a++,a;a=b}",
+    "input": "function f(){if(a){a++;return a}else a=b}",
+    "line": 256
+  },
+  {
+    "expected": "function f(){if(a)return a++,a;b\u0026\u0026(a=b)}",
+    "input": "function f(){if(a){a++;return a}else if(b)a=b}",
+    "line": 257
+  },
+  {
+    "expected": "function f(){if(a){a++;return}a=b}",
+    "input": "function f(){if(a){a++;return}else a=b}",
+    "line": 258
+  },
+  {
+    "expected": "function f(){if(a)return;for(a=b;c;);}",
+    "input": "function f(){if(a){return}else {a=b;while(c){}}}",
+    "line": 261
+  },
+  {
+    "expected": "function f(){if(a)return a++,a}",
+    "input": "function f(){if(a){a++;return a}else return}",
+    "line": 262
+  },
+  {
+    "expected": "function f(){if(a)return a++,a}",
+    "input": "function f(){if(a){a++;return a}return}",
+    "line": 263
+  },
+  {
+    "expected": "function f(){return a||b}",
+    "input": "function f(){if(a){return a}return b}",
+    "line": 264
+  },
+  {
+    "expected": "function f(){return a\u0026\u0026b}",
+    "input": "function f(){if(a);else return a;return b}",
+    "line": 265
+  },
+  {
+    "expected": "function f(){return a||(b=c,b)}",
+    "input": "function f(){if(a){return a}b=c;return b}",
+    "line": 266
+  },
+  {
+    "expected": "function f(){if(a)return;return b=c,b}",
+    "input": "function f(){if(a){return}b=c;return b}",
+    "line": 267
+  },
+  {
+    "expected": "function f(){if(a)return a;b=c}",
+    "input": "function f(){if(a){return a}b=c;return}",
+    "line": 268
+  },
+  {
+    "expected": "function f(){a}",
+    "input": "function f(){if(a){return}return}",
+    "line": 269
+  },
+  {
+    "expected": "function f(){a}",
+    "input": "function f(){if(a);else{return}return}",
+    "line": 270
+  },
+  {
+    "expected": "throw a||(b=c,b)",
+    "input": "if(a){throw a}b=c;throw b",
+    "line": 271
+  },
+  {
+    "expected": "throw a\u0026\u0026(b=c,b)",
+    "input": "if(a);else{throw a}b=c;throw b",
+    "line": 272
+  },
+  {
+    "expected": "a?a++:b,b?b++:c",
+    "input": "if(a)a++;else b;if(b)b++;else c",
+    "line": 273
+  },
+  {
+    "expected": "if(a)for(;b;);",
+    "input": "if(a){while(b);}",
+    "line": 274
+  },
+  {
+    "expected": "if(a){for(;b;);c}",
+    "input": "if(a){while(b);c}",
+    "line": 275
+  },
+  {
+    "expected": "if(a\u0026\u0026b)for(;c;);",
+    "input": "if(a){if(b){while(c);}}",
+    "line": 276
+  },
+  {
+    "expected": "if(a);else for(;b;);",
+    "input": "if(a){}else{while(b);}",
+    "line": 277
+  },
+  {
+    "expected": "function f(){if(a)return b;for(;c;);}",
+    "input": "function f(){if(a){return b}else{while(c);}}",
+    "line": 278
+  },
+  {
+    "expected": "function f(){if(a)return b;for(;c;);d}",
+    "input": "function f(){if(a){return b}else{while(c);d}}",
+    "line": 279
+  },
+  {
+    "expected": "if(!a){for(;b;);c}",
+    "input": "if(!a){while(b);c}",
+    "line": 280
+  },
+  {
+    "expected": "for(;a;){if(b)continue;if(c)continue;d}",
+    "input": "while(a){if(b)continue;if(c)continue;else d}",
+    "line": 281
+  },
+  {
+    "expected": "for(;a;){if(b)continue;c}",
+    "input": "while(a)if(b)continue;else c",
+    "line": 282
+  },
+  {
+    "expected": "function f(){for(;a;)return b?c:d}",
+    "input": "function f(){while(a)if(b)return c;else return d}",
+    "line": 283
+  },
+  {
+    "expected": "for(;a;){if(b)continue;c}",
+    "input": "while(a){if(b)continue;else c}",
+    "line": 284
+  },
+  {
+    "expected": "if(a)for(;b;)c\u0026\u00265;else 6",
+    "input": "if(a){while(b)if(c)5}else{6}",
+    "line": 285
+  },
+  {
+    "expected": "if(a){for(;;)if(b)break}else c",
+    "input": "if(a){for(;;)if(b)break}else c",
+    "line": 286
+  },
+  {
+    "expected": "if(a){for(d in e)if(b)break}else c",
+    "input": "if(a){for(d in e)if(b)break}else c",
+    "line": 287
+  },
+  {
+    "expected": "if(a){for(d of e)if(b)break}else c",
+    "input": "if(a){for(d of e)if(b)break}else c",
+    "line": 288
+  },
+  {
+    "expected": "if(a)for(d of e)f\u0026\u0026g();else c",
+    "input": "if(a){for(d of e)if(f)g()}else c",
+    "line": 289
+  },
+  {
+    "expected": "if(a){d:if(b)break}else c",
+    "input": "if(a){d:if(b)break}else c",
+    "line": 290
+  },
+  {
+    "expected": "if(a){with(d)if(b)break}else c",
+    "input": "if(a){with(d)if(b)break}else c",
+    "line": 291
+  },
+  {
+    "expected": "function f(){return a?b:c?d:e}",
+    "input": "function f(){if(a)return b;if(c)return d;return e}",
+    "line": 292
+  },
+  {
+    "expected": "a,b\u0026\u0026b",
+    "input": "if(a,b)b",
+    "line": 293
+  },
+  {
+    "expected": "a,b||d",
+    "input": "if(a,b)b;else d",
+    "line": 294
+  },
+  {
+    "expected": "(a=b)||b",
+    "input": "if(a=b)a;else b",
+    "line": 295
+  },
+  {
+    "expected": "function f(){return!a\u0026\u0026!b||!!a\u0026\u0026!!b\u0026\u0026c\u0026\u0026d}",
+    "input": "function f(){if(!a\u0026\u0026!b){return true}else if(!a||!b){return false}return c\u0026\u0026d}",
+    "line": 296
+  },
+  {
+    "expected": "function f(){if(a)return a;if(b)throw c;return c}",
+    "input": "function f(){if(!a){if(b){throw c}else{return c}}else{return a}}",
+    "line": 297
+  },
+  {
+    "expected": "function f(){return a?b\u0026\u0026c?x:z:y}",
+    "input": "function f(){if(!a){return y}else if(b){if(c){return x}}return z}",
+    "line": 298
+  },
+  {
+    "expected": "if(a){b:if(c)break b}else d\u0026\u0026e()",
+    "input": "if(a)b:{if(c)break b}else if(d)e()",
+    "line": 299
+  },
+  {
+    "expected": "var a,b;a,b",
+    "input": "var a;var b;a,b",
+    "line": 302
+  },
+  {
+    "expected": "const a=1,b=2;a,b",
+    "input": "const a=1;const b=2;a,b",
+    "line": 303
+  },
+  {
+    "expected": "let a=1,b=2;a,b",
+    "input": "let a=1;let b=2;a,b",
+    "line": 304
+  },
+  {
+    "expected": "var a,b;a||b",
+    "input": "var a;if(a)var b;else b",
+    "line": 305
+  },
+  {
+    "expected": "if(a)var a,b=5;b",
+    "input": "var a;if(a)var b=5;b",
+    "line": 306
+  },
+  {
+    "expected": "var[,,a]=b",
+    "input": "var [,,a,,]=b",
+    "line": 307
+  },
+  {
+    "expected": "var[,,a,,...c]=b",
+    "input": "var [,,a,,...c]=b",
+    "line": 308
+  },
+  {
+    "expected": "const a=3;for(const b=0;b;b++);a",
+    "input": "const a=3;for(const b=0;b;b++);a",
+    "line": 309
+  },
+  {
+    "expected": "var a;for(let b=0;b;b++);a",
+    "input": "var a;for(let b=0;b;b++);a",
+    "line": 310
+  },
+  {
+    "expected": "var[a]=[b]",
+    "input": "var [a,]=[b,]",
+    "line": 311
+  },
+  {
+    "expected": "var[a,b=5,...c]=[d,e,...f]",
+    "input": "var [a,b=5,...c]=[d,e,...f]",
+    "line": 312
+  },
+  {
+    "expected": "var[a]=[b,,]",
+    "input": "var [a,,]=[b,,]",
+    "line": 313
+  },
+  {
+    "expected": "var{a}=b",
+    "input": "var {a,}=b",
+    "line": 314
+  },
+  {
+    "expected": "var{a}=b",
+    "input": "var {a:a}=b",
+    "line": 315
+  },
+  {
+    "expected": "var{a,b=5,...c}={d,e=7,...f}",
+    "input": "var {a,b=5,...c}={d,e=7,...f}",
+    "line": 316
+  },
+  {
+    "expected": "var{[a+b]:c}=d",
+    "input": "var {[a+b]: c}=d",
+    "line": 317
+  },
+  {
+    "expected": "for(var[a]in b);",
+    "input": "for(var [a] in b);",
+    "line": 318
+  },
+  {
+    "expected": "for(var{a}of b);",
+    "input": "for(var {a} of b);",
+    "line": 319
+  },
+  {
+    "expected": "for(a in b);var a,c",
+    "input": "for(var a in b);var c",
+    "line": 320
+  },
+  {
+    "expected": "for(a in b);var a,c=6,d=7",
+    "input": "for(var a in b);var c=6,d=7",
+    "line": 321
+  },
+  {
+    "expected": "for(var a=5,c=6;;);",
+    "input": "for(var a=5,c=6;;);",
+    "line": 322
+  },
+  {
+    "expected": "for(var b,c;a;);",
+    "input": "while(a);var b;var c",
+    "line": 323
+  },
+  {
+    "expected": "for(var b,c;a;)d()",
+    "input": "while(a){d()}var b;var c",
+    "line": 324
+  },
+  {
+    "expected": "var[a,b=5,,...c]=[d,e,...f],z;z",
+    "input": "var [a,b=5,,...c]=[d,e,...f];var z;z",
+    "line": 325
+  },
+  {
+    "expected": "var{a,b=5,[5+8]:c,...d}={d,e,...f},z;z",
+    "input": "var {a,b=5,[5+8]:c,...d}={d,e,...f};var z;z",
+    "line": 326
+  },
+  {
+    "expected": "var a=5,b=6;a,b",
+    "input": "var a=5;var b=6;a,b",
+    "line": 327
+  },
+  {
+    "expected": "var b=6,a=7;b",
+    "input": "var a;var b=6;a=7;b",
+    "line": 328
+  },
+  {
+    "expected": "var a=5,b=6,a=7;b",
+    "input": "var a=5;var b=6;a=7,b",
+    "line": 329
+  },
+  {
+    "expected": "var a,b=6;a,b,z=7",
+    "input": "var a;var b=6;a,b,z=7",
+    "line": 330
+  },
+  {
+    "expected": "for(var c,a=6,b=7;;);c=8,a,b,c",
+    "input": "for(var a=6,b=7;;);var c=8;a,b,c",
+    "line": 331
+  },
+  {
+    "expected": "for(var a,c;b;){let a=8;a}a",
+    "input": "for(var c;b;){let a=8;a};var a;a",
+    "line": 332
+  },
+  {
+    "expected": "for(var a,b;b;){let a=8;a}a",
+    "input": "for(;b;){let a=8;a};var a;var b;a",
+    "line": 333
+  },
+  {
+    "expected": "for(var d,e,a=1,b=2;c;);d=3,e=4,a,b,d,e",
+    "input": "var a=1,b=2;while(c);var d=3,e=4;a,b,d,e",
+    "line": 334
+  },
+  {
+    "expected": "var[a,b=5,,...c]=[d,e,...f],z;z",
+    "input": "var z;var [a,b=5,,...c]=[d,e,...f];z",
+    "line": 335
+  },
+  {
+    "expected": "var{a,b=5,[5+8]:c,...d}={d,e,...f},z;z",
+    "input": "var z;var {a,b=5,[5+8]:c,...d}={d,e,...f};z",
+    "line": 336
+  },
+  {
+    "expected": "z;var[a,b=5,,...c]=[d,e,...f],z;a",
+    "input": "var z;z;var [a,b=5,,...c]=[d,e,...f];a",
+    "line": 337
+  },
+  {
+    "expected": "var{a,b=5,[5+8]:c,d:e,...f}=z;f",
+    "input": "var {a,b=5,[5+8]:c,d:e,...f}=z;f",
+    "line": 343
+  },
+  {
+    "expected": "var{}=b,a",
+    "input": "var a;var {}=b;",
+    "line": 344
+  },
+  {
+    "expected": "\"use strict\";var a,b=5",
+    "input": "\"use strict\";var a;var b;b=5",
+    "line": 345
+  },
+  {
+    "expected": "\"use strict\";z+=6;var a,b=5",
+    "input": "\"use strict\";z+=6;var a;var b;b=5",
+    "line": 346
+  },
+  {
+    "expected": "!function(){\"use strict\";return a}",
+    "input": "!function(){\"use strict\";return a}",
+    "line": 347
+  },
+  {
+    "expected": "var{b}=c,a",
+    "input": "var a;var{b}=c;",
+    "line": 348
+  },
+  {
+    "expected": "var[b]=c,a",
+    "input": "var a;var[b]=c;",
+    "line": 349
+  },
+  {
+    "expected": "f();var a,b=c",
+    "input": "var a;f();var b=c;",
+    "line": 350
+  },
+  {
+    "expected": "var{a}=x;f();var{b}=c",
+    "input": "var{a}=x;f();var{b}=c;",
+    "line": 351
+  },
+  {
+    "expected": "var{a}=x;f();var{b}=c,d",
+    "input": "var{a}=x;f();var d,{b}=c;",
+    "line": 352
+  },
+  {
+    "expected": "var{a}=x,b;f(),[b]=c",
+    "input": "var{a}=x;f();var[b]=c;",
+    "line": 353
+  },
+  {
+    "expected": "var{a}=x;f();var[b,d]=c",
+    "input": "var{a}=x;f();var[b,d]=c;",
+    "line": 354
+  },
+  {
+    "expected": "var{a}=x,bd;f(),[bd]=c",
+    "input": "var{a}=x;f();var[bd]=c;",
+    "line": 355
+  },
+  {
+    "expected": "var{a}=x,bc;f(),bc=e",
+    "input": "var{a}=x;f();var bc=e;",
+    "line": 356
+  },
+  {
+    "expected": "var{a}=x,bcd;f(),bcd=e",
+    "input": "var{a}=x;f();var bcd=e;",
+    "line": 357
+  },
+  {
+    "expected": "var{a}=x,b,d;f()",
+    "input": "var{a}=x;f();var b,d;",
+    "line": 358
+  },
+  {
+    "expected": "var{a}=x,b,d;f(),d=e",
+    "input": "var{a}=x;f();var b,d=e;",
+    "line": 359
+  },
+  {
+    "expected": "var{a}=x,b,d;f(),b=c,d=e",
+    "input": "var{a}=x;f();var b=c,d=e;",
+    "line": 360
+  },
+  {
+    "expected": "var{a}=x;f();var[b]=c,d=e",
+    "input": "var{a}=x;f();var[b]=c,d=e;",
+    "line": 361
+  },
+  {
+    "expected": "var a=0,a=1",
+    "input": "var a=0;a=1",
+    "line": 363
+  },
+  {
+    "expected": "var b,a=b",
+    "input": "var a,b;a=b",
+    "line": 364
+  },
+  {
+    "expected": "var b=c,a=b",
+    "input": "var a,b=c;a=b",
+    "line": 365
+  },
+  {
+    "expected": "var a,b=c,b=a",
+    "input": "var a,b=c;b=a",
+    "line": 366
+  },
+  {
+    "expected": "var{a}=f,b=c,d=e",
+    "input": "var{a}=f;var b=c,d=e;",
+    "line": 367
+  },
+  {
+    "expected": "var a=1,b=2;c=3",
+    "input": "var a,b;a=1,b=2,c=3",
+    "line": 368
+  },
+  {
+    "expected": "var a=[],b={},c=d,e=f",
+    "input": "var a=[];var b={};var c=d,e=f",
+    "line": 369
+  },
+  {
+    "expected": "var a=[],b={},c=d,e=f",
+    "input": "var a=[];var b={};var c=d,e=f",
+    "line": 370
+  },
+  {
+    "expected": "var b,c,a=[],e=f",
+    "input": "var a=[];var b;var c,e=f",
+    "line": 371
+  },
+  {
+    "expected": "var b,c,e,a=[];f(),f(),f(),e=f",
+    "input": "var a=[];f();var b;f();var c;f();var e=f",
+    "line": 372
+  },
+  {
+    "expected": "for(var{...a}=c,{...b}=d;b;b++);",
+    "input": "var {...a}=c;for(var {...b}=d;b;b++);",
+    "line": 373
+  },
+  {
+    "expected": "var o=8,p=9,x=0,y=1,x=x+2,y=y+3,b=1,c=2,d=3",
+    "input": "var o=8,p=9,x=0,y=1;x=x+2;y=y+3;var b=1,c=2,d=3",
+    "line": 374
+  },
+  {
+    "expected": "for(var v,result=[],a=0,array=d;a\u003carray.length;a++)v=array[a]",
+    "input": "var result=[];for(var a=0,array=d;a\u003carray.length;a++){var v=array[a]}",
+    "line": 375
+  },
+  {
+    "expected": "var a=0,b=a,c=1,d=2,e=3",
+    "input": "var a=0,b=a;var c=1,d=2,e=3",
+    "line": 377
+  },
+  {
+    "expected": "function g(){}",
+    "input": "function g(){return}",
+    "line": 388
+  },
+  {
+    "expected": "function g(){}",
+    "input": "function g(){return undefined}",
+    "line": 389
+  },
+  {
+    "expected": "function g(){}",
+    "input": "function g(){return void 0}",
+    "line": 390
+  },
+  {
+    "expected": "function g(){a++}",
+    "input": "function g(){return a++,void 0}",
+    "line": 391
+  },
+  {
+    "expected": "for(var a of b);",
+    "input": "for (var a of b){continue}",
+    "line": 392
+  },
+  {
+    "expected": "for(var a of b)continue LABEL",
+    "input": "for (var a of b){continue LABEL}",
+    "line": 393
+  },
+  {
+    "expected": "for(var a of b)break",
+    "input": "for (var a of b){break}",
+    "line": 394
+  },
+  {
+    "expected": "class a{static g(){}}",
+    "input": "class a{static g(){}}",
+    "line": 395
+  },
+  {
+    "expected": "class a{static[1](){}}",
+    "input": "class a{static [1](){}}",
+    "line": 396
+  },
+  {
+    "expected": "class a{static*g(){}}",
+    "input": "class a{static*g(){}}",
+    "line": 397
+  },
+  {
+    "expected": "class a{static*[1](){}}",
+    "input": "class a{static*[1](){}}",
+    "line": 398
+  },
+  {
+    "expected": "class a{get g(){}}",
+    "input": "class a{get g(){}}",
+    "line": 399
+  },
+  {
+    "expected": "class a{get[1](){}}",
+    "input": "class a{get [1](){}}",
+    "line": 400
+  },
+  {
+    "expected": "class a{set g(){}}",
+    "input": "class a{set g(){}}",
+    "line": 401
+  },
+  {
+    "expected": "class a{set[1](){}}",
+    "input": "class a{set [1](){}}",
+    "line": 402
+  },
+  {
+    "expected": "class a{static async g(){}}",
+    "input": "class a{static async g(){}}",
+    "line": 403
+  },
+  {
+    "expected": "class a{static async[1](){}}",
+    "input": "class a{static async [1](){}}",
+    "line": 404
+  },
+  {
+    "expected": "class a{static async*g(){}}",
+    "input": "class a{static async*g(){}}",
+    "line": 405
+  },
+  {
+    "expected": "class a{static async*[1](){}}",
+    "input": "class a{static async*[1](){}}",
+    "line": 406
+  },
+  {
+    "expected": "class a{f(){}}",
+    "input": "class a{\"f\"(){}}",
+    "line": 407
+  },
+  {
+    "expected": "class a{f(){}g(){}}",
+    "input": "class a{f(){};g(){}}",
+    "line": 408
+  },
+  {
+    "expected": "class a{one;#two=2;f(){}}",
+    "input": "class a{one;#two = 2;f(){}}",
+    "line": 409
+  },
+  {
+    "expected": "",
+    "input": "if(true){let b}",
+    "line": 439
+  },
+  {
+    "expected": "",
+    "input": "if(true){let b=5}",
+    "line": 440
+  },
+  {
+    "expected": "c",
+    "input": "if(true){const b=c}",
+    "line": 441
+  },
+  {
+    "expected": "c.d",
+    "input": "if(true){const b=c.d}",
+    "line": 442
+  },
+  {
+    "expected": "()=\u003e{}",
+    "input": "() =\u003e {}",
+    "line": 445
+  },
+  {
+    "expected": "a=\u003e{a}",
+    "input": "(a) =\u003e {a}",
+    "line": 446
+  },
+  {
+    "expected": "(...a)=\u003e{}",
+    "input": "(...a) =\u003e {}",
+    "line": 447
+  },
+  {
+    "expected": "(a=0)=\u003e{a}",
+    "input": "(a=0) =\u003e {a}",
+    "line": 448
+  },
+  {
+    "expected": "(a,b)=\u003e{a,b}",
+    "input": "(a,b) =\u003e {a,b}",
+    "line": 449
+  },
+  {
+    "expected": "a=\u003e{a++}",
+    "input": "a =\u003e {a++}",
+    "line": 450
+  },
+  {
+    "expected": "x=a=\u003e{a}",
+    "input": "x=(a) =\u003e {a}",
+    "line": 451
+  },
+  {
+    "expected": "x=()=\u003e{}",
+    "input": "x=() =\u003e {return}",
+    "line": 452
+  },
+  {
+    "expected": "x=a=\u003ea",
+    "input": "x=(a) =\u003e {return a}",
+    "line": 453
+  },
+  {
+    "expected": "x=a=\u003e(a++,a)",
+    "input": "x=(a) =\u003e {a++;return a}",
+    "line": 454
+  },
+  {
+    "expected": "x=a=\u003e{for(;b;);}",
+    "input": "x=(a) =\u003e {while(b);return}",
+    "line": 455
+  },
+  {
+    "expected": "x=a=\u003e{for(;b;);return a}",
+    "input": "x=(a) =\u003e {while(b);return a}",
+    "line": 456
+  },
+  {
+    "expected": "x=a=\u003e{a++}",
+    "input": "x=(a) =\u003e {a++}",
+    "line": 457
+  },
+  {
+    "expected": "x=a=\u003e{a++}",
+    "input": "x=(a) =\u003e {a++}",
+    "line": 458
+  },
+  {
+    "expected": "x=(a,b)=\u003ea+b",
+    "input": "x=(a,b) =\u003e a+b",
+    "line": 459
+  },
+  {
+    "expected": "async a=\u003eawait b",
+    "input": "async a =\u003e await b",
+    "line": 460
+  },
+  {
+    "expected": "([])=\u003e5",
+    "input": "([])=\u003e5",
+    "line": 461
+  },
+  {
+    "expected": "({})=\u003e5",
+    "input": "({})=\u003e5",
+    "line": 462
+  },
+  {
+    "expected": "a=b+c+d",
+    "input": "a=(b+c)+d",
+    "line": 465
+  },
+  {
+    "expected": "a=b+(c+d)",
+    "input": "a=b+(c+d)",
+    "line": 466
+  },
+  {
+    "expected": "a=b*(c+d)",
+    "input": "a=b*(c+d)",
+    "line": 467
+  },
+  {
+    "expected": "a=b*c+d",
+    "input": "a=(b*c)+d",
+    "line": 468
+  },
+  {
+    "expected": "a=b.c++",
+    "input": "a=(b.c)++",
+    "line": 469
+  },
+  {
+    "expected": "a=(b++).c",
+    "input": "a=(b++).c",
+    "line": 470
+  },
+  {
+    "expected": "a=!b++",
+    "input": "a=!(b++)",
+    "line": 471
+  },
+  {
+    "expected": "a=(b+c)(d)",
+    "input": "a=(b+c)(d)",
+    "line": 472
+  },
+  {
+    "expected": "a=b**c**d",
+    "input": "a=b**(c**d)",
+    "line": 473
+  },
+  {
+    "expected": "a=(b**c)**d",
+    "input": "a=(b**c)**d",
+    "line": 474
+  },
+  {
+    "expected": "a=(!1)**2",
+    "input": "a=false**2",
+    "line": 475
+  },
+  {
+    "expected": "a=++b**2",
+    "input": "a=(++b)**2",
+    "line": 476
+  },
+  {
+    "expected": "a=(a||b)\u0026\u0026c",
+    "input": "a=(a||b)\u0026\u0026c",
+    "line": 477
+  },
+  {
+    "expected": "a=a\u0026\u0026b||c",
+    "input": "a=(a\u0026\u0026b)||c",
+    "line": 479
+  },
+  {
+    "expected": "a=c\u0026\u0026(a??b)",
+    "input": "a=c\u0026\u0026(a??b)",
+    "line": 482
+  },
+  {
+    "expected": "a=(a||b)??(c||d)",
+    "input": "a=(a||b)??(c||d)",
+    "line": 483
+  },
+  {
+    "expected": "a=(a\u0026\u0026b)??(c\u0026\u0026d)",
+    "input": "a=(a\u0026\u0026b)??(c\u0026\u0026d)",
+    "line": 484
+  },
+  {
+    "expected": "a=a??b??c??d",
+    "input": "a=(a??b)??(c??d)",
+    "line": 485
+  },
+  {
+    "expected": "a=a||b||c||d",
+    "input": "a=(a||b)||(c||d)",
+    "line": 486
+  },
+  {
+    "expected": "a=!!b",
+    "input": "a=!(!b)",
+    "line": 487
+  },
+  {
+    "expected": "a=b()",
+    "input": "a=(b())",
+    "line": 488
+  },
+  {
+    "expected": "a=b?.(c,d)",
+    "input": "a=(b)?.(c,d)",
+    "line": 489
+  },
+  {
+    "expected": "a=(b,c)?.(d)",
+    "input": "a=(b,c)?.(d)",
+    "line": 490
+  },
+  {
+    "expected": "a=(b?c:e)?.(d)",
+    "input": "a=(b?c:e)?.(d)",
+    "line": 491
+  },
+  {
+    "expected": "a=(b,c)",
+    "input": "a=b?c:c",
+    "line": 492
+  },
+  {
+    "expected": "a=b?b:c=f",
+    "input": "a=b?b:c=f",
+    "line": 493
+  },
+  {
+    "expected": "a=b||(c=f)",
+    "input": "a=b||(c=f)",
+    "line": 494
+  },
+  {
+    "expected": "a=(-5)**3",
+    "input": "a=(-5)**3",
+    "line": 495
+  },
+  {
+    "expected": "a=5**-3",
+    "input": "a=5**(-3)",
+    "line": 496
+  },
+  {
+    "expected": "a=(-+5)**3",
+    "input": "a=(-(+5))**3",
+    "line": 497
+  },
+  {
+    "expected": "a=(b,c)+3",
+    "input": "a=(b,c)+3",
+    "line": 498
+  },
+  {
+    "expected": "a,b\u0026\u0026c",
+    "input": "(a,b)\u0026\u0026c",
+    "line": 499
+  },
+  {
+    "expected": "function*x(){a=yield b}",
+    "input": "function*x(){a=(yield b)}",
+    "line": 500
+  },
+  {
+    "expected": "function*x(){a=yield yield b}",
+    "input": "function*x(){a=yield (yield b)}",
+    "line": 501
+  },
+  {
+    "expected": "if(a)for(;b;);",
+    "input": "if((a))while((b));",
+    "line": 502
+  },
+  {
+    "expected": "({a}=5)",
+    "input": "({a}=5)",
+    "line": 503
+  },
+  {
+    "expected": "({a}=5)",
+    "input": "({a:a}=5)",
+    "line": 504
+  },
+  {
+    "expected": "({a:\"a\"}=5)",
+    "input": "({a:\"a\"}=5)",
+    "line": 505
+  },
+  {
+    "expected": "!function(){}",
+    "input": "(function(){})",
+    "line": 506
+  },
+  {
+    "expected": "(function(){})()",
+    "input": "(function(){}())",
+    "line": 507
+  },
+  {
+    "expected": "(function(){})()",
+    "input": "(function(){})()",
+    "line": 508
+  },
+  {
+    "expected": "(function(){})(),x=5,f=6",
+    "input": "(function(){})();x=5;f=6",
+    "line": 509
+  },
+  {
+    "expected": "!async function(){}",
+    "input": "(async function(){})",
+    "line": 510
+  },
+  {
+    "expected": "!class a{}",
+    "input": "(class a{})",
+    "line": 511
+  },
+  {
+    "expected": "!let[a]",
+    "input": "(let [a])",
+    "line": 512
+  },
+  {
+    "expected": "x=function(){}",
+    "input": "x=(function(){})",
+    "line": 513
+  },
+  {
+    "expected": "x=function(){}()",
+    "input": "x=(function(){}())",
+    "line": 514
+  },
+  {
+    "expected": "x=function(){}()",
+    "input": "x=(function(){})()",
+    "line": 515
+  },
+  {
+    "expected": "x=function(){}.a",
+    "input": "x=(function(){}).a",
+    "line": 516
+  },
+  {
+    "expected": "function g(){await(x+y)}",
+    "input": "function g(){await(x+y)}",
+    "line": 517
+  },
+  {
+    "expected": "async function g(){await(x+y)}",
+    "input": "async function g(){await(x+y)}",
+    "line": 518
+  },
+  {
+    "expected": "function g(){await(fun()())}",
+    "input": "function g(){await(fun()())}",
+    "line": 519
+  },
+  {
+    "expected": "async function g(){await fun()()}",
+    "input": "async function g(){await(fun()())}",
+    "line": 520
+  },
+  {
+    "expected": "function g(){await(fun()())}",
+    "input": "function g(){await((fun())())}",
+    "line": 521
+  },
+  {
+    "expected": "a=1+\"2\"+(3+4)",
+    "input": "a=1+\"2\"+(3+4)",
+    "line": 522
+  },
+  {
+    "expected": "(-1)()",
+    "input": "(-1)()",
+    "line": 523
+  },
+  {
+    "expected": "(-1)(-2)",
+    "input": "(-1)(-2)",
+    "line": 524
+  },
+  {
+    "expected": "(+new Date).toString(32)",
+    "input": "(+new Date).toString(32)",
+    "line": 525
+  },
+  {
+    "expected": "2..toFixed(0)",
+    "input": "(2).toFixed(0)",
+    "line": 526
+  },
+  {
+    "expected": ".2.toFixed(0)",
+    "input": "(0.2).toFixed(0)",
+    "line": 527
+  },
+  {
+    "expected": "2e-8.toFixed(0)",
+    "input": "(2e-8).toFixed(0)",
+    "line": 528
+  },
+  {
+    "expected": "(-2).toFixed(0)",
+    "input": "(-2).toFixed(0)",
+    "line": 529
+  },
+  {
+    "expected": "a=\u003eb=\u003ec",
+    "input": "(a)=\u003e((b)=\u003ec)",
+    "line": 530
+  },
+  {
+    "expected": "function f(a=3+2){a}",
+    "input": "function f(a=(3+2)){a}",
+    "line": 531
+  },
+  {
+    "expected": "function*a(){yield a.b}",
+    "input": "function*a(){yield a.b}",
+    "line": 532
+  },
+  {
+    "expected": "function*a(){(yield a).b}",
+    "input": "function*a(){(yield a).b}",
+    "line": 533
+  },
+  {
+    "expected": "function*a(){yield a[\"-\"]}",
+    "input": "function*a(){yield a[\"-\"]}",
+    "line": 534
+  },
+  {
+    "expected": "function*a(){(yield a)[\"-\"]}",
+    "input": "function*a(){(yield a)[\"-\"]}",
+    "line": 535
+  },
+  {
+    "expected": "new(a(b))",
+    "input": "new(a(b))",
+    "line": 536
+  },
+  {
+    "expected": "new new a",
+    "input": "new(new a)",
+    "line": 537
+  },
+  {
+    "expected": "new new a",
+    "input": "new new a()()",
+    "line": 538
+  },
+  {
+    "expected": "new new a(b)",
+    "input": "new(new a(b))",
+    "line": 539
+  },
+  {
+    "expected": "new(a(b))(c)",
+    "input": "new(a(b))(c)",
+    "line": 540
+  },
+  {
+    "expected": "new(a(b).c)(d)",
+    "input": "new(a(b).c)(d)",
+    "line": 541
+  },
+  {
+    "expected": "new(a(b)[5])(d)",
+    "input": "new(a(b)[5])(d)",
+    "line": 542
+  },
+  {
+    "expected": "new(a(b)`tmpl`)(d)",
+    "input": "new(a(b)`tmpl`)(d)",
+    "line": 543
+  },
+  {
+    "expected": "new(a(b)).c(d)",
+    "input": "new(a(b)).c(d)",
+    "line": 544
+  },
+  {
+    "expected": "new(a(b))[5](d)",
+    "input": "new(a(b))[5](d)",
+    "line": 545
+  },
+  {
+    "expected": "new(a(b))`tmpl`(d)",
+    "input": "new(a(b))`tmpl`(d)",
+    "line": 546
+  },
+  {
+    "expected": "(new a).b(c)",
+    "input": "new a().b(c)",
+    "line": 547
+  },
+  {
+    "expected": "(new a).b(c)",
+    "input": "(new a).b(c)",
+    "line": 548
+  },
+  {
+    "expected": "(new a.b).c(d)",
+    "input": "(new a.b).c(d)",
+    "line": 549
+  },
+  {
+    "expected": "new a(b).c(d)",
+    "input": "(new a(b)).c(d)",
+    "line": 550
+  },
+  {
+    "expected": "(new a).b.c(d)",
+    "input": "(new a().b).c(d)",
+    "line": 551
+  },
+  {
+    "expected": "new a",
+    "input": "new a()",
+    "line": 552
+  },
+  {
+    "expected": "(new a)()",
+    "input": "new a()()",
+    "line": 553
+  },
+  {
+    "expected": "(new a)?.()",
+    "input": "new a()?.()",
+    "line": 554
+  },
+  {
+    "expected": "new a.b instanceof c",
+    "input": "new(a.b)instanceof c",
+    "line": 555
+  },
+  {
+    "expected": "new a[b]instanceof c",
+    "input": "new(a[b])instanceof c",
+    "line": 556
+  },
+  {
+    "expected": "new a`tmpl`instanceof c",
+    "input": "new(a`tmpl`)instanceof c",
+    "line": 557
+  },
+  {
+    "expected": "a().b(c)",
+    "input": "(a()).b(c)",
+    "line": 558
+  },
+  {
+    "expected": "a()[5].b(c)",
+    "input": "(a()[5]).b(c)",
+    "line": 559
+  },
+  {
+    "expected": "a()`tmpl`.b(c)",
+    "input": "(a()`tmpl`).b(c)",
+    "line": 560
+  },
+  {
+    "expected": "(a?.b).c(d)",
+    "input": "(a?.b).c(d)",
+    "line": 561
+  },
+  {
+    "expected": "(a?.(c)).d(e)",
+    "input": "(a?.(c)).d(e)",
+    "line": 562
+  },
+  {
+    "expected": "(a?.b.c).d",
+    "input": "(a?.b.c).d",
+    "line": 563
+  },
+  {
+    "expected": "class a extends new b{}",
+    "input": "class a extends (new b){}",
+    "line": 564
+  },
+  {
+    "expected": "new.target",
+    "input": "(new.target)",
+    "line": 565
+  },
+  {
+    "expected": "import.meta",
+    "input": "(import.meta)",
+    "line": 566
+  },
+  {
+    "expected": "import.meta.url",
+    "input": "import.meta.url",
+    "line": 567
+  },
+  {
+    "expected": "super.name",
+    "input": "super.name",
+    "line": 568
+  },
+  {
+    "expected": "`tmpl`",
+    "input": "(`tmpl`)",
+    "line": 569
+  },
+  {
+    "expected": "a`tmpl`",
+    "input": "(a`tmpl`)",
+    "line": 570
+  },
+  {
+    "expected": "a=-(b=5)",
+    "input": "a=-(b=5)",
+    "line": 571
+  },
+  {
+    "expected": "f({},(a=5,b))",
+    "input": "f({},(a=5,b))",
+    "line": 572
+  },
+  {
+    "expected": "for(var a=(b in c);;);",
+    "input": "for(var a=(b in c);;);",
+    "line": 573
+  },
+  {
+    "expected": "(1,2,a=3)\u0026\u0026b",
+    "input": "(1,2,a=3)\u0026\u0026b",
+    "line": 574
+  },
+  {
+    "expected": "(1,2,a||3)\u0026\u0026b",
+    "input": "(1,2,a||3)\u0026\u0026b",
+    "line": 575
+  },
+  {
+    "expected": "(1,2,a??3)\u0026\u0026b",
+    "input": "(1,2,a??3)\u0026\u0026b",
+    "line": 576
+  },
+  {
+    "expected": "1,2,a\u0026\u00263\u0026\u0026b",
+    "input": "(1,2,a\u0026\u00263)\u0026\u0026b",
+    "line": 577
+  },
+  {
+    "expected": "1,2,a|3\u0026\u0026b",
+    "input": "(1,2,a|3)\u0026\u0026b",
+    "line": 578
+  },
+  {
+    "expected": "a,b\u0026\u0026c",
+    "input": "(a,b)?c:b",
+    "line": 579
+  },
+  {
+    "expected": "a,b?c:d",
+    "input": "(a,b)?c:d",
+    "line": 580
+  },
+  {
+    "expected": "f(...a,...b)",
+    "input": "f(...a,...b)",
+    "line": 581
+  },
+  {
+    "expected": "!!a",
+    "input": "a?true:false",
+    "line": 584
+  },
+  {
+    "expected": "a==b",
+    "input": "a==b?true:false",
+    "line": 585
+  },
+  {
+    "expected": "!a",
+    "input": "!a?true:false",
+    "line": 586
+  },
+  {
+    "expected": "!a",
+    "input": "a?false:true",
+    "line": 587
+  },
+  {
+    "expected": "!!a",
+    "input": "!a?false:true",
+    "line": 588
+  },
+  {
+    "expected": "!!a",
+    "input": "a?!0:!1",
+    "line": 589
+  },
+  {
+    "expected": "a?0:1",
+    "input": "a?0:1",
+    "line": 590
+  },
+  {
+    "expected": "!!a?0:1",
+    "input": "!!a?0:1",
+    "line": 591
+  },
+  {
+    "expected": "!a||!b",
+    "input": "a\u0026\u0026b?!1:!0",
+    "line": 592
+  },
+  {
+    "expected": "!!(a\u0026\u0026b)",
+    "input": "a\u0026\u0026b?!0:!1",
+    "line": 593
+  },
+  {
+    "expected": "!!a||5",
+    "input": "a?true:5",
+    "line": 594
+  },
+  {
+    "expected": "!!a\u0026\u00265",
+    "input": "a?5:false",
+    "line": 595
+  },
+  {
+    "expected": "!a||5",
+    "input": "!a?true:5",
+    "line": 596
+  },
+  {
+    "expected": "!a\u0026\u00265",
+    "input": "!a?5:false",
+    "line": 597
+  },
+  {
+    "expected": "a==b||5",
+    "input": "a==b?true:5",
+    "line": 598
+  },
+  {
+    "expected": "a!=b||5",
+    "input": "a!=b?true:5",
+    "line": 599
+  },
+  {
+    "expected": "a!=b\u0026\u00265",
+    "input": "a==b?false:5",
+    "line": 600
+  },
+  {
+    "expected": "a==b\u0026\u00265",
+    "input": "a!=b?false:5",
+    "line": 601
+  },
+  {
+    "expected": "a!==b\u0026\u00265",
+    "input": "a===b?false:5",
+    "line": 602
+  },
+  {
+    "expected": "a===b\u0026\u00265",
+    "input": "a!==b?false:5",
+    "line": 603
+  },
+  {
+    "expected": "a!=b||5",
+    "input": "a==b?5:true",
+    "line": 604
+  },
+  {
+    "expected": "a==b\u0026\u00265",
+    "input": "a==b?5:false",
+    "line": 605
+  },
+  {
+    "expected": "!(a\u003cb)||5",
+    "input": "a\u003cb?5:true",
+    "line": 606
+  },
+  {
+    "expected": "a\u003cb||5",
+    "input": "!(a\u003cb)?5:true",
+    "line": 607
+  },
+  {
+    "expected": "!0",
+    "input": "!true?5:true",
+    "line": 608
+  },
+  {
+    "expected": "a",
+    "input": "true?a:b",
+    "line": 609
+  },
+  {
+    "expected": "b",
+    "input": "false?a:b",
+    "line": 610
+  },
+  {
+    "expected": "a",
+    "input": "!false?a:b",
+    "line": 611
+  },
+  {
+    "expected": "b",
+    "input": "!!false?a:b",
+    "line": 612
+  },
+  {
+    "expected": "a",
+    "input": "!!!false?a:b",
+    "line": 613
+  },
+  {
+    "expected": "b",
+    "input": "undefined?a:b",
+    "line": 614
+  },
+  {
+    "expected": "b",
+    "input": "NaN?a:b",
+    "line": 615
+  },
+  {
+    "expected": "a",
+    "input": "1?a:b",
+    "line": 616
+  },
+  {
+    "expected": "b",
+    "input": "0.00e100?a:b",
+    "line": 617
+  },
+  {
+    "expected": "b",
+    "input": "0x00?a:b",
+    "line": 618
+  },
+  {
+    "expected": "b",
+    "input": "0B00?a:b",
+    "line": 619
+  },
+  {
+    "expected": "b",
+    "input": "0o00?a:b",
+    "line": 620
+  },
+  {
+    "expected": "b",
+    "input": "0n?a:b",
+    "line": 621
+  },
+  {
+    "expected": "b()",
+    "input": "(0n?a:b)()",
+    "line": 622
+  },
+  {
+    "expected": "!0",
+    "input": "!0",
+    "line": 623
+  },
+  {
+    "expected": "!1",
+    "input": "!42",
+    "line": 624
+  },
+  {
+    "expected": "!1",
+    "input": "!\"str\"",
+    "line": 625
+  },
+  {
+    "expected": "!1",
+    "input": "!/regexp/",
+    "line": 626
+  },
+  {
+    "expected": "typeof a==\"object\"",
+    "input": "typeof a===\"object\"",
+    "line": 627
+  },
+  {
+    "expected": "typeof a!=\"object\"",
+    "input": "typeof a!==\"object\"",
+    "line": 628
+  },
+  {
+    "expected": "\"object\"==typeof a",
+    "input": "\"object\"===typeof a",
+    "line": 629
+  },
+  {
+    "expected": "\"object\"!=typeof a",
+    "input": "\"object\"!==typeof a",
+    "line": 630
+  },
+  {
+    "expected": "typeof a===b",
+    "input": "typeof a===b",
+    "line": 631
+  },
+  {
+    "expected": "a??b",
+    "input": "a!=null?a:b",
+    "line": 633
+  },
+  {
+    "expected": "a??b",
+    "input": "a==null?b:a",
+    "line": 634
+  },
+  {
+    "expected": "a??b",
+    "input": "a!=undefined?a:b",
+    "line": 635
+  },
+  {
+    "expected": "a??b",
+    "input": "a==undefined?b:a",
+    "line": 636
+  },
+  {
+    "expected": "a??!0",
+    "input": "a==null?true:a",
+    "line": 637
+  },
+  {
+    "expected": "a??!0",
+    "input": "null==a?true:a",
+    "line": 638
+  },
+  {
+    "expected": "a??!0",
+    "input": "a!=null?a:true",
+    "line": 639
+  },
+  {
+    "expected": "a??!0",
+    "input": "a==undefined?true:a",
+    "line": 640
+  },
+  {
+    "expected": "a??!0",
+    "input": "a!=undefined?a:true",
+    "line": 641
+  },
+  {
+    "expected": "a||b",
+    "input": "a?a:b",
+    "line": 642
+  },
+  {
+    "expected": "a\u0026\u0026b",
+    "input": "a?b:a",
+    "line": 643
+  },
+  {
+    "expected": "a\u0026\u0026=b",
+    "input": "a\u0026\u0026=b",
+    "line": 644
+  },
+  {
+    "expected": "a||=b",
+    "input": "a||=b",
+    "line": 645
+  },
+  {
+    "expected": "a??=b",
+    "input": "a??=b",
+    "line": 646
+  },
+  {
+    "expected": "a==!1",
+    "input": "a==false",
+    "line": 647
+  },
+  {
+    "expected": "!a\u0026\u0026!b",
+    "input": "!(a||b)",
+    "line": 649
+  },
+  {
+    "expected": "!a||!b",
+    "input": "!(a\u0026\u0026b)",
+    "line": 650
+  },
+  {
+    "expected": "!(a\u0026\u0026b)\u0026\u0026c",
+    "input": "!(a\u0026\u0026b)\u0026\u0026c",
+    "line": 651
+  },
+  {
+    "expected": "c\u0026\u0026!(a\u0026\u0026b===5)",
+    "input": "c\u0026\u0026!(a\u0026\u0026b===5)",
+    "line": 652
+  },
+  {
+    "expected": "c\u0026\u0026!(!a\u0026\u0026b!==5)",
+    "input": "c\u0026\u0026!(!a\u0026\u0026b!==5)",
+    "line": 653
+  },
+  {
+    "expected": "c\u0026\u0026(a!=3||b===5)",
+    "input": "c\u0026\u0026!(a==3\u0026\u0026b!==5)",
+    "line": 654
+  },
+  {
+    "expected": "!(a\u003e=0\u0026\u0026a\u003c=1||a\u003e=2\u0026\u0026a\u003c=3)",
+    "input": "!(a\u003e=0\u0026\u0026a\u003c=1||a\u003e=2\u0026\u0026a\u003c=3)",
+    "line": 655
+  },
+  {
+    "expected": "!(0\u003c1||1\u003c2)",
+    "input": "!(0\u003c1||1\u003c2)",
+    "line": 656
+  },
+  {
+    "expected": "!(0\u003c1\u0026\u00261\u003c2)",
+    "input": "!(0\u003c1\u0026\u00261\u003c2)",
+    "line": 657
+  },
+  {
+    "expected": "!(a\u0026\u0026b||c\u0026\u0026d)",
+    "input": "!(a\u0026\u0026b||c\u0026\u0026d)",
+    "line": 658
+  },
+  {
+    "expected": "!a\u0026\u0026!b||!c\u0026\u0026!d",
+    "input": "!((a||b)\u0026\u0026(c||d))",
+    "line": 659
+  },
+  {
+    "expected": "a!=!1\u0026\u0026b!=!0",
+    "input": "a==false||b==true?false:true",
+    "line": 660
+  },
+  {
+    "expected": "a==null",
+    "input": "!!(a===null||a===undefined)",
+    "line": 662
+  },
+  {
+    "expected": "a!=null",
+    "input": "a!==null\u0026\u0026a!==undefined",
+    "line": 663
+  },
+  {
+    "expected": "a==null",
+    "input": "a===null||a===void 0",
+    "line": 664
+  },
+  {
+    "expected": "a===b||c===d",
+    "input": "!!(a===b||c===d)",
+    "line": 665
+  },
+  {
+    "expected": "a===null",
+    "input": "!(a!==null)",
+    "line": 666
+  },
+  {
+    "expected": "a==null",
+    "input": "a==void 0",
+    "line": 667
+  },
+  {
+    "expected": "b(a?c:d)",
+    "input": "a?b(c):b(d)",
+    "line": 668
+  },
+  {
+    "expected": "a?.()",
+    "input": "(a===null||a===undefined)?undefined:a()",
+    "line": 670
+  },
+  {
+    "expected": "a?.[0]",
+    "input": "(a===null||a===undefined)?undefined:a[0]",
+    "line": 671
+  },
+  {
+    "expected": "a?.`tpl`",
+    "input": "(a===null||a===undefined)?undefined:a`tpl`",
+    "line": 672
+  },
+  {
+    "expected": "a?.b",
+    "input": "(a===null||a===undefined)?undefined:a.b",
+    "line": 673
+  },
+  {
+    "expected": "a?.b()",
+    "input": "(a===null||a===undefined)?undefined:a.b()",
+    "line": 674
+  },
+  {
+    "expected": "a?.b[0]",
+    "input": "(a===null||a===undefined)?undefined:a.b[0]",
+    "line": 675
+  },
+  {
+    "expected": "a?.b`tpl`",
+    "input": "(a===null||a===undefined)?undefined:a.b`tpl`",
+    "line": 676
+  },
+  {
+    "expected": "a?.#b",
+    "input": "(a===null||a===undefined)?undefined:a.#b",
+    "line": 677
+  },
+  {
+    "expected": "a?.()",
+    "input": "(((a===null)||(a===undefined)))?undefined:a()",
+    "line": 678
+  },
+  {
+    "expected": "++a",
+    "input": "a=1+a",
+    "line": 680
+  },
+  {
+    "expected": "--a",
+    "input": "a=a-1",
+    "line": 681
+  },
+  {
+    "expected": "async function g(){await x+y}",
+    "input": "async function g(){await x+y}",
+    "line": 688
+  },
+  {
+    "expected": "a={property:val1,2:val2,\"3name\":val3}",
+    "input": "a={\"property\": val1, \"2\": val2, \"3name\": val3};",
+    "line": 689
+  },
+  {
+    "expected": "a={\"key'\\\"\":v}",
+    "input": "a={\"key'\\\"\": v,};",
+    "line": 690
+  },
+  {
+    "expected": "()=\u003e{const v=6;x={v}}",
+    "input": "() =\u003e { const v=6; x={v} }",
+    "line": 691
+  },
+  {
+    "expected": "a=obj.if",
+    "input": "a=obj[\"if\"]",
+    "line": 692
+  },
+  {
+    "expected": "a=obj[2]",
+    "input": "a=obj[\"2\"]",
+    "line": 693
+  },
+  {
+    "expected": "a=obj[\"3name\"]",
+    "input": "a=obj[\"3name\"]",
+    "line": 694
+  },
+  {
+    "expected": "a=b`tmpl${a,b}tmpl`",
+    "input": "a=b`tmpl${a?b:b}tmpl`",
+    "line": 695
+  },
+  {
+    "expected": "a=b?.[c]",
+    "input": "a=b?.[c]",
+    "line": 696
+  },
+  {
+    "expected": "a=b?.c",
+    "input": "a=b?.[\"c\"]",
+    "line": 697
+  },
+  {
+    "expected": "a=b?.[\"c d\"]",
+    "input": "a=b?.[\"c d\"]",
+    "line": 698
+  },
+  {
+    "expected": "a=b.#c",
+    "input": "a=b.#c",
+    "line": 699
+  },
+  {
+    "expected": "a=b().#c",
+    "input": "a=b().#c",
+    "line": 700
+  },
+  {
+    "expected": "a=b?.#c",
+    "input": "a=b?.#c",
+    "line": 701
+  },
+  {
+    "expected": "a={b(c){c}}",
+    "input": "a={b(c){c}}",
+    "line": 702
+  },
+  {
+    "expected": "a(b,...c)",
+    "input": "a(b,...c)",
+    "line": 703
+  },
+  {
+    "expected": "let a=\"string\";a",
+    "input": "let a=\"string\";a",
+    "line": 704
+  },
+  {
+    "expected": "f((a,b)||d)",
+    "input": "f((a,b)||d)",
+    "line": 705
+  },
+  {
+    "expected": "x\u003c0?-x:x",
+    "input": "Math.abs(x)",
+    "line": 708
+  },
+  {
+    "expected": "x|0",
+    "input": "Math.trunc(x)",
+    "line": 709
+  },
+  {
+    "expected": "a**b",
+    "input": "Math.pow(a,b)",
+    "line": 710
+  },
+  {
+    "expected": "(-a)**b",
+    "input": "Math.pow(-a,b)",
+    "line": 711
+  },
+  {
+    "expected": "a**.5",
+    "input": "Math.sqrt(a)",
+    "line": 712
+  },
+  {
+    "expected": "++((a*5)**.5)",
+    "input": "++Math.sqrt(a*5)",
+    "line": 713
+  },
+  {
+    "expected": "isNaN(x)",
+    "input": "isNaN(x)",
+    "line": 714
+  },
+  {
+    "expected": "NaN",
+    "input": "Number(undefined)",
+    "line": 715
+  },
+  {
+    "expected": "0",
+    "input": "Number(null)",
+    "line": 716
+  },
+  {
+    "expected": "1",
+    "input": "Number(true)",
+    "line": 717
+  },
+  {
+    "expected": "0",
+    "input": "Number(false)",
+    "line": 718
+  },
+  {
+    "expected": "100",
+    "input": "Number(100)",
+    "line": 719
+  },
+  {
+    "expected": "100",
+    "input": "Number(100n)",
+    "line": 720
+  },
+  {
+    "expected": "module.abs(x)",
+    "input": "module.abs(x)",
+    "line": 721
+  },
+  {
+    "expected": "module.isNaN(x)",
+    "input": "module.isNaN(x)",
+    "line": 722
+  },
+  {
+    "expected": "function isNaN(){}isNaN(x)",
+    "input": "function isNaN(){}isNaN(x)",
+    "line": 723
+  },
+  {
+    "expected": "function f(){return b=5,a+b}",
+    "input": "function f(){b=5;return a+b}",
+    "line": 726
+  },
+  {
+    "expected": "throw b=5,a+b",
+    "input": "b=5;throw a+b",
+    "line": 727
+  },
+  {
+    "expected": "function f(){return a(),b(),c()}",
+    "input": "function f(){a();b();return c()}",
+    "line": 728
+  },
+  {
+    "expected": "throw a(),b(),c()",
+    "input": "a();b();throw c()",
+    "line": 729
+  },
+  {
+    "expected": "function f(){return a=b,a||b}",
+    "input": "function f(){a=b;if(a){return a}else return b}",
+    "line": 730
+  },
+  {
+    "expected": "if(a=5,b)for(;c;);",
+    "input": "a=5;if(b)while(c);",
+    "line": 731
+  },
+  {
+    "expected": "for(a=5;b;)c()",
+    "input": "a=5;while(b)c()",
+    "line": 732
+  },
+  {
+    "expected": "for(a=5;b;)c()",
+    "input": "a=5;while(b){c()}",
+    "line": 733
+  },
+  {
+    "expected": "for(a=5;b;)c()",
+    "input": "a=5;for(;b;)c()",
+    "line": 734
+  },
+  {
+    "expected": "a=5;for(b=4;b;)c()",
+    "input": "a=5;for(b=4;b;)c()",
+    "line": 735
+  },
+  {
+    "expected": "a in 5;for(b=4;b;)c()",
+    "input": "a in 5;for(b=4;b;)c()",
+    "line": 737
+  },
+  {
+    "expected": "for(var a,b=0;b;b++);a",
+    "input": "var a;for(var b=0;b;b++);a",
+    "line": 738
+  },
+  {
+    "expected": "for(var a=1,b=0;b;b++);a",
+    "input": "var a=1;for(var b=0;b;b++);a",
+    "line": 739
+  },
+  {
+    "expected": "for(var a=1;a;a++);",
+    "input": "var a=1;for(var a;a;a++);",
+    "line": 740
+  },
+  {
+    "expected": "for(var a=1;a;a++);",
+    "input": "var a;for(var a=1;a;a++);",
+    "line": 741
+  },
+  {
+    "expected": "for(var a=5;a;)c()",
+    "input": "var a=5;for(;a;)c()",
+    "line": 742
+  },
+  {
+    "expected": "let a=5;for(;a;)c()",
+    "input": "let a=5;for(;a;)c()",
+    "line": 743
+  },
+  {
+    "expected": "for(var a=(b in c);a;)c()",
+    "input": "var a=b in c;for(;a;)c()",
+    "line": 744
+  },
+  {
+    "expected": "for(var b,a=5,a=6;b;)c()",
+    "input": "var a=5;for(var a=6,b;b;)c()",
+    "line": 745
+  },
+  {
+    "expected": "for(var b,a=5;b;)c()",
+    "input": "var a=5;for(var a,b;b;)c()",
+    "line": 746
+  },
+  {
+    "expected": "for(var a=5,b=6,c=7;;);",
+    "input": "var a=5;for(var b=6,c=7;;);",
+    "line": 747
+  },
+  {
+    "expected": "for(var a=5;a;)c()",
+    "input": "var a=5;while(a)c()",
+    "line": 748
+  },
+  {
+    "expected": "for(var a=5;a;)c()",
+    "input": "var a=5;while(a){c()}",
+    "line": 749
+  },
+  {
+    "expected": "let a=5;for(;a;)c()",
+    "input": "let a=5;while(a)c()",
+    "line": 750
+  },
+  {
+    "expected": "for(var a=5;b;)c()",
+    "input": "a=5;for(var a;b;)c()",
+    "line": 752
+  },
+  {
+    "expected": "a=5;for(var b=4;b;)c()",
+    "input": "a=5;for(var b=4;b;)c()",
+    "line": 753
+  },
+  {
+    "expected": "switch(a=5,b=4){}",
+    "input": "a=5;switch(b=4){}",
+    "line": 754
+  },
+  {
+    "expected": "with(a=5,b=4);",
+    "input": "a=5;with(b=4){}",
+    "line": 755
+  },
+  {
+    "expected": "(function(){})(),function(){}()",
+    "input": "(function(){})();(function(){})()",
+    "line": 756
+  },
+  {
+    "expected": "/\\\\\\/\\[/",
+    "input": "/\\\\\\/\\[/",
+    "line": 784
+  },
+  {
+    "expected": "/[\\\\\\]]/",
+    "input": "/[\\\\\\]]/",
+    "line": 785
+  },
+  {
+    "expected": "/[[]/",
+    "input": "/[\\[]/",
+    "line": 786
+  },
+  {
+    "expected": "/\\.\\cA\\x10\\u0010\\p{x}\\P{x}\\0\\f\\v\\n\\r\\t\\S\\s\\W\\w\\D\\d\\b\\B\\k/",
+    "input": "/\\.\\cA\\x10\\u0010\\p{x}\\P{x}\\0\\f\\v\\n\\r\\t\\S\\s\\W\\w\\D\\d\\b\\B\\k/",
+    "line": 787
+  },
+  {
+    "expected": "/\\^\\|\\(\\)\\1\\*\\+\\?\\{\\$/",
+    "input": "/\\^\\|\\(\\)\\1\\*\\+\\?\\{\\$/",
+    "line": 788
+  },
+  {
+    "expected": "/[^-]/",
+    "input": "/[^\\-]/",
+    "line": 789
+  },
+  {
+    "expected": "/[^--]/",
+    "input": "/[^\\-\\-]/",
+    "line": 790
+  },
+  {
+    "expected": "/[\\^\\--]/",
+    "input": "/[\\^\\-\\-]/",
+    "line": 791
+  },
+  {
+    "expected": "/[^-\\--]/",
+    "input": "/[^\\-\\-\\-]/",
+    "line": 792
+  },
+  {
+    "expected": "/[^a-b-]/",
+    "input": "/[^a-b\\-]/",
+    "line": 793
+  },
+  {
+    "expected": "/[^a-b--]/",
+    "input": "/[^a-b\\-\\-]/",
+    "line": 794
+  },
+  {
+    "expected": "/[^a-b-\\--]/",
+    "input": "/[^a-b\\-\\-\\-]/",
+    "line": 795
+  },
+  {
+    "expected": "/[^a\\-\\-----]/",
+    "input": "/[^a\\-\\--\\-\\-\\-]/",
+    "line": 796
+  },
+  {
+    "expected": "let o=null;try{o=(o?.a).b||\"FAIL\"}catch{}console.log(o||\"PASS\")",
+    "input": "let o=null;try{o=(o?.a).b||\"FAIL\"}catch(x){}console.log(o||\"PASS\")",
+    "line": 799
+  },
+  {
+    "expected": "1..a",
+    "input": "1..a",
+    "line": 800
+  },
+  {
+    "expected": "1.5.a",
+    "input": "1.5.a",
+    "line": 801
+  },
+  {
+    "expected": "1e4.a",
+    "input": "1e4.a",
+    "line": 802
+  },
+  {
+    "expected": "t0.a",
+    "input": "t0.a",
+    "line": 803
+  },
+  {
+    "expected": "for(;a\u003c! --script;);",
+    "input": "for(;a \u003c !--script;);",
+    "line": 804
+  },
+  {
+    "expected": "for(;a\u003c /script\u003e/;);",
+    "input": "for(;a \u003c /script\u003e/;);",
+    "line": 805
+  },
+  {
+    "expected": "a\u003c\u003c! --script",
+    "input": "a\u003c\u003c!--script",
+    "line": 806
+  },
+  {
+    "expected": "a\u003c\u003c /script\u003e/",
+    "input": "a\u003c\u003c/script\u003e/",
+    "line": 807
+  },
+  {
+    "expected": "function f(a,b){a();for(const c of b){const b=0}}",
+    "input": "function f(a,b){a();for(const c of b){const b=0}}",
+    "line": 808
+  },
+  {
+    "expected": "function f(){return a,b}",
+    "input": "function f(){return a,b,void 0}",
+    "line": 809
+  },
+  {
+    "expected": "var arr=[],slice=arr.slice,concat=arr.concat,push=arr.push,indexOf=arr.indexOf,class2type={}",
+    "input": "var arr=[];var slice=arr.slice;var concat=arr.concat;var push=arr.push;var indexOf=arr.indexOf;var class2type={};",
+    "line": 810
+  },
+  {
+    "expected": "var arr=[],class2type={};a=5;var rlocalProtocol=0",
+    "input": "var arr=[];var class2type={};a=5;var rlocalProtocol=0",
+    "line": 811
+  },
+  {
+    "expected": "function f(){return a=b,o?d:c}",
+    "input": "function f(){a=b;if(!o)return c;return d}",
+    "line": 812
+  },
+  {
+    "expected": "({\"\":a})",
+    "input": "({\"\":a})",
+    "line": 815
+  },
+  {
+    "expected": "a[\"\"]",
+    "input": "a[\"\"]",
+    "line": 816
+  },
+  {
+    "expected": "function f(){}",
+    "input": "function f(){;}",
+    "line": 817
+  },
+  {
+    "expected": "0xeb00000000",
+    "input": "0xeb00000000",
+    "line": 818
+  },
+  {
+    "expected": "export{a,}",
+    "input": "export{a,}",
+    "line": 819
+  },
+  {
+    "expected": "var{U,W,W}=y,D",
+    "input": "var D;var{U,W,W}=y",
+    "line": 820
+  },
+  {
+    "expected": "var d,A,b=function(){var e}=c",
+    "input": "var A;var b=(function(){var e;})=c,d",
+    "line": 821
+  },
+  {
+    "expected": "3149642426",
+    "input": "0xB_BBBbAbA",
+    "line": 822
+  },
+  {
+    "expected": "\"\\udFEb\"",
+    "input": "\"\\udFEb\"",
+    "line": 823
+  },
+  {
+    "expected": "\" \\x00\\x00\\u{0\\0 \"",
+    "input": "' \\u{0}\\u{0}\\u{0\\0\\ '",
+    "line": 824
+  },
+  {
+    "expected": "var b,a=/\\s?auto?\\s?/i;a,b",
+    "input": "var a=/\\s?auto?\\s?/i\nvar b;a,b",
+    "line": 827
+  },
+  {
+    "expected": "(!1)`string`",
+    "input": "false`string`",
+    "line": 828
+  },
+  {
+    "expected": "x/ /\\d+/.exec(s)[0]",
+    "input": "x / /\\d+/.exec(s)[0]",
+    "line": 829
+  },
+  {
+    "expected": "()=\u003e({a})",
+    "input": "()=\u003e{return{a}}",
+    "line": 830
+  },
+  {
+    "expected": "()=\u003e({a})",
+    "input": "()=\u003e({a})",
+    "line": 831
+  },
+  {
+    "expected": "function f(){return a?1:b?2:3}",
+    "input": "function f(){if(a){return 1}else if(b){return 2}return 3}",
+    "line": 832
+  },
+  {
+    "expected": "new RegExp(\"\\xAA\\xB5\")",
+    "input": "new RegExp(\"\\xAA\\xB5\")",
+    "line": 833
+  },
+  {
+    "expected": "for(;;)a();var a,b=5",
+    "input": "for(var a;;)a();var b=5",
+    "line": 834
+  },
+  {
+    "expected": "(e?0:n=1,o=2)\u0026\u0026o.a",
+    "input": "if(e?0:n=1,o=2){o.a}",
+    "line": 835
+  },
+  {
+    "expected": "const a=(a,b)=\u003e({...a,b})",
+    "input": "const a=(a,b)=\u003e({...a,b})",
+    "line": 836
+  },
+  {
+    "expected": "if(!a)debugger",
+    "input": "if(!a)debugger;",
+    "line": 837
+  },
+  {
+    "expected": "export function a(b){b}",
+    "input": "export function a(b){b}",
+    "line": 838
+  },
+  {
+    "expected": "switch(a){case 0:b=c,d=e}",
+    "input": "switch(a){case 0:b=c;d=e}",
+    "line": 839
+  },
+  {
+    "expected": "a",
+    "input": "if(a){const b=0}",
+    "line": 840
+  },
+  {
+    "expected": "()=\u003e({a(){b=!b}})",
+    "input": "()=\u003e({a(){b=!b}})",
+    "line": 841
+  },
+  {
+    "expected": "a=1;function f(){return 1}var{min,max}=Math,a;function g(){return 2}",
+    "input": "var a=1;function f(){return 1}var{min,max}=Math;function g(){return 2}",
+    "line": 842
+  },
+  {
+    "expected": "const f=x=\u003evoid console.log(x)",
+    "input": "const f=x=\u003evoid console.log(x)",
+    "line": 843
+  },
+  {
+    "expected": "(function(){var a=b,c=d.x,e=f.y})()",
+    "input": "(function(){var a=b;var c=d.x,e=f.y})()",
+    "line": 844
+  },
+  {
+    "expected": "var a=1;g(),a=2;let b=3",
+    "input": "var a=1;g();a=2;let b=3",
+    "line": 845
+  },
+  {
+    "expected": "if(!(0\u003c1\u0026\u00261\u003c2))throw new Error",
+    "input": "if(!(0\u003c1\u0026\u00261\u003c2)){throw new Error()}",
+    "line": 846
+  },
+  {
+    "expected": "class A{set x(e){}}",
+    "input": "class A{set x(e){}}",
+    "line": 847
+  },
+  {
+    "expected": "a\u0026\u0026c(d)",
+    "input": "if(a){let b=c(d)}",
+    "line": 848
+  },
+  {
+    "expected": "var b,a=5;({},b={c:()=\u003e3})",
+    "input": "var a=5;({});var b={c:()=\u003e3}",
+    "line": 849
+  },
+  {
+    "expected": "var b,a=5;({},b=function(){3})",
+    "input": "var a=5;({});var b=function(){3}",
+    "line": 850
+  },
+  {
+    "expected": "var b,a=5;({},b=class{c(){3}})",
+    "input": "var a=5;({});var b=class{c(){3}}",
+    "line": 851
+  },
+  {
+    "expected": "({},a={b(){3}})",
+    "input": "({});a={b(){3}}",
+    "line": 852
+  },
+  {
+    "expected": "export default function Foo(){a}Foo.prototype.bar=b",
+    "input": "export default function Foo(){a}Foo.prototype.bar=b",
+    "line": 853
+  },
+  {
+    "expected": "e=1,e=2",
+    "input": "(e=1,e=2)",
+    "line": 854
+  },
+  {
+    "expected": "\"\\x001 \\0\\x00\"",
+    "input": "\"\\x00\\x31 \\0\\u0000\"",
+    "line": 855
+  },
+  {
+    "expected": "function transform(){{for(var aaaa=[],b=0;;);for(b in aaaa);for(var aaaa=[],b=0;;);}}",
+    "input": "function transform(){{var aaaa=[];for(var b=0;;){}for(var b in aaaa){}var aaaa=[];for(var b=0;;){}}}",
+    "line": 856
+  },
+  {
+    "expected": "for(var b,c,a=0;;)for(b=5,c=0;;);",
+    "input": "for(var a=0;;){var b=5;for(var c=0;;);}",
+    "line": 857
+  },
+  {
+    "expected": "if(a)for(;;);else b",
+    "input": "if(a)for(;;)\n;else b",
+    "line": 858
+  },
+  {
+    "expected": "`\n\\r`",
+    "input": "'\\u000A\\u000D'",
+    "line": 859
+  },
+  {
+    "expected": "for(!a;b;c);",
+    "input": "for(!a;b;c);",
+    "line": 860
+  },
+  {
+    "expected": "/*! comment */var a=b",
+    "input": "var a = /*! comment */ b;",
+    "line": 861
+  },
+  {
+    "expected": "var d,c=\"\";for(let i=0;;);d=\"\";for(let i=0;;);",
+    "input": "var c=\"\";for(let i=0;;);var d=\"\";for(let i=0;;);",
+    "line": 862
+  },
+  {
+    "expected": "String.raw`\\b`",
+    "input": "String.raw`\\b`",
+    "line": 863
+  },
+  {
+    "expected": "{const a=setInterval(()=\u003e{clearInterval(a)},100)}",
+    "input": "if(true){const a=setInterval(()=\u003e{clearInterval(a)},100)}",
+    "line": 864
+  },
+  {
+    "expected": "({a(key){x\u0026\u0026b.push({key})}})",
+    "input": "({a(key){if(x){b.push({key})}}})",
+    "line": 865
+  },
+  {
+    "expected": "(a?.b()).c",
+    "input": "(a?.b()).c",
+    "line": 866
+  },
+  {
+    "expected": "var[d]=1,a=0,b=1,c=[...b]",
+    "input": "var a=0;var b=1,c=[...b],[d]=1;",
+    "line": 867
+  },
+  {
+    "expected": "class A{get#a(){}set#a(x){}}",
+    "input": "class A{get #a(){} set #a(x){}}",
+    "line": 868
+  },
+  {
+    "expected": "()=\u003e{const a=1,{b}=a}",
+    "input": "()=\u003e{const a=1,{b}=a}",
+    "line": 869
+  },
+  {
+    "expected": "()=\u003e{const a={b},{c}={d:a}}",
+    "input": "()=\u003e{const a={b};const{c}={d:a}}",
+    "line": 870
+  }
+]

@@ -49,6 +49,7 @@ are reached through `node.attrs`.
 | Parse             | `parse`, `parse_fragment`, `IncrementalParser` — encoding sniffing and source positions                |
 | Query             | `find`/`find_all`, CSS `select`/`select_one`, XPath `xpath`/`xpath_one`                                |
 | Serialize         | `serialize`/`encode` with an `Html` config (`Formatter` escaping, `Indent`/`Minify` whitespace)        |
+| Minify JS         | `minify_js` with a `JSMinify` config, and `Minify(minify_js=...)` to minify inline `<script>`          |
 | Sanitize          | `sanitize` — allowlist scrub of untrusted HTML (the `bleach.clean` successor)                          |
 | Linkify           | `linkify` — auto-link URLs and emails without touching existing links (the `bleach.linkify` successor) |
 | Markdown          | `to_markdown` with a `Markdown` config — GitHub-Flavored Markdown export                               |

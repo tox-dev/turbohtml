@@ -9,11 +9,14 @@ Turn a tree back into markup or text. Each renderer takes one configuration obje
 :class:`Indent` or :class:`Minify` picks the whitespace); :meth:`Node.to_markdown` takes a :class:`Markdown` config; and
 :meth:`Node.to_text` and :meth:`Node.to_annotated_text` take a :class:`PlainText` config. :func:`escape` and
 :func:`unescape` are the standalone string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-process
-the annotated-text result.
+the annotated-text result. :func:`minify_js` minifies a JavaScript string on its own, and a :class:`JSMinify` passed to
+:class:`Minify` extends HTML minification into inline ``<script>`` content.
 
 .. autofunction:: escape
 
 .. autofunction:: unescape
+
+.. autofunction:: minify_js
 
 .. autoclass:: Html
     :members:
@@ -25,6 +28,9 @@ the annotated-text result.
     :members:
 
 .. autoclass:: Minify
+    :members:
+
+.. autoclass:: JSMinify
     :members:
 
 .. autoclass:: Markdown

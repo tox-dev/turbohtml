@@ -118,14 +118,19 @@ typedef struct {
     th_node *node; /* the element whose live attributes this view exposes */
 } AttrsObject;
 
-/* The serialize(minify=...) options object: four independent round-trip-safe
-   transforms, each a bool. Immutable and reference-free, so it lives outside the
-   garbage collector like Token. */
+/* The serialize(minify=...) options object: four independent round-trip-safe markup
+   transforms plus an opt-in inline-<script> JS pass. minify_js gates the pass and caches
+   the two JSMinify toggles as flags, so the object stays immutable, reference-free and
+   outside the garbage collector like Token (the getter rebuilds a value-equal JSMinify on
+   demand from the module-state type). */
 typedef struct {
     PyObject_HEAD unsigned char collapse_whitespace;
     unsigned char omit_optional_tags;
     unsigned char unquote_attributes;
     unsigned char strip_comments;
+    unsigned char minify_js; /* run the inline-<script> JS pass */
+    unsigned char minify_js_fold;
+    unsigned char minify_js_mangle;
 } MinifyObject;
 
 /* The serialize(layout=...) pretty-print mode: a per-level whitespace unit. Like
