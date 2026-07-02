@@ -1,2 +1,3 @@
-A new "From htbuilder" migration guide maps `htbuilder <https://github.com/tvst/htbuilder>`__'s attributes-then-children
-calls onto :data:`turbohtml.build.E` and benchmarks the two builders on the same workload - by :user:`gaborbernat`.
+New "From htbuilder" and "From simple-html" migration guides map `htbuilder <https://github.com/tvst/htbuilder>`__'s
+attributes-then-children calls and `simple-html <https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first
+calls onto :data:`turbohtml.build.E`, each benchmarked against the builder it replaces - by :user:`gaborbernat`.

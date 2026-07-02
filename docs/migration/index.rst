@@ -464,6 +464,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/airium
             :alt: airium total downloads
             :target: https://pepy.tech/project/airium
+    - - 6
+      - :doc:`simple-html <simple-html>`
+      - `docs <https://github.com/keithasaurus/simple_html>`__
+      - .. image:: https://static.pepy.tech/badge/simple-html/month
+            :alt: simple-html monthly downloads
+            :target: https://pepy.tech/project/simple-html
+      - .. image:: https://static.pepy.tech/badge/simple-html
+            :alt: simple-html total downloads
+            :target: https://pepy.tech/project/simple-html
 
 *************************
  JavaScript minification
@@ -550,4 +559,5 @@ page benchmarks all of them).
     html5-parser
     metadata_parser
     lightningcss
+    simple-html
     stdlib
