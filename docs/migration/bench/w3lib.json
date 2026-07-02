@@ -35,6 +35,16 @@
       "``meta_refresh`` (vs ``get_meta_refresh``)",
       3e-06,
       6.5e-06
+    ],
+    [
+      "``clean_url`` 100 URLs (vs ``safe_url_string``)",
+      0.00028342558066469793,
+      0.0006421795927356774
+    ],
+    [
+      "``normalize_url`` 100 URLs (vs ``canonicalize_url``)",
+      0.0002275000961541688,
+      0.0013560455950937466
     ]
   ]
 }

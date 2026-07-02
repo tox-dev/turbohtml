@@ -616,10 +616,11 @@ native tables stay ahead.
 
 :func:`turbohtml.extract.clean_url`, :func:`~turbohtml.extract.normalize_url`, and
 :func:`~turbohtml.extract.extract_links` against `courlan <https://github.com/adbar/courlan>`_, trafilatura's URL
-cleaner. The per-URL pass wins about 2x by scanning each component once in C-backed regexes and percent-encoding only
-when a scan finds something to encode, where courlan re-encodes unconditionally through ``parse_qs``/``urlencode``.
-Page-level extraction parses the real WHATWG DOM yet still finishes 1.4x-2.4x ahead of courlan's regex scan, because
-each distinct href is cleaned once and absolute links skip resolution.
+cleaner, and `w3lib <https://w3lib.readthedocs.io/>`_'s ``safe_url_string``/``canonicalize_url``, Scrapy's URL
+utilities. The per-URL pass wins 2x-6x by scanning each component once in C-backed regexes and percent-encoding only
+when a scan finds something to encode, where both competitors re-encode unconditionally through urllib's per-character
+quoters. Page-level extraction parses the real WHATWG DOM yet still finishes 1.4x-2.4x ahead of courlan's regex scan,
+because each distinct href is cleaned once and absolute links skip resolution.
 
 .. bench-table::
     :file: bench/url-cleaning.json

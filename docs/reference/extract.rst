@@ -30,3 +30,4 @@ The URL helpers are successors to ``courlan`` and the ``w3lib.url`` canonicaliza
 .. autofunction:: extract_links
 
 .. autoclass:: UrlCleaning
+    :members: w3lib
