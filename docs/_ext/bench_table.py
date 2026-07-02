@@ -55,6 +55,7 @@ _HOMEPAGES: Final = {
     "cssmin": "https://github.com/zacharyvoase/cssmin",
     "dominate": "https://github.com/Knio/dominate",
     "extruct": "https://github.com/scrapinghub/extruct",
+    "fast-html": "https://github.com/pcarbonn/fast_html",
     "faust-cchardet": "https://github.com/faust-streaming/cChardet",
     "html-sanitizer": "https://github.com/matthiask/html-sanitizer",
     "html-text": "https://github.com/zytedata/html-text",
