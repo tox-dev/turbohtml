@@ -1,8 +1,9 @@
-"""w3lib: replace_entities, the closest competitor to turbohtml.unescape."""
+"""w3lib: replace_entities, the closest competitor to turbohtml.unescape, plus the w3lib.url canonicalizers."""
 
 from __future__ import annotations
 
 import w3lib.html
+import w3lib.url
 
 REQUIREMENTS = ("w3lib>=2.4.1",)
 
@@ -29,8 +30,17 @@ def extract_url(case: tuple[str, str]) -> None:
         w3lib.html.get_meta_refresh(text, _URL_HINT_BASE)
 
 
+def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
+    """Run w3lib's safe_url_string (or canonicalize_url) over the shared URL batch, by case kind."""
+    kind, batch = case
+    transform = w3lib.url.safe_url_string if kind == "clean" else w3lib.url.canonicalize_url
+    for url in batch:
+        transform(url)
+
+
 OPERATIONS = {
     "unescape": (unescape, "w3lib"),
     "strip-tags": (strip_tags, "w3lib"),
     "extract-url": (extract_url, "w3lib"),
+    "urls-clean": (urls_clean, "w3lib"),
 }
