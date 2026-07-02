@@ -428,6 +428,15 @@ page benchmarks all of them).
             :alt: readability-lxml total downloads
             :target: https://pepy.tech/project/readability-lxml
     - - 7
+      - :doc:`readabilipy <readabilipy>`
+      - `docs <https://readabilipy.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/readabilipy/month
+            :alt: readabilipy monthly downloads
+            :target: https://pepy.tech/project/readabilipy
+      - .. image:: https://static.pepy.tech/badge/readabilipy
+            :alt: readabilipy total downloads
+            :target: https://pepy.tech/project/readabilipy
+    - - 8
       - :doc:`newspaper3k <newspaper3k>`
       - `docs <https://newspaper.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/newspaper3k/month
@@ -436,7 +445,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/newspaper3k
             :alt: newspaper3k total downloads
             :target: https://pepy.tech/project/newspaper3k
-    - - 8
+    - - 9
       - :doc:`boilerpy3 <boilerpy3>`
       - `docs <https://github.com/jmriebold/BoilerPy3>`__
       - .. image:: https://static.pepy.tech/badge/boilerpy3/month
@@ -445,7 +454,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/boilerpy3
             :alt: boilerpy3 total downloads
             :target: https://pepy.tech/project/boilerpy3
-    - - 8
+    - - 10
       - :doc:`goose3 <goose3>`
       - `docs <https://goose3.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/goose3/month
@@ -653,6 +662,7 @@ page benchmarks all of them).
     dominate
     pyquery
     readability-lxml
+    readabilipy
     inscriptis
     minify-html
     html-text

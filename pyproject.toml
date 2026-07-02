@@ -128,6 +128,7 @@ bench = [
   "pyperf>=2.10",
   "pyquery>=2.0.1",
   "rcssmin>=1.2",
+  "readabilipy>=0.3",
   "readability-lxml>=0.8.4.1",
   "resiliparse>=1.0.8",
   "rjsmin>=1.2",

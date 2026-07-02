@@ -1,3 +1,3 @@
 Migration guides with measured benchmarks for the boilerplate-removal and article-extraction libraries
-:func:`turbohtml.extract.boilerplate` and :meth:`~turbohtml.Node.article` replace: ``boilerpy3`` and ``goose3`` - by
-:user:`gaborbernat`.
+:func:`turbohtml.extract.boilerplate` and :meth:`~turbohtml.Node.article` replace: ``boilerpy3``, ``goose3``, and
+``readabilipy`` - by :user:`gaborbernat`.

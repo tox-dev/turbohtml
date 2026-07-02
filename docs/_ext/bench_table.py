@@ -93,6 +93,7 @@ _HOMEPAGES: Final = {
     "rcssmin": "https://opensource.perlig.de/rcssmin/",
     "rjsmin": "https://opensource.perlig.de/rjsmin/",
     "readability-lxml": "https://github.com/buriy/python-readability",
+    "readabilipy": "https://readabilipy.readthedocs.io/",
     "resiliparse": "https://resiliparse.chatnoir.eu/",
     "selectolax": "https://github.com/rushter/selectolax",
     "simple-html": "https://github.com/keithasaurus/simple_html",
