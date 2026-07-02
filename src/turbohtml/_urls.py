@@ -132,18 +132,33 @@ class UrlCleaning:
     :param language: an ISO 639-1 code; :func:`clean_url` and :func:`extract_links` then reject URLs whose language
         markers (a leading path segment such as ``/de/``, a ``lang``/``language`` query parameter, or an anchor's
         ``hreflang``) point at another language. :func:`normalize_url` never rejects, so it ignores this field.
+    :param query_allow: when set, keep only these query parameters (matched case-insensitively against the decoded
+        name), the ``w3lib.url.url_query_cleaner`` keep-list; a listed parameter survives even when it is a known
+        tracker. Mutually exclusive with ``strict``, which is itself an allowlist.
+    :param query_deny: always drop these query parameters (matched the same way), the ``url_query_cleaner``
+        ``remove=True`` mode; the tracker or ``strict`` filtering still applies to the rest.
     """
 
     strict: bool = False
     trailing_slash: bool = True
     strip_fragment: bool = False
     language: str | None = None
+    query_allow: frozenset[str] | None = None
+    query_deny: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
-        """Reject a language that is not an ISO 639-1 code, the alphabet the URL heuristics match against."""
+        """Reject a non-ISO-639-1 language and the contradiction of two query allowlists at once."""
         if self.language is not None and self.language not in _ISO_639_1:
             msg = f"language must be an ISO 639-1 code, got {self.language!r}"
             raise ValueError(msg)
+        if self.strict and self.query_allow is not None:
+            msg = "strict and query_allow are mutually exclusive, each is a query-parameter allowlist"
+            raise ValueError(msg)
+
+    @classmethod
+    def w3lib(cls) -> UrlCleaning:
+        """Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept."""
+        return cls(strip_fragment=True)
 
 
 _DEFAULT: Final = UrlCleaning()
@@ -369,13 +384,22 @@ def _remove_dot_segments(path: str) -> str:
 
 
 def _normalize_query(query: str, options: UrlCleaning) -> str:
-    """Drop tracker (or, strict, non-allowlisted) parameters and sort the rest, keeping each pair's raw encoding."""
+    """Drop denied, tracker, or non-allowlisted parameters and sort the rest, keeping each pair's raw encoding."""
+    allow = {name.lower() for name in options.query_allow} if options.query_allow is not None else None
+    deny = {name.lower() for name in options.query_deny}
     kept: list[tuple[str, str]] = []
     for pair in query.split("&"):
         if not pair:
             continue
         key = unquote(pair.partition("=")[0]).lower()
-        dropped = key not in _CONTENT_PARAMS and key not in _LANGUAGE_PARAMS if options.strict else _is_tracker(key)
+        if key in deny:
+            continue
+        if allow is not None:
+            dropped = key not in allow
+        elif options.strict:
+            dropped = key not in _CONTENT_PARAMS and key not in _LANGUAGE_PARAMS
+        else:
+            dropped = _is_tracker(key)
         if dropped:
             continue
         kept.append((key, _encode(pair, _QUERY_UNSAFE, _QUERY_SAFE)))
