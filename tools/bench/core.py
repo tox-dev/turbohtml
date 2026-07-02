@@ -22,6 +22,7 @@ from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
 from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
+from turbohtml.extract import boilerplate as _extract_boilerplate
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -311,6 +312,11 @@ def article(text: str) -> None:
     _parsed(text).article()
 
 
+def boilerplate(text: str) -> None:
+    """Classify every paragraph good or boilerplate with turbohtml's layer over the C main-content scoring."""
+    _extract_boilerplate(text)
+
+
 def text_render(text: str) -> None:
     """Render layout-aware visible text with turbohtml's to_text, walking the tree in C."""
     _parsed(text).to_text()
@@ -493,6 +499,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "markdown-google": (markdown_google, "turbohtml"),
     "tables": (tables, "turbohtml"),
     "article": (article, "turbohtml"),
+    "boilerplate": (boilerplate, "turbohtml"),
     "text-render": (text_render, "turbohtml"),
     "text-collapsed": (text_collapsed, "turbohtml"),
     "text-main": (text_main, "turbohtml"),

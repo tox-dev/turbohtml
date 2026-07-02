@@ -37,6 +37,12 @@ candidate set is just the parents and grandparents of scored paragraphs). It tou
 chosen, at which point the binding (holding the same per-tree critical section the other walks use) wraps that one node,
 or renders its text for :meth:`~turbohtml.Node.main_text`. Two threads extracting from two trees never interfere.
 
+:func:`turbohtml.extract.boilerplate` layers the paragraph-level view justext and boilerpy3 expose over the same walk:
+the winner picks the content body, then each paragraph unit is reported individually -- outside the winner is
+boilerplate, and a unit inside it must still clear the length and link-density thresholds of an
+:class:`~turbohtml.extract.Extraction` config. The two classifications cannot disagree about *where* the article is,
+because there is only one scoring.
+
 :meth:`~turbohtml.Node.article` builds on that walk to fill the rest of trafilatura's and newspaper3k's contract. After
 the content body is scored it harvests the page metadata -- title, byline, date, description and language -- in the same
 pure-C pass over the arena: the title from the first ``<h1>``, then an ``og:title``, then ``<title>``; the byline from a

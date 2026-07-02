@@ -1,0 +1,20 @@
+{
+  "label": "input",
+  "parties": [
+    "turbohtml",
+    "justext"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "post (4 KiB)",
+      2.78e-05,
+      0.000797
+    ],
+    [
+      "longform (16 KiB)",
+      0.000105,
+      0.00334
+    ]
+  ]
+}

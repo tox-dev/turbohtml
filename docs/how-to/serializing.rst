@@ -475,6 +475,43 @@ empty while the metadata is still filled:
 
     None '' Sommaire fr
 
+**********************************
+ Classify paragraphs individually
+**********************************
+
+:func:`turbohtml.extract.boilerplate` gives the per-paragraph view of the same scoring: it segments the page into
+paragraph units and marks each one good or boilerplate, the call shape `justext
+<https://github.com/miso-belica/jusText>`_ and `boilerpy3 <https://github.com/jmriebold/BoilerPy3>`_ expose. Units
+outside the content body are boilerplate; units inside it must still clear the length and link-density thresholds a
+:class:`~turbohtml.extract.Extraction` config carries:
+
+.. testcode::
+
+    from turbohtml.extract import Extraction, boilerplate
+
+    page = (
+        "<body><nav><ul><li><a href='/'>Home</a></li><li><a href='/faq'>FAQ</a></li></ul></nav>"
+        "<article class='post'><h1>Comets</h1>"
+        "<p>A comet is an icy body that releases gas, forming a visible tail, as it nears the Sun.</p>"
+        "<p>Share this!</p>"
+        "</article></body>"
+    )
+    for paragraph in boilerplate(page):
+        print(paragraph.is_boilerplate, paragraph.is_heading, paragraph.text)
+
+.. testoutput::
+
+    True False Home
+    True False FAQ
+    False True Comets
+    False False A comet is an icy body that releases gas, forming a visible tail, as it nears the Sun.
+    True False Share this!
+
+The good paragraphs concatenate to the article, so ``"\n".join(p.text for p in boilerplate(page) if not
+p.is_boilerplate)`` is the justext extraction idiom. ``Extraction.justext()`` mirrors justext's stricter defaults (a
+70-character floor and 0.2 link density), and ``Extraction(keep_headings=False)`` subjects headings to the length floor
+like any prose, justext's ``no_headings`` mode.
+
 To turn those spans into something printable, pass the returned ``(text, labels)`` pair to one of the two output
 processors. :func:`turbohtml.annotation_surface` groups each label's matched substrings into a dict, in document order,
 the surface forms an NLP or information-extraction pipeline consumes:

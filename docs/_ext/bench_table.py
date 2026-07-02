@@ -69,6 +69,7 @@ _HOMEPAGES: Final = {
     "hyperpython": "https://github.com/fabiommendes/hyperpython",
     "inscriptis": "https://github.com/weblyzard/inscriptis",
     "jsmin": "https://github.com/tikitu/jsmin",
+    "justext": "https://github.com/miso-belica/jusText",
     "lightningcss": "https://pypi.org/project/lightningcss/",
     "linkify-it-py": "https://github.com/tsutsu3/linkify-it-py",
     "lxml": "https://lxml.de/",

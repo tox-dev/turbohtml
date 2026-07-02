@@ -108,6 +108,7 @@ bench = [
   "htpy>=26.5.1",
   "inscriptis>=2.7.2",
   "jsmin>=3",
+  "justext>=3.0.2",
   "lightningcss>=0.3",
   "linkify-it-py>=2.1",
   "lxml>=6.1.1",

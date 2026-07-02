@@ -401,6 +401,15 @@ page benchmarks all of them).
             :alt: trafilatura total downloads
             :target: https://pepy.tech/project/trafilatura
     - - 4
+      - :doc:`justext <justext>`
+      - `docs <https://github.com/miso-belica/jusText>`__
+      - .. image:: https://static.pepy.tech/badge/justext/month
+            :alt: justext monthly downloads
+            :target: https://pepy.tech/project/justext
+      - .. image:: https://static.pepy.tech/badge/justext
+            :alt: justext total downloads
+            :target: https://pepy.tech/project/justext
+    - - 5
       - :doc:`readability-lxml <readability-lxml>`
       - `docs <https://github.com/buriy/python-readability>`__
       - .. image:: https://static.pepy.tech/badge/readability-lxml/month
@@ -409,7 +418,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/readability-lxml
             :alt: readability-lxml total downloads
             :target: https://pepy.tech/project/readability-lxml
-    - - 5
+    - - 6
       - :doc:`newspaper3k <newspaper3k>`
       - `docs <https://newspaper.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/newspaper3k/month
@@ -599,6 +608,7 @@ page benchmarks all of them).
     lxml-html-clean
     w3lib
     trafilatura
+    justext
     selectolax
     parsel
     rcssmin
