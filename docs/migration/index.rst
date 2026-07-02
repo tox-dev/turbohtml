@@ -519,6 +519,15 @@ page benchmarks all of them).
             :alt: markyp-html total downloads
             :target: https://pepy.tech/project/markyp-html
     - - 7
+      - :doc:`fast-html <fast-html>`
+      - `docs <https://github.com/pcarbonn/fast_html>`__
+      - .. image:: https://static.pepy.tech/badge/fast-html/month
+            :alt: fast-html monthly downloads
+            :target: https://pepy.tech/project/fast-html
+      - .. image:: https://static.pepy.tech/badge/fast-html
+            :alt: fast-html total downloads
+            :target: https://pepy.tech/project/fast-html
+    - - 8
       - :doc:`simple-html <simple-html>`
       - `docs <https://github.com/keithasaurus/simple_html>`__
       - .. image:: https://static.pepy.tech/badge/simple-html/month
@@ -527,7 +536,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/simple-html
             :alt: simple-html total downloads
             :target: https://pepy.tech/project/simple-html
-    - - 8
+    - - 9
       - :doc:`hyperpython <hyperpython>`
       - `docs <https://github.com/fabiommendes/hyperpython>`__
       - .. image:: https://static.pepy.tech/badge/hyperpython/month
@@ -626,6 +635,7 @@ page benchmarks all of them).
     html5-parser
     metadata_parser
     lightningcss
+    fast-html
     simple-html
     hyperpython
     stdlib

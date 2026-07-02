@@ -1,0 +1,25 @@
+{
+  "label": "build a list",
+  "parties": [
+    ":data:`E <turbohtml.build.E>`",
+    "fast-html"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "100 rows",
+      0.000147,
+      0.00033
+    ],
+    [
+      "1k rows",
+      0.00168,
+      0.003386
+    ],
+    [
+      "10k rows",
+      0.020189,
+      0.03536
+    ]
+  ]
+}
