@@ -124,6 +124,7 @@ OPERATIONS: dict[str, Operation] = {
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
+    "encoding": Operation("detect a byte stream's encoding", "us"),
 }
 
 
@@ -295,6 +296,30 @@ def _minify_js_cases() -> tuple[tuple[str, object], ...]:
     return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
 
 
+_ENCODING_ASCII = "The quick brown fox jumps over the lazy dog near the river bank early today. "
+_ENCODING_FRENCH = "Précédemment, la créativité française était très développée près de Paris ici. "
+_ENCODING_RUSSIAN = "Программирование помогает понять структуру вычислительных систем сегодня здесь. "
+_ENCODING_JAPANESE = "日本語のテキストをここに書きます。今日はとても良い天気ですね。"
+
+
+def _encoding_cases() -> tuple[tuple[str, object], ...]:
+    """
+    Return the byte streams the encoding-detection suite sniffs.
+
+    Natural-language prose re-encoded into the legacy encodings the detectors compete on, plus pure ASCII (the
+    short-circuit every detector special-cases) and a real saved page (the whole-document workload).
+    """
+    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+    return (
+        ("ascii (1 kB)", (_ENCODING_ASCII * 13).encode()),
+        ("utf-8 russian (4 kB)", (_ENCODING_RUSSIAN * 27).encode()),
+        ("windows-1251 russian (4 kB)", (_ENCODING_RUSSIAN * 50).encode("cp1251")),
+        ("windows-1252 french (4 kB)", (_ENCODING_FRENCH * 50).encode("cp1252")),
+        ("shift_jis japanese (4 kB)", (_ENCODING_JAPANESE * 70).encode("shift_jis")),
+        ("utf-8 page (95 kB)", corpus.large_text(filename, url).encode()),
+    )
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS,
@@ -379,4 +404,5 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "xpath": _xpath_cases,
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
+    "encoding": _encoding_cases,
 }

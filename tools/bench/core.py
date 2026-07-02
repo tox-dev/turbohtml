@@ -20,6 +20,7 @@ from turbohtml.build import E
 from turbohtml.clean import Detector as _Detector
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
+from turbohtml.detect import detect as _detect_encoding
 from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
@@ -441,6 +442,11 @@ def minify_css(css: str) -> None:
     _clean.minify_css(css)
 
 
+def encoding(data: bytes) -> None:
+    """Detect a byte stream's character encoding with turbohtml's C sniffing pipeline."""
+    _detect_encoding(data)
+
+
 OPERATIONS: dict[str, tuple[object, str]] = {
     "build": (build, "turbohtml"),
     "build-e": (build_e, "turbohtml"),
@@ -494,4 +500,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "xpath": (xpath, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
+    "encoding": (encoding, "turbohtml"),
 }
