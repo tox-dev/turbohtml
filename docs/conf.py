@@ -36,6 +36,7 @@ extensions = [
 html_theme = "furo"
 html_title = "turbohtml"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 html_logo = "_static/turbohtml.svg"
 html_favicon = "_static/turbohtml.svg"
 
