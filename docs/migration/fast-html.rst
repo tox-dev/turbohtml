@@ -81,7 +81,7 @@ attribute joins on a space so a class list reads naturally:
   so write the real attribute name as the dict key -- no underscore convention to remember.
 - fast-html never escapes: ``render(div("<b>"))`` emits the markup verbatim. ``E`` builds text nodes, so the same call
   serializes as ``&lt;b&gt;``; markup belongs in child elements, not strings.
-- A fast-html tag is a generator, consumed by the ``render`` that joins it; an :class:`~turbohtml.Element` is a tree
-  you can serialize as many times as you like.
+- A fast-html tag is a generator, consumed by the ``render`` that joins it; an :class:`~turbohtml.Element` is a tree you
+  can serialize as many times as you like.
 - The result is an ordinary :class:`~turbohtml.Element`, so the whole edit and query surface (``append``, ``find``,
   ``select``, ``serialize``, ``to_markdown``) is available -- the builder only saves the construction boilerplate.
