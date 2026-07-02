@@ -76,6 +76,7 @@ _HOMEPAGES: Final = {
     "lxml-html-clean": "https://lxml-html-clean.readthedocs.io/",
     "markdownify": "https://github.com/matthewwithanm/python-markdownify",
     "markupsafe": "https://markupsafe.palletsprojects.com/",
+    "markyp": "https://github.com/volfpeter/markyp-html",
     "metadata_parser": "https://github.com/jvanasco/metadata_parser",
     "minify-html": "https://github.com/wilsonzlin/minify-html",
     "newspaper3k": "https://github.com/codelucas/newspaper",
