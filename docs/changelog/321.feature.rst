@@ -1,0 +1,7 @@
+Clean, canonicalize, and extract page URLs via new :mod:`turbohtml.extract` helpers:
+:func:`~turbohtml.extract.clean_url` scrubs a URL scraped from markup (or answers ``None`` for junk),
+:func:`~turbohtml.extract.normalize_url` returns the canonical form the WHATWG URL standard defines plus
+tracker-parameter removal and query sorting, and :func:`~turbohtml.extract.extract_links` collects a page's cleaned,
+deduplicated anchors from the parsed DOM, all sharing a frozen :class:`~turbohtml.extract.UrlCleaning` config (strict
+allowlist, trailing slash, fragment, language filter). turbohtml thereby replaces ``courlan``, with a migration guide
+and benchmark - by :user:`gaborbernat`.

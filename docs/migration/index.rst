@@ -401,6 +401,15 @@ page benchmarks all of them).
             :alt: trafilatura total downloads
             :target: https://pepy.tech/project/trafilatura
     - - 4
+      - :doc:`courlan <courlan>`
+      - `docs <https://github.com/adbar/courlan>`__
+      - .. image:: https://static.pepy.tech/badge/courlan/month
+            :alt: courlan monthly downloads
+            :target: https://pepy.tech/project/courlan
+      - .. image:: https://static.pepy.tech/badge/courlan
+            :alt: courlan total downloads
+            :target: https://pepy.tech/project/courlan
+    - - 5
       - :doc:`justext <justext>`
       - `docs <https://github.com/miso-belica/jusText>`__
       - .. image:: https://static.pepy.tech/badge/justext/month
@@ -409,7 +418,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/justext
             :alt: justext total downloads
             :target: https://pepy.tech/project/justext
-    - - 5
+    - - 6
       - :doc:`readability-lxml <readability-lxml>`
       - `docs <https://github.com/buriy/python-readability>`__
       - .. image:: https://static.pepy.tech/badge/readability-lxml/month
@@ -418,7 +427,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/readability-lxml
             :alt: readability-lxml total downloads
             :target: https://pepy.tech/project/readability-lxml
-    - - 6
+    - - 7
       - :doc:`newspaper3k <newspaper3k>`
       - `docs <https://newspaper.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/newspaper3k/month
@@ -427,7 +436,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/newspaper3k
             :alt: newspaper3k total downloads
             :target: https://pepy.tech/project/newspaper3k
-    - - 7
+    - - 8
       - :doc:`boilerpy3 <boilerpy3>`
       - `docs <https://github.com/jmriebold/BoilerPy3>`__
       - .. image:: https://static.pepy.tech/badge/boilerpy3/month
@@ -626,6 +635,7 @@ page benchmarks all of them).
     lxml-html-clean
     w3lib
     trafilatura
+    courlan
     justext
     selectolax
     parsel

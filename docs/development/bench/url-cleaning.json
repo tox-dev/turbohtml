@@ -1,0 +1,20 @@
+{
+  "label": "clean and normalize 100 URLs",
+  "parties": [
+    "turbohtml",
+    "courlan"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "clean 100 URLs",
+      0.000335292177953761,
+      0.0005728638700929877
+    ],
+    [
+      "normalize 100 URLs",
+      0.00022775000683168402,
+      0.00047972078436184045
+    ]
+  ]
+}

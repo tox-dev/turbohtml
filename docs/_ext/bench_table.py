@@ -51,6 +51,7 @@ _HOMEPAGES: Final = {
     "calmjs.parse": "https://github.com/calmjs/calmjs.parse",
     "chardet": "https://chardet.readthedocs.io/",
     "charset-normalizer": "https://charset-normalizer.readthedocs.io/",
+    "courlan": "https://github.com/adbar/courlan",
     "css-html-js-minify": "https://pypi.org/project/css-html-js-minify/",
     "csscompressor": "https://github.com/sprymix/csscompressor",
     "cssmin": "https://github.com/zacharyvoase/cssmin",

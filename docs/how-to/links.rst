@@ -25,6 +25,42 @@ them absolute against a base URL in place:
 For a one-off transform (rewriting a CDN host, signing URLs), pass a function to :meth:`~turbohtml.Node.rewrite_links`;
 returning ``None`` leaves a link untouched.
 
+******************************
+ Clean and canonicalize a URL
+******************************
+
+To recognize two spellings of the same page -- for deduplication, cache keys, or a crawl frontier -- canonicalize them
+with :func:`turbohtml.extract.normalize_url`. It applies the WHATWG URL standard's normalization (case, default ports,
+``..`` segments, percent-encoding) and drops known tracking parameters, sorting the rest:
+
+.. testcode::
+
+    from turbohtml.extract import normalize_url
+
+    print(normalize_url("HTTPS://Example.ORG:443/a/../page?utm_source=rss&b=2&a=1"))
+
+.. testoutput::
+
+    https://example.org/page?a=1&b=2
+
+For URLs scraped out of markup, :func:`turbohtml.extract.clean_url` first scrubs HTML damage (stray whitespace,
+``&amp;``, a truncating quote) and answers ``None`` for anything that is not a fetchable web URL, so a scraping pipeline
+can filter and normalize in one call. :class:`turbohtml.extract.UrlCleaning` carries the knobs: a strict query-parameter
+allowlist, trailing-slash folding, fragment stripping, and a URL-based language filter.
+:func:`turbohtml.extract.extract_links` runs the whole pipeline over a page -- parse, collect anchors, resolve against
+the base, clean, deduplicate:
+
+.. testcode::
+
+    from turbohtml.extract import extract_links
+
+    page = '<a href="/a?utm_source=x">a</a> <a href="https://other.example/b">b</a>'
+    print(sorted(extract_links(page, "https://site.example/")))
+
+.. testoutput::
+
+    ['https://other.example/b', 'https://site.example/a']
+
 *********************************
  Turn URLs and emails into links
 *********************************
