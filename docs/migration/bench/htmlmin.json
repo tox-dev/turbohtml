@@ -2,34 +2,29 @@
   "label": "minify a document",
   "parties": [
     "turbohtml",
-    "htmlmin",
-    "minify-html"
+    "htmlmin"
   ],
   "metrics": [],
   "rows": [
     [
       "daring fireball (10 kB)",
       3.33e-05,
-      0.0006009,
-      7.05e-05
+      0.0006009
     ],
     [
       "ars technica (56 kB)",
       0.0001579,
-      0.0028743,
-      0.0003504
+      0.0028743
     ],
     [
       "mozilla blog (95 kB)",
       0.0003312,
-      0.0067738,
-      0.0008589
+      0.0067738
     ],
     [
       "whatwg spec (235 kB)",
       0.0011566,
-      0.0159737,
-      0.0019787
+      0.0159737
     ]
   ]
 }

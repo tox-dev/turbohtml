@@ -184,6 +184,15 @@ port from come first. The all-time totals and each library's documentation sit a
             :alt: minify-html total downloads
             :target: https://pepy.tech/project/minify-html
     - - 6
+      - :doc:`htmlmin <htmlmin>`
+      - `docs <https://htmlmin.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/htmlmin/month
+            :alt: htmlmin monthly downloads
+            :target: https://pepy.tech/project/htmlmin
+      - .. image:: https://static.pepy.tech/badge/htmlmin
+            :alt: htmlmin total downloads
+            :target: https://pepy.tech/project/htmlmin
+    - - 7
       - :doc:`html-sanitizer <html-sanitizer>`
       - `docs <https://github.com/matthiask/html-sanitizer>`__
       - .. image:: https://static.pepy.tech/badge/html-sanitizer/month
@@ -508,6 +517,7 @@ page benchmarks all of them).
     html-text
     jsmin
     resiliparse
+    htmlmin
     csscompressor
     newspaper3k
     html-sanitizer

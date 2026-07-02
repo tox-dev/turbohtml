@@ -1,0 +1,3 @@
+A new "From htmlmin" migration guide maps each ``htmlmin.minify`` flag onto :func:`turbohtml.clean.minify` and its
+:class:`~turbohtml.Minify` options, and the minify benchmark now also covers htmlmin, where turbohtml runs fourteen to
+twenty times faster with the parse included - by :user:`gaborbernat`.

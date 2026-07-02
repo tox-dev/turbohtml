@@ -63,8 +63,10 @@ Each fold is a field on :class:`~turbohtml.Minify`, so a flag becomes one keywor
       - ``Minify(omit_optional_tags=...)`` (default ``True``; set ``False`` to keep every tag)
     - - attribute unquoting
       - ``Minify(unquote_attributes=...)`` (default ``True``)
-    - - ``minify_css``, ``minify_js``
-      - not supported -- embedded CSS and JavaScript pass through unchanged
+    - - ``minify_js``
+      - ``Minify(minify_js=JSMinify())`` rewrites inline ``<script>`` content (the default ``None`` leaves it verbatim)
+    - - ``minify_css``
+      - no inline hook -- run :func:`turbohtml.clean.minify_css` over ``<style>`` bodies yourself
     - - ``minify_doctype``
       - the doctype is always normalized to ``<!doctype html>``
     - - ``remove_processing_instructions``
@@ -82,7 +84,7 @@ Each fold is a field on :class:`~turbohtml.Minify`, so a flag becomes one keywor
   ``</li>``) that minify-html drops, so its output stays valid and render-safe while running a few bytes larger.
 - turbohtml writes boolean attributes in full (``checked="checked"``) and keeps ``&amp;`` where minify-html shortens to
   a bare ``checked`` and ``&``.
-- Embedded ``<style>`` and ``<script>`` bodies pass through unchanged; reach for a CSS/JS minifier if you need those
-  shrunk.
+- Embedded ``<style>`` bodies pass through unchanged (:func:`turbohtml.clean.minify_css` shrinks them separately), and
+  inline ``<script>`` minification is opt-in via ``Minify(minify_js=...)``.
 - ``minify`` parses the input as a full document, so a bare fragment gains the ``<html>``/``<body>`` structure the
   WHATWG algorithm infers; call it on whole pages, not detached fragments.

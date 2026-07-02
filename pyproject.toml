@@ -100,6 +100,7 @@ bench = [
   "html2text>=2025.4.15",
   "html5-parser>=0.4.12",
   "html5lib>=1.1",
+  "htmlmin2>=0.1.13",
   "htpy>=26.5.1",
   "inscriptis>=2.7.2",
   "jsmin>=3",

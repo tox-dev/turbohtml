@@ -363,9 +363,10 @@ fifty to sixty times faster than BeautifulSoup.
 
 Minifying a document with :func:`turbohtml.clean.minify`: parse, then serialize once with every fold engaged (collapsing
 insignificant whitespace, omitting the WHATWG-optional tags, unquoting attributes, and stripping comments), against
-`minify-html <https://github.com/wilsonzlin/minify-html>`_'s Rust minifier on the same folds, its CSS and JS
-minification left off for a like-for-like comparison. turbohtml parses and emits in C through one preallocated buffer,
-so it runs about twice as fast with the parse included.
+`minify-html <https://github.com/wilsonzlin/minify-html>`_'s Rust minifier on the same folds (its CSS and JS
+minification left off for a like-for-like comparison) and `htmlmin <https://github.com/mankyd/htmlmin>`_'s pure-Python
+``HTMLParser`` walk. turbohtml parses and emits in C through one preallocated buffer, so with the parse included it runs
+about twice as fast as minify-html and fourteen to twenty times faster than htmlmin.
 
 .. bench-table::
     :file: bench/minifying.json
