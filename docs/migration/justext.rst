@@ -41,11 +41,11 @@ paragraph in Python. Numbers vary with input and hardware.
       - :func:`extract.boilerplate(html) <turbohtml.extract.boilerplate>`; no stoplist, the scoring is
         language-independent
     - - ``paragraph.text``
-      - :attr:`Paragraph.text <turbohtml.extract.Paragraph.text>`
+      - ``paragraph.text``, the same field on :class:`~turbohtml.extract.Paragraph`
     - - ``paragraph.is_boilerplate``
-      - :attr:`Paragraph.is_boilerplate <turbohtml.extract.Paragraph.is_boilerplate>`
+      - ``paragraph.is_boilerplate``
     - - ``paragraph.is_heading``
-      - :attr:`Paragraph.is_heading <turbohtml.extract.Paragraph.is_heading>`
+      - ``paragraph.is_heading``
     - - ``justext(html, stoplist, length_low=70, max_link_density=0.2)``
       - ``boilerplate(html, Extraction.justext())`` -- the preset carries justext's two structural defaults
     - - ``justext(html, stoplist, no_headings=True)``
@@ -86,7 +86,7 @@ paragraph in Python. Numbers vary with input and hardware.
   content body and only paragraphs inside it can be good. On a page with several disjoint content islands, only the
   best-scoring island survives.
 - There are no ``neargood`` / ``short`` intermediate classes and no context-sensitive revision pass:
-  :attr:`~turbohtml.extract.Paragraph.is_boilerplate` is a final yes or no.
+  ``is_boilerplate`` is a final yes or no.
 - justext's defaults are tuned stricter than turbohtml's: pass :meth:`Extraction.justext()
   <turbohtml.extract.Extraction.justext>` to keep its 70-character floor and 0.2 link density when you want output close
   to a justext port, or stay with the defaults to keep shorter prose paragraphs.
