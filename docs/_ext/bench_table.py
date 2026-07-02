@@ -66,6 +66,7 @@ _HOMEPAGES: Final = {
     "html5lib": "https://html5lib.readthedocs.io/",
     "htbuilder": "https://github.com/tvst/htbuilder",
     "htpy": "https://htpy.dev/",
+    "hyperpython": "https://github.com/fabiommendes/hyperpython",
     "inscriptis": "https://github.com/weblyzard/inscriptis",
     "jsmin": "https://github.com/tikitu/jsmin",
     "lightningcss": "https://pypi.org/project/lightningcss/",
