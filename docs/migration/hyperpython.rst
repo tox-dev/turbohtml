@@ -8,8 +8,8 @@
 parser: each element takes keyword attributes in a call and children in a ``[...]`` subscript
 (``div(class_="card")[h1("Title")]``), and stringifying the root renders the tree. The library is unmaintained and no
 longer imports on Python 3.11 or newer -- its ``sidekick`` dependency crashes at import time unless pinned to
-``sidekick<0.7`` -- so porting is also the unblock for current interpreters. turbohtml replaces it with the terse
-:data:`turbohtml.build.E` builder.
+``sidekick<0.7``, and it pins ``markupsafe<2`` -- so porting is also the unblock for current interpreters and dependency
+stacks. turbohtml replaces it with the terse :data:`turbohtml.build.E` builder.
 
 ***************
  Why turbohtml

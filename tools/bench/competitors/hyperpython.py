@@ -1,10 +1,15 @@
-"""hyperpython: assemble a tree with keyword attributes and subscript children."""
+"""
+hyperpython: assemble a tree with keyword attributes and subscript children.
+
+Benchmarked only in a venv of its own: hyperpython pins ``markupsafe<2``, older than the rest of the suite, and its
+``sidekick`` dependency needs ``<0.7`` (0.7+ registers ``typing.Mapping`` with ``functools.singledispatch``, a
+``TypeError`` at import on Python 3.11+).
+"""
 
 from __future__ import annotations
 
-from hyperpython import li, ul
+from hyperpython import li, ul  # ty: ignore[unresolved-import]  # undeclared: pins an older markupsafe
 
-# sidekick 0.7+ registers typing.Mapping with functools.singledispatch, a TypeError on Python 3.11+
 REQUIREMENTS = ("hyperpython>=1.1.1", "sidekick<0.7")
 
 
