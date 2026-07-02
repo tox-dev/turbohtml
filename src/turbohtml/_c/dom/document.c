@@ -483,7 +483,8 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     }
     if (entry == NULL && detect) {
         /* opt-in content-based detection, strictly after the spec sniffing steps */
-        entry = th_encoding_detect(bytes, len);
+        th_detect_scores scores;
+        entry = th_encoding_detect(bytes, len, &scores);
     }
     if (entry == NULL) {
         entry = th_encoding_lookup("windows-1252", 12);
@@ -533,6 +534,49 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     Py_DECREF(canonical);
     Py_DECREF(decoded);
     return node;
+}
+
+/* The standalone encoding-detection binding behind turbohtml.detect: run the same
+   sniffing pipeline as parse_bytes (BOM, <meta> prescan, then the content detector)
+   without decoding or parsing. Returns (winner, certain, ranked): the winner's
+   canonical name or None for pure ASCII, whether it came from a declaration or a
+   structural proof rather than frequency scoring, and every surviving scored
+   candidate as (canonical name, raw score) pairs for the ranked surface. */
+PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
+    (void)module;
+    Py_buffer view;
+    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
+        return NULL;
+    }
+    const unsigned char *bytes = view.buf;
+    Py_ssize_t len = view.len;
+    const th_encoding_entry *entry = NULL;
+    th_encoding_bom(bytes, len, &entry);
+    if (entry == NULL) {
+        entry = th_encoding_prescan(bytes, len);
+    }
+    int certain = entry != NULL;
+    th_detect_scores scores = {.count = 0, .structural = 0};
+    if (entry == NULL) {
+        entry = th_encoding_detect(bytes, len, &scores);
+        certain = scores.structural;
+    }
+    PyBuffer_Release(&view);
+    PyObject *ranked = PyList_New(scores.count);
+    if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (int index = 0; index < scores.count; index++) {
+        const char *label = scores.items[index].label;
+        const th_encoding_entry *item = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+        PyObject *pair = Py_BuildValue("(sl)", item->canonical, scores.items[index].score);
+        if (pair == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(ranked); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyList_SET_ITEM(ranked, index, pair);
+    }
+    return Py_BuildValue("(zON)", entry == NULL ? NULL : entry->canonical, certain ? Py_True : Py_False, ranked);
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {

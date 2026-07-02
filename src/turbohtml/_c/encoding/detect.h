@@ -30,6 +30,20 @@
 #define TH_DETECT_ASCII_DIGIT 100
 #define TH_DETECT_WINDOWS_1256_ZWNJ 2
 
+/* Every candidate that survives a detection run, with its raw chardetng score, so
+   the standalone detect() surface can rank alternatives; capacity covers the 5 CJK
+   candidates, the 19 single-byte candidates, and the Hebrew visual candidate.
+   structural is set when the result needed no scoring at all (valid UTF-8 with a
+   multi-byte sequence, or an escape-driven ISO-2022-JP stream). */
+typedef struct {
+    struct {
+        const char *label;
+        long score;
+    } items[25];
+    int count;
+    int structural;
+} th_detect_scores;
+
 /* Validate a byte run as well-formed UTF-8, setting *has_non_ascii when it holds
    at least one multi-byte sequence. Returns 1 for valid UTF-8, 0 on the first
    malformed, overlong, surrogate, or truncated sequence -- a single error
@@ -1048,9 +1062,10 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
 }
 
 /* Run one CJK candidate end to end against the strict CPython codec named by entry,
-   updating *winner and *max when it both survives and beats the running best. */
+   recording a survivor's score and updating *winner and *max when it beats the
+   running best. */
 static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
-                       const char **winner, long *max) {
+                       th_detect_scores *scores, const char **winner, long *max) {
     const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
     PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
     if (decoder == NULL) { /* GCOVR_EXCL_START -- every CJK codec name is a built-in codec */
@@ -1060,9 +1075,14 @@ static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char 
     th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
     th_cjk_feed(&cand, buf, len);
     Py_DECREF(decoder);
-    if (cand.alive && cand.score > *max) {
-        *max = cand.score;
-        *winner = label;
+    if (cand.alive) {
+        scores->items[scores->count].label = label;
+        scores->items[scores->count].score = cand.score;
+        scores->count++;
+        if (cand.score > *max) {
+            *max = cand.score;
+            *winner = label;
+        }
     }
 }
 
@@ -1093,17 +1113,23 @@ static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
    ASCII (the caller then keeps the windows-1252 fallback, which decodes ASCII
    identically). ISO-2022-JP and UTF-8 are resolved structurally; otherwise the CJK
    and single-byte candidates compete in chardetng's strict-max, defaulting to
-   windows-1252, with the Hebrew visual/logical tiebreak applied last. */
-static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len) {
+   windows-1252, with the Hebrew visual/logical tiebreak applied last. Every
+   surviving candidate lands in *scores so detect() can rank alternatives; the
+   parse path fills a scratch struct it never reads. */
+static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len, th_detect_scores *scores) {
+    scores->count = 0;
+    scores->structural = 0;
     int has_non_ascii;
     int is_utf8 = th_detect_is_utf8(buf, len, &has_non_ascii);
     if (!has_non_ascii) {
         if (th_iso2022jp_alive(buf, len)) {
+            scores->structural = 1;
             return th_encoding_lookup("iso-2022-jp", 11);
         }
         return NULL;
     }
     if (is_utf8) {
+        scores->structural = 1;
         return th_encoding_lookup("utf-8", 5);
     }
 
@@ -1112,11 +1138,11 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
 
     /* CJK candidates run first, matching chardetng's index order so the strict ">"
        below resolves ties the same way (an earlier candidate keeps a tie). */
-    th_cjk_run(TH_CJK_GBK, "gbk", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_JP, "euc-jp", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_KR, "euc-kr", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, &winner, &max);
-    th_cjk_run(TH_CJK_BIG5, "big5", buf, len, &winner, &max);
+    th_cjk_run(TH_CJK_GBK, "gbk", buf, len, scores, &winner, &max);
+    th_cjk_run(TH_CJK_EUC_JP, "euc-jp", buf, len, scores, &winner, &max);
+    th_cjk_run(TH_CJK_EUC_KR, "euc-kr", buf, len, scores, &winner, &max);
+    th_cjk_run(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, scores, &winner, &max);
+    th_cjk_run(TH_CJK_BIG5, "big5", buf, len, scores, &winner, &max);
 
     th_sb_candidate candidates[TH_SB_COUNT];
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
@@ -1130,9 +1156,14 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
 
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
         long score;
-        if (th_sb_final_score(&candidates[slot], &score) && score > max) {
-            max = score;
-            winner = candidates[slot].data->label;
+        if (th_sb_final_score(&candidates[slot], &score)) {
+            scores->items[scores->count].label = candidates[slot].data->label;
+            scores->items[scores->count].score = score;
+            scores->count++;
+            if (score > max) {
+                max = score;
+                winner = candidates[slot].data->label;
+            }
         }
     }
     /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
@@ -1142,6 +1173,9 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
        fully nested so each decision is counted on its own. */
     long visual_score;
     if (th_sb_final_score(&visual, &visual_score)) {
+        scores->items[scores->count].label = visual.data->label;
+        scores->items[scores->count].score = visual_score;
+        scores->count++;
         if (strcmp(winner, "windows-1255") == 0) {
             if (visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
                 winner = "iso-8859-8";

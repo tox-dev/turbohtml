@@ -51,6 +51,9 @@ from ._stubs.dom import (
     Text as Text,
 )
 from ._stubs.dom import (
+    _detect as _detect,
+)
+from ._stubs.dom import (
     _Filter as _Filter,
 )
 from ._stubs.dom import (
