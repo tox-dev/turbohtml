@@ -108,7 +108,6 @@ SELECTORS = (
     "|div",
     "custom-tag",
     "nonexistent",
-    "*div*span",
     r"di\a0 v",
     r"div\[",
     r"\31 div",

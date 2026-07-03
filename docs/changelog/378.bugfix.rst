@@ -1,0 +1,3 @@
+A namespace prefix on an attribute selector (``[ns|attr]``, ``[*|attr]``, ``[|attr]``) now parses and matches on the
+local attribute name, consistent with the prefix already accepted on a type selector; the engine matches by local name
+and ignores the namespace, so a prefixed attribute selector no longer raises :exc:`ValueError`.

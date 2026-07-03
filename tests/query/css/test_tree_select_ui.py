@@ -247,6 +247,41 @@ def test_dir_auto_skips_neutral_then_resolves() -> None:
 
 
 @pytest.mark.parametrize(
+    ("html", "direction"),
+    [
+        # the input-value special case is HTML-only, so a foreign (non-HTML) element with
+        # dir=auto resolves from its text content like any non-input element (issue #374)
+        pytest.param("<svg id=a dir=auto><text>עב</text></svg>", "rtl", id="foreign-auto-rtl-text"),
+        pytest.param("<svg id=a dir=auto>abc</svg>", "ltr", id="foreign-auto-ltr-text"),
+    ],
+)
+def test_dir_auto_on_foreign_element_reads_text(html: str, direction: str) -> None:
+    assert _ids(html, f":dir({direction})") == ["a"]
+
+
+@pytest.mark.parametrize(
+    ("html", "selector", "ids"),
+    [
+        # a telephone input is always ltr and never inherits the ancestor dir (issue #374)
+        pytest.param('<div dir=rtl><input id=a type=tel value="1-2-3"></div>', ":dir(ltr)", ["a"], id="tel-is-ltr"),
+        pytest.param('<div dir=rtl><input id=a type=tel value="1-2-3"></div>', ":dir(rtl)", [], id="tel-not-rtl"),
+        pytest.param('<input id=a type=tel dir=ltr value="עב">', ":dir(ltr)", ["a"], id="tel-explicit-ltr-wins"),
+        pytest.param('<input id=a type=tel dir=rtl value="1">', ":dir(rtl)", ["a"], id="tel-explicit-rtl-wins"),
+        pytest.param('<input id=a type=tel dir=auto value="עב">', ":dir(rtl)", ["a"], id="tel-auto-reads-value"),
+        pytest.param('<input id=a type=tel dir=bogus value="1">', ":dir(ltr)", ["a"], id="tel-invalid-dir-is-ltr"),
+        pytest.param("<input id=a type=tel dir>", ":dir(ltr)", ["a"], id="tel-valueless-dir-is-ltr"),
+        # dir=auto on an input resolves from the value attribute, not child text
+        pytest.param('<input id=a type=search dir=auto value="עִבְרִית">', ":dir(rtl)", ["a"], id="input-auto-rtl-value"),
+        pytest.param('<input id=a dir=auto value="abc">', ":dir(ltr)", ["a"], id="input-auto-ltr-value"),
+        pytest.param('<input id=a dir=auto value="">', ":dir(ltr)", ["a"], id="input-auto-blank-value-ltr"),
+        pytest.param("<input id=a dir=auto>", ":dir(ltr)", ["a"], id="input-auto-no-value-ltr"),
+    ],
+)
+def test_dir_on_form_controls(html: str, selector: str, ids: list[str]) -> None:
+    assert _ids(html, selector) == ids
+
+
+@pytest.mark.parametrize(
     ("html", "selector", "ids"),
     [
         # a foreign-namespace element is never an HTML form control or link
@@ -359,12 +394,42 @@ def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:
             ":target",
             ":target-within",
             ":visited",
+            # newer live media/modal/validity state a static tree cannot express (issue #432)
+            ":modal",
+            ":fullscreen",
+            ":picture-in-picture",
+            ":playing",
+            ":paused",
+            ":muted",
+            ":current",
+            ":past",
+            ":future",
+            ":user-valid",
+            ":user-invalid",
+            ":autofill",
+            ":defined",
         )
     ],
 )
 def test_live_state_pseudo_matches_nothing(selector: str) -> None:
     # a static tree has no interaction or navigation state, so these never match
-    assert parse("<a href='/x'>link</a><input>").select(selector) == []
+    assert parse("<dialog>x</dialog><video></video><a href='/x'>link</a><input>").select(selector) == []
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param("dialog:not(:modal)", id="modal"),
+        pytest.param("video:not(:paused)", id="paused"),
+        pytest.param("input:not(:autofill)", id="autofill"),
+        pytest.param("p:not(:defined)", id="defined"),
+    ],
+)
+def test_never_match_pseudo_composes_under_not(selector: str) -> None:
+    # a never-matching pseudo under :not() keeps every element it applies to, so the
+    # selector parses and matches rather than being rejected (issue #432)
+    html = "<dialog>d</dialog><video></video><input><p>x</p>"
+    assert parse(html).select(selector) != []
 
 
 def test_live_state_pseudo_composes_with_not() -> None:
@@ -396,6 +461,30 @@ def test_scope_is_the_query_root() -> None:
     # a descendant query rooted at p1 scopes :scope to p1, so it is not in the result
     assert p1.select(":scope") == []
     assert _scope_ids(p1.select(":scope > a")) == ["link"]
+
+
+@pytest.mark.parametrize(
+    ("has_selector", "leading_combinator_form"),
+    [
+        pytest.param(":scope > p", "> p", id="child"),
+        pytest.param(":scope p", "p", id="descendant"),
+        pytest.param(":scope > .lead", "> .lead", id="child-class"),
+        pytest.param(":scope + aside", "+ aside", id="next-sibling"),
+        pytest.param(":scope ~ aside", "~ aside", id="subsequent-sibling"),
+    ],
+)
+def test_scope_inside_has_binds_to_the_anchor(has_selector: str, leading_combinator_form: str) -> None:
+    # inside :has() an explicit :scope resolves to the anchor, so :has(:scope > p) is
+    # equivalent to the leading-combinator form :has(> p) (issue #431)
+    doc = "<main><section id=s><p class=lead>a</p></section><aside id=a>b</aside></main>"
+    explicit = [e.attrs.get("id") for e in parse(doc).select(f"section:has({has_selector})")]
+    implicit = [e.attrs.get("id") for e in parse(doc).select(f"section:has({leading_combinator_form})")]
+    assert explicit == implicit
+
+
+def test_scope_inside_has_returns_the_expected_element() -> None:
+    doc = parse("<div id=d1><p>a</p></div><div id=d2><span>b</span></div>")
+    assert [e.attrs.get("id") for e in doc.select("div:has(:scope > p)")] == ["d1"]
 
 
 def test_document_scope_falls_back_to_the_document_element() -> None:

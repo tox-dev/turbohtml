@@ -114,7 +114,26 @@ typedef struct {
     Py_ssize_t len;
     th_tree *tree;
     int error;
+    int depth;              /* nesting level of the functional-pseudo lists being parsed */
+    Py_ssize_t err_pos;     /* the position the failing token starts at, for the error message */
+    const char *err_reason; /* a human-readable reason for the failure */
 } sel_parser;
+
+/* The deepest functional-pseudo nesting (:is()/:where()/:has()/:not(), and the 'of S'
+   clause) the parser accepts. A recursive-descent parse of one level costs a bounded
+   stack frame; the cap keeps a hostile, deeply nested selector from overflowing the C
+   stack rather than raising a clean error (issue #421). Real selectors nest a handful
+   of levels, far below this. */
+#define SEL_MAX_DEPTH 128
+
+/* Record a parse failure with the position and reason for the error message. Set
+   unconditionally: an error propagates up through early returns without another
+   failure being recorded, so the first (deepest) call keeps its position. */
+static void sel_fail(sel_parser *parser, const char *reason) {
+    parser->error = 1;
+    parser->err_pos = parser->pos;
+    parser->err_reason = reason;
+}
 
 static int sel_is_ident(Py_UCS4 ch) {
     return is_ascii_alpha(ch) || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch >= 0x80;
@@ -185,6 +204,18 @@ static Py_UCS4 sel_consume_escape(sel_parser *parser) {
 static void sel_ident(sel_parser *parser, const Py_UCS4 **out, Py_ssize_t *out_len) {
     Py_ssize_t start = parser->pos;
     Py_ssize_t write = start;
+    /* CSS Syntax §4.3.9 "would start an identifier": a leading '-' begins one only when
+       a second '-', a name-start code point, or an escape follows; a lone '-' (or '-'
+       before a digit) is not an <ident-token>, so it is not a valid type selector (#375) */
+    if (parser->pos < parser->len && parser->src[parser->pos] == '-') {
+        Py_UCS4 after = parser->pos + 1 < parser->len ? parser->src[parser->pos + 1] : 0;
+        if (after != '-' && after != '\\' && after != '_' && after < 0x80 && !is_ascii_alpha(after)) {
+            sel_fail(parser, "expected an identifier");
+            *out = parser->src + start;
+            *out_len = 0;
+            return;
+        }
+    }
     while (parser->pos < parser->len) {
         if (parser->src[parser->pos] == '\\') {
             if (!sel_starts_escape(parser)) {
@@ -201,7 +232,7 @@ static void sel_ident(sel_parser *parser, const Py_UCS4 **out, Py_ssize_t *out_l
     *out = parser->src + start;
     *out_len = write - start;
     if (*out_len == 0) {
-        parser->error = 1;
+        sel_fail(parser, "expected an identifier");
     }
 }
 
@@ -236,7 +267,7 @@ static void sel_string(sel_parser *parser, const Py_UCS4 **out, Py_ssize_t *out_
         parser->src[write++] = ch == 0 ? 0xFFFD : ch;
     }
     if (parser->pos >= parser->len) {
-        parser->error = 1; /* an unterminated string is invalid */
+        sel_fail(parser, "unterminated string");
         return;
     }
     parser->pos++; /* the closing quote */
@@ -343,7 +374,29 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     sel_skip_ws(parser);
     const Py_UCS4 *name;
     Py_ssize_t name_len;
-    sel_ident(parser, &name, &name_len);
+    /* an optional namespace prefix (ns|, *|, or a bare |) selects on the local
+       attribute name in a namespaceless HTML document, matching how a type selector
+       already ignores its namespace prefix (Selectors-4 §6.3, issue #378) */
+    if (parser->pos < parser->len && parser->src[parser->pos] == '*') {
+        if (parser->pos + 1 >= parser->len || parser->src[parser->pos + 1] != '|') {
+            sel_fail(parser, "expected '|' after '*' in the namespace prefix");
+            return;
+        }
+        parser->pos += 2;
+        sel_ident(parser, &name, &name_len);
+    } else if (parser->pos < parser->len && parser->src[parser->pos] == '|') {
+        parser->pos++;
+        sel_ident(parser, &name, &name_len);
+    } else {
+        sel_ident(parser, &name, &name_len);
+        /* a '|' that is not the '|=' dash-match operator is a namespace separator;
+           drop the prefix already read and take the identifier after it as the name */
+        if (!parser->error && parser->pos < parser->len && parser->src[parser->pos] == '|' &&
+            (parser->pos + 1 >= parser->len || parser->src[parser->pos + 1] != '=')) {
+            parser->pos++;
+            sel_ident(parser, &name, &name_len);
+        }
+    }
     if (parser->error) {
         return;
     }
@@ -366,7 +419,7 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
                                  : OP_SUBSTR;
         parser->pos++;
         if (parser->pos >= parser->len || parser->src[parser->pos] != '=') {
-            parser->error = 1;
+            sel_fail(parser, "expected '=' after the attribute operator");
             return;
         }
         parser->pos++;
@@ -374,7 +427,7 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
         simple->op = OP_EQ;
         parser->pos++;
     } else {
-        parser->error = 1;
+        sel_fail(parser, "expected an attribute operator or ']'");
         return;
     }
     sel_skip_ws(parser);
@@ -401,7 +454,7 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
         simple->ci_default = 1; /* the HTML set defaults to case-insensitive without a flag */
     }
     if (parser->pos >= parser->len || parser->src[parser->pos] != ']') {
-        parser->error = 1;
+        sel_fail(parser, "expected ']'");
         return;
     }
     parser->pos++;
@@ -419,7 +472,7 @@ static void sel_type_local(sel_parser *parser, sel_simple *simple) {
         sel_ident(parser, &simple->name, &simple->name_len);
         simple->tag_atom = sel_tag_atom(simple->name, simple->name_len);
     } else {
-        parser->error = 1; /* a namespace prefix must be followed by '*' or a type */
+        sel_fail(parser, "expected a type or '*' after the namespace prefix");
     }
 }
 
@@ -488,7 +541,7 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
             int seen_b;
             int bval = sel_read_int(parser, &seen_b);
             if (!seen_b) {
-                parser->error = 1;
+                sel_fail(parser, "expected a number after the sign in An+B");
                 return;
             }
             *b = bsign * bval;
@@ -499,7 +552,7 @@ static void sel_parse_anb(sel_parser *parser, int *a, int *b) {
         *a = 0;
         *b = sign * num;
     } else {
-        parser->error = 1; /* a bare sign with no digits and no 'n' is invalid */
+        sel_fail(parser, "expected An+B"); /* a bare sign with no digits and no 'n' is invalid */
         return;
     }
     sel_skip_ws(parser);
@@ -515,7 +568,29 @@ static void sel_free_alts(sel_complex *alts, int count);
    parsed tree cannot express. They parse as valid selectors but match nothing,
    so :is()/:not() compositions stay usable instead of failing to compile. */
 static const char *const SEL_NEVER_PSEUDOS[] = {
-    "hover", "focus", "focus-within", "focus-visible", "active", "target", "target-within", "visited",
+    "hover",
+    "focus",
+    "focus-within",
+    "focus-visible",
+    "active",
+    "target",
+    "target-within",
+    "visited",
+    /* live media, modal, and user-interaction validity state a static tree cannot
+       express: valid selectors that match nothing (issue #432) */
+    "modal",
+    "fullscreen",
+    "picture-in-picture",
+    "playing",
+    "paused",
+    "muted",
+    "current",
+    "past",
+    "future",
+    "user-valid",
+    "user-invalid",
+    "autofill",
+    "defined",
 };
 
 /* Parse the :dir() argument (pos just after '('): an identifier, mapped to the
@@ -552,7 +627,7 @@ static void sel_parse_lang(sel_parser *parser, sel_simple *simple) {
         end--;
     }
     if (end == start) {
-        parser->error = 1; /* :lang() with no range is invalid */
+        sel_fail(parser, "expected a language range"); /* :lang() with no range is invalid */
         return;
     }
     simple->value = parser->src + start;
@@ -635,14 +710,14 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             }
         }
         if (simple->pseudo == PSEUDO_NONE) {
-            parser->error = 1; /* an unknown pseudo-class invalidates the selector */
+            sel_fail(parser, "unknown pseudo-class");
             return;
         }
     }
     if (functional != PSEUDO_NONE) {
         simple->pseudo = functional;
         if (parser->pos >= parser->len || parser->src[parser->pos] != '(') {
-            parser->error = 1;
+            sel_fail(parser, "expected '(' after the pseudo-class");
             return;
         }
         parser->pos++;
@@ -659,33 +734,45 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             Py_ssize_t kw_len;
             sel_ident(parser, &kw, &kw_len);
             if (!sel_kw(kw, kw_len, "of") || (functional != PSEUDO_NTH_CHILD && functional != PSEUDO_NTH_LAST_CHILD)) {
-                parser->error = 1;
+                sel_fail(parser, "expected 'of S' or ')'");
                 return;
             }
             /* S is a real (non-forgiving) complex-selector-list; this consumes the ')' */
+            if (parser->depth >= SEL_MAX_DEPTH) {
+                sel_fail(parser, "selector nested too deeply");
+                return;
+            }
+            parser->depth++;
             sel_parse_alts(parser, &simple->sub, &simple->sub_count, 1, 0, 0);
+            parser->depth--;
             return;
         }
         if (parser->pos >= parser->len || parser->src[parser->pos] != ')') {
-            parser->error = 1;
+            sel_fail(parser, "expected ')'");
             return;
         }
         parser->pos++;
     } else if (listy != PSEUDO_NONE) {
         simple->pseudo = listy;
         if (parser->pos >= parser->len || parser->src[parser->pos] != '(') {
-            parser->error = 1; /* :is()/:where()/:has() require an argument list */
+            sel_fail(parser, "expected '(' after the pseudo-class"); /* :is()/:where()/:has() require a list */
             return;
         }
         parser->pos++;
         /* :is()/:where() take a forgiving selector list (a bad arm is dropped); :has()
            and :not() take a real list, so any bad arm invalidates the whole selector */
         int forgiving = listy == PSEUDO_IS || listy == PSEUDO_WHERE;
+        if (parser->depth >= SEL_MAX_DEPTH) {
+            sel_fail(parser, "selector nested too deeply");
+            return;
+        }
+        parser->depth++;
         sel_parse_alts(parser, &simple->sub, &simple->sub_count, 1, listy == PSEUDO_HAS, forgiving);
+        parser->depth--;
     } else if (langdir != PSEUDO_NONE) {
         simple->pseudo = langdir;
         if (parser->pos >= parser->len || parser->src[parser->pos] != '(') {
-            parser->error = 1; /* :lang()/:dir() require an argument */
+            sel_fail(parser, "expected '(' after the pseudo-class"); /* :lang()/:dir() require an argument */
             return;
         }
         parser->pos++;
@@ -698,12 +785,12 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
             return;
         }
         if (parser->pos >= parser->len || parser->src[parser->pos] != ')') {
-            parser->error = 1;
+            sel_fail(parser, "expected ')'");
             return;
         }
         parser->pos++;
     } else if (parser->pos < parser->len && parser->src[parser->pos] == '(') {
-        parser->error = 1; /* a non-functional pseudo-class takes no argument list */
+        sel_fail(parser, "pseudo-class takes no argument"); /* a non-functional pseudo-class */
         return;
     }
 }
@@ -766,48 +853,81 @@ static int sel_starts_simple(Py_UCS4 ch) {
     return ch == '*' || ch == '.' || ch == '#' || ch == '[' || ch == ':' || ch == '\\' || ch == '|' || sel_is_ident(ch);
 }
 
-/* Parse a compound (one or more adjacent simples) into the given buffer. */
-static int sel_compound_parse(sel_parser *parser, sel_simple *buffer, int capacity) {
+/* Grow a parse buffer by doubling (starting at 8). Called only when the buffer is
+   full, so one doubling always makes room for the next element. Returns 0, or -1 on an
+   allocation failure that leaves the existing buffer intact. The compound/complex/list
+   buffers grow this way, so a selector is bounded only by its own length, not a fixed
+   compound/simple/arm cap (issue #432). */
+static int sel_grow(void **buffer, int *capacity, size_t elem_size) {
+    int grown = *capacity == 0 ? 8 : *capacity * 2;
+    void *bigger = PyMem_Realloc(*buffer, (size_t)grown * elem_size);
+    if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    *buffer = bigger;
+    *capacity = grown;
+    return 0;
+}
+
+static void sel_free_alts(sel_complex *alts, int count);
+
+/* Free the simples of a compound (each functional pseudo-class's nested list, then the
+   array itself). */
+static void free_simples(sel_simple *simples, int count) {
+    for (int index = 0; index < count; index++) {
+        if (simples[index].sub != NULL) {
+            sel_free_alts(simples[index].sub, simples[index].sub_count);
+        }
+    }
+    PyMem_Free(simples);
+}
+
+/* Parse a compound (one or more adjacent simples) into a grown, owned array. Returns
+   the array with *out_count set, or NULL with parser->error set. */
+static sel_simple *sel_compound_parse(sel_parser *parser, int *out_count) {
+    sel_simple *simples = NULL;
+    int capacity = 0;
     int count = 0;
     while (parser->pos < parser->len && sel_starts_simple(parser->src[parser->pos])) {
-        if (count >= capacity) {
-            parser->error = 1;
+        if (count == capacity) {
+            /* named so the branch and its coverage marker stay on one line (clang-format
+               would otherwise wrap the long comparison and orphan the marker) */
+            int grow_failed = sel_grow((void **)&simples, &capacity, sizeof(sel_simple)) < 0;
+            if (grow_failed) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                parser->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;             /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        sel_one(parser, &simples[count]);
+        if (parser->error) {
             break;
         }
-        sel_one(parser, &buffer[count]);
-        if (parser->error) {
+        /* Selectors-4 §4.1: a type/universal selector, if present, is first in a
+           compound, so a type after a subclass selector (e.g. [href]p) is invalid (#375) */
+        if (count > 0 && (simples[count].kind == 'e' || simples[count].kind == '*')) {
+            sel_fail(parser, "the type selector must be first in a compound");
             break;
         }
         count++;
     }
-    if (count == 0) {
-        parser->error = 1;
+    if (count == 0 && !parser->error) {
+        sel_fail(parser, "expected a selector");
     }
     if (parser->error) {
-        /* free the nested lists of the pseudo-classes parsed before the failure; the
-           simple that failed left its own sub NULL (sel_parse_alts cleans up on error) */
-        for (int index = 0; index < count; index++) {
-            if (buffer[index].sub != NULL) {
-                sel_free_alts(buffer[index].sub, buffer[index].sub_count);
-            }
-        }
-        return 0;
+        /* the simple that failed left its own sub NULL (sel_parse_alts cleans up on
+           error), so only the ones parsed before it carry a nested list to free */
+        free_simples(simples, count);
+        return NULL;
     }
-    return count;
+    *out_count = count;
+    return simples;
 }
 
 /* Parse one complex selector (compounds joined by combinators) into *complex,
    allocating its compounds. Returns 0, or -1 with parser->error set. */
-static void sel_free_alts(sel_complex *alts, int count);
-
 static void free_compounds(sel_compound *compounds, int count) {
     for (int index = 0; index < count; index++) {
-        for (int simple = 0; simple < compounds[index].count; simple++) {
-            if (compounds[index].simples[simple].sub != NULL) { /* a functional pseudo-class's nested list */
-                sel_free_alts(compounds[index].simples[simple].sub, compounds[index].simples[simple].sub_count);
-            }
-        }
-        PyMem_Free(compounds[index].simples);
+        free_simples(compounds[index].simples, compounds[index].count);
     }
 }
 
@@ -822,7 +942,8 @@ static void sel_free_alts(sel_complex *alts, int count) {
 }
 
 static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int nested, int relative) {
-    sel_compound temp[32];
+    sel_compound *compounds = NULL;
+    int capacity = 0;
     int count = 0;
     char combinator = ' ';
     /* a relative selector (the argument of :has()) may open with a combinator, which
@@ -837,24 +958,22 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int neste
         }
     }
     while (1) {
-        if (count >= 32) {
-            parser->error = 1;
-            break;
-        }
-        sel_simple simples[32];
-        int simple_count = sel_compound_parse(parser, simples, 32);
+        int simple_count = 0;
+        sel_simple *simples = sel_compound_parse(parser, &simple_count);
         if (parser->error) {
             break;
         }
-        sel_simple *owned = PyMem_Malloc((size_t)simple_count * sizeof(sel_simple));
-        if (owned == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            parser->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;             /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (count == capacity) {
+            int grow_failed = sel_grow((void **)&compounds, &capacity, sizeof(sel_compound)) < 0;
+            if (grow_failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                free_simples(simples, simple_count); /* GCOVR_EXCL_LINE: allocation-failure path */
+                parser->error = 1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
-        memcpy(owned, simples, (size_t)simple_count * sizeof(sel_simple));
-        temp[count].simples = owned;
-        temp[count].count = simple_count;
-        temp[count].combinator = combinator;
+        compounds[count].simples = simples;
+        compounds[count].count = simple_count;
+        compounds[count].combinator = combinator;
         count++;
         int saw_ws = parser->pos < parser->len && is_space(parser->src[parser->pos]);
         sel_skip_ws(parser);
@@ -872,22 +991,16 @@ static int sel_complex_parse(sel_parser *parser, sel_complex *complex, int neste
         } else if (saw_ws && sel_starts_simple(ch)) {
             combinator = ' ';
         } else {
-            parser->error = 1;
+            sel_fail(parser, "expected a combinator or the end of the selector");
             break;
         }
     }
     if (parser->error) {
-        free_compounds(temp, count);
+        free_compounds(compounds, count);
+        PyMem_Free(compounds);
         return -1;
     }
-    sel_compound *owned = PyMem_Malloc((size_t)count * sizeof(sel_compound));
-    if (owned == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        free_compounds(temp, count); /* GCOVR_EXCL_LINE: allocation-failure path */
-        parser->error = 1;           /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    memcpy(owned, temp, (size_t)count * sizeof(sel_compound));
-    complex->compounds = owned;
+    complex->compounds = compounds;
     complex->count = count;
     return 0;
 }
@@ -939,15 +1052,19 @@ static void sel_skip_bad_arm(sel_parser *parser) {
    nothing. Returns 0 with the out parameters set, or -1 with parser->error set. */
 static int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative,
                           int forgiving) {
-    sel_complex temp[64];
+    sel_complex *alts = NULL;
+    int capacity = 0;
     int count = 0;
     while (1) {
         sel_skip_ws(parser);
-        if (count >= 64) {
-            parser->error = 1;
-            break;
+        if (count == capacity) {
+            int grow_failed = sel_grow((void **)&alts, &capacity, sizeof(sel_complex)) < 0;
+            if (grow_failed) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                parser->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;             /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
-        if (sel_complex_parse(parser, &temp[count], nested, relative) == 0) {
+        if (sel_complex_parse(parser, &alts[count], nested, relative) == 0) {
             count++;
         } else if (forgiving) {
             parser->error = 0; /* drop the unparsable arm and recover to the next one */
@@ -958,7 +1075,7 @@ static int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_c
         sel_skip_ws(parser);
         if (parser->pos >= parser->len) {
             if (nested) {
-                parser->error = 1; /* a ':is(...' that never closes its '(' */
+                sel_fail(parser, "expected ')'"); /* a ':is(...' that never closes its '(' */
             }
             break;
         }
@@ -973,27 +1090,19 @@ static int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_c
     }
     if (parser->error) {
         for (int index = 0; index < count; index++) {
-            free_compounds(temp[index].compounds, temp[index].count);
-            PyMem_Free(temp[index].compounds);
+            free_compounds(alts[index].compounds, alts[index].count);
+            PyMem_Free(alts[index].compounds);
         }
+        PyMem_Free(alts);
         return -1;
     }
     if (count == 0) {
-        *out_alts = NULL; /* a forgiving list whose arms all dropped matches nothing */
+        PyMem_Free(alts); /* a forgiving list whose arms all dropped grew no arm; free the (empty) buffer */
+        *out_alts = NULL; /* matches nothing */
         *out_count = 0;
         return 0;
     }
-    sel_complex *owned = PyMem_Malloc((size_t)count * sizeof(sel_complex));
-    if (owned == NULL) {                              /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        for (int index = 0; index < count; index++) { /* GCOVR_EXCL_LINE: allocation-failure path */
-            free_compounds(temp[index].compounds, temp[index].count); /* GCOVR_EXCL_LINE */
-            PyMem_Free(temp[index].compounds);                        /* GCOVR_EXCL_LINE: allocation-failure path */
-        } /* GCOVR_EXCL_LINE: allocation-failure path */
-        parser->error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    memcpy(owned, temp, (size_t)count * sizeof(sel_complex));
-    *out_alts = owned;
+    *out_alts = alts;
     *out_count = count;
     return 0;
 }
@@ -1002,6 +1111,14 @@ static void selector_free(sel_compiled *compiled) {
     sel_free_alts(compiled->alts, compiled->count);
     PyMem_Free(compiled->source);
     PyMem_Free(compiled);
+}
+
+/* Set a ValueError naming the selector, the reason the parse failed, and the position
+   the failing token starts at (issue #434), e.g.
+   invalid CSS selector ":nth-child(foo)": expected An+B at position 11 */
+static void sel_raise(PyObject *selector_str, const sel_parser *parser) {
+    PyErr_Format(PyExc_ValueError, "invalid CSS selector \"%U\": %s at position %zd", selector_str, parser->err_reason,
+                 parser->err_pos);
 }
 
 /* Compile a selector string against the tree it will run on. Returns NULL with a
@@ -1018,11 +1135,11 @@ static sel_compiled *selector_compile(th_tree *tree, PyObject *selector_str) {
     }
     compiled->quirks = th_tree_quirks(tree);
     compiled->tree = tree;
-    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0};
+    sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token"};
     if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0, 0) < 0) {
+        sel_raise(selector_str, &parser);
         PyMem_Free(compiled->source);
         PyMem_Free(compiled);
-        PyErr_SetString(PyExc_ValueError, "invalid CSS selector");
         return NULL;
     }
     return compiled;
@@ -1516,22 +1633,35 @@ static int sel_strong_dir(Py_UCS4 ch) {
     return 0;
 }
 
-/* The direction a dir=auto element resolves to from its text content: 2 rtl when
-   the first strong-directional character is RTL, else 1 ltr (HTML "auto"). */
+/* The direction of the first strong-directional character in a span: 2 rtl, else the
+   1 ltr default when none is strong. */
+static int sel_first_strong_dir(const Py_UCS4 *text, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        int strong = sel_strong_dir(text[index]);
+        if (strong != 0) {
+            return strong;
+        }
+    }
+    return 1;
+}
+
+/* The direction a dir=auto element resolves to (HTML "the directionality of an
+   element"): an input element resolves from its value attribute, every other element
+   from its text content. */
 static int sel_auto_dir(th_tree *tree, th_node *node) {
+    if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT) {
+        const th_node_attr *value = sel_find_attr(node, TH_ATTR_VALUE);
+        if (value == NULL || value->value == NULL) {
+            return 1; /* an empty control value resolves to the ltr default */
+        }
+        return sel_first_strong_dir(value->value, value->value_len);
+    }
     Py_ssize_t len = 0;
     Py_UCS4 *text = th_node_text(tree, node, &len);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return 1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int dir = 1;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        int strong = sel_strong_dir(text[index]);
-        if (strong != 0) {
-            dir = strong;
-            break;
-        }
-    }
+    int dir = sel_first_strong_dir(text, len);
     PyMem_Free(text);
     return dir;
 }
@@ -1540,6 +1670,23 @@ static int sel_auto_dir(th_tree *tree, th_node *node) {
    (auto and a dir-less bdi resolve from the content's first strong character);
    with none, the document default is ltr (HTML "the dir attribute"). */
 static int sel_direction(th_tree *tree, th_node *node) {
+    /* a telephone input's directionality is its own dir, never inherited, and is ltr
+       unless dir explicitly overrides it (HTML "the directionality", issue #374) */
+    if (node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT && sel_input_type_is(node, "tel")) {
+        const th_node_attr *attr = sel_find_attr(node, TH_ATTR_DIR);
+        if (attr != NULL && attr->value != NULL) {
+            if (sel_kw(attr->value, attr->value_len, "ltr")) {
+                return 1;
+            }
+            if (sel_kw(attr->value, attr->value_len, "rtl")) {
+                return 2;
+            }
+            if (sel_kw(attr->value, attr->value_len, "auto")) {
+                return sel_auto_dir(tree, node);
+            }
+        }
+        return 1;
+    }
     for (th_node *ancestor = node; ancestor != NULL && ancestor->type == TH_NODE_ELEMENT; ancestor = ancestor->parent) {
         const th_node_attr *attr = sel_find_attr(ancestor, TH_ATTR_DIR);
         if (attr != NULL && attr->value != NULL) {
@@ -1716,6 +1863,18 @@ static th_node *sel_prev_element(th_node *node) {
     return NULL;
 }
 
+/* Whether a compound writes :scope explicitly (a relative selector's leftmost compound
+   may, e.g. :has(:scope > p)). Inside :has() the scope is rebound to the anchor, so
+   such a :scope pins that compound to the anchor itself. */
+static int sel_compound_has_scope(const sel_compound *compound) {
+    for (int index = 0; index < compound->count; index++) {
+        if (compound->simples[index].kind == ':' && compound->simples[index].pseudo == PSEUDO_SCOPE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* node matches compounds[index]; verify the combinators and compounds to its left,
    with backtracking on the descendant and general-sibling axes. anchor is NULL for an
    ordinary selector (the leftmost compound is the end); for a :has() relative selector
@@ -1724,6 +1883,12 @@ static th_node *sel_prev_element(th_node *node) {
 static int sel_match_from(th_node *node, const sel_complex *complex, int index, th_node *anchor, const sel_ctx *ctx) {
     if (index == 0) {
         if (anchor == NULL) {
+            return 1;
+        }
+        /* an explicit :scope in the leftmost compound already matched the anchor (the
+           scope was rebound to it), so it pins the compound to the anchor: :has(:scope >
+           p) equals :has(> p), and the leading combinator adds nothing (issue #431) */
+        if (sel_compound_has_scope(&complex->compounds[0])) {
             return 1;
         }
         switch (complex->compounds[0].combinator) {
@@ -1838,16 +2003,24 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
    selector reaches the anchor's descendants and, through a leading sibling
    combinator, its following siblings and their subtrees. */
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx) {
+    /* inside a :has() relative selector the scope element is the anchor, so a written
+       :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431) */
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
-        if (sel_has_subtree(anchor, rel, subject, anchor, ctx)) {
+        if (sel_has_subtree(anchor, rel, subject, anchor, &scoped)) {
             return 1;
         }
         /* only a leading sibling combinator (:has(+ x) / :has(~ x)) can match outside
            the anchor's subtree; a descendant or child relative selector cannot, so its
-           following-sibling scan would always fail and is skipped */
+           following-sibling scan would always fail and is skipped. An explicit leading
+           :scope pins compound[0] to the anchor, so the reach is set by the combinator
+           after it (:has(:scope + x) equals :has(+ x)) (issue #431) */
         char lead = rel->compounds[0].combinator;
+        if (rel->count > 1 && sel_compound_has_scope(&rel->compounds[0])) {
+            lead = rel->compounds[1].combinator;
+        }
         if (lead != '+' && lead != '~') {
             continue;
         }
@@ -1855,9 +2028,9 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             if (sibling->type != TH_NODE_ELEMENT) {
                 continue;
             }
-            if ((sel_match_compound(sibling, &rel->compounds[subject], ctx) &&
-                 sel_match_from(sibling, rel, subject, anchor, ctx)) ||
-                sel_has_subtree(sibling, rel, subject, anchor, ctx)) {
+            if ((sel_match_compound(sibling, &rel->compounds[subject], &scoped) &&
+                 sel_match_from(sibling, rel, subject, anchor, &scoped)) ||
+                sel_has_subtree(sibling, rel, subject, anchor, &scoped)) {
                 return 1;
             }
         }

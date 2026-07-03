@@ -430,6 +430,100 @@ def test_namespace_prefixed_local_part_decodes_escapes() -> None:
     assert _sel("<root><a>1</a></root>", "*|\\61") == ["a"]
 
 
+@pytest.mark.parametrize(
+    ("selector", "tags"),
+    [
+        # a namespace prefix on an attribute selector is accepted and matches on the
+        # local attribute name, like a prefixed type selector (issue #378)
+        pytest.param("[ns|k]", ["a"], id="named-ns-attr"),
+        pytest.param("[*|k]", ["a"], id="any-ns-attr"),
+        pytest.param("[|k]", ["a"], id="no-ns-attr"),
+        pytest.param('[ns|k="v"]', ["a"], id="named-ns-attr-equals"),
+        pytest.param("[ns|missing]", [], id="named-ns-attr-absent"),
+        # a bare '|' before an operator is still the dash-match, not a namespace prefix
+        pytest.param('[k|="v"]', ["a"], id="dash-match-not-namespace"),
+    ],
+)
+def test_namespace_prefixed_attribute_selectors(selector: str, tags: list[str]) -> None:
+    assert _sel('<root><a k="v">1</a></root>', selector) == tags
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        # Selectors-4 §4.1: the type/universal selector must be first in a compound
+        pytest.param("[href]p", id="type-after-attribute"),
+        pytest.param("p.x*", id="universal-after-subclass"),
+        pytest.param("*div", id="type-after-universal"),
+        # a lone '-' is not an <ident-token>, so not a valid type selector (issue #375)
+        pytest.param("-", id="bare-hyphen"),
+        pytest.param("-1", id="hyphen-then-digit"),
+    ],
+)
+def test_malformed_compound_is_rejected(selector: str) -> None:
+    with pytest.raises(ValueError, match="selector"):
+        parse("<p href=x>hi</p>").select(selector)
+
+
+def test_type_first_in_compound_still_parses() -> None:
+    # the type selector leading its compound is the valid form
+    assert _sel("<p href=x>hi</p>", "p[href]") == ["p"]
+    # a leading '--custom' type selector is a valid identifier
+    assert _sel("<p>x</p>", "--custom, p") == ["p"]
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        # a '-' begins an identifier when a name-start code point, another '-', or an
+        # escape follows it, so these are valid type selectors (that match nothing) (#375)
+        pytest.param("-x", id="hyphen-letter"),
+        pytest.param("--x", id="double-hyphen"),
+        pytest.param(r"-\41", id="hyphen-escape"),
+        pytest.param("-_x", id="hyphen-underscore"),
+        pytest.param("-Àx", id="hyphen-non-ascii"),
+    ],
+)
+def test_leading_hyphen_identifier_is_valid(selector: str) -> None:
+    assert parse("<p>x</p>").select(selector) == []
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        # the compound/complex/list buffers grow, so a selector is bounded only by its
+        # own length, not a fixed cap at the 33rd simple/compound or 65th arm (issue #432)
+        pytest.param("p" + ".x" * 40, id="forty-simples-in-a-compound"),
+        pytest.param(" > ".join(["div"] * 39 + ["p"]), id="forty-child-compounds"),
+        pytest.param(",".join(["p"] * 70), id="seventy-list-arms"),
+    ],
+)
+def test_large_selectors_grow_past_the_old_caps(selector: str) -> None:
+    html = "<div class=x>" * 39 + "<p class=x>hi</p>" + "</div>" * 39
+    assert len(parse(html).select(selector)) == 1
+
+
+@pytest.mark.parametrize(
+    ("prefix", "suffix"),
+    [
+        # both nesting recursions -- the functional-pseudo list and the nth-child 'of S'
+        # clause -- must raise past the depth cap, not overflow the C stack (issue #421)
+        pytest.param(":not(", ")", id="functional-list"),
+        pytest.param(":nth-child(1 of ", ")", id="nth-child-of-clause"),
+    ],
+)
+def test_deeply_nested_functional_pseudo_raises_instead_of_crashing(prefix: str, suffix: str) -> None:
+    depth = 20000
+    with pytest.raises(ValueError, match="nested too deeply"):
+        parse("<a></a>").select(prefix * depth + "a" + suffix * depth)
+
+
+def test_invalid_selector_error_names_the_position_and_reason() -> None:
+    # the message carries the offending selector, the reason, and the position (issue #434)
+    with pytest.raises(ValueError, match=r'invalid CSS selector ":nth-child\(foo\)": expected An\+B at position 11'):
+        parse("<p>x</p>").select(":nth-child(foo)")
+
+
 _PSEUDO_DOC = (
     "<main>"
     '<section id="s">'
@@ -464,6 +558,8 @@ _PSEUDO_DOC = (
         pytest.param("li:has(~ li)", ["li"], id="has-subsequent-sibling-li"),
         # :has() multi-compound relative selectors exercise the interior combinators
         pytest.param("section:has(p a)", ["section"], id="has-descendant-chain"),
+        # a leftmost compound that is a non-:scope pseudo-class (not the anchor itself)
+        pytest.param("section:has(:is(p) a)", ["section"], id="has-pseudo-interior-compound"),
         pytest.param("section:has(p > a)", ["section"], id="has-child-chain"),
         pytest.param("section:has(h2 + p)", ["section"], id="has-next-sibling-chain"),
         pytest.param("section:has(h2 ~ ul)", ["section"], id="has-subsequent-chain"),
@@ -564,6 +660,12 @@ def test_has_skips_non_element_following_sibling() -> None:
         pytest.param("p,", id="trailing-comma"),
         pytest.param("[", id="open-bracket"),
         pytest.param("[a", id="unterminated-attr"),
+        # a namespace prefix on an attribute must still be followed by a local name
+        pytest.param("[*x]", id="attr-star-not-pipe"),
+        pytest.param("[*", id="attr-star-at-eof"),
+        pytest.param("[ns|", id="attr-namespace-pipe-at-eof"),
+        pytest.param("[|", id="attr-bare-pipe-at-eof"),
+        pytest.param("[*|", id="attr-star-pipe-at-eof"),
         pytest.param("[a=]", id="missing-value"),
         pytest.param('[a="x]', id="unterminated-string"),
         pytest.param("[a!=b]", id="bad-operator"),
@@ -574,9 +676,6 @@ def test_has_skips_non_element_following_sibling() -> None:
         pytest.param("[a=b c]", id="junk-after-value"),
         pytest.param("p!", id="trailing-junk"),
         pytest.param("p !", id="whitespace-then-junk"),
-        pytest.param("p" + ".x" * 40, id="too-many-simples"),
-        pytest.param(" ".join(["a"] * 40), id="too-many-compounds"),
-        pytest.param(",".join(["a"] * 70), id="too-many-groups"),
         # a backslash before any CSS newline (LF, CR, FF) does not start an escape,
         # so the dangling backslash leaves an empty identifier
         pytest.param(".a\\\nb", id="escape-before-lf"),

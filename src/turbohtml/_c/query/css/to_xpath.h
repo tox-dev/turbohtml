@@ -907,12 +907,12 @@ PyObject *turbohtml_css_to_xpath(PyObject *Py_UNUSED(module), PyObject *args) {
     if (source == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0};
+    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token"};
     sel_complex *alts = NULL;
     int count = 0;
     if (sel_parse_alts(&parser, &alts, &count, 0, 0, 0) < 0) {
+        sel_raise(selector, &parser);
         PyMem_Free(source);
-        PyErr_SetString(PyExc_ValueError, "invalid CSS selector");
         return NULL;
     }
     Py_UCS4 *prefix_ucs4 = PyUnicode_AsUCS4Copy(prefix);

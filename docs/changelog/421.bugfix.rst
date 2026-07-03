@@ -1,3 +1,4 @@
 :meth:`~turbohtml.Node.xpath` now caps expression nesting and operator-chain depth in both the parser and the evaluator,
 raising :exc:`ValueError` on a pathological expression (deeply nested groups or a long ``or``/``+`` spine) instead of
-overflowing the C stack.
+overflowing the C stack. The CSS selector parser caps functional-pseudo nesting the same way, so a selector that nests
+``:has()``/``:is()``/``:not()`` past the cap raises :exc:`ValueError` rather than faulting.

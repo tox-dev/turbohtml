@@ -82,7 +82,7 @@ express, both under a common ``SelectorError``.
 
 .. testoutput::
 
-    invalid CSS selector
+    invalid CSS selector "li:": expected an identifier at position 3
     :dir() cannot be expressed in XPath 1.0
 
 Pitfalls

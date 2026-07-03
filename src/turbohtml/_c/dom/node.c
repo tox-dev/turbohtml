@@ -1177,12 +1177,16 @@ PyDoc_STRVAR(select_doc, "select(selector, /)\n--\n\n"
                          "live-state pseudo-classes (:hover, :focus, ...) match nothing. :is() and\n"
                          ":where() take a forgiving list, so a bad arm is dropped.\n\n"
                          ":param selector: the CSS selector.\n"
-                         ":returns: the matching descendant Elements in document order.");
+                         ":returns: the matching descendant Elements in document order.\n"
+                         ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                         "    and the source offset.");
 
 PyDoc_STRVAR(select_one_doc, "select_one(selector, /)\n--\n\n"
                              "Find the first descendant Element matching a CSS selector.\n\n"
                              ":param selector: the CSS selector.\n"
-                             ":returns: the first matching Element, or None.");
+                             ":returns: the first matching Element, or None.\n"
+                             ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                             "    and the source offset.");
 
 PyDoc_STRVAR(xpath_doc, "xpath(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
                         "Evaluate an XPath expression relative to this node. A node-set returns a list\n"
@@ -1235,13 +1239,17 @@ PyDoc_STRVAR(matches_doc, "matches(selector, /)\n--\n\n"
                           "Test this node against a CSS selector, evaluated with its own ancestors and\n"
                           "siblings as context.\n\n"
                           ":param selector: the CSS selector.\n"
-                          ":returns: whether this node is an Element that matches.");
+                          ":returns: whether this node is an Element that matches.\n"
+                          ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                          "    and the source offset.");
 
 PyDoc_STRVAR(closest_doc, "closest(selector, /)\n--\n\n"
                           "Find the nearest Element matching a CSS selector, testing this node then each\n"
                           "ancestor.\n\n"
                           ":param selector: the CSS selector.\n"
-                          ":returns: the nearest matching Element, or None.");
+                          ":returns: the nearest matching Element, or None.\n"
+                          ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                          "    and the source offset.");
 
 PyDoc_STRVAR(prune_doc, "prune(selector, /)\n--\n\n"
                         "Keep only the descendants matching a CSS selector, together with their\n"
@@ -1250,19 +1258,29 @@ PyDoc_STRVAR(prune_doc, "prune(selector, /)\n--\n\n"
                         "trims a parsed document to the parts of interest after a normal WHATWG parse,\n"
                         "the way BeautifulSoup's SoupStrainer filters a document while parsing it.\n\n"
                         ":param selector: the CSS selector the kept descendants must match.\n"
-                        ":returns: this node.");
+                        ":returns: this node.\n"
+                        ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                        "    and the source offset.");
 
 PyDoc_STRVAR(remove_doc, "remove(selector, /)\n--\n\n"
                          "Drop every descendant Element matching the CSS selector, each with its\n"
                          "whole subtree, and return this node. The bulk inverse of prune (which keeps\n"
                          "the matches): the destructive counterpart of selectolax's strip_tags and\n"
-                         "w3lib's remove_tags_with_content, and of jQuery's .remove().");
+                         "w3lib's remove_tags_with_content, and of jQuery's .remove().\n\n"
+                         ":param selector: the CSS selector the dropped descendants must match.\n"
+                         ":returns: this node.\n"
+                         ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                         "    and the source offset.");
 
 PyDoc_STRVAR(strip_tags_doc, "strip_tags(selector, /)\n--\n\n"
                              "Unwrap every descendant Element matching the CSS selector, replacing each\n"
                              "match with its children in place while keeping that content, and return\n"
                              "this node. The bulk form of unwrap, matching selectolax's unwrap_tags,\n"
-                             "w3lib's remove_tags, and jQuery's .unwrap().");
+                             "w3lib's remove_tags, and jQuery's .unwrap().\n\n"
+                             ":param selector: the CSS selector the unwrapped descendants must match.\n"
+                             ":returns: this node.\n"
+                             ":raises ValueError: the selector is not valid CSS; the message names the reason\n"
+                             "    and the source offset.");
 
 static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds);
 
