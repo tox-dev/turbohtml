@@ -24,6 +24,7 @@ from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
 from turbohtml.extract import boilerplate as _extract_boilerplate
 from turbohtml.extract import clean_url as _clean_url
+from turbohtml.extract import dates as _extract_dates
 from turbohtml.extract import extract_links as _extract_links
 from turbohtml.extract import normalize_url as _normalize_url
 from turbohtml.migration.markupsafe import Markup as _Markup
@@ -320,6 +321,11 @@ def boilerplate(text: str) -> None:
     _extract_boilerplate(text)
 
 
+def date(text: str) -> None:
+    """Recover the publication date with turbohtml, scoring the meta, JSON-LD, time, and URL signals off the DOM."""
+    _extract_dates(text)
+
+
 def text_render(text: str) -> None:
     """Render layout-aware visible text with turbohtml's to_text, walking the tree in C."""
     _parsed(text).to_text()
@@ -516,6 +522,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "tables": (tables, "turbohtml"),
     "article": (article, "turbohtml"),
     "boilerplate": (boilerplate, "turbohtml"),
+    "date": (date, "turbohtml"),
     "text-render": (text_render, "turbohtml"),
     "text-collapsed": (text_collapsed, "turbohtml"),
     "text-main": (text_main, "turbohtml"),
