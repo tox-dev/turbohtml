@@ -101,6 +101,22 @@ def test_escape_reconstructs_attributes() -> None:
 
 
 @pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("Favorite movie: <name of movie>", "Favorite movie: &lt;name of movie&gt;", id="unclosed-empty"),
+        pytest.param("I love <sarcasm> this", "I love &lt;sarcasm&gt; this", id="unclosed-wrapping-run"),
+        pytest.param("<p>hi", "&lt;p&gt;hi", id="unclosed-known-at-eof"),
+        pytest.param("<name of movie>x</name>", "&lt;name of movie&gt;x&lt;/name&gt;", id="source-closed-unknown"),
+        pytest.param("<div><p>x</div>", "&lt;div&gt;&lt;p&gt;x&lt;/div&gt;", id="source-closed-outer-implied-inner"),
+    ],
+)
+def test_escape_reproduces_only_source_end_tags(html: str, expected: str) -> None:
+    # escape mode renders the author's markup as text: a disallowed element gets a `</tag>` only where the source wrote
+    # one, never a fabricated close tag after an unclosed or void element
+    assert sanitize(html, Policy.strict()) == expected
+
+
+@pytest.mark.parametrize(
     ("disposition", "expected"),
     [
         pytest.param(OnDisallowed.ESCAPE, "&lt;div&gt;<b>x</b>&lt;/div&gt;", id="escape"),
@@ -294,6 +310,48 @@ def test_style_double_quoted_css_string() -> None:
     # a double-quoted CSS string (in a single-quoted attribute) holds separators safely
     out = sanitize("<p style='font-family: \"a;b:c\"; color: red'>x</p>", _style_policy())
     assert "color: red" in out
+
+
+@pytest.mark.parametrize(
+    ("style", "kept"),
+    [
+        pytest.param("width: expression(alert(1))", False, id="expression"),
+        pytest.param("width: EXPRESSION(alert(1))", False, id="expression-uppercase"),
+        pytest.param("width: expression (alert(1))", False, id="expression-space-before-paren"),
+        pytest.param("color: url(javascript:alert(1))", False, id="url-javascript"),
+        pytest.param("color: url('javascript:alert(1)')", False, id="url-javascript-single-quote"),
+        pytest.param("color: url( javascript:x )", False, id="url-javascript-spaced"),
+        pytest.param("color: url/* c */(javascript:x)", False, id="url-comment-before-paren"),
+        pytest.param("color: url(http://x/a.png)", True, id="url-http-allowed"),
+        pytest.param("color: url(http://x y)", True, id="url-allowed-then-space"),
+        pytest.param("color: url/* c */(http://x)", True, id="url-comment-then-allowed"),
+        pytest.param("color: url(/rel.png)", True, id="url-relative-allowed"),
+        pytest.param("color: url()", True, id="url-empty"),
+        pytest.param("color: expression", True, id="expression-bare-ident"),
+        pytest.param("color: expression z", True, id="expression-ident-then-word"),
+        pytest.param("color: url", True, id="url-bare-ident"),
+        pytest.param("color: url z", True, id="url-ident-then-word"),
+        pytest.param("color: ur", True, id="url-prefix-truncated"),
+        pytest.param("cursor: curl(x)", True, id="url-mid-identifier"),
+        pytest.param("color: url/x", True, id="url-slash-not-comment"),
+        pytest.param("color: url/", True, id="url-trailing-slash"),
+        pytest.param("color: url(", True, id="url-open-paren-at-end"),
+        pytest.param("color: url(http://x", True, id="url-unterminated-allowed"),
+        pytest.param("color: url/* unterminated", True, id="url-unterminated-comment"),
+        pytest.param("color: url/* x*", True, id="url-comment-trailing-asterisk"),
+        pytest.param("color: url/* a*b */(http://x)", True, id="url-comment-lone-asterisk-then-allowed"),
+        pytest.param("color: a-b_1c", True, id="value-identifier-punctuation"),
+    ],
+)
+def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # noqa: FBT001
+    # a kept property still has its value scrubbed: expression() and url(disallowed-scheme) drop the whole declaration
+    out = sanitize(f'<p style="{style}">x</p>', _style_policy())
+    assert ("style=" in out) is kept
+
+
+def test_style_double_quoted_url_scheme_is_stripped() -> None:
+    # a double-quoted url() (in a single-quoted attribute) cannot smuggle a disallowed scheme past the value scan
+    assert "style=" not in sanitize("""<p style='color: url("javascript:x")'>y</p>""", _style_policy())
 
 
 @pytest.mark.parametrize(
@@ -514,6 +572,45 @@ def test_sanitizer_is_reusable() -> None:
     sanitizer = Sanitizer(Policy.relaxed())
     assert sanitizer.sanitize("<h1>a</h1>") == "<h1>a</h1>"
     assert sanitizer.sanitize("<h2>b</h2>") == "<h2>b</h2>"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "type_name"),
+    [
+        pytest.param("tags", ["b"], "list", id="tags"),
+        pytest.param("url_schemes", ["http"], "list", id="url_schemes"),
+        pytest.param("remove_with_content", ["x"], "list", id="remove_with_content"),
+        pytest.param("css_properties", "color", "str", id="css_properties"),
+    ],
+)
+def test_non_set_policy_field_raises_typeerror(field: str, value: list[str] | str, type_name: str) -> None:
+    # a set-typed field given a non-set once reached a bare C SystemError deep in the walk; it now fails with a clear
+    # TypeError naming the offending field and the type it got
+    policy = Policy(**{field: value})  # ty: ignore[invalid-argument-type]  # the wrong type is what the guard rejects
+    with pytest.raises(TypeError, match=rf"Policy\.{field} must be a set or frozenset, got {type_name}"):
+        sanitize("<b>x", policy)
+
+
+class _TagSet(set[str]):
+    pass
+
+
+class _TagFrozenSet(frozenset[str]):
+    pass
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        pytest.param({"b"}, id="set"),
+        pytest.param(frozenset({"b"}), id="frozenset"),
+        pytest.param(_TagSet({"b"}), id="set-subclass"),
+        pytest.param(_TagFrozenSet({"b"}), id="frozenset-subclass"),
+    ],
+)
+def test_set_and_frozenset_tags_are_accepted(tags: frozenset[str]) -> None:
+    # every set-like type (including subclasses) passes the type guard and sanitizes normally
+    assert sanitize("<b>x</b>", Policy(tags=tags)) == "<b>x</b>"
 
 
 def test_escape_propagates_a_child_filter_error() -> None:

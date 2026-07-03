@@ -41,6 +41,13 @@ enum th_node_type {
 #define TH_DOCTYPE_HAS_PUBLIC 0x40u
 #define TH_DOCTYPE_HAS_SYSTEM 0x80u
 
+/* An element node reuses a spare tag_flags bit (the category bits from the atom
+   table only occupy 0x01..0x10) to record that the source actually closed it with
+   an end tag, as opposed to the parser closing it implicitly or at EOF. The
+   sanitizer's escape mode reads it to reproduce a disallowed element as visible
+   text without fabricating a `</tag>` the author never wrote. */
+#define TH_ELEM_CLOSED_BY_END_TAG 0x20u
+
 /* An attribute on an element node. The name is interned to an atom: a static
    compile-time id for common names (attr_atom.h), or a per-tree dynamic id for
    the rest. attr_record() recovers the name bytes for serialization and

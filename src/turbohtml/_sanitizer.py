@@ -168,6 +168,8 @@ class Sanitizer:
 
         :param html: the untrusted HTML fragment.
         :returns: the sanitized, safe HTML.
+        :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
+            ``css_properties``) holds a value that is not a set or frozenset.
         """
         policy = self.policy
         root = parse_fragment(html)
@@ -195,6 +197,8 @@ def sanitize(html: str, policy: Policy | None = None) -> str:
     :param html: the untrusted HTML fragment.
     :param policy: the policy to enforce; None uses bleach's default allowlist.
     :returns: the sanitized, safe HTML.
+    :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
+        ``css_properties``) holds a value that is not a set or frozenset.
     """
     return Sanitizer(policy).sanitize(html)
 

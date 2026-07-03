@@ -50,12 +50,16 @@ struct th_tree {
     int drop_newline;       /* drop a single leading LF after pre/listing/textarea */
     Py_ssize_t text_offset; /* leading code points of a reprocessed text token already consumed */
     int foster;             /* when set, inserts are foster-parented out of a table */
-    int quirks;             /* quirks mode: a <table> no longer closes an open <p> */
-    int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
-    int can_span;           /* input is borrowed and outlives the tree: text nodes may be
-                               zero-copy spans into it instead of materialized copies */
-    int track_positions;    /* record each element's source line/col in trailing node slots */
-    int kind;               /* borrowed input storage */
+    /* the end-tag token currently being processed, or NULL; stack_pop flags the
+       element it closes with TH_ELEM_CLOSED_BY_END_TAG so the sanitizer can tell a
+       source-closed element from a parser-closed one */
+    const th_token *closing_end_tag;
+    int quirks;          /* quirks mode: a <table> no longer closes an open <p> */
+    int has_nul;         /* the input contains a U+0000; otherwise text needs no NUL filtering */
+    int can_span;        /* input is borrowed and outlives the tree: text nodes may be
+                            zero-copy spans into it instead of materialized copies */
+    int track_positions; /* record each element's source line/col in trailing node slots */
+    int kind;            /* borrowed input storage */
     const void *data;
     Py_ssize_t length;
     int failed; /* an allocation failed; abandon the parse */

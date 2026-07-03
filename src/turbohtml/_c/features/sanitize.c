@@ -57,31 +57,6 @@ static int is_unsafe_tag(uint16_t atom) {
     }
 }
 
-/* HTML void elements, which serialize without an end tag. */
-static int is_void_tag(uint16_t atom) {
-    switch (atom) {
-    case TH_TAG_AREA:
-    case TH_TAG_BASE:
-    case TH_TAG_BASEFONT:
-    case TH_TAG_BR:
-    case TH_TAG_COL:
-    case TH_TAG_EMBED:
-    case TH_TAG_HR:
-    case TH_TAG_IMG:
-    case TH_TAG_INPUT:
-    case TH_TAG_KEYGEN:
-    case TH_TAG_LINK:
-    case TH_TAG_META:
-    case TH_TAG_PARAM:
-    case TH_TAG_SOURCE:
-    case TH_TAG_TRACK:
-    case TH_TAG_WBR:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 /* Attributes whose value is a URL, so its scheme is checked against the allowlist. Matched on the interned name bytes.
  */
 static int is_url_attr(const char *name, Py_ssize_t len) {
@@ -331,6 +306,89 @@ static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t le
     return allowed;
 }
 
+/* Bytes that continue a CSS identifier, so `expression`/`url` is only recognized as a function name at a token boundary
+   (`background:curl(x)` is not a `url()`). */
+static int is_css_ident_char(Py_UCS4 c) {
+    Py_UCS4 lower = c | 0x20;
+    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+}
+
+/* Does the lowercase ASCII `keyword` sit at value[pos:]? Returns the index just past it, or -1. */
+static Py_ssize_t css_match_keyword(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, const char *keyword) {
+    Py_ssize_t index = 0;
+    while (keyword[index] != '\0') {
+        if (pos + index >= end || (value[pos + index] | 0x20) != (Py_UCS4)keyword[index]) {
+            return -1;
+        }
+        index++;
+    }
+    return pos + index;
+}
+
+/* Skip the whitespace and CSS comments a browser ignores between a function name and its opening paren, so a comment
+   spliced in as `url` then comment then `(...)` is not read as a bare identifier. */
+static Py_ssize_t css_skip_ws_comments(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
+    while (pos < end) {
+        if (is_ascii_ws(value[pos])) {
+            pos++;
+        } else if (value[pos] == '/' && pos + 1 < end && value[pos + 1] == '*') {
+            pos += 2;
+            while (pos < end && !(value[pos] == '*' && pos + 1 < end && value[pos + 1] == '/')) {
+                pos++;
+            }
+            pos += pos < end ? 2 : 0; /* step over the closing star-slash when the comment was terminated */
+        } else {
+            break;
+        }
+    }
+    return pos;
+}
+
+/* Read the URL inside a `url(...)` starting at `pos` (just past the paren) and check its scheme against the allowlist,
+   the same scan the URL-attribute path uses, after stripping an optional surrounding quote so `url("javascript:...")`
+   cannot smuggle a scheme past the check. Returns 1 allow, 0 drop, -1 error. */
+static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
+    pos = css_skip_ws_comments(value, pos, end);
+    Py_UCS4 quote = 0;
+    if (pos < end && (value[pos] == '"' || value[pos] == '\'')) {
+        quote = value[pos++];
+    }
+    Py_ssize_t url_start = pos;
+    while (pos < end && value[pos] != ')' && (quote ? value[pos] != quote : !is_ascii_ws(value[pos]))) {
+        pos++;
+    }
+    return scheme_allowed(s, value + url_start, pos - url_start);
+}
+
+/* A declaration whose property name is allowlisted can still carry a dangerous value: IE's `expression(...)` runs
+   script, and `url(javascript:...)` a disallowed scheme. Reject the whole declaration in either case. Returns 1 allow,
+   0 drop, -1 error. */
+static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t pos = start; pos < end; pos++) {
+        if (pos > start && is_css_ident_char(value[pos - 1])) {
+            continue; /* mid-identifier: not a function-name boundary */
+        }
+        Py_ssize_t after_expr = css_match_keyword(value, pos, end, "expression");
+        if (after_expr >= 0) {
+            Py_ssize_t paren = css_skip_ws_comments(value, after_expr, end);
+            if (paren < end && value[paren] == '(') {
+                return 0;
+            }
+        }
+        Py_ssize_t after_url = css_match_keyword(value, pos, end, "url");
+        if (after_url >= 0) {
+            Py_ssize_t paren = css_skip_ws_comments(value, after_url, end);
+            if (paren < end && value[paren] == '(') {
+                int ok = css_url_scheme_allowed(s, value, paren + 1, end);
+                if (ok <= 0) {
+                    return ok;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
 /* Append the declaration `value[start:end)` to `out` if the property name (the part before `colon`) is allowlisted,
    trimming surrounding whitespace and joining kept declarations with "; ". Returns 0, or -1 on error. */
 static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
@@ -352,6 +410,13 @@ static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t 
     }
     if (!allowed) {
         return 0;
+    }
+    int value_ok = css_value_allowed(s, value, colon + 1, end);
+    if (value_ok < 0) { /* GCOVR_EXCL_BR_LINE: css_value_allowed only fails on allocation failure */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (!value_ok) {
+        return 0; /* an allowlisted property carrying expression()/url(disallowed-scheme) is still dropped */
     }
     /* output from the trimmed name start to the value's last non-whitespace byte (the leading whitespace was already
        trimmed into name_start, so a kept declaration is emitted without its surrounding whitespace) */
@@ -625,7 +690,10 @@ static int escape_element(sanitizer *s, th_node *element) {
     }
     th_node_insert_before(element->parent, open_node, element);
     hoist_children(element);
-    if (!is_void_tag(element->atom)) {
+    /* Only reproduce an end tag the source actually wrote: a void element or an
+       unclosed one (`<name of movie>`, `I love <sarcasm> this`) carries no close
+       tag, so escaping must not fabricate one. */
+    if (element->tag_flags & TH_ELEM_CLOSED_BY_END_TAG) {
         PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, element->text_len);
         if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -708,6 +776,17 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     return 0;
 }
 
+/* The set-typed policy fields reach a PySet_Contains in the walk, which raises a bare SystemError on a non-set. Reject
+   a wrong type up front with a message that names the offending Policy field, so a caller gets a clear TypeError. */
+static int require_anyset(PyObject *value, const char *field) {
+    if (!PyAnySet_Check(value)) {
+        PyErr_Format(PyExc_TypeError, "Policy.%s must be a set or frozenset, got %.100s", field,
+                     Py_TYPE(value)->tp_name);
+        return -1;
+    }
+    return 0;
+}
+
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties) -> None. Filters the fragment in place;
    sanitizer.py serializes it. */
@@ -717,6 +796,11 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     if (!PyArg_ParseTuple(args, "OOOOpipOOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties)) {
+        return NULL;
+    }
+    if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
+        require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
+        require_anyset(s.css_properties, "css_properties") < 0) {
         return NULL;
     }
     th_node *root;

@@ -374,11 +374,17 @@ static int stack_push(th_tree *tree, th_node *node) {
 }
 
 static void maybe_clone_option(th_tree *tree, th_node *option);
+static int name_matches(const th_node *node, const th_token *token, int fold);
 
 static void stack_pop(th_tree *tree) {
     if (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: only reached with a non-empty stack */
         tree->open_len--;
         th_node *popped = tree->open[tree->open_len];
+        /* record that an end tag named this element (as opposed to an implied or
+           EOF close) so escape-mode sanitizing reproduces the author's `</tag>` */
+        if (tree->closing_end_tag != NULL && name_matches(popped, tree->closing_end_tag, popped->ns != TH_NS_HTML)) {
+            popped->tag_flags |= TH_ELEM_CLOSED_BY_END_TAG;
+        }
         if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_OPTION) {
             /* "when an option element is popped off the stack ... run maybe
                clone an option into selectedcontent" */
@@ -1736,6 +1742,8 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
             tok->atom = TH_TAG_UNKNOWN;
             tok->tag_flags = 0;
         }
+        /* the element(s) this end tag pops are the ones the source closed explicitly */
+        tree->closing_end_tag = tok->kind == TH_END_TAG ? tok : NULL;
         if (use_foreign_rules(tree, tok) && foreign_step(tree, tok)) {
             continue; /* handled under foreign-content rules */
         }
