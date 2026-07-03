@@ -43,6 +43,20 @@ if TYPE_CHECKING:
         pytest.param('<script type="application/ld+jsox">{"ok": 1}</script>', [], id="same-length-mismatch"),
         pytest.param('<script type="   ">{"ok": 1}</script>', [], id="all-whitespace-type"),
         pytest.param("<p>no script at all</p>", [], id="no-script"),
+        pytest.param(
+            '<script type="application/ld+json">null</script>'
+            '<script type="application/ld+json">{"@type": "Thing"}</script>',
+            [{"@type": "Thing"}],
+            id="null-payload-dropped",
+        ),
+        pytest.param(
+            '<script type="application/ld+json">42</script>'
+            '<script type="application/ld+json">"text"</script>'
+            '<script type="application/ld+json">true</script>'
+            '<script type="application/ld+json">[{"@id": "x"}]</script>',
+            [[{"@id": "x"}]],
+            id="scalar-payloads-dropped-list-kept",
+        ),
     ],
 )
 def test_json_ld(html: str, expected: list[JSONValue]) -> None:

@@ -31,8 +31,9 @@ Scrapers want the JSON-LD, Microdata, and OpenGraph/Twitter metadata a page embe
 :meth:`~turbohtml.Document.structured_data` returns a :class:`~turbohtml.StructuredData` record whose fields you read by
 attribute. The per-format helpers :meth:`~turbohtml.Document.json_ld`, :meth:`~turbohtml.Document.opengraph`, and
 :meth:`~turbohtml.Document.microdata` return just one format each, the last as a list of
-:class:`~turbohtml.MicrodataItem`. JSON-LD blocks are parsed with the standard library :mod:`json` and a block that is
-not valid JSON is skipped; the :attr:`~turbohtml.StructuredData.microformats` and :attr:`~turbohtml.StructuredData.rdfa`
+:class:`~turbohtml.MicrodataItem`. JSON-LD blocks are parsed with the standard library :mod:`json`; a block that is not
+valid JSON, or whose payload is a scalar or ``null`` rather than a node object or array, is skipped, so every entry is a
+``dict`` or ``list``. The :attr:`~turbohtml.StructuredData.microformats` and :attr:`~turbohtml.StructuredData.rdfa`
 fields are reserved for a later phase and are empty lists for now.
 
 ***************************

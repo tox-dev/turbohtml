@@ -16,6 +16,7 @@
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* The HTML script type that flags a JSON-LD block, matched case-insensitively after trimming. */
@@ -80,21 +81,44 @@ static PyObject *attr_str_or_empty(th_tree *tree, th_node *node, const char *nam
     return ucs4_to_str(node->attrs[index].value, node->attrs[index].value_len);
 }
 
-/* The element tags whose Microdata property value is a single URL attribute rather than text content. */
+/* The element tags whose Microdata property value is a single attribute rather than text content. `url` marks the
+   URL-valued attributes (a/area/link href, media src, object data), whose value the spec resolves as a URL and so
+   strips of surrounding ASCII whitespace; data/meter value and meta content are taken verbatim. */
 typedef struct {
     uint16_t atom;
     const char *attr;
     Py_ssize_t attr_len;
-} microdata_url_attr;
+    unsigned char url;
+} microdata_attr_prop;
 
-static const microdata_url_attr MICRODATA_URL_ATTRS[] = {
-    {TH_TAG_AUDIO, "src", 3},   {TH_TAG_EMBED, "src", 3},    {TH_TAG_IFRAME, "src", 3},  {TH_TAG_IMG, "src", 3},
-    {TH_TAG_SOURCE, "src", 3},  {TH_TAG_TRACK, "src", 3},    {TH_TAG_VIDEO, "src", 3},   {TH_TAG_A, "href", 4},
-    {TH_TAG_AREA, "href", 4},   {TH_TAG_LINK, "href", 4},    {TH_TAG_OBJECT, "data", 4}, {TH_TAG_DATA, "value", 5},
-    {TH_TAG_METER, "value", 5}, {TH_TAG_META, "content", 7},
+static const microdata_attr_prop MICRODATA_ATTR_PROPS[] = {
+    {TH_TAG_AUDIO, "src", 3, 1},   {TH_TAG_EMBED, "src", 3, 1},    {TH_TAG_IFRAME, "src", 3, 1},
+    {TH_TAG_IMG, "src", 3, 1},     {TH_TAG_SOURCE, "src", 3, 1},   {TH_TAG_TRACK, "src", 3, 1},
+    {TH_TAG_VIDEO, "src", 3, 1},   {TH_TAG_A, "href", 4, 1},       {TH_TAG_AREA, "href", 4, 1},
+    {TH_TAG_LINK, "href", 4, 1},   {TH_TAG_OBJECT, "data", 4, 1},  {TH_TAG_DATA, "value", 5, 0},
+    {TH_TAG_METER, "value", 5, 0}, {TH_TAG_META, "content", 7, 0},
 };
 
 static PyObject *build_item(module_state *state, th_tree *tree, th_node *element);
+
+/* A URL-valued attribute's value with leading and trailing ASCII whitespace stripped (the URL parser trims it), or the
+   empty string when the attribute is absent or valueless. NULL only on the excluded allocation-failure path. */
+static PyObject *attr_url_or_empty(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
+    Py_ssize_t index = th_node_attr_find(tree, node, name, name_len);
+    if (index < 0 || node->attrs[index].value == NULL) {
+        return PyUnicode_FromString("");
+    }
+    const Py_UCS4 *value = node->attrs[index].value;
+    Py_ssize_t start = 0;
+    Py_ssize_t end = node->attrs[index].value_len;
+    while (start < end && is_space(value[start])) {
+        start++;
+    }
+    while (end > start && is_space(value[end - 1])) {
+        end--;
+    }
+    return ucs4_to_str(value + start, end - start);
+}
 
 /* A named attribute's value as a new str, or None when the attribute is absent or valueless. NULL only on the excluded
    allocation-failure path. */
@@ -119,10 +143,11 @@ static PyObject *microdata_value(module_state *state, th_tree *tree, th_node *el
         }
         return str_from_accessor(th_node_text, tree, element);
     }
-    for (size_t index = 0; index < sizeof(MICRODATA_URL_ATTRS) / sizeof(MICRODATA_URL_ATTRS[0]); index++) {
-        if (element->atom == MICRODATA_URL_ATTRS[index].atom) {
-            return attr_str_or_empty(tree, element, MICRODATA_URL_ATTRS[index].attr,
-                                     MICRODATA_URL_ATTRS[index].attr_len);
+    for (size_t index = 0; index < sizeof(MICRODATA_ATTR_PROPS) / sizeof(MICRODATA_ATTR_PROPS[0]); index++) {
+        const microdata_attr_prop *prop = &MICRODATA_ATTR_PROPS[index];
+        if (element->atom == prop->atom) {
+            return prop->url ? attr_url_or_empty(tree, element, prop->attr, prop->attr_len)
+                             : attr_str_or_empty(tree, element, prop->attr, prop->attr_len);
         }
     }
     return str_from_accessor(th_node_text, tree, element);
@@ -167,35 +192,212 @@ error:                 /* GCOVR_EXCL_LINE: shared cleanup for the unreachable al
     return -1;         /* GCOVR_EXCL_LINE */
 }
 
-/* Crawl the properties of the item rooted at `element` into `properties`, descending through child elements but
-   stopping at a nested itemscope (whose own descendants belong to that nested item). -1 on the excluded
-   allocation-failure path. */
-static int collect_properties(module_state *state, th_tree *tree, th_node *element, PyObject *properties) {
-    for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+/* A growable array of element pointers backing the property crawl's memory, pending, and results lists. A realloc
+   failure is the only failure and cannot be forced from a test. */
+typedef struct {
+    th_node **items;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} node_stack;
+
+/* Append `node`; -1 only on the excluded allocation-failure path. */
+static int node_stack_push(node_stack *stack, th_node *node) {
+    if (stack->len == stack->cap) {
+        Py_ssize_t cap = stack->cap < 8 ? 8 : stack->cap * 2;
+        th_node **items = PyMem_Realloc(stack->items, (size_t)cap * sizeof(th_node *));
+        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        stack->items = items;
+        stack->cap = cap;
+    }
+    stack->items[stack->len++] = node;
+    return 0;
+}
+
+static int node_stack_contains(const node_stack *stack, const th_node *node) {
+    for (Py_ssize_t index = 0; index < stack->len; index++) {
+        if (stack->items[index] == node) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The first element in `document` (pre-order) whose id attribute equals the UCS4 run [id, id + id_len), or NULL when
+   none matches. ids are compared case-sensitively, the way getElementById does. */
+static th_node *element_by_id(th_node *document, const Py_UCS4 *id, Py_ssize_t id_len) {
+    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+        if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        const th_node_attr *itemprop = find_node_attr(child, TH_ATTR_ITEMPROP);
-        /* an empty (itemprop="") or valueless (itemprop) attribute carries value == NULL, so a non-NULL value already
-           names at least one property; no separate length check is needed */
-        if (itemprop != NULL && itemprop->value != NULL) {
-            PyObject *value = microdata_value(state, tree, child);
-            if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            int failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
-            Py_DECREF(value);
-            if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
+        const th_node_attr *attr = find_node_attr(node, TH_ATTR_ID);
+        if (attr != NULL && attr->value != NULL && attr->value_len == id_len &&
+            memcmp(attr->value, id, (size_t)id_len * sizeof(Py_UCS4)) == 0) {
+            return node;
         }
-        if (find_node_attr(child, TH_ATTR_ITEMSCOPE) == NULL) {
-            if (collect_properties(state, tree, child, properties) < 0) { /* GCOVR_EXCL_BR_LINE: alloc-failure path */
-                return -1;                                                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return NULL;
+}
+
+/* Push every id in root's itemref attribute onto `pending`, resolving each token to the first element carrying it (an
+   unresolved token is skipped, per the spec). -1 only on the excluded allocation-failure path. */
+static int push_itemref_targets(th_tree *tree, th_node *root, node_stack *pending) {
+    Py_ssize_t itemref = th_node_attr_find(tree, root, "itemref", 7);
+    if (itemref < 0 || root->attrs[itemref].value == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *value = root->attrs[itemref].value;
+    Py_ssize_t value_len = root->attrs[itemref].value_len;
+    th_node *document = th_tree_document(tree);
+    Py_ssize_t cursor = 0;
+    while (cursor < value_len) {
+        while (cursor < value_len && is_space(value[cursor])) {
+            cursor++;
+        }
+        Py_ssize_t start = cursor;
+        while (cursor < value_len && !is_space(value[cursor])) {
+            cursor++;
+        }
+        if (cursor > start) {
+            th_node *target = element_by_id(document, &value[start], cursor - start);
+            if (target != NULL) {
+                if (node_stack_push(pending, target) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
             }
         }
     }
     return 0;
+}
+
+/* Add the element children of `parent` to `pending`. -1 only on the excluded allocation-failure path. */
+static int push_element_children(th_node *parent, node_stack *pending) {
+    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            if (node_stack_push(pending, child) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    return 0;
+}
+
+/* Gather the property elements of the item rooted at `root` into `results`, following the WHATWG "the properties of an
+   item" algorithm: crawl root's descendants plus every element its itemref names, stopping at a nested itemscope
+   (whose descendants belong to that nested item) and visiting each element at most once so an itemref cycle
+   terminates. -1 only on the excluded allocation-failure path. */
+static int crawl_item_properties(th_tree *tree, th_node *root, node_stack *results) {
+    node_stack memory = {NULL, 0, 0};
+    node_stack pending = {NULL, 0, 0};
+    int status = -1;
+    if (node_stack_push(&memory, root) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (push_element_children(root, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (push_itemref_targets(tree, root, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    while (pending.len > 0) {
+        th_node *current = pending.items[--pending.len];
+        if (node_stack_contains(&memory, current)) {
+            continue; /* already crawled: a microdata error the spec skips */
+        }
+        if (node_stack_push(&memory, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            goto done;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (find_node_attr(current, TH_ATTR_ITEMSCOPE) == NULL) {
+            if (push_element_children(current, &pending) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                goto done;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        const th_node_attr *itemprop = find_node_attr(current, TH_ATTR_ITEMPROP);
+        /* an empty (itemprop="") or valueless (itemprop) attribute carries value == NULL, so a non-NULL value already
+           names at least one property; no separate length check is needed */
+        if (itemprop != NULL && itemprop->value != NULL) {
+            if (node_stack_push(results, current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                goto done;                               /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    status = 0;
+done:
+    PyMem_Free(memory.items);
+    PyMem_Free(pending.items);
+    return status;
+}
+
+/* Depth of `node` below the document root, its number of ancestors. */
+static Py_ssize_t node_depth(th_node *node) {
+    Py_ssize_t depth = 0;
+    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+        depth++;
+    }
+    return depth;
+}
+
+/* Negative when `left` precedes `right` in document (pre-order) order, positive otherwise; never called with equal
+   nodes, so the ancestor-equal arm is the one-is-an-ancestor-of-the-other case. */
+static int node_before(th_node *left, th_node *right) {
+    Py_ssize_t left_depth = node_depth(left);
+    Py_ssize_t right_depth = node_depth(right);
+    th_node *walk_left = left;
+    th_node *walk_right = right;
+    for (Py_ssize_t index = left_depth; index > right_depth; index--) {
+        walk_left = walk_left->parent;
+    }
+    for (Py_ssize_t index = right_depth; index > left_depth; index--) {
+        walk_right = walk_right->parent;
+    }
+    if (walk_left == walk_right) {
+        return left_depth < right_depth ? -1 : 1;
+    }
+    while (walk_left->parent != walk_right->parent) {
+        walk_left = walk_left->parent;
+        walk_right = walk_right->parent;
+    }
+    for (th_node *sibling = walk_left->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+        if (sibling == walk_right) {
+            return -1;
+        }
+    }
+    return 1;
+}
+
+static int node_ptr_before(const void *left, const void *right) {
+    return node_before(*(th_node *const *)left, *(th_node *const *)right);
+}
+
+/* Crawl the properties of the item rooted at `element` into `properties`, in document (tree) order per the spec's
+   final sort, each itemprop name mapping to its list of values. -1 only on the excluded allocation-failure path. */
+static int collect_properties(module_state *state, th_tree *tree, th_node *element, PyObject *properties) {
+    node_stack results = {NULL, 0, 0};
+    int status = -1;
+    if (crawl_item_properties(tree, element, &results) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (results.len > 1) {
+        qsort(results.items, (size_t)results.len, sizeof(th_node *), node_ptr_before);
+    }
+    for (Py_ssize_t index = 0; index < results.len; index++) {
+        th_node *property = results.items[index];
+        const th_node_attr *itemprop = find_node_attr(property, TH_ATTR_ITEMPROP);
+        PyObject *value = microdata_value(state, tree, property);
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto done;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
+        Py_DECREF(value);
+        if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            goto done; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    status = 0;
+done:
+    PyMem_Free(results.items);
+    return status;
 }
 
 /* Steal `value` into slot `index` of `tuple`, returning -1 only on the excluded allocation-failure path (a NULL value

@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Document.json_ld` now skips a ``<script type="application/ld+json">`` block whose payload is a scalar
+or ``null`` rather than a node object or array, so every entry is a ``dict`` or ``list`` and iterating the result no
+longer yields ``None``.

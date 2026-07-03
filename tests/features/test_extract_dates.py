@@ -234,11 +234,8 @@ def test_json_ld_list_of_objects() -> None:
     assert dates(html) == PublicationDate("2016-05-01", "json-ld")
 
 
-def test_scalar_json_ld_block_is_walked_without_a_date() -> None:
-    html = (
-        '<script type="application/ld+json">"just a string"</script>'
-        '<script type="application/ld+json">{"datePublished":"2016-05-01"}</script>'
-    )
+def test_scalar_item_in_json_ld_list_is_walked_without_a_date() -> None:
+    html = '<script type="application/ld+json">["just a string", {"datePublished":"2016-05-01"}]</script>'
     assert dates(html) == PublicationDate("2016-05-01", "json-ld")
 
 

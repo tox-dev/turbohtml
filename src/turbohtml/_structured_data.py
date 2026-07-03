@@ -93,14 +93,20 @@ def _as_dict(item: MicrodataItem) -> dict[str, JSONValue]:
 
 
 def _parse_json_ld(texts: list[str]) -> list[JSONValue]:
-    """Decode each JSON-LD block, skipping any that is not valid JSON."""
+    """
+    Decode each JSON-LD block, skipping any that is not valid JSON or whose payload is not a node object.
+
+    A block whose JSON is a scalar or ``null`` (e.g. ``<script type="application/ld+json">null</script>``) is not a
+    JSON-LD node object and carries no data, so only ``dict`` and ``list`` payloads are kept.
+    """
     parsed: list[JSONValue] = []
     for text in texts:
         try:
             value: JSONValue = json.loads(text)
         except ValueError:
             continue
-        parsed.append(value)
+        if isinstance(value, (dict, list)):
+            parsed.append(value)
     return parsed
 
 
