@@ -31,10 +31,12 @@ static inline int is_ascii_alpha(Py_UCS4 ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 }
 
-/* The HTML "ASCII whitespace" set. The tokenizer normalizes CR to LF during
-   input preprocessing, so neither it nor the tree builder ever sees a CR. */
+/* The HTML "ASCII whitespace" set. Input preprocessing folds a literal CR to LF,
+   so the tokenizer's raw scan never sees U+000D; a CR decoded from a character
+   reference (&#13;) bypasses preprocessing and reaches tree construction, where
+   U+000D is whitespace in every insertion mode. */
 static inline int is_space(Py_UCS4 ch) {
-    return ch == '\t' || ch == '\n' || ch == '\x0c' || ch == ' ';
+    return ch == '\t' || ch == '\n' || ch == '\x0c' || ch == '\r' || ch == ' ';
 }
 
 #endif /* TURBOHTML_ASCII_H */

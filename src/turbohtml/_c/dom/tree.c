@@ -1720,6 +1720,13 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         }
         table_origin = M_IN_TABLE;
         tree->text_offset = 0; /* a fresh token: any consumed-prefix offset is stale */
+        /* the pre/listing/textarea leading-LF skip applies only to the token
+           immediately following the start tag: a text token consumes it in its
+           own branch, so any other intervening token (a comment or element) must
+           clear the flag here or a later newline would be dropped too */
+        if (tree->drop_newline && tok->kind != TH_TEXT) {
+            tree->drop_newline = 0;
+        }
     reprocess:;
         /* Intern the tag name once; every comparison and insert below reads
            tok->atom / tok->tag_flags instead of re-interning the same name. */

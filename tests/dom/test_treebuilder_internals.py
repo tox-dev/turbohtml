@@ -412,6 +412,42 @@ def test_document_paths(html: str, needle: str) -> None:
     assert needle in _doc(html)
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        # the LF is dropped only when it is the token immediately following the start tag
+        pytest.param("<pre>\nX</pre>", "<pre>X</pre>", id="pre-immediate-lf-dropped"),
+        # an interposed comment or element means the LF is not immediately following, so it is kept
+        pytest.param("<pre><!--c-->\nX</pre>", "<pre><!--c-->\nX</pre>", id="pre-comment-before-lf-kept"),
+        pytest.param("<pre><span></span>\nX</pre>", "<pre><span></span>\nX</pre>", id="pre-element-before-lf-kept"),
+        pytest.param("<listing><!--c-->\nX</listing>", "<listing><!--c-->\nX</listing>", id="listing-comment-lf-kept"),
+        # RCDATA leaves no room for an intervening token, so a leading textarea LF is still dropped
+        pytest.param("<textarea>\nX</textarea>", "<textarea>X</textarea>", id="textarea-immediate-lf-dropped"),
+    ],
+)
+def test_leading_newline_skip_only_immediately_after_start_tag(html: str, expected: str) -> None:
+    # WHATWG "in body" ignores a leading U+000A only for the token directly following a
+    # pre/listing/textarea start tag; a comment or element between them keeps the newline (issue #402)
+    assert parse(html).serialize() == f"<html><head></head><body>{expected}</body></html>"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        # a CR from a character reference is decoded after preprocessing, so it reaches tree
+        # construction as a real U+000D that the early modes must treat as ignorable whitespace
+        pytest.param("&#13;a", "<body>a</body>", id="decimal-cr-leading-ignored"),
+        pytest.param("&#xD;a", "<body>a</body>", id="hex-cr-leading-ignored"),
+        # a leading CR must not flip frameset-ok, so the frameset still replaces the empty body
+        pytest.param("&#13;<frameset></frameset>", "<frameset></frameset>", id="cr-keeps-frameset-ok"),
+    ],
+)
+def test_cr_character_reference_is_tree_whitespace(html: str, expected: str) -> None:
+    # U+000D is whitespace in every insertion mode, so a leading &#13; is ignored and does not
+    # set frameset-ok to "not ok"; only a literal CR is folded to LF by preprocessing (issue #439)
+    assert parse(html).serialize() == f"<html><head></head>{expected}</html>"
+
+
 @pytest.mark.parametrize("tag", ["caption", "table", "tbody", "tfoot", "thead", "tr", "td", "th"])
 def test_table_family_start_tag_pops_select_in_table(tag: str) -> None:
     # "in select in table": a table-family start tag pops the open select and reprocesses,
