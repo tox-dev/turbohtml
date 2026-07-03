@@ -4,8 +4,8 @@
 
 .. package-meta:: microdata edsu/microdata
 
-`microdata <https://github.com/edsu/microdata>`_ pulls the HTML Microdata items a page embeds: ``get_items(html)`` builds
-an html5lib tree, walks its ``itemscope`` elements, and returns ``Item`` objects you read with ``.itemtype``,
+`microdata <https://github.com/edsu/microdata>`_ pulls the HTML Microdata items a page embeds: ``get_items(html)``
+builds an html5lib tree, walks its ``itemscope`` elements, and returns ``Item`` objects you read with ``.itemtype``,
 ``.get``/``.get_all``, and ``.json``. turbohtml serves that surface from :func:`turbohtml.extract.microdata` over the
 same C walk :meth:`turbohtml.Document.microdata` runs.
 
@@ -41,8 +41,8 @@ the same accessors -- :meth:`~turbohtml.MicrodataItem.get`, :meth:`~turbohtml.Mi
 
 ``microdata`` starts from the raw HTML string, so it parses before it extracts: it builds an html5lib tree and walks the
 ``itemscope`` elements in Python, where :func:`~turbohtml.extract.microdata` parses to the WHATWG tree and gathers the
-items in one C walk. On a product page carrying Microdata alongside JSON-LD and OpenGraph, and on an 8 KiB catalog of the
-same, the walk runs 35 to 42 times faster:
+items in one C walk. On a product page carrying Microdata alongside JSON-LD and OpenGraph, and on an 8 KiB catalog of
+the same, the walk runs 35 to 42 times faster:
 
 .. bench-table::
     :file: bench/microdata.json
@@ -97,10 +97,10 @@ The items are frozen records that hold no reference back into the tree, so you c
  Pitfalls
 **********
 
-- ``item.itemtype`` is a list of ``URI`` objects (``item.itemtype[0].string``); :attr:`~turbohtml.MicrodataItem.type`
-  is the raw ``itemtype`` string, which the `WHATWG spec <https://html.spec.whatwg.org/multipage/microdata.html>`_
-  treats as a space-separated token set. Call ``.type.split()`` for the list, the form
-  :meth:`~turbohtml.MicrodataItem.json` emits.
+- ``item.itemtype`` is a list of ``URI`` objects (``item.itemtype[0].string``); :attr:`~turbohtml.MicrodataItem.type` is
+  the raw ``itemtype`` string, which the `WHATWG spec <https://html.spec.whatwg.org/multipage/microdata.html>`_ treats
+  as a space-separated token set. Call ``.type.split()`` for the list, the form :meth:`~turbohtml.MicrodataItem.json`
+  emits.
 - A text property's value is the element's ``textContent`` per the spec, so a ``<script>`` or ``<style>`` nested inside
   a property element contributes its text; ``microdata`` drops that text. This is the one page in ``microdata``'s
   fixtures where the ``json()`` output differs.
