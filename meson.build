@@ -70,6 +70,7 @@ py.install_sources(
         'src/turbohtml/__init__.py',
         'src/turbohtml/_article.py',
         'src/turbohtml/_cssmin.py',
+        'src/turbohtml/_dates.py',
         'src/turbohtml/_html.pyi',
         'src/turbohtml/_jsminify.py',
         'src/turbohtml/_linkify.py',

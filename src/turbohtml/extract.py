@@ -20,6 +20,10 @@ by a frozen :class:`UrlCleaning`, replace ``courlan`` and the ``w3lib.url`` cano
 ``.json`` accessors mirror that library's ``Item``. :func:`opengraph` gives the ``opengraph`` library's
 ``OpenGraph(html=...)`` shape over :meth:`turbohtml.Document.opengraph`: an :class:`OpenGraph` mapping of the
 ``og:``-stripped keys with an :meth:`~OpenGraph.is_valid` check.
+
+:func:`dates` recovers a page's publication or modification date from its ``<meta>`` tags, JSON-LD, ``<time>``
+elements, and URL, the standalone entry point ``htmldate`` exposes; a frozen :class:`DateExtraction` carries its
+knobs and it returns a :class:`PublicationDate` naming the signal the date came from.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from ._article import Article
+from ._dates import DateExtraction, PublicationDate, dates
 from ._html import Element, parse
 from ._links import Link
 from ._structured_data import MicrodataItem, StructuredData
@@ -39,15 +44,18 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Article",
+    "DateExtraction",
     "Extraction",
     "Link",
     "MicrodataItem",
     "OpenGraph",
     "Paragraph",
+    "PublicationDate",
     "StructuredData",
     "UrlCleaning",
     "boilerplate",
     "clean_url",
+    "dates",
     "extract_links",
     "microdata",
     "normalize_url",
