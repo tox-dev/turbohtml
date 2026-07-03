@@ -217,6 +217,8 @@ def test_keep_comment_when_off() -> None:
         pytest.param("<ruby>a<rt>b</rt><rt>c</rt></ruby>", "<ruby>a<rt>b<rt>c</ruby>", id="rt-before-rt"),
         pytest.param("<ruby>a<rt>b</rt><rp>c</rp></ruby>", "<ruby>a<rt>b<rp>c</ruby>", id="rt-before-rp"),
         pytest.param("<ruby>a<rt>b</rt></ruby>", "<ruby>a<rt>b</ruby>", id="rt-last"),
+        pytest.param("<rt>a</rt><rt>b</rt>", "<rt>a</rt><rt>b", id="rt-before-rt-outside-ruby-kept"),
+        pytest.param("<rt>a</rt><rp>b</rp>", "<rt>a</rt><rp>b", id="rt-before-rp-outside-ruby-kept"),
         pytest.param(
             "<select><optgroup><option>a</option></optgroup><optgroup><option>b</option></optgroup></select>",
             "<select><optgroup><option>a<optgroup><option>b</select>",
@@ -226,6 +228,11 @@ def test_keep_comment_when_off() -> None:
             "<select><optgroup><option>a</option></optgroup></select>",
             "<select><optgroup><option>a</select>",
             id="optgroup-last",
+        ),
+        pytest.param(
+            "<optgroup>a</optgroup><optgroup>b</optgroup>",
+            "<optgroup>a</optgroup><optgroup>b",
+            id="optgroup-before-optgroup-outside-select-kept",
         ),
         pytest.param(
             "<select><option>a</option><option>b</option></select>",
@@ -276,6 +283,36 @@ def test_keep_comment_when_off() -> None:
 )
 def test_omit_end_tags(source: str, expected: str) -> None:
     assert frag(source, strip_comments=False) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<rt></rt><rp>x</rp>", "<rt></rt><rp>x", id="rt-before-rp-in-body"),
+        pytest.param(
+            "<optgroup></optgroup><optgroup>x</optgroup>", "<optgroup></optgroup><optgroup>x", id="optgroup-in-body"
+        ),
+        pytest.param(
+            "<ruby><svg><foreignObject><rt></rt><rp>x</rp></foreignObject></svg></ruby>",
+            "<ruby><svg><foreignObject><rt></rt><rp>x</foreignObject></svg></ruby>",
+            id="rt-across-integration-point",
+        ),
+        pytest.param(
+            "<template><rt></rt><rt>b</rt></template>",
+            "<template><rt></rt><rt>b</template>",
+            id="rt-in-template-content",
+        ),
+    ],
+)
+def test_omit_keeps_end_tag_outside_required_ancestor(source: str, expected: str) -> None:
+    # rt/rp imply-close only inside a ruby, optgroup only inside a select; outside that
+    # scope -- directly in <body>, split from the ruby by an SVG integration point, or as
+    # a direct child of a template's content fragment -- the following start tag reparents
+    # into the element, so the end tag must survive.
+    once = parse(source).serialize(Html(layout=Minify()))
+    assert once == expected
+    assert parse(once).html == parse(source).html
+    assert parse(once).serialize(Html(layout=Minify())) == once
 
 
 def test_omit_keeps_p_end_inside_formatting() -> None:

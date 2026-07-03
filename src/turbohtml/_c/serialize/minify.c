@@ -252,6 +252,25 @@ static int mini_starts_with_ws(th_tree *tree, th_node *node) {
     return node->type == TH_NODE_TEXT && node->text_len > 0 && mini_is_ascii_ws(need_text(tree, node)[0]);
 }
 
+/* Whether node lies within an html <atom> ancestor the parser would have "in scope",
+   walking the parent chain the way has_in_scope walks the open stack: an html scoping
+   element or any foreign ancestor bounds the search. rt/rp only imply-close a preceding
+   sibling inside a ruby, optgroup only inside a select; outside that scope a following
+   rt/rp/optgroup start tag reparents into the element instead, so its end tag must stay.
+   node itself is never a boundary (it is one of rt/rp/optgroup), so the walk starts at
+   its parent, which the caller's node != root guard keeps non-NULL. */
+static int mini_in_scope(const th_node *node, uint16_t atom) {
+    for (const th_node *up = node->parent; up->type == TH_NODE_ELEMENT; up = up->parent) {
+        if (up->ns == TH_NS_HTML && up->atom == atom) {
+            return 1;
+        }
+        if (up->ns != TH_NS_HTML || (up->tag_flags & TH_TAG_SCOPING)) {
+            return 0;
+        }
+    }
+    return 0;
+}
+
 /* The WHATWG optional-tag rule for node's end tag, evaluated against next (the next
    content sibling, stripped comments already skipped). This is the cheap test; the
    formatting-reconstruction guard is applied separately so its rightmost-path walk
@@ -272,9 +291,9 @@ static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next) {
         return na == TH_TAG_DD || na == TH_TAG_DT || last;
     case TH_TAG_RT:
     case TH_TAG_RP:
-        return na == TH_TAG_RT || na == TH_TAG_RP || last;
+        return ((na == TH_TAG_RT || na == TH_TAG_RP) && mini_in_scope(node, TH_TAG_RUBY)) || last;
     case TH_TAG_OPTGROUP:
-        return na == TH_TAG_OPTGROUP || last;
+        return (na == TH_TAG_OPTGROUP && mini_in_scope(node, TH_TAG_SELECT)) || last;
     case TH_TAG_OPTION:
         return na == TH_TAG_OPTION || na == TH_TAG_OPTGROUP || last;
     case TH_TAG_THEAD:

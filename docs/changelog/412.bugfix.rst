@@ -1,0 +1,5 @@
+:func:`turbohtml.clean.minify` and the :class:`~turbohtml.Minify` serializer layout now keep the ``</rt>``, ``</rp>``,
+and ``</optgroup>`` end tags when the element is not inside the ancestor whose scope the parser needs to imply their
+close (``<ruby>`` for ``rt``/``rp``, ``<select>`` for ``optgroup``). Outside that scope a following ``rt``/``rp``/
+``optgroup`` start tag reparents into the element instead of closing it, so omitting the end tag reparsed to a different
+tree and broke the round-trip invariant.
