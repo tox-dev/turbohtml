@@ -28,6 +28,10 @@ SHORT_PROSE = "The tail points away from the Sun."
 # A very long paragraph (>300 chars) so the length bonus saturates at the cap.
 LONG_PROSE = PROSE + " " + PROSE + " " + PROSE
 
+# A div/list-structured body that holds no <p>/<td>/<pre> to score: the visible text
+# lives in <li>, the shape the semantic-container fallback has to rescue.
+LIST_ITEM = "<li><strong>Elf Modelle sind empfehlenswert in punkto Sicherheit.</strong></li>"
+
 # The minimal content body the article() metadata cases hang their head/body fixtures off.
 BODY = f"<article class=post><p>{PROSE}</p></article>"
 
@@ -35,6 +39,10 @@ BODY = f"<article class=post><p>{PROSE}</p></article>"
 def main_tag(html: str) -> str | None:
     found = parse(html).main_content()
     return None if found is None else found.tag
+
+
+def list_body(items: int) -> str:
+    return f"<div class=text><ul>{LIST_ITEM * items}</ul></div>"
 
 
 @pytest.mark.parametrize(
@@ -230,6 +238,55 @@ def test_methods_exist_on_document_and_element() -> None:
     body = doc.find("body")
     assert isinstance(body, Element)
     assert body.main_content() is not None
+
+
+def test_div_list_body_without_paragraphs_falls_back_to_article() -> None:
+    # #385: an <article> whose text lives in div/ul/li with no scoring <p> must not
+    # extract to empty; the semantic-container fallback surfaces the <article>.
+    html = f"<html lang=de><body><main><article><h1>Test</h1>{list_body(12)}</article></main></body></html>"
+    found = parse(html).main_content()
+    assert isinstance(found, Element)
+    assert found.tag == "article"
+    assert "empfehlenswert" in found.text
+
+
+def test_semantic_fallback_ignores_a_thin_container() -> None:
+    # A container below the visible-text floor is not a body; extraction stays empty.
+    assert parse("<article><ul><li>tiny</li></ul></article>").main_content() is None
+
+
+def test_semantic_fallback_uses_main_when_no_article() -> None:
+    found = parse(f"<body><main>{list_body(12)}</main></body>").main_content()
+    assert isinstance(found, Element)
+    assert found.tag == "main"
+
+
+def test_semantic_fallback_prefers_the_richest_article() -> None:
+    # Two paragraph-less articles both clear the floor; the one with more text wins,
+    # and <article> is preferred over the enclosing structure.
+    html = f"<body><article>{list_body(12)}</article><article>{list_body(5)}</article></body>"
+    found = parse(html).main_content()
+    assert isinstance(found, Element)
+    assert len(found.find_all("li")) == 12
+
+
+def test_body_class_with_unlikely_substring_is_not_stripped() -> None:
+    # #399: a body-level state class carrying an unlikely substring (has-localnav)
+    # must not zero the whole page; the multi-paragraph body still extracts.
+    body = f'<div class="content__article-body">{f"<p>{PROSE}</p>" * 4}</div>'
+    found = parse(f'<html><body class="has-localnav">{body}</body></html>').main_content()
+    assert isinstance(found, Element)
+    assert found.tag == "div"
+    assert found.attrs["class"] == ["content__article-body"]
+
+
+def test_landmark_only_body_is_rescued_on_retry() -> None:
+    # #411: a body living solely inside a <footer> must not be discarded; the retry
+    # keeps landmarks so the footer's paragraphs score.
+    found = parse(f"<body><footer class=content>{f'<p>{PROSE}</p>' * 4}</footer></body>").main_content()
+    assert isinstance(found, Element)
+    assert found.tag == "footer"
+    assert "A comet is an icy" in found.text
 
 
 # === article(): the content body plus harvested metadata ===================

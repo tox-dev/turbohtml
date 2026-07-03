@@ -22,14 +22,23 @@
 #define READ_CHAR_SCORE_CAP 3
 /* Candidate array growth: small initial block, doubled when full. */
 #define READ_INITIAL_CANDIDATES 8
+/* The visible-text floor for the semantic-container fallback: an <article>/<main>
+   with at least this many code points reads as a real body, not a caption or lede.
+   Well above a headline yet below any genuine article, so the fallback surfaces a
+   div/list-structured body without resurrecting empty landmarks. */
+#define READ_FALLBACK_MIN_CHARS 200
 
-/* Boilerplate tags whose subtree never holds main content; their text is excluded
-   from the density counts too. <form> is deliberately absent: it stays in the walk
-   so its negative tag weight applies when it parents a paragraph. */
-static const uint16_t read_skip_tags[] = {
-    TH_TAG_SCRIPT, TH_TAG_STYLE,  TH_TAG_NOSCRIPT, TH_TAG_NAV,  TH_TAG_ASIDE,  TH_TAG_FOOTER,   TH_TAG_HEADER,
-    TH_TAG_BUTTON, TH_TAG_SELECT, TH_TAG_TEXTAREA, TH_TAG_MENU, TH_TAG_DIALOG, TH_TAG_TEMPLATE,
+/* Boilerplate tags whose subtree never holds main content and whose text is excluded
+   from the density counts too, in two groups. The hard group is markup that is never
+   prose (scripts, form controls). The landmark group is page furniture stripped on
+   the first pass but kept on the retry, since a landmark is sometimes the only place
+   the body lives. <form> is deliberately in neither: it stays in the walk so its
+   negative tag weight applies when it parents a paragraph. */
+static const uint16_t read_hard_skip_tags[] = {
+    TH_TAG_SCRIPT,   TH_TAG_STYLE, TH_TAG_NOSCRIPT, TH_TAG_BUTTON,   TH_TAG_SELECT,
+    TH_TAG_TEXTAREA, TH_TAG_MENU,  TH_TAG_DIALOG,   TH_TAG_TEMPLATE,
 };
+static const uint16_t read_landmark_tags[] = {TH_TAG_NAV, TH_TAG_ASIDE, TH_TAG_FOOTER, TH_TAG_HEADER};
 
 /* The text containers that earn a content score from their own text. */
 static const uint16_t read_paragraph_tags[] = {TH_TAG_P, TH_TAG_TD, TH_TAG_PRE};
@@ -72,6 +81,9 @@ typedef struct {
     read_candidate *candidates;
     Py_ssize_t count;
     Py_ssize_t cap;
+    /* Whether the landmark tags are pruned this pass; cleared for the retry that
+       rescues a body living inside a <footer>/<header>/<aside>/<nav>. */
+    int strip_landmarks;
 } read_scorer;
 
 /* The text statistics gathered over a subtree: total code points, comma count
@@ -172,15 +184,29 @@ static double read_tag_base(uint16_t atom) {
     return 0;
 }
 
+/* Whether a tag names a boilerplate subtree to prune: always the hard-skip tags,
+   and the landmark tags only while `strip_landmarks` is set. */
+static int read_is_skip_tag(uint16_t atom, int strip_landmarks) {
+    if (read_atom_in(atom, read_hard_skip_tags, sizeof(read_hard_skip_tags) / sizeof(uint16_t))) {
+        return 1;
+    }
+    return strip_landmarks && read_atom_in(atom, read_landmark_tags, sizeof(read_landmark_tags) / sizeof(uint16_t));
+}
+
 /* Whether an element starts a boilerplate subtree the walk should not enter: a
    foreign-namespace root, a boilerplate tag, or an unlikely class/id not rescued
-   by a "maybe" hint. */
-static int read_should_skip(th_tree *tree, th_node *node) {
+   by a "maybe" hint. The document roots <html>/<body> are never pruned: their
+   class is a site-wide state flag (has-localnav, nav-open), not a content verdict,
+   so an unlikely substring there must not zero the whole page. */
+static int read_should_skip(th_tree *tree, th_node *node, int strip_landmarks) {
     if (node->ns != TH_NS_HTML) {
         return 1;
     }
-    if (read_atom_in(node->atom, read_skip_tags, sizeof(read_skip_tags) / sizeof(uint16_t))) {
+    if (read_is_skip_tag(node->atom, strip_landmarks)) {
         return 1;
+    }
+    if (node->atom == TH_TAG_HTML || node->atom == TH_TAG_BODY) {
+        return 0;
     }
     if (read_match_keywords(tree, node, read_unlikely_words, sizeof(read_unlikely_words) / sizeof(char *)) &&
         !read_match_keywords(tree, node, read_maybe_words, sizeof(read_maybe_words) / sizeof(char *))) {
@@ -190,8 +216,9 @@ static int read_should_skip(th_tree *tree, th_node *node) {
 }
 
 /* Accumulate the text statistics over node's subtree, excluding boilerplate
-   subtrees; text inside an <a> also counts toward link_chars. */
-static void read_text_stats(th_tree *tree, th_node *node, int in_anchor, read_stats *stats) {
+   subtrees; text inside an <a> also counts toward link_chars. `strip_landmarks`
+   mirrors the walk so a retry that keeps landmarks also counts their text. */
+static void read_text_stats(th_tree *tree, th_node *node, int in_anchor, int strip_landmarks, read_stats *stats) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             stats->chars += child->text_len;
@@ -207,20 +234,19 @@ static void read_text_stats(th_tree *tree, th_node *node, int in_anchor, read_st
                 }
             }
         } else if (child->type == TH_NODE_ELEMENT) {
-            if (child->ns != TH_NS_HTML ||
-                read_atom_in(child->atom, read_skip_tags, sizeof(read_skip_tags) / sizeof(uint16_t))) {
+            if (child->ns != TH_NS_HTML || read_is_skip_tag(child->atom, strip_landmarks)) {
                 continue;
             }
-            read_text_stats(tree, child, in_anchor || child->atom == TH_TAG_A, stats);
+            read_text_stats(tree, child, in_anchor || child->atom == TH_TAG_A, strip_landmarks, stats);
         }
     }
 }
 
 /* The fraction of a candidate's text that lives inside links; prose scores high
    when little of it is link text. */
-static double read_link_density(th_tree *tree, th_node *node) {
+static double read_link_density(th_tree *tree, th_node *node, int strip_landmarks) {
     read_stats stats = {0, 0, 0};
-    read_text_stats(tree, node, 0, &stats);
+    read_text_stats(tree, node, 0, strip_landmarks, &stats);
     if (stats.chars == 0) { /* GCOVR_EXCL_BR_LINE: a scored candidate always holds a >=25-char paragraph */
         return 0;           /* GCOVR_EXCL_LINE: the guard only prevents a division by zero that cannot occur */
     }
@@ -254,7 +280,7 @@ static void read_add(read_scorer *scorer, th_node *node, double delta) {
    grandparent (half), the candidates that compete to be the content root. */
 static void read_score_paragraph(read_scorer *scorer, th_node *paragraph, th_node *parent, th_node *grandparent) {
     read_stats stats = {0, 0, 0};
-    read_text_stats(scorer->tree, paragraph, 0, &stats);
+    read_text_stats(scorer->tree, paragraph, 0, scorer->strip_landmarks, &stats);
     if (stats.chars < READ_MIN_PARAGRAPH_CHARS) {
         return;
     }
@@ -274,7 +300,7 @@ static void read_score_paragraph(read_scorer *scorer, th_node *paragraph, th_nod
 static void read_walk(read_scorer *scorer, th_node *node, th_node *grandparent) {
     int node_is_element = node->type == TH_NODE_ELEMENT;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, child)) {
+        if (child->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, child, scorer->strip_landmarks)) {
             continue;
         }
         if (node_is_element &&
@@ -291,7 +317,7 @@ static th_node *read_best(read_scorer *scorer) {
     th_node *best = NULL;
     double best_score = 0;
     for (Py_ssize_t index = 0; index < scorer->count; index++) {
-        double density = read_link_density(scorer->tree, scorer->candidates[index].node);
+        double density = read_link_density(scorer->tree, scorer->candidates[index].node, scorer->strip_landmarks);
         double score = scorer->candidates[index].score * (1.0 - density);
         if (score > best_score) {
             best_score = score;
@@ -301,13 +327,69 @@ static th_node *read_best(read_scorer *scorer) {
     return best;
 }
 
+/* The <article>/<main> element under root that holds the most visible text, tracked
+   into `pick`. Reuses read_text_stats and discounts by link density so a link farm
+   dressed as an <article> stays out. Landmark subtrees stay pruned even here, so the
+   fallback never surfaces a <footer>/<nav> body. */
+typedef struct {
+    th_node *node;
+    double effective;
+} read_pick;
+
+static void read_scan_containers(read_scorer *scorer, th_node *node, uint16_t wanted, read_pick *pick) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, child, 1)) {
+            continue;
+        }
+        if (child->atom == wanted) {
+            read_stats stats = {0, 0, 0};
+            read_text_stats(scorer->tree, child, 0, 1, &stats);
+            if (stats.chars >= READ_FALLBACK_MIN_CHARS) {
+                double effective = (double)stats.chars - (double)stats.link_chars;
+                if (effective > pick->effective) {
+                    pick->effective = effective;
+                    pick->node = child;
+                }
+            }
+        }
+        read_scan_containers(scorer, child, wanted, pick);
+    }
+}
+
+/* The explicit content landmark to fall back on when nothing scored: the richest
+   <article>, else the richest <main>. HTML semantics make these the body by
+   definition, so a div/list-structured article with no scoring <p> still resolves
+   instead of extracting to empty. <article> wins ties with <main> as the more
+   specific content unit. */
+static th_node *read_semantic_fallback(read_scorer *scorer, th_node *root) {
+    read_pick pick = {NULL, 0};
+    read_scan_containers(scorer, root, TH_TAG_ARTICLE, &pick);
+    if (pick.node != NULL) {
+        return pick.node;
+    }
+    read_scan_containers(scorer, root, TH_TAG_MAIN, &pick);
+    return pick.node;
+}
+
 /* The dominant content element under root by the readability content-density
    heuristic, or NULL when no element scores as content. Pure C; the caller holds
-   the per-tree critical section and wraps (or renders) the result afterwards. */
+   the per-tree critical section and wraps (or renders) the result afterwards.
+   Three passes, each a fallback for a total-loss case: score paragraphs with
+   landmarks pruned; retry with landmarks kept when that found nothing; and finally
+   surface an explicit <article>/<main> body that carries no scoring paragraph. */
 th_node *th_node_main_content(th_tree *tree, th_node *root) {
-    read_scorer scorer = {tree, NULL, 0, 0};
+    read_scorer scorer = {tree, NULL, 0, 0, 1};
     read_walk(&scorer, root, NULL);
     th_node *best = read_best(&scorer);
+    if (best == NULL) {
+        scorer.count = 0;
+        scorer.strip_landmarks = 0;
+        read_walk(&scorer, root, NULL);
+        best = read_best(&scorer);
+    }
+    if (best == NULL) {
+        best = read_semantic_fallback(&scorer, root);
+    }
     PyMem_Free(scorer.candidates);
     return best;
 }

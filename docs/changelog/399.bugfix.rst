@@ -1,0 +1,4 @@
+A ``<body>`` or ``<html>`` class carrying an unlikely-candidate substring -- ``has-localnav``, ``nav-open``,
+``comments-open`` -- no longer discards the whole page in :meth:`~turbohtml.Node.main_content` and
+:meth:`~turbohtml.Node.article`. The unlikely-candidate pruning treated a site-wide state class on the document root as
+a content verdict; it now never prunes ``<html>``/``<body>``, so a clear multi-paragraph body still extracts.
