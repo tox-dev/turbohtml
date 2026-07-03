@@ -33,7 +33,18 @@ submodule update --init --depth 1 tools/bench-data/whatwg-html tools/bench-data/
 (line and branch). Other environments: ``type`` (`ty <https://github.com/astral-sh/ty>`_), ``docs`` (Sphinx), ``fix``
 (`pre-commit <https://pre-commit.com>`_), ``pkg_meta`` (wheel/sdist metadata), ``bench`` (`pyperf
 <https://pyperf.readthedocs.io>`_ comparison against each competitor library, each in its own isolated ``uv`` venv; see
-the :doc:`performance` page), and ``regen`` (regenerate the entity tables).
+the :doc:`performance` page), ``codspeed`` (the pytest-codspeed hot-path benchmarks behind the CI regression gate,
+below), and ``regen`` (regenerate the entity tables).
+
+Every pull request runs the ``codspeed`` benchmarks under `CodSpeed <https://codspeed.io>`_ in the ``👷 benchmark``
+workflow. It counts the CPU instructions of one benchmark per operation under Valgrind and comments the per-benchmark
+delta against the base branch, so a regression shows up before merge instead of in a later profiling session. The
+benchmarks in ``tests/benchmarks/`` are generated from the same ``bench.core.OPERATIONS`` registry the ``pyperf`` suite
+times, over the same real corpora (``tools/bench/ci.py`` pairs each operation with a lazy loader for one of them -- the
+vendored html5lib-python and War-and-Peace documents, the pinned upstream stylesheet and JS library, or the bench's own
+inline case), so every operation the project tracks gets a gate and adding an operation adds a benchmark. The benchmarks
+run only under ``--codspeed``: the ``codspeed`` environment passes it, and locally they are opt-in (``tox r -e
+codspeed`` or ``pytest tests/benchmarks --codspeed``), so the ordinary test run skips them and stays fast.
 
 *******************************
  Before opening a pull request

@@ -210,6 +210,17 @@ package = "skip"
 set_env = { PYTHONPATH = "{tox_root}{/}tools" }
 commands = [ [ "python", "-m", "bench", { replace = "posargs", extend = true } ] ]
 
+[env.codspeed]
+description = "run the pytest-codspeed hot-path benchmarks (the CodSpeed CI regression gate)"
+base_python = [ "3.14" ]
+package = "editable"  # an optimized build, not the coverage-instrumented one env_run_base installs
+deps = []  # drop the gcovr the coverage gate pulls in; the benchmarks never measure coverage
+dependency_groups = [ "test" ]  # carries pytest-codspeed and the benchmark fixture
+commands_pre = []  # no instrumented reinstall; the editable package above is the build we benchmark
+commands = [
+  [ "pytest", "{tox_root}{/}tests{/}benchmarks", "--codspeed", { replace = "posargs", extend = true } ],
+]
+
 [env.dev]
 description = "dev environment with all dependencies at {envdir}"
 package = "editable"

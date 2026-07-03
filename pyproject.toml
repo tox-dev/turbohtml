@@ -66,6 +66,7 @@ test = [
   "meson-python>=0.20",
   "ninja>=1.13",
   "pytest>=9.1.1",
+  "pytest-codspeed>=5.0.3",     # the benchmark fixture powers the CodSpeed CI gate; a no-op timer without --codspeed
   "pytest-cov>=7.1",
   "pytest-mock>=3.15.1",
   "pytest-run-parallel>=0.9.1", # runs each test in many threads to surface free-threaded data races
@@ -244,6 +245,7 @@ max_supported_python = "3.15"
 
 [tool.ty]
 src.exclude = [ "tests/html5lib-tests", "tools/html5lib-python" ]  # vendored suites, not our code
+environment.extra-paths = [ "tools" ]  # the CodSpeed benchmarks import the bench registry from tools/bench
 environment.python-version = "3.15"
 
 [tool.pytest]
@@ -264,6 +266,7 @@ ini_options.filterwarnings = [
 # module importorskips itself where its oracle is absent; measuring them would make the gate
 # environment-dependent. They still run and validate wherever the oracle installs (the dev env).
 run.omit = [
+  "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
   "tests/match/test_soupsieve_differential.py",
   "tests/query/css/test_css_to_xpath_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
