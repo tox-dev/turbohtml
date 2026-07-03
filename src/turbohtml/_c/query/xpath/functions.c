@@ -11,6 +11,13 @@
 
 /* -------------------------------------------------------- function library */
 
+/* XPath 1.0 round(): the integer closest to the argument, ties resolved toward
+   positive infinity (§4.4, so round(-2.5) is -2, not the -3 that C round() gives
+   by rounding half away from zero). NaN and the infinities pass through floor. */
+static double xp_round(double value) {
+    return floor(value + 0.5);
+}
+
 /* number() with no argument: the context node's string-value parsed as first number. */
 static double context_node_number(xp_ctx *ctx) {
     xp_item item = {ctx->node, -1};
@@ -141,8 +148,8 @@ static int substring(struct th_tree *tree, xp_result *args, int argc, xp_result 
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;      /* GCOVR_EXCL_LINE */
     }
-    double start = round(to_number(tree, &args[1]));
-    double last = argc >= 3 ? start + round(to_number(tree, &args[2])) : (double)slen + 1;
+    double start = xp_round(to_number(tree, &args[1]));
+    double last = argc >= 3 ? start + xp_round(to_number(tree, &args[2])) : (double)slen + 1;
     Py_ssize_t lo = start < 1 ? 0 : (start > (double)slen + 1 ? slen : (Py_ssize_t)start - 1);
     Py_ssize_t hi = last < 1 ? 0 : (last > (double)slen + 1 ? slen : (Py_ssize_t)last - 1);
     if (hi < lo) {
@@ -961,7 +968,9 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         result_number(out, argc >= 1 ? to_number(ctx->tree, &args[0]) : context_node_number(ctx));
     } else if (func_is(fn, "floor") || func_is(fn, "ceiling") || func_is(fn, "round")) {
         double value = to_number(ctx->tree, &args[0]);
-        result_number(out, func_is(fn, "floor") ? floor(value) : func_is(fn, "ceiling") ? ceil(value) : round(value));
+        result_number(out, func_is(fn, "floor")     ? floor(value)
+                           : func_is(fn, "ceiling") ? ceil(value)
+                                                    : xp_round(value));
     } else if (func_is(fn, "count")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "count() of a non-node-set";

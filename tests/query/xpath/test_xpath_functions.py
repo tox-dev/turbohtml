@@ -49,6 +49,11 @@ def doc() -> turbohtml.Node:
         pytest.param("floor(3.7)", 3.0, id="floor"),
         pytest.param("ceiling(3.2)", 4.0, id="ceiling"),
         pytest.param("round(3.5)", 4.0, id="round"),
+        # round() resolves ties toward positive infinity (XPath 1.0 §4.4), so a
+        # negative .5 rounds up, not away from zero as C round() would
+        pytest.param("round(-2.5)", -2.0, id="round-neg-half-up"),
+        pytest.param("round(-0.5)", 0.0, id="round-neg-half-to-zero"),
+        pytest.param("round(2.5)", 3.0, id="round-pos-half-up"),
         pytest.param("number('3.5')", 3.5, id="number-string"),
         pytest.param("number(true())", 1.0, id="number-bool"),
         pytest.param("number(false())", 0.0, id="number-false"),
@@ -78,6 +83,9 @@ def doc() -> turbohtml.Node:
         pytest.param("substring('hello', 0, 2)", "h", id="substring-clamp-low"),
         pytest.param("substring('hello', 10)", "", id="substring-past-end"),
         pytest.param("substring('hello', 2, 100)", "ello", id="substring-clamp-high"),
+        # substring rounds its numeric arguments with the XPath round (ties toward
+        # positive infinity): round(1.5)=2 and round(2.6)=3 select positions 2..4
+        pytest.param("substring('12345', 1.5, 2.6)", "234", id="substring-rounded-args"),
         pytest.param("substring('hello', 3, -1)", "", id="substring-empty"),
         pytest.param("substring('', 1, 1)", "", id="substring-of-empty"),
         pytest.param("substring-before('a/b/c', '/')", "a", id="substring-before"),
