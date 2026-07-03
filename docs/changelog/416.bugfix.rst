@@ -1,0 +1,2 @@
+:func:`turbohtml.clean.minify_css` now replaces a comment in an at-rule prelude with a space instead of deleting it, so
+``@media screen and/*x*/(min-width:0)`` no longer glues into the invalid function-token ``and(`` that browsers reject.

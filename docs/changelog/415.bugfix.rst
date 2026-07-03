@@ -1,0 +1,4 @@
+:func:`turbohtml.clean.minify_css` now keeps a duplicate declaration of the same property when its value differs from a
+later one, preserving the progressive-enhancement fallback pattern (``background:url(a.png);background:url(a.svg)``). A
+browser that cannot parse the later value falls back to the earlier one, so per CSS Cascade only an identical duplicate
+-- or a longhand a later shorthand fully covers -- is dropped.

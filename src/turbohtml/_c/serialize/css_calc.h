@@ -454,6 +454,20 @@ static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssiz
     if (!sum.ok || parser.pos != end) {
         return 0;
     }
+    /* a unitless <number> summed with a dimensioned term (e.g. calc(100% - 30px - 0)) is a type error the whole
+       declaration is dropped for; folding away its zero would turn invalid input into a valid value, so bail */
+    int has_unitless = 0;
+    int has_dimension = 0;
+    for (int index = 0; index < sum.count; index++) {
+        if (sum.terms[index].unit_len == 0) {
+            has_unitless = 1;
+        } else {
+            has_dimension = 1;
+        }
+    }
+    if (has_unitless && has_dimension) {
+        return 0;
+    }
     /* the sum keeps canceled (zero) terms to preserve units; drop them now unless every term is zero */
     cterm nonzero[CALC_MAX_TERMS];
     int nonzero_count = 0;

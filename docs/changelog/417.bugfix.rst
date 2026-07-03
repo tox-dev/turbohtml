@@ -1,0 +1,2 @@
+:func:`turbohtml.clean.minify_css` now keeps the body of a ``/*! ... */`` bang comment byte-exact instead of collapsing
+its whitespace and newlines, preserving the SPDX/copyright banner the comment exists to protect.

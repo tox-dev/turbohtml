@@ -263,7 +263,7 @@ static const char *css_longhand_list(const css_char *prop, Py_ssize_t prop_len) 
         "flex flex-basis flex-grow flex-shrink",
         "flex-flow flex-direction flex-wrap",
         "grid grid-template-rows grid-template-columns grid-template-areas grid-auto-rows grid-auto-columns "
-        "grid-auto-flow grid-column-gap grid-row-gap column-gap row-gap",
+        "grid-auto-flow",
         "grid-area grid-row-start grid-column-start grid-row-end grid-column-end",
         "grid-row grid-row-start grid-row-end",
         "grid-column grid-column-start grid-column-end",
@@ -315,7 +315,15 @@ static int css_prop_in_list(const css_char *prop, Py_ssize_t prop_len, const cha
     return 0;
 }
 
-/* The pairwise dedup, fine for the typical small rule. */
+static int css_decl_value_eq(const css_buf *pool, const css_decl *left, const css_decl *right) {
+    return left->val_len == right->val_len && memcmp(pool->data + left->val_off, pool->data + right->val_off,
+                                                     (size_t)left->val_len * sizeof(css_char)) == 0;
+}
+
+/* The pairwise dedup, fine for the typical small rule. Per CSS Cascade last-wins only among declarations that parse:
+   a later same-name declaration with a *different* value may be a progressive-enhancement fallback a browser keeps
+   when it cannot parse the later value, so only an identical same-name duplicate is dropped. A longhand covered by a
+   later shorthand (a different name in its longhand list) is a strict subset and stays droppable. */
 static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *later = &decls->items[index];
@@ -331,13 +339,12 @@ static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
                 continue;
             }
             const css_char *prior = pool->data + prev->prop_off;
-            int overrides = prev->prop_len == prop_len;
-            for (Py_ssize_t pos = 0; overrides && pos < prop_len; pos++) {
-                overrides = prop[pos] == prior[pos];
+            int same_name = prev->prop_len == prop_len;
+            for (Py_ssize_t pos = 0; same_name && pos < prop_len; pos++) {
+                same_name = prop[pos] == prior[pos];
             }
-            if (!overrides && list != NULL) {
-                overrides = css_prop_in_list(prior, prev->prop_len, list);
-            }
+            int overrides = same_name ? css_decl_value_eq(pool, prev, later)
+                                      : (list != NULL && css_prop_in_list(prior, prev->prop_len, list));
             if (overrides) {
                 prev->dropped = 1;
             }
@@ -443,23 +450,30 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
         const char *list = css_longhand_list(prop, prop_len);
         if (list == NULL) {
             Py_ssize_t slot = dedup_slot_run(table, mask, pool, prop, prop_len, important);
-            if (table[slot].used && !decls->items[table[slot].index].dropped) {
+            /* a same-name duplicate is dropped only when its value is identical (see css_dedup_pairwise) */
+            if (table[slot].used && !decls->items[table[slot].index].dropped &&
+                css_decl_value_eq(pool, &decls->items[table[slot].index], later)) {
                 decls->items[table[slot].index].dropped = 1;
             }
         } else {
+            /* every longhand list begins with the shorthand's own name; that first word is a same-name duplicate
+               (value-equality gated), the rest are strict-subset longhands the shorthand always resets */
             const char *cursor = list;
+            int own_name = 1;
             while (*cursor) {
                 const char *word = cursor;
                 while (*cursor && *cursor != ' ') {
                     cursor++;
                 }
                 Py_ssize_t slot = dedup_slot_cstr(table, mask, pool, word, cursor - word, important);
-                if (table[slot].used && !decls->items[table[slot].index].dropped) {
+                if (table[slot].used && !decls->items[table[slot].index].dropped &&
+                    (!own_name || css_decl_value_eq(pool, &decls->items[table[slot].index], later))) {
                     decls->items[table[slot].index].dropped = 1;
                 }
                 while (*cursor == ' ') {
                     cursor++;
                 }
+                own_name = 0;
             }
         }
         Py_ssize_t home = dedup_slot_run(table, mask, pool, prop, prop_len, important);

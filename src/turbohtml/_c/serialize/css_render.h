@@ -338,6 +338,12 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
 }
 
 static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
+    Py_ssize_t value_count = 0;
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        if (comps->items[index].kind != CK_SEP) {
+            value_count++;
+        }
+    }
     Py_ssize_t write = 0;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         css_comp comp = comps->items[index];
@@ -345,7 +351,9 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
             continue;
         }
         if (css_comp_kw(pool, &comp, "currentcolor")) {
-            css_set_comp(pool, &comp, "initial", CK_IDENT);
+            /* a CSS-wide keyword is valid only as the sole value; in a multi-value list keep the color keyword
+               (lowercased), since border-color:initial red would drop the whole declaration */
+            css_set_comp(pool, &comp, value_count == 1 ? "initial" : "currentcolor", CK_IDENT);
         } else {
             css_minify_color_comp(pool, &comp);
         }
@@ -362,6 +370,10 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
         }
         if (all_equal) {
             comps->len = 1;
+            /* the list collapsed to a single value, so a lone currentcolor is now safe to shorten to initial */
+            if (css_comp_kw(pool, &comps->items[0], "currentcolor")) {
+                css_set_comp(pool, &comps->items[0], "initial", CK_IDENT);
+            }
         }
     }
 }
@@ -623,9 +635,8 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
             for (int pos = 0; pos < written; pos++) {
                 cbuf_putc(out, (css_char)(unsigned char)buffer[pos]);
             }
-        } else if (low == 0 && high == 0x10FFFF) {
-            cbuf_puts(out, "initial");
         } else {
+            /* a descriptor takes no CSS-wide keyword, so a full U+0-10FFFF range is never rewritten to initial */
             int nibble = 0;
             while (nibble < 6 && ((low >> (nibble * 4)) & 0xF) == 0 && ((high >> (nibble * 4)) & 0xF) == 0xF) {
                 nibble++;

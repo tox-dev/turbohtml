@@ -1,11 +1,6 @@
 #ifndef TURBOHTML_CSS_GRAMMAR_H
 #define TURBOHTML_CSS_GRAMMAR_H
 
-static int css_decl_value_eq(const css_buf *pool, const css_decl *left, const css_decl *right) {
-    return left->val_len == right->val_len && memcmp(pool->data + left->val_off, pool->data + right->val_off,
-                                                     (size_t)left->val_len * sizeof(css_char)) == 0;
-}
-
 static int css_decl_is_wide_keyword(const css_buf *pool, const css_decl *decl) {
     const css_char *value = pool->data + decl->val_off;
     Py_ssize_t len = decl->val_len;
@@ -354,6 +349,9 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             continue;
         }
         if (token->kind == CSS_COMMENT) {
+            /* a comment separates tokens: dropping it must leave a space so a commented-out `and (` does not glue
+               into the function-token `and(` (an invalid media query), matching the declaration-value path */
+            pending_ws = 1;
             continue;
         }
         if (token->kind == CSS_URL) {
@@ -864,27 +862,12 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
             /* a comment token's text always starts with the slash-star the tokenizer matched */
             if (token->kind == CSS_COMMENT && token->text_len >= 3 && token->text[2] == '!') {
-                /* a bang comment is preserved (whitespace-collapsed) as an opaque node */
-                css_buf text = {NULL, 0, 0, 0};
-                cbuf_puts(&text, "/*!");
-                int pending = 0;
-                for (Py_ssize_t pos = 3; pos < token->text_len - 2; pos++) {
-                    if (css_is_ws(token->text[pos])) {
-                        pending = 1;
-                    } else {
-                        if (pending && text.len > 3) {
-                            cbuf_putc(&text, ' ');
-                        }
-                        pending = 0;
-                        cbuf_putc(&text, token->text[pos]);
-                    }
-                }
-                cbuf_puts(&text, "*/");
+                /* a bang comment is a license/copyright banner kept byte-exact: its body (SPDX text, newlines,
+                   alignment) must survive verbatim, so copy the whole token unchanged */
                 rule_item item = {0};
-                item.text_off = pool_run(pool, text.data, text.len);
-                item.text_len = text.len;
+                item.text_off = pool_run(pool, token->text, token->text_len);
+                item.text_len = token->text_len;
                 rule_vec_push(&items, item);
-                cbuf_free(&text);
             }
             cur->index++;
             continue;

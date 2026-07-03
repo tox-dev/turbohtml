@@ -1,0 +1,2 @@
+:func:`turbohtml.clean.minify_css` now keeps a full-range ``unicode-range:U+0-10FFFF`` descriptor verbatim instead of
+rewriting it to ``initial``, which is invalid for a descriptor.

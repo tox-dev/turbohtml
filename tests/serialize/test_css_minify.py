@@ -120,7 +120,7 @@ _NEWLY = CSSMinify(baseline=2021)
             "border-bottom-left-radius:1px;border-start-start-radius:9px}",
             id="no-merge-border-radius-with-logical-corner",
         ),
-        pytest.param("a{color:red;color:blue}", "a{color:blue}", id="dedup-later-wins"),
+        pytest.param("a{color:red;color:red}", "a{color:red}", id="dedup-identical-collapses"),
         pytest.param("a{width:calc(1px + 2px)}", "a{width:3px}", id="calc-add"),
         pytest.param("a{width:calc(10px / 2)}", "a{width:5px}", id="calc-divide"),
         pytest.param("a{width:calc(100% / 3)}", "a{width:calc(100% / 3)}", id="calc-non-terminating-kept"),
@@ -135,7 +135,7 @@ _NEWLY = CSSMinify(baseline=2021)
         pytest.param("a{--custom:  1px  }", "a{--custom:1px}", id="custom-property-trimmed-not-rewritten"),
         pytest.param("a{color:red!important}", "a{color:red!important}", id="important-kept"),
         pytest.param("/* drop me */a{color:red}", "a{color:red}", id="strip-normal-comment"),
-        pytest.param("/*! keep me */a{color:red}", "/*!keep me*/a{color:red}", id="keep-bang-comment"),
+        pytest.param("/*! keep me */a{color:red}", "/*! keep me */a{color:red}", id="keep-bang-comment"),
         pytest.param(".x{color:red}.y{color:red}", ".x,.y{color:red}", id="merge-identical-bodies-to-selector-list"),
         pytest.param("a{color:red}a{background:blue}", "a{color:red;background:blue}", id="merge-same-selector-bodies"),
         pytest.param(
@@ -411,10 +411,110 @@ def test_minify_css(source: str, expected: str) -> None:
         pytest.param(r"@-webkit-keyframes k{from{x:1}}", r"@-webkit-keyframes k{0%{x:1}}", id="webkit-keyframes-from"),
         pytest.param(r"@-moz-keyframes k{0%{x:1}}", r"@-moz-keyframes k{0%{x:1}}", id="moz-keyframes"),
         pytest.param(r"@-o-keyframes k{to{x:1}}", r"@-o-keyframes k{to{x:1}}", id="o-keyframes"),
+        pytest.param(
+            "a{background:url(a.png);background:url(a.svg)}",
+            "a{background:url(a.png);background:url(a.svg)}",
+            id="dedup-keeps-different-value-fallback",
+        ),
+        pytest.param(
+            "a{display:-webkit-box;display:flex}",
+            "a{display:-webkit-box;display:flex}",
+            id="dedup-keeps-prefixed-fallback",
+        ),
+        pytest.param("a{x:1;x:2;x:3}", "a{x:1;x:2;x:3}", id="dedup-keeps-every-differing-value"),
+        pytest.param(
+            "a{background:red;background:linear-gradient(red,blue)}",
+            "a{background:red;background:linear-gradient(red,blue)}",
+            id="dedup-keeps-shorthand-fallback",
+        ),
+        pytest.param("a{background:red;background:red}", "a{background:red}", id="dedup-drops-identical-shorthand"),
+        pytest.param(
+            "a{background-color:red;background:url(a.svg)}",
+            "a{background:url(a.svg)}",
+            id="dedup-drops-covered-longhand",
+        ),
+        pytest.param(
+            "@media screen and/*x*/(min-width:0){a{b:1}}",
+            "@media screen and (min-width:0){a{b:1}}",
+            id="at-prelude-comment-becomes-space",
+        ),
+        pytest.param("@media not/*x*/all{a{b:1}}", "@media not all{a{b:1}}", id="at-prelude-comment-keeps-negation"),
+        pytest.param(
+            "/*! Copyright 2024   Foo    Bar\n * All rights reserved.\n */a{color:red}",
+            "/*! Copyright 2024   Foo    Bar\n * All rights reserved.\n */a{color:red}",
+            id="bang-comment-body-kept-verbatim",
+        ),
+        pytest.param(
+            "a{width:calc(100% - 30px - 0)}", "a{width:calc(100% - 30px - 0)}", id="calc-keeps-unitless-zero-type-error"
+        ),
+        pytest.param("a{width:calc(100% - 0px)}", "a{width:100%}", id="calc-folds-zero-length"),
+        pytest.param(
+            "a{border-color:currentColor red}",
+            "a{border-color:currentcolor red}",
+            id="border-color-currentcolor-list-kept",
+        ),
+        pytest.param(
+            "a{border-color:red currentColor}",
+            "a{border-color:red currentcolor}",
+            id="border-color-currentcolor-list-kept-trailing",
+        ),
+        pytest.param(
+            "a{border-color:currentColor}", "a{border-color:initial}", id="border-color-currentcolor-sole-to-initial"
+        ),
+        pytest.param(
+            "@font-face{unicode-range:U+0-10FFFF}", "@font-face{unicode-range:U+0-10FFFF}", id="unicode-range-full-kept"
+        ),
+        pytest.param(
+            "a{row-gap:20px;grid:auto/auto}", "a{row-gap:20px;grid:auto/auto}", id="grid-does-not-reset-row-gap"
+        ),
+        pytest.param(
+            "a{column-gap:20px;grid:auto/auto}",
+            "a{column-gap:20px;grid:auto/auto}",
+            id="grid-does-not-reset-column-gap",
+        ),
+        pytest.param(
+            "a{grid-row-gap:20px;grid:auto/auto}",
+            "a{grid-row-gap:20px;grid:auto/auto}",
+            id="grid-does-not-reset-grid-row-gap",
+        ),
+        pytest.param(
+            "a{grid-template-rows:1px;grid:auto/auto}", "a{grid:auto/auto}", id="grid-resets-grid-template-rows"
+        ),
+        pytest.param(
+            "a{margin-top:1px;margin-top:1px;margin-right:2px;margin-bottom:3px;margin-left:4px}",
+            "a{margin:1px 2px 3px 4px}",
+            id="identical-longhand-duplicate-dropped-then-box-merges",
+        ),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+_HASH_FILLER = "".join(f"--v{index}:{index};" for index in range(40))
+
+
+@pytest.mark.parametrize(
+    ("tail", "kept"),
+    [
+        pytest.param(
+            "background:url(a.png);background:url(a.svg)",
+            "background:url(a.png);background:url(a.svg)",
+            id="same-name-fallback-kept",
+        ),
+        pytest.param("color:red;color:red", "color:red", id="same-name-identical-dropped"),
+        pytest.param(
+            "background:red;background:url(a.svg)", "background:red;background:url(a.svg)", id="shorthand-fallback-kept"
+        ),
+        pytest.param("background:red;background:red", "background:red", id="shorthand-identical-dropped"),
+        pytest.param(
+            "background-color:red;background:url(a.svg)", "background:url(a.svg)", id="covered-longhand-dropped"
+        ),
+    ],
+)
+def test_minify_css_hash_dedup_is_value_safe(tail: str, kept: str) -> None:
+    # more than 32 declarations force the hash-based dedup path, which must apply the same value-safety rule.
+    assert minify_css(f"a{{{_HASH_FILLER}{tail}}}") == f"a{{{_HASH_FILLER}{kept}}}"
 
 
 @pytest.mark.parametrize(
