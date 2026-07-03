@@ -177,6 +177,21 @@ def test_ui_pseudo_cases(html: str, selector: str, ids: list[str]) -> None:
         pytest.param('<span id=a lang="english">x</span>', ":lang(en)", [], id="no-hyphen-boundary"),
         pytest.param("<span id=a>x</span>", ":lang(en)", [], id="no-lang-attribute"),
         pytest.param('<span id=a lang="">x</span>', ":lang(en)", [], id="empty-lang-attribute"),
+        # RFC 4647 §3.3.2 extended filtering: a non-matching, non-singleton subtag is
+        # skipped, so a range's subtags need only appear in the tag in order
+        pytest.param('<span id=a lang="en-Latn-GB">x</span>', ":lang(en-GB)", ["a"], id="extended-skip-script"),
+        pytest.param('<span id=a lang="en-a-bbb">x</span>', ":lang(en-bbb)", [], id="extended-singleton-blocks"),
+        # a '*' wildcard subtag: leading '*' matches any determined language, and an
+        # interior/quoted or escaped '*' passes through per Selectors-4 §14
+        pytest.param('<span id=a lang="de-DE">x</span>', ":lang('*')", ["a"], id="wildcard-any-language"),
+        pytest.param("<span id=a>x</span>", ":lang('*')", [], id="wildcard-needs-a-language"),
+        pytest.param('<span id=a lang="en-US">x</span>', ":lang('*-US')", ["a"], id="wildcard-primary-region"),
+        pytest.param('<span id=a lang="en-GB">x</span>', ":lang('*-US')", [], id="wildcard-primary-region-miss"),
+        pytest.param('<span id=a lang="de-DE">x</span>', r":lang(\*-DE)", ["a"], id="wildcard-escaped-asterisk"),
+        pytest.param('<span id=a lang="en-Latn-US">x</span>', ":lang('*-US')", ["a"], id="wildcard-skips-script"),
+        # an interior '*' subtag passes through; a non-wildcard single-char subtag matches literally
+        pytest.param('<span id=a lang="de-Latn-DE">x</span>', ":lang('de-*-DE')", ["a"], id="wildcard-interior"),
+        pytest.param('<span id=a lang="en-a-bbb">x</span>', ":lang('en-a')", ["a"], id="single-char-subtag"),
     ],
 )
 def test_lang_pseudo(html: str, selector: str, ids: list[str]) -> None:

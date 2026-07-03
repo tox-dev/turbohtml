@@ -519,15 +519,20 @@ static void sel_parse_dir(sel_parser *parser, sel_simple *simple) {
 }
 
 /* Parse the :lang() argument (pos just after '('): a non-empty comma-separated
-   list of language ranges, captured verbatim as the value slice and split at
-   match time. */
+   list of language ranges. Escapes are decoded in place (so an escaped wildcard
+   like \2a or \* becomes '*'); the decoded slice is the value, split at match time. */
 static void sel_parse_lang(sel_parser *parser, sel_simple *simple) {
     sel_skip_ws(parser);
     Py_ssize_t start = parser->pos;
+    Py_ssize_t write = parser->pos;
     while (parser->pos < parser->len && parser->src[parser->pos] != ')') {
-        parser->pos++;
+        if (parser->src[parser->pos] == '\\') {
+            parser->src[write++] = sel_consume_escape(parser);
+            continue;
+        }
+        parser->src[write++] = parser->src[parser->pos++];
     }
-    Py_ssize_t end = parser->pos;
+    Py_ssize_t end = write;
     while (end > start && is_space(parser->src[end - 1])) {
         end--;
     }
@@ -1388,16 +1393,54 @@ static int sel_is_default(th_node *node) {
     return 0;
 }
 
-/* Whether a language tag matches a range: equal, or the tag begins with the
-   range followed by '-' (BCP47 basic filtering, ASCII case-insensitive). */
+/* The end (exclusive) of the '-'-delimited subtag of s beginning at start. */
+static Py_ssize_t sel_subtag_end(const Py_UCS4 *s, Py_ssize_t len, Py_ssize_t start) {
+    Py_ssize_t end = start;
+    while (end < len && s[end] != '-') {
+        end++;
+    }
+    return end;
+}
+
+/* Whether a language tag matches a range by RFC 4647 §3.3.2 extended filtering
+   (ASCII case-insensitive): a '*' subtag is a wildcard (a leading '*' matches any
+   primary tag, an interior '*' is skipped), and a non-matching, non-singleton tag
+   subtag is skipped, so a range's subtags need only appear in order. */
 static int sel_lang_range_matches(const Py_UCS4 *tag, Py_ssize_t tag_len, const Py_UCS4 *range, Py_ssize_t range_len) {
-    if (range_len == 0 || range_len > tag_len) {
+    if (range_len == 0) {
         return 0;
     }
-    if (!sel_eq(tag, range_len, range, range_len, 1)) {
-        return 0;
+    Py_ssize_t rend = sel_subtag_end(range, range_len, 0);
+    Py_ssize_t tend = sel_subtag_end(tag, tag_len, 0);
+    if ((rend != 1 || range[0] != '*') && !sel_eq(tag, tend, range, rend, 1)) {
+        return 0; /* the primary subtag must match unless the range's is the wildcard */
     }
-    return tag_len == range_len || tag[range_len] == '-';
+    Py_ssize_t rstart = rend + 1;
+    Py_ssize_t tstart = tend + 1;
+    while (rstart < range_len) {
+        rend = sel_subtag_end(range, range_len, rstart);
+        Py_ssize_t rlen = rend - rstart;
+        if (rlen == 1 && range[rstart] == '*') {
+            rstart = rend + 1;
+            continue;
+        }
+        while (1) {
+            if (tstart >= tag_len) {
+                return 0; /* the range has subtags left but the tag has none */
+            }
+            tend = sel_subtag_end(tag, tag_len, tstart);
+            if (sel_eq(tag + tstart, tend - tstart, range + rstart, rlen, 1)) {
+                tstart = tend + 1;
+                break;
+            }
+            if (tend - tstart == 1) {
+                return 0; /* a singleton tag subtag cannot be skipped by the implicit wildcard */
+            }
+            tstart = tend + 1;
+        }
+        rstart = rend + 1;
+    }
+    return 1;
 }
 
 /* :lang(): the element's language is the nearest lang attribute on it or an
