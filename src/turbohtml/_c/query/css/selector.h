@@ -187,6 +187,45 @@ static void sel_ident(sel_parser *parser, const Py_UCS4 **out, Py_ssize_t *out_l
     }
 }
 
+/* Read a quoted-string value (the opening quote at parser->pos), decoding CSS
+   escapes in place like sel_ident. Two rules set a string apart from an
+   identifier (CSS Syntax 4.3.5 "consume a string token"): a backslash before a
+   newline is a line continuation and is dropped, and a raw U+0000 folds to
+   U+FFFD (Syntax 3.3 preprocessing). A decoded run is never longer than its
+   source, so it is written back over the source. */
+static void sel_string(sel_parser *parser, const Py_UCS4 **out, Py_ssize_t *out_len) {
+    Py_UCS4 quote = parser->src[parser->pos++];
+    Py_ssize_t start = parser->pos;
+    Py_ssize_t write = start;
+    while (parser->pos < parser->len && parser->src[parser->pos] != quote) {
+        if (parser->src[parser->pos] == '\\') {
+            Py_UCS4 next = parser->pos + 1 < parser->len ? parser->src[parser->pos + 1] : 0;
+            if (next == '\n' || next == '\x0c') {
+                parser->pos += 2; /* line continuation: the escaped newline is dropped */
+                continue;
+            }
+            if (next == '\r') {
+                parser->pos += 2;
+                if (parser->pos < parser->len && parser->src[parser->pos] == '\n') {
+                    parser->pos++; /* a CR LF pair counts as one newline */
+                }
+                continue;
+            }
+            parser->src[write++] = sel_consume_escape(parser);
+            continue;
+        }
+        Py_UCS4 ch = parser->src[parser->pos++];
+        parser->src[write++] = ch == 0 ? 0xFFFD : ch;
+    }
+    if (parser->pos >= parser->len) {
+        parser->error = 1; /* an unterminated string is invalid */
+        return;
+    }
+    parser->pos++; /* the closing quote */
+    *out = parser->src + start;
+    *out_len = write - start;
+}
+
 /* UTF-8 encode a slice and resolve it to a tag atom. */
 static uint16_t sel_tag_atom(const Py_UCS4 *name, Py_ssize_t len) {
     char bytes[64];
@@ -322,18 +361,10 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     }
     sel_skip_ws(parser);
     if (parser->pos < parser->len && (parser->src[parser->pos] == '"' || parser->src[parser->pos] == '\'')) {
-        Py_UCS4 quote = parser->src[parser->pos++];
-        Py_ssize_t start = parser->pos;
-        while (parser->pos < parser->len && parser->src[parser->pos] != quote) {
-            parser->pos++;
-        }
-        if (parser->pos >= parser->len) {
-            parser->error = 1;
+        sel_string(parser, &simple->value, &simple->value_len);
+        if (parser->error) {
             return;
         }
-        simple->value = parser->src + start;
-        simple->value_len = parser->pos - start;
-        parser->pos++;
     } else {
         sel_ident(parser, &simple->value, &simple->value_len);
         if (parser->error) {

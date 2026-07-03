@@ -83,3 +83,18 @@ def test_rejects_non_str(link: Element, method: str) -> None:
 def test_rejects_invalid_selector(link: Element, method: str) -> None:
     with pytest.raises(ValueError, match="selector"):
         getattr(link, method)("[")
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        pytest.param('[id="unterminated]', id="plain"),
+        # a string ending in a lone backslash (the escape yields U+FFFD) is still unterminated
+        pytest.param('[id="x\\', id="trailing-backslash"),
+        # a backslash before a bare CR at end of input is a line continuation with nothing after it
+        pytest.param('[id="x\\\r', id="trailing-cr-continuation"),
+    ],
+)
+def test_rejects_unterminated_attribute_string(link: Element, selector: str) -> None:
+    with pytest.raises(ValueError, match="selector"):
+        link.matches(selector)

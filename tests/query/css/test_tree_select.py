@@ -175,6 +175,20 @@ def test_select_over_doc(selector: str, tags: list[str]) -> None:
         pytest.param('<div class="Az">', r".\41z", ["div"], id="class-hex-escape-stops-at-non-hex"),
         # a trailing backslash escapes U+FFFD
         pytest.param('<div class="x�">', ".x\\", ["div"], id="class-trailing-backslash-is-replacement"),
+        # a quoted attribute-value string decodes the same escapes as an identifier
+        # (Syntax 4.3.5): \HH hex escapes, a null/out-of-range escape folding to U+FFFD,
+        # and a backslash escaping a literal (here the closing quote, which does not end it)
+        pytest.param('<a id="a:b"></a>', r'[id="a\:b"]', ["a"], id="string-escaped-literal"),
+        pytest.param('<a id="©"></a>', r'[id="\A9 "]', ["a"], id="string-hex-escape"),
+        pytest.param('<a id="�pre"></a>', r'[id="\0 pre"]', ["a"], id="string-null-hex-is-replacement"),
+        pytest.param('<a id="�pre"></a>', '[id="\x00pre"]', ["a"], id="string-raw-null-is-replacement"),
+        pytest.param("""<a id='say "hi"'></a>""", r'[id="say \"hi\""]', ["a"], id="string-escaped-quote-kept"),
+        # a backslash before a newline is a string line continuation and is dropped
+        # (a newline is LF, CR, FF, or a CR LF pair; each collapses to nothing here)
+        pytest.param('<a id="pre"></a>', '[id="pr\\\ne"]', ["a"], id="string-line-continuation-lf"),
+        pytest.param('<a id="pre"></a>', "[id='pr\\\re']", ["a"], id="string-line-continuation-cr"),
+        pytest.param('<a id="pre"></a>', "[id='pr\\\r\ne']", ["a"], id="string-line-continuation-crlf"),
+        pytest.param('<a id="pre"></a>', "[id='pr\\\x0ce']", ["a"], id="string-line-continuation-ff"),
         # the WHATWG "case-sensitivity of selectors" set: type/rel/... compare their
         # value ASCII case-insensitively by default on HTML elements (no flag needed)
         pytest.param('<input type="TEXT">', "input[type=text]", ["input"], id="ci-attr-set-default"),
