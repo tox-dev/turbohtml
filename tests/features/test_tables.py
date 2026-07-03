@@ -100,6 +100,30 @@ ROWS_CASES = [
         id="rowspan-beyond-last-row-clamped",
     ),
     pytest.param(
+        "<table><tbody><tr><td rowspan=0>A</td><td>B</td></tr><tr><td>C</td></tr></tbody>"
+        "<tbody><tr><td>D</td><td>E</td></tr></tbody></table>",
+        [["A", "B"], ["A", "C"], ["D", "E"]],
+        id="zero-rowspan-stops-at-row-group-end",
+    ),
+    pytest.param(
+        "<table><thead><tr><td rowspan=0>A</td><td>B</td></tr></thead>"
+        "<tbody><tr><td>C</td><td>D</td></tr></tbody></table>",
+        [["A", "B"], ["C", "D"]],
+        id="zero-rowspan-from-thead-stops-at-thead-end",
+    ),
+    pytest.param(
+        "<table><tbody><tr><td>C</td><td>D</td></tr></tbody>"
+        "<tfoot><tr><td rowspan=0>A</td><td>B</td></tr><tr><td>E</td></tr></tfoot></table>",
+        [["C", "D"], ["A", "B"], ["A", "E"]],
+        id="zero-rowspan-in-tfoot-stops-at-tfoot-end",
+    ),
+    pytest.param(
+        "<table><tbody><tr><td rowspan=3>A</td><td>B</td></tr><tr><td>C</td></tr></tbody>"
+        "<tbody><tr><td>D</td></tr></tbody></table>",
+        [["A", "B"], ["A", "C"], ["A", "D"]],
+        id="fixed-rowspan-crosses-row-group-boundary",
+    ),
+    pytest.param(
         "<table><tr><td>A</td><td rowspan=2>B</td></tr><tr><td colspan=3>C</td></tr></table>",
         [["A", "B", ""], ["C", "C", "C"]],
         id="overlapping-spans-later-cell-wins",
@@ -146,6 +170,43 @@ def test_huge_colspan_is_clamped(rows: Callable[[str], list[list[str]]]) -> None
     assert len(grid[0]) == 1000
     assert grid[0][0] == "A"
     assert grid[0][999] == "A"
+
+
+def _rehome_rows(destination: Element) -> None:
+    # The parser always wraps rows in a tbody, so move real <tr> elements under `destination` to give a table
+    # rows with no row-group ancestor: a rowspan=0 cell then has no group to stop at and grows to the last row.
+    source = parse_fragment(
+        "<table><tbody><tr><td rowspan=0>A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>",
+    ).find("table")
+    assert isinstance(source, Element)
+    body = source.find("tbody")
+    assert isinstance(body, Element)
+    for row in list(body.children):
+        row.extract()
+        destination.append(row)
+
+
+def _table_itself(table: Element) -> Element:
+    return table
+
+
+def _div_under(table: Element) -> Element:
+    wrapper = parse_fragment("<div></div>").find("div")
+    assert isinstance(wrapper, Element)
+    wrapper.extract()
+    table.append(wrapper)
+    return wrapper
+
+
+@pytest.mark.parametrize(
+    "receiver",
+    [pytest.param(_table_itself, id="rows-in-table"), pytest.param(_div_under, id="rows-under-a-div")],
+)
+def test_zero_rowspan_without_a_row_group_spans_to_table_end(receiver: Callable[[Element], Element]) -> None:
+    table = parse_fragment("<table></table>").find("table")
+    assert isinstance(table, Element)
+    _rehome_rows(receiver(table))
+    assert table.rows() == [["A", "B"], ["A", "C"]]
 
 
 RECORDS_CASES = [

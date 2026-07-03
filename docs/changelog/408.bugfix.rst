@@ -1,0 +1,4 @@
+A ``rowspan=0`` cell in :meth:`~turbohtml.Element.rows`, :meth:`~turbohtml.Element.records`, and
+:meth:`~turbohtml.Node.tables` now stops at the end of its row group (``thead``/``tbody``/``tfoot``), matching the
+WHATWG table-forming algorithm, instead of growing to the last row of the whole table and pushing later row groups
+sideways into a spurious column. A fixed ``rowspan`` still spans across row-group boundaries.
