@@ -1,0 +1,3 @@
+Stabilize the CodSpeed benchmark gate against GitHub's heterogeneous runners by pinning ``GLIBC_TUNABLES`` so glibc
+selects one baseline ``memcpy``/``memmove`` path on every CPU. Without it a different physical CPU per run made
+allocation-heavy benchmarks drift a few percent, wide enough to mask a real small regression.

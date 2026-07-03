@@ -36,7 +36,10 @@ jobs:
       - name: 🚀 Run benchmarks
         uses: CodSpeedHQ/action@a4a36bb07c0638b0b4ca52bf1f3dad1b4289e52f # v4.18.1
         env:
-          PYTHONHASHSEED: "0" # pin the seed so str-dict iteration order is fixed run to run; else untouched benchmarks drift a few percent between the base and PR runs and mask a real regression
+          # GitHub hands each run a different physical CPU (Intel Xeon with AVX-512, or AMD EPYC without), and glibc
+          # dispatches a different SIMD memcpy/memmove per CPU, so Callgrind counts different instructions for the same
+          # code and untouched benchmarks drift a few percent run to run. Force one baseline path on every CPU.
+          GLIBC_TUNABLES: "glibc.cpu.hwcaps=-AVX512F,-AVX512VL,-AVX512BW,-AVX512DQ,-AVX512CD,-AVX2,-AVX,-ERMS,-FSRM"
         with:
           mode: simulation
           run: .tox/codspeed/bin/python -m pytest tests/benchmarks --codspeed
