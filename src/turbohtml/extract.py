@@ -17,13 +17,16 @@ by a frozen :class:`UrlCleaning`, replace ``courlan`` and the ``w3lib.url`` cano
 
 :func:`microdata` gives the ``microdata`` library's ``get_items(html)`` entry point over the same C walk
 :meth:`turbohtml.Document.microdata` runs, returning the :class:`MicrodataItem` records whose ``.get``/``.get_all``/
-``.json`` accessors mirror that library's ``Item``.
+``.json`` accessors mirror that library's ``Item``. :func:`opengraph` gives the ``opengraph`` library's
+``OpenGraph(html=...)`` shape over :meth:`turbohtml.Document.opengraph`: an :class:`OpenGraph` mapping of the
+``og:``-stripped keys with an :meth:`~OpenGraph.is_valid` check.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from ._article import Article
 from ._html import Element, parse
@@ -31,11 +34,15 @@ from ._links import Link
 from ._structured_data import MicrodataItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 __all__ = [
     "Article",
     "Extraction",
     "Link",
     "MicrodataItem",
+    "OpenGraph",
     "Paragraph",
     "StructuredData",
     "UrlCleaning",
@@ -44,6 +51,7 @@ __all__ = [
     "extract_links",
     "microdata",
     "normalize_url",
+    "opengraph",
 ]
 
 _HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -116,6 +124,68 @@ def microdata(html: str, /) -> list[MicrodataItem]:
     :returns: one :class:`~turbohtml.MicrodataItem` per top-level ``itemscope`` element, in document order.
     """
     return parse(html).microdata()
+
+
+_OG_PREFIX: Final = "og:"
+_OG_REQUIRED: Final = ("title", "type", "image", "url")
+"""The Open Graph protocol's four required properties; the check behind :meth:`OpenGraph.is_valid`."""
+
+
+class OpenGraph(Mapping[str, str]):
+    """
+    A page's Open Graph metadata as a read-only mapping, the record :func:`opengraph` returns.
+
+    Keys are the ``og:`` property names with that prefix stripped (``og:title`` reads as ``og["title"]``), matching the
+    ``opengraph`` library's ``OpenGraph`` dict. The mapping supports the full read surface -- ``og["title"]``,
+    ``"title" in og``, ``og.get("title")``, iteration, and equality against a plain ``dict`` -- and adds
+    :meth:`is_valid`.
+    """
+
+    __slots__ = ("_properties",)
+
+    def __init__(self, properties: dict[str, str], /) -> None:
+        """Wrap the already prefix-stripped ``og:`` property mapping :func:`opengraph` builds."""
+        self._properties = properties
+
+    def __getitem__(self, key: str) -> str:
+        """Return the value of the ``og:<key>`` property, raising :exc:`KeyError` when the page lacks it."""
+        return self._properties[key]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate the prefix-stripped property names in document order."""
+        return iter(self._properties)
+
+    def __len__(self) -> int:
+        """Return the number of ``og:`` properties the page carries."""
+        return len(self._properties)
+
+    def __repr__(self) -> str:
+        """Render as ``OpenGraph({...})`` around the underlying property mapping."""
+        return f"OpenGraph({self._properties!r})"
+
+    def is_valid(self) -> bool:
+        """
+        Return whether the page carries the four properties the Open Graph protocol requires, each non-empty.
+
+        Mirrors the ``opengraph`` library's ``is_valid``: every one of ``og:title``, ``og:type``, ``og:image``, and
+        ``og:url`` is present with a non-empty value. The ``opengraph_py3`` fork also demands ``og:description``; the
+        `Open Graph protocol <https://ogp.me/>`_ does not, so it is not required here.
+        """
+        return all(self._properties.get(name) for name in _OG_REQUIRED)
+
+
+def opengraph(html: str, /) -> OpenGraph:
+    """
+    Extract a page's Open Graph metadata, the successor to ``opengraph.OpenGraph(html=...)``.
+
+    Reads the ``og:`` ``<meta>`` tags :meth:`turbohtml.Document.opengraph` gathers, drops the ``twitter:`` tags that
+    method also returns, and strips the ``og:`` prefix from each key so ``og["title"]`` reads the ``og:title`` tag.
+
+    :param html: the page markup.
+    :returns: an :class:`OpenGraph` mapping of the prefix-stripped ``og:`` properties, empty when the page has none.
+    """
+    tags = parse(html).opengraph()
+    return OpenGraph({key[len(_OG_PREFIX) :]: value for key, value in tags.items() if key.startswith(_OG_PREFIX)})
 
 
 def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragraph]:

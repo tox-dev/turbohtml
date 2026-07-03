@@ -124,6 +124,7 @@ bench = [
   "minify-html>=0.18.1",
   "newspaper3k>=0.2.8",
   "nh3>=0.3.6",
+  "opengraph-py3>=0.71",
   "pandas>=3.0.3",
   "parsel>=1.11",
   "pyperf>=2.10",

@@ -39,3 +39,11 @@ The URL helpers are successors to ``courlan`` and the ``w3lib.url`` canonicaliza
 :doc:`/reference/structured-data`).
 
 .. autofunction:: microdata
+
+:func:`opengraph` extracts a page's Open Graph card as an :class:`OpenGraph` mapping, the ``opengraph`` library's
+``OpenGraph(html=...)`` call shape (:doc:`opengraph guide </migration/opengraph>`).
+
+.. autofunction:: opengraph
+
+.. autoclass:: OpenGraph
+    :members: is_valid

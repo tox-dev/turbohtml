@@ -513,6 +513,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/microdata
             :alt: microdata total downloads
             :target: https://pepy.tech/project/microdata
+    - - 4
+      - :doc:`opengraph <opengraph>`
+      - `docs <https://pypi.org/project/opengraph-py3/>`__
+      - .. image:: https://static.pepy.tech/badge/opengraph-py3/month
+            :alt: opengraph-py3 monthly downloads
+            :target: https://pepy.tech/project/opengraph-py3
+      - .. image:: https://static.pepy.tech/badge/opengraph-py3
+            :alt: opengraph-py3 total downloads
+            :target: https://pepy.tech/project/opengraph-py3
 
 ***************
  HTML builders
@@ -704,6 +713,7 @@ page benchmarks all of them).
     html5-parser
     metadata_parser
     microdata
+    opengraph
     lightningcss
     fast-html
     simple-html

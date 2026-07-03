@@ -1,0 +1,20 @@
+{
+  "label": "social-card extraction",
+  "parties": [
+    "turbohtml",
+    "opengraph"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "head",
+      1.8750061053118827e-06,
+      0.00017645677710333984
+    ],
+    [
+      "article 8 KiB",
+      2.7699301145389655e-05,
+      0.0036775625612790463
+    ]
+  ]
+}
