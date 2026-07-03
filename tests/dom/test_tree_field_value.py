@@ -75,6 +75,28 @@ def test_empty_single_select_is_none() -> None:
     assert _control("<select></select>", "select").field_value is None
 
 
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [
+        pytest.param("1", "a", id="display-size-1-defaults-to-first"),
+        pytest.param("4", None, id="display-size-4-has-no-default"),
+    ],
+)
+def test_single_select_default_only_when_display_size_is_one(size: str, expected: str | None) -> None:
+    select = _control(f"<select size={size}><option value=a><option value=b></select>", "select")
+    assert select.field_value == expected
+
+
+def test_single_select_default_skips_an_optgroup_disabled_option() -> None:
+    select = _control("<select><optgroup disabled><option value=a>A</optgroup><option value=b>B</select>", "select")
+    assert select.field_value == "b"
+
+
+def test_single_select_keeps_a_disabled_selected_option() -> None:
+    select = _control("<select><option value=a disabled selected><option value=b></select>", "select")
+    assert select.field_value == "a"
+
+
 def test_multiple_select_returns_the_selected_list() -> None:
     select = _control(
         "<select multiple><option value=a selected>A<option value=b><option value=c selected>C</select>", "select"

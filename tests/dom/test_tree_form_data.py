@@ -116,6 +116,59 @@ def test_multiple_select_skips_disabled_options() -> None:
     assert form.form_data() == [("t", "b")]
 
 
+def test_single_select_default_skips_an_optgroup_disabled_option() -> None:
+    form = _form(
+        "<form><select name=s><optgroup disabled><option value=a>A</optgroup><option value=b>B</select></form>"
+    )
+    assert form.form_data() == [("s", "b")]
+
+
+def test_multiple_select_skips_optgroup_disabled_options() -> None:
+    form = _form(
+        "<form><select name=t multiple><optgroup disabled><option value=a selected>A</optgroup>"
+        "<option value=b selected>B</select></form>"
+    )
+    assert form.form_data() == [("t", "b")]
+
+
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        pytest.param("size=1", [("s", "a")], id="display-size-1"),
+        pytest.param("size=4", [], id="display-size-4"),
+        pytest.param('size=" 4"', [], id="leading-whitespace-parsed"),
+        pytest.param('size="  "', [("s", "a")], id="all-whitespace-falls-to-default"),
+        pytest.param('size="x"', [("s", "a")], id="non-numeric-falls-to-default"),
+        pytest.param('size="-1"', [("s", "a")], id="leading-non-digit-falls-to-default"),
+        pytest.param('size="99999"', [], id="huge-size-clamped-not-one"),
+        pytest.param("size", [("s", "a")], id="valueless-falls-to-default"),
+    ],
+)
+def test_select_default_first_only_when_display_size_is_one(attr: str, expected: list[tuple[str, str]]) -> None:
+    form = _form(f"<form><select name=s {attr}><option value=a><option value=b></select></form>")
+    assert form.form_data() == expected
+
+
+def test_select_with_only_a_disabled_selected_option_submits_nothing() -> None:
+    form = _form("<form><select name=s><option value=a disabled selected><option value=b></select></form>")
+    assert form.form_data() == []
+
+
+def test_form_data_ignores_controls_inside_a_template() -> None:
+    form = _form("<form><template><input name=t value=1></template><input name=a value=2></form>")
+    assert form.form_data() == [("a", "2")]
+
+
+def test_form_data_ignores_controls_nested_deep_inside_a_template() -> None:
+    form = _form("<form><template><div><input name=t value=1></div></template><input name=a value=2></form>")
+    assert form.form_data() == [("a", "2")]
+
+
+def test_form_data_skips_a_trailing_template() -> None:
+    form = _form("<form><input name=a value=2><template><input name=t value=1></template></form>")
+    assert form.form_data() == [("a", "2")]
+
+
 def test_option_value_falls_back_to_text() -> None:
     form = _form("<form><select name=c><option selected> Green </select></form>")
     assert form.form_data() == [("c", "Green")]

@@ -1,0 +1,4 @@
+:meth:`~turbohtml.Element.form_data` and :attr:`~turbohtml.Element.field_value` now treat an ``<option>`` inside a
+disabled ``<optgroup>`` as disabled, following the WHATWG rule that an option is disabled when it carries ``disabled``
+or its parent ``<optgroup>`` does. Such an option no longer becomes a single select's default, and a disabled selected
+option no longer submits.

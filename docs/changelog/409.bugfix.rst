@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Element.form_data` no longer submits form controls that live inside a ``<template>``. A template's
+contents are an inert fragment whose controls have no form owner (WHATWG §4.10.3), so the walk now skips the template
+subtree instead of descending into it.

@@ -334,10 +334,11 @@ static int element_set_checked(PyObject *self, PyObject *value, void *closure);
 PyDoc_STRVAR(field_value_doc, "the form control's value, with form semantics. Reading returns the value\n"
                               "attribute (defaulting to \"on\" for a checkbox/radio), a textarea's text, an\n"
                               "option's value (its stripped text when it has no value attribute), or the\n"
-                              "selected option value(s) of a select (a list[str] when it is multiple);\n"
-                              "non-controls read None. Assigning a str writes the value (selecting the\n"
-                              "matching option of a select), a list[str] selects a multiple select, and None\n"
-                              "clears it. The checked state lives in Element.checked, not here.");
+                              "selected option value(s) of a select (a list[str] when it is multiple, None\n"
+                              "when nothing is selected); non-controls read None. Assigning a str writes the\n"
+                              "value (selecting the matching option of a select), a list[str] selects a\n"
+                              "multiple select, and None clears it. The checked state lives in\n"
+                              "Element.checked, not here.");
 
 PyDoc_STRVAR(checked_doc, "whether a checkbox or radio input is checked. Assigning requires a checkbox or\n"
                           "radio; setting a radio to True clears the other same-name radios in the owning\n"
@@ -462,9 +463,73 @@ static th_node *next_option(th_node *current, th_node *root) {
     return NULL;
 }
 
+/* WHATWG: an option is disabled if its own disabled attribute is present or it is a
+   child of an optgroup whose disabled attribute is present. */
+static int option_disabled(th_node *option) {
+    if (find_node_attr(option, TH_ATTR_DISABLED) != NULL) {
+        return 1;
+    }
+    /* an option enumerated within a select always has a parent; only optgroup elements
+       carry this atom (text and content nodes are TH_TAG_UNKNOWN) */
+    th_node *group = option->parent;
+    return group->atom == TH_TAG_OPTGROUP && find_node_attr(group, TH_ATTR_DISABLED) != NULL;
+}
+
+/* WHATWG display size of a single (non-multiple) select: the parsed non-negative
+   integer of its size attribute when that parses to at least one digit, else 1. The
+   default-first-option reset fires only when the display size is 1. */
+static Py_ssize_t single_select_display_size(th_tree *tree, th_node *select) {
+    Py_ssize_t index = find_attr_index(tree, select, "size", 4);
+    if (index >= 0) {
+        const th_node_attr *size = &select->attrs[index];
+        if (size->value != NULL) {
+            Py_ssize_t cursor = 0;
+            while (cursor < size->value_len && is_space(size->value[cursor])) {
+                cursor++;
+            }
+            Py_ssize_t number = 0;
+            int digits = 0;
+            while (cursor < size->value_len && size->value[cursor] >= '0' && size->value[cursor] <= '9') {
+                number = number * 10 + (size->value[cursor] - '0');
+                if (number > 0xffff) { /* a display size past this is meaningless and guards overflow */
+                    number = 0xffff;
+                }
+                cursor++;
+                digits = 1;
+            }
+            if (digits) {
+                return number;
+            }
+        }
+    }
+    return 1;
+}
+
+/* The option a single (non-multiple) select resolves to: the last-marked selection
+   (a disabled option still wins, keeping its selectedness), else the default first
+   non-disabled option when the display size is 1, else NULL. Callers decide whether a
+   disabled result is submittable. */
+static th_node *single_select_selection(th_tree *tree, th_node *select) {
+    th_node *selected = NULL;
+    th_node *first_enabled = NULL;
+    for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
+        if (find_node_attr(option, TH_ATTR_SELECTED) != NULL) {
+            selected = option;
+        }
+        if (first_enabled == NULL && !option_disabled(option)) {
+            first_enabled = option;
+        }
+    }
+    if (selected != NULL) {
+        return selected;
+    }
+    /* parse the size attribute only when an enabled option could actually be the
+       default, so an empty or all-disabled select skips the scan */
+    return first_enabled != NULL && single_select_display_size(tree, select) == 1 ? first_enabled : NULL;
+}
+
 /* The value(s) of a select: a list[str] of the selected options for a multiple
-   select, else the selected option's value (the last marked selected, or the first
-   option as the default), or None when it has no options. */
+   select, else the resolved option's value, or None when no option is selected. */
 static PyObject *select_value(th_tree *tree, th_node *select) {
     if (find_node_attr(select, TH_ATTR_MULTIPLE) != NULL) {
         PyObject *values = PyList_New(0);
@@ -485,17 +550,7 @@ static PyObject *select_value(th_tree *tree, th_node *select) {
         }
         return values;
     }
-    th_node *chosen = NULL;
-    th_node *first = NULL;
-    for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
-        if (first == NULL) {
-            first = option;
-        }
-        if (find_node_attr(option, TH_ATTR_SELECTED) != NULL) {
-            chosen = option;
-        }
-    }
-    th_node *use = chosen != NULL ? chosen : first;
+    th_node *use = single_select_selection(tree, select);
     if (use == NULL) {
         Py_RETURN_NONE;
     }
@@ -795,13 +850,12 @@ static int emit_pair(PyObject *pairs, const th_node_attr *name, PyObject *value)
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on OOM */
 }
 
-/* Append each selected option of a select as a (name, value) pair: every selected
-   one for a multiple select, the selected (or default first) one otherwise,
-   skipping disabled options. */
+/* Append the submitted option(s) of a select as (name, value) pairs: every selected
+   non-disabled option for a multiple select, else the resolved single selection. */
 static int collect_select(th_tree *tree, th_node *select, const th_node_attr *name, PyObject *pairs) {
     if (find_node_attr(select, TH_ATTR_MULTIPLE) != NULL) {
         for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
-            if (find_node_attr(option, TH_ATTR_DISABLED) != NULL || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
+            if (option_disabled(option) || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
                 continue;
             }
             if (emit_pair(pairs, name, option_value_str(tree, option)) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
@@ -810,21 +864,8 @@ static int collect_select(th_tree *tree, th_node *select, const th_node_attr *na
         }
         return 0;
     }
-    th_node *chosen = NULL;
-    th_node *first = NULL;
-    for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
-        if (find_node_attr(option, TH_ATTR_DISABLED) != NULL) {
-            continue;
-        }
-        if (first == NULL) {
-            first = option;
-        }
-        if (find_node_attr(option, TH_ATTR_SELECTED) != NULL) {
-            chosen = option;
-        }
-    }
-    th_node *use = chosen != NULL ? chosen : first;
-    if (use == NULL) {
+    th_node *use = single_select_selection(tree, select);
+    if (use == NULL || option_disabled(use)) { /* a disabled resolved option is not submittable */
         return 0;
     }
     return emit_pair(pairs, name, option_value_str(tree, use));
@@ -868,9 +909,23 @@ PyDoc_STRVAR(form_data_doc, "form_data()\n--\n\n"
                             "entry-list rules. Controls without a non-empty name, disabled controls (their\n"
                             "own disabled or a disabled ancestor fieldset), buttons, and\n"
                             "file/submit/reset/image inputs are skipped; a checkbox or radio contributes\n"
-                            "only when checked, a select one pair per selected option. Controls are matched\n"
+                            "only when checked, a select one pair per selected non-disabled option (the\n"
+                            "default first option only when its display size is 1). Controls inside a\n"
+                            "template's contents have no form owner and are excluded. Controls are matched\n"
                             "by containment in the form.\n\n"
                             ":returns: the (name, value) pairs in document order.");
+
+/* The next node after current's whole subtree within root, skipping its descendants;
+   current is always a descendant of root, so the climb reaches root before NULL. */
+static th_node *after_subtree_within(th_node *current, th_node *root) {
+    while (current != root) {
+        if (current->next_sibling != NULL) {
+            return current->next_sibling;
+        }
+        current = current->parent;
+    }
+    return NULL;
+}
 
 static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_node *node = ((NodeObject *)self)->node;
@@ -885,11 +940,15 @@ static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored))
     }
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *control = preorder_next(node, node); control != NULL; control = preorder_next(control, node)) {
+    th_node *control = preorder_next(node, node);
+    while (control != NULL) {
         if (collect_control(tree, node, control, pairs) < 0) { /* GCOVR_EXCL_BR_LINE: fails only on OOM */
             error = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
             break;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        /* A template's contents live in a separate inert fragment; those controls have
+           no form owner, so skip the subtree instead of descending (WHATWG §4.10.3). */
+        control = control->atom == TH_TAG_TEMPLATE ? after_subtree_within(control, node) : preorder_next(control, node);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {          /* GCOVR_EXCL_BR_LINE: error is set only on an allocation failure */
