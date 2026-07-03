@@ -588,6 +588,9 @@ static int xt_pseudo_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
            XPath 1.0 string functions cannot inspect */
         ctx->error = ":dir() cannot be expressed in XPath 1.0";
         return 1;
+    case PSEUDO_ANY_LINK:
+        xt_text(&ctx->out, "((self::a or self::area) and @href)");
+        return 1;
     case PSEUDO_NEVER:
         xt_text(&ctx->out, "false()");
         return 1;

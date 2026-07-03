@@ -344,8 +344,6 @@ def test_detached_element_resolves_lang_and_dir_to_no_ancestor() -> None:
             ":target",
             ":target-within",
             ":visited",
-            ":link",
-            ":any-link",
         )
     ],
 )

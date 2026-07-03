@@ -78,6 +78,15 @@ def _sel(html: str, selector: str) -> list[str]:
         pytest.param("h2 ~ ul", ["ul"], id="general-sibling-scans-past-non-matches"),
         pytest.param("div > ul > li", [], id="child-chain-breaks-above-match"),
         pytest.param("h2 + ul", [], id="adjacent-compound-miss"),
+        # :link/:any-link reduce to :is(a, area)[href] on a parsed tree (issue #349)
+        pytest.param(":any-link", ["a"], id="any-link"),
+        pytest.param(":link", ["a"], id="link"),
+        pytest.param("a:any-link", ["a"], id="any-link-compound"),
+        pytest.param(
+            ":not(a:any-link)",
+            ["html", "head", "body", "section", "h2", "p", "p", "ul", "li", "li", "my-widget"],
+            id="not-any-link",
+        ),
         # grouping
         pytest.param("h2, a", ["h2", "a"], id="comma-group-in-document-order"),
         pytest.param("#nope", [], id="id-present-but-mismatched"),

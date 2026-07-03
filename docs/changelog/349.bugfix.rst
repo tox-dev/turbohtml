@@ -1,0 +1,3 @@
+``:link`` and ``:any-link`` now match in :meth:`~turbohtml.Node.select` and the rest of the selector API instead of
+selecting nothing. A parsed tree has no visit history, so both reduce to ``:is(a, area)[href]`` per HTML, letting a
+scraping selector like ``a:any-link`` find the links it names.

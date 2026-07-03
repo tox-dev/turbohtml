@@ -52,6 +52,9 @@ enum sel_pseudo {
     PSEUDO_DEFAULT,
     PSEUDO_LANG, /* §11.1, the comma list of ranges is stored as the value slice */
     PSEUDO_DIR,  /* §11.2, the direction (1 ltr, 2 rtl, 0 other) is stored in nth_a */
+    /* :link/:any-link: an unvisited or any hyperlink. A parsed tree has no visit
+       history, so both reduce to :is(a, area)[href] (HTML "the :link/:any-link") */
+    PSEUDO_ANY_LINK,
     /* live UA/interaction or navigation state a static tree cannot express: these
        parse as valid selectors but match nothing (so :is()/:not() still compose) */
     PSEUDO_NEVER,
@@ -497,8 +500,7 @@ static void sel_free_alts(sel_complex *alts, int count);
    parsed tree cannot express. They parse as valid selectors but match nothing,
    so :is()/:not() compositions stay usable instead of failing to compile. */
 static const char *const SEL_NEVER_PSEUDOS[] = {
-    "hover",  "focus",         "focus-within", "focus-visible", "active",
-    "target", "target-within", "visited",      "link",          "any-link",
+    "hover", "focus", "focus-within", "focus-visible", "active", "target", "target-within", "visited",
 };
 
 /* Parse the :dir() argument (pos just after '('): an identifier, mapped to the
@@ -603,6 +605,8 @@ static void sel_pseudo(sel_parser *parser, sel_simple *simple) {
         langdir = PSEUDO_LANG;
     } else if (sel_kw(name, name_len, "dir")) {
         langdir = PSEUDO_DIR;
+    } else if (sel_kw(name, name_len, "link") || sel_kw(name, name_len, "any-link")) {
+        simple->pseudo = PSEUDO_ANY_LINK;
     } else {
         for (size_t index = 0; index < sizeof(SEL_NEVER_PSEUDOS) / sizeof(SEL_NEVER_PSEUDOS[0]); index++) {
             if (sel_kw(name, name_len, SEL_NEVER_PSEUDOS[index])) {
@@ -1558,6 +1562,9 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
         return sel_matches_lang(node, simple);
     case PSEUDO_DIR:
         return sel_direction(ctx->tree, node) == simple->nth_a;
+    /* :link/:any-link: an a or area carrying an href (HTML "the :link/:any-link") */
+    case PSEUDO_ANY_LINK:
+        return (node->atom == TH_TAG_A || node->atom == TH_TAG_AREA) && sel_has_attr(node, TH_ATTR_HREF);
     /* live UA/interaction or navigation state a static tree cannot express */
     case PSEUDO_NEVER:
         return 0;
