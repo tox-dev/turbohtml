@@ -5,9 +5,9 @@
 .. package-meta:: htmldate adbar/htmldate
 
 `htmldate <https://htmldate.readthedocs.io/>`_ is the standalone publication-date finder underneath ``trafilatura``:
-``find_date(html)`` reads a page's ``<meta>`` tags, JSON-LD, ``<time>`` elements, URL, and visible text and returns
-the date as a string. :func:`turbohtml.extract.dates` covers that surface off the parsed DOM, with the knobs on one
-frozen :class:`~turbohtml.extract.DateExtraction` config.
+``find_date(html)`` reads a page's ``<meta>`` tags, JSON-LD, ``<time>`` elements, URL, and visible text and returns the
+date as a string. :func:`turbohtml.extract.dates` covers that surface off the parsed DOM, with the knobs on one frozen
+:class:`~turbohtml.extract.DateExtraction` config.
 
 ***************
  Why turbohtml
@@ -15,8 +15,8 @@ frozen :class:`~turbohtml.extract.DateExtraction` config.
 
 turbohtml reads the same signals htmldate reads, but over the WHATWG tree and the
 :meth:`~turbohtml.Document.structured_data` engine it already builds, so no second parse and no ``dateparser`` /
-``lxml`` dependency is pulled in. The result is a :class:`~turbohtml.extract.PublicationDate` that names the signal
-the date came from, not a bare string:
+``lxml`` dependency is pulled in. The result is a :class:`~turbohtml.extract.PublicationDate` that names the signal the
+date came from, not a bare string:
 
 .. testcode::
 
@@ -42,9 +42,9 @@ htmldate's tree-pruning text scoring:
     :file: bench/htmldate.json
 
 Over the 200 real-world news pages in htmldate's ``mediacloud`` evaluation set the two agree on 91% of inputs, and
-turbohtml matches the gold date on 85% (htmldate 89%). On htmldate's 55 hand-picked edge-case pages -- blogs and
-sparse pages tuned into htmldate's own suite -- turbohtml trails (69% against 96%): those need the boilerplate
-pruning and occurrence scoring called out under :ref:`htmldate-divergences`.
+turbohtml matches the gold date on 85% (htmldate 89%). On htmldate's 55 hand-picked edge-case pages -- blogs and sparse
+pages tuned into htmldate's own suite -- turbohtml trails (69% against 96%): those need the boilerplate pruning and
+occurrence scoring called out under :ref:`htmldate-divergences`.
 
 *************
  The renames
@@ -78,8 +78,8 @@ provenance:
 
     from turbohtml.extract import DateExtraction, dates
 
-    print(dates('<body><p>Posted July 4, 2016 by staff.</p></body>'))
-    print(dates('<meta name=date content=2010-01-01>', DateExtraction(min_date=date(2015, 1, 1))))
+    print(dates("<body><p>Posted July 4, 2016 by staff.</p></body>"))
+    print(dates("<meta name=date content=2010-01-01>", DateExtraction(min_date=date(2015, 1, 1))))
 
 .. testoutput::
 
@@ -92,12 +92,12 @@ provenance:
  Deliberate divergences and omissions
 **************************************
 
-turbohtml scores the structured date signals off the DOM; htmldate layers heavier heuristics on top, and skipping
-them is where the two part ways on sparse pages:
+turbohtml scores the structured date signals off the DOM; htmldate layers heavier heuristics on top, and skipping them
+is where the two part ways on sparse pages:
 
 - **No boilerplate pruning.** htmldate deletes comments, navigation, and footers before scanning text, then picks the
-  most frequent plausible date. turbohtml scores the structured signals (meta, JSON-LD, time, URL) first and only
-  falls back to the modal date in the visible text, without pruning the tree.
+  most frequent plausible date. turbohtml scores the structured signals (meta, JSON-LD, time, URL) first and only falls
+  back to the modal date in the visible text, without pruning the tree.
 - **No ``dateparser`` fallback.** Date strings are parsed with the standard library: ISO 8601, the common numeric
   spellings, an 8-digit stamp, and a compact English/German/French/Spanish/Italian month vocabulary. htmldate's
   ``dateparser`` reaches more locales and free-form phrasings.
@@ -114,7 +114,7 @@ them is where the two part ways on sparse pages:
   ``DateExtraction(original=True)`` for the first-published date.
 - :func:`~turbohtml.extract.dates` returns ``None`` or a :class:`~turbohtml.extract.PublicationDate`, never a bare
   string. Use ``result.date`` where htmldate code expects the ``str``, guarding the ``None`` first.
-- There is no ``url=`` parameter: the date is read from the markup's own ``<link rel=canonical>`` or ``og:url``. Pass
-  a page that carries the canonical link when the URL is the only date signal.
-- ``extensive_search`` is on by default, as in htmldate; turn it off to read only the structured signals and never
-  scan visible text.
+- There is no ``url=`` parameter: the date is read from the markup's own ``<link rel=canonical>`` or ``og:url``. Pass a
+  page that carries the canonical link when the URL is the only date signal.
+- ``extensive_search`` is on by default, as in htmldate; turn it off to read only the structured signals and never scan
+  visible text.
