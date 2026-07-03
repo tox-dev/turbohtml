@@ -47,6 +47,7 @@ def test_clean_scrubs_markup_damage(url: str, expected: str) -> None:
         pytest.param("http://", id="empty-host"),
         pytest.param("http://localhost/x", id="dotless-host"),
         pytest.param("http://[::1/x", id="unsplittable"),
+        pytest.param("http://a.com/\udce9", id="lone-surrogate-unencodable"),
         pytest.param("", id="empty-string"),
     ],
 )

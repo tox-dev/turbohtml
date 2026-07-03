@@ -1,0 +1,2 @@
+:func:`turbohtml.extract.clean_url` now returns ``None`` for a URL carrying a lone surrogate instead of raising
+``UnicodeEncodeError``, honoring its documented ``str | None`` contract as ``courlan.clean_url`` does.

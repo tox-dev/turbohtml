@@ -189,7 +189,10 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
         return None
     if active.language is not None and not _language_matches(parts, active.language, strict=active.strict):
         return None
-    return _normalize(parts, active)
+    try:
+        return _normalize(parts, active)
+    except UnicodeEncodeError:  # a lone surrogate the percent-encoder cannot UTF-8 encode: not a fetchable web URL
+        return None
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
