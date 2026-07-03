@@ -24,45 +24,48 @@
 #endif
 
 typedef struct {
-    PyObject *token_type;           /* Token */
-    PyObject *tokenizer_type;       /* Tokenizer */
-    PyObject *iter_type;            /* the iterator returned by feed()/close()/tokenize() */
-    PyObject *kind_enum;            /* TokenType (enum.IntEnum) */
-    PyObject *kinds[6];             /* cached TokenType members, indexed by enum th_kind */
-    PyObject *node_type;            /* Node (the sealed-hierarchy base) */
-    PyObject *element_type;         /* Element */
-    PyObject *text_type;            /* Text */
-    PyObject *comment_type;         /* Comment */
-    PyObject *doctype_type;         /* Doctype */
-    PyObject *pi_type;              /* ProcessingInstruction */
-    PyObject *cdata_type;           /* CData */
-    PyObject *document_type;        /* Document */
-    PyObject *parser_type;          /* IncrementalParser (push parse to a tree) */
-    PyObject *parse_error_type;     /* ParseError (a collected WHATWG parse error) */
-    PyObject *parse_error_exc;      /* HTMLParseError (raised by parse(strict=True)) */
-    PyObject *handle_type;          /* _TreeHandle (owns th_tree + the input str) */
-    PyObject *attrs_type;           /* _Attrs (the live mutable view of an element's attributes) */
-    PyObject *walker_type;          /* _NodeIterator (descendants / ancestors / siblings) */
-    PyObject *string_walker_type;   /* _StringIterator (strings / stripped_strings) */
-    PyObject *namespace_enum;       /* Namespace (enum.Enum) */
-    PyObject *namespaces[3];        /* cached Namespace members, indexed by enum th_ns */
-    PyObject *axis_enum;            /* Axis (enum.Enum) for find()/find_all() */
-    PyObject *axes[7];              /* cached Axis members, indexed by enum th_axis */
-    PyObject *formatter_enum;       /* Formatter (enum.Enum) for serialize()/encode() */
-    PyObject *formatters[3];        /* cached Formatter members, indexed by enum th_formatter */
-    PyObject *minify_type;          /* Minify (a serialize(layout=...) mode) */
-    PyObject *indent_type;          /* Indent (a serialize(layout=...) mode) */
-    PyObject *pattern_type;         /* re.Pattern, to recognize a compiled-regex filter */
-    PyObject *re_compile;           /* re.compile, to turn a str pattern into a program for re()/re_first() */
-    PyObject *markup_type;          /* turbohtml.markup.Markup, stamped onto escape() results */
-    PyObject *xpath_string_type;    /* turbohtml._xpath.XPathString, for smart_strings xpath() results */
-    PyObject *xpath_type;           /* XPath, the precompiled reusable expression object */
-    PyObject *link_type;            /* turbohtml._links.Link, the (element, attribute, url) record links() yields */
-    PyObject *json_ld_parser;       /* turbohtml._structured_data._parse_json_ld, the JSON-LD text parser */
-    PyObject *microdata_item_type;  /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
-    PyObject *structured_data_type; /* turbohtml._structured_data.StructuredData, the combined-format record */
-    PyObject *article_type;         /* turbohtml._article.Article, the record Node.article() yields */
-    PyObject *js_minify_type;       /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
+    PyObject *token_type;            /* Token */
+    PyObject *tokenizer_type;        /* Tokenizer */
+    PyObject *iter_type;             /* the iterator returned by feed()/close()/tokenize() */
+    PyObject *kind_enum;             /* TokenType (enum.IntEnum) */
+    PyObject *kinds[6];              /* cached TokenType members, indexed by enum th_kind */
+    PyObject *node_type;             /* Node (the sealed-hierarchy base) */
+    PyObject *element_type;          /* Element */
+    PyObject *text_type;             /* Text */
+    PyObject *comment_type;          /* Comment */
+    PyObject *doctype_type;          /* Doctype */
+    PyObject *pi_type;               /* ProcessingInstruction */
+    PyObject *cdata_type;            /* CData */
+    PyObject *document_type;         /* Document */
+    PyObject *parser_type;           /* IncrementalParser (push parse to a tree) */
+    PyObject *parse_error_type;      /* ParseError (a collected WHATWG parse error) */
+    PyObject *parse_error_exc;       /* HTMLParseError (raised by parse(strict=True)) */
+    PyObject *handle_type;           /* _TreeHandle (owns th_tree + the input str) */
+    PyObject *attrs_type;            /* _Attrs (the live mutable view of an element's attributes) */
+    PyObject *walker_type;           /* _NodeIterator (descendants / ancestors / siblings) */
+    PyObject *string_walker_type;    /* _StringIterator (strings / stripped_strings) */
+    PyObject *namespace_enum;        /* Namespace (enum.Enum) */
+    PyObject *namespaces[3];         /* cached Namespace members, indexed by enum th_ns */
+    PyObject *axis_enum;             /* Axis (enum.Enum) for find()/find_all() */
+    PyObject *axes[7];               /* cached Axis members, indexed by enum th_axis */
+    PyObject *formatter_enum;        /* Formatter (enum.Enum) for serialize()/encode() */
+    PyObject *formatters[3];         /* cached Formatter members, indexed by enum th_formatter */
+    PyObject *minify_type;           /* Minify (a serialize(layout=...) mode) */
+    PyObject *indent_type;           /* Indent (a serialize(layout=...) mode) */
+    PyObject *pattern_type;          /* re.Pattern, to recognize a compiled-regex filter */
+    PyObject *re_compile;            /* re.compile, to turn a str pattern into a program for re()/re_first() */
+    PyObject *markup_type;           /* turbohtml.markup.Markup, stamped onto escape() results */
+    PyObject *xpath_string_type;     /* turbohtml._xpath.XPathString, for smart_strings xpath() results */
+    PyObject *xpath_type;            /* XPath, the precompiled reusable expression object */
+    PyObject *link_type;             /* turbohtml._links.Link, the (element, attribute, url) record links() yields */
+    PyObject *json_ld_parser;        /* turbohtml._structured_data._parse_json_ld, the JSON-LD text parser */
+    PyObject *microdata_item_type;   /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
+    PyObject *structured_data_type;  /* turbohtml._structured_data.StructuredData, the combined-format record */
+    PyObject *article_type;          /* turbohtml._article.Article, the record Node.article() yields */
+    PyObject *js_minify_type;        /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
+    PyObject *markdown_config_type;  /* turbohtml._render.Markdown, the to_markdown() options type */
+    PyObject *plaintext_config_type; /* turbohtml._render.PlainText, the to_text()/to_annotated_text() options type */
+    PyObject *html_config_type;      /* turbohtml._render.Html, the serialize()/encode() options type */
     /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one
        NodeObject per visited node, and every node subtype shares sizeof(NodeObject)
        (the payload lives in the C th_node), so one pool re-stamps ob_type on reuse.

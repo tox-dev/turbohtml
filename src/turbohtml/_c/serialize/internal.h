@@ -566,10 +566,15 @@ static inline int is_md_block(uint16_t atom) {
     }
 }
 
-/* Tags whose entire subtree contributes nothing to a text/markdown rendering:
-   document metadata and scripts. */
-static inline int is_md_skipped(uint16_t atom) {
-    return atom == TH_TAG_HEAD || atom == TH_TAG_SCRIPT || atom == TH_TAG_STYLE;
+/* Elements whose entire subtree contributes nothing to a text/markdown rendering:
+   document metadata and scripts. <script>/<style> hold code, not prose, in every
+   namespace (an inline-SVG stylesheet is CSS just like an HTML one), so they are
+   dropped regardless of ns; <head> is an HTML-only concept. */
+static inline int is_md_skipped(const th_node *node) {
+    if (node->atom == TH_TAG_SCRIPT || node->atom == TH_TAG_STYLE) {
+        return 1;
+    }
+    return node->ns == TH_NS_HTML && node->atom == TH_TAG_HEAD;
 }
 
 static inline int md_is_ws(Py_UCS4 c) {

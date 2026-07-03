@@ -348,7 +348,7 @@ static void text_render_inline_element(text_ctx *ctx, th_node *node, uint16_t at
     if (atom == TH_TAG_WBR) {
         return;
     }
-    if (is_md_skipped(atom)) {
+    if (is_md_skipped(node)) {
         return;
     }
     text_inline_children(ctx, node);
@@ -411,7 +411,7 @@ static int text_leads_with_inline(text_ctx *ctx, th_node *node) {
             continue;
         }
         uint16_t atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
-        if (is_md_skipped(atom)) {
+        if (is_md_skipped(child)) {
             continue;
         }
         return !is_md_block(atom);
@@ -426,7 +426,7 @@ static void text_block_children(text_ctx *ctx, th_node *node) {
         int block = 0;
         if (child->type == TH_NODE_ELEMENT) {
             atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
-            if (is_md_skipped(atom)) {
+            if (is_md_skipped(child)) {
                 continue;
             }
             block = is_md_block(atom);
@@ -462,35 +462,58 @@ static void text_block_children(text_ctx *ctx, th_node *node) {
     }
 }
 
+/* Read a non-negative decimal ordinal from an attribute (an <ol start> or an
+   <li value>), storing its leading-digit value in *out; returns 1 when the
+   attribute is present and begins with a digit, 0 otherwise. */
+static int text_ordinal_attr(text_ctx *ctx, th_node *node, const char *name, Py_ssize_t *out) {
+    Py_ssize_t len;
+    const Py_UCS4 *attr = text_attr(ctx->tree, node, name, &len);
+    if (attr == NULL) {
+        return 0;
+    }
+    Py_ssize_t value = 0;
+    int seen = 0;
+    for (Py_ssize_t i = 0; i < len && attr[i] >= '0' && attr[i] <= '9'; i++) {
+        value = value * 10 + (attr[i] - '0');
+        seen = 1;
+    }
+    if (seen) {
+        *out = value;
+    }
+    return seen;
+}
+
 static void text_render_list(text_ctx *ctx, th_node *node, int ordered) {
     Py_ssize_t number = 1;
     if (ordered) {
-        Py_ssize_t start_len;
-        const Py_UCS4 *start = text_attr(ctx->tree, node, "start", &start_len);
-        if (start != NULL) {
-            Py_ssize_t value = 0;
-            int seen = 0;
-            for (Py_ssize_t i = 0; i < start_len; i++) {
-                if (start[i] >= '0' && start[i] <= '9') {
-                    value = value * 10 + (start[i] - '0');
-                    seen = 1;
-                } else {
-                    break;
-                }
-            }
-            if (seen) {
-                number = value;
-            }
-        }
+        text_ordinal_attr(ctx, node, "start", &number);
     }
     ctx->list_depth++;
+    Py_ssize_t sub_indent = 2; /* how far a bare nested list indents: the last marker's width */
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML || child->atom != TH_TAG_LI) {
+        if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML) {
+            continue;
+        }
+        if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
+            /* a list nested directly in a list (a sibling of the <li>s) belongs to
+               the preceding item; the parser makes this shape and skipping it would
+               drop every nested item's text */
+            Py_ssize_t base = text_push_indent(ctx, sub_indent);
+            int saved_tight = ctx->tight;
+            ctx->tight = 1;
+            text_render_block(ctx, child);
+            ctx->tight = saved_tight;
+            ctx->prefix.len = base;
+            continue;
+        }
+        if (child->atom != TH_TAG_LI) {
             continue;
         }
         text_block_line(ctx, 0);
         Py_ssize_t width;
         if (ordered) {
+            /* WHATWG: <li value> sets this item's ordinal; the rest count up from it */
+            text_ordinal_attr(ctx, child, "value", &number);
             width = md_put_decimal(&ctx->out, number) + 2;
             text_emit_ascii(ctx, ". ");
             number++;
@@ -501,6 +524,7 @@ static void text_render_list(text_ctx *ctx, th_node *node, int ordered) {
         }
         ctx->column = (int)(ctx->prefix.len + width);
         ctx->line_has_content = 1;
+        sub_indent = width;
         Py_ssize_t base = text_push_indent(ctx, width);
         int saved_tight = ctx->tight;
         ctx->tight = 1;

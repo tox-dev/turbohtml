@@ -150,6 +150,9 @@ from ._stubs.serialize import (
     _register_js_minify as _register_js_minify,
 )
 from ._stubs.serialize import (
+    _register_render_configs as _register_render_configs,
+)
+from ._stubs.serialize import (
     escape as escape,
 )
 from ._stubs.serialize import (

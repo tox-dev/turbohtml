@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Literal
 
-from ._html import Formatter, Indent, Minify
+from ._html import Formatter, Indent, Minify, _register_render_configs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -369,6 +369,8 @@ class Html:
 
 
 _HTML_DEFAULT = Html()
+
+_register_render_configs(Markdown, PlainText, Html)
 
 
 __all__ = [

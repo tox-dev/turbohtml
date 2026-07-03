@@ -1,0 +1,4 @@
+A list item with more than one paragraph now renders as a CommonMark loose item by :meth:`~turbohtml.Node.to_markdown`:
+the first paragraph rides the bullet marker and a blank line separates the blocks, with each later block indented under
+the marker, so ``<li><p>first</p><p>second</p></li>`` becomes a loose ``- first`` item rather than an empty bullet
+followed by the two paragraphs merged onto indented lines.

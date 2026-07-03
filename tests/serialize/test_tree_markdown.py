@@ -48,6 +48,8 @@ def test_headings(html: str, expected: str) -> None:
         pytest.param("<p>a\n  b\t c</p>", "a b c", id="collapse-whitespace"),
         pytest.param("<p>  leading trailing  </p>", "leading trailing", id="trim-edges"),
         pytest.param("<section><p>x</p></section>", "x", id="transparent-container"),
+        pytest.param("<p>x<svg><style>.c{fill:red}</style></svg>y</p>", "xy", id="svg-style-suppressed"),
+        pytest.param("<p>x<svg><script>a=1</script></svg>y</p>", "xy", id="svg-script-suppressed"),
     ],
 )
 def test_blocks_and_whitespace(html: str, expected: str) -> None:
@@ -83,9 +85,30 @@ def test_inline_emphasis(html: str, expected: str) -> None:
         pytest.param('<p><a href="/p" title="T">l</a></p>', '[l](/p "T")', id="link-title"),
         pytest.param("<p><a>no href</a></p>", "no href", id="link-no-href"),
         pytest.param('<p><a href="a b">l</a></p>', "[l](<a b>)", id="link-space-url"),
+        pytest.param(
+            '<a href="http://x.com" title="The &quot;Goog&quot;">G</a>',
+            '[G](http://x.com "The \\"Goog\\"")',
+            id="link-title-escapes-quote",
+        ),
+        pytest.param('<a href="http://x"><div>hi</div></a>', "[hi](http://x)", id="block-in-anchor-flattens"),
+        pytest.param(
+            '<a href="http://x"><div><img src="http://y/i.png"></div></a>',
+            "[![](http://y/i.png)](http://x)",
+            id="block-image-in-anchor-flattens",
+        ),
         pytest.param('<p><img src="i.png" alt="cat"></p>', "![cat](i.png)", id="image"),
         pytest.param("<p><img></p>", "![]()", id="image-empty"),
         pytest.param('<p><img src="a b.png" alt="x"></p>', "![x](<a b.png>)", id="image-space-url"),
+        pytest.param('<img src="/i.jpg" alt="a]b">', "![a\\]b](/i.jpg)", id="image-alt-escapes-bracket"),
+        pytest.param(
+            '<img src="/i.jpg" alt="a[b\\c">', "![a\\[b\\\\c](/i.jpg)", id="image-alt-escapes-open-and-backslash"
+        ),
+        pytest.param('<a href="/u" title="a\\b">L</a>', '[L](/u "a\\\\b")', id="link-title-escapes-backslash"),
+        pytest.param(
+            '<img src="/i.jpg" alt="Alt text" title="Optional title">',
+            '![Alt text](/i.jpg "Optional title")',
+            id="image-title",
+        ),
     ],
 )
 def test_links_and_images(html: str, expected: str) -> None:
@@ -106,6 +129,16 @@ def test_links_and_images(html: str, expected: str) -> None:
         ),
         pytest.param("<pre>raw\ntext</pre>", "```\nraw\ntext\n```", id="pre-no-code"),
         pytest.param("<pre><code>a```b</code></pre>", "````\na```b\n````", id="pre-grows-fence"),
+        pytest.param(
+            "First <code>blah blah<br />blah blah</code> second",
+            "First `blah blah blah blah` second",
+            id="br-in-code-keeps-boundary",
+        ),
+        pytest.param(
+            "<p>x <code>a<span>b</span><svg>s</svg><template>t</template><!--c-->d</code> y</p>",
+            "x `abstd` y",
+            id="code-span-flattens-nested-content",
+        ),
     ],
 )
 def test_code(html: str, expected: str) -> None:
@@ -134,6 +167,33 @@ def test_code(html: str, expected: str) -> None:
             "<ul><li><ul><li>only</li></ul></li></ul>",
             "- \n  - only",
             id="nested-without-leading-text",
+        ),
+        pytest.param(
+            "<ul><li>a</li><ul><li>b</li><li>c</li></ul><li>d</li></ul>",
+            "- a\n  - b\n  - c\n- d",
+            id="list-nested-directly-in-list",
+        ),
+        pytest.param(
+            "<ol><li>a</li><ol><li>b</li></ol><menu><li>c</li></menu></ol>",
+            "1. a\n   1. b\n   - c",
+            id="ordered-and-menu-nested-directly-in-list",
+        ),
+        pytest.param("<ul><li><em>a</em> b <strong>c</strong></li></ul>", "- *a* b **c**", id="item-inline-run"),
+        pytest.param(
+            "<ul><li><p>first para</p><p>second para</p></li></ul>",
+            "- first para\n\n  second para",
+            id="loose-item-two-paragraphs",
+        ),
+        pytest.param(
+            "<ol><li><p>first para</p><p>second para</p></li></ol>",
+            "1. first para\n\n   second para",
+            id="loose-ordered-item-two-paragraphs",
+        ),
+        pytest.param("<ul><li><p>solo</p></li></ul>", "- solo", id="single-paragraph-item-rides-marker"),
+        pytest.param(
+            "<ul><li><p>a</p><p>b</p></li><li>c</li></ul>",
+            "- a\n\n  b\n\n- c",
+            id="one-loose-item-makes-the-list-loose",
         ),
     ],
 )

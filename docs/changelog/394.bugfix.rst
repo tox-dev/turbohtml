@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.to_markdown` now escapes a ``]`` (and ``[``) in an image ``alt``, matching the escaping already
+applied to link text, so ``<img src="/i.jpg" alt="a]b">`` renders ``![a\]b](/i.jpg)`` and the bracket no longer closes
+the image description early.

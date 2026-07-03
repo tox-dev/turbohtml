@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.to_text` now honors the ``value`` attribute on an ``<li>``, which per WHATWG HTML sets that
+item's ordinal with the following items counting up from it, so ``<ol><li value="100">Coffee</li><li>Tea</li></ol>``
+numbers ``100.`` then ``101.``. It already honored ``<ol start>``.

@@ -470,24 +470,28 @@ static int md_build_tag_filter(PyObject *seq, md_opts *opt, int mode) {
    object's non-default values) or NULL for every default. */
 typedef PyObject *(*node_render_fn)(PyObject *self, PyObject *spec);
 
-/* Unpack a renderer's config object to its keyword dict via _unpack(); a value that is
-   not the expected config type has no _unpack, so the AttributeError is replaced with a
-   clear TypeError naming the type. Returns a new dict reference, or NULL with the error
-   set. */
-static PyObject *config_unpack(PyObject *options, const char *type_name) {
-    PyObject *spec = PyObject_CallMethod(options, "_unpack", NULL);
-    if (spec == NULL) {
-        PyErr_Clear();
-        PyErr_Format(PyExc_TypeError, "options must be a %s, not %.200s", type_name, Py_TYPE(options)->tp_name);
+/* Unpack a renderer's config object to its keyword dict via _unpack(). The three
+   config classes each expose _unpack, so duck-typing would silently accept the
+   wrong one (a PlainText handed to to_markdown); the isinstance check against the
+   expected type rejects it with a clear TypeError naming the type. Returns a new
+   dict reference, or NULL with the error set. */
+static PyObject *config_unpack(PyObject *options, PyObject *expected_type, const char *type_name) {
+    int matches = PyObject_IsInstance(options, expected_type);
+    if (matches < 0) { /* GCOVR_EXCL_BR_LINE: a real class second argument never raises */
+        return NULL;   /* GCOVR_EXCL_LINE: unreachable isinstance-error path */
     }
-    return spec;
+    if (!matches) {
+        PyErr_Format(PyExc_TypeError, "options must be a %s, not %.200s", type_name, Py_TYPE(options)->tp_name);
+        return NULL;
+    }
+    return PyObject_CallMethod(options, "_unpack", NULL);
 }
 
 /* The shared dispatch for a renderer whose only argument is a config object: parse
    the single optional `options`, unpack it to the renderer keyword dict (or NULL for
    the defaults), and render. The unpacked dict owns the borrowed values for the call. */
 static PyObject *node_render_with_options(PyObject *self, PyObject *args, PyObject *kwds, node_render_fn render,
-                                          const char *type_name) {
+                                          PyObject *expected_type, const char *type_name) {
     PyObject *options = NULL;
     static char *kw[] = {"options", NULL};
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O", kw, &options)) {
@@ -496,7 +500,7 @@ static PyObject *node_render_with_options(PyObject *self, PyObject *args, PyObje
     if (options == NULL || options == Py_None) {
         return render(self, NULL);
     }
-    PyObject *spec = config_unpack(options, type_name);
+    PyObject *spec = config_unpack(options, expected_type, type_name);
     if (spec == NULL) {
         return NULL;
     }
@@ -661,7 +665,8 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
 }
 
 static PyObject *node_to_markdown(PyObject *self, PyObject *args, PyObject *kwds) {
-    return node_render_with_options(self, args, kwds, node_markdown_render, "Markdown");
+    return node_render_with_options(self, args, kwds, node_markdown_render, state_of(self)->markdown_config_type,
+                                    "Markdown");
 }
 
 PyDoc_STRVAR(to_text_doc, "to_text(options=None)\n--\n\n"
@@ -717,7 +722,8 @@ static PyObject *node_text_render(PyObject *self, PyObject *spec) {
 }
 
 static PyObject *node_to_text(PyObject *self, PyObject *args, PyObject *kwds) {
-    return node_render_with_options(self, args, kwds, node_text_render, "PlainText");
+    return node_render_with_options(self, args, kwds, node_text_render, state_of(self)->plaintext_config_type,
+                                    "PlainText");
 }
 
 /* Parse one annotation_rules entry ("tag", "tag#attr", "tag#attr=value", or
@@ -860,7 +866,7 @@ static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject
     if (options == NULL || options == Py_None) {
         return node_annotated_render(self, rules_dict, NULL);
     }
-    PyObject *spec = config_unpack(options, "PlainText");
+    PyObject *spec = config_unpack(options, state_of(self)->plaintext_config_type, "PlainText");
     if (spec == NULL) {
         return NULL;
     }
@@ -958,6 +964,21 @@ static PyObject *node_main_text(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *turbohtml_register_article(PyObject *module, PyObject *type) {
     module_state *state = PyModule_GetState(module);
     Py_XSETREF(state->article_type, Py_NewRef(type));
+    Py_RETURN_NONE;
+}
+
+/* Store the Markdown/PlainText/Html config types so to_markdown()/to_text()/serialize()
+   reject the wrong config with a type check; turbohtml._render registers them on import. */
+PyObject *turbohtml_register_render_configs(PyObject *module, PyObject *args) {
+    PyObject *markdown, *plaintext, *html;
+    if (!PyArg_ParseTuple(args, "OOO", &markdown, &plaintext, &html)) { /* GCOVR_EXCL_BR_LINE: the facade
+                                          always registers with the three config classes */
+        return NULL;                                                    /* GCOVR_EXCL_LINE: argument-error path */
+    }
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->markdown_config_type, Py_NewRef(markdown));
+    Py_XSETREF(state->plaintext_config_type, Py_NewRef(plaintext));
+    Py_XSETREF(state->html_config_type, Py_NewRef(html));
     Py_RETURN_NONE;
 }
 
@@ -1513,7 +1534,7 @@ static PyObject *node_serialize_options(PyObject *self, PyObject *options, const
     if (options == NULL || options == Py_None) {
         return node_serialize_str(self, NULL, NULL, 0, 0, charset);
     }
-    PyObject *spec = config_unpack(options, "Html");
+    PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
     if (spec == NULL) {
         return NULL;
     }

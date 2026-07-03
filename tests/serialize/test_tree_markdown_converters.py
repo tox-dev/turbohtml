@@ -80,7 +80,7 @@ def test_converter_on_foreign_element() -> None:
             "a\n\n<<x>>\n\nb",
             id="block-between-paragraphs",
         ),
-        pytest.param("<ul><li>one<div>x</div></li></ul>", "- one\n  <<x>>", id="block-in-list-item"),
+        pytest.param("<ul><li>one<div>x</div></li></ul>", "- one\n\n  <<x>>", id="block-in-list-item"),
         pytest.param(
             "<blockquote><div>x</div></blockquote>",
             "> <<x>>",
@@ -96,7 +96,7 @@ def test_block_converter_multiline_keeps_prefix() -> None:
     out = parse("<ul><li>one<div>x</div></li></ul>").to_markdown(
         Markdown(converters={"div": lambda _e, _t: "line1\nline2"}),
     )
-    assert out == "- one\n  line1\n  line2"
+    assert out == "- one\n\n  line1\n  line2"
 
 
 def test_empty_converter_result_emits_nothing() -> None:

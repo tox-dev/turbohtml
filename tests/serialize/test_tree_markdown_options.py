@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Markdown, parse
+from turbohtml import Markdown, PlainText, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -451,6 +451,11 @@ def test_explicit_none_is_the_default() -> None:
 def test_options_must_be_a_markdown() -> None:
     with pytest.raises(TypeError, match="options must be a Markdown"):
         parse("<p>x</p>").to_markdown(object())  # ty: ignore[invalid-argument-type]  # pass a non-Markdown to test the type error
+
+
+def test_rejects_another_renderers_config() -> None:
+    with pytest.raises(TypeError, match="options must be a Markdown, not PlainText"):
+        parse("<p>x</p>").to_markdown(PlainText())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected
 
 
 def test_rejects_extra_positional() -> None:

@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.to_text` now keeps the text of a list nested directly inside another list -- a ``<ul>``/``<ol>``
+that is a sibling of the ``<li>`` items rather than wrapped in one -- rendering it indented under the preceding item. It
+previously dropped the whole nested subtree.

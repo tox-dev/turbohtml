@@ -1,0 +1,4 @@
+A block element such as ``<div>`` or ``<p>`` inside an ``<a>`` no longer breaks :meth:`~turbohtml.Node.to_markdown` link
+output. The block flattens to inline within the link text instead of injecting a blank line, so ``<a
+href="http://x"><div>hi</div></a>`` renders the valid ``[hi](http://x)`` rather than a ``[`` paragraph followed by a
+stray ``hi](http://x)``.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import Element, Html, Indent, Minify, parse
+from turbohtml import Element, Html, Indent, Markdown, Minify, parse
 
 # ----------------------------------------------------------------- sort_attributes
 
@@ -229,3 +229,8 @@ def test_encode_sort_attributes() -> None:
     node = parse("<p z=1 a=2>x").select_one("p")
     assert node is not None
     assert node.encode(options=Html(sort_attributes=True)) == b'<p a="2" z="1">x</p>'
+
+
+def test_serialize_rejects_another_renderers_config() -> None:
+    with pytest.raises(TypeError, match="options must be a Html, not Markdown"):
+        parse("<p>x</p>").serialize(Markdown())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected

@@ -1,0 +1,5 @@
+:meth:`~turbohtml.Node.to_markdown`, :meth:`~turbohtml.Node.to_text` and :meth:`~turbohtml.Node.to_annotated_text` now
+reject a config object of the wrong renderer class with ``TypeError: options must be a Markdown, not PlainText``. The
+option was duck-typed on its ``_unpack`` method, which all three config classes expose, so a
+:class:`~turbohtml.PlainText` handed to ``to_markdown`` was silently accepted; :meth:`~turbohtml.Node.serialize` and
+:meth:`~turbohtml.Node.encode` gain the same check against :class:`~turbohtml.Html`.

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import PlainText, parse
+from turbohtml import Markdown, PlainText, parse
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,6 +34,8 @@ def to_text(html: str, opts: PlainText) -> str:
         pytest.param("<section><p>x</p></section>", PlainText(), "x", id="transparent-container"),
         pytest.param("<head><title>t</title></head><body>x</body>", PlainText(), "x", id="head-skipped"),
         pytest.param("<p>a</p><script>s()</script><p>b</p>", PlainText(), "a\n\nb", id="script-skipped"),
+        pytest.param("<p>x<svg><style>.c{fill:red}</style></svg>y</p>", PlainText(), "xy", id="svg-style-suppressed"),
+        pytest.param("<p>x<svg><script>a=1</script></svg>y</p>", PlainText(), "xy", id="svg-script-suppressed"),
     ],
 )
 def test_blocks(html: str, opts: PlainText, expected: str) -> None:
@@ -51,6 +53,30 @@ def test_blocks(html: str, opts: PlainText, expected: str) -> None:
         pytest.param("<ul><li>x</li></ul>", PlainText(bullet="- "), "- x", id="custom-bullet"),
         pytest.param("<ul><li> <ul><li>x</li></ul></li></ul>", PlainText(), "*\n  * x", id="li-leading-ws"),
         pytest.param("<ul><li></li></ul>", PlainText(), "*", id="empty-li"),
+        pytest.param(
+            "<ul><li>A</li><ul><li>B</li><li>C</li></ul><li>D</li></ul>",
+            PlainText(),
+            "* A\n  * B\n  * C\n* D",
+            id="list-nested-directly-in-list",
+        ),
+        pytest.param(
+            "<ul><li>A</li><ol><li>B</li></ol><menu><li>C</li></menu></ul>",
+            PlainText(),
+            "* A\n  1. B\n  * C",
+            id="ordered-and-menu-nested-directly-in-list",
+        ),
+        pytest.param(
+            '<ol><li value="100">Coffee</li><li>Tea</li><li>Milk</li></ol>',
+            PlainText(),
+            "100. Coffee\n101. Tea\n102. Milk",
+            id="li-value-sets-ordinal",
+        ),
+        pytest.param(
+            '<ol><li>a</li><li value="7">b</li><li>c</li></ol>',
+            PlainText(),
+            "1. a\n7. b\n8. c",
+            id="li-value-restarts-run",
+        ),
     ],
 )
 def test_lists(html: str, opts: PlainText, expected: str) -> None:
@@ -224,6 +250,11 @@ def test_explicit_none_is_the_default() -> None:
 def test_options_must_be_a_plain_text() -> None:
     with pytest.raises(TypeError, match="options must be a PlainText"):
         parse("<p>x</p>").to_text(object())  # ty: ignore[invalid-argument-type]  # pass a non-PlainText to test the type error
+
+
+def test_rejects_another_renderers_config() -> None:
+    with pytest.raises(TypeError, match="options must be a PlainText, not Markdown"):
+        parse("<p>x</p>").to_text(Markdown())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected
 
 
 def test_to_text_on_subtree_and_text_node() -> None:

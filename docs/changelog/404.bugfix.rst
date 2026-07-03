@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.to_text` no longer leaks the CSS of an SVG-namespaced ``<style>`` (or the code of an SVG
+``<script>``) into the output. ``<style>`` and ``<script>`` content is now suppressed in every namespace, as an
+HTML-namespace one already was; :meth:`~turbohtml.Node.to_markdown` gains the same fix.

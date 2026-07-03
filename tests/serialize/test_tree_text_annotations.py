@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import PlainText, parse
+from turbohtml import Markdown, PlainText, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -154,6 +154,11 @@ def test_links_and_options_compose_with_annotations() -> None:
     )
     assert text2 == "site (http://x)"
     assert [text2[s:e] for s, e, _ in labels2] == ["site (http://x)"]
+
+
+def test_rejects_another_renderers_config() -> None:
+    with pytest.raises(TypeError, match="options must be a PlainText, not Markdown"):
+        parse("<p>x</p>").to_annotated_text({"a": ["link"]}, Markdown())  # ty: ignore[invalid-argument-type]  # wrong config class
 
 
 def test_many_spans_grow_the_buffer() -> None:

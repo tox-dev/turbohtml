@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` now emits an image ``title``, so ``<img src="/i.jpg" alt="Alt" title="Optional">``
+renders ``![Alt](/i.jpg "Optional")``; the attribute was previously dropped.

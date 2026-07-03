@@ -119,6 +119,7 @@ typedef struct {
     int space_pending;    /* a collapsed-away whitespace run is owed one space */
     int pending_word;     /* code points in the word the owed space precedes, for greedy wrapping */
     int no_wrap;          /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
+    int inline_only;      /* >0 inside link text: a block flattens to inline, never opens a line */
     int drop_space;       /* swallow the next pending space (block/inline start) without emitting */
     int pending_loose;    /* the previous block wants a blank line after it */
     int suppress_break;   /* the next block attaches to the current (list marker) line */
@@ -535,23 +536,42 @@ static Py_ssize_t md_max_backtick_run(const Py_UCS4 *s, Py_ssize_t len) {
     return best;
 }
 
+/* Gather a code span's text, flattening its descendants: a <br> is not markup a
+   code span can carry, so it becomes a space that keeps the two runs it split
+   apart (dropping it would fuse the surrounding words). */
+static void md_collect_code_text(th_tree *tree, th_node *node, sbuf *out) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            sbuf_put_run(out, need_text(tree, child), child->text_len);
+        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
+            if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_BR) {
+                sbuf_putc(out, ' ');
+            } else {
+                md_collect_code_text(tree, child, out);
+            }
+        }
+    }
+}
+
 static void md_emit_code_span(md_ctx *ctx, th_node *node) {
-    Py_ssize_t len;
-    Py_UCS4 *content = th_node_text(ctx->tree, node, &len);
-    if (content == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    sbuf content = {0};
+    md_collect_code_text(ctx->tree, node, &content);
+    if (content.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->out.failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(content.data); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     md_before_visible(ctx);
-    Py_ssize_t fence = md_max_backtick_run(content, len) + 1;
-    int pad = len > 0 && (content[0] == '`' || content[len - 1] == '`');
+    Py_ssize_t len = content.len;
+    Py_ssize_t fence = md_max_backtick_run(content.data, len) + 1;
+    int pad = len > 0 && (content.data[0] == '`' || content.data[len - 1] == '`');
     for (Py_ssize_t i = 0; i < fence; i++) {
         sbuf_putc(&ctx->out, '`');
     }
     if (pad) {
         sbuf_putc(&ctx->out, ' ');
     }
-    sbuf_put_run(&ctx->out, content, len);
+    sbuf_put_run(&ctx->out, content.data, len);
     if (pad) {
         sbuf_putc(&ctx->out, ' ');
     }
@@ -559,7 +579,7 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
         sbuf_putc(&ctx->out, '`');
     }
     ctx->line_has_content = 1;
-    PyMem_Free(content);
+    PyMem_Free(content.data);
 }
 
 /* Write a URL/destination verbatim (no markdown escaping); a space inside it is
@@ -577,6 +597,17 @@ static void md_emit_url(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t len) {
         sbuf_putc(&ctx->out, '>');
     } else {
         sbuf_put_run(&ctx->out, url, len);
+    }
+}
+
+/* Write a link/image title inside its `"..."` delimiters: a `"` would close the
+   title early and a `\` would escape the next character, so both are backslashed. */
+static void md_emit_title(sbuf *out, const Py_UCS4 *title, Py_ssize_t len) {
+    for (Py_ssize_t i = 0; i < len; i++) {
+        if (title[i] == '"' || title[i] == '\\') {
+            sbuf_putc(out, '\\');
+        }
+        sbuf_putc(out, title[i]);
     }
 }
 
@@ -656,7 +687,9 @@ static void md_emit_link(md_ctx *ctx, th_node *node) {
     sbuf_putc(&ctx->out, '[');
     ctx->line_has_content = 1;
     ctx->drop_space = 1;
+    ctx->inline_only++;
     md_inline_children(ctx, node);
+    ctx->inline_only--;
     if (title == NULL && opt->link_title) {
         title = href;
         title_len = href_len;
@@ -678,7 +711,7 @@ static void md_emit_link(md_ctx *ctx, th_node *node) {
     md_emit_url(ctx, href, href_len);
     if (title != NULL) {
         sbuf_puts(&ctx->out, " \"");
-        sbuf_put_run(&ctx->out, title, title_len);
+        md_emit_title(&ctx->out, title, title_len);
         sbuf_putc(&ctx->out, '"');
     }
     sbuf_putc(&ctx->out, ')');
@@ -701,10 +734,22 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     PyMem_Free(html);
 }
 
-/* Write an image's alt text, falling back to the configured default. */
-static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len) {
+/* Write an image's alt text, falling back to the configured default. Inside the
+   `![...]` description a bracket or backslash is escaped the same way link text
+   escapes them (an unescaped `]` would close the description early); the plain
+   alt-only image mode passes escape=0 since it emits no brackets to protect. */
+static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
     if (alt != NULL) {
-        sbuf_put_run(&ctx->out, alt, alt_len);
+        if (escape) {
+            for (Py_ssize_t i = 0; i < alt_len; i++) {
+                if (alt[i] == '[' || alt[i] == ']' || alt[i] == '\\') {
+                    sbuf_putc(&ctx->out, '\\');
+                }
+                sbuf_putc(&ctx->out, alt[i]);
+            }
+        } else {
+            sbuf_put_run(&ctx->out, alt, alt_len);
+        }
     } else {
         md_puts8(&ctx->out, ctx->opt->default_image_alt);
     }
@@ -724,19 +769,26 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     Py_ssize_t alt_len;
     const Py_UCS4 *alt = md_attr(ctx->tree, node, "alt", &alt_len);
     if (opt->image_mode == TH_MD_IMAGE_ALT) {
-        md_emit_alt(ctx, alt, alt_len);
+        md_emit_alt(ctx, alt, alt_len, 0);
         return;
     }
     Py_ssize_t src_len;
     const Py_UCS4 *src = md_attr(ctx->tree, node, "src", &src_len);
     sbuf_puts(&ctx->out, "![");
-    md_emit_alt(ctx, alt, alt_len);
+    md_emit_alt(ctx, alt, alt_len, 1);
     sbuf_puts(&ctx->out, "](");
     if (src != NULL) {
         if (*opt->base_url != '\0' && !md_href_absolute(src, src_len) && !md_href_internal(src)) {
             md_puts8(&ctx->out, opt->base_url);
         }
         md_emit_url(ctx, src, src_len);
+    }
+    Py_ssize_t title_len;
+    const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
+    if (title != NULL) {
+        sbuf_puts(&ctx->out, " \"");
+        md_emit_title(&ctx->out, title, title_len);
+        sbuf_putc(&ctx->out, '"');
     }
     sbuf_putc(&ctx->out, ')');
     ctx->line_has_content = 1;
@@ -804,12 +856,18 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
     default:
         break;
     }
-    if (is_md_skipped(atom)) {
+    if (is_md_skipped(node)) {
         return;
     }
     if (is_md_block(atom)) {
-        md_render_block(ctx, node);
-        return;
+        if (!ctx->inline_only) {
+            md_render_block(ctx, node);
+            return;
+        }
+        /* inside link text a block cannot open its own line (a blank line would
+           split the CommonMark link), so it flattens to inline; its boundary still
+           reads as a space so adjacent words never fuse */
+        ctx->space_pending = 1;
     }
     md_inline_children(ctx, node);
 }
@@ -892,7 +950,7 @@ static void md_render_inline(md_ctx *ctx, th_node *node) {
         return;
     }
     uint16_t atom = node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN;
-    if (md_tag_filtered(ctx->opt, atom) && !is_md_skipped(atom)) {
+    if (md_tag_filtered(ctx->opt, atom) && !is_md_skipped(node)) {
         /* drop this tag's markup but keep its inline content (a skipped tag, e.g.
            <script>, still vanishes whole, so it falls through to the no-op below) */
         md_inline_children(ctx, node);
@@ -908,8 +966,18 @@ static void md_render_inline(md_ctx *ctx, th_node *node) {
 
 /* ------------------------------------------------------------ block output */
 
-/* Whether the element's first meaningful child is inline content rather than a
-   nested block, deciding if a list item's text rides on the bullet line. */
+/* A block that lays out as a plain paragraph run, as opposed to a list, blockquote,
+   table, heading, rule or pre that frames its own lines. Its first paragraph rides
+   the list marker, and a second such block makes the item loose. <p> is the explicit
+   paragraph; <div> is the generic flow container browsers render the same way. */
+static int md_is_paragraph_block(uint16_t atom) {
+    return atom == TH_TAG_P || atom == TH_TAG_DIV;
+}
+
+/* Whether the element's first meaningful child renders inline on the current line,
+   deciding if a list item's text rides on the bullet line. A leading paragraph
+   block counts: CommonMark puts an item's first paragraph on the marker line. A
+   list, blockquote, table or pre opens its own line instead. */
 static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
@@ -925,10 +993,55 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
             continue;
         }
         uint16_t atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
-        if (is_md_skipped(atom)) {
+        if (is_md_skipped(child)) {
             continue;
         }
-        return !is_md_block(atom);
+        return !is_md_block(atom) || md_is_paragraph_block(atom);
+    }
+    return 0;
+}
+
+/* Whether a list item lays out as more than one paragraph, so it renders as a
+   CommonMark loose item (a blank line between its blocks): a leading text/inline
+   run plus a paragraph block, or two paragraph blocks. A nested list, blockquote
+   or other self-framing block is not a paragraph and does not force looseness (a
+   tight item can still carry a sublist). */
+static int md_item_is_loose(md_ctx *ctx, th_node *node) {
+    int units = 0;
+    int in_run = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            const Py_UCS4 *text = need_text(ctx->tree, child);
+            for (Py_ssize_t i = 0; i < child->text_len; i++) {
+                if (!md_is_ws(text[i])) {
+                    if (!in_run) {
+                        units++;
+                        in_run = 1;
+                    }
+                    break;
+                }
+            }
+            continue;
+        }
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        uint16_t atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
+        if (is_md_skipped(child)) {
+            continue;
+        }
+        if (is_md_block(atom)) {
+            in_run = 0;
+            if (md_is_paragraph_block(atom)) {
+                units++;
+            }
+        } else if (!in_run) {
+            units++;
+            in_run = 1;
+        }
+        if (units > 1) {
+            return 1;
+        }
     }
     return 0;
 }
@@ -942,7 +1055,7 @@ static void md_block_children(md_ctx *ctx, th_node *node) {
         int block = 0;
         if (child->type == TH_NODE_ELEMENT) {
             atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
-            if (is_md_skipped(atom)) {
+            if (is_md_skipped(child)) {
                 continue;
             }
             block = is_md_block(atom);
@@ -991,7 +1104,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     int saved_started = ctx->started, saved_line = ctx->line_has_content, saved_column = ctx->column;
     int saved_space = ctx->space_pending, saved_drop = ctx->drop_space, saved_loose = ctx->pending_loose;
     int saved_suppress = ctx->suppress_break, saved_tight = ctx->tight, saved_list_depth = ctx->list_depth;
-    int saved_bold = ctx->g_bold, saved_italic = ctx->g_italic;
+    int saved_bold = ctx->g_bold, saved_italic = ctx->g_italic, saved_inline = ctx->inline_only;
     ctx->out = (sbuf){0};
     ctx->prefix = (sbuf){0};
     ctx->pending = NULL;
@@ -1006,6 +1119,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     ctx->list_depth = 0;
     ctx->g_bold = 0;
     ctx->g_italic = 0;
+    ctx->inline_only = 0;
     md_block_children(ctx, node);
     Py_UCS4 *data = ctx->out.data;
     Py_ssize_t end = ctx->out.len;
@@ -1032,6 +1146,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     ctx->list_depth = saved_list_depth;
     ctx->g_bold = saved_bold;
     ctx->g_italic = saved_italic;
+    ctx->inline_only = saved_inline;
     return content;
 }
 
@@ -1155,12 +1270,37 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
     }
     Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
     char bullet = ctx->opt->bullets[ctx->list_depth % bullets_len];
+    /* CommonMark: a list is loose (blank lines around every item and between an
+       item's blocks) when any item holds more than one paragraph */
+    int loose = 0;
+    for (th_node *scan = node->first_child; scan != NULL && !loose; scan = scan->next_sibling) {
+        if (scan->type == TH_NODE_ELEMENT && scan->ns == TH_NS_HTML && scan->atom == TH_TAG_LI) {
+            loose = md_item_is_loose(ctx, scan);
+        }
+    }
     ctx->list_depth++;
+    Py_ssize_t sub_indent = 2; /* how far a bare nested list indents: the last marker's width */
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML || child->atom != TH_TAG_LI) {
+        if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML) {
             continue;
         }
-        md_block_line(ctx, 0);
+        if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
+            /* a list nested directly in a list (a sibling of the <li>s, not wrapped
+               in one) belongs to the preceding item as a sublist; the parser makes
+               this shape, and dropping it would lose every nested item */
+            Py_ssize_t base = md_push_spaces(ctx, sub_indent);
+            int saved_tight = ctx->tight;
+            ctx->tight = 1;
+            /* the nested list re-applies the wrap guard per item, so none is needed here */
+            md_render_block(ctx, child);
+            ctx->tight = saved_tight;
+            ctx->prefix.len = base;
+            continue;
+        }
+        if (child->atom != TH_TAG_LI) {
+            continue;
+        }
+        md_block_line(ctx, loose);
         Py_ssize_t lead = 0;
         if (ctx->opt->google_doc) {
             /* Google Docs flattens nested lists, signaling depth with margin-left
@@ -1188,9 +1328,10 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
             width = lead + 2;
         }
         ctx->line_has_content = 1;
+        sub_indent = width;
         Py_ssize_t base = md_push_spaces(ctx, width);
         int saved_tight = ctx->tight;
-        ctx->tight = 1;
+        ctx->tight = !loose;
         ctx->suppress_break = md_leads_with_inline(ctx, child);
         if (!ctx->opt->wrap_list_items) {
             ctx->no_wrap++;
@@ -1686,7 +1827,7 @@ static void md_flush_references(md_ctx *ctx) {
         sbuf_put_run(&ctx->out, ctx->refs[i].url, ctx->refs[i].url_len);
         if (ctx->refs[i].title != NULL) {
             sbuf_puts(&ctx->out, " \"");
-            sbuf_put_run(&ctx->out, ctx->refs[i].title, ctx->refs[i].title_len);
+            md_emit_title(&ctx->out, ctx->refs[i].title, ctx->refs[i].title_len);
             sbuf_putc(&ctx->out, '"');
         }
     }

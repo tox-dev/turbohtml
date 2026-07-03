@@ -1,0 +1,2 @@
+A ``<br>`` inside an inline ``<code>`` span is now preserved as a space by :meth:`~turbohtml.Node.to_markdown` instead
+of dropped, so ``blah blah<br>blah blah`` stays two runs rather than fusing into ``blah blahblah blah``.

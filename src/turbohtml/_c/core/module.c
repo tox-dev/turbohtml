@@ -105,6 +105,7 @@ static PyMethodDef html_methods[] = {
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},
     {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
+    {"_register_render_configs", turbohtml_register_render_configs, METH_VARARGS, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
     {"parse_fragment", (PyCFunction)(void (*)(void))turbohtml_tree_parse_fragment, METH_VARARGS | METH_KEYWORDS,
@@ -169,21 +170,24 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->namespaces[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
-    Py_VISIT(state->axis_enum);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->formatter_enum);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->minify_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->indent_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->pattern_type);         /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->re_compile);           /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->markup_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->xpath_string_type);    /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->xpath_type);           /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->link_type);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->json_ld_parser);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->microdata_item_type);  /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->structured_data_type); /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->article_type);         /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->js_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->axis_enum);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->formatter_enum);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->minify_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->indent_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->pattern_type);          /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->re_compile);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->markup_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->xpath_string_type);     /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->xpath_type);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->link_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->json_ld_parser);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->microdata_item_type);   /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->structured_data_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->article_type);          /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->js_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->plaintext_config_type); /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->html_config_type);      /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -237,6 +241,9 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->structured_data_type);
     Py_CLEAR(state->article_type);
     Py_CLEAR(state->js_minify_type);
+    Py_CLEAR(state->markdown_config_type);
+    Py_CLEAR(state->plaintext_config_type);
+    Py_CLEAR(state->html_config_type);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }
