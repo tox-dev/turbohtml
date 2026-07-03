@@ -1,0 +1,20 @@
+{
+  "label": "publication-date extraction",
+  "parties": [
+    "turbohtml",
+    "htmldate"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "post (4 KiB)",
+      2.6572e-05,
+      1.74676e-05
+    ],
+    [
+      "longform (16 KiB)",
+      5.93638e-05,
+      3.53681e-05
+    ]
+  ]
+}

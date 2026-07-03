@@ -72,6 +72,10 @@ nitpick_ignore = [
     ("py:class", "_Filter"),
     ("py:type", "JSONValue"),
     ("py:class", "JSONValue"),
+    # Signal is the Literal alias PublicationDate.signal is typed as; autodoc renders it by name, and the enumerated
+    # values (not a class) are spelled out in the field's docstring, so it is intentionally not a cross-ref target.
+    ("py:class", "Signal"),
+    ("py:type", "Signal"),
 ]
 
 issues_github_path = "tox-dev/turbohtml"

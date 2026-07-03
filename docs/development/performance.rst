@@ -170,6 +170,20 @@ navigation and footer each classifier must reject are part of the measured cost.
 .. bench-table::
     :file: bench/boilerplate-classification.json
 
+*****************
+ Date extraction
+*****************
+
+:func:`turbohtml.extract.dates` against `htmldate <https://htmldate.readthedocs.io>`_, the standalone publication-date
+finder. Both read the same signals -- publication/modification ``<meta>`` tags, JSON-LD, ``<time>`` elements, and a date
+in the URL -- and both are parse-bound; htmldate builds an lxml tree, turbohtml the WHATWG tree. On the clean metadata
+pages below htmldate's header lookup returns first, so it edges ahead. On boilerplate pages with no date metadata the
+gap inverts: htmldate prunes the tree and runs its dateparser-backed text scoring, where turbohtml's early-exit over the
+structured signals runs 2x-4x faster (a 149 kB page: 2.9 ms against 12.2 ms).
+
+.. bench-table::
+    :file: bench/date-extraction.json
+
 ************
  Unescaping
 ************

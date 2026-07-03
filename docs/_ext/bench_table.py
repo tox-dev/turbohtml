@@ -68,6 +68,7 @@ _HOMEPAGES: Final = {
     "html2text": "https://github.com/Alir3z4/html2text",
     "html5-parser": "https://html5-parser.readthedocs.io/",
     "html5lib": "https://html5lib.readthedocs.io/",
+    "htmldate": "https://htmldate.readthedocs.io/",
     "htbuilder": "https://github.com/tvst/htbuilder",
     "htpy": "https://htpy.dev/",
     "hyperpython": "https://github.com/fabiommendes/hyperpython",

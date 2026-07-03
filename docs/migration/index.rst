@@ -472,6 +472,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/news-please
             :alt: news-please total downloads
             :target: https://pepy.tech/project/news-please
+    - - 12
+      - :doc:`htmldate <htmldate>`
+      - `docs <https://htmldate.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/htmldate/month
+            :alt: htmldate monthly downloads
+            :target: https://pepy.tech/project/htmldate
+      - .. image:: https://static.pepy.tech/badge/htmldate
+            :alt: htmldate total downloads
+            :target: https://pepy.tech/project/htmldate
 
 *****************
  Structured data
@@ -701,6 +710,7 @@ page benchmarks all of them).
     boilerpy3
     goose3
     news-please
+    htmldate
     html-sanitizer
     yattag
     extruct

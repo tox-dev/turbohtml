@@ -34,3 +34,33 @@ attribute. The per-format helpers :meth:`~turbohtml.Document.json_ld`, :meth:`~t
 :class:`~turbohtml.MicrodataItem`. JSON-LD blocks are parsed with the standard library :mod:`json` and a block that is
 not valid JSON is skipped; the :attr:`~turbohtml.StructuredData.microformats` and :attr:`~turbohtml.StructuredData.rdfa`
 fields are reserved for a later phase and are empty lists for now.
+
+***************************
+ Find the publication date
+***************************
+
+Scrapers also want the article's publication date, the job of ``htmldate``. :func:`turbohtml.extract.dates` scores the
+same date signals -- publication/modification ``<meta>`` tags, JSON-LD, ``<time>`` elements, and the URL -- off the
+parsed page, and returns which one it read:
+
+.. testcode::
+
+    from turbohtml.extract import DateExtraction, dates
+
+    page = (
+        '<meta property="article:published_time" content="2016-12-23">'
+        '<meta property="article:modified_time" content="2017-02-01">'
+    )
+    published = dates(page, DateExtraction(original=True))
+    print(f"{published.date} (from the {published.signal})")
+    print(dates(page).date)
+
+.. testoutput::
+
+    2016-12-23 (from the meta)
+    2017-02-01
+
+The default prefers the modification date; ``DateExtraction(original=True)`` prefers the first-published one. A
+:class:`~turbohtml.extract.PublicationDate` carries the formatted ``date`` and the ``signal`` it came from, or the call
+returns ``None`` when no date inside the ``[min_date, max_date]`` window is found. The :doc:`htmldate migration guide
+</migration/htmldate>` maps the rest of the knobs.
