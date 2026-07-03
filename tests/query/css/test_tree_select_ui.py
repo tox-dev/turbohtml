@@ -398,6 +398,15 @@ def test_scope_is_the_query_root() -> None:
     assert _scope_ids(p1.select(":scope > a")) == ["link"]
 
 
+def test_document_scope_falls_back_to_the_document_element() -> None:
+    # rooted at the document, :scope resolves to the document element like :root does
+    # (issue #351): the html element and every compound built on it now match
+    doc = parse("<!doctype html><html><body><div id=d><p id=p>x</p></div></body></html>")
+    assert [e.tag for e in doc.select(":scope")] == ["html"]
+    assert [e.tag for e in doc.select(":scope > body > div")] == ["div"]
+    assert [e.attrs.get("id") for e in doc.select(":scope div > p")] == ["p"]
+
+
 @pytest.mark.parametrize(
     "selector",
     [

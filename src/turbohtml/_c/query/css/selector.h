@@ -1581,9 +1581,13 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_sibling_index(node, 0, 1));
     case PSEUDO_NTH_LAST_OF_TYPE:
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_sibling_index(node, 1, 1));
-    /* §6.6 the scoping root: the element the query was rooted at */
+    /* §6.6 the scoping root: the element the query was rooted at, or, when the root is
+       the document (or a fragment), the document element, as :root resolves to */
     case PSEUDO_SCOPE:
-        return node == ctx->scope;
+        if (ctx->scope->type == TH_NODE_ELEMENT) {
+            return node == ctx->scope;
+        }
+        return node->parent->type != TH_NODE_ELEMENT;
     /* §12 the input pseudo-classes determinable from the static tree */
     case PSEUDO_CHECKED:
         return sel_is_checked(node);
