@@ -50,3 +50,26 @@ def test_scheme_with_empty_opaque_part_is_skipped(text: str) -> None:
 def test_scheme_url_with_authority_takes_priority() -> None:
     spans = Detector(schemes=["http"]).find("http://example.com")
     assert _tuples(spans) == [(0, 18, "http://example.com", "http://example.com", False)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("hppt://example.com", id="typo-scheme"),
+        pytest.param("javascript://example.com", id="javascript-scheme"),
+        pytest.param("xyzzy://foo.com", id="unregistered-scheme"),
+    ],
+)
+def test_unknown_authority_scheme_is_not_detected(text: str) -> None:
+    assert Detector().find(text) == []
+
+
+@pytest.mark.parametrize("scheme", ["http", "https", "ftp"])
+def test_builtin_authority_scheme_is_detected(scheme: str) -> None:
+    text = f"{scheme}://example.com"
+    assert _tuples(Detector().find(text)) == [(0, len(text), text, text, False)]
+
+
+def test_registered_scheme_extends_authority_matching() -> None:
+    spans = Detector(schemes=["git"]).find("git://example.com")
+    assert _tuples(spans) == [(0, 17, "git://example.com", "git://example.com", False)]

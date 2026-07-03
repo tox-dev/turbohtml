@@ -67,6 +67,16 @@ def _no_callbacks() -> list[Callback]:
             id="trailing-dot-trimmed",
         ),
         pytest.param(
+            "{scoped http://example.com/foo_bar}",
+            '{scoped <a href="http://example.com/foo_bar">http://example.com/foo_bar</a>}',
+            id="brace-scoped-url-trims-brace",
+        ),
+        pytest.param(
+            "'quoted http://example.com/foo_bar'",
+            "'quoted <a href=\"http://example.com/foo_bar\">http://example.com/foo_bar</a>'",
+            id="single-quoted-url-trims-apostrophe",
+        ),
+        pytest.param(
             "https://cdn_1.example.org/x",
             '<a href="https://cdn_1.example.org/x">https://cdn_1.example.org/x</a>',
             id="underscore-in-host-label-kept",
@@ -257,6 +267,7 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
         pytest.param("view-source://example.com", False, False, [(0, 25, 0)], id="scheme-with-hyphen"),
         pytest.param("a.b://example.com", False, False, [(0, 17, 0)], id="scheme-with-dot"),
         pytest.param("nothttp//example.com", False, True, [(9, 20, 0)], id="no-colon-slash-slash-falls-to-bare"),
+        pytest.param("foo/example.com", False, True, [(4, 15, 0)], id="single-slash-keeps-bare-domain"),
         pytest.param("mailto:bob", False, False, [], id="scheme-without-slashes-no-match"),
         pytest.param(":no scheme here", False, False, [], id="leading-colon-no-scheme"),
         pytest.param("xhttp://example.com", False, False, [(0, 19, 0)], id="arbitrary-scheme-matches-like-bleach"),
@@ -303,6 +314,13 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
         pytest.param("http://example.com/a[b]c", False, False, [(0, 24, 0)], id="balanced-square-in-path"),
         pytest.param("http://example.com/a)b", False, False, [(0, 20, 0)], id="unbalanced-round-stops"),
         pytest.param("http://example.com/a]b", False, False, [(0, 20, 0)], id="unbalanced-square-stops"),
+        pytest.param("http://example.com/a{b}c", False, False, [(0, 24, 0)], id="balanced-curly-in-path"),
+        pytest.param("http://example.com/a}b", False, False, [(0, 20, 0)], id="unbalanced-curly-stops"),
+        pytest.param(
+            "{http://example.com/foo_bar}", False, False, [(1, 27, 0)], id="brace-scoped-trailing-brace-trimmed"
+        ),
+        pytest.param("http://example.com/foo'", False, False, [(0, 22, 0)], id="trailing-apostrophe-trimmed"),
+        pytest.param("http://example.com/o'reilly", False, False, [(0, 27, 0)], id="apostrophe-mid-path-kept"),
         pytest.param("(http://example.com/path)", False, False, [(1, 24, 0)], id="link-in-parens"),
         pytest.param("http://example.com/path.", False, False, [(0, 23, 0)], id="path-trailing-dot-trimmed"),
         pytest.param("http://example.com/a,b,", False, False, [(0, 22, 0)], id="path-trailing-comma-trimmed"),
@@ -343,6 +361,34 @@ def test_scanner_spans(
     assert _linkify_scan(text, parse_email, bare_domains) == spans
 
 
+@pytest.mark.parametrize(
+    ("text", "url_schemes", "spans"),
+    [
+        pytest.param("http://example.com", ("http", "https", "ftp"), [(0, 18, 0)], id="allowed-scheme-matches"),
+        pytest.param("ftp://example.com/file", ("http",), [], id="scheme-not-in-allowlist-skipped"),
+        pytest.param("javascript://example.com", ("http", "https", "ftp"), [], id="javascript-scheme-excluded"),
+        pytest.param("HTTP://example.com", ("http",), [(0, 18, 0)], id="allowlist-is-case-insensitive"),
+        pytest.param("xhttp://example.com", (), [], id="empty-allowlist-matches-nothing"),
+    ],
+)
+def test_scanner_url_schemes_restrict_authority(
+    text: str,
+    url_schemes: tuple[str, ...],
+    spans: list[tuple[int, int, int]],
+) -> None:
+    # a non-None url_schemes tuple restricts scheme://host matching to that allowlist; omitting it matches any scheme
+    assert _linkify_scan(text, False, False, (), url_schemes) == spans  # noqa: FBT003  # positional-only C binding
+
+
+def test_scanner_omitting_url_schemes_matches_any_scheme() -> None:
+    assert _linkify_scan("xyzzy://example.com", False, False) == [(0, 19, 0)]  # noqa: FBT003  # positional C binding
+
+
 def test_scanner_rejects_non_str_text() -> None:
     with pytest.raises(TypeError):
         _linkify_scan(123, False, False)  # noqa: FBT003  # ty: ignore[invalid-argument-type]  # the C arg check is the point
+
+
+def test_scanner_rejects_non_tuple_url_schemes() -> None:
+    with pytest.raises(TypeError):
+        _linkify_scan("http://x.com", False, False, (), ["http"])  # noqa: FBT003  # ty: ignore[invalid-argument-type]

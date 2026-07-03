@@ -1,0 +1,3 @@
+The link detector now autolinks a ``scheme://`` URL only when its scheme is ``http``, ``https``, ``ftp``, or one a
+config registers, rather than accepting any scheme. It leaves a typo scheme such as ``hppt://`` and a ``javascript://``
+payload as plain text.

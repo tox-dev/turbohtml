@@ -29,7 +29,8 @@ in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw
 A :class:`Linkify` configuration object carries the knobs: a callback receives each generated :class:`Link` and returns
 it to keep the link or ``None`` to leave the text bare, ``process_existing`` runs the callbacks over ``<a>`` tags
 already in the input (a callback reads ``Link.existing`` to tell the two apart), ``extra_tlds`` extends bare-domain
-detection beyond the built-in IANA table, and ``schemes`` restricts which explicit-scheme URLs autolink.
+detection beyond the built-in IANA table, and ``schemes`` sets which explicit-scheme URLs autolink (defaulting to the
+built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain text).
 
 .. autofunction:: linkify
 

@@ -70,3 +70,21 @@ def test_find_respects_bare_domains_disabled() -> None:
 def test_find_scheme_url_still_found_without_bare_domains() -> None:
     spans = Detector(bare_domains=False).find("see https://example.com here")
     assert _tuples(spans) == [(4, 23, "https://example.com", "https://example.com", False)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("{Scoped like http://example.com/foo_bar}", id="trailing-brace"),
+        pytest.param("'Quoted like http://example.com/foo_bar'", id="trailing-apostrophe"),
+    ],
+)
+def test_find_trims_a_trailing_brace_or_apostrophe(text: str) -> None:
+    assert _tuples(Detector().find(text)) == [
+        (13, 39, "http://example.com/foo_bar", "http://example.com/foo_bar", False),
+    ]
+
+
+def test_find_keeps_a_balanced_brace_in_the_path() -> None:
+    spans = Detector().find("http://example.com/{id}")
+    assert _tuples(spans) == [(0, 23, "http://example.com/{id}", "http://example.com/{id}", False)]

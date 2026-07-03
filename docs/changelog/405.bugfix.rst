@@ -1,0 +1,3 @@
+The link detector now trims a trailing ``}`` or ``'`` from a URL and balances ``{...}`` the way it already balanced
+parentheses and brackets, so a brace-scoped or single-quoted URL such as ``{http://example.com/foo_bar}`` links only
+``http://example.com/foo_bar``.

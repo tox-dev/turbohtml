@@ -229,11 +229,14 @@ static Py_ssize_t scan_balanced(int kind, const void *data, Py_ssize_t begin, Py
     Py_ssize_t end = begin;
     int round = 0;
     int square = 0;
+    int curly = 0;
     while (pos < len) {
         Py_UCS4 c = READ(pos);
         if (!is_url_tail_char(c)) {
             break;
         }
+        /* Braces balance like parens and brackets, so a template path keeps its
+           ``/{id}`` but a brace-scoped ``{http://...}`` drops the stray closer. */
         if (c == '(') {
             round++;
         } else if (c == ')') {
@@ -248,12 +251,21 @@ static Py_ssize_t scan_balanced(int kind, const void *data, Py_ssize_t begin, Py
                 break;
             }
             square--;
+        } else if (c == '{') {
+            curly++;
+        } else if (c == '}') {
+            if (curly == 0) {
+                break;
+            }
+            curly--;
         }
         pos++;
         /* a closing bracket or a non-trailing-punctuation byte can end the link;
-           trailing . , ! ? : ; are valid inside it but never its last byte. '*' is
-           an RFC 3986 sub-delim that bleach and linkify_it keep, so it ends a link. */
-        if (round == 0 && square == 0 && c != '.' && c != ',' && c != '!' && c != '?' && c != ':' && c != ';') {
+           trailing . , ! ? : ; and a lone ' (a single-quoted URL's closer) are
+           valid inside it but never its last byte. '*' is an RFC 3986 sub-delim
+           that bleach and linkify_it keep, so it ends a link. */
+        if (round == 0 && square == 0 && curly == 0 && c != '.' && c != ',' && c != '!' && c != '?' && c != ':' &&
+            c != ';' && c != '\'') {
             end = pos;
         }
     }
@@ -304,14 +316,20 @@ static Py_ssize_t scan_scheme_start(int kind, const void *data, Py_ssize_t colon
     return pos;
 }
 
-/* Try to match a scheme:// URL whose ``:`` is at `colon`. */
+/* Try to match a scheme:// URL whose ``:`` is at `colon`. A non-NULL url_schemes
+   tuple restricts the scheme to that lowercased allowlist (http/https/ftp plus any
+   registered scheme), so a typo like ``hppt://`` or a ``javascript://`` payload is
+   not linked; NULL keeps the permissive, any-scheme scan the raw binding exposes. */
 static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t start, Py_ssize_t len,
-                     Py_ssize_t *out_start, Py_ssize_t *out_end) {
+                     Py_ssize_t *out_start, Py_ssize_t *out_end, PyObject *url_schemes) {
     if (colon + 2 >= len || READ(colon + 1) != '/' || READ(colon + 2) != '/') {
         return 0;
     }
     Py_ssize_t scheme_start = scan_scheme_start(kind, data, colon, start);
     if (scheme_start < 0 || blocked_on_left(kind, data, scheme_start)) {
+        return 0;
+    }
+    if (url_schemes != NULL && !tuple_has_label(url_schemes, kind, data, scheme_start, colon)) {
         return 0;
     }
     /* Most URLs have no userinfo, so scan the host directly and only hunt for a
@@ -360,6 +378,13 @@ static int match_domain(int kind, const void *data, Py_ssize_t dot, Py_ssize_t s
         pos++;
     }
     if (pos == dot || blocked_on_left(kind, data, pos)) {
+        return 0;
+    }
+    /* A ``://`` immediately left of the host is the authority of a scheme URL that
+       match_url declined (an unregistered or typo scheme like ``hppt://``); its host
+       is not an independent bare domain, so the whole thing stays plain text. A bare
+       ``//`` with no colon (``nothttp//example.com``) is not scheme syntax and links. */
+    if (pos >= 3 && READ(pos - 1) == '/' && READ(pos - 2) == '/' && READ(pos - 3) == ':') {
         return 0;
     }
     Py_ssize_t host_end = scan_host(kind, data, pos, len, 1, extra_tlds);
@@ -433,8 +458,10 @@ static int append_span(PyObject *spans, Py_ssize_t start, Py_ssize_t end, enum t
 /* The shared scan: trigger on the few bytes that can begin a link and expand to
    its bounds, appending each (start, end, kind) span. extra_tlds extends the
    bare-domain/email TLD rule; schemes (NULL in the rewrite path) enables
-   registered scheme-less URLs. Returns the span list, or NULL on error. */
-static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes) {
+   registered scheme-less URLs; url_schemes (NULL for the permissive raw scan)
+   restricts which scheme://host schemes autolink. Returns the span list, or NULL. */
+static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
+                         PyObject *url_schemes) {
     int kind = PyUnicode_KIND(text);
     const void *data = PyUnicode_DATA(text);
     Py_ssize_t len = PyUnicode_GET_LENGTH(text);
@@ -452,7 +479,7 @@ static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyOb
         enum th_link_kind link_kind = TH_LINK_URL;
         int found = 0;
         if (c == ':') {
-            found = match_url(kind, data, pos, 0, len, &match_start, &match_end);
+            found = match_url(kind, data, pos, 0, len, &match_start, &match_end, url_schemes);
             if (!found && schemes != NULL) {
                 found = match_scheme_less(kind, data, pos, 0, len, &match_start, &match_end, schemes);
                 link_kind = TH_LINK_SCHEME;
@@ -476,34 +503,39 @@ static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyOb
     return spans;
 }
 
-/* _linkify_scan(text, parse_email, bare_domains, extra_tlds=()) -> list[(start, end, kind)]
-   extra_tlds is a tuple of lowercased custom TLDs extending the built-in table for
-   bare-domain and email host recognition; the rewrite path passes it, the bare scan omits it. */
+/* _linkify_scan(text, parse_email, bare_domains, extra_tlds=(), url_schemes=None)
+   -> list[(start, end, kind)]. extra_tlds is a tuple of lowercased custom TLDs
+   extending the built-in table for bare-domain and email host recognition.
+   url_schemes, when given, is a tuple of lowercased schemes the rewrite path allows
+   for scheme://host URLs; omitting it keeps the permissive any-scheme scan. */
 PyObject *turbohtml_linkify_scan(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *text;
     int parse_email;
     int bare_domains;
     PyObject *extra_tlds = NULL;
-    if (!PyArg_ParseTuple(args, "Upp|O!:_linkify_scan", &text, &parse_email, &bare_domains, &PyTuple_Type,
-                          &extra_tlds)) {
+    PyObject *url_schemes = NULL;
+    if (!PyArg_ParseTuple(args, "Upp|O!O!:_linkify_scan", &text, &parse_email, &bare_domains, &PyTuple_Type,
+                          &extra_tlds, &PyTuple_Type, &url_schemes)) {
         return NULL;
     }
-    return do_scan(text, parse_email, bare_domains, extra_tlds, NULL);
+    return do_scan(text, parse_email, bare_domains, extra_tlds, NULL, url_schemes);
 }
 
-/* _linkify_find(text, emails, bare_domains, extra_tlds, schemes)
+/* _linkify_find(text, emails, bare_domains, extra_tlds, schemes, url_schemes=None)
    -> list[(start, end, kind)]. extra_tlds and schemes are tuples of lowercased
    names; an empty schemes tuple still enables the scheme-less path (matching
-   nothing), so the detector can register zero or more schemes uniformly. */
+   nothing), so the detector can register zero or more schemes uniformly. url_schemes
+   is the lowercased allowlist for scheme://host URLs; omitting it matches any scheme. */
 PyObject *turbohtml_linkify_find(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *text;
     int emails;
     int bare_domains;
     PyObject *extra_tlds;
     PyObject *schemes;
-    if (!PyArg_ParseTuple(args, "UppO!O!:_linkify_find", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
-                          &PyTuple_Type, &schemes)) {
+    PyObject *url_schemes = NULL;
+    if (!PyArg_ParseTuple(args, "UppO!O!|O!:_linkify_find", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
+                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes)) {
         return NULL;
     }
-    return do_scan(text, emails, bare_domains, extra_tlds, schemes);
+    return do_scan(text, emails, bare_domains, extra_tlds, schemes, url_schemes);
 }

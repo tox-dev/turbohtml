@@ -49,9 +49,25 @@ def test_schemes_does_not_gate_bare_domains() -> None:
     assert out == 'see <a href="http://example.com">example.com</a>'
 
 
-def test_schemes_none_allows_every_scheme() -> None:
+def test_schemes_none_allows_the_builtin_default_set() -> None:
     out = linkify("ftp://x.com", Linkify(callbacks=_no_callbacks()))
     assert out == '<a href="ftp://x.com">ftp://x.com</a>'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("javascript://example.com", id="javascript-scheme"),
+        pytest.param("xyzzy://foo.com", id="typo-scheme"),
+    ],
+)
+def test_schemes_none_rejects_an_unknown_scheme(text: str) -> None:
+    assert linkify(text, Linkify(callbacks=_no_callbacks())) == text
+
+
+def test_schemes_registers_a_custom_scheme() -> None:
+    out = linkify("git://example.com and http://x.com", Linkify(callbacks=_no_callbacks(), schemes=["git"]))
+    assert out == '<a href="git://example.com">git://example.com</a> and http://x.com'
 
 
 @pytest.mark.parametrize(

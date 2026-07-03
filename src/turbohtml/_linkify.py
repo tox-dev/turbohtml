@@ -31,6 +31,11 @@ _SCHEME_KIND = 2
 # path (an embedded redirect URL) as the link's own scheme.
 _SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://")
 
+# The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
+# scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
+# a ``Detector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
+_DEFAULT_URL_SCHEMES = ("ftp", "http", "https")
+
 # Text inside these never becomes a link: an existing anchor (no nested links) and the raw-text elements whose content
 # is not markup. A caller's skip_tags is added on top.
 _NEVER_LINKIFY = frozenset({"a", "script", "style"})
@@ -129,8 +134,9 @@ class Linkify:
     :param parse_email: also autolink bare email addresses as ``mailto:`` links.
     :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
     :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
-    :param schemes: restrict which explicit-scheme URLs autolink (``None`` keeps every scheme); a bare domain is
-        always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+    :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
+        ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
+        domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
     """
 
     callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
@@ -156,7 +162,11 @@ class Linker:
         self.parse_email = config.parse_email
         self.process_existing = config.process_existing
         self.extra_tlds = tuple(sorted({tld.lower() for tld in config.extra_tlds})) if config.extra_tlds else ()
-        self.schemes = frozenset(scheme.lower() for scheme in config.schemes) if config.schemes is not None else None
+        self.url_schemes = (
+            tuple(sorted({scheme.lower() for scheme in config.schemes}))
+            if config.schemes is not None
+            else _DEFAULT_URL_SCHEMES
+        )
 
     def linkify(self, text: str) -> str:
         """
@@ -209,7 +219,7 @@ class Linker:
     def _linkify_text(self, node: Text) -> None:
         """Replace a text node with the text and anchors that the link spans in it imply."""
         data = node.data
-        spans = _linkify_scan(data, self.parse_email, True, self.extra_tlds)  # noqa: FBT003  # True enables bare domains
+        spans = _linkify_scan(data, self.parse_email, True, self.extra_tlds, self.url_schemes)  # noqa: FBT003  # True enables bare domains
         if not spans:
             return
         pieces: list[Element | Text] = []
@@ -228,9 +238,7 @@ class Linker:
         """Build the ``<a>`` for one matched link, running the callbacks; return ``None`` if a callback vetoes it."""
         if kind == _EMAIL_KIND:
             url = "mailto:" + matched
-        elif scheme := _SCHEME.match(matched):
-            if self.schemes is not None and scheme.group()[:-3].lower() not in self.schemes:
-                return None
+        elif _SCHEME.match(matched):  # the scanner already gated the scheme; a match here keeps its own scheme
             url = matched
         else:
             url = "http://" + matched
@@ -319,8 +327,9 @@ class Detector:
     :param emails: detect bare email addresses.
     :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
     :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
-    :param schemes: scheme-less schemes such as ``tel`` or ``bitcoin`` to detect as opaque URLs; every
-        ``scheme://`` URL is detected without registration.
+    :param schemes: extra schemes to detect, both as scheme-less opaque URLs (``tel:``, ``bitcoin:``) and as
+        ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
+        such as ``javascript://`` or a typo like ``hppt://`` is not detected.
     """
 
     def __init__(
@@ -336,6 +345,7 @@ class Detector:
         self.bare_domains = bare_domains
         self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})
         self._schemes = tuple({scheme.lower().rstrip(":") for scheme in schemes})
+        self._url_schemes = tuple(sorted(set(_DEFAULT_URL_SCHEMES).union(self._schemes)))
 
     def find(self, text: str) -> list[LinkSpan]:
         """
@@ -344,7 +354,7 @@ class Detector:
         :param text: the text to scan.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
-        spans = _linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes)
+        spans = _linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes)
         return [_span_from_match(text, start, end, kind) for start, end, kind in spans]
 
     def has_link(self, text: str) -> bool:
@@ -354,7 +364,7 @@ class Detector:
         :param text: the text to scan.
         :returns: whether the text contains at least one link.
         """
-        return bool(_linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes))
+        return bool(_linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes))
 
 
 __all__ = [
