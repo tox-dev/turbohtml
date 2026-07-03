@@ -123,6 +123,208 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
     return copy;
 }
 
+/* ----------------------------------------------------------- string/identifier values */
+
+/* The value of one hex digit. The lexer only forms a \x / \u escape over hex digits in valid input,
+   so a non-hex code point here is malformed input outside the minifier's valid-JS contract; it
+   decodes to a bounded (harmless) value rather than reading past the lexeme. */
+static Py_UCS4 jm_hex_digit(Py_UCS4 ch) {
+    return ch >= 'a' ? ch - ('a' - 10) : ch >= 'A' ? ch - ('A' - 10) : ch - '0';
+}
+
+const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len) {
+    Py_ssize_t escape = 0;
+    while (escape < len && src[escape] != '\\') {
+        escape++;
+    }
+    if (escape == len) { /* the common escape-free name: keep the zero-copy source span */
+        *out_len = len;
+        return src;
+    }
+    Py_UCS4 *buf = jm_malloc((size_t)len * sizeof(Py_UCS4)); /* decoding only ever shortens */
+    if (buf == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *out_len = len; /* GCOVR_EXCL_LINE */
+        return src;     /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t write = 0;
+    for (Py_ssize_t read = 0; read < len;) {
+        Py_UCS4 ch = src[read++];
+        if (ch != '\\') { /* an identifier escape is only ever \uXXXX or \u{...} */
+            buf[write++] = ch;
+            continue;
+        }
+        read++; /* the `u` */
+        Py_UCS4 value = 0;
+        /* GCOVR_EXCL_BR_START: the `read <` guards only stop a read past a truncated \u at the lexeme
+           end -- malformed input outside the valid-JS contract, with no defined value to assert */
+        if (read < len && src[read] == '{') {
+            for (read++; read < len && src[read] != '}'; read++) {
+                value = (value << 4) | jm_hex_digit(src[read]);
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            read++; /* the closing } (present in valid input) */
+        } else {
+            for (int digit = 0; digit < 4; digit++) {
+                if (read >= len) { /* GCOVR_EXCL_BR_LINE: a truncated \uXXXX is malformed input only */
+                    break;         /* GCOVR_EXCL_LINE */
+                }
+                value = (value << 4) | jm_hex_digit(src[read++]);
+            }
+        }
+        buf[write++] = value;
+    }
+    const Py_UCS4 *owned = jm_program_own(prog, buf, write);
+    jm_free(buf);
+    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *out_len = len;  /* GCOVR_EXCL_LINE */
+        return src;      /* GCOVR_EXCL_LINE */
+    }
+    *out_len = write;
+    return owned;
+}
+
+Py_ssize_t jm_str_decode(const Py_UCS4 *lexeme, Py_ssize_t len, Py_UCS4 *out) {
+    const Py_UCS4 *inner = lexeme + 1;
+    Py_ssize_t inner_len = len - 2;
+    Py_ssize_t write = 0;
+    for (Py_ssize_t read = 0; read < inner_len;) {
+        Py_UCS4 ch = inner[read++];
+        if (ch != '\\') {
+            out[write++] = ch;
+            continue;
+        }
+        Py_UCS4 esc = inner[read++]; /* a trailing backslash reads the closing quote here, staying in bounds */
+        switch (esc) {
+        case 'n':
+            out[write++] = 0x0A;
+            break;
+        case 't':
+            out[write++] = 0x09;
+            break;
+        case 'r':
+            out[write++] = 0x0D;
+            break;
+        case 'b':
+            out[write++] = 0x08;
+            break;
+        case 'f':
+            out[write++] = 0x0C;
+            break;
+        case 'v':
+            out[write++] = 0x0B;
+            break;
+        case 'x': {
+            Py_UCS4 value = 0;
+            for (int digit = 0; digit < 2; digit++) {
+                if (read >= inner_len) { /* GCOVR_EXCL_BR_LINE: a truncated \xHH is malformed input only */
+                    break;               /* GCOVR_EXCL_LINE */
+                }
+                value = (value << 4) | jm_hex_digit(inner[read++]);
+            }
+            out[write++] = value;
+            break;
+        }
+        case 'u': {
+            Py_UCS4 value = 0;
+            /* GCOVR_EXCL_BR_START: the `read <` guards only stop a read past a truncated \u at the lexeme
+               end -- malformed input outside the valid-JS contract, with no defined value to assert */
+            if (read < inner_len && inner[read] == '{') {
+                for (read++; read < inner_len && inner[read] != '}'; read++) {
+                    value = (value << 4) | jm_hex_digit(inner[read]);
+                }
+                /* GCOVR_EXCL_BR_STOP */
+                read++; /* the closing } (present in valid input) */
+            } else {
+                for (int digit = 0; digit < 4; digit++) {
+                    if (read >= inner_len) { /* GCOVR_EXCL_BR_LINE: a truncated \uXXXX is malformed input only */
+                        break;               /* GCOVR_EXCL_LINE */
+                    }
+                    value = (value << 4) | jm_hex_digit(inner[read++]);
+                }
+            }
+            out[write++] = value;
+            break;
+        }
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7': {
+            /* a legacy octal escape: one to three octal digits, at most two once the first is 4-7
+               (ECMA-262 Annex B.1.2), so a following digit can never silently extend it */
+            Py_UCS4 value = esc - '0';
+            int more = esc <= '3' ? 2 : 1;
+            for (int digit = 0; digit < more && read < inner_len && inner[read] >= '0' && inner[read] <= '7'; digit++) {
+                value = value * 8 + (inner[read++] - '0');
+            }
+            out[write++] = value;
+            break;
+        }
+        case '\r': /* a `\`+<CR><LF> (or `\`+<CR>) LineContinuation contributes nothing */
+            if (read < inner_len && inner[read] == '\n') {
+                read++;
+            }
+            break;
+        case '\n': /* an LF / LINE SEPARATOR / PARAGRAPH SEPARATOR LineContinuation contributes nothing */
+        case 0x2028:
+        case 0x2029:
+            break;
+        default:
+            out[write++] = esc; /* \\ \' \" \` and any other escaped code point is itself */
+            break;
+        }
+    }
+    return write;
+}
+
+Py_ssize_t jm_str_encode(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 quote, Py_UCS4 *out) {
+    static const char hex[] = "0123456789abcdef";
+    Py_ssize_t write = 0;
+    for (Py_ssize_t read = 0; read < len; read++) {
+        Py_UCS4 ch = value[read];
+        if (ch == quote || ch == '\\') {
+            out[write++] = '\\';
+            out[write++] = ch;
+        } else if (ch == 0x0A) {
+            out[write++] = '\\';
+            out[write++] = 'n';
+        } else if (ch == 0x0D) {
+            out[write++] = '\\';
+            out[write++] = 'r';
+        } else if (ch == 0x09) {
+            out[write++] = '\\';
+            out[write++] = 't';
+        } else if (ch == 0x08) {
+            out[write++] = '\\';
+            out[write++] = 'b';
+        } else if (ch == 0x0C) {
+            out[write++] = '\\';
+            out[write++] = 'f';
+        } else if (ch == 0x0B) {
+            out[write++] = '\\';
+            out[write++] = 'v';
+        } else if (ch == 0x2028 || ch == 0x2029) { /* a line terminator stays escaped for a pre-ES2019 reader */
+            out[write++] = '\\';
+            out[write++] = 'u';
+            out[write++] = '2';
+            out[write++] = '0';
+            out[write++] = '2';
+            out[write++] = ch == 0x2028 ? '8' : '9';
+        } else if (ch < 0x20) { /* any other control takes a fixed-length \xHH: it cannot absorb a digit */
+            out[write++] = '\\';
+            out[write++] = 'x';
+            out[write++] = (Py_UCS4)(unsigned char)hex[(ch >> 4) & 0xF];
+            out[write++] = (Py_UCS4)(unsigned char)hex[ch & 0xF];
+        } else {
+            out[write++] = ch;
+        }
+    }
+    return write;
+}
+
 void jm_program_free(jm_program *prog) {
     if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: callers always pass a live program */
         return;         /* GCOVR_EXCL_LINE */

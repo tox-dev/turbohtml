@@ -9,6 +9,8 @@ is valid syntax that forces the parser to rewind a speculative read (``get``/``s
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from turbohtml import JSMinify, minify_js
@@ -117,11 +119,59 @@ def minify(source: str) -> str:
         pytest.param("x={a:1,", id="object-trailing-comma-eof"),
         pytest.param("x=[1,2,", id="array-trailing-comma-eof"),
         pytest.param("(a,b,", id="arrow-params-trailing-comma-eof"),
+        # a backslash then a lone CR at end of input: the CRLF probe runs off the buffer and the string
+        # is unterminated (exercises the line-continuation bound at the source end)
+        pytest.param('x="a' + chr(0x5C) + chr(0x0D), id="continuation-backslash-cr-at-eof"),
     ],
 )
 def test_malformed_raises(source: str) -> None:
     with pytest.raises(ValueError, match="at offset"):
         minify(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        # the message names the construct, the byte offset, and the offending token slice (#434)
+        pytest.param("x=)", "unexpected token at offset 2 near ')'", id="names-token-slice"),
+        pytest.param("x=(", "unexpected token at offset 3: reached end of input", id="end-of-input"),
+        pytest.param("@", "lexical error at offset 0 near '@'", id="stray-token"),
+        # a non-ASCII offending code point renders as ? so the message stays one ASCII line
+        pytest.param('"abc' + chr(0x20AC), "lexical error at offset 0 near '\"abc?'", id="non-ascii-slice"),
+        # a long offending token is truncated to keep the slice short
+        pytest.param('"' + "a" * 40, "lexical error at offset 0 near '\"aaaaaaaaaaaaaa'", id="truncated-slice"),
+        # a control code point in the offending token also renders as ?
+        pytest.param(chr(0x01), "lexical error at offset 0 near '?'", id="control-char-slice"),
+    ],
+)
+def test_error_message_names_token(source: str, match: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(match)):
+        minify(source)
+
+
+# deeply nested / long input is rejected with a clean error rather than overflowing the C stack (#421);
+# each case drives a distinct recursion or spine-building path so every depth guard is exercised
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("(" * 4000 + "1" + ")" * 4000, id="nested-parens-expression"),
+        pytest.param("[" * 4000 + "]" * 4000, id="nested-arrays"),
+        pytest.param("{" * 4000 + "}" * 4000, id="nested-blocks"),
+        pytest.param("!" * 4000 + "x", id="prefix-unary-chain"),
+        pytest.param("new " * 4000 + "x", id="new-callee-chain"),
+        pytest.param("+".join(["1"] * 4000), id="binary-operator-spine"),
+        pytest.param("a" + ".a" * 4000, id="member-access-chain"),
+        pytest.param("new x" + ".a" * 4000, id="new-callee-member-chain"),
+    ],
+)
+def test_deep_nesting_is_rejected(source: str) -> None:
+    with pytest.raises(ValueError, match="nested too deeply at offset"):
+        minify(source)
+
+
+def test_nesting_just_under_the_cap_still_minifies() -> None:
+    # a legitimately deep expression below the cap folds and prints without faulting
+    assert minify("+".join(["1"] * 900)).count("+") == 899
 
 
 @pytest.mark.parametrize(

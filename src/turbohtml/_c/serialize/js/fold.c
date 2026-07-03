@@ -85,6 +85,31 @@ static int number_is_zero(const jm_node *node) {
     return zero;
 }
 
+/* Whether a string literal's value is the empty string. A non-empty lexeme still has an empty value
+   when its only content is LineContinuations (ECMA-262 §12.9.4.1: `\`+LineTerminatorSequence yields
+   nothing), so truthiness must look through the escapes, not measure the lexeme (#436). */
+static int string_value_empty(const jm_node *node) {
+    const Py_UCS4 *inner = node->str + 1;
+    Py_ssize_t len = node->str_len - 2;
+    for (Py_ssize_t index = 0; index < len;) {
+        if (inner[index] != '\\') {
+            return 0; /* a literal code point makes the value non-empty */
+        }
+        if (index + 1 >= len) { /* GCOVR_EXCL_BR_LINE: a lone trailing backslash is malformed input only */
+            return 0;           /* GCOVR_EXCL_LINE */
+        }
+        Py_UCS4 next = inner[index + 1];
+        if (next == '\r' && index + 2 < len && inner[index + 2] == '\n') { /* a CRLF continuation */
+            index += 3;
+        } else if (next == '\n' || next == '\r' || next == 0x2028 || next == 0x2029) {
+            index += 2;
+        } else {
+            return 0; /* any other escape yields at least one code point */
+        }
+    }
+    return 1;
+}
+
 /* The truthiness of a *pure* (side-effect-free) constant: 1 truthy, 0 falsy, -1 not a
    pure constant (so neither its value is known nor may it be dropped). */
 static int pure_truthy(F *folder, int32_t idx) {
@@ -95,7 +120,7 @@ static int pure_truthy(F *folder, int32_t idx) {
         return zero < 0 ? -1 : zero ? 0 : 1;
     }
     case JN_STRING:
-        return node->str_len > 2 ? 1 : 0; /* "" / '' is two quote characters */
+        return string_value_empty(node) ? 0 : 1;
     case JN_REGEX:
         return 1;
     case JN_IDENT:
@@ -700,9 +725,9 @@ static void fold_conditional(F *folder, int32_t idx) {
     int32_t cons = prog->nodes[idx].b;
     int32_t alt = prog->nodes[idx].c;
     if (same_expr(prog, cons, alt)) {
-        if (prog->nodes[test].kind == JN_IDENT) {
-            replace_with(folder, idx, cons); /* x?y:y -> y : reading x is pure, so its value can be dropped */
-        } /* an impure test would need a comma to keep its effect; left for a later pass rather than grown */
+        /* `x?y:y` is left as written: dropping the test would lose the ReferenceError an unresolvable
+           read throws, and the fold pass has no binding resolution to prove the read safe (#435). The
+           `x?x:y` / `x?y:x` rewrites below stay valid because they keep evaluating the test. */
         return;
     }
     if (prog->nodes[test].kind == JN_IDENT && same_expr(prog, test, cons)) {
@@ -1148,32 +1173,43 @@ static void fold_arithmetic(F *folder, int32_t idx) {
     }
 }
 
-/* Fold `"a" + "b"` to `"ab"` (ECMA-262 13.15.3, string concatenation is exact). Restricted to
-   operands quoted the same way, whose contents are already valid inside a result carrying that
-   quote, so no escape can be lost or a quote left unescaped. */
+/* Fold `"a" + "b"` to `"ab"` (ECMA-262 13.15.3, string concatenation is exact). The operand values
+   are decoded and the result re-encoded rather than the raw lexemes spliced: a trailing variable-length
+   escape (a legacy octal or a `\x`) in the left operand would otherwise absorb the right operand's first
+   character and change the value (`"\1"+"2"` is `"1","2"`, not the single octal `"\12"`; #437). */
 static void fold_concat(F *folder, int32_t idx) {
     jm_node *node = &folder->prog->nodes[idx];
     const jm_node *left = &folder->prog->nodes[node->a];
     const jm_node *right = &folder->prog->nodes[node->b];
     if (left->kind != JN_STRING || right->kind != JN_STRING || left->str[0] != right->str[0]) {
-        return;
+        return; /* same-quote operands only, so the result keeps that quote and re-encoding stays minimal */
     }
-    Py_ssize_t len = left->str_len + right->str_len - 2; /* drop one closing and one opening quote */
-    Py_UCS4 *buf = jm_malloc((size_t)len * sizeof(Py_UCS4));
-    if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        return;        /* GCOVR_EXCL_LINE */
+    Py_UCS4 quote = left->str[0];
+    Py_ssize_t value_cap = left->str_len + right->str_len; /* neither decoded value outgrows its lexeme */
+    Py_UCS4 *value = jm_malloc((size_t)value_cap * sizeof(Py_UCS4));
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return;          /* GCOVR_EXCL_LINE */
     }
-    memcpy(buf, left->str, (size_t)(left->str_len - 1) * sizeof(Py_UCS4)); /* "a (no closing quote) */
-    memcpy(buf + left->str_len - 1, right->str + 1, (size_t)(right->str_len - 1) * sizeof(Py_UCS4)); /* b" */
-    const Py_UCS4 *owned = jm_program_own(folder->prog, buf, len);
-    jm_free(buf);
+    Py_ssize_t value_len = jm_str_decode(left->str, left->str_len, value);
+    value_len += jm_str_decode(right->str, right->str_len, value + value_len);
+    Py_UCS4 *lexeme = jm_malloc((size_t)(value_len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
+    if (lexeme == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        jm_free(value);   /* GCOVR_EXCL_LINE */
+        return;           /* GCOVR_EXCL_LINE */
+    }
+    lexeme[0] = quote;
+    Py_ssize_t inner = jm_str_encode(value, value_len, quote, lexeme + 1);
+    lexeme[inner + 1] = quote;
+    jm_free(value);
+    const Py_UCS4 *owned = jm_program_own(folder->prog, lexeme, inner + 2);
+    jm_free(lexeme);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return;          /* GCOVR_EXCL_LINE */
     }
     node = &folder->prog->nodes[idx];
     node->kind = JN_STRING;
     node->str = owned;
-    node->str_len = len;
+    node->str_len = inner + 2;
     node->a = -1;
     node->b = -1;
     folder->changed = 1;

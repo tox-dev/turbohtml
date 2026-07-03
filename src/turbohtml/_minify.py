@@ -41,8 +41,15 @@ def minify_js(source: str, options: JSMinify | None = None) -> str:
     """
     Minify a JavaScript source string, returning the shortest equivalent program.
 
-    Raises :class:`ValueError` (carrying the byte offset) on a construct the parser does
-    not handle, so an unminifiable script fails loudly rather than passing through
-    unchanged. ``options`` defaults to the full pipeline.
+    Every transform preserves semantics, so the result evaluates identically to ``source``.
+    ``options`` defaults to the full pipeline (fold and mangle).
+
+    :param source: the JavaScript source to minify.
+    :param options: which optional passes to run; ``None`` runs the full pipeline.
+    :returns: the minified JavaScript.
+    :raises TypeError: if ``source`` is not a :class:`str`.
+    :raises ValueError: if the parser cannot handle the script -- a lexical or syntax error, or input
+        nested past the depth limit -- with the message naming the construct, its byte offset, and the
+        offending token; an unminifiable script fails loudly rather than passing through unchanged.
     """
     return _minify_js(source, (config := options or JSMinify()).fold, config.mangle)

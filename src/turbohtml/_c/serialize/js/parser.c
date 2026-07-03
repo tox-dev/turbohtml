@@ -20,19 +20,57 @@ typedef struct {
     jm_lexer lx;
     jm_program *prog;
     int err;
+    int32_t depth; /* current parse-recursion depth; a nesting cap stops a stack overflow (#421) */
     char *errbuf;
     size_t errlen;
 } P;
 
+/* The recursion/nesting a script may reach before the parser rejects it as too deep, chosen so the
+   post-parse fold and print walks (bounded by this AST height) stay well inside the C stack -- even a
+   512 KiB secondary-thread stack -- while clearing the deepest generated expressions seen in practice
+   (hundreds of operands). The point is to fail cleanly on a pathological input rather than fault. */
+enum { JM_MAX_DEPTH = 1000 };
+
 /* ----------------------------------------------------------- token helpers */
 
+/* Report the first error: the construct that failed, the byte offset, and the offending token slice
+   (or end-of-input), so a diagnostic names what and where rather than an offset alone (#434). */
 static void fail(P *parser, const char *message) {
-    if (!parser->err) {
-        parser->err = 1;
-        if (parser->errlen > 0) { /* errlen==0 is the no-message opt-out the HTML inline-<script> path uses */
-            snprintf(parser->errbuf, parser->errlen, "%s at offset %zd", message, (Py_ssize_t)parser->lx.start);
-        }
+    if (parser->err) {
+        return;
     }
+    parser->err = 1;
+    if (parser->errlen == 0) { /* errlen==0 is the no-message opt-out the HTML inline-<script> path uses */
+        return;
+    }
+    Py_ssize_t start = parser->lx.start;
+    if (parser->lx.kind == JT_EOF) {
+        snprintf(parser->errbuf, parser->errlen, "%s at offset %zd: reached end of input", message, (Py_ssize_t)start);
+        return;
+    }
+    char slice[16];
+    Py_ssize_t width = 0;
+    for (Py_ssize_t index = start; index < parser->lx.pos && width + 1 < (Py_ssize_t)sizeof(slice); index++) {
+        Py_UCS4 ch = parser->lx.src[index];
+        slice[width++] = ch >= 0x20 && ch < 0x7f ? (char)ch : '?'; /* keep the message ASCII and one line */
+    }
+    slice[width] = '\0';
+    snprintf(parser->errbuf, parser->errlen, "%s at offset %zd near '%s'", message, (Py_ssize_t)start, slice);
+}
+
+/* Enter one level of parse recursion; returns 0 (after flagging a clean error) when the nesting cap
+   is reached, so the caller unwinds instead of overflowing the stack. Each enter pairs with a leave. */
+static int enter(P *parser) {
+    if (parser->depth >= JM_MAX_DEPTH) {
+        fail(parser, "nested too deeply");
+        return 0;
+    }
+    parser->depth++;
+    return 1;
+}
+
+static void leave(P *parser) {
+    parser->depth--;
 }
 
 /* Advance to the next token; a lexer error becomes a parser error. */
@@ -87,9 +125,32 @@ static void reset(P *parser, jm_mark saved) {
 /* ----------------------------------------------------------- forward decls */
 
 static int32_t parse_stmt(P *parser);
+static int32_t parse_stmt_body(P *parser);
 static int32_t parse_block(P *parser);
 static int32_t parse_assign(P *parser, int no_in);
+static int32_t parse_assign_body(P *parser, int no_in);
 static int32_t parse_expr(P *parser, int no_in);
+
+/* parse_stmt and parse_assign are the two recursion hubs every nested statement and expression passes
+   through, so metering depth at their entry (paired with the operator/chain-loop caps below) bounds the
+   whole parse; the _body functions hold the grammar, these thin wrappers hold the depth accounting. */
+static int32_t parse_stmt(P *parser) {
+    if (!enter(parser)) {
+        return -1;
+    }
+    int32_t result = parse_stmt_body(parser);
+    leave(parser);
+    return result;
+}
+
+static int32_t parse_assign(P *parser, int no_in) {
+    if (!enter(parser)) {
+        return -1;
+    }
+    int32_t result = parse_assign_body(parser, no_in);
+    leave(parser);
+    return result;
+}
 static int32_t parse_binary(P *parser, int min_prec, int no_in);
 static int32_t parse_binary_base(P *parser);
 static int32_t parse_unary(P *parser);
@@ -124,14 +185,27 @@ static int32_t parse_spread(P *parser) {
     return node;
 }
 
+/* Record the current identifier token's text on a node as its decoded StringValue, so an escaped
+   spelling (`abc`) binds and resolves as its plain form (ECMA-262 §12.7); every consumer -- the
+   scope binder, the folder and the printer -- then sees the one canonical name. */
+static void set_ident(P *parser, int32_t node) {
+    Py_ssize_t len = 0;
+    parser->prog->nodes[node].str = jm_ident_value(parser->prog, parser->lx.text, parser->lx.text_len, &len);
+    parser->prog->nodes[node].str_len = len;
+}
+
 /* A node with one borrowed-text span (identifier/literal/template chunk). */
 static int32_t leaf(P *parser, jm_kind kind) {
     int32_t index = jm_node_new(parser->prog, kind);
     if (index < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return -1;   /* GCOVR_EXCL_LINE */
     }
-    parser->prog->nodes[index].str = parser->lx.text;
-    parser->prog->nodes[index].str_len = parser->lx.text_len;
+    if (kind == JN_IDENT) {
+        set_ident(parser, index);
+    } else {
+        parser->prog->nodes[index].str = parser->lx.text;
+        parser->prog->nodes[index].str_len = parser->lx.text_len;
+    }
     advance(parser);
     return index;
 }
@@ -421,7 +495,7 @@ static int32_t parse_block(P *parser) {
 
 /* A bare `{` is a block; an expression statement never starts with one (an object
    literal in statement position is parenthesized). */
-static int32_t parse_stmt(P *parser) {
+static int32_t parse_stmt_body(P *parser) {
     if (parser->err) { /* GCOVR_EXCL_BR_LINE: callers guard against re-entry on error */
         return -1;     /* GCOVR_EXCL_LINE: callers guard, but keep the recursion safe */
     }
@@ -594,6 +668,7 @@ static int32_t parse_binary(P *parser, int min_prec, int no_in) {
     if (parser->err) {
         return -1;
     }
+    int32_t built = 0; /* each loop turn deepens the left-leaning spine by one, so it counts as nesting */
     for (;;) {
         int logical = 0;
         int worded = 0;
@@ -601,6 +676,10 @@ static int32_t parse_binary(P *parser, int min_prec, int no_in) {
         if (prec == 0 || prec < min_prec) {
             break;
         }
+        if (!enter(parser)) {
+            return -1;
+        }
+        built++;
         uint16_t op = (uint16_t)parser->lx.kind;
         int32_t word_node = -1;
         if (worded) {
@@ -625,6 +704,7 @@ static int32_t parse_binary(P *parser, int min_prec, int no_in) {
         }
         left = node;
     }
+    parser->depth -= built; /* the spine is built; release its levels so a sibling expression starts fresh */
     return left;
 }
 
@@ -750,7 +830,7 @@ static int32_t parse_arrow(P *parser) {
     return parser->err ? -1 : node;
 }
 
-static int32_t parse_assign(P *parser, int no_in) {
+static int32_t parse_assign_body(P *parser, int no_in) {
     if (kw(parser, "yield")) {
         int32_t node = jm_node_new(parser->prog, JN_YIELD);
         advance(parser);
@@ -803,34 +883,35 @@ static int32_t parse_expr(P *parser, int no_in) {
 
 static int32_t parse_unary(P *parser) {
     jm_tok kind = parser->lx.kind;
+    jm_kind node_kind;
     if (kind == JT_NOT || kind == JT_BIT_NOT || kind == JT_PLUS || kind == JT_MINUS || kw(parser, "typeof") ||
         kw(parser, "void") || kw(parser, "delete")) {
-        int32_t node = jm_node_new(parser->prog, JN_UNARY);
+        node_kind = JN_UNARY;
+    } else if (kind == JT_INC || kind == JT_DEC) {
+        node_kind = JN_UPDATE;
+    } else if (kw(parser, "await")) {
+        node_kind = JN_AWAIT;
+    } else {
+        return parse_binary_base(parser); /* no prefix operator: the postfix ++/-- + call/member expression */
+    }
+    int32_t node = jm_node_new(parser->prog, node_kind);
+    if (node_kind == JN_UNARY) {
         parser->prog->nodes[node].op = (uint16_t)kind;
         if (kind == JT_IDENT) {
             parser->prog->nodes[node].str = parser->lx.text; /* typeof / void / delete keyword text */
             parser->prog->nodes[node].str_len = parser->lx.text_len;
         }
-        advance(parser);
-        set_a(parser, node, parse_unary(parser));
-        return parser->err ? -1 : node;
-    }
-    if (kind == JT_INC || kind == JT_DEC) {
-        int32_t node = jm_node_new(parser->prog, JN_UPDATE);
+    } else if (node_kind == JN_UPDATE) {
         parser->prog->nodes[node].op = (uint16_t)kind;
         parser->prog->nodes[node].flags |= JN_F_PREFIX;
-        advance(parser);
-        set_a(parser, node, parse_unary(parser));
-        return parser->err ? -1 : node;
     }
-    if (kw(parser, "await")) {
-        int32_t node = jm_node_new(parser->prog, JN_AWAIT);
-        advance(parser);
-        set_a(parser, node, parse_unary(parser));
-        return parser->err ? -1 : node;
+    advance(parser);
+    if (!enter(parser)) { /* one guard for the shared prefix recursion (`!!!x`, `typeof void x`, `++x`) */
+        return -1;
     }
-    /* postfix ++/-- bind to the call/member expression */
-    return parse_binary_base(parser);
+    set_a(parser, node, parse_unary(parser));
+    leave(parser);
+    return parser->err ? -1 : node;
 }
 
 /* Resolve the call/member/new chain, then an optional postfix update. */
@@ -879,7 +960,11 @@ static int32_t parse_new_callee(P *parser) {
     if (kw(parser, "new")) {
         int32_t node = jm_node_new(parser->prog, JN_NEW);
         advance(parser);
+        if (!enter(parser)) { /* `new new new ...` recurses here */
+            return -1;
+        }
         set_a(parser, node, parse_new_callee(parser));
+        leave(parser);
         if (parser->err) {
             return -1;
         }
@@ -893,7 +978,15 @@ static int32_t parse_new_callee(P *parser) {
     if (parser->err) {
         return -1;
     }
+    int32_t built = 0; /* the callee's member chain deepens the spine one node per link */
     for (;;) {
+        if (!at(parser, JT_DOT) && !at(parser, JT_LBRACK)) {
+            break;
+        }
+        if (!enter(parser)) {
+            return -1;
+        }
+        built++;
         if (at(parser, JT_DOT)) {
             advance(parser);
             int32_t prop = leaf(parser, JN_IDENT);
@@ -901,7 +994,7 @@ static int32_t parse_new_callee(P *parser) {
             set_a(parser, node, expr);
             set_b(parser, node, prop);
             expr = node;
-        } else if (at(parser, JT_LBRACK)) {
+        } else {
             advance(parser);
             int32_t node = jm_node_new(parser->prog, JN_MEMBER_EXPR);
             parser->prog->nodes[node].flags |= JN_F_COMPUTED;
@@ -909,18 +1002,18 @@ static int32_t parse_new_callee(P *parser) {
             set_b(parser, node, parse_expr(parser, 0));
             expect(parser, JT_RBRACK, "expected ]");
             expr = node;
-        } else {
-            break;
         }
         if (parser->err) {
             return -1;
         }
     }
+    parser->depth -= built;
     return expr;
 }
 
 static int32_t parse_call_member(P *parser) {
     int32_t expr;
+    int32_t built = 0; /* every call/member/tag link deepens the left-leaning spine by one */
     if (kw(parser, "new")) {
         int32_t node = jm_node_new(parser->prog, JN_NEW);
         advance(parser);
@@ -953,6 +1046,14 @@ static int32_t parse_call_member(P *parser) {
     }
 chain:
     for (;;) {
+        if (!at(parser, JT_DOT) && !at(parser, JT_OPT_CHAIN) && !at(parser, JT_LBRACK) && !at(parser, JT_LPAREN) &&
+            !at(parser, JT_TEMPLATE) && !at(parser, JT_TEMPLATE_HEAD)) {
+            break;
+        }
+        if (!enter(parser)) {
+            return -1;
+        }
+        built++;
         if (at(parser, JT_DOT)) {
             advance(parser);
             int32_t prop = leaf(parser, JN_IDENT); /* a property name (identifier name) */
@@ -994,18 +1095,17 @@ chain:
             set_a(parser, node, expr);
             parse_args(parser, node);
             expr = node;
-        } else if (at(parser, JT_TEMPLATE) || at(parser, JT_TEMPLATE_HEAD)) {
+        } else { /* JT_TEMPLATE / JT_TEMPLATE_HEAD: a tagged template */
             int32_t node = jm_node_new(parser->prog, JN_TAGGED);
             set_a(parser, node, expr);
             set_b(parser, node, parse_primary(parser)); /* the template literal */
             expr = node;
-        } else {
-            break;
         }
         if (parser->err) {
             return -1;
         }
     }
+    parser->depth -= built;
     return expr;
 }
 
@@ -1280,8 +1380,7 @@ static int32_t parse_function(P *parser, int is_expr, int is_async) {
         parser->prog->nodes[node].flags |= JN_F_GENERATOR;
     }
     if (at(parser, JT_IDENT)) {
-        parser->prog->nodes[node].str = parser->lx.text;
-        parser->prog->nodes[node].str_len = parser->lx.text_len;
+        set_ident(parser, node);
         advance(parser);
     }
     parse_params(parser, node);
@@ -1299,8 +1398,7 @@ static int32_t parse_class(P *parser, int is_expr) {
     }
     advance(parser); /* class */
     if (at(parser, JT_IDENT) && !kw(parser, "extends")) {
-        parser->prog->nodes[node].str = parser->lx.text;
-        parser->prog->nodes[node].str_len = parser->lx.text_len;
+        set_ident(parser, node);
         advance(parser);
     }
     if (kw(parser, "extends")) {

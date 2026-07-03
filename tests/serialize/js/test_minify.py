@@ -85,6 +85,51 @@ def test_adjacency_guard(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        # a computed member with an identifier-name key lowers to dot access, but the object must be
+        # parenthesized when it is a numeric literal so `25.toString` does not re-lex `25.` as a float
+        # (#419): an integer object would otherwise produce the invalid `25.toString`
+        pytest.param('25["toString"]()', "(25).toString()", id="int-computed-to-dot-parenthesizes"),
+        pytest.param('0["x"]', "(0).x", id="zero-computed-to-dot-parenthesizes"),
+        pytest.param('(3)["valueOf"]()', "(3).valueOf()", id="paren-int-computed-to-dot"),
+        # a non-integer numeric object takes dot access unambiguously; the parens are the printer's
+        # existing conservative choice, matching a plain `.` after a number
+        pytest.param('3.5["x"]', "(3.5).x", id="float-computed-to-dot"),
+        pytest.param('0x25["x"]', "(0x25).x", id="hex-computed-to-dot"),
+        # a non-numeric object keeps lowering to bare dot access
+        pytest.param('a["b"]', "a.b", id="ident-computed-to-dot"),
+        # a non-identifier key keeps the brackets
+        pytest.param('a["b c"]', 'a["b c"]', id="non-ident-key-keeps-brackets"),
+    ],
+)
+def test_computed_member_to_dot(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "value"),
+    [
+        # ECMA-262 §12.3 LineContinuation: a backslash then a LineTerminatorSequence (LF, CR, or the CR-LF
+        # pair) is consumed as one unit and drops from the value, so a CRLF-authored source lexes instead
+        # of the lexer rejecting the trailing LF as an unterminated string (#407)
+        pytest.param("a" + chr(0x5C) + chr(0x0A) + "b", "ab", id="lf"),
+        pytest.param("a" + chr(0x5C) + chr(0x0D) + "b", "ab", id="cr"),
+        pytest.param("a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b", "ab", id="crlf"),
+        pytest.param(
+            "a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "c",
+            "abc",
+            id="multi-segment-crlf",
+        ),
+    ],
+)
+def test_string_line_continuation_lexes(body: str, value: str) -> None:
+    # the standalone literal keeps its lexeme, so lexing it proves the fix; concatenating "" folds by value
+    assert minify_js(f'x="{body}"') == f'x="{body}"'
+    assert minify_js(f'"{body}"+""') == f'"{value}"'
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         pytest.param("if ( x ) { a ( ) } else { b ( ) }", "if(x)a();else b()", id="if-else"),
         pytest.param("for ( let i = 0 ; i < n ; i ++ ) { f ( i ) }", "for(let i=0;i<n;i++)f(i)", id="for"),
         pytest.param("for ( const k in o ) { }", "for(const k in o){}", id="for-in"),

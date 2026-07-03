@@ -263,7 +263,14 @@ static void jm_scan_string(jm_lexer *lx, Py_UCS4 quote) {
             return;
         }
         if (ch == '\\') {
-            lx->pos += 2; /* the escaped code point (a line continuation included) is opaque here */
+            /* a `\`+<CR><LF> LineContinuation is one unit (ECMA-262 §12.3): consume all three so
+               the trailing LF is not left to read as an unescaped newline. Every other escape (and
+               a lone LF/CR/LS/PS continuation) is two code points and opaque here. */
+            if (lx->pos + 2 < lx->len && lx->src[lx->pos + 1] == '\r' && lx->src[lx->pos + 2] == '\n') {
+                lx->pos += 3;
+            } else {
+                lx->pos += 2;
+            }
             continue;
         }
         if (jm_is_line_term(ch)) {

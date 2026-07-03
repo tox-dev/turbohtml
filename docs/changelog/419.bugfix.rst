@@ -1,0 +1,2 @@
+:func:`~turbohtml.minify_js` no longer lowers a computed member access on an integer literal to dot access
+(``25["toString"]()`` became the unparsable ``25.toString()``); the object is now parenthesised as ``(25).toString()``.

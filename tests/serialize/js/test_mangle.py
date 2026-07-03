@@ -153,3 +153,58 @@ def _run(code: str) -> str:
 )
 def test_mangling_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
+
+
+_BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # a Unicode-escaped IdentifierName is the same binding as its plain spelling (ECMA-262 §12.7), so
+        # the declaration and the use link and rename together instead of the use being dropped as free (#438)
+        pytest.param(
+            "function f(){var " + _BS + "u0061bc=1;return abc+abc}",
+            "function f(){return 2}",
+            id="escaped-declaration-plain-use",
+        ),
+        pytest.param(
+            "function f(){var abc=1;return " + _BS + "u0061bc+abc}",
+            "function f(){return 2}",
+            id="plain-declaration-escaped-use",
+        ),
+        # a braced \u{...} escape in an identifier decodes to the same StringValue
+        pytest.param(
+            "function f(){var " + _BS + "u{61}bc=1;return abc+abc}",
+            "function f(){return 2}",
+            id="braced-escape-declaration",
+        ),
+        # a local shadow of `undefined` spelled with an escape still shadows, so `undefined` is not the
+        # global and must not fold to `void 0`
+        pytest.param(
+            "function f(){var " + _BS + "u0075ndefined=1;return undefined}",
+            "function f(){return 1}",
+            id="escaped-undefined-shadow-kept",
+        ),
+    ],
+)
+def test_escaped_identifier_binds_as_stringvalue(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param(
+            "(function(){var " + _BS + "u0061bc=5;return abc})()",
+            id="escaped-declaration",
+        ),
+        pytest.param(
+            "(function(){var abc=5;return " + _BS + "u0061bc})()",
+            id="escaped-use",
+        ),
+    ],
+)
+def test_escaped_identifier_preserves_behavior(snippet: str) -> None:
+    assert _run(snippet) == _run(minify_js(snippet))

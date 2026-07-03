@@ -48,7 +48,9 @@ _NODE = shutil.which("node")
         # the branch, and two same-target assignments merge; an impure test or a non-ident target is kept
         pytest.param("x=a?a:b", "x=a||b", id="cond-self-or"),
         pytest.param("x=a?b:a", "x=a&&b", id="cond-self-and"),
-        pytest.param("x=a?b:b", "x=b", id="cond-same-branches"),
+        # a free-name test can throw a ReferenceError, so `a?b:b` may not drop to `b` here (#435); the
+        # drop applies only to a resolvable binding, gated behind the mangler -- see test_mangle.py
+        pytest.param("x=a?b:b", "x=a?b:b", id="cond-same-branches-free-test-kept"),
         pytest.param("x=cond?(t=1):(t=2)", "x=t=cond?1:2", id="cond-assign-merge"),
         pytest.param("x=g()?c:c", "x=g()?c:c", id="cond-impure-test-kept"),
         pytest.param("x=a?t+=1:t+=2", "x=a?t+=1:t+=2", id="cond-compound-assign-kept"),
@@ -871,3 +873,92 @@ def _run(code: str) -> str:
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
+
+
+_BS = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
+_CR = chr(0x0D)
+_LF = chr(0x0A)
+_LS = chr(0x2028)
+_PS = chr(0x2029)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # concatenation folds by the decoded value and re-encodes, so a trailing variable-length escape
+        # (octal or hex) can no longer absorb the next operand's first character (#437); a control code
+        # point takes a fixed-length \xHH that cannot grow
+        pytest.param(r'"\1"+"2"', r'"\x012"', id="octal-then-digit"),
+        pytest.param(r'"\0"+"0"', r'"\x000"', id="nul-then-digit"),
+        pytest.param(r'"\101"+"b"', r'"Ab"', id="octal-three-digit"),
+        pytest.param(r'"\41"+"1"', r'"!1"', id="octal-four-to-seven"),
+        pytest.param(r'"\x41"+"1"', r'"A1"', id="hex-escape"),
+        pytest.param(r'"\x1b"+"m"', r'"\x1bm"', id="hex-control-stays-hex"),
+        pytest.param(r'"\x1A"+"z"', r'"\x1az"', id="hex-uppercase-digits"),
+        # a non-octal code point right after an octal escape ends it: a char above '7' and one below '0'
+        pytest.param(r'"\1a"+"z"', r'"\x01az"', id="octal-then-high-char"),
+        pytest.param(r'"\1!"+"z"', r'"\x01!z"', id="octal-then-low-char"),
+        pytest.param('"' + _BS + 'u0041"+"z"', r'"Az"', id="unicode-escape"),
+        pytest.param('"' + _BS + 'u{1F600}"+"!"', '"\U0001f600!"', id="unicode-braced-astral"),
+        pytest.param(r'"\n"+"a"', r'"\na"', id="newline"),
+        pytest.param(r'"\r"+"a"', r'"\ra"', id="carriage-return"),
+        pytest.param(r'"\t"+"a"', r'"\ta"', id="tab"),
+        pytest.param(r'"\b"+"a"', r'"\ba"', id="backspace"),
+        pytest.param(r'"\f"+"a"', r'"\fa"', id="form-feed"),
+        pytest.param(r'"\v"+"a"', r'"\va"', id="vertical-tab"),
+        pytest.param(r'"a\\b"+"c"', r'"a\\bc"', id="backslash"),
+        pytest.param(r'"x"+"a\"b"', r'"xa\"b"', id="escaped-quote-reescaped"),
+        pytest.param(r'"\q"+"z"', r'"qz"', id="unknown-escape-is-literal"),
+        pytest.param('"' + _BS + 'u2028"+"a"', '"' + _BS + 'u2028a"', id="line-separator-value"),
+        pytest.param('"' + _BS + 'u2029"+"a"', '"' + _BS + 'u2029a"', id="paragraph-separator-value"),
+        # a LineContinuation contributes nothing to the value
+        pytest.param('"a' + _BS + _LF + 'b"+"c"', r'"abc"', id="lf-continuation"),
+        pytest.param('"a' + _BS + _CR + 'b"+"c"', r'"abc"', id="cr-continuation"),
+        pytest.param('"a' + _BS + _CR + '"+"z"', r'"az"', id="cr-continuation-at-end"),
+        pytest.param('"a' + _BS + _CR + _LF + 'b"+"c"', r'"abc"', id="crlf-continuation"),
+        pytest.param('"a' + _BS + _LS + 'b"+"c"', r'"abc"', id="ls-continuation"),
+        pytest.param('"a' + _BS + _PS + 'b"+"c"', r'"abc"', id="ps-continuation"),
+        pytest.param(r'"ab"+"cd"', r'"abcd"', id="plain"),
+    ],
+)
+def test_concat_reencodes_by_value(source: str, expected: str) -> None:
+    assert minify_js(f"x={source}") == f"x={expected}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # truthiness reads the decoded value, so a line-continuation-only string (value "") is falsy (#436)
+        pytest.param('"' + _BS + _LF + '"?1:2', "2", id="lf-only-empty-falsy"),
+        pytest.param('"' + _BS + _CR + '"?1:2', "2", id="cr-only-empty-falsy"),
+        pytest.param('"' + _BS + _CR + _LF + '"?1:2', "2", id="crlf-only-empty-falsy"),
+        pytest.param('"' + _BS + _LS + '"?1:2', "2", id="ls-only-empty-falsy"),
+        pytest.param('"' + _BS + _PS + '"?1:2', "2", id="ps-only-empty-falsy"),
+        pytest.param('""?1:2', "2", id="empty-literal-falsy"),
+        pytest.param(r'"a"?1:2', "1", id="nonempty-truthy"),
+        pytest.param(r'"\n"?1:2', "1", id="escape-value-truthy"),
+        pytest.param('"a' + _BS + _LF + '"?1:2', "1", id="continuation-plus-content-truthy"),
+        pytest.param('"' + _BS + _CR + 'x"?1:2', "1", id="cr-continuation-then-content-truthy"),
+    ],
+)
+def test_string_truthiness_reads_value(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(r'"\1"+"2"', id="octal-then-digit"),
+        pytest.param(r'"\0"+"0"', id="nul-then-digit"),
+        pytest.param(r'"\7"+"7"', id="octal-seven"),
+        pytest.param(r'"\12"+"3"', id="octal-two-then-digit"),
+        pytest.param(r'"\101"+"1"', id="octal-max-then-digit"),
+        pytest.param(r'"\x0a"+"b"', id="hex-then-letter"),
+        pytest.param('"' + _BS + 'u0041"+"1"', id="unicode-then-digit"),
+        pytest.param('"a' + _BS + _CR + _LF + 'b"+"3"', id="crlf-then-digit"),
+    ],
+)
+def test_concat_matches_node(source: str) -> None:
+    minified = minify_js(f"x={source}").removeprefix("x=")
+    assert _run(f"console.log(({source}))") == _run(f"console.log(({minified}))")

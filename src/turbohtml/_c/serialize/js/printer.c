@@ -831,21 +831,24 @@ static void print_expr(St *st, int32_t index) {
             put_ascii(st, node->op == JT_INC ? "++" : "--");
         }
         break;
-    case JN_MEMBER_EXPR:
-        /* a `.` after a numeric literal would re-lex as part of the number
-           (`1.toString` -> `1.` then `toString`), so parenthesize the number; an
+    case JN_MEMBER_EXPR: {
+        /* whether a `a["x"]` computed access lowers to `a.x`: only when the key spells an
+           IdentifierName. Decide before printing the object, because a dot after a numeric
+           object needs the object parenthesized just like a plain dot access does. */
+        Py_ssize_t name_len;
+        const Py_UCS4 *name = (node->flags & JN_F_COMPUTED) ? string_ident(&st->prog->nodes[node->b], &name_len) : NULL;
+        int prints_dot = !(node->flags & JN_F_COMPUTED) || name != NULL;
+        /* a `.` after a numeric literal would re-lex as part of the number (`1.toString` -> `1.`
+           then `toString`, `25["x"]` -> the invalid `25.x`), so parenthesize the number; an
            optional chain with load-bearing parens keeps them. */
-        if ((!(node->flags & JN_F_COMPUTED) && st->prog->nodes[node->a].kind == JN_NUM) ||
-            (st->prog->nodes[node->a].flags & JN_F_PAREN)) {
+        if ((prints_dot && st->prog->nodes[node->a].kind == JN_NUM) || (st->prog->nodes[node->a].flags & JN_F_PAREN)) {
             put_char(st, '(');
             print_expr(st, node->a);
             put_char(st, ')');
         } else {
             print_sub(st, node->a, 18);
         }
-        Py_ssize_t name_len;
-        const Py_UCS4 *name;
-        if ((node->flags & JN_F_COMPUTED) && (name = string_ident(&st->prog->nodes[node->b], &name_len)) != NULL) {
+        if (name != NULL) {
             put_ascii(st, (node->flags & JN_F_OPTIONAL) ? "?." : ".");
             put_run(st, name, name_len); /* a["x"] -> a.x */
         } else if (node->flags & JN_F_COMPUTED) {
@@ -860,6 +863,7 @@ static void print_expr(St *st, int32_t index) {
             print_text(st, &st->prog->nodes[node->b]);
         }
         break;
+    }
     case JN_CALL:
         if (st->prog->nodes[node->a].flags & JN_F_PAREN) {
             put_char(st, '(');

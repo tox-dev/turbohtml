@@ -307,6 +307,25 @@ typedef struct {
    on allocation failure. Used by the fold pass for a literal it synthesizes. */
 const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t len);
 
+/* The ECMA-262 §12.7 StringValue of an IdentifierName: src[0..len) with every `\uXXXX` / `\u{...}`
+   escape decoded, so an escaped spelling binds and resolves as its plain form (`abc` == `abc`).
+   The common escape-free name is returned as the borrowed source span (no copy); an escaped name is
+   decoded into a program-owned buffer. *out_len receives the decoded length. Returns the source span
+   unchanged on allocation failure (the binding may then miss-link, but nothing is corrupted). */
+const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len);
+
+/* Decode a string literal (lexeme includes its surrounding quotes) to its ECMA-262 §12.9.4 String
+   Value, writing the code points into out (capacity >= len is always enough: no escape expands) and
+   returning the value length. A LineContinuation contributes nothing; a legacy octal, hex or unicode
+   escape decodes to its code point. */
+Py_ssize_t jm_str_decode(const Py_UCS4 *lexeme, Py_ssize_t len, Py_UCS4 *out);
+
+/* Re-encode value[0..len) as the inner (quote-free) body of a string literal delimited by quote,
+   writing into out (capacity >= 6*len is always enough) and returning the encoded length. Control
+   code points take fixed-length escapes, so no variable-length octal escape can absorb a following
+   digit; the delimiting quote and backslash are escaped. */
+Py_ssize_t jm_str_encode(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 quote, Py_UCS4 *out);
+
 /* Parse src[0..len) into a program. Returns NULL on a syntax error (a NUL-terminated
    message is written into errbuf, capacity errlen) or allocation failure (errbuf
    empty). The source must outlive the program (nodes borrow its code points). */

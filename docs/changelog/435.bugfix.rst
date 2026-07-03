@@ -1,0 +1,2 @@
+:func:`~turbohtml.minify_js` no longer folds ``test?y:y`` to ``y`` when ``test`` is a bare identifier, which would drop
+the ``ReferenceError`` an unresolvable read throws.
