@@ -176,18 +176,22 @@ static int emit_if_match(xp_nodeset *out, struct th_node *node, const xn *step, 
 
 static int apply_step(xp_nodeset *out, struct th_node *ctx, const xn *step, const step_match *match) {
     switch (step->axis) {
-    case AX_ATTRIBUTE:
+    case AX_ATTRIBUTE: {
         /* node() and * both match every attribute; a name test matches by atom; a
            prefixed name test matches none (HTML attributes carry no namespace);
-           text()/comment()/processing-instruction() match no attribute. */
-        for (Py_ssize_t index = 0; index < ctx->attr_count; index++) {
+           text()/comment()/processing-instruction() match no attribute. A non-element
+           context node carries no attribute storage, so the axis yields nothing. */
+        th_node_attr *attrs;
+        Py_ssize_t attr_count = th_node_attributes(ctx, &attrs);
+        for (Py_ssize_t index = 0; index < attr_count; index++) {
             int hit = step->test == NT_STAR || step->test == NT_NODE ||
-                      (step->test == NT_NAME && !match->has_ns && ctx->attrs[index].name_atom == match->attr_atom);
+                      (step->test == NT_NAME && !match->has_ns && attrs[index].name_atom == match->attr_atom);
             if (hit && ns_push(out, ctx, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
                 return -1;                             /* GCOVR_EXCL_LINE */
             }
         }
         return 0;
+    }
     case AX_SELF:
         return emit_if_match(out, ctx, step, match);
     case AX_CHILD:
@@ -470,18 +474,82 @@ double parse_number(const Py_UCS4 *text, Py_ssize_t len) {
     return seen_digit ? sign * (value + frac) : (double)NAN;
 }
 
-static int format_number(double value, Py_UCS4 **out, Py_ssize_t *out_len) {
-    char buf[64];
-    if (isnan(value)) { /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
-        memcpy(buf, "NaN", 4);
-    } else if (isinf(value)) { /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isinf macro */
-        memcpy(buf, value < 0 ? "-Infinity" : "Infinity", value < 0 ? 10 : 9);
-    } else if (value == (double)(long long)value && fabs(value) < 1e15) {
-        snprintf(buf, sizeof(buf), "%lld", (long long)value);
-    } else {
-        snprintf(buf, sizeof(buf), "%.12g", value);
+/* Render a finite non-integer (or a large integer past the %lld fast path) as the plain
+   decimal XPath 1.0 §4.2 requires: the fewest significant digits that round-trip the
+   double, never an exponent. PyOS_double_to_string with the 'r' code gives the shortest
+   round-tripping digits (the same repr Python's float uses); this expands its mantissa
+   and decimal exponent into positional notation. Returns the written length, or -1 with
+   a Python exception set on allocation failure. */
+static Py_ssize_t decimal_expand(double value, char *out) {
+    char *repr = PyOS_double_to_string(value, 'r', 0, 0, NULL);
+    if (repr == NULL) { /* GCOVR_EXCL_BR_LINE: the repr allocation cannot be forced to fail */
+        return -1;      /* GCOVR_EXCL_LINE */
     }
-    Py_ssize_t len = (Py_ssize_t)strlen(buf);
+    char digits[32];
+    Py_ssize_t written = 0;
+    const char *cursor = repr;
+    if (*cursor == '-') {
+        out[written++] = '-';
+        cursor++;
+    }
+    Py_ssize_t digit_count = 0;
+    Py_ssize_t point = -1; /* index in digits of the decimal point, or the end when absent */
+    for (; *cursor != '\0' && *cursor != 'e'; cursor++) { /* the 'r' code always spells the exponent lowercase */
+        if (*cursor == '.') {
+            point = digit_count;
+        } else {
+            digits[digit_count++] = *cursor;
+        }
+    }
+    if (point < 0) {
+        point = digit_count;
+    }
+    Py_ssize_t exponent = *cursor == '\0' ? 0 : (Py_ssize_t)strtol(cursor + 1, NULL, 10);
+    PyMem_Free(repr);
+    Py_ssize_t split = point + exponent; /* digits left of the point after applying the exponent */
+    if (split <= 0) {
+        out[written++] = '0';
+        out[written++] = '.';
+        for (Py_ssize_t index = 0; index < -split; index++) {
+            out[written++] = '0';
+        }
+        for (Py_ssize_t index = 0; index < digit_count; index++) {
+            out[written++] = digits[index];
+        }
+    } else if (split >= digit_count) {
+        for (Py_ssize_t index = 0; index < digit_count; index++) {
+            out[written++] = digits[index];
+        }
+        for (Py_ssize_t index = 0; index < split - digit_count; index++) {
+            out[written++] = '0';
+        }
+    } else {
+        for (Py_ssize_t index = 0; index < split; index++) {
+            out[written++] = digits[index];
+        }
+        out[written++] = '.';
+        for (Py_ssize_t index = split; index < digit_count; index++) {
+            out[written++] = digits[index];
+        }
+    }
+    return written;
+}
+
+static int format_number(double value, Py_UCS4 **out, Py_ssize_t *out_len) {
+    char buf[512]; /* the widest finite double expands to ~325 decimal digits */
+    Py_ssize_t len;
+    if (isnan(value)) { /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isnan macro */
+        len = snprintf(buf, sizeof(buf), "NaN");
+    } else if (isinf(value)) { /* GCOVR_EXCL_BR_LINE: dead type-dispatch arm of the isinf macro */
+        len = snprintf(buf, sizeof(buf), "%s", value < 0 ? "-Infinity" : "Infinity");
+    } else if (value == (double)(long long)value && fabs(value) < 1e15) {
+        len = snprintf(buf, sizeof(buf), "%lld", (long long)value);
+    } else {
+        len = decimal_expand(value, buf);
+        if (len < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+    }
     Py_UCS4 *buffer = PyMem_Malloc((size_t)len * sizeof(Py_UCS4));
     if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
         return -1;        /* GCOVR_EXCL_LINE */
@@ -568,8 +636,9 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
         Py_ssize_t size = set->len;
         Py_ssize_t write_pos = 0;
         for (Py_ssize_t index = 0; index < set->len; index++) {
-            xp_ctx pctx = {ctx->tree,       set->items[index].node, index + 1,         size, ctx->feature, ctx->vars,
-                           ctx->namespaces, ctx->extension,         ctx->extension_ctx};
+            xp_ctx pctx = {
+                ctx->tree,       set->items[index].node, index + 1,          size,      ctx->feature, ctx->vars,
+                ctx->namespaces, ctx->extension,         ctx->extension_ctx, ctx->depth};
             xp_result value;
             int rc = eval_expr(prog, expr, &pctx, &value);
             if (rc < 0) {
@@ -667,7 +736,7 @@ static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_n
         if (base.kind != XP_NODESET) {
             xp_result_free(&base);
             *ctx->feature = "a path step on a non-node-set";
-            return -2;
+            return -4;
         }
         cur = base.nodes; /* take ownership */
     } else {
@@ -858,7 +927,7 @@ static int copy_result(const xp_result *src, xp_result *dst) {
     return 0;
 }
 
-int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     const xn *expr = &prog->nodes[idx];
     switch (expr->kind) {
     case XN_NUM:
@@ -903,7 +972,7 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
         if (primary.kind != XP_NODESET) {
             xp_result_free(&primary);
             *ctx->feature = "a predicate on a non-node-set";
-            return -2;
+            return -4;
         }
         sort_unique(&primary.nodes);
         rc = apply_predicates(prog, expr->second, ctx, &primary.nodes);
@@ -930,7 +999,7 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
             xp_result_free(&left);
             xp_result_free(&right);
             *ctx->feature = "a union of non-node-sets";
-            return -2;
+            return -4;
         }
         if (nodeset_union(&left.nodes, &right.nodes) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
             xp_result_free(&left);                          /* GCOVR_EXCL_LINE */
@@ -1008,9 +1077,22 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
     }
 }
 
+/* Guard every recursive descent with a depth cap so a long operator spine or a deeply
+   nested group raises past the bound instead of overflowing the C stack (issue #421). */
+int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
+    if (ctx->depth >= XP_MAX_DEPTH) {
+        *ctx->feature = "an expression nested too deeply";
+        return -3;
+    }
+    ctx->depth++;
+    int rc = eval_expr_inner(prog, idx, ctx, out);
+    ctx->depth--;
+    return rc;
+}
+
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature) {
-    xp_ctx ctx = {tree, context, 1, 1, feature, vars, namespaces, extension, extension_ctx};
+    xp_ctx ctx = {tree, context, 1, 1, feature, vars, namespaces, extension, extension_ctx, 0};
     return eval_expr(prog, prog->root, &ctx, out);
 }

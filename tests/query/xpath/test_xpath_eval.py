@@ -213,7 +213,7 @@ def test_xpath_iter_supports_partial_consumption(doc: turbohtml.Node) -> None:
 
 
 def test_xpath_iter_propagates_errors(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError, match="this function"):
+    with pytest.raises(ValueError, match="unknown function 'bogus-fn'"):
         doc.xpath_iter("bogus-fn(1)")
     with pytest.raises(TypeError, match="must be a str"):
         doc.xpath_iter(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
@@ -225,8 +225,8 @@ def test_namespace_axis(doc: turbohtml.Node) -> None:
     assert doc.xpath("//p/namespace::*") == ["http://www.w3.org/XML/1998/namespace"] * 2
 
 
-def test_xpath_one_unsupported_raises(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError, match="this function"):
+def test_xpath_one_unknown_function_raises(doc: turbohtml.Node) -> None:
+    with pytest.raises(ValueError, match="unknown function 'bogus-fn'"):
         doc.xpath_one("bogus-fn(1)")
 
 
@@ -650,3 +650,43 @@ def _every_element(document: Document) -> list[Element]:
 @pytest.mark.parametrize("element", _every_element(_PATH_DOCUMENT), ids=lambda element: element.xpath_path())
 def test_xpath_path_reselects_only_this_element(element: Element) -> None:
     assert _PATH_DOCUMENT.xpath(element.xpath_path()) == [element]
+
+
+# //@id expands to descendant-or-self::node()/@id, so the attribute axis visits the text
+# nodes in the tree. A text-node span reuses attr_count as a source offset with
+# attrs == NULL, so an axis that read attribute storage without an element-type gate
+# dereferenced a null pointer (issue #401).
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param("//@id", ["x"], id="named"),
+        pytest.param("//@*", ["x", "en"], id="wildcard"),
+        pytest.param("//node()/@id", ["x"], id="via-node-test"),
+        pytest.param("string(//@id)", "x", id="string-of-attribute"),
+    ],
+)
+def test_attribute_axis_survives_text_nodes(expr: str, expected: object) -> None:
+    doc = turbohtml.parse("<a id=x lang=en>hi<b>x</b></a>")
+    assert doc.xpath(expr) == expected
+
+
+def test_attribute_axis_of_a_text_node_is_empty() -> None:
+    assert turbohtml.parse("<a>t</a>").xpath("//text()/@id") == []
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param(" or ".join(["1=1"] * 5000), id="or-spine"),
+        pytest.param("+".join(["1"] * 5000), id="additive-spine"),
+    ],
+)
+def test_deep_operator_spine_raises_instead_of_overflowing(doc: turbohtml.Node, expr: str) -> None:
+    # a long left-associative chain parses iteratively but the evaluator descends its
+    # spine; the depth cap raises before the C stack overflows (issue #421)
+    with pytest.raises(ValueError, match="nested too deeply"):
+        doc.xpath(expr)
+
+
+def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> None:
+    assert doc.xpath("(" * 100 + "1 + 1" + ")" * 100) == pytest.approx(2.0)

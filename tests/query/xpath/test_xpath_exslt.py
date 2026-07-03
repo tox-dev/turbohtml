@@ -150,7 +150,7 @@ def test_set_has_same_node(doc: turbohtml.Node, expr: str, *, expected: bool) ->
     ],
 )
 def test_set_non_nodeset_argument_raises(doc: turbohtml.Node, expr: str) -> None:
-    with pytest.raises(NotImplementedError, match="non-node-set"):
+    with pytest.raises(TypeError, match="non-node-set"):
         doc.xpath(expr)
 
 
@@ -224,7 +224,7 @@ def test_str_functions(doc: turbohtml.Node, expr: str, expected: str) -> None:
 
 
 def test_str_concat_non_nodeset_argument_raises(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError, match="non-node-set"):
+    with pytest.raises(TypeError, match="non-node-set"):
         doc.xpath("str:concat('x')")
 
 
@@ -281,7 +281,7 @@ def test_math_select(doc: turbohtml.Node, expr: str, expected: list[str]) -> Non
     ],
 )
 def test_math_non_nodeset_argument_raises(doc: turbohtml.Node, expr: str) -> None:
-    with pytest.raises(NotImplementedError, match="non-node-set"):
+    with pytest.raises(TypeError, match="non-node-set"):
         doc.xpath(expr)
 
 

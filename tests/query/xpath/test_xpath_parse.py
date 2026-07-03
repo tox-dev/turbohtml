@@ -6,6 +6,8 @@ these assert the parse shape without an evaluator. Evaluation lands in a later p
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from turbohtml import _html
@@ -296,3 +298,38 @@ def test_rejects(expr: str, message: str) -> None:
 def test_non_string_argument() -> None:
     with pytest.raises(TypeError, match="must be a str"):
         parse(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
+
+
+@pytest.mark.parametrize(
+    ("expr", "fragment"),
+    [
+        pytest.param("a~b", "invalid character in expression at offset 1 near '~'", id="stray-char"),
+        pytest.param("1 2", "trailing tokens at offset 2 near '2'", id="trailing-token"),
+        pytest.param("(1", "expected ')' at the end of the expression", id="early-end"),
+        pytest.param("1 δ", "trailing tokens at offset 2 near '?'", id="non-ascii-token"),
+    ],
+)
+def test_parse_error_names_position_and_token(expr: str, fragment: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(fragment)):
+        parse(expr)
+
+
+def test_parse_error_clamps_a_long_offending_token() -> None:
+    with pytest.raises(ValueError, match="offset") as excinfo:
+        parse("1 " + "z" * 60)
+    assert "z" * 31 in str(excinfo.value)
+    assert "z" * 32 not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param("(" * 5000 + "1" + ")" * 5000, id="nested-groups"),
+        pytest.param("-" * 5000 + "1", id="unary-minus-chain"),
+    ],
+)
+def test_deeply_nested_expression_is_rejected(expr: str) -> None:
+    # nested groups and a chain of unary minus both recurse in the parser; the depth cap
+    # raises before the C stack overflows (issue #421)
+    with pytest.raises(ValueError, match="nested too deeply"):
+        parse(expr)

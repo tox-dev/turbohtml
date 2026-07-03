@@ -122,3 +122,16 @@ def test_lang_reads_html_lang_attribute_where_lxml_reads_xml_lang(langs: turboht
     # lxml's lang() returns nothing here (no xml:lang); turbohtml matches the
     # 'inherit' (lang='en-US') and 'outer' (lang='en') paragraphs.
     assert len(langs.xpath("//p[lang('en')]")) == 2
+
+
+def test_lang_on_a_text_node_context_reads_ancestor_lang() -> None:
+    # lang() walks self-or-ancestor elements from the context node; on a text-node
+    # context it used to loop over a text-node span's attr_count with attrs == NULL and
+    # dereference a null pointer (issue #422)
+    doc = turbohtml.parse("<p lang=en>hi<b>x</b></p>")
+    assert doc.xpath('//text()[lang("en")]') == ["hi", "x"]
+
+
+def test_lang_is_false_with_no_lang_bearing_ancestor() -> None:
+    doc = turbohtml.parse("<div><p>hi</p></div>")
+    assert doc.xpath("//text()[lang('en')]") == []

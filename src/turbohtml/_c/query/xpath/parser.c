@@ -11,13 +11,20 @@ typedef struct {
     lexer lx;
     xp_program *prog;
     int failed;
+    int depth; /* current parse recursion depth, capped at XP_MAX_DEPTH */
     const char *msg;
+    Py_ssize_t err_pos;     /* offset of the offending token when failed */
+    const Py_UCS4 *err_tok; /* the offending token text (into the source) */
+    Py_ssize_t err_tok_len;
 } parser;
 
 static void fail(parser *ps, const char *msg) {
     if (!ps->failed) {
         ps->failed = 1;
         ps->msg = msg;
+        ps->err_pos = ps->lx.tokpos;
+        ps->err_tok = ps->lx.src + ps->lx.tokpos;
+        ps->err_tok_len = ps->lx.pos - ps->lx.tokpos;
     }
 }
 
@@ -427,18 +434,31 @@ static int32_t parse_union(parser *ps) {
     return left;
 }
 
+/* Every recursion cycle -- a nested group, a predicate, a function argument, or a chain
+   of unary minus -- descends through here, so a single depth cap bounds the whole
+   parser's stack use and raises past the bound instead of overflowing (issue #421). */
 static int32_t parse_unary(parser *ps) {
+    if (ps->depth >= XP_MAX_DEPTH) {
+        fail(ps, "expression nested too deeply");
+        return -1;
+    }
+    ps->depth++;
+    int32_t result;
     if (ps->lx.kind == TK_MINUS) {
         lex_next(&ps->lx);
         int32_t operand = parse_unary(ps);
         int32_t neg = xn_new(ps->prog, XN_NEG);
-        if (neg < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
-            return -1; /* GCOVR_EXCL_LINE */
+        if (neg < 0) {   /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
+            ps->depth--; /* GCOVR_EXCL_LINE */
+            return -1;   /* GCOVR_EXCL_LINE */
         }
         ps->prog->nodes[neg].first = operand;
-        return neg;
+        result = neg;
+    } else {
+        result = parse_union(ps);
     }
-    return parse_union(ps);
+    ps->depth--;
+    return result;
 }
 
 static int32_t parse_multiplicative(parser *ps) {
@@ -674,6 +694,28 @@ static void optimize_descendant_steps(xp_program *prog) {
     }
 }
 
+/* Write the parse error into errbuf: the reason, the source offset, and a short ASCII
+   slice of the offending token (non-ASCII code points shown as '?'), or a note that the
+   expression ended early when the failure is at end of input. */
+static void format_error(char *errbuf, size_t errlen, const parser *ps) {
+    /* ps->msg is NULL only when an arena OOM failed the parse without a message, which
+       cannot be forced from a test */
+    const char *reason = ps->msg != NULL ? ps->msg : "invalid XPath expression"; /* GCOVR_EXCL_BR_LINE */
+    char token[32];
+    Py_ssize_t span = ps->err_tok_len > 0 ? ps->err_tok_len : (ps->err_pos < ps->lx.len ? 1 : 0);
+    Py_ssize_t count = span < (Py_ssize_t)sizeof(token) - 1 ? span : (Py_ssize_t)sizeof(token) - 1;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        Py_UCS4 ch = ps->err_tok[index];
+        token[index] = ch < 0x80 ? (char)ch : '?';
+    }
+    token[count] = '\0';
+    if (count > 0) {
+        snprintf(errbuf, errlen, "%s at offset %zd near '%s'", reason, ps->err_pos, token);
+    } else {
+        snprintf(errbuf, errlen, "%s at the end of the expression", reason);
+    }
+}
+
 xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen) {
     xp_program *prog = PyMem_Malloc(sizeof(*prog));
     if (prog == NULL) {                            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
@@ -704,8 +746,8 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
     }
     /* root < 0 and a NULL message only arise from an arena allocation failure that
        did not record a message, so those branches cannot be forced from a test */
-    if (ps.failed || prog->root < 0) {                                                /* GCOVR_EXCL_BR_LINE */
-        snprintf(errbuf, errlen, "%s", ps.msg ? ps.msg : "invalid XPath expression"); /* GCOVR_EXCL_BR_LINE */
+    if (ps.failed || prog->root < 0) { /* GCOVR_EXCL_BR_LINE: root < 0 is an unforced arena OOM */
+        format_error(errbuf, errlen, &ps);
         xp_free(prog);
         return NULL;
     }

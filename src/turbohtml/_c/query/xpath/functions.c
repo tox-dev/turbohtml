@@ -164,6 +164,46 @@ static int substring(struct th_tree *tree, xp_result *args, int argc, xp_result 
     return 0;
 }
 
+/* concat(s, s, s*): the string-values of every argument joined. Variadic (two or more
+   arguments), so the per-argument strings are held in a heap array sized to the call. */
+static int concat(struct th_tree *tree, xp_result *args, int argc, xp_result *out) {
+    Py_UCS4 **parts = PyMem_Calloc((size_t)argc, sizeof(Py_UCS4 *));
+    Py_ssize_t *lens = PyMem_Calloc((size_t)argc, sizeof(Py_ssize_t));
+    if (parts == NULL || lens == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(parts);               /* GCOVR_EXCL_LINE */
+        PyMem_Free(lens);                /* GCOVR_EXCL_LINE */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    int rc = 0;
+    Py_ssize_t total = 0;
+    for (int index = 0; index < argc; index++) {
+        parts[index] = to_string(tree, &args[index], &lens[index]);
+        if (parts[index] == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;                /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+        total += lens[index];
+    }
+    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_UCS4 *buf = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+        if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;       /* GCOVR_EXCL_LINE */
+        } else {           /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+            Py_ssize_t write_pos = 0;
+            for (int index = 0; index < argc; index++) {
+                memcpy(buf + write_pos, parts[index], (size_t)lens[index] * sizeof(Py_UCS4));
+                write_pos += lens[index];
+            }
+            result_string(out, buf, total);
+        }
+    }
+    for (int index = 0; index < argc; index++) {
+        PyMem_Free(parts[index]);
+    }
+    PyMem_Free(parts);
+    PyMem_Free(lens);
+    return rc;
+}
+
 /* namespace-uri(): empty for HTML elements, attributes, namespace nodes, and
    non-elements; the foreign-content URI for an SVG or MathML element. */
 static Py_UCS4 *node_namespace_uri(xp_ctx *ctx, xp_result *args, int argc, Py_ssize_t *len) {
@@ -217,10 +257,12 @@ static int node_lang(xp_ctx *ctx, xp_result *arg) {
     }
     int result = 0;
     for (struct th_node *node = ctx->node; node != NULL; node = node->parent) {
+        th_node_attr *attrs;
+        Py_ssize_t attr_count = th_node_attributes(node, &attrs);
         const th_node_attr *lang_attr = NULL;
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            if (node->attrs[index].name_atom == TH_ATTR_LANG) {
-                lang_attr = &node->attrs[index];
+        for (Py_ssize_t index = 0; index < attr_count; index++) {
+            if (attrs[index].name_atom == TH_ATTR_LANG) {
+                lang_attr = &attrs[index];
                 break;
             }
         }
@@ -932,26 +974,142 @@ static int date_leap_year(struct th_tree *tree, const xp_result *arg, xp_result 
     return 0;
 }
 
+/* Every core and EXSLT function's fixed arity (XPath 1.0 §4): the least and most
+   arguments it accepts, with max_args -1 for the one variadic function, concat. A call
+   whose count falls outside this range is a static error rejected before the body runs,
+   so no branch ever reads an argument the caller did not supply (issue #420). */
+typedef struct {
+    const char *name;
+    int8_t min_args;
+    int8_t max_args;
+} xp_func_sig;
+
+static const xp_func_sig FUNC_SIGS[] = {
+    {"last", 0, 0},
+    {"position", 0, 0},
+    {"count", 1, 1},
+    {"id", 1, 1},
+    {"local-name", 0, 1},
+    {"namespace-uri", 0, 1},
+    {"name", 0, 1},
+    {"string", 0, 1},
+    {"concat", 2, -1},
+    {"starts-with", 2, 2},
+    {"contains", 2, 2},
+    {"substring-before", 2, 2},
+    {"substring-after", 2, 2},
+    {"substring", 2, 3},
+    {"string-length", 0, 1},
+    {"normalize-space", 0, 1},
+    {"translate", 3, 3},
+    {"boolean", 1, 1},
+    {"not", 1, 1},
+    {"true", 0, 0},
+    {"false", 0, 0},
+    {"lang", 1, 1},
+    {"number", 0, 1},
+    {"sum", 1, 1},
+    {"floor", 1, 1},
+    {"ceiling", 1, 1},
+    {"round", 1, 1},
+    {"re:test", 2, 3},
+    {"re:replace", 4, 4},
+    {"set:difference", 2, 2},
+    {"set:intersection", 2, 2},
+    {"set:has-same-node", 2, 2},
+    {"set:leading", 2, 2},
+    {"set:trailing", 2, 2},
+    {"set:distinct", 1, 1},
+    {"str:concat", 1, 1},
+    {"str:replace", 3, 3},
+    {"str:padding", 1, 2},
+    {"str:align", 2, 3},
+    {"math:min", 1, 1},
+    {"math:max", 1, 1},
+    {"math:highest", 1, 1},
+    {"math:lowest", 1, 1},
+    {"math:abs", 1, 1},
+    {"math:power", 2, 2},
+    {"date:year", 1, 1},
+    {"date:month-in-year", 1, 1},
+    {"date:day-in-month", 1, 1},
+    {"date:day-in-week", 1, 1},
+    {"date:leap-year", 1, 1},
+};
+
+static const xp_func_sig *func_signature(const xn *fn) {
+    for (size_t index = 0; index < sizeof(FUNC_SIGS) / sizeof(FUNC_SIGS[0]); index++) {
+        if (func_is(fn, FUNC_SIGS[index].name)) {
+            return &FUNC_SIGS[index];
+        }
+    }
+    return NULL;
+}
+
+/* A fresh Python str of the called function's name, for an error message. */
+static PyObject *function_name(const xn *fn) {
+    return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, fn->str, fn->str_len);
+}
+
+/* Report a call to a name that is neither a core function nor a registered extension.
+   Returns -1 with a ValueError set, which xpath_raise_status then surfaces unchanged. */
+static int raise_unknown_function(const xn *fn) {
+    PyObject *name = function_name(fn);
+    if (name != NULL) { /* GCOVR_EXCL_BR_LINE: the name allocation cannot be forced to fail */
+        PyErr_Format(PyExc_ValueError, "xpath: unknown function '%U'", name);
+        Py_DECREF(name);
+    }
+    return -1;
+}
+
+/* Report a call whose argument count is outside the function's fixed arity. */
+static int raise_arity(const xn *fn, const xp_func_sig *sig, int argc) {
+    PyObject *name = function_name(fn);
+    if (name == NULL) { /* GCOVR_EXCL_BR_LINE: the name allocation cannot be forced to fail */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    if (sig->max_args < 0) {
+        PyErr_Format(PyExc_ValueError, "xpath: %U() takes at least %d arguments, got %d", name, sig->min_args, argc);
+    } else if (sig->min_args == sig->max_args) {
+        PyErr_Format(PyExc_ValueError, "xpath: %U() takes %d argument%s, got %d", name, sig->min_args,
+                     sig->min_args == 1 ? "" : "s", argc);
+    } else {
+        PyErr_Format(PyExc_ValueError, "xpath: %U() takes %d to %d arguments, got %d", name, sig->min_args,
+                     sig->max_args, argc);
+    }
+    Py_DECREF(name);
+    return -1;
+}
+
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     const xn *fn = &prog->nodes[idx];
-    xp_result args[8];
     int argc = 0;
     for (int32_t arg_node = fn->first; arg_node >= 0; arg_node = prog->nodes[arg_node].next) {
-        if (argc == 8) { /* GCOVR_EXCL_BR_LINE: no supported function takes 8 args */
-            *ctx->feature = "a function with too many arguments";                /* GCOVR_EXCL_LINE */
-            for (int cleanup_index = 0; cleanup_index < argc; cleanup_index++) { /* GCOVR_EXCL_LINE */
-                xp_result_free(&args[cleanup_index]);                            /* GCOVR_EXCL_LINE */
-            } /* GCOVR_EXCL_LINE */
-            return -2; /* GCOVR_EXCL_LINE */
+        argc++;
+    }
+    const xp_func_sig *sig = func_signature(fn);
+    if (sig != NULL && (argc < sig->min_args || (sig->max_args >= 0 && argc > sig->max_args))) {
+        return raise_arity(fn, sig, argc);
+    }
+    xp_result *args = NULL;
+    if (argc > 0) {
+        args = PyMem_Calloc((size_t)argc, sizeof(xp_result));
+        if (args == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
         }
-        int rc = eval_expr(prog, arg_node, ctx, &args[argc]);
-        if (rc < 0) {
-            for (int cleanup_index = 0; cleanup_index < argc; cleanup_index++) {
+    }
+    int filled = 0;
+    for (int32_t arg_node = fn->first; arg_node >= 0; arg_node = prog->nodes[arg_node].next) {
+        int arg_rc = eval_expr(prog, arg_node, ctx, &args[filled]);
+        if (arg_rc < 0) {
+            for (int cleanup_index = 0; cleanup_index < filled; cleanup_index++) {
                 xp_result_free(&args[cleanup_index]);
             }
-            return rc;
+            PyMem_Free(args);
+            return arg_rc;
         }
-        argc++;
+        filled++;
     }
     int rc = 0;
     if (func_is(fn, "true") || func_is(fn, "false")) {
@@ -974,14 +1132,14 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     } else if (func_is(fn, "count")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "count() of a non-node-set";
-            rc = -2;
+            rc = -4;
         } else {
             result_number(out, (double)args[0].nodes.len);
         }
     } else if (func_is(fn, "sum")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "sum() of a non-node-set";
-            rc = -2;
+            rc = -4;
         } else {
             double total = 0;
             for (Py_ssize_t index = 0; index < args[0].nodes.len; index++) {
@@ -1048,7 +1206,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
                func_is(fn, "set:leading") || func_is(fn, "set:trailing")) {
         if (args[0].kind != XP_NODESET || args[1].kind != XP_NODESET) {
             *ctx->feature = "a set: function on a non-node-set";
-            rc = -2;
+            rc = -4;
         } else if (func_is(fn, "set:difference")) {
             rc = set_filter(args, 0, out);
         } else if (func_is(fn, "set:intersection")) {
@@ -1061,14 +1219,14 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     } else if (func_is(fn, "set:distinct")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "set:distinct on a non-node-set";
-            rc = -2;
+            rc = -4;
         } else {
             rc = set_distinct(ctx->tree, &args[0], out);
         }
     } else if (func_is(fn, "str:concat")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "str:concat on a non-node-set";
-            rc = -2;
+            rc = -4;
         } else {
             rc = str_concat(ctx->tree, &args[0], out);
         }
@@ -1082,7 +1240,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
                func_is(fn, "math:lowest")) {
         if (args[0].kind != XP_NODESET) {
             *ctx->feature = "a math: function on a non-node-set";
-            rc = -2;
+            rc = -4;
         } else if (func_is(fn, "math:min") || func_is(fn, "math:max")) {
             rc = math_extreme(ctx->tree, &args[0], func_is(fn, "math:max"), out);
         } else {
@@ -1103,32 +1261,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     } else if (func_is(fn, "date:leap-year")) {
         rc = date_leap_year(ctx->tree, &args[0], out);
     } else if (func_is(fn, "concat")) {
-        Py_ssize_t total = 0;
-        Py_UCS4 *parts[8];
-        Py_ssize_t lens[8];
-        for (int index = 0; index < argc; index++) {
-            parts[index] = to_string(ctx->tree, &args[index], &lens[index]);
-            if (parts[index] == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-                rc = -1;                /* GCOVR_EXCL_LINE */
-            } /* GCOVR_EXCL_LINE */
-            total += lens[index];
-        }
-        if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            Py_UCS4 *buf = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
-            if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-                rc = -1;       /* GCOVR_EXCL_LINE */
-            } else {           /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
-                Py_ssize_t write_pos = 0;
-                for (int index = 0; index < argc; index++) {
-                    memcpy(buf + write_pos, parts[index], (size_t)lens[index] * sizeof(Py_UCS4));
-                    write_pos += lens[index];
-                }
-                result_string(out, buf, total);
-            }
-        }
-        for (int index = 0; index < argc; index++) {
-            PyMem_Free(parts[index]);
-        }
+        rc = concat(ctx->tree, args, argc, out);
     } else if (func_is(fn, "starts-with") || func_is(fn, "contains")) {
         Py_ssize_t hl;
         Py_ssize_t nl;
@@ -1183,12 +1316,12 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
                (rc = ctx->extension(ctx->extension_ctx, ctx->node, fn->str, fn->str_len, args, argc, out)) != -2) {
         /* a registered extension handled it (rc is 0 or a propagated error) */
     } else {
-        *ctx->feature = "this function";
-        rc = -2;
+        rc = raise_unknown_function(fn);
     }
     for (int cleanup_index = 0; cleanup_index < argc; cleanup_index++) {
         xp_result_free(&args[cleanup_index]);
     }
+    PyMem_Free(args);
     return rc;
 }
 

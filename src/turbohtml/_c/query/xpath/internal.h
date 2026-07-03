@@ -128,6 +128,7 @@ typedef struct {
     const Py_UCS4 *src;
     Py_ssize_t len;
     Py_ssize_t pos;
+    Py_ssize_t tokpos; /* start of the current token in src, for error positions */
     tok_kind kind;
     const Py_UCS4 *tstart; /* NAME / LITERAL text (into src) */
     Py_ssize_t tlen;
@@ -159,6 +160,12 @@ int xp_name_eq(const lexer *lx, const char *kw);
 #define XP_SVG_NS_URI "http://www.w3.org/2000/svg"
 #define XP_MATHML_NS_URI "http://www.w3.org/1998/Math/MathML"
 
+/* An upper bound on parser nesting and evaluator recursion. A single group or
+   operator level costs a bounded number of C stack frames, so this caps the stack a
+   pathological expression -- deeply nested groups, or a long left-associative operator
+   spine -- can consume before it faults (issue #421). */
+#define XP_MAX_DEPTH 1024
+
 /* The evaluation context: the tree, the current node, its 1-based proximity
    position and the context size, plus where to report an unimplemented feature. */
 typedef struct {
@@ -171,6 +178,7 @@ typedef struct {
     const xp_namespaces *namespaces;
     xp_extension_fn extension;
     void *extension_ctx;
+    int depth; /* current eval_expr recursion depth, capped at XP_MAX_DEPTH */
 } xp_ctx;
 
 /* Pre-order successor, shared by the evaluator and id(). ns_push is declared in the

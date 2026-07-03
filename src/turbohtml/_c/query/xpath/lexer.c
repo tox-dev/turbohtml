@@ -60,6 +60,7 @@ void lex_next(lexer *lx) {
         lx->pos++;
     }
     int prev_op = lx->op_context;
+    lx->tokpos = lx->pos;
     if (lx->pos >= lx->len) {
         lx->kind = TK_EOF;
         return;

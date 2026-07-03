@@ -7,6 +7,7 @@ matching ``float`` / ``str`` / ``bool``, the same as lxml.
 from __future__ import annotations
 
 import math
+import re
 
 import pytest
 
@@ -71,7 +72,7 @@ def doc() -> turbohtml.Node:
         pytest.param("string(1 div 0)", "Infinity", id="string-infinity"),
         pytest.param("string(-1 div 0)", "-Infinity", id="string-neg-infinity"),
         pytest.param("string(0 div 0)", "NaN", id="string-nan"),
-        pytest.param("string(1000000000000000)", "1e+15", id="string-huge"),
+        pytest.param("string(1000000000000000)", "1000000000000000", id="string-huge"),
         pytest.param("string(//input/@disabled)", "", id="string-valueless-attr"),
         pytest.param("string(//comment())", "note", id="string-comment"),
         pytest.param("concat('a', 'b', 'c')", "abc", id="concat"),
@@ -181,36 +182,49 @@ def test_filter_base_node_set_continues_as_path(doc: turbohtml.Node) -> None:
     assert [node.tag for node in result if isinstance(node, Element)] == ["p", "p", "p"]
 
 
+# An unknown function name is a static error (XPath 1.0 §3.2); nested inside any
+# expression form the ValueError still propagates out, naming the offending function.
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param("bogus-fn(1)", id="unknown-function"),
+        pytest.param("count(bogus-fn(1))", id="in-function-arg"),
+        pytest.param("concat('x', bogus-fn(1))", id="in-later-function-arg"),
+        pytest.param("//p[bogus-fn(1)]", id="in-predicate"),
+        pytest.param("(bogus-fn(1))[1]", id="in-filter-primary"),
+        pytest.param("(//p)[bogus-fn(1)]", id="in-filter-predicate"),
+        pytest.param("(bogus-fn(1))/p", id="in-filter-base"),
+        pytest.param("bogus-fn(1) | //p", id="in-union-left"),
+        pytest.param("//p | bogus-fn(1)", id="in-union-right"),
+        pytest.param("bogus-fn(1) or 1", id="in-or-left"),
+        pytest.param("false() or bogus-fn(1)", id="in-or-right"),
+        pytest.param("bogus-fn(1) and 1", id="in-and-left"),
+        pytest.param("true() and bogus-fn(1)", id="in-and-right"),
+        pytest.param("- bogus-fn(1)", id="in-negation"),
+        pytest.param("bogus-fn(1) = 1", id="in-compare-left"),
+        pytest.param("1 = bogus-fn(1)", id="in-compare-right"),
+    ],
+)
+def test_unknown_function_raises(doc: turbohtml.Node, expr: str) -> None:
+    with pytest.raises(ValueError, match=r"xpath: unknown function 'bogus-fn'"):
+        doc.xpath(expr)
+
+
+# A scalar where the grammar requires a node-set is a type error, not an unimplemented
+# feature: the function arguments, the path base, a predicate base, and a union operand.
 @pytest.mark.parametrize(
     ("expr", "message"),
     [
-        pytest.param("bogus-fn(1)", "this function", id="unknown-function"),
         pytest.param("count('x')", "count.. of a non-node-set", id="count-non-nodeset"),
         pytest.param("sum('x')", "sum.. of a non-node-set", id="sum-non-nodeset"),
-        pytest.param("(1)/p", "non-node-set", id="path-on-non-nodeset"),
-        pytest.param("(1)[1]", "non-node-set", id="predicate-on-non-nodeset"),
-        pytest.param("//a | 1", "non-node-set", id="union-of-non-nodesets"),
-        pytest.param("1 | //a", "non-node-set", id="union-non-nodeset-left"),
-        # an unknown function nested in each expression form propagates the error out
-        pytest.param("count(bogus-fn(1))", "this function", id="in-function-arg"),
-        pytest.param("concat('x', bogus-fn(1))", "this function", id="in-later-function-arg"),
-        pytest.param("//p[bogus-fn(1)]", "this function", id="in-predicate"),
-        pytest.param("(bogus-fn(1))[1]", "this function", id="in-filter-primary"),
-        pytest.param("(//p)[bogus-fn(1)]", "this function", id="in-filter-predicate"),
-        pytest.param("(bogus-fn(1))/p", "this function", id="in-filter-base"),
-        pytest.param("bogus-fn(1) | //p", "this function", id="in-union-left"),
-        pytest.param("//p | bogus-fn(1)", "this function", id="in-union-right"),
-        pytest.param("bogus-fn(1) or 1", "this function", id="in-or-left"),
-        pytest.param("false() or bogus-fn(1)", "this function", id="in-or-right"),
-        pytest.param("bogus-fn(1) and 1", "this function", id="in-and-left"),
-        pytest.param("true() and bogus-fn(1)", "this function", id="in-and-right"),
-        pytest.param("- bogus-fn(1)", "this function", id="in-negation"),
-        pytest.param("bogus-fn(1) = 1", "this function", id="in-compare-left"),
-        pytest.param("1 = bogus-fn(1)", "this function", id="in-compare-right"),
+        pytest.param("(1)/p", "path step on a non-node-set", id="path-on-non-nodeset"),
+        pytest.param("(1)[1]", "predicate on a non-node-set", id="predicate-on-non-nodeset"),
+        pytest.param("//a | 1", "union of non-node-sets", id="union-of-non-nodesets"),
+        pytest.param("1 | //a", "union of non-node-sets", id="union-non-nodeset-left"),
     ],
 )
-def test_unsupported_constructs_raise(doc: turbohtml.Node, expr: str, message: str) -> None:
-    with pytest.raises(NotImplementedError, match=message):
+def test_non_nodeset_raises_type_error(doc: turbohtml.Node, expr: str, message: str) -> None:
+    with pytest.raises(TypeError, match=message):
         doc.xpath(expr)
 
 
@@ -229,3 +243,82 @@ def test_namespace_axis(doc: turbohtml.Node) -> None:
     assert doc.xpath("//p/namespace::*/a") == []  # a namespace node has no axes
     # an attribute and the namespace node of the same element sort node-then-namespace
     assert doc.xpath("count(//p/@class | //p/namespace::*)") == pytest.approx(4.0)
+
+
+# A core function has a fixed arity (XPath 1.0 §4). Too few arguments used to read an
+# uninitialized args[] slot and fault; too many were silently ignored. Both now raise.
+@pytest.mark.parametrize(
+    ("expr", "message"),
+    [
+        pytest.param("count()", "count() takes 1 argument, got 0", id="count-too-few"),
+        pytest.param("count(//a, //a)", "count() takes 1 argument, got 2", id="count-too-many"),
+        pytest.param("true(1)", "true() takes 0 arguments, got 1", id="niladic-too-many"),
+        pytest.param("starts-with()", "starts-with() takes 2 arguments, got 0", id="starts-with-too-few"),
+        pytest.param("sum()", "sum() takes 1 argument, got 0", id="sum-too-few"),
+        pytest.param("floor()", "floor() takes 1 argument, got 0", id="floor-too-few"),
+        pytest.param("id()", "id() takes 1 argument, got 0", id="id-too-few"),
+        pytest.param("translate('a')", "translate() takes 3 arguments, got 1", id="fixed-three-too-few"),
+        pytest.param("substring('a')", "substring() takes 2 to 3 arguments, got 1", id="range-too-few"),
+        pytest.param("substring('a', 1, 2, 3)", "substring() takes 2 to 3 arguments, got 4", id="range-too-many"),
+        pytest.param("concat('a')", "concat() takes at least 2 arguments, got 1", id="variadic-too-few"),
+    ],
+)
+def test_wrong_arity_raises_value_error(doc: turbohtml.Node, expr: str, message: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(message)):
+        doc.xpath(expr)
+
+
+def test_count_of_a_nodeset_is_the_length_not_uninitialized_memory(doc: turbohtml.Node) -> None:
+    # count() with no argument used to return an uninitialized stack double
+    assert doc.xpath("count(//zzz)") == pytest.approx(0.0)
+    assert doc.xpath("count(//p)") == pytest.approx(3.0)
+
+
+def test_concat_grows_past_the_old_eight_argument_buffer(doc: turbohtml.Node) -> None:
+    assert doc.xpath("concat(1,2,3,4,5,6,7,8,9,0)") == "1234567890"
+
+
+# XPath 1.0 §4.2: a number stringifies to the fewest digits that round-trip the double,
+# always in positional notation (no exponent).
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(1 / 3, "0.3333333333333333", id="one-third"),
+        pytest.param(0.1, "0.1", id="tenth"),
+        pytest.param(0.2, "0.2", id="fifth"),
+        pytest.param(2 / 3, "0.6666666666666666", id="two-thirds"),
+        pytest.param(1e-7, "0.0000001", id="small-decimal"),
+        pytest.param(1.5e-7, "0.00000015", id="small-decimal-mantissa"),
+        pytest.param(1e21, "1000000000000000000000", id="large-integer"),
+        pytest.param(1.25e21, "1250000000000000000000", id="large-integer-mantissa"),
+        pytest.param(42.0, "42", id="integer-fast-path"),
+        pytest.param(-0.5, "-0.5", id="negative-fraction"),
+        pytest.param(1234567890123456.7, "1234567890123456.8", id="seventeen-significant-digits"),
+    ],
+)
+def test_number_to_string_is_shortest_decimal(value: float, expected: str) -> None:
+    doc = turbohtml.parse("<r/>")
+    assert doc.xpath("string($v)", v=value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(1 / 3, id="one-third"),
+        pytest.param(0.1, id="tenth"),
+        pytest.param(2 / 3, id="two-thirds"),
+        pytest.param(math.pi, id="pi"),
+        pytest.param(math.e, id="e"),
+        pytest.param(1e-7, id="small"),
+        pytest.param(1e21, id="large"),
+        pytest.param(123.456, id="mixed"),
+        pytest.param(9.999999999999999e-5, id="seventeen-digits"),
+        pytest.param(5e-324, id="smallest-subnormal"),
+    ],
+)
+def test_number_to_string_round_trips(value: float) -> None:
+    doc = turbohtml.parse("<r/>")
+    rendered = doc.xpath("string($v)", v=value)
+    assert isinstance(rendered, str)
+    # the rendered decimal parses back to the bit-identical double it came from
+    assert float(rendered).hex() == float(value).hex()

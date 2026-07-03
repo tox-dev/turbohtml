@@ -1459,13 +1459,16 @@ static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree
     return node_wrap(state, handle, item.node);
 }
 
-/* Translate an xp_eval status (-2 unsupported, -1 OOM) into a Python error. */
+/* Translate an xp_eval status into a Python error: -4 a TypeError (a value where a
+   node-set is required), -3 a ValueError (an unbound variable, an unbound prefix, or an
+   over-deep expression), -1 an allocation failure or an already-set exception (an unknown
+   function, a wrong-arity call, a malformed regex, or an extension failure). */
 static void *xpath_raise_status(int status, const char *feature) {
-    if (PyErr_Occurred()) { /* a borrowed Python call (e.g. a malformed regex) already set the exception */
+    if (PyErr_Occurred()) { /* a borrowed Python call already set the exception (regex, unknown function, ...) */
         return NULL;
     }
-    if (status == -2) {
-        PyErr_Format(PyExc_NotImplementedError, "xpath: %s are not implemented yet", feature);
+    if (status == -4) {
+        PyErr_Format(PyExc_TypeError, "xpath: %s", feature);
         return NULL;
     }
     if (status == -3) { /* GCOVR_EXCL_BR_LINE: the remaining status -1 is an allocation failure */
@@ -2186,7 +2189,12 @@ PyDoc_STRVAR(xpath_compiled_doc, "XPath(expression, *, smart_strings=False, exte
                                  "variables: XPath(\"//td[@class=$cls]\")(row, cls=\"num\"). It returns the same\n"
                                  "results as Node.xpath. smart_strings and the extensions dict are bound here\n"
                                  "at construction. The object is immutable and re-entrant, so one instance can\n"
-                                 "be shared across threads.");
+                                 "be shared across threads.\n\n"
+                                 ":raises TypeError: expression is not a str, a variable binding is of an\n"
+                                 "    unsupported type, or a value is used where a node-set is required.\n"
+                                 ":raises ValueError: the expression is not valid XPath (with the offending\n"
+                                 "    token and its offset), nests past the depth limit, calls an unknown or\n"
+                                 "    wrong-arity function, or references an unbound variable or prefix.");
 
 static PyType_Slot xpath_compiled_slots[] = {
     {Py_tp_doc, (void *)xpath_compiled_doc},

@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.xpath` now caps expression nesting and operator-chain depth in both the parser and the evaluator,
+raising :exc:`ValueError` on a pathological expression (deeply nested groups or a long ``or``/``+`` spine) instead of
+overflowing the C stack.

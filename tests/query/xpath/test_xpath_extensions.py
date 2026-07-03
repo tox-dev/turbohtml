@@ -88,18 +88,18 @@ def test_extension_through_xpath_one(doc: turbohtml.Node) -> None:
     assert doc.xpath_one("count_nodes(//a)", extensions=EXTENSIONS) == pytest.approx(2.0)
 
 
-def test_unknown_function_with_extensions_is_unimplemented(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError):
+def test_unknown_function_with_extensions_raises(doc: turbohtml.Node) -> None:
+    with pytest.raises(ValueError, match="unknown function 'nope'"):
         doc.xpath("nope()", extensions=EXTENSIONS)
 
 
-def test_unknown_function_without_extensions_is_unimplemented(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError):
+def test_unknown_function_without_extensions_raises(doc: turbohtml.Node) -> None:
+    with pytest.raises(ValueError, match="unknown function 'count_nodes'"):
         doc.xpath("count_nodes(//a)")
 
 
 def test_empty_extensions_dict_registers_nothing(doc: turbohtml.Node) -> None:
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="unknown function 'count_nodes'"):
         doc.xpath("count_nodes(//a)", extensions={})
 
 

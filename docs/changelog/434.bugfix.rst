@@ -1,0 +1,3 @@
+:meth:`~turbohtml.Node.xpath` now raises a :exc:`ValueError` naming an unknown function, a :exc:`TypeError` when a query
+puts a value where the grammar requires a node-set, and a parse error that carries the offending token and its source
+offset, in place of the previous ``NotImplementedError``.

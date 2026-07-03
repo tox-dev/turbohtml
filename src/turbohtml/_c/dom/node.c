@@ -1176,7 +1176,13 @@ PyDoc_STRVAR(xpath_doc, "xpath(expression, /, *, smart_strings=False, extensions
                         ":param variables: values bound to the $name variables used in the expression; a\n"
                         "    str, int, float, or bool binds a scalar, and an Element or an iterable of\n"
                         "    Elements binds a node-set. A node from a different document raises ValueError.\n"
-                        ":returns: the result list, of Elements and str values in document order.");
+                        ":returns: the result list, of Elements and str values in document order.\n"
+                        ":raises TypeError: expression is not a str, a variable binding is of an\n"
+                        "    unsupported type, or a value is used where the grammar requires a node-set.\n"
+                        ":raises ValueError: the expression is not valid XPath (with the offending token\n"
+                        "    and its offset), nests past the depth limit, calls an unknown function or one\n"
+                        "    with the wrong number of arguments, references an unbound variable or prefix,\n"
+                        "    or binds a node from a different document.");
 
 PyDoc_STRVAR(xpath_iter_doc, "xpath_iter(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
                              "Like xpath(), but stream the results instead of building a list.\n\n"
@@ -1185,7 +1191,11 @@ PyDoc_STRVAR(xpath_iter_doc, "xpath_iter(expression, /, *, smart_strings=False, 
                              "    the Element it came from.\n"
                              ":param extensions: maps an (namespace, name) pair to a custom XPath function.\n"
                              ":param variables: values bound to the $name variables in the expression.\n"
-                             ":returns: an iterator over the results in document order.");
+                             ":returns: an iterator over the results in document order.\n"
+                             ":raises TypeError: expression is not a str, a variable binding is of an\n"
+                             "    unsupported type, or a value is used where a node-set is required.\n"
+                             ":raises ValueError: the expression is invalid XPath, nests too deeply, calls an\n"
+                             "    unknown or wrong-arity function, or references an unbound variable or prefix.");
 
 PyDoc_STRVAR(xpath_one_doc, "xpath_one(expression, /, *, smart_strings=False, extensions=None, **variables)\n--\n\n"
                             "Like xpath(), but return only the first result.\n\n"
@@ -1194,7 +1204,11 @@ PyDoc_STRVAR(xpath_one_doc, "xpath_one(expression, /, *, smart_strings=False, ex
                             "    Element it came from.\n"
                             ":param extensions: maps an (namespace, name) pair to a custom XPath function.\n"
                             ":param variables: values bound to the $name variables in the expression.\n"
-                            ":returns: the first result in document order, or None when there is none.");
+                            ":returns: the first result in document order, or None when there is none.\n"
+                            ":raises TypeError: expression is not a str, a variable binding is of an\n"
+                            "    unsupported type, or a value is used where a node-set is required.\n"
+                            ":raises ValueError: the expression is invalid XPath, nests too deeply, calls an\n"
+                            "    unknown or wrong-arity function, or references an unbound variable or prefix.");
 
 PyDoc_STRVAR(matches_doc, "matches(selector, /)\n--\n\n"
                           "Test this node against a CSS selector, evaluated with its own ancestors and\n"

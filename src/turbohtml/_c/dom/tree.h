@@ -117,6 +117,20 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value);
 
+/* An element's attribute array and count; (NULL, 0) for every non-element node. Only
+   an element carries attribute storage: a text-node span reuses attr_count to hold a
+   source offset with attrs == NULL, so a reader that walks arbitrary nodes (the XPath
+   attribute axis, lang()) must gate on the element type -- which it does by reaching
+   the storage only through this accessor (issues #401, #422). */
+static inline Py_ssize_t th_node_attributes(const th_node *node, th_node_attr **attrs) {
+    if (node->type == TH_NODE_ELEMENT) {
+        *attrs = node->attrs;
+        return node->attr_count;
+    }
+    *attrs = NULL;
+    return 0;
+}
+
 /* The index of node's attribute named `name` (UTF-8, caller-lowercased), or -1.
    Foreign elements can store a case-adjusted name (e.g. MathML definitionURL), so
    a missed atom match falls back to a case-insensitive scan for non-HTML nodes. */

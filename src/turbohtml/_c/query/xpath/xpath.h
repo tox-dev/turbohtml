@@ -107,10 +107,12 @@ typedef int (*xp_extension_fn)(void *ctx, struct th_node *context_node, const Py
    (NULL when none); namespaces supplies prefix-to-URI bindings for prefixed name tests
    (NULL when none); extension/extension_ctx supply user functions (extension NULL when
    none). Returns 0 with *out filled (the caller frees it with xp_result_free). Returns
-   -2 for a construct not yet implemented, or -3 for an evaluation error (a reference to
-   an unbound variable, or a name test whose prefix is not bound), with *feature set to a
-   short name for the message. Returns -1 on allocation failure (or a Python error from
-   an extension). */
+   -3 for an evaluation error that maps to ValueError (a reference to an unbound variable,
+   a name test whose prefix is not bound, or an expression nested past XP_MAX_DEPTH), or
+   -4 for a type error that maps to TypeError (a value used where a node-set is required),
+   with *feature set to a short name for the message. Returns -1 on allocation failure or
+   when a Python error is already set (a malformed regex, an extension failure, or an
+   unknown-function/wrong-arity call reported with the function name). */
 struct th_tree;
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
