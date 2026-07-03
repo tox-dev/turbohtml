@@ -107,6 +107,26 @@ def test_meta_prescan_stops_at_1024_bytes(pad: int, expected: str) -> None:
         pytest.param("x-mac-ukrainian", "x-mac-cyrillic", id="x-mac-cyrillic-alias"),
         pytest.param("x-user-defined", "x-user-defined", id="x-user-defined"),
         pytest.param("gbk", "GBK", id="gbk-name-kept"),  # GBK shares gb18030's decoder but keeps its own name
+        # labels that previously fell through to windows-1252 (see #424)
+        pytest.param("iso-8859-9", "windows-1254", id="iso-8859-9-turkish"),
+        pytest.param("latin5", "windows-1254", id="latin5-alias"),
+        pytest.param("tis-620", "windows-874", id="tis-620-thai"),
+        pytest.param("iso-8859-11", "windows-874", id="iso-8859-11-thai"),
+        pytest.param("shift-jis", "Shift_JIS", id="shift-jis-hyphen"),
+        pytest.param("windows-31j", "Shift_JIS", id="windows-31j"),
+        pytest.param("ms932", "Shift_JIS", id="ms932"),
+        pytest.param("x-gbk", "GBK", id="x-gbk"),
+        pytest.param("chinese", "GBK", id="chinese-alias"),
+        pytest.param("windows-949", "EUC-KR", id="windows-949"),
+        pytest.param("korean", "EUC-KR", id="korean-alias"),
+        pytest.param("ksc5601", "EUC-KR", id="ksc5601"),
+        pytest.param("koi8", "KOI8-R", id="koi8"),
+        pytest.param("koi8_r", "KOI8-R", id="koi8_r-underscore"),
+        pytest.param("x-mac-roman", "macintosh", id="x-mac-roman"),
+        pytest.param("mac", "macintosh", id="mac-alias"),
+        pytest.param("x-cp1251", "windows-1251", id="x-cp1251"),
+        pytest.param("cp1253", "windows-1253", id="cp1253"),
+        pytest.param("cp1258", "windows-1258", id="cp1258"),
     ],
 )
 def test_whatwg_label_resolves(label: str, expected: str) -> None:
@@ -114,21 +134,56 @@ def test_whatwg_label_resolves(label: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("raw", "text"),
+    [
+        # the five bytes CPython's cp1252 leaves undefined map to the C1 controls, not
+        # U+FFFD (WHATWG windows-1252 index, #423); the codepoint equals the byte
+        pytest.param(b"\x81\x8d\x8f\x90\x9d", "\x81\x8d\x8f\x90\x9d", id="undefined-bytes-are-c1-controls"),
+        # a defined high byte (0x80 euro) beside an undefined one keeps the string wide
+        pytest.param(b"a\x80\x81b", "a€\x81b", id="mixed-with-defined-high-byte"),
+        # 0x80 and 0x9F stay their WHATWG glyphs, unchanged by the C1 restore
+        pytest.param(b"\x80\x9f", "€Ÿ", id="defined-c1-bytes-unaffected"),
+    ],
+)
+def test_windows_1252_undefined_bytes_decode_to_c1_controls(raw: bytes, text: str) -> None:
+    element = parse(b"<p>" + raw, encoding="windows-1252").find("p")
+    assert element is not None
+    assert element.text == text
+
+
+@pytest.mark.parametrize(
     ("label", "raw", "char"),
     [
         pytest.param("iso-8859-8", b"\xe0", "א", id="iso-8859-8-hebrew-alef"),
         pytest.param("ibm866", b"\x80", "\u0410", id="ibm866-cyrillic"),
-        pytest.param("x-user-defined", b"A", "A", id="x-user-defined-ascii"),
-        pytest.param("x-user-defined", b"\x80", "", id="x-user-defined-low"),
-        pytest.param("x-user-defined", b"\xff", "", id="x-user-defined-high"),
         # GBK's decoder is gb18030's decoder: the four-byte sequence decodes instead of yielding U+FFFD
         pytest.param("gbk", bytes([0x81, 0x30, 0x81, 0x30]), "\x80", id="gbk-four-byte"),
         pytest.param("gbk", bytes([0xD2, 0xBB]), "一", id="gbk-two-byte-legacy"),
+        # iso-8859-9 is the Turkish windows-1254 label: 0xFE is the dotless s-cedilla (#424)
+        pytest.param("iso-8859-9", b"\xfe", "ş", id="iso-8859-9-decodes-windows-1254"),
+        pytest.param("tis-620", b"\x80", "€", id="tis-620-decodes-windows-874"),
     ],
 )
 def test_whatwg_label_decodes(label: str, raw: bytes, char: str) -> None:
     doc = parse(b"<meta charset=" + label.encode() + b"><p>" + raw + b"</p>")
     element = doc.find("p")
+    assert element is not None
+    assert element.text == char
+
+
+@pytest.mark.parametrize(
+    ("raw", "char"),
+    [
+        pytest.param(b"A", "A", id="ascii-kept"),
+        pytest.param(b"\x80", "", id="low-to-private-use"),
+        pytest.param(b"\xff", "", id="high-to-private-use"),
+    ],
+)
+def test_x_user_defined_argument_decodes(raw: bytes, char: str) -> None:
+    # x-user-defined maps 0x80-0xFF into the U+F780-U+F7FF private-use block; it is
+    # honored only via the encoding argument, since a <meta> declaring it is forced to
+    # windows-1252 (see test_sniffing_edge_cases[meta-x-user-defined-to-1252])
+    element = parse(b"<p>" + raw, encoding="x-user-defined").find("p")
     assert element is not None
     assert element.text == char
 
@@ -223,6 +278,9 @@ def test_replacement_encoding_empty_input_is_empty() -> None:
         pytest.param(b"</", "windows-1252", id="bare-end-tag"),
         pytest.param(b'< <meta charset="utf-8">', "UTF-8", id="lone-angle"),
         pytest.param(b'<br/><meta charset="utf-8">', "UTF-8", id="self-closing-tag-name"),
+        # a <meta> declaring x-user-defined is forced to windows-1252 (HTML §13.2.3.2, #424),
+        # unlike the encoding argument, which keeps x-user-defined
+        pytest.param(b"<meta charset=x-user-defined><p>x", "windows-1252", id="meta-x-user-defined-to-1252"),
     ],
 )
 def test_sniffing_edge_cases(data: bytes, expected: str) -> None:

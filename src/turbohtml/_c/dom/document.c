@@ -462,6 +462,51 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
     return -1;
 }
 
+/* Decode windows-1252 per the WHATWG index. CPython's cp1252 leaves 0x81, 0x8D,
+   0x8F, 0x90, and 0x9D undefined, so "replace" maps them to U+FFFD, but the WHATWG
+   windows-1252 index defines them as the matching C1 controls (codepoint equals the
+   byte). Those five bytes are cp1252's only source of U+FFFD, so every U+FFFD in the
+   decoded string is one of them; a single-byte codec emits one char per byte, so the
+   output index is the byte index. Rebuild only when one is present, since removing
+   the U+FFFD may lower the string's kind. */
+static PyObject *decode_windows_1252(const unsigned char *bytes, Py_ssize_t len) {
+    PyObject *decoded = PyUnicode_Decode((const char *)bytes, len, "cp1252", "replace");
+    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: cp1252 with the replace handler never fails */
+        return NULL;       /* GCOVR_EXCL_LINE: decode failure */
+    }
+    Py_ssize_t count = PyUnicode_GET_LENGTH(decoded);
+    int kind = PyUnicode_KIND(decoded);
+    const void *data = PyUnicode_DATA(decoded);
+    Py_UCS4 maxchar = 0;
+    int restored = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch == 0xFFFD) {
+            ch = bytes[index];
+            restored = 1;
+        }
+        if (ch > maxchar) {
+            maxchar = ch;
+        }
+    }
+    if (!restored) {
+        return decoded;
+    }
+    PyObject *fixed = PyUnicode_New(count, maxchar);
+    if (fixed == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(decoded); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int out_kind = PyUnicode_KIND(fixed);
+    void *out = PyUnicode_DATA(fixed);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        PyUnicode_WRITE(out_kind, out, index, ch == 0xFFFD ? (Py_UCS4)bytes[index] : ch);
+    }
+    Py_DECREF(decoded);
+    return fixed;
+}
+
 /* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta>
    prescan, then windows-1252), decode with that codec replacing malformed bytes,
    and parse the resulting str. The decoded str is retained as the tree's source. */
@@ -507,6 +552,8 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
            which can smuggle markup past a sanitizer: a non-empty input decodes to a
            single U+FFFD and an empty input to nothing */
         decoded = len - skip > 0 ? PyUnicode_FromOrdinal(0xFFFD) : PyUnicode_New(0, 0);
+    } else if (strcmp(entry->codec, "cp1252") == 0) {
+        decoded = decode_windows_1252(bytes + skip, len - skip);
     } else {
         decoded = PyUnicode_Decode((const char *)bytes + skip, len - skip, entry->codec, "replace");
     }
