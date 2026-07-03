@@ -177,7 +177,11 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     :param url: the URL as found in the wild.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).
     :returns: the cleaned, normalized URL, or ``None`` for anything that is not a fetchable web URL.
+    :raises TypeError: if ``url`` is not a ``str``.
     """
+    if not isinstance(url, str):
+        msg = f"url must be a str, got {type(url).__name__}"
+        raise TypeError(msg)
     active = options or _DEFAULT
     scrubbed = _scrub(url)
     try:
@@ -189,7 +193,10 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
         return None
     if active.language is not None and not _language_matches(parts, active.language, strict=active.strict):
         return None
-    return _normalize(parts, active)
+    try:
+        return _normalize(parts, active)
+    except ValueError:
+        return None  # an unencodable component (a lone surrogate) is not a fetchable URL, as courlan also decides
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
@@ -208,8 +215,13 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     :param url: an absolute or relative URL; a relative one keeps its shape, only its components are normalized.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).
     :returns: the normalized URL.
-    :raises ValueError: if the URL cannot be split into components (e.g. an unclosed IPv6 bracket).
+    :raises TypeError: if ``url`` is not a ``str``.
+    :raises ValueError: if the URL cannot be split into components (e.g. an unclosed IPv6 bracket) or carries a
+        character that cannot be percent-encoded (a lone surrogate).
     """
+    if not isinstance(url, str):
+        msg = f"url must be a str, got {type(url).__name__}"
+        raise TypeError(msg)
     return _normalize(urlsplit(url), options or _DEFAULT)
 
 
@@ -355,7 +367,14 @@ def _ascii_host(host: str) -> str:
 def _encode(text: str, unsafe: re.Pattern[str], safe: str) -> str:
     """Percent-encode a component's out-of-set characters, uppercasing escape hex, skipping already-clean input."""
     text = _uppercase_escapes(text)
-    return quote(text, safe=safe) if unsafe.search(text) else text
+    if not unsafe.search(text):
+        return text
+    try:
+        return quote(text, safe=safe)
+    except UnicodeEncodeError as exc:
+        # quote() UTF-8-encodes the component; a lone surrogate has no encoding, so the URL is not serializable
+        msg = f"URL component {text!r} has a character that cannot be percent-encoded: {exc.reason}"
+        raise ValueError(msg) from exc
 
 
 def _uppercase_escapes(text: str) -> str:

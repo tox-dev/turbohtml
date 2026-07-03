@@ -23,6 +23,35 @@ def test_base_url_default_fallback() -> None:
     assert parse('<base href="page">').base_url() == "page"
 
 
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param(
+            "http://example.org/sterling£", "https://example.org", "http://example.org/sterling%C2%A3", id="latin1-path"
+        ),
+        pytest.param(
+            "http://x/p q?a=b c&e=f'#h i",
+            "http://x",
+            "http://x/p%20q?a=b%20c&e=f%27#h%20i",
+            id="all-components-encoded",
+        ),
+        pytest.param("http://h?a=b c", "http://x", "http://h?a=b%20c", id="authority-then-query"),
+        pytest.param("http://h#f g", "http://x", "http://h#f%20g", id="authority-then-fragment"),
+        pytest.param("http://h/p#f g", "http://x", "http://h/p#f%20g", id="fragment-without-query"),
+        pytest.param("http://h", "http://x", "http://h", id="authority-only"),
+        pytest.param("ab/cd", "", "ab/cd", id="relative-without-scheme"),
+        pytest.param("/x", "", "/x", id="protocol-relative-root"),
+        pytest.param("http://x/a%20b?c=%7e", "http://x", "http://x/a%20b?c=%7e", id="existing-escapes-untouched"),
+        pytest.param(
+            "rel", "http://x/\U0001f389\udce9/", "http://x/%F0%9F%8E%89%EF%BF%BD/rel", id="high-char-and-surrogate"
+        ),
+    ],
+)
+def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> None:
+    # the resolved base URL applies the WHATWG path/query/fragment percent-encode sets, so it is a valid URL string
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
 _SITE = "http://s.com/"
 
 
@@ -34,8 +63,9 @@ _SITE = "http://s.com/"
         pytest.param("2.5;url=x", (2.5, _SITE + "x"), id="float-delay"),
         pytest.param("2.5", (2.5, _SITE), id="float-delay-only"),
         pytest.param("5;url=", (5.0, _SITE), id="url-prefix-empty-value"),
-        pytest.param("5;url=€page", (5.0, _SITE + "€page"), id="two-byte-url"),
-        pytest.param("5;url=\U0001f389", (5.0, _SITE + "\U0001f389"), id="four-byte-url"),
+        pytest.param("5;url=£x", (5.0, _SITE + "%C2%A3x"), id="two-byte-utf8-encoded"),
+        pytest.param("5;url=€page", (5.0, _SITE + "%E2%82%ACpage"), id="three-byte-utf8-encoded"),
+        pytest.param("5;url=\U0001f389", (5.0, _SITE + "%F0%9F%8E%89"), id="four-byte-utf8-encoded"),
         pytest.param("  7 ; url = y ", (7.0, _SITE + "y"), id="surrounding-whitespace"),
         pytest.param("3;url='q'", (3.0, _SITE + "q"), id="single-quoted-url"),
         pytest.param("8, z", (8.0, _SITE + "z"), id="comma-separator-no-prefix"),
@@ -48,6 +78,7 @@ _SITE = "http://s.com/"
         pytest.param("6;", (6.0, _SITE), id="separator-without-url"),
         pytest.param("2;ab", (2.0, _SITE + "ab"), id="short-url-after-separator"),
         pytest.param("0;url='unbalanced", (0.0, _SITE + "'unbalanced"), id="unbalanced-quote-kept"),
+        pytest.param("0;url=a:b", (0.0, "a:b"), id="opaque-scheme-no-authority"),
     ],
 )
 def test_meta_refresh_content(content: str, expected: tuple[float, str]) -> None:

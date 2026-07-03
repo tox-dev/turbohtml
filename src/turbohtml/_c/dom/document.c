@@ -35,6 +35,139 @@ static PyObject *url_join(PyObject *base, PyObject *target) {
     return joined;
 }
 
+/* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
+   byte outside its set is UTF-8 percent-encoded. The three sets share the RFC 3986 unreserved run; the query set drops
+   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. */
+#define URL_ALPHA "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+#define URL_UNRESERVED URL_ALPHA "0123456789-._~"
+static const char URL_ALPHABET[] = URL_ALPHA;
+static const char URL_SCHEME_TAIL[] = URL_ALPHA "0123456789+-.";
+static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
+static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
+static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
+
+/* memchr against a literal set, never a chained range test: clang inlines these into the encode loop, where an
+   ``a || b || c`` of byte ranges fractures the macOS branch gate (a NUL byte or the terminator never matches). */
+static int url_in_set(unsigned char byte, const char *set, size_t set_len) {
+    return memchr(set, byte, set_len) != NULL;
+}
+
+/* Append s[start:end], percent-encoding every byte outside `keep`; returns the new write offset. */
+static Py_ssize_t url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ssize_t start, Py_ssize_t end,
+                                  const char *keep, size_t keep_len) {
+    static const char HEX[] = "0123456789ABCDEF";
+    for (Py_ssize_t index = start; index < end; index++) {
+        unsigned char byte = (unsigned char)bytes[index];
+        if (url_in_set(byte, keep, keep_len)) {
+            out[at++] = (char)byte;
+        } else {
+            out[at++] = '%';
+            out[at++] = HEX[byte >> 4];
+            out[at++] = HEX[byte & 0x0F];
+        }
+    }
+    return at;
+}
+
+/* Replace any lone surrogate with U+FFFD, the scalar-value substitution the URL parser's input goes through (Web IDL
+   USVString), so the UTF-8 encode below cannot fail. Returns a new reference, the original when it is already scalar.
+ */
+static PyObject *url_scalarize(PyObject *url) {
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(url);
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (point >= 0xD800 && point <= 0xDFFF) {
+            break;
+        }
+        index++;
+    }
+    if (index == len) {
+        return Py_NewRef(url); /* the common case: no surrogate, so no copy */
+    }
+    Py_UCS4 *buffer = PyMem_Malloc((size_t)len * sizeof(Py_UCS4));
+    if (buffer == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t at = 0; at < len; at++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, at);
+        buffer[at] = (point >= 0xD800 && point <= 0xDFFF) ? 0xFFFD : point;
+    }
+    PyObject *scalar = ucs4_to_str(buffer, len);
+    PyMem_Free(buffer);
+    return scalar; /* NULL on the excluded allocation-failure path */
+}
+
+/* Percent-encode a resolved URL's path, query, and fragment per the WHATWG sets, leaving the scheme and authority
+   verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new str. */
+static PyObject *url_percent_encode(PyObject *url) {
+    PyObject *scalar = url_scalarize(url);
+    if (scalar == NULL) { /* GCOVR_EXCL_BR_LINE: url_scalarize only fails on allocation */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t len;
+    const char *bytes = PyUnicode_AsUTF8AndSize(scalar, &len);
+    if (bytes == NULL) {   /* GCOVR_EXCL_BR_LINE: a scalarized string always UTF-8 encodes */
+        Py_DECREF(scalar); /* GCOVR_EXCL_LINE: encode-failure path */
+        return NULL;       /* GCOVR_EXCL_LINE: encode-failure path */
+    }
+    Py_ssize_t cursor = 0;
+    /* bytes is NUL-terminated, so bytes[0] on an empty URL reads the terminator and matches nothing */
+    if (url_in_set((unsigned char)bytes[0], URL_ALPHABET, sizeof(URL_ALPHABET) - 1)) {
+        Py_ssize_t scan = 1;
+        while (scan < len && url_in_set((unsigned char)bytes[scan], URL_SCHEME_TAIL, sizeof(URL_SCHEME_TAIL) - 1)) {
+            scan++;
+        }
+        if (scan < len && bytes[scan] == ':') {
+            cursor = scan + 1; /* a scheme runs from an alpha up to its ':' */
+        }
+    }
+    if (cursor + 1 < len && bytes[cursor] == '/' && bytes[cursor + 1] == '/') {
+        cursor += 2;
+        while (cursor < len && bytes[cursor] != '/' && bytes[cursor] != '?' && bytes[cursor] != '#') {
+            cursor++;
+        }
+    }
+    Py_ssize_t prefix_end = cursor;
+    while (cursor < len && bytes[cursor] != '?' && bytes[cursor] != '#') {
+        cursor++;
+    }
+    Py_ssize_t path_end = cursor;
+    Py_ssize_t query_start = -1;
+    if (cursor < len && bytes[cursor] == '?') {
+        query_start = ++cursor;
+        while (cursor < len && bytes[cursor] != '#') {
+            cursor++;
+        }
+    }
+    Py_ssize_t query_end = cursor;
+    Py_ssize_t fragment_start = cursor < len ? cursor + 1 : -1;
+    char *out = PyMem_Malloc((size_t)len * 3 + 1); /* every byte encodes to at most "%HH" */
+    if (out == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(scalar); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memcpy(out, bytes, (size_t)prefix_end); /* the scheme and authority pass through unchanged */
+    Py_ssize_t written =
+        url_encode_span(out, prefix_end, bytes, prefix_end, path_end, URL_PATH_KEEP, sizeof(URL_PATH_KEEP) - 1);
+    if (query_start >= 0) {
+        out[written++] = '?';
+        written =
+            url_encode_span(out, written, bytes, query_start, query_end, URL_QUERY_KEEP, sizeof(URL_QUERY_KEEP) - 1);
+    }
+    if (fragment_start >= 0) {
+        out[written++] = '#';
+        written =
+            url_encode_span(out, written, bytes, fragment_start, len, URL_FRAGMENT_KEEP, sizeof(URL_FRAGMENT_KEEP) - 1);
+    }
+    PyObject *result = PyUnicode_DecodeUTF8(out, written, "strict");
+    PyMem_Free(out);
+    Py_DECREF(scalar);
+    return result; /* NULL on the excluded decode-failure path */
+}
+
 /* The value of `node`'s `name` attribute as a new str reference (the empty string when valueless), or NULL when the
    attribute is absent (or, on the excluded allocation-failure path, with an error set). */
 static PyObject *element_attr_str(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
@@ -142,9 +275,15 @@ static PyObject *parse_meta_refresh(PyObject *content, PyObject *fallback) {
                 Py_DECREF(delay); /* GCOVR_EXCL_LINE */
                 return NULL;      /* GCOVR_EXCL_LINE */
             }
-            url = url_join(fallback, raw);
+            PyObject *joined = url_join(fallback, raw);
             Py_DECREF(raw);
-            if (url == NULL) {    /* GCOVR_EXCL_BR_LINE: url_join only fails on the import path */
+            if (joined == NULL) { /* GCOVR_EXCL_BR_LINE: url_join only fails on the import path */
+                Py_DECREF(delay); /* GCOVR_EXCL_LINE */
+                return NULL;      /* GCOVR_EXCL_LINE */
+            }
+            url = url_percent_encode(joined);
+            Py_DECREF(joined);
+            if (url == NULL) {    /* GCOVR_EXCL_BR_LINE: url_percent_encode only fails on allocation */
                 Py_DECREF(delay); /* GCOVR_EXCL_LINE */
                 return NULL;      /* GCOVR_EXCL_LINE */
             }
@@ -203,7 +342,14 @@ static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwa
         Py_DECREF(fallback); /* GCOVR_EXCL_LINE */
         return NULL;         /* GCOVR_EXCL_LINE */
     }
-    PyObject *result = PyUnicode_GET_LENGTH(stripped) == 0 ? Py_NewRef(fallback) : url_join(fallback, stripped);
+    PyObject *result;
+    if (PyUnicode_GET_LENGTH(stripped) == 0) {
+        result = Py_NewRef(fallback); /* a blank href leaves the fallback as the base */
+    } else {
+        PyObject *joined = url_join(fallback, stripped);
+        result = joined == NULL ? NULL : url_percent_encode(joined); /* GCOVR_EXCL_BR_LINE: import-only failure */
+        Py_XDECREF(joined);
+    }
     Py_DECREF(stripped);
     Py_DECREF(fallback);
     return result;

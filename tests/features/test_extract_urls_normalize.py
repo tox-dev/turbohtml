@@ -133,6 +133,17 @@ def test_normalize_rejects_unsplittable_input() -> None:
         normalize_url("http://[::1/x")
 
 
+def test_normalize_rejects_lone_surrogate() -> None:
+    # a lone surrogate has no UTF-8 form, so the component cannot be percent-encoded and the URL is not serializable
+    with pytest.raises(ValueError, match="cannot be percent-encoded"):
+        normalize_url("http://a.com/\udce9")
+
+
+def test_normalize_rejects_non_str() -> None:
+    with pytest.raises(TypeError, match="url must be a str"):
+        normalize_url(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
+
+
 @pytest.mark.parametrize(
     "options",
     [

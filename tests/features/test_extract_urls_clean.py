@@ -101,6 +101,26 @@ def test_clean_strict_checks_language_subdomains(url: str, expected: str | None)
     assert clean_url(url, UrlCleaning(strict=True, language="en")) == expected
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://a.com/\udce9", None, id="surrogate-in-path"),
+        pytest.param("http://a.com/p?q=\udce9", None, id="surrogate-in-query"),
+        pytest.param("http://a.com/p#\udce9", None, id="surrogate-in-fragment"),
+        pytest.param("http://\udce9.com/", "http://\udce9.com/", id="surrogate-in-host-survives"),
+    ],
+)
+def test_clean_handles_lone_surrogates(url: str, expected: str | None) -> None:
+    # an unencodable URL is not fetchable, so clean_url returns None (as courlan does) rather than raising; a
+    # surrogate in the host never reaches the percent-encoder, so that URL still cleans
+    assert clean_url(url) == expected
+
+
+def test_clean_rejects_non_str() -> None:
+    with pytest.raises(TypeError, match="url must be a str"):
+        clean_url(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
+
+
 def test_default_options_shared_across_calls() -> None:
     assert clean_url("https://example.org/x?utm_source=a") == clean_url(
         "https://example.org/x?utm_source=a", UrlCleaning()
