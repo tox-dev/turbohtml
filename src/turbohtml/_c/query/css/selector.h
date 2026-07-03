@@ -124,9 +124,24 @@ static int sel_is_hex(Py_UCS4 ch) {
     return (ch >= '0' && ch <= '9') || ((ch | 32) >= 'a' && (ch | 32) <= 'f');
 }
 
+/* Skip whitespace and CSS comments (CSS Syntax §4.3.2: a comment is valid anywhere
+   whitespace is). An unterminated comment runs to end of input rather than erroring,
+   as the spec's consume-comments step treats a file-ending comment as complete. */
 static void sel_skip_ws(sel_parser *parser) {
-    while (parser->pos < parser->len && is_space(parser->src[parser->pos])) {
-        parser->pos++;
+    while (parser->pos < parser->len) {
+        if (is_space(parser->src[parser->pos])) {
+            parser->pos++;
+        } else if (parser->src[parser->pos] == '/' && parser->pos + 1 < parser->len &&
+                   parser->src[parser->pos + 1] == '*') {
+            parser->pos += 2;
+            while (parser->pos + 1 < parser->len &&
+                   !(parser->src[parser->pos] == '*' && parser->src[parser->pos + 1] == '/')) {
+                parser->pos++;
+            }
+            parser->pos = parser->pos + 1 < parser->len ? parser->pos + 2 : parser->len;
+        } else {
+            break;
+        }
     }
 }
 

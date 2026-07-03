@@ -101,6 +101,24 @@ def test_select_over_doc(selector: str, tags: list[str]) -> None:
 
 
 @pytest.mark.parametrize(
+    ("selector", "tags"),
+    [
+        # CSS Syntax §4.3.2: a comment is valid anywhere whitespace is (issue #352)
+        pytest.param("section /* the link */ a", ["a"], id="comment-as-descendant-ws"),
+        pytest.param("p.lead /* c */ a", ["a"], id="comment-around-child-context"),
+        pytest.param("section /* a*b keeps scanning */ a", ["a"], id="comment-with-inner-asterisk"),
+        pytest.param("section a /* trailing", ["a"], id="unterminated-comment-runs-to-end"),
+        pytest.param('[href /* c */ = "/x"]', ["a"], id="comment-inside-attribute"),
+        # CSS Syntax §4.3.5 string escapes in an attribute value (issue #352)
+        pytest.param('[href="/\\\nx"]', ["a"], id="attr-value-line-continuation"),
+        pytest.param(r'[href="\2f x"]', ["a"], id="attr-value-hex-escape"),
+    ],
+)
+def test_comments_and_string_escapes(selector: str, tags: list[str]) -> None:
+    assert _sel(_DOC, selector) == tags
+
+
+@pytest.mark.parametrize(
     ("html", "selector", "tags"),
     [
         pytest.param("<div></div>text<p>x</p>", "div + p", ["p"], id="adjacent-skips-text-node"),
@@ -588,6 +606,12 @@ def test_has_skips_non_element_following_sibling() -> None:
         pytest.param(":nth-child(of .x)", id="nth-of-without-anb"),
         pytest.param(":nth-of-type(2n of .x)", id="nth-of-type-rejects-of"),
         pytest.param(":nth-last-of-type(1 of p)", id="nth-last-of-type-rejects-of"),
+        # a comment separates tokens but is not itself a combinator, so an adjacent
+        # comment with no surrounding whitespace leaves the compounds unjoined (#352)
+        pytest.param("h2/* c */p", id="comment-without-combinator-whitespace"),
+        # a lone '/' is not a comment: at end of input, or before a non-'*' character
+        pytest.param("h2 /", id="slash-at-end-of-input"),
+        pytest.param("h2 /x", id="slash-not-opening-a-comment"),
     ],
 )
 def test_invalid_selectors_raise(selector: str) -> None:

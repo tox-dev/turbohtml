@@ -11,8 +11,6 @@ Excluded from the corpus, with the reasons on record:
 - soupsieve's proprietary extensions (``[attr!=value]``, ``:-soup-contains``, ``:-soup-contains-own``) and the
   pseudo-classes turbohtml rejects as unknown (``:current``, ``:host``, ``:open``, ...) -- both engines fail loudly,
   one at compile and one at zero matches, so there is nothing to diff.
-- ``:link``/``:any-link``, wildcard ``:lang()`` ranges, and document-scoped ``:scope``, which turbohtml parses but
-  never matches (tracked engine gaps, see the migration guide's pitfalls).
 - ``:nth-child(An+B)`` on an element with no sibling nodes at all and ``input[type=hidden]`` under ``:enabled``, where
   soupsieve 2.8 disagrees with Selectors-4/HTML (an only child sits at position 1, and the current HTML spec no longer
   excludes hidden inputs), so the oracle is the one off spec.
@@ -234,6 +232,21 @@ SELECTORS = (
     "article:not(:target-within)",
     ":where(span, a)",
     ":where(span, a:where(#\\32))",
+    # :link/:any-link reduce to :is(a, area)[href] on a parsed tree (issue #349)
+    ":any-link",
+    ":link",
+    "a:any-link",
+    ":not(a:any-link)",
+    # wildcard :lang() ranges by RFC 4647 extended filtering (issue #350)
+    ":lang('*')",
+    ":lang('*-US')",
+    "p:lang('*-US')",
+    ":lang(\\*-DE)",
+    # document-scoped :scope resolves to the document element (issue #351)
+    ":scope",
+    ":scope > body",
+    ":scope > body > div",
+    ":scope a",
 )
 
 

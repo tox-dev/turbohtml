@@ -99,11 +99,6 @@ The matcher methods and module helpers keep soupsieve's names; only the trees an
   :meth:`~turbohtml.Node.find_all` with ``text=`` instead).
 - ``namespaces`` and ``flags`` are carried for parity but never change which elements match: turbohtml selects by local
   name, so ``svg|rect`` matches every ``rect`` whatever the mapping says, and ``DEBUG`` prints nothing.
-- Three engine gaps silently match nothing for now: ``:link``/``:any-link`` (`#349
-  <https://github.com/tox-dev/turbohtml/issues/349>`__), wildcard ``:lang()`` ranges such as ``:lang('*-US')`` (`#350
-  <https://github.com/tox-dev/turbohtml/issues/350>`__), and ``:scope`` queried from a document (`#351
-  <https://github.com/tox-dev/turbohtml/issues/351>`__); ``/* comments */`` inside a selector are rejected (`#352
-  <https://github.com/tox-dev/turbohtml/issues/352>`__).
 - Two soupsieve 2.8 behaviors are off spec and not reproduced: an only child never matches a functional
   ``:nth-child(An+B)`` (an only child sits at position 1, so ``:nth-child(-n+3)`` must match it), and
   ``input[type=hidden]`` is excluded from ``:enabled`` (the current HTML spec no longer carves out hidden inputs).
