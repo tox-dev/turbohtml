@@ -504,6 +504,15 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/metadata_parser
             :alt: metadata_parser total downloads
             :target: https://pepy.tech/project/metadata_parser
+    - - 3
+      - :doc:`microdata <microdata>`
+      - `docs <https://github.com/edsu/microdata>`__
+      - .. image:: https://static.pepy.tech/badge/microdata/month
+            :alt: microdata monthly downloads
+            :target: https://pepy.tech/project/microdata
+      - .. image:: https://static.pepy.tech/badge/microdata
+            :alt: microdata total downloads
+            :target: https://pepy.tech/project/microdata
 
 ***************
  HTML builders
@@ -694,6 +703,7 @@ page benchmarks all of them).
     markyp
     html5-parser
     metadata_parser
+    microdata
     lightningcss
     fast-html
     simple-html

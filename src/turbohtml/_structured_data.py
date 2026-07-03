@@ -40,6 +40,19 @@ class MicrodataItem:
     properties: dict[str, list[str | MicrodataItem]]
     """each ``itemprop`` name mapped to its values in document order."""
 
+    def get(self, name: str) -> str | MicrodataItem | None:
+        """Return the property's first value, or ``None`` when the item lacks it (``microdata.Item.get``)."""
+        values = self.properties.get(name)
+        return values[0] if values else None
+
+    def get_all(self, name: str) -> list[str | MicrodataItem]:
+        """Return the property's values in document order, an empty list when absent (``microdata.Item.get_all``)."""
+        return self.properties.get(name, [])
+
+    def json(self) -> str:
+        """Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item."""
+        return json.dumps(_as_dict(self), indent=2)
+
 
 @dataclass(frozen=True, slots=True)
 class StructuredData:
@@ -63,6 +76,20 @@ class StructuredData:
     """reserved for a later phase, an empty list for now."""
     rdfa: list[JSONValue]
     """reserved for a later phase, an empty list for now."""
+
+
+def _as_dict(item: MicrodataItem) -> dict[str, JSONValue]:
+    """Render the item as nested plain dicts: ``type`` (whitespace-split), ``id``, and its properties recursively."""
+    result: dict[str, JSONValue] = {}
+    if item.type is not None:
+        result["type"] = item.type.split()
+    if item.id is not None:
+        result["id"] = item.id
+    result["properties"] = {
+        name: [_as_dict(value) if isinstance(value, MicrodataItem) else value for value in values]
+        for name, values in item.properties.items()
+    }
+    return result
 
 
 def _parse_json_ld(texts: list[str]) -> list[JSONValue]:

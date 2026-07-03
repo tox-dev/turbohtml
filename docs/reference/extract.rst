@@ -31,3 +31,11 @@ The URL helpers are successors to ``courlan`` and the ``w3lib.url`` canonicaliza
 
 .. autoclass:: UrlCleaning
     :members: w3lib
+
+:func:`microdata` extracts a page's top-level HTML Microdata items, the ``microdata.get_items`` call shape
+(:doc:`microdata guide </migration/microdata>`). It returns :class:`~turbohtml.MicrodataItem` records whose
+:meth:`~turbohtml.MicrodataItem.get`, :meth:`~turbohtml.MicrodataItem.get_all`, and
+:meth:`~turbohtml.MicrodataItem.json` accessors mirror the library's ``Item`` (documented under
+:doc:`/reference/structured-data`).
+
+.. autofunction:: microdata

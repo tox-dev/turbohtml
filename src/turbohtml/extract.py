@@ -14,6 +14,10 @@ the length and link-density thresholds a frozen :class:`Extraction` config carri
 
 The URL helpers live here directly: :func:`clean_url`, :func:`normalize_url`, and :func:`extract_links`, configured
 by a frozen :class:`UrlCleaning`, replace ``courlan`` and the ``w3lib.url`` canonicalization surface.
+
+:func:`microdata` gives the ``microdata`` library's ``get_items(html)`` entry point over the same C walk
+:meth:`turbohtml.Document.microdata` runs, returning the :class:`MicrodataItem` records whose ``.get``/``.get_all``/
+``.json`` accessors mirror that library's ``Item``.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ __all__ = [
     "boilerplate",
     "clean_url",
     "extract_links",
+    "microdata",
     "normalize_url",
 ]
 
@@ -95,6 +100,22 @@ class Extraction:
 
 
 _DEFAULT: Final = Extraction()
+
+
+def microdata(html: str, /) -> list[MicrodataItem]:
+    """
+    Extract a page's top-level HTML Microdata items, the successor to ``microdata.get_items(html)``.
+
+    Each returned :class:`~turbohtml.MicrodataItem` carries the ``itemtype`` as
+    :attr:`~turbohtml.MicrodataItem.type`, the ``itemid`` as :attr:`~turbohtml.MicrodataItem.id`, and the ``itemprop``
+    values under :attr:`~turbohtml.MicrodataItem.properties`, with :meth:`~turbohtml.MicrodataItem.get`,
+    :meth:`~turbohtml.MicrodataItem.get_all`, and :meth:`~turbohtml.MicrodataItem.json` matching the library's ``Item``.
+    Shorthand for :meth:`turbohtml.Document.microdata` when a page string is all you hold.
+
+    :param html: the page markup.
+    :returns: one :class:`~turbohtml.MicrodataItem` per top-level ``itemscope`` element, in document order.
+    """
+    return parse(html).microdata()
 
 
 def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragraph]:
