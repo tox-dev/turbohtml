@@ -96,6 +96,12 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
    wired as the private _reconstruct() the node __reduce__ points pickle at. */
 PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args);
 
+/* Build a complete HTML5 document (doctype, <html>, <head> with an optional
+   <meta charset> and <title>, <body>) from head and body node lists, wired as
+   the private _build_document() behind turbohtml.build.document(). Matches
+   METH_VARARGS | METH_KEYWORDS. */
+PyObject *turbohtml_build_document(PyObject *module, PyObject *args, PyObject *kwds);
+
 /* Build a Token from a freshly emitted record. Small records are copied and a
    large text run is moved out of the record (which then regrows). A slice
    record resolves lazily against source when the input is borrowed from it

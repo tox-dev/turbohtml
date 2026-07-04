@@ -81,9 +81,10 @@ What dominate has that turbohtml does not
 - Context-manager nesting: ``with div(): p("hi")`` auto-collects children created inside the block, and ``d += child``
   appends in place. ``E`` has no context-manager or ``+=`` form. Workaround: pass children as positional arguments, or
   build bottom-up and :meth:`~turbohtml.Element.append`.
-- Full-document scaffolding: ``dominate.document(title=...)`` emits a doctype plus ``<html>``/``<head>``/``<body>`` and
-  exposes ``doc.head``/``doc.body``. ``E`` builds a fragment with no wrapper. Workaround: :func:`turbohtml.parse` a
-  shell document and append into its ``<body>``, or write the page shell around the serialized fragment.
+- Mutable page accessors: ``dominate.document(title=...)`` hands back an object exposing ``doc.head``/``doc.body`` to
+  append into after the fact. :func:`turbohtml.build.document` takes the head and body content up front and returns a
+  finished :class:`~turbohtml.Document`; to add more, reach its ``<body>`` with :meth:`~turbohtml.Node.select` and
+  :meth:`~turbohtml.Element.append`.
 - ``dominate.util.raw`` injects unescaped HTML into the tree. ``E`` always escapes a string into a
   :class:`~turbohtml.Text` node. Workaround: :func:`turbohtml.parse` the raw markup and append the resulting nodes,
   since turbohtml is a real parser.
@@ -130,7 +131,7 @@ Swap the tag imports (and any ``document`` scaffolding) for the single ``E`` bui
     - - ``tag(...)`` for a non-identifier tag name
       - :data:`E("tag", ...) <turbohtml.build.E>`, the call form
     - - ``document(title="T")`` full page
-      - :func:`turbohtml.parse` a shell, then append the ``E`` fragment
+      - :func:`turbohtml.build.document(title="T") <turbohtml.build.document>`
     - - ``str(tag)`` / ``tag.render(pretty=True)``
       - :meth:`~turbohtml.Node.serialize` (compact) or ``serialize(Html(layout=Indent()))``
 
@@ -160,12 +161,28 @@ attribute joins on a space so a class list reads naturally:
 
     <my-card class="card lg">hi</my-card>
 
+For a whole page, :func:`turbohtml.build.document` is the counterpart to ``dominate.document(title=...)``: it emits the
+doctype and the ``<html>``/``<head>``/``<body>`` shell around the content you pass, and hands back a
+:class:`~turbohtml.Document`:
+
+.. testcode::
+
+    from turbohtml.build import E, document
+
+    page = document(title="Report", lang="en", body=[E.h1("Sales"), E.p("Up 4%")])
+    print(page.serialize())
+
+.. testoutput::
+
+    <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report</title></head><body><h1>Sales</h1><p>Up 4%</p></body></html>
+
 **********************
  Gotchas and pitfalls
 **********************
 
 - ``E`` builds a fragment, not a document: there is no implicit ``<html>``/``<head>``/``<body>`` wrapper and no doctype.
-  Serialize the element you built, or append it under a parsed document when you need the full page shell.
+  Serialize the element you built, or reach for :func:`turbohtml.build.document` when you need the full page shell that
+  dominate's ``document(...)`` writes.
 - A leading mapping is always read as attributes; to start an element with literal text, pass the string first
   (``E.p("text", E.b("bold"))``).
 - ``E`` escapes strings into text nodes, so ``E.div("<b>")`` serializes as ``&lt;b&gt;``. dominate's ``raw()`` had no

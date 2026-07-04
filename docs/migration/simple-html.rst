@@ -75,9 +75,6 @@ What simple-html has that turbohtml does not
 - **A pre-escaped-markup escape hatch.** simple-html's ``SafeString("<b>hi</b>")`` injects trusted raw markup. ``E`` has
   no ``SafeString``; express the markup as child elements (:data:`E.b("hi") <turbohtml.build.E>`) or parse the string
   into nodes first.
-- **A doctype constant.** simple-html ships ``DOCTYPE_HTML5`` to prepend a full-page doctype. ``E`` builds a fragment
-  with no ``<html>``/``<head>``/``<body>`` shell and no doctype; append the fragment under a parsed document when you
-  need the page frame.
 - **Zero dependencies / pure Python.** simple-html installs with no build step. turbohtml requires its compiled C
   extension, which matters on locked-down or exotic targets.
 
@@ -126,6 +123,8 @@ The API mapping:
       - build the markup as child elements instead: :data:`E.b("hi") <turbohtml.build.E>`
     - - ``del_({}, "removed")`` (keyword-shadowing tag)
       - :data:`E("del", {}, "removed") <turbohtml.build.E>` via the call form
+    - - ``DOCTYPE_HTML5 + render(...)`` for a full page
+      - :func:`turbohtml.build.document(body=[...]) <turbohtml.build.document>`, which emits the doctype and shell
 
 Before and after:
 
@@ -153,13 +152,27 @@ attribute joins on a space so a class list reads naturally:
 
     <my-card class="card lg">hi</my-card>
 
+Where simple-html prepends ``DOCTYPE_HTML5`` to a rendered page, :func:`turbohtml.build.document` emits the doctype and
+the ``<html>``/``<head>``/``<body>`` shell around the content you pass, returning a :class:`~turbohtml.Document`:
+
+.. testcode::
+
+    from turbohtml.build import E, document
+
+    page = document(title="Report", lang="en", body=[E.h1("Sales"), E.p("Up 4%")])
+    print(page.serialize())
+
+.. testoutput::
+
+    <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report</title></head><body><h1>Sales</h1><p>Up 4%</p></body></html>
+
 **********************
  Gotchas and pitfalls
 **********************
 
 - ``E`` builds a fragment, not a document: there is no implicit ``<html>``/``<head>``/``<body>`` wrapper and no doctype,
-  where simple-html ships a ``DOCTYPE_HTML5`` constant to prepend. Serialize the element you built, or append it under a
-  parsed document when you need the full page shell.
+  where simple-html ships a ``DOCTYPE_HTML5`` constant to prepend. Serialize the element you built, or reach for
+  :func:`turbohtml.build.document` when you need the full page shell.
 - Both escape string children by default; simple-html's ``SafeString`` escape hatch has no equivalent, so express raw
   markup as child elements (or parse it into nodes first).
 - simple-html suffixes tags that shadow keywords (``del_``); ``E.del_`` would build a literal ``<del_>``, so use the

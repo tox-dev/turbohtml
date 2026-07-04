@@ -122,6 +122,7 @@ static PyMethodDef html_methods[] = {
     {"annotation_surface", turbohtml_annotation_surface, METH_VARARGS, annotation_surface_doc},
     {"annotation_tags", turbohtml_annotation_tags, METH_VARARGS, annotation_tags_doc},
     {"_reconstruct", turbohtml_reconstruct, METH_VARARGS, NULL},
+    {"_build_document", (PyCFunction)(void (*)(void))turbohtml_build_document, METH_VARARGS | METH_KEYWORDS, NULL},
     {"_tokenize_states", turbohtml_tokenize_states, METH_VARARGS, NULL},
     {"_parse_tree", turbohtml_parse_tree, METH_O, NULL},
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},

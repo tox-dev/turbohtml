@@ -1,0 +1,4 @@
+Add :func:`turbohtml.build.document`, a one-call builder for a whole HTML5 page. Pass head and body content and it
+returns a :class:`~turbohtml.Document` that serializes to ``<!DOCTYPE html>`` wrapping ``<html>`` (with an optional
+``lang``), a ``<head>`` that leads with ``<meta charset>`` and an optional ``<title>``, and ``<body>``. The C extension
+assembles the whole shell. This closes the page-shell gap the dominate, markyp, and simple-html migration guides listed.

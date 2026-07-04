@@ -18,13 +18,13 @@ A call takes its arguments in order: a leading mapping is the element's attribut
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, TypeAlias, TypeGuard
 
-from ._html import Element, Text
+from ._html import Element, Text, _build_document
 
 if TYPE_CHECKING:
-    from ._html import Node
+    from ._html import Document, Node
 
 #: Attributes accepted by :class:`turbohtml.Element`: a name maps to a string, a token list, or ``None`` for a bare
 #: boolean attribute such as ``disabled``.
@@ -114,9 +114,48 @@ class ElementMaker:
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
 E = ElementMaker()
 
+
+def document(
+    *,
+    title: str | None = None,
+    lang: str | None = None,
+    charset: str | None = "utf-8",
+    head: Iterable[Content] = (),
+    body: Iterable[Content] = (),
+) -> Document:
+    """
+    Build a complete HTML5 document around the given head and body content.
+
+    Where ``E`` builds a bare fragment, this scaffolds the whole page: a ``<!DOCTYPE html>`` followed by ``<html>``
+    holding a ``<head>`` and a ``<body>``. The head leads with a ``<meta charset>`` and a ``<title>`` (when supplied),
+    then the ``head`` content; the body holds the ``body`` content. The result is a :class:`turbohtml.Document`, so
+    ``document(...).serialize()`` emits the doctype and the full shell::
+
+        from turbohtml.build import E, document
+
+        page = document(title="Report", lang="en", body=[E.h1("Sales"), E.p("Up 4%")])
+        page.serialize()
+        # <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report</title></head>
+        # <body><h1>Sales</h1><p>Up 4%</p></body></html>
+
+    :param title: the ``<title>`` text; ``None`` omits the element.
+    :param lang: the ``lang`` attribute for ``<html>``; ``None`` omits it.
+    :param charset: the ``<meta charset>`` value; ``None`` omits the meta element (e.g. when the charset is set by an
+        HTTP header instead).
+    :param head: extra ``<head>`` content, appended after the meta and title; a string becomes a
+        :class:`turbohtml.Text` node.
+    :param body: the ``<body>`` content; a string becomes a :class:`turbohtml.Text` node.
+    :returns: the assembled :class:`turbohtml.Document`.
+    :raises TypeError: if ``title``, ``lang``, or ``charset`` is neither a str nor ``None``, or a head or body item is
+        not a node or string.
+    """
+    return _build_document([_to_node(item) for item in head], [_to_node(item) for item in body], title, lang, charset)
+
+
 __all__ = [
     "Attributes",
     "Content",
     "E",
     "ElementMaker",
+    "document",
 ]

@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, Element, Text, parse_fragment
-from turbohtml.build import E, ElementMaker
+from turbohtml import Comment, Document, Element, Text, parse, parse_fragment
+from turbohtml._html import _build_document
+from turbohtml.build import E, ElementMaker, document
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -173,3 +174,99 @@ def test_dunder_lookup_falls_through(maker: ElementMaker, name: str) -> None:
 
 def test_deepcopy_is_not_hijacked_by_getattr(maker: ElementMaker) -> None:
     assert isinstance(copy.deepcopy(maker), ElementMaker)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        pytest.param(
+            document,
+            '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>',
+            id="empty-page-is-a-full-shell",
+        ),
+        pytest.param(
+            lambda: document(title="Report"),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Report</title></head><body></body></html>',
+            id="title-follows-the-charset-meta",
+        ),
+        pytest.param(
+            lambda: document(lang="en"),
+            '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>',
+            id="lang-lands-on-html",
+        ),
+        pytest.param(
+            lambda: document(charset="iso-8859-1"),
+            '<!DOCTYPE html><html><head><meta charset="iso-8859-1"></head><body></body></html>',
+            id="charset-is-configurable",
+        ),
+        pytest.param(
+            lambda: document(charset=None),
+            "<!DOCTYPE html><html><head></head><body></body></html>",
+            id="none-charset-omits-the-meta",
+        ),
+        pytest.param(
+            lambda: document(title=""),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title></title></head><body></body></html>',
+            id="empty-title-stays-childless",
+        ),
+        pytest.param(
+            lambda: document(body=[E.h1("Sales"), E.p("Up 4%")]),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>Sales</h1><p>Up 4%</p></body></html>',
+            id="body-content-fills-the-body",
+        ),
+        pytest.param(
+            lambda: document(head=[E.link({"rel": "stylesheet", "href": "/x.css"})], title="T"),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>T</title>'
+            '<link rel="stylesheet" href="/x.css"></head><body></body></html>',
+            id="head-content-follows-title",
+        ),
+        pytest.param(
+            lambda: document(body=["hello"]),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>hello</body></html>',
+            id="string-body-item-becomes-text",
+        ),
+        pytest.param(
+            lambda: document(title="A & B", body=[E.p("x < y")]),
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>A &amp; B</title></head>'
+            "<body><p>x &lt; y</p></body></html>",
+            id="content-is-escaped-per-context",
+        ),
+    ],
+)
+def test_document_serialize(build: Callable[[], Document], expected: str) -> None:
+    assert build().serialize() == expected
+
+
+def test_document_returns_a_document() -> None:
+    assert isinstance(document(), Document)
+
+
+def test_document_round_trips_through_parse() -> None:
+    page = document(title="Report", lang="en", body=[E.h1("Sales")])
+    assert parse(page.serialize()).serialize() == page.serialize()
+
+
+@pytest.mark.parametrize("field", [pytest.param("title", id="title"), pytest.param("lang", id="lang")])
+def test_document_rejects_non_str_metadata(field: str) -> None:
+    with pytest.raises(TypeError, match=f"{field} must be a str or None"):
+        document(**{field: 42})  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
+
+
+def test_document_rejects_non_str_charset() -> None:
+    with pytest.raises(TypeError, match="charset must be a str or None"):
+        document(charset=42)  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
+
+
+@pytest.mark.parametrize(
+    "section",
+    [pytest.param("head", id="head"), pytest.param("body", id="body")],
+)
+def test_document_rejects_non_node_section_item(section: str) -> None:
+    with pytest.raises(TypeError, match="child must be a node"):
+        document(**{section: [42]})  # ty: ignore[invalid-argument-type]  # neither a node nor a string
+
+
+def test_build_document_requires_head_and_body() -> None:
+    # the private C hook validates its own positional arguments; document() always supplies them
+    with pytest.raises(TypeError, match="argument"):
+        _build_document()  # ty: ignore[missing-argument]  # exercises the argument-parsing guard

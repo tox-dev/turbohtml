@@ -455,3 +455,64 @@ void th_node_normalize(th_tree *tree, th_node *root) {
         child = next;
     }
 }
+
+/* Construct one shell element (html/head/body/meta/title) from its ASCII tag name,
+   with no attribute slots. Every shell name fits the small stack buffer, so the
+   UCS4 widening never overflows. NULL on allocation failure. */
+static th_node *shell_element(th_tree *tree, const char *name, Py_ssize_t len, uint16_t atom) {
+    Py_UCS4 tag[8]; /* the longest shell tag is "title" (5 code points) */
+    for (Py_ssize_t index = 0; index < len; index++) {
+        tag[index] = (Py_UCS4)name[index];
+    }
+    return th_tree_make_element(tree, tag, len, atom, 0);
+}
+
+th_node *th_tree_build_shell(th_tree *tree, const Py_UCS4 *lang, Py_ssize_t lang_len, const Py_UCS4 *title,
+                             Py_ssize_t title_len, const Py_UCS4 *charset, Py_ssize_t charset_len, th_node **out_head,
+                             th_node **out_body) {
+    static const Py_UCS4 doctype_html[] = {'h', 't', 'm', 'l'};
+    th_node *document = node_new(tree, TH_NODE_DOCUMENT);
+    th_node *doctype = th_tree_make_data_node(tree, TH_NODE_DOCTYPE, doctype_html, 4);
+    th_node *html = shell_element(tree, "html", 4, TH_TAG_HTML);
+    th_node *head = shell_element(tree, "head", 4, TH_TAG_HEAD);
+    th_node *body = shell_element(tree, "body", 4, TH_TAG_BODY);
+    /* allocation failure cannot be forced from a test */
+    if (document == NULL || doctype == NULL || html == NULL || head == NULL || body == NULL) { /* GCOVR_EXCL_BR_LINE */
+        return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    tree->document = document;
+    node_append(document, doctype);
+    node_append(document, html);
+    node_append(html, head);
+    node_append(html, body);
+    if (lang != NULL && th_node_attr_set(tree, html, "lang", 4, lang, lang_len, 1) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (charset != NULL) {
+        th_node *meta = shell_element(tree, "meta", 4, TH_TAG_META);
+        if (meta == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (th_node_attr_set(tree, meta, "charset", 7, charset, charset_len, 1) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+            return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        node_append(head, meta);
+    }
+    if (title != NULL) {
+        th_node *title_el = shell_element(tree, "title", 5, TH_TAG_TITLE);
+        if (title_el == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        node_append(head, title_el);
+        if (title_len > 0) {
+            th_node *text = th_tree_make_data_node(tree, TH_NODE_TEXT, title, title_len);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            node_append(title_el, text);
+        }
+    }
+    *out_head = head;
+    *out_body = body;
+    return document;
+}

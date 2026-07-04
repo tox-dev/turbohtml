@@ -3555,6 +3555,107 @@ static PyObject *element_extend(PyObject *self, PyObject *iterable) {
     Py_RETURN_NONE;
 }
 
+/* Extract an optional str argument for the page-shell builder as UCS4 code points.
+   None yields NULL (the piece is omitted); a str yields a freshly allocated buffer,
+   non-NULL even when empty, with *len set. Anything else raises TypeError naming the
+   field and clears *ok. Caller frees a non-NULL buffer with PyMem_Free. */
+static Py_UCS4 *shell_optional_ucs4(PyObject *arg, const char *what, Py_ssize_t *len, int *ok) {
+    *ok = 1;
+    if (arg == Py_None) {
+        *len = 0;
+        return NULL;
+    }
+    if (!PyUnicode_Check(arg)) {
+        PyErr_Format(PyExc_TypeError, "%s must be a str or None, not %.80s", what, Py_TYPE(arg)->tp_name);
+        *ok = 0;
+        return NULL;
+    }
+    *len = PyUnicode_GET_LENGTH(arg);
+    Py_UCS4 *points = PyUnicode_AsUCS4Copy(arg);
+    if (points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *ok = 0;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    } /* GCOVR_EXCL_LINE: llvm-cov counts the fall-through brace of the alloc-failure arm */
+    return points;
+}
+
+/* Append every node from children into section (a head or body element of the
+   fresh shell), through the same adoption path as extend(). Returns 0, or -1 with
+   an exception set when children is not iterable or holds a non-node. */
+static int shell_fill(module_state *state, PyObject *handle, th_node *section, PyObject *children) {
+    PyObject *wrapper = node_wrap(state, handle, section);
+    if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = element_extend(wrapper, children);
+    Py_DECREF(wrapper);
+    if (result == NULL) {
+        return -1;
+    }
+    Py_DECREF(result);
+    return 0;
+}
+
+PyObject *turbohtml_build_document(PyObject *module, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {"head", "body", "title", "lang", "charset", NULL};
+    PyObject *head_arg;
+    PyObject *body_arg;
+    PyObject *title_arg = Py_None;
+    PyObject *lang_arg = Py_None;
+    PyObject *charset_arg = Py_None;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OO|OOO:_build_document", keywords, &head_arg, &body_arg, &title_arg,
+                                     &lang_arg, &charset_arg)) {
+        return NULL;
+    }
+    Py_ssize_t title_len;
+    Py_ssize_t lang_len;
+    Py_ssize_t charset_len;
+    int ok;
+    Py_UCS4 *title = shell_optional_ucs4(title_arg, "title", &title_len, &ok);
+    if (!ok) {
+        return NULL;
+    }
+    Py_UCS4 *lang = shell_optional_ucs4(lang_arg, "lang", &lang_len, &ok);
+    if (!ok) {
+        PyMem_Free(title);
+        return NULL;
+    }
+    Py_UCS4 *charset = shell_optional_ucs4(charset_arg, "charset", &charset_len, &ok);
+    if (!ok) {
+        PyMem_Free(title);
+        PyMem_Free(lang);
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    th_tree *tree = th_tree_new();
+    if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(title);       /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(lang);        /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(charset);     /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_node *head_node;
+    th_node *body_node;
+    th_node *document =
+        th_tree_build_shell(tree, lang, lang_len, title, title_len, charset, charset_len, &head_node, &body_node);
+    PyMem_Free(title);
+    PyMem_Free(lang);
+    PyMem_Free(charset);
+    if (document == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(tree);      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *doc = wrap_fresh_tree_node(state, tree, document);
+    if (doc == NULL) { /* GCOVR_EXCL_BR_LINE: wrap_fresh_tree_node frees the tree on its own OOM */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *handle = ((NodeObject *)doc)->handle;
+    if (shell_fill(state, handle, head_node, head_arg) < 0 || shell_fill(state, handle, body_node, body_arg) < 0) {
+        Py_DECREF(doc);
+        return NULL;
+    }
+    return doc;
+}
+
 static PyObject *element_insert(PyObject *self, PyObject *args) {
     Py_ssize_t index;
     PyObject *child;

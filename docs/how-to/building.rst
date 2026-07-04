@@ -44,3 +44,29 @@ builder only saves the construction step.
 .. testoutput::
 
     <my-card class="card lg">hi</my-card>
+
+*********************************
+ Build a whole page with a shell
+*********************************
+
+``E`` builds a fragment; :func:`turbohtml.build.document` builds the whole page. It emits ``<!DOCTYPE html>`` and the
+``<html>``/``<head>``/``<body>`` shell around the content you pass, leading the head with a ``<meta charset>`` and an
+optional ``<title>``, and hands back a :class:`~turbohtml.Document`:
+
+.. testcode::
+
+    from turbohtml.build import E, document
+
+    page = document(
+        title="Release notes",
+        lang="en",
+        body=[E.h1("Release notes"), E.p("Native page-shell builder.")],
+    )
+    print(page.serialize())
+
+.. testoutput::
+
+    <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Release notes</title></head><body><h1>Release notes</h1><p>Native page-shell builder.</p></body></html>
+
+Pass ``charset=None`` to drop the meta (say, when an HTTP header sets it), ``title=None`` to omit the title, and extra
+``head`` content lands after the meta and title.

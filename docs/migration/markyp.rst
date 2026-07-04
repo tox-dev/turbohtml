@@ -80,9 +80,6 @@ What markyp has that turbohtml does not
 - Companion component packages. ``markyp-bootstrap``, ``markyp-highlightjs``, and ``markyp-fontawesome`` add typed
   wrappers for Bootstrap components, syntax highlighting, and icons on top of the element core. turbohtml builds raw
   elements only; there is no component library -- write the component markup as ``E`` calls yourself.
-- A ``webpage(...)`` page-shell factory. markyp ships a one-call helper that emits a complete HTML5 document (doctype,
-  ``<html>``, ``<head>``, ``<body>``). turbohtml has no shell factory: build the shell with :data:`E.html(E.head(...),
-  E.body(...)) <turbohtml.build.E>`, or append your fragment under a parsed document.
 - Pure-Python, wheel-less install. markyp needs no compiled extension and runs in any restricted environment. turbohtml
   ships a C extension, so it depends on a wheel or a local build.
 
@@ -120,8 +117,7 @@ markyp trails the attributes after positional children; turbohtml leads with a m
     - - ``li("text", class_="item", **{"data-i": "1"})``
       - :data:`E.li({"class": "item", "data-i": "1"}, "text") <turbohtml.build.E>`
     - - ``webpage(...)`` for the full page shell
-      - build it: :data:`E.html(E.head(...), E.body(...)) <turbohtml.build.E>`, or append the fragment under a parsed
-        document
+      - :func:`turbohtml.build.document(title=..., body=[...]) <turbohtml.build.document>`
     - - ``str(root)``
       - :meth:`element.serialize() <turbohtml.Node.serialize>`
 
@@ -155,13 +151,27 @@ attribute joins on a space so a class list reads naturally:
 
     <my-card class="card lg">hi</my-card>
 
+:func:`turbohtml.build.document` is the counterpart to markyp's ``webpage(...)``: it emits the doctype and the
+``<html>``/``<head>``/``<body>`` shell around the content you pass, and hands back a :class:`~turbohtml.Document`:
+
+.. testcode::
+
+    from turbohtml.build import E, document
+
+    page = document(title="Report", lang="en", body=[E.h1("Sales"), E.p("Up 4%")])
+    print(page.serialize())
+
+.. testoutput::
+
+    <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Report</title></head><body><h1>Sales</h1><p>Up 4%</p></body></html>
+
 **********************
  Gotchas and pitfalls
 **********************
 
 - ``E`` builds a fragment, not a document: there is no implicit ``<html>``/``<head>``/``<body>`` wrapper and no doctype.
-  Serialize the element you built, or append it under a parsed document when you need the full page shell -- markyp's
-  ``webpage(...)`` writes that shell for you, ``E`` does not.
+  Serialize the element you built, or reach for :func:`turbohtml.build.document` when you need the full page shell that
+  markyp's ``webpage(...)`` writes.
 - markyp strips a trailing underscore (``class_`` to ``class``) but keeps other underscores, so hyphenated names need an
   unpacked dict already; ``E`` takes the real attribute name as a plain dict key everywhere (``"class"``, ``"data-i"``).
 - A leading mapping is always read as attributes; to start an element with literal text, pass the string first

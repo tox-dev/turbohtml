@@ -119,6 +119,18 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
 int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char *name, Py_ssize_t name_len,
                      const Py_UCS4 *value, Py_ssize_t value_len, int has_value);
 
+/* Build a complete HTML5 document skeleton in the (empty) tree: a document node
+   holding a <!DOCTYPE html>, then <html> owning <head> and <body>. A non-NULL lang
+   sets html's lang attribute; a non-NULL charset adds a <meta charset> as head's
+   first child; a non-NULL title adds a <title> after it, carrying the text when
+   title_len is positive (an empty title stays childless). The head and body
+   elements are returned through out_head/out_body for the caller to fill; the
+   document node is stored as tree->document and returned. NULL on allocation
+   failure. */
+th_node *th_tree_build_shell(th_tree *tree, const Py_UCS4 *lang, Py_ssize_t lang_len, const Py_UCS4 *title,
+                             Py_ssize_t title_len, const Py_UCS4 *charset, Py_ssize_t charset_len, th_node **out_head,
+                             th_node **out_body);
+
 /* Upsert an attribute by name (replace value or append a slot); has_value 0 makes
    it valueless. Returns 0, or -1 on allocation failure. */
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,

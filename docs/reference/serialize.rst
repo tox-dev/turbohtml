@@ -60,6 +60,8 @@ folds a leading mapping into its attributes, and appends each remaining argument
 .. autoclass:: ElementMaker
     :members:
 
+.. autofunction:: document
+
 ********************************
  turbohtml.migration.markupsafe
 ********************************

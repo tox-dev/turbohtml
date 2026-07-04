@@ -51,6 +51,9 @@ from ._stubs.dom import (
     Text as Text,
 )
 from ._stubs.dom import (
+    _build_document as _build_document,
+)
+from ._stubs.dom import (
     _detect as _detect,
 )
 from ._stubs.dom import (
