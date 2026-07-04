@@ -44,6 +44,7 @@ typedef struct {
     PyObject *attrs_type;            /* _Attrs (the live mutable view of an element's attributes) */
     PyObject *walker_type;           /* _NodeIterator (descendants / ancestors / siblings) */
     PyObject *string_walker_type;    /* _StringIterator (strings / stripped_strings) */
+    PyObject *serialize_iter_type;   /* _SerializeIterator (serialize_iter chunk stream) */
     PyObject *namespace_enum;        /* Namespace (enum.Enum) */
     PyObject *namespaces[3];         /* cached Namespace members, indexed by enum th_ns */
     PyObject *axis_enum;             /* Axis (enum.Enum) for find()/find_all() */

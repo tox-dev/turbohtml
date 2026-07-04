@@ -254,6 +254,80 @@ PyType_Spec string_walker_spec = {
     .slots = string_walker_slots,
 };
 
+/* The iterator serialize_iter() hands back: it holds the resolved output options and
+   the walk's resume point, and each __next__ drives one bounded chunk of the
+   subtree. opts.charset points at the static "utf-8", and layout (an Indent, when
+   pretty) keeps the buffer indent points into alive; root stays valid because handle
+   pins the tree. Mutating the tree mid-iteration invalidates the cursor, the same
+   hazard as the tree's other node iterators. */
+static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_node *root, const th_serialize_opts *opts,
+                                    const Py_UCS4 *indent, Py_ssize_t indent_len, PyObject *layout) {
+    PyTypeObject *type = (PyTypeObject *)state->serialize_iter_type;
+    SerializeIterObject *self = (SerializeIterObject *)type->tp_alloc(type, 0);
+    if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    self->handle = Py_NewRef(handle);
+    self->layout = Py_XNewRef(layout);
+    self->root = root;
+    self->opts = *opts;
+    self->cursor.node = root;
+    self->cursor.depth = 0;
+    self->indent = indent;
+    self->indent_len = indent_len;
+    return (PyObject *)self;
+}
+
+static void serialize_iter_dealloc(PyObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    Py_DECREF(((SerializeIterObject *)self)->handle);
+    Py_XDECREF(((SerializeIterObject *)self)->layout);
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+static PyObject *serialize_iter_next(PyObject *self) {
+    SerializeIterObject *iter = (SerializeIterObject *)self;
+    if (iter->cursor.node == NULL) {
+        return NULL; /* the walk is exhausted: raise StopIteration */
+    }
+    th_tree *tree = ((HandleObject *)iter->handle)->tree;
+    Py_ssize_t out_len;
+    Py_UCS4 *data;
+    /* the chunk walks live tree nodes; hold the per-tree lock so a concurrent mutate
+       cannot rewire them mid-chunk (a no-op on the GIL build) */
+    Py_BEGIN_CRITICAL_SECTION(iter->handle);
+    data =
+        th_node_serialize_chunk(tree, iter->root, &iter->opts, iter->indent, iter->indent_len, &iter->cursor, &out_len);
+    Py_END_CRITICAL_SECTION();
+    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (out_len == 0) {
+        /* an empty subtree finishes without ever yielding, so no trailing "" chunk;
+           a non-empty walk only reaches out_len 0 once the cursor has run out */
+        PyMem_Free(data);
+        return NULL;
+    }
+    PyObject *result = ucs4_to_str(data, out_len);
+    PyMem_Free(data);
+    return result;
+}
+
+static PyType_Slot serialize_iter_slots[] = {
+    {Py_tp_dealloc, serialize_iter_dealloc},
+    {Py_tp_iter, PyObject_SelfIter},
+    {Py_tp_iternext, serialize_iter_next},
+    {0, NULL},
+};
+
+PyType_Spec serialize_iter_spec = {
+    .name = "turbohtml._html._SerializeIterator",
+    .basicsize = sizeof(SerializeIterObject),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .slots = serialize_iter_slots,
+};
+
 static PyObject *node_get_parent(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
     return node_wrap(state_of(self), node->handle, node->node->parent);
@@ -1325,12 +1399,27 @@ static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds);
 
 static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds);
 
+static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *kwds);
+
 PyDoc_STRVAR(serialize_doc, "serialize(options=None)\n--\n\n"
                             "Serialize this node and its subtree to a str.\n\n"
                             ":param options: an Html configuration object (formatter, layout, attribute\n"
                             "    ordering, and meta-charset handling), or None for the defaults.\n"
                             ":returns: the serialized markup.\n"
                             ":raises TypeError: if options is not an Html configuration object.");
+
+PyDoc_STRVAR(serialize_iter_doc, "serialize_iter(options=None)\n--\n\n"
+                                 "Serialize this node and its subtree lazily, yielding the markup in bounded\n"
+                                 "str chunks so a large document can stream to a socket or file without a\n"
+                                 "full-size output string. ``''.join(node.serialize_iter(options))`` equals\n"
+                                 "``node.serialize(options)`` for every options the stream supports.\n\n"
+                                 "The tree must not be mutated while the iterator is live, the same rule as\n"
+                                 "the other node iterators.\n\n"
+                                 ":param options: an Html configuration object, or None for the defaults. A\n"
+                                 "    Minify layout is rejected: minification needs the whole tree at once.\n"
+                                 ":returns: an iterator of str chunks whose concatenation is the markup.\n"
+                                 ":raises TypeError: if options is not an Html configuration object.\n"
+                                 ":raises ValueError: if options selects a Minify layout, which cannot stream.");
 
 PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None)\n--\n\n"
                          "Serialize this node and its subtree to bytes, with the same formatting controls\n"
@@ -1448,6 +1537,8 @@ static PyMethodDef node_methods[] = {
     {"re", (PyCFunction)(void (*)(void))node_re, METH_VARARGS | METH_KEYWORDS, re_doc},
     {"re_first", (PyCFunction)(void (*)(void))node_re_first, METH_VARARGS | METH_KEYWORDS, re_first_doc},
     {"serialize", (PyCFunction)(void (*)(void))node_serialize, METH_VARARGS | METH_KEYWORDS, serialize_doc},
+    {"serialize_iter", (PyCFunction)(void (*)(void))node_serialize_iter, METH_VARARGS | METH_KEYWORDS,
+     serialize_iter_doc},
     {"encode", (PyCFunction)(void (*)(void))node_encode, METH_VARARGS | METH_KEYWORDS, encode_doc},
     {"to_markdown", (PyCFunction)(void (*)(void))node_to_markdown, METH_VARARGS | METH_KEYWORDS, to_markdown_doc},
     {"to_text", (PyCFunction)(void (*)(void))node_to_text, METH_VARARGS | METH_KEYWORDS, to_text_doc},
@@ -1592,20 +1683,29 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
 /* Serialize self to a str under the Html config in spec (a borrowed dict of the
    config's non-default values, or NULL for the defaults), writing charset as the
    meta_charset label. */
-static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *charset) {
+/* Parse an Html config's non-default values (spec) into the four serialize settings,
+   leaving each unmentioned one at the caller's default. Returns 0 on success, -1 with
+   an exception set. */
+static int parse_html_spec(PyObject *spec, PyObject **formatter_obj, PyObject **layout_obj, int *sort_attributes,
+                           int *meta_charset) {
     static char *keywords[] = {"formatter", "layout", "sort_attributes", "meta_charset", NULL};
+    PyObject *empty = PyTuple_New(0);
+    if (empty == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int parsed = PyArg_ParseTupleAndKeywords(empty, spec, "|$OOpp", keywords, formatter_obj, layout_obj,
+                                             sort_attributes, meta_charset);
+    Py_DECREF(empty);
+    return parsed ? 0 : -1;
+}
+
+static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *charset) {
     PyObject *formatter_obj = NULL;
     PyObject *layout_obj = NULL;
     int sort_attributes = 0;
     int meta_charset = 0;
-    PyObject *empty = PyTuple_New(0);
-    if (empty == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    int parsed = PyArg_ParseTupleAndKeywords(empty, spec, "|$OOpp", keywords, &formatter_obj, &layout_obj,
-                                             &sort_attributes, &meta_charset);
-    Py_DECREF(empty);
-    if (!parsed) {
+    if (parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset) < 0) {
         return NULL;
     }
     return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, charset);
@@ -1649,4 +1749,58 @@ static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds) {
     PyObject *encoded = PyUnicode_AsEncodedString(text, encoding, NULL);
     Py_DECREF(text);
     return encoded;
+}
+
+/* Build the serialize_iter iterator from the resolved output options. The stream is
+   always str (UTF-8 conceptually, like serialize), so charset is the static "utf-8".
+   A Minify layout is rejected: its transforms analyze the whole tree, so there is no
+   per-node stream to resume. */
+static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj,
+                                          int sort_attributes, int meta_charset) {
+    module_state *state = state_of(self);
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8")};
+    if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
+        return NULL;
+    }
+    enum th_layout_mode mode;
+    const Py_UCS4 *indent_unit = NULL;
+    Py_ssize_t indent_len = 0;
+    th_minify_opts minify_opts;
+    if (resolve_layout(state, layout_obj, &mode, &indent_unit, &indent_len, &minify_opts) < 0) {
+        return NULL;
+    }
+    if (mode == TH_LAYOUT_MINIFY) {
+        PyErr_SetString(PyExc_ValueError,
+                        "serialize_iter() cannot stream a Minify layout; minification needs the whole tree");
+        return NULL;
+    }
+    const Py_UCS4 *indent = mode == TH_LAYOUT_INDENT ? indent_unit : NULL;
+    PyObject *layout = mode == TH_LAYOUT_INDENT ? layout_obj : NULL;
+    return serialize_iter_new(state, ((NodeObject *)self)->handle, ((NodeObject *)self)->node, &opts, indent,
+                              indent_len, layout);
+}
+
+static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {"options", NULL};
+    PyObject *options = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O", keywords, &options)) {
+        return NULL;
+    }
+    if (options == NULL || options == Py_None) {
+        return node_make_serialize_iter(self, NULL, NULL, 0, 0);
+    }
+    PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
+    if (spec == NULL) {
+        return NULL;
+    }
+    PyObject *formatter_obj = NULL;
+    PyObject *layout_obj = NULL;
+    int sort_attributes = 0;
+    int meta_charset = 0;
+    int parsed = parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset);
+    Py_DECREF(spec);
+    if (parsed < 0) {
+        return NULL;
+    }
+    return node_make_serialize_iter(self, formatter_obj, layout_obj, sort_attributes, meta_charset);
 }

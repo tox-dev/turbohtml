@@ -32,7 +32,8 @@ exactly the rules that parse it back.
       - Full HTML parse, query, edit, and serialize engine, with the ``E`` builder as one front end
       - HTML generation only: tag functions that render to a string
     - - Feature breadth
-      - Build, parse, CSS ``select``, ``find``, mutate, ``serialize``, ``to_markdown``, minify
+      - Build, parse, CSS ``select``, ``find``, mutate, ``serialize``, streaming ``serialize_iter``, ``to_markdown``,
+        minify
       - Tag functions, keyword-mangled attributes, lazy fragment rendering
     - - Performance
       - Builds in turbohtml's arena and serializes in C, about twice as fast on the corpus below
@@ -72,15 +73,14 @@ What turbohtml adds
 - Splicing into parsed documents. Because a built node is a real tree, you can ``append`` it under a document you parsed
   from existing HTML, not just render it in isolation.
 - A native-C serialize path, about twice as fast as fast-html on the corpus below.
+- Lazy, streaming output. :meth:`~turbohtml.Node.serialize_iter` yields the markup in bounded ``str`` chunks, so a very
+  large page streams to a socket or file without ever materializing the whole string -- the same shape as a fast-html
+  tag's fragment generator. ``''.join(node.serialize_iter())`` equals ``node.serialize()``.
 - A typed surface with shipped stubs.
 
 What fast-html has that turbohtml does not
 ==========================================
 
-- Lazy, streaming output. A fast-html tag is a generator of string fragments, so a very large page can be streamed to a
-  socket or file without ever materializing the whole string. ``E`` builds the full tree in the arena and then
-  serializes it to a single string. Workaround: build and :meth:`~turbohtml.Node.serialize` top-level sections
-  separately and write them in a loop, rather than one document at a time.
 - A dependency-free pure-Python install. fast-html runs anywhere CPython does with no compiled extension; turbohtml
   ships a C extension, so it needs a wheel for the platform or a build toolchain. No equivalent if a pure-Python install
   is a hard requirement.

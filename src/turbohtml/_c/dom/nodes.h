@@ -114,6 +114,16 @@ typedef struct {
 } StringWalkerObject;
 
 typedef struct {
+    PyObject_HEAD PyObject *handle; /* keeps the tree and root node alive and carries the per-tree lock */
+    PyObject *layout;               /* the Indent whose unit `indent` points into, held alive; NULL when compact */
+    th_node *root;                  /* the subtree being serialized */
+    th_serialize_opts opts;         /* escape / attribute-order / meta options; opts.charset is a static "utf-8" */
+    th_ser_cursor cursor;           /* the walk's resume point between chunks */
+    const Py_UCS4 *indent;          /* the pretty layout's per-level unit, or NULL for the compact form */
+    Py_ssize_t indent_len;
+} SerializeIterObject;
+
+typedef struct {
     PyObject_HEAD PyObject *handle;
     th_node *node; /* the element whose live attributes this view exposes */
 } AttrsObject;
@@ -513,6 +523,7 @@ PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObj
 PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored));
 extern PyType_Spec walker_spec;
 extern PyType_Spec string_walker_spec;
+extern PyType_Spec serialize_iter_spec;
 extern PyType_Spec node_spec;
 extern PyType_Spec attrs_spec;
 extern PyType_Spec element_spec;

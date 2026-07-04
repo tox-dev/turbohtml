@@ -283,6 +283,23 @@ typedef struct {
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len);
 
+/* Where a streaming serialization (serialize_iter) resumes between chunks: the next
+   node to emit (NULL once the subtree is done) and the pretty layout's current
+   indentation depth. Start it at {root, 0}. */
+typedef struct {
+    th_node *node;
+    int depth;
+} th_ser_cursor;
+
+/* Serialize the next bounded chunk of the subtree rooted at root, resuming from
+   cursor and advancing it to the following resume point (cursor->node becomes NULL
+   once the walk is done). indent selects the pretty layout as in th_node_serialize.
+   Joining every chunk reproduces th_node_serialize's output byte for byte, since
+   both drive the same per-node walk. PyMem-allocated; *out_len receives the chunk's
+   length (0 only on the terminal empty chunk). NULL on failure. */
+Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
+                                 Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len);
+
 /* The minification transforms serialize(minify=...) toggles, each round-trip safe
    (the minified bytes reparse to the same tree). */
 typedef struct {

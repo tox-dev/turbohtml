@@ -192,84 +192,88 @@ Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len) {
 
 /* ------------------------------------------------- navigable HTML output */
 
-/* Outer serialization with no inserted whitespace (the WHATWG fragment
-   algorithm), parameterized by the escape formatter. The walk is iterative,
-   descending through first_child and ascending through parent pointers, so a
-   tree of any depth serializes without recursing one C stack frame per level. */
+/* Emit one node under the compact (WHATWG fragment) layout and return the next node
+   the walk rooted at root visits, or NULL once the subtree is fully written. Split
+   out of serialize_compact so serialize_iter can resume the walk one node at a time
+   between chunks: the one-shot wrapper below loops it to exhaustion and the streaming
+   driver stops it at a chunk boundary, so both paths emit byte-identical markup. The
+   walk is iterative -- descending through first_child, ascending through parent
+   pointers -- so a tree of any depth serializes without one C stack frame per level. */
+static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, th_node *root,
+                                       const th_serialize_opts *opts) {
+    th_node *descend = NULL;
+    switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
+    case TH_NODE_ELEMENT:
+        ser_open_tag(out, tree, node, opts);
+        ser_inject_head_meta(out, tree, node, opts);
+        if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
+            break; /* void elements have no children or end tag */
+        }
+        if (ser_needs_leading_newline(tree, node)) {
+            sbuf_putc(out, '\n');
+        }
+        if (is_rawtext_element(node)) {
+            /* a rawtext element's children are always text nodes */
+            for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+                sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+            }
+            ser_close_tag(out, node);
+            break;
+        }
+        if (node->first_child != NULL) {
+            descend = node->first_child;
+        } else {
+            ser_close_tag(out, node); /* an empty element still takes an end tag */
+        }
+        break;
+    case TH_NODE_TEXT:
+        sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
+        break;
+    case TH_NODE_COMMENT:
+        sbuf_puts(out, "<!--");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_puts(out, "-->");
+        break;
+    case TH_NODE_DOCTYPE:
+        sbuf_puts(out, "<!DOCTYPE ");
+        sbuf_put_ucs4(out, node->text, doctype_name_len(node));
+        sbuf_putc(out, '>');
+        break;
+    case TH_NODE_PI:
+        sbuf_puts(out, "<?");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_putc(out, '>');
+        break;
+    case TH_NODE_CDATA:
+        sbuf_puts(out, "<![CDATA[");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_puts(out, "]]>");
+        break;
+    case TH_NODE_CONTENT:
+    case TH_NODE_DOCUMENT:
+        descend = node->first_child; /* a transparent container emits only its children */
+        break;
+    }
+    if (descend != NULL) {
+        return descend;
+    }
+    /* ascend toward the root, closing each element whose children are done */
+    while (node != root) {
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+        if (node->type == TH_NODE_ELEMENT) {
+            ser_close_tag(out, node);
+        }
+    }
+    return NULL;
+}
+
 static void serialize_compact(sbuf *out, th_tree *tree, th_node *root, const th_serialize_opts *opts) {
     th_node *node = root;
-    while (1) {
-        th_node *descend = NULL;
-        switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
-        case TH_NODE_ELEMENT:
-            ser_open_tag(out, tree, node, opts);
-            ser_inject_head_meta(out, tree, node, opts);
-            if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
-                break; /* void elements have no children or end tag */
-            }
-            if (ser_needs_leading_newline(tree, node)) {
-                sbuf_putc(out, '\n');
-            }
-            if (is_rawtext_element(node)) {
-                /* a rawtext element's children are always text nodes */
-                for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                    sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
-                }
-                ser_close_tag(out, node);
-                break;
-            }
-            if (node->first_child != NULL) {
-                descend = node->first_child;
-            } else {
-                ser_close_tag(out, node); /* an empty element still takes an end tag */
-            }
-            break;
-        case TH_NODE_TEXT:
-            sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
-            break;
-        case TH_NODE_COMMENT:
-            sbuf_puts(out, "<!--");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_puts(out, "-->");
-            break;
-        case TH_NODE_DOCTYPE:
-            sbuf_puts(out, "<!DOCTYPE ");
-            sbuf_put_ucs4(out, node->text, doctype_name_len(node));
-            sbuf_putc(out, '>');
-            break;
-        case TH_NODE_PI:
-            sbuf_puts(out, "<?");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_putc(out, '>');
-            break;
-        case TH_NODE_CDATA:
-            sbuf_puts(out, "<![CDATA[");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_puts(out, "]]>");
-            break;
-        case TH_NODE_CONTENT:
-        case TH_NODE_DOCUMENT:
-            descend = node->first_child; /* a transparent container emits only its children */
-            break;
-        }
-        if (descend != NULL) {
-            node = descend;
-            continue;
-        }
-        /* ascend toward the root, closing each element whose children are done */
-        while (node != root) {
-            if (node->next_sibling != NULL) {
-                node = node->next_sibling;
-                break;
-            }
-            node = node->parent;
-            if (node->type == TH_NODE_ELEMENT) {
-                ser_close_tag(out, node);
-            }
-        }
-        if (node == root) {
-            break;
-        }
+    while (node != NULL) {
+        node = serialize_compact_step(out, tree, node, root, opts);
     }
 }
 
@@ -290,118 +294,122 @@ static void ser_newline_indent(sbuf *out, const ser_opts *opts, int depth) {
     }
 }
 
-/* Pretty serialization: write node at the current position with no leading
-   whitespace; a parent emits the newline and indent before each child, so the
-   root starts at column zero. Raw-text and whitespace-significant elements
-   (script/style/pre/textarea/listing) keep their content verbatim, since
-   reflowing it would change meaning. */
+/* Emit one node under the pretty layout and return the next node the walk rooted at
+   root visits, or NULL once the subtree is done; *depth carries the current
+   indentation level across the walk (and, so serialize_iter can suspend the walk,
+   across chunks). A node is written at the current position with no leading
+   whitespace; a parent emits the newline and indent before each child, so the root
+   starts at column zero. Raw-text and whitespace-significant elements
+   (script/style/pre/textarea/listing) keep their content verbatim, since reflowing
+   it would change meaning. */
+static th_node *serialize_pretty_step(sbuf *out, th_tree *tree, th_node *node, th_node *root, const ser_opts *opts,
+                                      int *depth) {
+    th_node *descend = NULL;
+    switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
+    case TH_NODE_ELEMENT: {
+        ser_open_tag(out, tree, node, opts->out);
+        if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
+            break;
+        }
+        int raw = is_rawtext_element(node);
+        int preserve = raw || ser_needs_leading_newline(tree, node) ||
+                       (node->ns == TH_NS_HTML &&
+                        (node->atom == TH_TAG_PRE || node->atom == TH_TAG_TEXTAREA || node->atom == TH_TAG_LISTING));
+        if (preserve) {
+            /* a whitespace-significant element keeps its content verbatim: its
+               children serialize compactly (itself iterative), so the pretty
+               walk treats it as a leaf and never recurses through it */
+            if (ser_needs_leading_newline(tree, node)) {
+                sbuf_putc(out, '\n');
+            }
+            for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+                if (raw && child->type == TH_NODE_TEXT) { /* GCOVR_EXCL_BR_LINE */
+                    sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+                } else {
+                    serialize_compact(out, tree, child, opts->out);
+                }
+            }
+            ser_close_tag(out, node);
+            break;
+        }
+        /* meta_charset injects the declaration as head's first child, on its own
+           indented line (head is never a preserve/raw element, so this is reached) */
+        int inject = opts->out->inject_meta && node->ns == TH_NS_HTML && node->atom == TH_TAG_HEAD &&
+                     !ser_head_has_charset_meta(tree, node);
+        if (node->first_child == NULL && !inject) {
+            ser_close_tag(out, node);
+            break;
+        }
+        if (inject) {
+            ser_newline_indent(out, opts, *depth + 1);
+            ser_emit_meta_charset(out, opts->out);
+        }
+        if (node->first_child == NULL) {
+            ser_newline_indent(out, opts, *depth);
+            ser_close_tag(out, node);
+            break;
+        }
+        ser_newline_indent(out, opts, *depth + 1);
+        descend = node->first_child;
+        break;
+    }
+    case TH_NODE_TEXT:
+        sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->out->formatter);
+        break;
+    case TH_NODE_COMMENT:
+        sbuf_puts(out, "<!--");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_puts(out, "-->");
+        break;
+    case TH_NODE_DOCTYPE:
+        sbuf_puts(out, "<!DOCTYPE ");
+        sbuf_put_ucs4(out, node->text, doctype_name_len(node));
+        sbuf_putc(out, '>');
+        break;
+    case TH_NODE_PI:
+        sbuf_puts(out, "<?");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_putc(out, '>');
+        break;
+    case TH_NODE_CDATA:
+        sbuf_puts(out, "<![CDATA[");
+        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_puts(out, "]]>");
+        break;
+    case TH_NODE_CONTENT:
+    case TH_NODE_DOCUMENT:
+        /* a transparent container lays its children out at its own depth */
+        descend = node->first_child;
+        break;
+    }
+    if (descend != NULL) {
+        if (node->type == TH_NODE_ELEMENT) {
+            *depth += 1; /* an element indents its children one level deeper */
+        }
+        return descend;
+    }
+    /* ascend toward the root, closing each element once its children are done */
+    while (node != root) {
+        if (node->next_sibling != NULL) {
+            ser_newline_indent(out, opts, *depth);
+            return node->next_sibling;
+        }
+        th_node *parent = node->parent;
+        if (parent->type == TH_NODE_ELEMENT) {
+            *depth -= 1;
+            ser_newline_indent(out, opts, *depth);
+            ser_close_tag(out, parent);
+        }
+        node = parent;
+    }
+    return NULL;
+}
+
 static void serialize_pretty(sbuf *out, th_tree *tree, th_node *root, const ser_opts *opts, int depth0) {
     th_node *node = root;
     int depth = depth0;
-    while (1) {
-        th_node *descend = NULL;
-        switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
-        case TH_NODE_ELEMENT: {
-            ser_open_tag(out, tree, node, opts->out);
-            if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
-                break;
-            }
-            int raw = is_rawtext_element(node);
-            int preserve = raw || ser_needs_leading_newline(tree, node) ||
-                           (node->ns == TH_NS_HTML && (node->atom == TH_TAG_PRE || node->atom == TH_TAG_TEXTAREA ||
-                                                       node->atom == TH_TAG_LISTING));
-            if (preserve) {
-                /* a whitespace-significant element keeps its content verbatim: its
-                   children serialize compactly (itself iterative), so the pretty
-                   walk treats it as a leaf and never recurses through it */
-                if (ser_needs_leading_newline(tree, node)) {
-                    sbuf_putc(out, '\n');
-                }
-                for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                    if (raw && child->type == TH_NODE_TEXT) { /* GCOVR_EXCL_BR_LINE */
-                        sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
-                    } else {
-                        serialize_compact(out, tree, child, opts->out);
-                    }
-                }
-                ser_close_tag(out, node);
-                break;
-            }
-            /* meta_charset injects the declaration as head's first child, on its own
-               indented line (head is never a preserve/raw element, so this is reached) */
-            int inject = opts->out->inject_meta && node->ns == TH_NS_HTML && node->atom == TH_TAG_HEAD &&
-                         !ser_head_has_charset_meta(tree, node);
-            if (node->first_child == NULL && !inject) {
-                ser_close_tag(out, node);
-                break;
-            }
-            if (inject) {
-                ser_newline_indent(out, opts, depth + 1);
-                ser_emit_meta_charset(out, opts->out);
-            }
-            if (node->first_child == NULL) {
-                ser_newline_indent(out, opts, depth);
-                ser_close_tag(out, node);
-                break;
-            }
-            ser_newline_indent(out, opts, depth + 1);
-            descend = node->first_child;
-            break;
-        }
-        case TH_NODE_TEXT:
-            sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->out->formatter);
-            break;
-        case TH_NODE_COMMENT:
-            sbuf_puts(out, "<!--");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_puts(out, "-->");
-            break;
-        case TH_NODE_DOCTYPE:
-            sbuf_puts(out, "<!DOCTYPE ");
-            sbuf_put_ucs4(out, node->text, doctype_name_len(node));
-            sbuf_putc(out, '>');
-            break;
-        case TH_NODE_PI:
-            sbuf_puts(out, "<?");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_putc(out, '>');
-            break;
-        case TH_NODE_CDATA:
-            sbuf_puts(out, "<![CDATA[");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_puts(out, "]]>");
-            break;
-        case TH_NODE_CONTENT:
-        case TH_NODE_DOCUMENT:
-            /* a transparent container lays its children out at its own depth */
-            descend = node->first_child;
-            break;
-        }
-        if (descend != NULL) {
-            if (node->type == TH_NODE_ELEMENT) {
-                depth += 1; /* an element indents its children one level deeper */
-            }
-            node = descend;
-            continue;
-        }
-        /* ascend toward the root, closing each element once its children are done */
-        while (node != root) {
-            if (node->next_sibling != NULL) {
-                ser_newline_indent(out, opts, depth);
-                node = node->next_sibling;
-                break;
-            }
-            th_node *parent = node->parent;
-            if (parent->type == TH_NODE_ELEMENT) {
-                depth -= 1;
-                ser_newline_indent(out, opts, depth);
-                ser_close_tag(out, parent);
-            }
-            node = parent;
-        }
-        if (node == root) {
-            break;
-        }
+    while (node != NULL) {
+        node = serialize_pretty_step(out, tree, node, root, opts, &depth);
     }
 }
 
@@ -520,6 +528,28 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     } else {
         ser_opts pretty = {opts, indent, indent_len};
         serialize_pretty(&out, tree, node, &pretty, 0);
+    }
+    return sbuf_finish(&out, out_len);
+}
+
+/* Emit whole nodes from cursor until the chunk holds at least this many code points;
+   stopping only on a per-node boundary keeps each chunk near this size, bar the one
+   case a single text node exceeds it (it still emits as one chunk). The output stays
+   bounded to roughly one chunk, which is the point: no full-size string is built. */
+#define TH_SERIALIZE_CHUNK 8192
+
+Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
+                                 Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len) {
+    sbuf out = {NULL, 0, 0, 0};
+    if (indent == NULL) {
+        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+            cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts);
+        }
+    } else {
+        ser_opts pretty = {opts, indent, indent_len};
+        while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
+            cursor->node = serialize_pretty_step(&out, tree, cursor->node, root, &pretty, &cursor->depth);
+        }
     }
     return sbuf_finish(&out, out_len);
 }

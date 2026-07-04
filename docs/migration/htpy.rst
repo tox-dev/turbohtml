@@ -31,9 +31,10 @@ surface stays available on what you just built.
       - Full WHATWG parser, serializer, builder, selectors, sanitizer, converters
       - HTML generation only, from Python
     - - Feature breadth
-      - ``E`` builder over a real tree: CSS/XPath query, edit, ``to_markdown``, compact/indent/minify layouts
+      - ``E`` builder over a real tree: CSS/XPath query, edit, ``to_markdown``, compact/indent/minify layouts, chunked
+        streaming
       - Element objects, selector-string and conditional-class attributes, iterable children, markupsafe escaping,
-        ``fragment`` grouping, chunked streaming, ``html2htpy`` CLI
+        ``fragment`` grouping, ``html2htpy`` CLI
     - - Performance
       - Builds and serializes in C
       - Pure Python over markupsafe
@@ -73,6 +74,9 @@ What turbohtml adds
 - ``E`` assembles the fragment in turbohtml's arena and serializes it in C, about two and a half times faster than htpy.
 - A :class:`~turbohtml.Minify` layout (whitespace collapse, optional-tag omission, JS/CSS minify) on top of the compact
   and :class:`~turbohtml.Indent` layouts; htpy renders compact only.
+- Chunked streaming: :meth:`~turbohtml.Node.serialize_iter` yields the markup in bounded ``str`` chunks, so a large page
+  streams to an async response without ever building the whole string -- the same shape as iterating an htpy element,
+  and ``''.join(node.serialize_iter())`` equals :meth:`~turbohtml.Node.serialize`.
 - No third-party dependency: turbohtml is a self-contained C extension, where htpy pulls in markupsafe.
 - You can :func:`turbohtml.parse` real markup and append an ``E`` fragment under it, mixing parsing and building in one
   tree.
@@ -94,9 +98,6 @@ What htpy has that turbohtml does not
 - ``fragment[...]`` groups several children with no wrapper element and renders them as adjacent siblings. ``E.<tag>``
   always produces one rooted element. Workaround: serialize each child and concatenate, or parse the concatenation into
   a fragment.
-- Chunked streaming: an htpy element iterates as byte chunks, so a large page can stream to an async response before it
-  is fully built. ``E`` builds the whole tree, then :meth:`~turbohtml.Node.serialize` returns one string. Workaround:
-  serialize and send the finished string; there is no incremental builder emit.
 - The ``html2htpy`` CLI converts existing HTML into htpy builder source. turbohtml has no code generator. Workaround:
   :func:`turbohtml.parse` the HTML at runtime instead of generating builder code.
 

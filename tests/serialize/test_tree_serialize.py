@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, Doctype, Namespace, Text, parse
+from turbohtml import Comment, Doctype, Html, Indent, Markdown, Minify, Namespace, Text, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -145,3 +147,147 @@ def test_template_content_serializes_and_collects_text(find: Callable[[str, str]
     template = find("<template>inner</template>", "template")
     assert template.html == "<template>inner</template>"
     assert template.text == "inner"
+
+
+# the chunk stream must join back to exactly the one-shot output, for every document
+# shape and every options object it supports (Minify, which needs the whole tree, is
+# rejected instead and covered separately)
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            "<!doctype html><html><head><title>t</title></head><body><p>a&amp;b</p></body></html>", id="document"
+        ),
+        pytest.param("<div id=x class='a b'><span>text</span><br><img src=y></div>", id="void-and-attrs"),
+        pytest.param("<ul>\n  <li>one</li>\n  <li>two</li>\n</ul>", id="nested-whitespace"),
+        pytest.param("<style>a > b { c: d }</style><script>1 < 2 && 3</script>", id="rawtext"),
+        pytest.param("<pre>keep\n  this\nverbatim</pre>", id="pre-preserve"),
+        pytest.param("<svg><circle r=5></circle></svg><!--note-->", id="foreign-and-comment"),
+        pytest.param("plain text with a &amp; and \U0001f600 astral", id="text-only"),
+        pytest.param("", id="empty"),
+    ],
+)
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(None, id="defaults"),
+        pytest.param(Html(), id="empty-config"),
+        pytest.param(Html(layout=Indent(2)), id="indent"),
+        pytest.param(Html(layout=Indent("\t")), id="indent-tab"),
+        pytest.param(Html(sort_attributes=True), id="sort-attributes"),
+        pytest.param(Html(meta_charset=True), id="meta-charset"),
+        pytest.param(Html(layout=Indent(2), sort_attributes=True, meta_charset=True), id="indent-sort-meta"),
+    ],
+)
+def test_serialize_iter_joins_to_serialize(source: str, options: Html | None) -> None:
+    root = parse(source)
+    assert "".join(root.serialize_iter(options)) == root.serialize(options)
+
+
+def test_serialize_iter_matches_serialize_on_an_element_subtree(find: Callable[[str, str], Element]) -> None:
+    node = find("<body><section><p z=1 a=2>hi</p><p>bye</p></section></body>", "section")
+    assert "".join(node.serialize_iter()) == node.serialize()
+
+
+def test_serialize_iter_empty_subtree_yields_no_chunks() -> None:
+    # a subtree that serializes to "" finishes without ever yielding a chunk, so the
+    # stream is empty rather than carrying a trailing "" (the terminal empty chunk)
+    document = parse("")
+    for child in list(document.children):
+        child.decompose()
+    assert not document.serialize()
+    assert list(document.serialize_iter()) == []
+
+
+@pytest.mark.parametrize("layout", [pytest.param(None, id="compact"), pytest.param(Indent(2), id="indent")])
+def test_serialize_iter_bounds_each_chunk_and_joins(layout: Indent | None) -> None:
+    # a document past the ~8 KiB chunk size must split into several bounded chunks
+    # that still reconstruct the one-shot output exactly, under either walk
+    source = "".join(f"<section id='s{index}'><p>row {index} &amp; more</p></section>" for index in range(400))
+    root = parse(source)
+    options = Html(layout=layout)
+    chunks = list(root.serialize_iter(options))
+    assert len(chunks) > 1
+    assert max(len(chunk) for chunk in chunks[:-1]) < 32 * 1024  # a per-node boundary keeps chunks near the target
+    assert "".join(chunks) == root.serialize(options)
+
+
+def test_serialize_iter_emits_a_huge_text_node_as_one_chunk(find: Callable[[str, str], Element]) -> None:
+    # a single text node larger than the chunk target cannot be split mid-node, so it
+    # rides in one oversized chunk rather than being dropped or truncated
+    body = find(f"<body>{'x' * 50000}</body>", "body")
+    chunks = list(body.serialize_iter())
+    assert "".join(chunks) == body.serialize()
+
+
+def test_serialize_iter_streams_to_a_file_like_sink() -> None:
+    root = parse("<html><body><p>chunked</p><ul><li>a</li><li>b</li></ul></body></html>")
+    sink = io.StringIO()
+    for chunk in root.serialize_iter():
+        sink.write(chunk)
+    assert sink.getvalue() == root.serialize()
+
+
+def test_serialize_iter_rejects_extra_positional() -> None:
+    with pytest.raises(TypeError):
+        parse("<p>x</p>").serialize_iter(Html(), Html())  # ty: ignore[too-many-positional-arguments]  # a second arg is rejected
+
+
+def test_serialize_iter_rejects_a_minify_layout() -> None:
+    with pytest.raises(ValueError, match="cannot stream a Minify layout"):
+        list(parse("<p>x</p>").serialize_iter(Html(layout=Minify())))
+
+
+def test_serialize_iter_rejects_a_non_layout() -> None:
+    with pytest.raises(TypeError, match="layout must be an Indent"):
+        parse("<p>x</p>").serialize_iter(Html(layout=True))  # ty: ignore[invalid-argument-type]  # non-layout rejected
+
+
+def test_serialize_iter_rejects_a_non_formatter() -> None:
+    with pytest.raises(TypeError, match="formatter must be a Formatter"):
+        parse("<p>x</p>").serialize_iter(Html(formatter=object()))  # ty: ignore[invalid-argument-type]  # non-formatter rejected
+
+
+def test_serialize_iter_rejects_another_renderers_config() -> None:
+    with pytest.raises(TypeError, match="options must be a Html, not Markdown"):
+        parse("<p>x</p>").serialize_iter(Markdown())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected
+
+
+def test_serialize_iter_propagates_a_raising_truthiness() -> None:
+    # the Html bool fields are read with PyObject_IsTrue, so a value whose __bool__
+    # raises surfaces the error instead of being silently coerced
+    class _Boom:
+        def __bool__(self) -> bool:
+            msg = "boom"
+            raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        parse("<p>x</p>").serialize_iter(Html(sort_attributes=_Boom()))  # ty: ignore[invalid-argument-type]  # a raising __bool__ on purpose
+
+
+_TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
+
+
+def _corpus_sources(path: Path) -> list[str]:
+    sources: list[str] = []
+    for raw in path.read_text(encoding="utf-8").split("\n#data\n"):
+        block = raw.removeprefix("#data\n")
+        data, _, rest = block.partition("\n#errors")
+        if "#document-fragment\n" in rest or "#script-on" in rest or "\n#document\n" not in rest:
+            continue
+        sources.append(data)
+    return sources
+
+
+@pytest.mark.parametrize("layout", [pytest.param(None, id="compact"), pytest.param(Indent(2), id="indent")])
+@pytest.mark.parametrize("filename", sorted(path.name for path in _TREE_DIR.glob("*.dat")))
+def test_serialize_iter_joins_to_serialize_over_corpus(filename: str, layout: Indent | None) -> None:
+    options = Html(layout=layout)
+    mismatches = [
+        data
+        for data in _corpus_sources(_TREE_DIR / filename)
+        if "".join((root := parse(data)).serialize_iter(options)) != root.serialize(options)
+    ]
+    assert not mismatches, f"{filename}: {len(mismatches)} chunked outputs differ\n\n" + "\n\n".join(
+        repr(source) for source in mismatches[:5]
+    )

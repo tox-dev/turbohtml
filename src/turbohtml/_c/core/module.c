@@ -161,22 +161,23 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     for (int index = 0; index < 5; index++) {
         Py_VISIT(state->kinds[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
-    Py_VISIT(state->node_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->element_type);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->text_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->comment_type);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->doctype_type);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->pi_type);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->cdata_type);         /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->document_type);      /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->parser_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->parse_error_type);   /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->parse_error_exc);    /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->handle_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->attrs_type);         /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->walker_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->string_walker_type); /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->namespace_enum);     /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->node_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->element_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->text_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->comment_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->doctype_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->pi_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->cdata_type);          /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->document_type);       /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->parser_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->parse_error_type);    /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->parse_error_exc);     /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->handle_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->attrs_type);          /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->walker_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->string_walker_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->serialize_iter_type); /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->namespace_enum);      /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->namespaces[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -232,6 +233,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->attrs_type);
     Py_CLEAR(state->walker_type);
     Py_CLEAR(state->string_walker_type);
+    Py_CLEAR(state->serialize_iter_type);
     Py_CLEAR(state->namespace_enum);
     for (int index = 0; index < 3; index++) {
         Py_CLEAR(state->namespaces[index]);
