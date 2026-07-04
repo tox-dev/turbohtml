@@ -2,6 +2,9 @@
  Find and rewrite links
 ########################
 
+Work with the URLs in a page: enumerate and absolutize every link, canonicalize a single URL, and turn bare URLs and
+emails into anchors.
+
 ***********************************************
  Enumerate and absolutize every link in a page
 ***********************************************

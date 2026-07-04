@@ -2,9 +2,7 @@
  From jsmin
 ############
 
-.. image:: https://static.pepy.tech/badge/jsmin/month
-    :alt: jsmin monthly downloads
-    :target: https://pepy.tech/project/jsmin
+.. package-meta:: jsmin tikitu/jsmin
 
 `jsmin <https://github.com/tikitu/jsmin>`_ is the Python port of Douglas Crockford's ``jsmin``: a character-level state
 machine that walks the source one byte at a time and removes comments and insignificant whitespace. Like the original it

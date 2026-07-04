@@ -2,6 +2,9 @@
  Escape and unescape text
 ##########################
 
+Escape text for HTML output and reverse it with :func:`turbohtml.escape` and :func:`turbohtml.unescape` -- the standard
+library's behavior, byte for byte, several times faster.
+
 ***************************************
  Escape untrusted text for HTML output
 ***************************************

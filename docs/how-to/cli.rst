@@ -2,6 +2,9 @@
  Run turbohtml from a shell
 ############################
 
+Drive turbohtml from a shell. The ``turbohtml`` console script exposes the parse, query, and convert surface over stdin
+and stdout, for one-off jobs and pipelines.
+
 ***************************
  The ``turbohtml`` command
 ***************************

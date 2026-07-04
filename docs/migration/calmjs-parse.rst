@@ -2,9 +2,7 @@
  From calmjs.parse
 ###################
 
-.. image:: https://static.pepy.tech/badge/calmjs.parse/month
-    :alt: calmjs.parse monthly downloads
-    :target: https://pepy.tech/project/calmjs.parse
+.. package-meta:: calmjs.parse calmjs/calmjs.parse
 
 `calmjs.parse <https://github.com/calmjs/calmjs.parse>`_ is a full JavaScript front end in pure Python. It lexes and
 parses ES5 to a concrete AST (``es5(source)``), walks and rewrites that tree through its ``walkers`` and ``asttypes``

@@ -1,6 +1,6 @@
-################################
- Tokenizing your first document
-################################
+#######################
+ Tokenizing a document
+#######################
 
 Go from a string of HTML to a stream of tokens you can inspect.
 

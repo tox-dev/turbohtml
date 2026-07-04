@@ -2,9 +2,7 @@
  From rjsmin
 #############
 
-.. image:: https://static.pepy.tech/badge/rjsmin/month
-    :alt: rjsmin monthly downloads
-    :target: https://pepy.tech/project/rjsmin
+.. package-meta:: rjsmin ndparker/rjsmin
 
 `rjsmin <https://github.com/ndparker/rjsmin>`_ minifies JavaScript with a single regular-expression substitution: one
 pass strips comments and insignificant whitespace and nothing else. It ships a compiled ``_rjsmin`` speedup with a

@@ -2,6 +2,9 @@
  Edit the tree
 ###############
 
+Change a parsed tree in place: build nodes by hand, insert and move them, set an element's text and attributes, and
+remove what you do not need.
+
 **********************
  Build a tree by hand
 **********************

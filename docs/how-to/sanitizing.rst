@@ -2,6 +2,9 @@
  Sanitize untrusted HTML
 #########################
 
+Clean untrusted HTML against an allowlist with :func:`turbohtml.clean.sanitize`, the ``bleach.clean`` successor, keeping
+only a safe subset of tags, attributes, and URL schemes.
+
 *************************
  Sanitize untrusted HTML
 *************************

@@ -2,6 +2,9 @@
  Extract structured data
 #########################
 
+Pull the machine-readable metadata a page embeds -- JSON-LD, Microdata, OpenGraph and Twitter cards, RDFa -- with
+:meth:`turbohtml.Document.structured_data`, the ``extruct`` successor.
+
 ****************************************
  Pull every embedded format in one call
 ****************************************

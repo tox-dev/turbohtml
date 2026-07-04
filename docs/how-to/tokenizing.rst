@@ -2,6 +2,9 @@
  Tokenize HTML
 ###############
 
+Run the WHATWG tokenizer over HTML: port an :class:`python:html.parser.HTMLParser` subclass, or consume the token stream
+from :func:`turbohtml.tokenize` directly.
+
 **************************
  Migrate from html.parser
 **************************

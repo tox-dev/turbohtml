@@ -2,6 +2,9 @@
  Handle character encodings
 ############################
 
+Decode bytes of unknown or declared encoding the way a browser would, and inspect what the sniffer chose, with
+:func:`turbohtml.parse` and :func:`turbohtml.detect.detect`.
+
 ************************************
  Parse bytes of an unknown encoding
 ************************************

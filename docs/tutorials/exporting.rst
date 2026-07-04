@@ -1,9 +1,9 @@
-################
- Export to text
-################
+###################
+ Exporting to text
+###################
 
-Once you have the node you want, :meth:`~turbohtml.Node.to_markdown` turns it into GitHub-Flavored Markdown in one call,
-so a scraping script ends with Markdown instead of a tag soup:
+Once you have the node you want, :meth:`~turbohtml.Node.to_markdown` turns it into `GitHub-Flavored Markdown
+<https://github.github.com/gfm/>`_ in one call, so a scraping script ends with Markdown instead of a tag soup:
 
 .. testcode::
 

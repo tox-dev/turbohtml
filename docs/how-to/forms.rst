@@ -2,6 +2,9 @@
  Work with forms
 #################
 
+Read and set form-control values with form semantics, and collect a form's data the way a browser submit would, through
+:attr:`~turbohtml.Element.field_value` and the form helpers.
+
 ********************************
  Read and set form-field values
 ********************************

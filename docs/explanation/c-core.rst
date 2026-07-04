@@ -16,9 +16,9 @@ Unlike a standard-library accelerator, ``turbohtml`` ships **only** the compiled
 pure-Python fallback only for the standard library; as a third-party package distributing per-interpreter wheels,
 turbohtml has no need for one, which keeps the surface small.
 
-##########################
+**************************
  Block-at-a-time scanning
-##########################
+**************************
 
 ``escape`` spends most of its time confirming that a string contains nothing that needs escaping. For one-byte strings
 it classifies sixteen bytes at a time with SIMD (on arm64 NEON a single low-nibble table lookup plus one comparison

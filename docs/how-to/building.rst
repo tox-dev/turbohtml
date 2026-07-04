@@ -2,6 +2,9 @@
  Build HTML with E
 ###################
 
+Generate HTML in code with :data:`turbohtml.build.E`, then fold the result into a parsed tree you can keep editing or
+serializing -- no parse step required.
+
 *******************************
  Build an HTML fragment with E
 *******************************

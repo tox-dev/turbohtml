@@ -2,6 +2,9 @@
  Parse HTML into a tree
 ########################
 
+Turn markup into a navigable tree with :func:`turbohtml.parse`: parse a whole document, feed one arriving in chunks, or
+parse a fragment in a given context.
+
 *************************************
  Parse a document arriving in chunks
 *************************************
