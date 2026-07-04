@@ -1180,20 +1180,23 @@ static PyObject *gather_rdfa(PyObject *self, PyObject *base) {
     if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *prefixes = build_default_prefixes();
-    if (prefixes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_DECREF(items);   /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;        /* GCOVR_EXCL_LINE */
-    }
     th_tree *tree = tree_of(self);
     module_state *state = state_of(self);
     th_node *root = ((NodeObject *)self)->node;
-    rdfa_ctx ctx = {NULL, prefixes, base};
     int failed = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    failed = walk_rdfa(tree, state, root, ctx, items) < 0;
+    /* A document that never interns a typeof attribute carries no RDFa resource, so skip the walk and the prefix map it
+       would need -- this is the whole cost of the RDFa pass on the pages (most of them) that use no RDFa. */
+    if (th_attr_lookup(tree, "typeof", 6) != UINT32_MAX) {
+        PyObject *prefixes = build_default_prefixes();
+        failed = prefixes == NULL; /* the build fails only on unforceable allocation */
+        if (prefixes != NULL) {    /* GCOVR_EXCL_BR_LINE: the build fails only on unforceable allocation */
+            rdfa_ctx ctx = {NULL, prefixes, base};
+            failed = walk_rdfa(tree, state, root, ctx, items) < 0;
+            Py_DECREF(prefixes);
+        }
+    }
     Py_END_CRITICAL_SECTION();
-    Py_DECREF(prefixes);
     if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         Py_DECREF(items); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE */

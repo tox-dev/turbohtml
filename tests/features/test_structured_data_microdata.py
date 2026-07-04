@@ -552,6 +552,11 @@ def test_rdfa_get_and_get_all() -> None:
     assert item.get_all("missing") == []
 
 
+def test_rdfa_typeof_only_in_text_is_not_a_resource() -> None:
+    # the no-typeof-attribute fast path keys on the attribute, not the word: prose mentioning typeof yields nothing
+    assert parse("<p>the typeof operator and vocab of JS</p>").rdfa() == []
+
+
 def test_rdfa_resolves_iri_objects_and_subject() -> None:
     html = (
         '<div typeof="T" resource="/me">'

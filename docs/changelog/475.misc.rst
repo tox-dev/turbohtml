@@ -1,0 +1,3 @@
+Skip the RDFa tree walk in :meth:`~turbohtml.Document.rdfa` and :meth:`~turbohtml.Document.structured_data` when the
+document interns no ``typeof`` attribute, restoring ``structured_data()`` to its pre-RDFa cost on pages that carry no
+RDFa.
