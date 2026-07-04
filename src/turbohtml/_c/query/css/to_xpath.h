@@ -17,8 +17,6 @@
 
 #include "query/css/selector.h"
 
-/* ------------------------------------------------------------ output buffer */
-
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
@@ -85,8 +83,6 @@ static void xt_int(xt_buf *buf, long value) {
     xt_text(buf, digits);
 }
 
-/* ------------------------------------------------------------ name helpers */
-
 /* Whether a name can appear verbatim as an XPath name test / @-reference; the same
    conservative pattern cssselect uses. The letter and digit tests use the unsigned-wrap
    range form (one comparison each) so every gcov branch here is reachable. */
@@ -113,8 +109,6 @@ static int xt_has_space(const Py_UCS4 *text, Py_ssize_t length) {
     }
     return 0;
 }
-
-/* ------------------------------------------------------------ literals */
 
 /* Emit an XPath 1.0 string literal. XPath has no quote escapes, so a value holding
    both quote kinds becomes a concat() of single-quoted runs and double-quoted
@@ -179,8 +173,6 @@ static void xt_value_literal(xt_ctx *ctx, const Py_UCS4 *value, Py_ssize_t lengt
     PyMem_Free(temp);
 }
 
-/* ------------------------------------------------------------ attribute references */
-
 /* Emit the node-set reference for an attribute: @name for a safe name, otherwise the
    attribute::*[name() = '...'] form XPath needs for names its grammar rejects. */
 static void xt_attr_ref(xt_ctx *ctx, const sel_simple *simple) {
@@ -214,8 +206,6 @@ static void xt_folded_attr(xt_ctx *ctx, const char *name) {
     xt_text(&ctx->out, ", 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')");
 }
 
-/* ------------------------------------------------------------ forward declarations */
-
 static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const sel_simple *skip);
 static void xt_condition_alts(xt_ctx *ctx, const sel_complex *alts, int count);
 static void xt_has_path(xt_ctx *ctx, const sel_complex *rel);
@@ -240,8 +230,6 @@ static void xt_emit_nodetest(xt_ctx *ctx, const sel_simple *test) {
         xt_char(&ctx->out, '*');
     }
 }
-
-/* ------------------------------------------------------------ nth-* algebra */
 
 /* Emit the An+B condition over a sibling count expression (the axis text), following
    the same derivation cssselect documents: with EXPR = count(axis) = position-1, an
@@ -384,8 +372,6 @@ static void xt_nth_pseudo(xt_ctx *ctx, const sel_simple *simple, const sel_compo
     PyMem_Free(axis);
 }
 
-/* ------------------------------------------------------------ input pseudo-classes */
-
 /* The elements HTML can disable, as a self-test union. */
 static void xt_disableable(xt_ctx *ctx) {
     xt_text(&ctx->out, "(self::button or self::input or self::select or self::textarea"
@@ -478,8 +464,6 @@ static void xt_lang_cond(xt_ctx *ctx, const sel_simple *simple) {
     }
     xt_char(&ctx->out, ']');
 }
-
-/* ------------------------------------------------------------ pseudo-class dispatch */
 
 /* Emit the condition for one pseudo-class simple; the compound provides the type
    selector the of-type family counts by. Returns 0 for a pseudo-class that holds on
@@ -623,8 +607,6 @@ static int xt_pseudo_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
     }
 }
 
-/* ------------------------------------------------------------ simple selectors */
-
 /* Emit the condition for one simple selector. Returns 0 when the simple holds on
    every element (the universal selector and the type already used as the node test). */
 static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compound *compound, const sel_simple *skip) {
@@ -744,8 +726,6 @@ static int xt_compound_conds(xt_ctx *ctx, const sel_compound *compound, const se
     }
     return wrote;
 }
-
-/* ------------------------------------------------------------ complex selectors */
 
 /* Emit the existence condition for the chain to the left of compounds[index]: the
    reverse axis named by the combinator, its target's node test, and (bracketed) the
@@ -891,8 +871,6 @@ static void xt_path_complex(xt_ctx *ctx, const sel_complex *complex) {
         xt_step(ctx, compound);
     }
 }
-
-/* ------------------------------------------------------------ binding */
 
 /* _css_to_xpath(selector, prefix, /): translate a CSS selector list to XPath 1.0.
    Raises SelectorSyntaxError on a selector the CSS grammar rejects and NotImplementedError

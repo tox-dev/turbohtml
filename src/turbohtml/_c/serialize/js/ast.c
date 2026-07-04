@@ -7,8 +7,6 @@
 
 #include <string.h>
 
-/* ----------------------------------------------------------- growable tables */
-
 static int jm_grow_nodes(jm_program *prog) {
     if (prog->node_count < prog->node_cap) {
         return 0;
@@ -122,8 +120,6 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
     prog->owned[prog->owned_count++] = copy;
     return copy;
 }
-
-/* ----------------------------------------------------------- string/identifier values */
 
 /* The value of one hex digit. The lexer only forms a \x / \u escape over hex digits in valid input,
    so a non-hex code point here is malformed input outside the minifier's valid-JS contract; it
@@ -343,8 +339,6 @@ void jm_program_free(jm_program *prog) {
     jm_free(prog);
 }
 
-/* ----------------------------------------------------------- dump buffer */
-
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
@@ -388,8 +382,6 @@ static void sb_run(jm_sb *out, const Py_UCS4 *text, Py_ssize_t add) {
     memcpy(out->data + out->len, text, (size_t)add * sizeof(Py_UCS4));
     out->len += add;
 }
-
-/* ----------------------------------------------------------- S-expression dump */
 
 static const char *jm_kind_name(uint8_t kind);
 static void dump_node(jm_sb *out, const jm_program *prog, int32_t index);

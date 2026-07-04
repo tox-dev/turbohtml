@@ -37,8 +37,6 @@
 
 #define REPLACEMENT 0xFFFD
 
-/* ------------------------------------------------------------------ buffers */
-
 static void buf_init(th_buf *buf) {
     buf->data = NULL;
     buf->len = 0;
@@ -113,8 +111,6 @@ static int buf_push(th_buf *buf, Py_UCS4 ch) {
     return 0;
 }
 
-/* ------------------------------------------------------------------- states */
-
 enum state {
     ST_DATA,
     ST_RCDATA,
@@ -188,8 +184,6 @@ enum state {
     ST_CDATA_BRACKET,
     ST_CDATA_END,
 };
-
-/* --------------------------------------------------------------- tokenizer */
 
 struct th_tokenizer {
     enum state state;
@@ -536,8 +530,6 @@ void th_tok_close(th_tokenizer *self) {
     self->eof = 1;
 }
 
-/* --------------------------------------------------------------- emitting */
-
 static void enqueue(th_tokenizer *self, th_token *tok) {
     self->queue[(self->queue_head + self->queue_len) % 2] = tok;
     self->queue_len++;
@@ -758,10 +750,6 @@ static void text_begin_mark(th_tokenizer *self) {
         self->text_col = self->mark_col;
     }
 }
-
-/* -------------------------------------------------------- character refs */
-
-/* ----------------------------------------------------------------- run */
 
 /* Append input[pos..stop) to the text buffer in one step, advancing the
    line/column counters by the run's newline structure. The plain-text states

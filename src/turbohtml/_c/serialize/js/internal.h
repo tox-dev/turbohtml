@@ -13,8 +13,6 @@
 
 #include "serialize/js/jstypes.h"
 
-/* ----------------------------------------------------------------- tokens */
-
 /* ECMAScript token kinds. The lexer never decides whether a `/` is division or a
    regular-expression literal (that needs grammar position): it always reports
    JT_DIV / JT_DIV_ASSIGN, and the parser calls jm_lex_rescan_regex when a value is
@@ -95,8 +93,6 @@ typedef enum {
     JT_NULLISH_ASSIGN, /* ??= */
 } jm_tok;
 
-/* ----------------------------------------------------------------- comments */
-
 /* A license/banner comment kept through minification: a bang block comment (its body opens with `!`, the
    marker the CSS minifier also keeps) or one whose body carries an @license or @preserve annotation. text
    borrows the source span including the surrounding block-comment delimiters, so the printer re-emits it
@@ -107,8 +103,6 @@ typedef struct {
 } jm_comment;
 
 struct jm_program; /* the lexer accrues kept comments into the program's list (defined below) */
-
-/* ----------------------------------------------------------------- lexer */
 
 typedef struct {
     const Py_UCS4 *src;
@@ -151,8 +145,6 @@ int jm_text_eq(const jm_lexer *lx, const char *keyword);
 
 /* A short, stable name for a token kind, used by the parser-test dump hook. */
 const char *jm_tok_name(jm_tok kind);
-
-/* ----------------------------------------------------------------- AST */
 
 /* The node kinds of the arena AST. One flat array of jm_node holds the whole tree
    (statements and expressions share the array); children are int32 indices into it,
@@ -245,8 +237,6 @@ typedef struct {
     Py_ssize_t str_len;
 } jm_node;
 
-/* ----------------------------------------------------------------- scope/symbols */
-
 /* A lexical binding. name borrows the source; resolved follows references to their
    declaration after the whole program is parsed (a reference's symbol points at the
    nearest enclosing declaration once scopes close). uses counts references so the
@@ -289,8 +279,6 @@ typedef struct {
     int32_t first_stmt;   /* a function scope's first body statement: nothing executes before it,
                              so a var literal declared there dominates every read (-1 elsewhere) */
 } jm_scope;
-
-/* ----------------------------------------------------------------- program */
 
 /* A parsed program: the node arena, the symbol and scope tables, the root node, and
    the borrowed source. Owned by one minify call and freed with jm_program_free. */

@@ -166,8 +166,6 @@ typedef struct {
     int smart_strings;
 } XPathObject;
 
-/* ---- hot inline helpers shared across the split units ---- */
-
 static inline module_state *state_of(PyObject *self) {
     return PyType_GetModuleState(Py_TYPE(self));
 }
@@ -475,8 +473,6 @@ static inline int append_wrapped(PyObject *out, module_state *state, PyObject *h
     Py_DECREF(wrapped);
     return 0;
 }
-
-/* ---- definitions living in one unit, referenced from others ---- */
 
 /* Free a handle's compiled-selector and compiled-XPath caches. Lives in element.c so the
    header-only css/selector.h stays confined to the single unit that uses it. */

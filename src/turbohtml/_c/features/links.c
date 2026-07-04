@@ -221,8 +221,6 @@ static int scan_meta_refresh(const Py_UCS4 *value, Py_ssize_t len, link_emit emi
     return 0;
 }
 
-/* ----------------------------------------------------------------- the walk */
-
 typedef struct {
     Py_ssize_t start;
     Py_ssize_t end;

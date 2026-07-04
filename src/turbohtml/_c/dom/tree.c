@@ -18,8 +18,6 @@
 
 #include <string.h>
 
-/* --------------------------------------------------------- input reading */
-
 /* Copy a th_buf's code points into an arena UCS4 array. */
 static Py_UCS4 *buf_to_ucs4(th_tree *tree, const th_buf *buf, Py_ssize_t *out_len) {
     *out_len = buf->len;
@@ -58,8 +56,6 @@ static inline Py_UCS4 input_read(const th_tree *tree, Py_ssize_t index) {
     }
     return ((const uint32_t *)tree->data)[index];
 }
-
-/* ----------------------------------------------------------- tag interning */
 
 static uint16_t intern_atom(const th_buf *name, uint8_t *out_flags) {
     *out_flags = 0;
@@ -102,8 +98,6 @@ static uint16_t intern_atom(const th_buf *name, uint8_t *out_flags) {
 static uint16_t tok_atom(const th_token *tok) {
     return tok->atom;
 }
-
-/* ---------------------------------------------------- attribute interning */
 
 static uint32_t fnv1a(const char *bytes, Py_ssize_t len) {
     uint32_t hash = 2166136261u;
@@ -334,8 +328,6 @@ int th_tag_is_void(uint16_t atom) {
     return is_void_atom(atom);
 }
 
-/* --------------------------------------------------------------- nodes */
-
 /* node_pos, node_new and the node_append/node_remove/node_insert_before linkers
    live in dom/tree_internal.h, shared with the construction/mutation API (mutate.c). */
 
@@ -355,8 +347,6 @@ int th_node_source_position(th_tree *tree, th_node *node, Py_ssize_t *line, Py_s
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
 static th_node *node_clone(th_tree *tree, const th_node *src);
-
-/* ---------------------------------------------------- stack of open elements */
 
 static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
@@ -519,8 +509,6 @@ static int has_in_table_scope(th_tree *tree, uint16_t atom) {
     } /* GCOVR_EXCL_BR_LINE: the stack always bottoms out at an html table-scope boundary */
     return 0; /* GCOVR_EXCL_LINE: same — has_in_table_scope always returns inside the loop */
 }
-
-/* ----------------------------------------------------------- insertion */
 
 /* The appropriate place for inserting a node: normally the current node, but
    when foster parenting is active and the current node is a table-context
@@ -891,8 +879,6 @@ static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out
     }
     return out;
 }
-
-/* ------------------------------------------- active formatting elements */
 
 static th_node *node_clone(th_tree *tree, const th_node *src) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
@@ -1324,8 +1310,6 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
     return 1;
 }
 
-/* ----------------------------------------------------- in-body predicates */
-
 /* has_in_scope but with <button> also a scope boundary (the "button scope"). */
 static int has_in_button_scope(th_tree *tree, uint16_t atom) {
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
@@ -1475,8 +1459,6 @@ static void any_other_end_tag(th_tree *tree, uint16_t atom, const th_token *toke
 }
 
 #include "dom/foreign.h"
-
-/* --------------------------------------------------- insertion-mode engine */
 
 enum mode {
     M_INITIAL,
@@ -3352,8 +3334,6 @@ static void run_close(th_tree *tree) {
     }
 }
 
-/* --------------------------------------------------------------- public API */
-
 /* Feed the input to the tokenizer (borrowing when there is no CR to normalize)
    and point tree->data at the tokenizer's authoritative input base. */
 static void setup_input(th_tree *tree, th_tokenizer *sm, int kind, const void *data, Py_ssize_t length) {
@@ -3685,8 +3665,6 @@ void th_tree_free(th_tree *tree) {
     th_error_sink_free(&tree->errors);
     PyMem_Free(tree);
 }
-
-/* ----------------------------------------------------------- streaming parse */
 
 /* A push parser: a document tree under construction, the resumable tokenizer
    feeding it, and the insertion-mode state that lets a feed suspend mid-document

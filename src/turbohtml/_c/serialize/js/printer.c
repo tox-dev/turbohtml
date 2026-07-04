@@ -33,8 +33,6 @@ typedef struct {
     int failed;
 } St;
 
-/* ----------------------------------------------------------- output */
-
 static int is_id_char(Py_UCS4 ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '$' ||
            ch >= 0x80;
@@ -180,8 +178,6 @@ static void put_char(St *st, Py_UCS4 ch) {
     sync_tail(st);
 }
 
-/* ----------------------------------------------------------- precedence */
-
 static int op_prec(uint16_t op) {
     switch (op) { /* GCOVR_EXCL_BR_LINE: exhaustive switch; default unreachable */
     case JT_NULLISH:
@@ -271,8 +267,6 @@ static int new_callee_needs_parens(const jm_program *prog, int32_t index) {
     }
 }
 
-/* ----------------------------------------------------------- forward decls */
-
 static void print_expr(St *st, int32_t index);
 static int print_stmt(St *st, int32_t index);
 static void print_block(St *st, int32_t index);
@@ -308,8 +302,6 @@ static void print_mix_operand(St *st, uint16_t parent_op, int32_t child, int min
     }
     print_sub(st, child, min_prec);
 }
-
-/* ----------------------------------------------------------- operators */
 
 static const char *binary_op_str(uint16_t op) {
     switch (op) { /* GCOVR_EXCL_BR_LINE: exhaustive switch; default unreachable */
@@ -402,8 +394,6 @@ static const char *assign_op_str(uint16_t op) {
         return "=";    /* GCOVR_EXCL_LINE */
     }
 }
-
-/* ----------------------------------------------------------- expressions */
 
 static void print_text(St *st, const jm_node *node) {
     /* a renamed binding or reference emits its mangled name; everything else (literals,
@@ -925,8 +915,6 @@ static void print_expr(St *st, int32_t index) {
     }
 }
 
-/* ----------------------------------------------------------- functions/classes */
-
 static void print_function(St *st, int32_t index, int as_method) {
     const jm_node *node = &st->prog->nodes[index];
     if (!as_method) {
@@ -991,8 +979,6 @@ static void print_class(St *st, int32_t index) {
     }
     put_char(st, '}');
 }
-
-/* ----------------------------------------------------------- statements */
 
 static void print_var(St *st, int32_t index) {
     const jm_node *node = &st->prog->nodes[index];

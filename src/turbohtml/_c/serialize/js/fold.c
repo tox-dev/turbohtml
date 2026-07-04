@@ -61,8 +61,6 @@ static void replace_with(F *folder, int32_t dst, int32_t src) {
     folder->changed = 1;
 }
 
-/* ----------------------------------------------------------- constant truthiness */
-
 /* Whether a number lexeme is the value zero: 1 zero, 0 non-zero, -1 unknown (an
    exponent or BigInt suffix is left to the engine rather than guessed). */
 static int number_is_zero(const jm_node *node) {
@@ -212,8 +210,6 @@ static int is_nullish(F *folder, int32_t idx) {
     return 0;
 }
 
-/* ----------------------------------------------------------- hoisting check */
-
 static int chain_hoists(F *folder, int32_t first);
 
 /* Whether the statement subtree at idx declares a `var` or a function that hoists out
@@ -268,8 +264,6 @@ static int chain_hoists(F *folder, int32_t first) {
     return 0;
 }
 
-/* ----------------------------------------------------------- literal folds */
-
 static void fold_boolean(F *folder, int32_t idx, int truth) {
     static const Py_UCS4 zero = '0';
     static const Py_UCS4 one = '1';
@@ -305,8 +299,6 @@ static void fold_void(F *folder, int32_t idx) {
     node->a = num;
     folder->changed = 1;
 }
-
-/* ----------------------------------------------------------- declaration scan (for undefined) */
 
 static int pattern_binds(F *folder, int32_t idx, const char *name) {
     if (idx < 0) {
@@ -389,8 +381,6 @@ static int declares(F *folder, int32_t idx, const char *name) {
     }
     return 0;
 }
-
-/* ----------------------------------------------------------- walk + transforms */
 
 static void walk(F *folder, int32_t idx);
 

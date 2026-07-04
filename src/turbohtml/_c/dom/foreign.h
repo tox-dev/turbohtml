@@ -2,8 +2,6 @@
    integration-point and breakout checks, and the foreign insertion-mode step.
    #included into dom/tree.c so the static helpers inline against the tree. */
 
-/* ------------------------------------------------------- foreign content */
-
 /* SVG element names that take a specific mixed case (the spec's "SVG element
    name adjustments"); everything else stays lowercase. */
 static const struct {

@@ -27,8 +27,6 @@ int32_t xn_new(xp_program *prog, enum xn_kind kind) {
     return idx;
 }
 
-/* ------------------------------------------------------------- AST dump */
-
 typedef struct {
     Py_UCS4 *buf;
     Py_ssize_t len;

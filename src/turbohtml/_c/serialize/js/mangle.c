@@ -44,7 +44,7 @@ static int name_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *righ
     return memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
 }
 
-/* ----------------------------------------------------------- name hash table
+/* Name hash table.
 
    An open-addressing (linear-probe) map from an identifier name to an int32 value.
    Used three ways: the visible-binding map (value = symbol index, or -1 when the
@@ -128,8 +128,6 @@ static hslot *htab_slot(htab *table, const Py_UCS4 *name, Py_ssize_t len, int cr
     }
 }
 
-/* ----------------------------------------------------------- reserved words */
-
 static int is_reserved(const Py_UCS4 *name, Py_ssize_t len) {
     static const char *const words[] = {
         "break",   "case",   "catch",  "class",      "const",   "continue",   "debugger", "default",   "delete",
@@ -157,8 +155,6 @@ static int is_reserved(const Py_UCS4 *name, Py_ssize_t len) {
     return 0;
 }
 
-/* ----------------------------------------------------------- base54 names */
-
 /* The i-th shortest identifier name: a bijective base-54-then-64 numeral. The first
    character comes from 54 options (no digit, identifiers cannot start with one); the
    rest from 64. PyMem-owned. */
@@ -184,7 +180,7 @@ static Py_UCS4 *base54(Py_ssize_t index, Py_ssize_t *out_len) {
     return name;
 }
 
-/* ----------------------------------------------------------- analysis state
+/* Analysis state.
 
    Resolution uses one visible-binding table (name -> innermost visible symbol) rather
    than a per-reference walk up the scope chain. Entering a scope pushes its bindings,
@@ -275,8 +271,6 @@ static void declare(M *mangler, int32_t scope, const Py_UCS4 *name, Py_ssize_t l
     }
     push(mangler, &mangler->visible, name, len, sym);
 }
-
-/* ----------------------------------------------------------- declaration walk */
 
 static void declare_pattern(M *mangler, int32_t idx, int32_t scope, uint8_t decl);
 static void hoist_vars(M *mangler, int32_t idx, int32_t fn_scope);
@@ -369,8 +363,6 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
         }
     }
 }
-
-/* ----------------------------------------------------------- resolve walk */
 
 static void walk(M *mangler, int32_t idx, int32_t scope, int bind);
 
@@ -726,8 +718,6 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     walk(mangler, node->d, scope, bind);
 }
 
-/* ----------------------------------------------------------- rename */
-
 /* Whether name is a reserved word or a name that must not be reused: a free/global
    name, or a kept function/class declaration name (reserved globally so a mangled
    binding never shadows one). The free table holds both, so this is O(1). */
@@ -905,8 +895,6 @@ static Py_ssize_t literal_print_len(jm_program *prog, int32_t idx) {
     }
     return node->str_len;
 }
-
-/* ----------------------------------------------------------- forward collapse */
 
 static void collapse_walk(jm_program *prog, int32_t idx, int *changed);
 static int is_droppable_init(jm_program *prog, int32_t init);

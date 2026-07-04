@@ -16,8 +16,6 @@
 
 #include <string.h>
 
-/* ---------------------------------------------------------- code-point buffer */
-
 typedef struct {
     Py_UCS4 *data;
     Py_ssize_t len;
@@ -122,8 +120,6 @@ static inline void sbuf_put_utf8(sbuf *out, const char *bytes, Py_ssize_t len) {
    attributes are ordered, each rendered name capped at this many bytes. */
 #define MAX_SORTED_ATTRS 64
 #define MAX_ATTR_NAME 128
-
-/* --------------------------------------------- navigable-tree HTML output */
 
 /* The escape policy serialize()/encode() expose through the Formatter enum. */
 enum th_formatter {
@@ -520,8 +516,6 @@ static inline int foreign_attr_namespaced(const char *lower, Py_ssize_t len) {
     }
     return 0;
 }
-
-/* ----------------------------------------- markdown / text shared predicates */
 
 /* A block-level element opens its own line(s); everything else is inline and
    flows into the surrounding line. Shared by the markdown and text renderers. */

@@ -568,7 +568,7 @@ static const struct {
 #define TH_SB_LOGICAL_SLOT 8 /* the windows-1255 row above, for the Hebrew tiebreak */
 #define TH_DETECT_ISO_8859_8_INDEX 13
 
-/* ---- CJK multi-byte candidates (issue #182, phase 3) -----------------------
+/* CJK multi-byte candidates (issue #182, phase 3).
 
    chardetng scores the CJK candidates by feeding each byte to an encoding_rs
    decoder and classifying every scalar it emits. turbohtml has no encoding_rs, so

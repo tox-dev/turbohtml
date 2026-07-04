@@ -106,8 +106,6 @@ typedef struct {
     int quirks;
 } sel_ctx;
 
-/* ---------------------------------------------------------------- parsing */
-
 typedef struct {
     Py_UCS4 *src; /* the owned source copy; sel_ident decodes escapes into it in place */
     Py_ssize_t pos;
@@ -1145,8 +1143,6 @@ static sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, P
     return compiled;
 }
 
-/* --------------------------------------------------------------- matching */
-
 /* The functional pseudo-classes recurse into the matcher: :is()/:where() test the
    element against a nested list, and :has() searches for a relative match, so the
    matching primitives they call are forward-declared here. */
@@ -1316,7 +1312,7 @@ static int sel_is_empty(const th_node *node, th_tree *tree) {
     return 1;
 }
 
-/* ---- the §12 input pseudo-classes, determinable from the static tree ---- */
+/* The §12 input pseudo-classes, determinable from the static tree. */
 
 static int sel_has_attr(th_node *node, uint32_t atom) {
     return sel_find_attr(node, atom) != NULL;

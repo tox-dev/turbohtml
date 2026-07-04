@@ -2137,9 +2137,8 @@ PyObject *node_xpath_one(PyObject *self, PyObject *args, PyObject *kwds) {
     return first;
 }
 
-/* ---- XPath: the precompiled, reusable expression object (issue #267) ---- */
-
-/* XPath(expression, *, smart_strings=False, extensions=None): parse the expression
+/* XPath(expression, *, smart_strings=False, extensions=None), the precompiled
+   reusable expression object (issue #267): parse the expression
    once into an immutable program and bind the two evaluation options. The program
    is tree-independent and re-entrant, so the object is shareable across threads. */
 static PyObject *xpath_compiled_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
@@ -2685,8 +2684,6 @@ PyDoc_STRVAR(wrap_children_doc, "wrap_children(wrapper, /)\n--\n\n"
                                 ":returns: wrapper, now holding the moved children.\n"
                                 ":raises TypeError: if wrapper is not an element.");
 
-/* --- classList: the space-separated class token set ------------------------ */
-
 /* Whether the value run [start, end) equals the token. */
 static int class_token_equals(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, const Py_UCS4 *token,
                               Py_ssize_t token_len) {
@@ -2892,8 +2889,6 @@ PyDoc_STRVAR(insert_adjacent_html_doc, "insert_adjacent_html(position, html, /)\
                                        ":raises TypeError: if position or html is not a str.\n"
                                        ":raises ValueError: if position is not one of the four keywords, or a\n"
                                        "    sibling-relative position is used on a node without an element parent.");
-
-/* ---- css_path() / xpath_path(): the unique locator for a node ---- */
 
 /* A growable code-point buffer for assembling a path string. failed records an
    allocation failure so the caller raises once, after the walk. */

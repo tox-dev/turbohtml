@@ -29,8 +29,6 @@ static module_state *state_of(PyObject *self) {
     return PyType_GetModuleState(Py_TYPE(self));
 }
 
-/* ----------------------------------------------------------- content model */
-
 static int name_eq(const th_buf *name, const char *literal, size_t len) {
     if ((size_t)name->len != len || name->kind != PyUnicode_1BYTE_KIND) {
         return 0;
@@ -58,8 +56,6 @@ static int content_model_for(const th_buf *name) {
     }
     return -1;
 }
-
-/* --------------------------------------------------------------- iterator */
 
 static PyObject *iter_new(module_state *state, PyObject *owner) {
     IterObject *self = PyObject_GC_New(IterObject, (PyTypeObject *)state->iter_type);
@@ -144,8 +140,6 @@ static PyType_Spec iter_spec = {
     .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DISALLOW_INSTANTIATION,
     .slots = iter_slots,
 };
-
-/* -------------------------------------------------------------- tokenizer */
 
 static PyObject *tokenizer_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     static char *keywords[] = {"resolve_references", "capture_source", NULL};
@@ -306,8 +300,6 @@ static PyType_Spec tokenizer_spec = {
     .slots = tokenizer_slots,
 };
 
-/* --------------------------------------------------------------- tokenize */
-
 // NOLINTNEXTLINE(misc-use-internal-linkage): declared in core/common.h and called from core/module.c
 PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"", "resolve_references", "capture_source", NULL};
@@ -343,8 +335,6 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs)
     Py_DECREF(tokenizer);
     return iterator;
 }
-
-/* --------------------------------------------------- conformance hook */
 
 /* Format one record the way the html5lib tokenizer tests express tokens, so the
    test harness can compare directly. Used only by _tokenize_states. */

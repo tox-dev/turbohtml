@@ -9,8 +9,6 @@
 #include <math.h>
 #include <string.h>
 
-/* ---------------------------------------------------------- evaluation */
-
 int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
     if (ns->len == ns->cap) {
         Py_ssize_t cap = ns->cap ? ns->cap * 2 : 8;
@@ -363,8 +361,6 @@ static void sort_unique(xp_nodeset *ns) {
     ns->len = write_pos;
 }
 
-/* --------------------------------------------------------- value model */
-
 void xp_result_free(xp_result *result) {
     if (result->kind == XP_STRING) {
         PyMem_Free(result->string);
@@ -626,8 +622,6 @@ double to_number(struct th_tree *tree, const xp_result *value) {
     PyMem_Free(text);
     return number;
 }
-
-/* ---------------------------------------------------------- evaluation */
 
 /* Apply each predicate in the XN_PRED chain to set, in place, in proximity order. */
 static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set) {

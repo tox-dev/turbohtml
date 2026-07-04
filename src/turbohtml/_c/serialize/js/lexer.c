@@ -15,8 +15,6 @@
 
 #include <string.h>
 
-/* ----------------------------------------------------------- character classes */
-
 /* The hot scanners classify every code point of the source, so the ASCII range (where
    nearly all of a script's bytes live) is resolved with a single table load and mask
    instead of a chain of range compares; code points >= 0x80 fall back to the Unicode
@@ -75,8 +73,6 @@ static int jm_is_hex(Py_UCS4 ch) {
     return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
 }
 
-/* ----------------------------------------------------------- lifecycle */
-
 void jm_lex_init(jm_lexer *lx, const Py_UCS4 *src, Py_ssize_t len) {
     lx->src = src;
     lx->len = len;
@@ -100,8 +96,6 @@ int jm_text_eq(const jm_lexer *lx, const char *keyword) {
     }
     return index == lx->text_len;
 }
-
-/* ----------------------------------------------------------- kept comments */
 
 /* Whether body[0..body_len) contains needle (an ASCII literal) as a substring. */
 static int jm_body_has(const Py_UCS4 *body, Py_ssize_t body_len, const char *needle) {
@@ -154,8 +148,6 @@ static void jm_capture_comment(jm_lexer *lx, const Py_UCS4 *text, Py_ssize_t len
     lx->comment_count++;
 }
 
-/* ----------------------------------------------------------- skipping */
-
 /* Consume white space and comments, recording in lx->newline_before whether any
    line terminator was crossed (a block comment counts when it spans one): the
    parser turns that flag into automatic-semicolon-insertion decisions. */
@@ -199,8 +191,6 @@ static void jm_skip_trivia(jm_lexer *lx) {
         }
     }
 }
-
-/* ----------------------------------------------------------- scanners */
 
 /* Finish a value-bearing token: record its lexeme span and kind. */
 static void jm_emit(jm_lexer *lx, jm_tok kind) {
@@ -363,8 +353,6 @@ static void jm_scan_template_body(jm_lexer *lx, int is_head) {
     }
     jm_fail(lx);
 }
-
-/* ----------------------------------------------------------- punctuators */
 
 /* Read a one-, two- or three-byte operator starting at lx->pos. Each arm peeks the
    following code points only as far as the longest operator that begins with the
@@ -641,8 +629,6 @@ static void jm_scan_punct(jm_lexer *lx) {
         return; /* report the stray byte as the error lexeme */
     }
 }
-
-/* ----------------------------------------------------------- entry points */
 
 void jm_lex_next(jm_lexer *lx) {
     jm_skip_trivia(lx);

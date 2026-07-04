@@ -14,8 +14,6 @@
 
 #include <string.h>
 
-/* ----------------------------------------------------------------- options */
-
 text_opts th_text_default_opts(void) {
     text_opts opt = {0};
     opt.width = 0;
@@ -27,8 +25,6 @@ text_opts th_text_default_opts(void) {
     opt.bullet = "* ";
     return opt;
 }
-
-/* -------------------------------------------------------------- the cursor */
 
 typedef struct {
     const Py_UCS4 *url;
@@ -384,8 +380,6 @@ static void text_emit_text2(text_ctx *ctx, const char *s) {
         }
     }
 }
-
-/* ------------------------------------------------------------ block output */
 
 /* A run of n spaces appended to the continuation prefix; returns the prior len. */
 static Py_ssize_t text_push_indent(text_ctx *ctx, Py_ssize_t n) {

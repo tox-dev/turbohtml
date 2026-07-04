@@ -595,8 +595,6 @@ static int32_t parse_expr(parser *ps) {
     return left;
 }
 
-/* ---------------------------------------------------------- public API */
-
 static int func_name_is(const xn *node, const char *name) {
     Py_ssize_t length = (Py_ssize_t)strlen(name);
     if (node->str_len != length) {

@@ -12,8 +12,6 @@
 
 #include "query/xpath/xpath.h"
 
-/* ----------------------------------------------------------------- AST */
-
 enum xn_kind {
     XN_OR,
     XN_AND,
@@ -89,8 +87,6 @@ struct xp_program {
 /* Append a blank node, returning its index or -1 on OOM. */
 int32_t xn_new(xp_program *prog, enum xn_kind kind);
 
-/* ----------------------------------------------------------------- lexer */
-
 typedef enum {
     TK_EOF,
     TK_SLASH,
@@ -147,8 +143,6 @@ void lex_next(lexer *lx);
 
 /* Whether the lexer's current NAME/LITERAL text equals the ASCII keyword kw. */
 int xp_name_eq(const lexer *lx, const char *kw);
-
-/* --------------------------------------------------------- value model */
 
 /* The implicit xml namespace, the only namespace node an HTML tree exposes. */
 #define XP_XML_NS_URI "http://www.w3.org/XML/1998/namespace"

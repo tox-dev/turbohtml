@@ -11,8 +11,6 @@
 
 #include <string.h>
 
-/* --------------------------------------------------------------- arena */
-
 #define ARENA_BLOCK ((Py_ssize_t)64 * 1024)
 
 typedef struct arena_block {
@@ -157,8 +155,6 @@ static inline int is_void_atom(uint16_t atom) {
         return 0;
     }
 }
-
-/* ----------------------------------------------------------------- nodes */
 
 /* When the tree tracks positions, an element node carries its source line
    (1-based) and column (0-based) in two uint32 slots appended right after the

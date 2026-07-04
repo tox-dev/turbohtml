@@ -9,8 +9,6 @@
 #include <math.h>
 #include <string.h>
 
-/* -------------------------------------------------------- function library */
-
 /* XPath 1.0 round(): the integer closest to the argument, ties resolved toward
    positive infinity (§4.4, so round(-2.5) is -2, not the -3 that C round() gives
    by rounding half away from zero). NaN and the infinities pass through floor. */
@@ -352,7 +350,7 @@ static int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
     return rc;
 }
 
-/* --- EXSLT regular-expression functions (re:test / re:replace) ------------ */
+/* The EXSLT regular-expression functions (re:test / re:replace). */
 /* parsel and scrapy lean on these, so the engine borrows Python's re module.
    Evaluation runs inside the tree's critical section, but re touches no turbohtml
    handle, so the call cannot deadlock against it. */
@@ -494,7 +492,7 @@ static int exslt_re_replace(struct th_tree *tree, xp_result *args, xp_result *ou
     return 0;
 }
 
-/* --- EXSLT set functions (set:) ------------------------------------------- */
+/* The EXSLT set functions (set:). */
 /* The node-set arguments arrive in document order and duplicate-free (every
    node-set the engine builds is sorted_unique), so the results below preserve that
    order by copying in place and never need a re-sort. */
@@ -636,7 +634,7 @@ static int set_split(const xp_result *args, int want_before, xp_result *out) {
     return rc;
 }
 
-/* --- EXSLT string functions (str:) ---------------------------------------- */
+/* The EXSLT string functions (str:). */
 
 /* str:concat(node-set): the string-values of every member joined in document order. */
 static int str_concat(struct th_tree *tree, const xp_result *arg, xp_result *out) {
@@ -812,7 +810,7 @@ static int str_align(struct th_tree *tree, const xp_result *args, int argc, xp_r
     return 0;
 }
 
-/* --- EXSLT math functions (math:) ----------------------------------------- */
+/* The EXSLT math functions (math:). */
 
 /* math:min / math:max over a node-set's numeric string-values. An empty node-set or
    any non-numeric member yields NaN, matching EXSLT. */
@@ -892,7 +890,7 @@ static int math_select(struct th_tree *tree, const xp_result *arg, int want_max,
     return rc;
 }
 
-/* --- EXSLT date functions (date:) ----------------------------------------- */
+/* The EXSLT date functions (date:). */
 
 /* Parse `count` ASCII digits into *value; 0 on a non-digit. */
 static int ucs4_digits(const Py_UCS4 *text, Py_ssize_t count, int *value) {
@@ -1324,8 +1322,6 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     PyMem_Free(args);
     return rc;
 }
-
-/* --------------------------------------------------- Python test hook */
 
 PyObject *turbohtml_xpath_parse(PyObject *Py_UNUSED(module), PyObject *arg) {
     if (!PyUnicode_Check(arg)) {

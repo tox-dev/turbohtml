@@ -395,8 +395,6 @@ th_node *th_node_main_content(th_tree *tree, th_node *root) {
     return best;
 }
 
-/* ----------------------------------------------------- article metadata */
-
 static int read_is_ws(Py_UCS4 character) {
     /* the tokenizer normalizes CR to LF in the input stream, so tree text and
        attribute values never hold a carriage return (as md_is_ws also assumes) */

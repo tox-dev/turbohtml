@@ -9,8 +9,6 @@
 
 #include <string.h>
 
-/* ---------------------------------------- html5lib "#document" dump */
-
 /* Write an attribute's displayed name (the form the #document line uses) into buf:
    namespaced foreign attributes show "prefix localname", everything else is the
    stored name (foreign attribute case adjustments are applied at construction). */
@@ -190,8 +188,6 @@ Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len) {
     return out.data;
 }
 
-/* ------------------------------------------------- navigable HTML output */
-
 /* Emit one node under the compact (WHATWG fragment) layout and return the next node
    the walk rooted at root visits, or NULL once the subtree is fully written. Split
    out of serialize_compact so serialize_iter can resume the walk one node at a time
@@ -276,8 +272,6 @@ static void serialize_compact(sbuf *out, th_tree *tree, th_node *root, const th_
         node = serialize_compact_step(out, tree, node, root, opts);
     }
 }
-
-/* --------------------------------------------- indented "pretty" output */
 
 /* Indentation context for the pretty form: the output options plus the per-level
    unit the layout's Indent supplies. */
@@ -412,8 +406,6 @@ static void serialize_pretty(sbuf *out, th_tree *tree, th_node *root, const ser_
         node = serialize_pretty_step(out, tree, node, root, opts, &depth);
     }
 }
-
-/* ----------------------------------------------------- node accessors */
 
 th_node *th_tree_document(th_tree *tree) {
     return tree->fragment_root != NULL ? tree->fragment_root : tree->document;

@@ -31,8 +31,6 @@ typedef struct {
    (hundreds of operands). The point is to fail cleanly on a pathological input rather than fault. */
 enum { JM_MAX_DEPTH = 1000 };
 
-/* ----------------------------------------------------------- token helpers */
-
 /* Report the first error: the construct that failed, the byte offset, and the offending token slice
    (or end-of-input), so a diagnostic names what and where rather than an offset alone (#434). */
 static void fail(P *parser, const char *message) {
@@ -122,8 +120,6 @@ static void reset(P *parser, jm_mark saved) {
     parser->err = saved.err;
 }
 
-/* ----------------------------------------------------------- forward decls */
-
 static int32_t parse_stmt(P *parser);
 static int32_t parse_stmt_body(P *parser);
 static int32_t parse_block(P *parser);
@@ -209,8 +205,6 @@ static int32_t leaf(P *parser, jm_kind kind) {
     advance(parser);
     return index;
 }
-
-/* ----------------------------------------------------------- statements */
 
 /* Consume a statement terminator: an explicit `;`, or an ASI boundary (a `}`, EOF,
    or a preceding line break). The parser is lenient - it never rejects a missing
@@ -600,8 +594,6 @@ static int32_t parse_stmt_body(P *parser) {
     semicolon(parser);
     return parser->err ? -1 : node;
 }
-
-/* ----------------------------------------------------------- expressions */
 
 /* Binding power of a binary/logical operator in operator position, or 0 if the
    current token is not one. *logical reports whether it is &&/||/??. no_in masks the
@@ -1109,8 +1101,6 @@ chain:
     return expr;
 }
 
-/* ----------------------------------------------------------- primary */
-
 static int32_t parse_template(P *parser) {
     int32_t node = jm_node_new(parser->prog, JN_TEMPLATE);
     int32_t head = jm_node_new(parser->prog, JN_QUASI);
@@ -1343,8 +1333,6 @@ static int32_t parse_primary(P *parser) {
     }
 }
 
-/* ----------------------------------------------------------- functions/classes */
-
 static void parse_params(P *parser, int32_t fn) {
     expect(parser, JT_LPAREN, "expected (");
     int32_t tail = -1;
@@ -1506,8 +1494,6 @@ static int32_t parse_class(P *parser, int is_expr) {
     expect(parser, JT_RBRACE, "expected }");
     return parser->err ? -1 : node;
 }
-
-/* ----------------------------------------------------------- entry */
 
 jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen) {
     jm_program *prog = jm_calloc(1, sizeof(jm_program));

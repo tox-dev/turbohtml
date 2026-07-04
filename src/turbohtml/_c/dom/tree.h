@@ -196,8 +196,6 @@ int th_tree_fragment_context_known(const char *context, Py_ssize_t context_len);
 
 void th_tree_free(th_tree *tree);
 
-/* --- streaming (push) parse --- */
-
 /* A push parser driving the tokenizer and tree builder incrementally, so a
    document can be fed in chunks without ever holding the whole source: the
    tokenizer reclaims its consumed input on each feed and the insertion-mode
@@ -228,8 +226,6 @@ void th_stream_free(th_stream *stream);
    *out_len receives the length. Returns NULL on allocation failure. Used by the
    conformance harness to diff against the .dat expectations. */
 Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len);
-
-/* --- navigable-tree accessors for the public Python Node API --- */
 
 /* The document (root) node; its children are the doctype/comments and <html>.
    For a fragment the children of the context root are exposed instead. */
