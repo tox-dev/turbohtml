@@ -88,7 +88,9 @@ What html5lib has that turbohtml does not
 - **Serializer filters.** html5lib's serializer chains filters for optional-tag omission, alphabetical attribute order,
   meta-charset injection, and whitespace. turbohtml serializes WHATWG-conformant output selected by
   :class:`~turbohtml.Formatter`; it does not expose that filter registry. Workaround: pick the closest ``Formatter`` and
-  layout; for optional-tag omission there is no equivalent.
+  layout. Optional-tag omission and boolean-attribute collapse have a direct equivalent in :class:`~turbohtml.Minify`
+  (``omit_optional_tags`` drops the start/end tags the WHATWG rules make optional; ``unquote_attributes`` rewrites
+  ``checked="checked"`` to a bare ``checked``).
 - **A (deprecated) sanitizer.** html5lib ships ``html5lib.filters.sanitizer``, deprecated since 1.1. turbohtml has no
   sanitizer. Workaround: use a dedicated sanitizer such as ``nh3`` or ``bleach`` (see :doc:`nh3` and :doc:`bleach`).
 - **Optional statistical encoding detection.** With ``chardet`` installed, html5lib's input stream can guess an encoding
@@ -196,5 +198,6 @@ Because turbohtml returns a queryable tree, the walk-the-etree step after parsin
   prescan, then a ``windows-1252`` fallback. html5lib with ``chardet`` installed can additionally guess from byte
   frequency; where that matters, detect the encoding first and hand turbohtml the decoded ``str``.
 - **No serializer object or filter chain.** html5lib builds a serializer and threads filters through it; turbohtml
-  serializes directly with :meth:`~turbohtml.Node.serialize` and a :class:`~turbohtml.Formatter`, and does not offer
-  optional-tag omission or attribute reordering.
+  serializes directly with :meth:`~turbohtml.Node.serialize` and a :class:`~turbohtml.Formatter`. The common filters
+  have direct equivalents -- optional-tag omission and boolean-attribute collapse through :class:`~turbohtml.Minify`,
+  and attribute sorting through the ``sort_attributes`` serialize option -- but there is no chainable filter registry.

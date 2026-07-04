@@ -118,6 +118,66 @@ static int mini_attr_unquotable(const Py_UCS4 *value, Py_ssize_t len) {
     return value[len - 1] != '/';
 }
 
+/* The WHATWG boolean attributes: presence alone sets them, so the parser and every renderer
+   ignore the value. Rewriting one whose value repeats the name (or is empty) to the bare name
+   is render-identical, and the empty value the reparse then carries re-minifies to the same
+   bare form -- a fixpoint. Several of these names (allowfullscreen, playsinline, ...) have no
+   attribute atom, and the value-repeats-name coincidence that gates this scan is off every hot
+   attribute, so it matches on name bytes rather than an atom switch. */
+static int mini_is_boolean_attr(const char *name, Py_ssize_t name_len) {
+    static const struct {
+        const char *name;
+        Py_ssize_t len;
+    } booleans[] = {
+        {"allowfullscreen", 15},
+        {"async", 5},
+        {"autofocus", 9},
+        {"autoplay", 8},
+        {"checked", 7},
+        {"controls", 8},
+        {"default", 7},
+        {"defer", 5},
+        {"disabled", 8},
+        {"formnovalidate", 14},
+        {"inert", 5},
+        {"ismap", 5},
+        {"itemscope", 9},
+        {"loop", 4},
+        {"multiple", 8},
+        {"muted", 5},
+        {"nomodule", 8},
+        {"novalidate", 10},
+        {"open", 4},
+        {"playsinline", 11},
+        {"readonly", 8},
+        {"required", 8},
+        {"reversed", 8},
+        {"selected", 8},
+    };
+    for (size_t index = 0; index < sizeof(booleans) / sizeof(booleans[0]); index++) {
+        if (booleans[index].len == name_len && memcmp(booleans[index].name, name, (size_t)name_len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ASCII case-insensitive equality of a UCS-4 attribute value against the (lowercase) attribute
+   name bytes, over an already length-matched span: a boolean attribute reduces to its bare name
+   only when its value repeats the name (case-folded), like checked="Checked". */
+static int mini_value_matches_name(const Py_UCS4 *value, const char *name, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = value[index];
+        if (character >= 'A' && character <= 'Z') {
+            character += 'a' - 'A';
+        }
+        if (character != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Encode text[0..len) as UTF-8 into a freshly PyMem-allocated buffer (caller frees); *out_len
    receives the byte count. The CSS engine works over UTF-8 bytes while the tree stores code
    points, so the <style>/style= paths transcode through here. Tree text is well-formed code
@@ -212,6 +272,10 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         if (minify_css && value_len > 0 && name_len == 5 && memcmp(name, "style", 5) == 0) {
             /* NULL with value_len 0 when the declarations minified to empty, rendered as an empty value below */
             value = minified = mini_style_attr_css(value, value_len, &value_len);
+        }
+        if (unquote && value_len == name_len && mini_value_matches_name(value, name, value_len) &&
+            mini_is_boolean_attr(name, name_len)) {
+            continue; /* a boolean attribute whose value repeats its name renders as the bare name */
         }
         if (unquote && value_len == 0) {
             continue; /* an empty value reparses identically as a bare attribute name */
@@ -388,6 +452,12 @@ static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next) {
     case TH_TAG_P:
         return mini_is_p_follow(na) ||
                (last && node->parent->ns == TH_NS_HTML && !mini_p_parent_excluded(node->parent->atom));
+    case TH_TAG_CAPTION:
+    case TH_TAG_COLGROUP:
+        /* caption/colgroup exist only inside a table (a stray one is dropped at parse), so a
+           following table section or the table's own close reconstructs the element; only an
+           inserted whitespace text node or a comment would reattach inside it */
+        return next == NULL || (next->type != TH_NODE_COMMENT && !mini_starts_with_ws(tree, next));
     case TH_TAG_HTML:
     case TH_TAG_BODY:
         return next == NULL || next->type != TH_NODE_COMMENT; /* not immediately followed by a comment */
