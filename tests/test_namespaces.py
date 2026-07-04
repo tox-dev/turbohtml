@@ -17,7 +17,16 @@ _CLEAN_SANITIZE = (
     "Sanitizer",
     "sanitize",
 )
-_CLEAN_LINKIFY = ("Detector", "LinkSpan", "Linker", "Linkify", "linkify", "nofollow", "target_blank")
+_CLEAN_LINKIFY = (
+    "LinkCandidate",
+    "LinkDetector",
+    "LinkSpan",
+    "Linker",
+    "Linkify",
+    "linkify",
+    "nofollow",
+    "target_blank",
+)
 
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _EXTRACT_RECORDS])

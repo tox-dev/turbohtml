@@ -35,7 +35,7 @@ call path, and returns a typed :class:`~turbohtml.detect.EncodingMatch` in place
       - Ensemble of probers voting on the most likely encoding; ignores HTML markup and never applies a browser's
         windows-1252 fallback.
     - - Feature breadth
-      - ``detect``, ``detect_all``, an incremental :class:`~turbohtml.detect.Detector`, plus a frozen
+      - ``detect``, ``detect_all``, an incremental :class:`~turbohtml.detect.EncodingDetector`, plus a frozen
         :class:`~turbohtml.detect.Detection` config for confidence floor, language hint, and allow/exclude constraints.
       - ``detect``, ``detect_all``, ``UniversalDetector`` with a ``lang_filter``; no allow/exclude set, no language
         hint.
@@ -44,7 +44,8 @@ call path, and returns a typed :class:`~turbohtml.detect.EncodingMatch` in place
         single-byte text runs about 3x ahead. See the table below.
       - Prober ensemble runs every model on every input; no fast path for clean UTF-8 or ASCII.
     - - Typing
-      - Fully typed: ``EncodingMatch``, ``Detection``, ``Detector`` are annotated dataclasses/classes with stubs.
+      - Fully typed: ``EncodingMatch``, ``Detection``, ``EncodingDetector`` are annotated dataclasses/classes with
+        stubs.
       - Returns untyped ``dict``; type stubs are third-party.
     - - Dependencies
       - None beyond the turbohtml C extension.
@@ -61,7 +62,7 @@ The detection surface ports one-to-one:
 - ``chardet.detect(data)`` -> :func:`turbohtml.detect.detect`, same three fields as a typed record.
 - ``chardet.detect_all(data)`` -> :func:`turbohtml.detect.detect_all`, ranked candidates best first.
 - ``UniversalDetector()`` with ``feed`` / ``close`` / ``reset`` / ``done`` / ``result`` ->
-  :class:`turbohtml.detect.Detector` with the same five members.
+  :class:`turbohtml.detect.EncodingDetector` with the same five members.
 - ``UniversalDetector(lang_filter=...)`` -> a :class:`~turbohtml.detect.Detection` ``allowed`` frozenset of the WHATWG
   encoding names to keep.
 - chardet's implicit 0.2 minimum confidence -> :meth:`Detection.chardet() <turbohtml.detect.Detection.chardet>`.
@@ -120,7 +121,7 @@ Swap the import and read the fields off the typed record instead of the dict:
     - - ``chardet.detect_all(data)``
       - :func:`~turbohtml.detect.detect_all`
     - - ``UniversalDetector()`` / ``feed`` / ``close`` / ``reset`` / ``done`` / ``result``
-      - :class:`~turbohtml.detect.Detector` with the same five members
+      - :class:`~turbohtml.detect.EncodingDetector` with the same five members
     - - ``UniversalDetector(lang_filter=LanguageFilter.CJK)``
       - ``Detection(allowed=frozenset({"gbk", "big5", "shift_jis", "euc-jp", "iso-2022-jp", "euc-kr"}))``
     - - the implicit 0.2 minimum confidence

@@ -12,8 +12,9 @@ the plain WHATWG name.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
-surviving candidate, :class:`Detector` accumulates a stream chunk by chunk like chardet's ``UniversalDetector``, and
-a frozen :class:`Detection` config carries the knobs (a confidence floor and encoding/language constraints).
+surviving candidate, :class:`EncodingDetector` accumulates a stream chunk by chunk like chardet's
+``UniversalDetector``, and a frozen :class:`Detection` config carries the knobs (a confidence floor and
+encoding/language constraints).
 
 :func:`detect_language` answers the separate question ``whatlang``, ``resiliparse``, and ``trafilatura`` exist for --
 "what natural language is this text?" -- from the visible text rather than an ``<html lang>`` attribute. It runs a C
@@ -32,7 +33,7 @@ from ._html import _detect, _detect_language
 
 __all__ = [
     "Detection",
-    "Detector",
+    "EncodingDetector",
     "EncodingMatch",
     "LanguageDetection",
     "LanguageMatch",
@@ -95,7 +96,7 @@ _NO_MATCH: Final = EncodingMatch(None, 0.0, None)
 @dataclass(frozen=True, slots=True)
 class Detection:
     """
-    Options for :func:`detect`, :func:`detect_all`, and :class:`Detector`.
+    Options for :func:`detect`, :func:`detect_all`, and :class:`EncodingDetector`.
 
     :param threshold: the confidence floor; a candidate below it is dropped, and when every candidate falls below it
         the result's ``encoding`` is ``None``. The default 0.0 always answers, like ``chardet.detect``.
@@ -157,7 +158,7 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
     return _matches(data, options or _DEFAULT)
 
 
-class Detector:
+class EncodingDetector:
     """
     Incremental detection over a byte stream, mirroring chardet's ``UniversalDetector``.
 

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from turbohtml._html import _linkify_scan
-from turbohtml.clean import DEFAULT_CALLBACKS, Link, Linker, Linkify, linkify, nofollow, target_blank
+from turbohtml.clean import DEFAULT_CALLBACKS, LinkCandidate, Linker, Linkify, linkify, nofollow, target_blank
 
 if TYPE_CHECKING:
     from turbohtml.clean import Callback
@@ -190,7 +190,7 @@ def test_linkify_veto_callback_keeps_plain_text() -> None:
 
 
 def test_linkify_callback_can_change_text() -> None:
-    def shorten(link: Link) -> Link:
+    def shorten(link: LinkCandidate) -> LinkCandidate:
         link.text = "link"
         return link
 
@@ -198,7 +198,7 @@ def test_linkify_callback_can_change_text() -> None:
 
 
 def test_linkify_callback_can_add_attribute() -> None:
-    def add_class(link: Link) -> Link:
+    def add_class(link: LinkCandidate) -> LinkCandidate:
         link.attrs["class"] = "ext"
         return link
 
@@ -233,7 +233,7 @@ def test_default_callbacks_is_nofollow() -> None:
     ],
 )
 def test_nofollow(url: str, attrs: dict[str, str], expected: dict[str, str]) -> None:
-    link = nofollow(Link(url, "x", attrs))
+    link = nofollow(LinkCandidate(url, "x", attrs))
     assert link is not None
     assert link.attrs == expected
 
@@ -247,7 +247,7 @@ def test_nofollow(url: str, attrs: dict[str, str], expected: dict[str, str]) -> 
     ],
 )
 def test_target_blank(url: str, attrs: dict[str, str], expected: dict[str, str]) -> None:
-    link = target_blank(Link(url, "x", attrs))
+    link = target_blank(LinkCandidate(url, "x", attrs))
     assert link is not None
     assert link.attrs == expected
 

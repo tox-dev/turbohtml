@@ -19,7 +19,7 @@ WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), the content detector 
 .. autoclass:: Detection
     :members: chardet
 
-.. autoclass:: Detector
+.. autoclass:: EncodingDetector
     :members: feed, close, reset, result
 
     .. autoattribute:: done

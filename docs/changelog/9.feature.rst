@@ -1,6 +1,6 @@
 Auto-link URLs and email addresses in HTML with :mod:`turbohtml.clean`, a successor to the end-of-life `bleach.linkify
 <https://github.com/mozilla/bleach>`__. :func:`turbohtml.clean.linkify`, the reusable :class:`turbohtml.clean.Linker`,
 and the :func:`turbohtml.clean.nofollow`/:func:`turbohtml.clean.target_blank` helpers keep bleach's names for an
-import-only migration, while custom callbacks now receive a plain :class:`turbohtml.clean.Link` with ``url``, ``text``,
-and ``attrs``. It is HTML-aware: it never links inside an existing ``<a>``, a ``<script>``/``<style>``, or your
-``skip_tags``, and links a bare domain only when its last label is a real IANA TLD.
+import-only migration, while custom callbacks now receive a plain :class:`turbohtml.clean.LinkCandidate` with ``url``,
+``text``, and ``attrs``. It is HTML-aware: it never links inside an existing ``<a>``, a ``<script>``/``<style>``, or
+your ``skip_tags``, and links a bare domain only when its last label is a real IANA TLD.

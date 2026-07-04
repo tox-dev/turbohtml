@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from turbohtml.clean import Link, Linkify, linkify, nofollow, target_blank
+from turbohtml.clean import LinkCandidate, Linkify, linkify, nofollow, target_blank
 
 if TYPE_CHECKING:
     from turbohtml.clean import Callback
@@ -13,11 +13,11 @@ def _no_callbacks() -> list[Callback]:
 
 
 def test_link_existing_defaults_to_false() -> None:
-    assert Link("http://x.com", "x").existing is False
+    assert LinkCandidate("http://x.com", "x").existing is False
 
 
 def test_link_existing_can_be_set() -> None:
-    assert Link("http://x.com", "x", existing=True).existing is True
+    assert LinkCandidate("http://x.com", "x", existing=True).existing is True
 
 
 def test_existing_anchor_untouched_without_flag() -> None:
@@ -36,7 +36,7 @@ def test_process_existing_veto_unwraps_anchor() -> None:
 
 
 def test_process_existing_can_change_text() -> None:
-    def relabel(link: Link) -> Link:
+    def relabel(link: LinkCandidate) -> LinkCandidate:
         link.text = "link"
         return link
 
@@ -45,7 +45,7 @@ def test_process_existing_can_change_text() -> None:
 
 
 def test_process_existing_keeps_inner_markup_when_text_unchanged() -> None:
-    def add_rel(link: Link) -> Link:
+    def add_rel(link: LinkCandidate) -> LinkCandidate:
         link.attrs["rel"] = "ext"
         return link
 
@@ -78,7 +78,7 @@ def test_process_existing_anchor_without_href_stays_bare() -> None:
 
 
 def test_existing_flag_distinguishes_existing_from_detected() -> None:
-    def mark(link: Link) -> Link:
+    def mark(link: LinkCandidate) -> LinkCandidate:
         link.attrs["data-kind"] = "existing" if link.existing else "new"
         return link
 
@@ -100,7 +100,7 @@ def test_process_existing_leaves_anchor_in_skip_tag_alone() -> None:
 
 
 def test_how_to_doctest_scenario() -> None:
-    def annotate(link: Link) -> Link:
+    def annotate(link: LinkCandidate) -> LinkCandidate:
         link.attrs["data-seen"] = "author" if link.existing else "auto"
         return link
 

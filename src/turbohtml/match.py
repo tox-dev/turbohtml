@@ -40,12 +40,12 @@ class SelectorSyntaxError(ValueError):
     """
 
 
-def escape(ident: str) -> str:
+def escape_identifier(ident: str) -> str:
     """
     Escape a string so it is a valid CSS identifier, like ``soupsieve.escape`` / ``CSS.escape``.
 
-    Useful for building a selector around a class or id read from data: ``f"#{escape(raw_id)}"`` is safe even when
-    ``raw_id`` starts with a digit or holds ``.``/``#``/spaces.
+    Useful for building a selector around a class or id read from data: ``f"#{escape_identifier(raw_id)}"`` is safe even
+    when ``raw_id`` starts with a digit or holds ``.``/``#``/spaces.
 
     :param ident: the raw identifier text.
     :returns: the identifier with CSS-significant characters backslash- or hex-escaped per the CSSOM rules.
@@ -320,7 +320,7 @@ __all__ = [
     "closest",
     "compile",
     "css",
-    "escape",
+    "escape_identifier",
     "filter",
     "iselect",
     "match",

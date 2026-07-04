@@ -5,8 +5,8 @@ bleach is the only library that shipped an HTML-aware linkifier, and it is end o
 work splits in two: :mod:`turbohtml._html` finds the link spans in a text run in C, and this module does the HTML-aware
 part. It parses the input with turbohtml's WHATWG tree builder, walks the text nodes, and leaves alone any text inside
 an existing ``<a>`` (so links never nest), inside a raw-text element (``<script>``/``<style>``, whose content is not
-prose), or inside a caller's ``skip_tags``. Each found link becomes a :class:`Link` that a chain of ``callbacks`` can
-mutate or veto before it is written as an ``<a>``, and the tree serializes back to HTML.
+prose), or inside a caller's ``skip_tags``. Each found link becomes a :class:`LinkCandidate` that a chain of
+``callbacks`` can mutate or veto before it is written as an ``<a>``, and the tree serializes back to HTML.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ _SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://")
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
-# a ``Detector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
+# a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
 _DEFAULT_URL_SCHEMES = ("ftp", "http", "https")
 
 # Text inside these never becomes a link: an existing anchor (no nested links) and the raw-text elements whose content
@@ -41,7 +41,7 @@ _DEFAULT_URL_SCHEMES = ("ftp", "http", "https")
 _NEVER_LINKIFY = frozenset({"a", "script", "style"})
 
 
-class Link:
+class LinkCandidate:
     """
     A link handed to each callback to mutate or veto.
 
@@ -71,8 +71,9 @@ class Link:
         self.existing = existing
 
 
-# A callback receives the generated :class:`Link` and returns it to keep the link, or ``None`` to leave the text bare.
-Callback: TypeAlias = "Callable[[Link], Link | None]"
+# A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
+# text bare.
+Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
 
 
 def _attr_str(value: str | list[str] | None) -> str:
@@ -89,7 +90,7 @@ def _is_web_url(url: str) -> bool:
     return url[:6].lower().startswith(("http:", "https:"))
 
 
-def nofollow(link: Link) -> Link | None:
+def nofollow(link: LinkCandidate) -> LinkCandidate | None:
     """
     Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
 
@@ -104,7 +105,7 @@ def nofollow(link: Link) -> Link | None:
     return link
 
 
-def target_blank(link: Link) -> Link | None:
+def target_blank(link: LinkCandidate) -> LinkCandidate | None:
     """
     Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
 
@@ -197,7 +198,7 @@ class Linker:
         original_text = anchor.text
         href = anchor.attrs.get("href")
         attrs = {name: _attr_str(value) for name, value in anchor.attrs.items() if name != "href"}
-        link = Link(_attr_str(href), original_text, attrs, existing=True)
+        link = LinkCandidate(_attr_str(href), original_text, attrs, existing=True)
         for callback in self.callbacks:
             result = callback(link)
             if result is None:
@@ -242,7 +243,7 @@ class Linker:
             url = matched
         else:
             url = "http://" + matched
-        link = Link(url, matched)
+        link = LinkCandidate(url, matched)
         for callback in self.callbacks:
             result = callback(link)
             if result is None:
@@ -317,7 +318,7 @@ def _span_from_match(text: str, start: int, end: int, kind: int) -> LinkSpan:
     return LinkSpan(start, end, matched, url, kind == _EMAIL_KIND)
 
 
-class Detector:
+class LinkDetector:
     """
     Find the links in plain text, configured once and reused per call.
 
@@ -370,8 +371,8 @@ class Detector:
 __all__ = [
     "DEFAULT_CALLBACKS",
     "Callback",
-    "Detector",
-    "Link",
+    "LinkCandidate",
+    "LinkDetector",
     "LinkSpan",
     "Linker",
     "Linkify",

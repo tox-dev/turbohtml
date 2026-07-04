@@ -46,10 +46,10 @@ built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://``
 
 .. autofunction:: target_blank
 
-To only *locate* links in plain text rather than rewrite HTML, use :class:`Detector`. It returns a :class:`LinkSpan` for
-each match and accepts custom ``tlds`` and scheme-less ``schemes``.
+To only *locate* links in plain text rather than rewrite HTML, use :class:`LinkDetector`. It returns a :class:`LinkSpan`
+for each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 
-.. autoclass:: Detector
+.. autoclass:: LinkDetector
     :members: find, has_link
 
 .. autoclass:: LinkSpan

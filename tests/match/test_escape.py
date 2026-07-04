@@ -1,10 +1,10 @@
-"""The CSS identifier escaper mirrors soupsieve / CSS.escape, character by character."""
+"""The CSS identifier escaper mirrors soupsieve.escape / CSS.escape, character by character."""
 
 from __future__ import annotations
 
 import pytest
 
-from turbohtml.match import escape
+from turbohtml.match import escape_identifier
 
 
 @pytest.mark.parametrize(
@@ -29,4 +29,4 @@ from turbohtml.match import escape
     ],
 )
 def test_escape_matches_cssom(raw: str, expected: str) -> None:
-    assert escape(raw) == expected
+    assert escape_identifier(raw) == expected

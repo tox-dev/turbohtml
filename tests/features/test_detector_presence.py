@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml.clean import Detector
+from turbohtml.clean import LinkDetector
 
 
 @pytest.mark.parametrize(
@@ -14,7 +14,7 @@ from turbohtml.clean import Detector
     ],
 )
 def test_has_link_detects_a_link(text: str) -> None:
-    assert Detector().has_link(text) is True
+    assert LinkDetector().has_link(text) is True
 
 
 @pytest.mark.parametrize(
@@ -25,10 +25,10 @@ def test_has_link_detects_a_link(text: str) -> None:
     ],
 )
 def test_has_link_is_false_without_a_link(text: str) -> None:
-    assert Detector().has_link(text) is False
+    assert LinkDetector().has_link(text) is False
 
 
 def test_has_link_respects_configuration() -> None:
-    detector = Detector(emails=False, bare_domains=False)
+    detector = LinkDetector(emails=False, bare_domains=False)
     assert detector.has_link("write bob@example.com or visit example.com") is False
     assert detector.has_link("but https://example.com still counts") is True

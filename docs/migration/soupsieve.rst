@@ -62,7 +62,7 @@ These port 1:1 -- same names, turbohtml nodes in place of bs4 tags:
 - The same six methods on :class:`~turbohtml.match.Matcher`, plus its ``pattern`` / ``namespaces`` / ``flags``
   properties.
 - ``limit=`` on ``select`` / ``iselect`` to cap the number of matches.
-- :func:`turbohtml.match.escape` for building a selector around untrusted class or id text.
+- :func:`turbohtml.match.escape_identifier` for building a selector around untrusted class or id text.
 - :class:`turbohtml.match.SelectorSyntaxError` (a :class:`ValueError`) raised on a malformed selector.
 
 What turbohtml adds
@@ -151,7 +151,7 @@ Only the trees and the keyword bundle differ; every call name stays.
     - - ``SoupSieve.pattern`` / ``.namespaces`` / ``.flags``
       - the same properties on :class:`~turbohtml.match.Matcher`
     - - ``sv.escape(ident)``
-      - :func:`turbohtml.match.escape`
+      - :func:`turbohtml.match.escape_identifier`
     - - ``soupsieve.SelectorSyntaxError``
       - :class:`turbohtml.match.SelectorSyntaxError` (a :class:`ValueError`, matching the native engine)
     - - ``sv.purge()`` (drop the global compile cache)

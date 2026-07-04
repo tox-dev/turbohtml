@@ -175,9 +175,9 @@ The entry points keep bleach's names, so the import changes and the common case 
     - - ``nofollow``, ``target_blank``
       - :func:`turbohtml.clean.nofollow`, :func:`turbohtml.clean.target_blank`
     - - callback ``(attrs, new)`` with ``(namespace, name)`` keys
-      - a single :class:`~turbohtml.clean.Link` (``url``, ``text``, ``attrs``)
+      - a single :class:`~turbohtml.clean.LinkCandidate` (``url``, ``text``, ``attrs``)
     - - ``new`` flag
-      - ``Link.existing`` (inverted)
+      - ``LinkCandidate.existing`` (inverted)
     - - ``protocols=``
       - ``Linkify.schemes``
 
@@ -185,16 +185,17 @@ The entry points keep bleach's names, so the import changes and the common case 
 :class:`~turbohtml.clean.Linker`, and the ``nofollow``/``target_blank`` defaults work as before: the six knobs are now
 fields of a frozen :class:`~turbohtml.clean.Linkify` config. Only custom callbacks change shape. bleach passed ``(attrs,
 new)`` where ``attrs`` was keyed by ``(namespace, name)`` tuples with a ``"_text"`` pseudo-key for the text; turbohtml
-passes a single :class:`~turbohtml.clean.Link` with plain ``url``, ``text``, and ``attrs`` (a ``dict[str, str]``), and a
-callback returns it to keep the link or ``None`` to leave the text bare. bleach's ``new`` flag becomes ``Link.existing``
-(inverted: ``new=True`` is ``existing=False``). Porting a callback means reading fields instead of tuple keys:
+passes a single :class:`~turbohtml.clean.LinkCandidate` with plain ``url``, ``text``, and ``attrs`` (a ``dict[str,
+str]``), and a callback returns it to keep the link or ``None`` to leave the text bare. bleach's ``new`` flag becomes
+``LinkCandidate.existing`` (inverted: ``new=True`` is ``existing=False``). Porting a callback means reading fields
+instead of tuple keys:
 
 .. testcode::
 
-    from turbohtml.clean import Link, Linkify, linkify
+    from turbohtml.clean import LinkCandidate, Linkify, linkify
 
 
-    def shorten(link: Link) -> Link | None:
+    def shorten(link: LinkCandidate) -> LinkCandidate | None:
         link.text = link.url.removeprefix("https://").removeprefix("http://")
         return link
 
@@ -222,6 +223,6 @@ bleach shipped a frozen list. A bare domain such as ``example.com`` still links 
   keeping selectors and block nesting.
 - turbohtml leaves an existing ``<a>`` untouched so linkifying is idempotent, where bleach always reprocessed present
   links. Opt back in with the ``Linkify.process_existing`` field to run the callbacks over author-written anchors too
-  (the callback reads ``Link.existing`` to branch).
-- Linkify callbacks read :class:`~turbohtml.clean.Link` fields (``url``, ``text``, ``attrs``), not bleach's
+  (the callback reads ``LinkCandidate.existing`` to branch).
+- Linkify callbacks read :class:`~turbohtml.clean.LinkCandidate` fields (``url``, ``text``, ``attrs``), not bleach's
   ``(namespace, name)`` tuple keys or the ``"_text"`` pseudo-key; a straight copy of a bleach callback will not run.

@@ -31,7 +31,7 @@ common case of declared or structurally certain input resolves without running a
       - Encoding detection as part of a WHATWG HTML engine; BOM + ``<meta>`` prescan then ``chardetng`` scoring
       - Standalone encoding detection for arbitrary bytes; decode-and-score over every CPython codec
     - - Feature breadth
-      - ``detect``, ``detect_all``, streaming ``Detector``, allow/exclude and language constraints
+      - ``detect``, ``detect_all``, streaming ``EncodingDetector``, allow/exclude and language constraints
       - Rich match objects (chaos, coherence, alphabets, multiple languages), file/stream helpers, CLI, explain logging
     - - Performance
       - C, short-circuits certain input in microseconds; 6x-306x ahead on declared/UTF-8/ASCII bytes (see table)
@@ -77,8 +77,8 @@ What turbohtml adds
   KOI8-R Russian as shift_jis_2004).
 - Microsecond short-circuits: declared or structurally certain input (BOM, ``<meta>``, valid UTF-8, ISO-2022-JP escape
   sequences, pure ASCII) resolves without the scoring sweep charset-normalizer always runs.
-- A streaming :class:`~turbohtml.detect.Detector` (``feed`` / ``close`` / ``reset``, with a ``done`` early-stop flag)
-  that mirrors chardet's ``UniversalDetector`` and always agrees with :func:`~turbohtml.detect.detect` of the
+- A streaming :class:`~turbohtml.detect.EncodingDetector` (``feed`` / ``close`` / ``reset``, with a ``done`` early-stop
+  flag) that mirrors chardet's ``UniversalDetector`` and always agrees with :func:`~turbohtml.detect.detect` of the
   concatenated bytes.
 - A ``Detection.chardet()`` preset that reproduces chardet's 0.2 minimum-confidence behavior.
 - A shell entry point: ``python -m turbohtml detect`` (installed as the ``turbohtml`` console script) prints the
@@ -96,7 +96,7 @@ What charset-normalizer has that turbohtml does not
 - ``explain=True`` verbose logging of the scoring decision. Workaround: :func:`~turbohtml.detect.detect_all` exposes the
   ranked candidates and their confidences as the introspection surface.
 - File and stream helpers ``from_path`` / ``from_fp``. Workaround: read the bytes yourself and pass them to
-  :func:`~turbohtml.detect.detect`, or feed chunks to :class:`~turbohtml.detect.Detector`.
+  :func:`~turbohtml.detect.detect`, or feed chunks to :class:`~turbohtml.detect.EncodingDetector`.
 - Rich per-match analysis on ``CharsetMatch``: chaos/coherence scores, alphabet listings, and multiple candidate
   languages. turbohtml reports a single ``confidence`` float and one ``language`` string per match. Workaround: none for
   the alphabet and multi-language breakdown.

@@ -65,15 +65,15 @@ for a quick call:
  Building selectors from data
 ******************************
 
-:func:`~turbohtml.match.escape` turns an arbitrary string into a safe CSS identifier, so an id or class read from data
-cannot break out of the selector:
+:func:`~turbohtml.match.escape_identifier` turns an arbitrary string into a safe CSS identifier, so an id or class read
+from data cannot break out of the selector:
 
 .. testcode::
 
     raw_id = "12 col"
-    print(match.escape(raw_id))
+    print(match.escape_identifier(raw_id))
     page = parse('<p id="12 col">found</p>')
-    print(match.select_one(f"#{match.escape(raw_id)}", page).text)
+    print(match.select_one(f"#{match.escape_identifier(raw_id)}", page).text)
 
 .. testoutput::
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml.clean import Detector, LinkSpan
+from turbohtml.clean import LinkDetector, LinkSpan
 
 
 def _tuples(spans: list[LinkSpan]) -> list[tuple[int, int, str, str, bool]]:
@@ -50,25 +50,25 @@ def _tuples(spans: list[LinkSpan]) -> list[tuple[int, int, str, str, bool]]:
     ],
 )
 def test_find_returns_spans(text: str, expected: list[tuple[int, int, str, str, bool]]) -> None:
-    assert _tuples(Detector().find(text)) == expected
+    assert _tuples(LinkDetector().find(text)) == expected
 
 
 def test_find_offsets_slice_back_to_text() -> None:
     text = "reach me at bob@example.com or https://example.org/x"
-    for span in Detector().find(text):
+    for span in LinkDetector().find(text):
         assert text[span.start : span.end] == span.text
 
 
 def test_find_respects_emails_disabled() -> None:
-    assert Detector(emails=False).find("write bob@example.com") == []
+    assert LinkDetector(emails=False).find("write bob@example.com") == []
 
 
 def test_find_respects_bare_domains_disabled() -> None:
-    assert Detector(bare_domains=False).find("go to example.com") == []
+    assert LinkDetector(bare_domains=False).find("go to example.com") == []
 
 
 def test_find_scheme_url_still_found_without_bare_domains() -> None:
-    spans = Detector(bare_domains=False).find("see https://example.com here")
+    spans = LinkDetector(bare_domains=False).find("see https://example.com here")
     assert _tuples(spans) == [(4, 23, "https://example.com", "https://example.com", False)]
 
 
@@ -80,11 +80,11 @@ def test_find_scheme_url_still_found_without_bare_domains() -> None:
     ],
 )
 def test_find_trims_a_trailing_brace_or_apostrophe(text: str) -> None:
-    assert _tuples(Detector().find(text)) == [
+    assert _tuples(LinkDetector().find(text)) == [
         (13, 39, "http://example.com/foo_bar", "http://example.com/foo_bar", False),
     ]
 
 
 def test_find_keeps_a_balanced_brace_in_the_path() -> None:
-    spans = Detector().find("http://example.com/{id}")
+    spans = LinkDetector().find("http://example.com/{id}")
     assert _tuples(spans) == [(0, 23, "http://example.com/{id}", "http://example.com/{id}", False)]

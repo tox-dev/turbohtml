@@ -89,10 +89,10 @@ allowlist of explicit URL schemes:
 
 .. testcode::
 
-    from turbohtml.clean import Link, Linkify, linkify
+    from turbohtml.clean import LinkCandidate, Linkify, linkify
 
 
-    def annotate(link: Link) -> Link:
+    def annotate(link: LinkCandidate) -> LinkCandidate:
         link.attrs["data-seen"] = "author" if link.existing else "auto"
         return link
 
@@ -110,14 +110,14 @@ allowlist of explicit URL schemes:
 **************************
 
 When the text is not HTML and you only need *where* the links are (to highlight them, count them, or build your own
-markup), use :class:`turbohtml.clean.Detector`. ``find`` returns a :class:`~turbohtml.clean.LinkSpan` per match, with
-offsets, the matched text, and the normalized ``url``; ``has_link`` answers the yes/no question more cheaply:
+markup), use :class:`turbohtml.clean.LinkDetector`. ``find`` returns a :class:`~turbohtml.clean.LinkSpan` per match,
+with offsets, the matched text, and the normalized ``url``; ``has_link`` answers the yes/no question more cheaply:
 
 .. testcode::
 
-    from turbohtml.clean import Detector
+    from turbohtml.clean import LinkDetector
 
-    detector = Detector()
+    detector = LinkDetector()
     for span in detector.find("ping bob@example.com about example.com"):
         print(span.start, span.end, span.url)
 
@@ -132,7 +132,7 @@ a typo scheme or a ``javascript://`` payload is left alone):
 
 .. testcode::
 
-    detector = Detector(tlds=["corp"], schemes=["tel"])
+    detector = LinkDetector(tlds=["corp"], schemes=["tel"])
     print([span.url for span in detector.find("wiki.corp or tel:+1-800-555-0100")])
 
 .. testoutput::

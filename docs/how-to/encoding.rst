@@ -47,16 +47,16 @@ When you only need the encoding, say to decode a file or a response body, run th
 Every name :func:`~turbohtml.detect.detect` can return is a valid :mod:`python:codecs` alias, so the decode call works
 directly. Rank the alternatives with :func:`~turbohtml.detect.detect_all`, constrain or threshold them with a
 :class:`~turbohtml.detect.Detection` config, and feed a stream chunk by chunk with a
-:class:`~turbohtml.detect.Detector`:
+:class:`~turbohtml.detect.EncodingDetector`:
 
 .. testcode::
 
     from io import BytesIO
 
-    from turbohtml.detect import Detector
+    from turbohtml.detect import EncodingDetector
 
     stream = BytesIO("\ufeffstreamed UTF-8 content".encode())
-    detector = Detector()
+    detector = EncodingDetector()
     for chunk in iter(lambda: stream.read(4096), b""):
         detector.feed(chunk)
         if detector.done:  # the byte-order mark already decided the stream

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml.clean import Detector, LinkSpan
+from turbohtml.clean import LinkDetector, LinkSpan
 
 
 def _tuples(spans: list[LinkSpan]) -> list[tuple[int, int, str, str, bool]]:
@@ -10,30 +10,30 @@ def _tuples(spans: list[LinkSpan]) -> list[tuple[int, int, str, str, bool]]:
 
 
 def test_registered_scheme_less_url_is_found() -> None:
-    spans = Detector(schemes=["tel"]).find("call tel:+1-800-555-0100 now")
+    spans = LinkDetector(schemes=["tel"]).find("call tel:+1-800-555-0100 now")
     assert _tuples(spans) == [(5, 24, "tel:+1-800-555-0100", "tel:+1-800-555-0100", False)]
 
 
 def test_scheme_registration_is_case_and_colon_insensitive() -> None:
-    spans = Detector(schemes=["TEL:"]).find("tel:12345")
+    spans = LinkDetector(schemes=["TEL:"]).find("tel:12345")
     assert _tuples(spans) == [(0, 9, "tel:12345", "tel:12345", False)]
 
 
 def test_unregistered_scheme_is_not_matched() -> None:
-    assert Detector().find("tel:12345") == []
+    assert LinkDetector().find("tel:12345") == []
 
 
 def test_scheme_less_skipped_when_scheme_not_registered() -> None:
-    assert Detector(schemes=["tel"]).find("time: 5 minutes") == []
+    assert LinkDetector(schemes=["tel"]).find("time: 5 minutes") == []
 
 
 def test_scheme_with_no_leading_scheme_chars_is_skipped() -> None:
-    assert Detector(schemes=["tel"]).find("a :b") == []
+    assert LinkDetector(schemes=["tel"]).find("a :b") == []
 
 
 def test_scheme_blocked_by_preceding_label_char() -> None:
     # the underscore is a host-label character, so it is not part of the scheme yet blocks a link there
-    assert Detector(schemes=["tel"]).find("_tel:y") == []
+    assert LinkDetector(schemes=["tel"]).find("_tel:y") == []
 
 
 @pytest.mark.parametrize(
@@ -44,11 +44,11 @@ def test_scheme_blocked_by_preceding_label_char() -> None:
     ],
 )
 def test_scheme_with_empty_opaque_part_is_skipped(text: str) -> None:
-    assert Detector(schemes=["tel"]).find(text) == []
+    assert LinkDetector(schemes=["tel"]).find(text) == []
 
 
 def test_scheme_url_with_authority_takes_priority() -> None:
-    spans = Detector(schemes=["http"]).find("http://example.com")
+    spans = LinkDetector(schemes=["http"]).find("http://example.com")
     assert _tuples(spans) == [(0, 18, "http://example.com", "http://example.com", False)]
 
 
@@ -61,15 +61,15 @@ def test_scheme_url_with_authority_takes_priority() -> None:
     ],
 )
 def test_unknown_authority_scheme_is_not_detected(text: str) -> None:
-    assert Detector().find(text) == []
+    assert LinkDetector().find(text) == []
 
 
 @pytest.mark.parametrize("scheme", ["http", "https", "ftp"])
 def test_builtin_authority_scheme_is_detected(scheme: str) -> None:
     text = f"{scheme}://example.com"
-    assert _tuples(Detector().find(text)) == [(0, len(text), text, text, False)]
+    assert _tuples(LinkDetector().find(text)) == [(0, len(text), text, text, False)]
 
 
 def test_registered_scheme_extends_authority_matching() -> None:
-    spans = Detector(schemes=["git"]).find("git://example.com")
+    spans = LinkDetector(schemes=["git"]).find("git://example.com")
     assert _tuples(spans) == [(0, 17, "git://example.com", "git://example.com", False)]
