@@ -139,7 +139,7 @@ the URL for you, download the markup first and pass it to :func:`turbohtml.parse
     from turbohtml import parse
 
     doc = parse('<head><meta property="og:title" content="Widget"><meta name="twitter:card" content="summary"></head>')
-    print(doc.opengraph())
+    print(doc.structured_data().opengraph)
 
 .. testoutput::
 

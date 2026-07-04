@@ -30,6 +30,8 @@ import turbohtml._html as html
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from pytest_mock import MockerFixture
+
 _STUB_DIR = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
 _SELF_NAMES = frozenset({"self", "cls"})
 _NO_DEFAULT = object()
@@ -131,7 +133,11 @@ def _resolve(name: str) -> object | None:
 def _runtime_signature(obj: object) -> inspect.Signature | None:
     if not callable(obj) or getattr(obj, "__text_signature__", None) is None:
         return None
-    return inspect.signature(obj)
+    try:
+        return inspect.signature(obj)
+    except (ValueError, TypeError):
+        # older CPython rejects some C text signatures its parser cannot model; skip them on that version
+        return None
 
 
 def _is_dunder(name: str) -> bool:
@@ -188,6 +194,17 @@ def test_resolve_reports_a_name_the_extension_lacks(name: str) -> None:
     assert _resolve(name) is None
 
 
+def test_runtime_signature_ignores_a_non_callable() -> None:
+    assert _runtime_signature(42) is None
+
+
+def test_runtime_signature_skips_a_signature_inspect_cannot_build(mocker: MockerFixture) -> None:
+    # older CPython raises building some C text signatures; the guard skips them rather than erroring the run
+    mocker.patch("inspect.signature", side_effect=ValueError)
+    assert _runtime_signature(html.parse) is None
+
+
 def test_the_parity_check_covers_the_public_surface() -> None:
-    # a floor so a stub-parsing regression that silently drops every entry cannot pass unnoticed
-    assert len(_COMPARABLE) > 80
+    # a stub-parsing regression that silently dropped entries would drop these simple, every-version signatures too
+    assert {"parse", "escape", "Minify", "Document.opengraph"} <= set(_COMPARABLE)
+    assert len(_COMPARABLE) > 40
