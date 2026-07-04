@@ -1,0 +1,7 @@
+Train the profile-guided build over every benchmarked hot operation for an equal slice of time rather than a flat
+iteration count. A whole-document parse runs far more instructions per call than a read-path query like text-content, so
+a fixed count left the cheap operations' hot code well below the profile's peak: the compiler read them as cold and
+their layout shifted a few percent between non-deterministic rebuilds, which the CodSpeed gate reported as a phantom
+text-content regression on unrelated pull requests. Timing each operation repeats a cheap one into the thousands and an
+expensive one a handful of times, so every gated operation clears the hot cutoff and holds its layout across rebuilds.
+part of #478
