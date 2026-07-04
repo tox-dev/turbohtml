@@ -1,0 +1,5 @@
+Restructure the documentation for 1.0. The reference, how-to, and migration indexes now share one eight-namespace
+taxonomy -- parse/DOM, detect, query, clean, convert, extract, build, serialize -- the ``querying`` and ``serializing``
+how-to megapages split into one-job pages, ``build`` gains its own reference page, and the docs add ``llms.txt`` and
+``llms-full.txt`` maps for AI agents, a sitemap, canonical links, and per-page meta descriptions - part of #478 - by
+:user:`gaborbernat`.

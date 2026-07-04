@@ -29,10 +29,10 @@ counterpart and supports the free-threaded build.
 
 .. important::
 
-    Learn this rule first: turbohtml models text as real **child nodes** following the WHATWG DOM shape, where `lxml
-    <https://lxml.de>`_ uses ``text``/``tail`` and `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`_
-    uses ``.string``. So ``node[i]`` indexes a node's children, and attributes are reached through ``node.attrs``, never
-    ``node["attr"]``.
+    Learn this rule first: turbohtml models text as real **child nodes** following the `WHATWG DOM
+    <https://dom.spec.whatwg.org/>`_ shape, where `lxml <https://lxml.de>`_ uses ``text``/``tail`` and `BeautifulSoup
+    <https://www.crummy.com/software/BeautifulSoup/>`_ uses ``.string``. So ``node[i]`` indexes a node's children, and
+    attributes are reached through ``node.attrs``, never ``node["attr"]``.
 
 *******************
  Design principles
@@ -49,9 +49,10 @@ These rules shape every part of turbohtml, from the C core to the typed surface 
 3. **Still maintainable.** The C sources are split by subsystem and the code is written to read as its own
    documentation. Both Python and C coverage gates require 100% line and branch coverage, on the gcc and llvm-cov
    toolchains alike, before a change lands.
-4. **WHATWG conformance first.** The tokenizer and tree builder follow the WHATWG HTML standard state by state,
-   validated against the shared html5lib-tests suite browsers use. turbohtml matches a competitor's behavior only where
-   the spec leaves it open.
+4. **WHATWG conformance first.** The tokenizer and tree builder follow the `WHATWG HTML standard
+   <https://html.spec.whatwg.org/>`_ state by state, validated against the shared `html5lib-tests
+   <https://github.com/html5lib/html5lib-tests>`_ suite browsers use. turbohtml matches a competitor's behavior only
+   where the spec leaves it open.
 5. **Free-threading ready.** The extension holds no shared mutable state and declares free-threading support, and every
    tree edit and string read runs under a per-tree critical section. A read snapshots the arena before any Python
    callback runs, so a concurrent mutation can never tear a walk.

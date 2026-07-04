@@ -79,8 +79,8 @@ What turbohtml adds
   (``w3lib.url.url_query_cleaner``'s keep and ``remove=True`` modes), which courlan does not expose.
 - ``external_only`` splits links on the registrable domain (eTLD+1), the same public-suffix boundary courlan reaches for
   through the ``tld`` package: ``spam.example.co.uk`` and ``example.co.uk`` count as one site, ``a.co.uk`` and
-  ``b.co.uk`` as two. The suffix comes from the shipped IANA and Public Suffix List tables in C, so there is no ``tld``
-  dependency and no Python fallback.
+  ``b.co.uk`` as two. The suffix comes from the shipped IANA and `Public Suffix List <https://publicsuffix.org/>`_
+  tables in C, so there is no ``tld`` dependency and no Python fallback.
 - One frozen config drives all three functions, no per-call keyword drift, and no Python runtime dependency.
 
 What courlan has that turbohtml does not

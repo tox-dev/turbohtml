@@ -127,8 +127,8 @@ Swap the import and the call:
 
     Some **bold** text.
 
-The defaults emit opinionated GitHub-Flavored Markdown, and the markdownify options map onto the grouped
-:class:`~turbohtml.Markdown` config fields with one name per concept:
+The defaults emit opinionated `GitHub-Flavored Markdown <https://github.github.com/gfm/>`_, and the markdownify options
+map onto the grouped :class:`~turbohtml.Markdown` config fields with one name per concept:
 
 .. list-table::
     :header-rows: 1
