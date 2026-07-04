@@ -25,18 +25,6 @@ static PyObject *document_get_encoding(PyObject *self, void *Py_UNUSED(closure))
     return Py_NewRef(((HandleObject *)((NodeObject *)self)->handle)->encoding);
 }
 
-/* RFC 3986 resolution is intricate, so the URL helpers delegate the join to the standard library, which they call at
-   most once per document. PyImport caches urllib.parse in sys.modules after the first call. */
-static PyObject *url_join(PyObject *base, PyObject *target) {
-    PyObject *parse = PyImport_ImportModule("urllib.parse");
-    if (parse == NULL) { /* GCOVR_EXCL_BR_LINE: urllib.parse is always importable */
-        return NULL;     /* GCOVR_EXCL_LINE: import-failure path */
-    }
-    PyObject *joined = PyObject_CallMethod(parse, "urljoin", "OO", base, target);
-    Py_DECREF(parse);
-    return joined;
-}
-
 /* The scheme scanner's alphabets, complementing the WHATWG component percent-encode sets that now live in url.c: a
    scheme leads with a letter (URL_ALPHABET) and continues over letters, digits, and "+-." (URL_SCHEME_TAIL). */
 static const char URL_ALPHABET[] = TH_URL_ALPHA;
@@ -142,7 +130,7 @@ static PyObject *url_percent_encode(PyObject *url) {
    extraction methods reuse rather than reinventing. A relative target absolutizes against base; an absolute one wins.
    NULL with a ValueError set when base or target cannot be split (e.g. an unclosed IPv6 bracket). */
 PyObject *th_url_resolve(PyObject *base, PyObject *target) {
-    PyObject *joined = url_join(base, target);
+    PyObject *joined = th_url_join(base, target);
     if (joined == NULL) {
         return NULL;
     }
@@ -258,11 +246,11 @@ static PyObject *parse_meta_refresh(PyObject *content, PyObject *fallback) {
                 Py_DECREF(delay); /* GCOVR_EXCL_LINE */
                 return NULL;      /* GCOVR_EXCL_LINE */
             }
-            PyObject *joined = url_join(fallback, raw);
+            PyObject *joined = th_url_join(fallback, raw);
             Py_DECREF(raw);
-            if (joined == NULL) { /* GCOVR_EXCL_BR_LINE: url_join only fails on the import path */
-                Py_DECREF(delay); /* GCOVR_EXCL_LINE */
-                return NULL;      /* GCOVR_EXCL_LINE */
+            if (joined == NULL) { /* a refresh target with an unbalanced IPv6 bracket cannot be resolved */
+                Py_DECREF(delay);
+                return NULL;
             }
             url = url_percent_encode(joined);
             Py_DECREF(joined);

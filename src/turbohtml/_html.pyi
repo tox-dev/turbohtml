@@ -108,6 +108,9 @@ from ._stubs.features import (
     _sanitize as _sanitize,
 )
 from ._stubs.features import (
+    _url_join as _url_join,
+)
+from ._stubs.features import (
     _url_percent_decode as _url_percent_decode,
 )
 from ._stubs.features import (

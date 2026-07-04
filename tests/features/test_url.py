@@ -101,6 +101,12 @@ def test_meta_refresh_double_quoted_url() -> None:
     assert parse(html).meta_refresh(_SITE) == (4.0, _SITE + "d")
 
 
+def test_meta_refresh_unresolvable_url_raises() -> None:
+    html = '<meta http-equiv=refresh content="0;url=//[bad">'
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        parse(html).meta_refresh(_SITE)
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [

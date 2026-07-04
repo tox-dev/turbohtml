@@ -142,6 +142,7 @@ static PyMethodDef html_methods[] = {
     {"_url_split", turbohtml_url_split, METH_O, NULL},
     {"_url_percent_encode", turbohtml_url_percent_encode, METH_VARARGS, NULL},
     {"_url_percent_decode", turbohtml_url_percent_decode, METH_O, NULL},
+    {"_url_join", turbohtml_url_join, METH_VARARGS, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };

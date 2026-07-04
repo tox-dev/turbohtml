@@ -16,9 +16,9 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Final, NamedTuple
-from urllib.parse import urljoin, urlunsplit
+from urllib.parse import urlunsplit
 
-from ._html import _registrable_domain, _url_percent_decode, _url_percent_encode, _url_split, parse
+from ._html import _registrable_domain, _url_join, _url_percent_decode, _url_percent_encode, _url_split, parse
 
 __all__ = [
     "UrlCleaning",
@@ -296,7 +296,7 @@ def extract_links(
         if link.url in cleaned_of:
             cleaned = cleaned_of[link.url]
         else:
-            candidate = link.url if base is None or link.url.startswith(_WEB_PREFIXES) else urljoin(base, link.url)
+            candidate = link.url if base is None or link.url.startswith(_WEB_PREFIXES) else _url_join(base, link.url)
             cleaned = cleaned_of[link.url] = clean_url(candidate, active)
         if cleaned is None or (external_only and _site_of(cleaned) == site):
             continue

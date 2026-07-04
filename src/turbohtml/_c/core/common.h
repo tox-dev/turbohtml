@@ -82,6 +82,13 @@ PyObject *turbohtml_url_split(PyObject *module, PyObject *arg);
 PyObject *turbohtml_url_percent_encode(PyObject *module, PyObject *args);
 PyObject *turbohtml_url_percent_decode(PyObject *module, PyObject *arg);
 
+/* Implemented in url/url.c. th_url_join resolves a (possibly relative) reference against a base URL, the RFC 3986 5.3
+   reference transform urllib.parse.urljoin runs; base_url() and the extraction methods call it directly, and
+   _url_join(base, target) exposes it to the extract_links shim. Both arguments are borrowed str references; returns a
+   new reference, NULL with a ValueError set when a component cannot be split (an unbalanced IPv6 bracket). */
+PyObject *th_url_join(PyObject *base, PyObject *target);
+PyObject *turbohtml_url_join(PyObject *module, PyObject *args);
+
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented
    in dom/node.c and lends sanitize.c the tree+node a Python element wraps. */

@@ -250,8 +250,9 @@ lint.preview = true
 builtin = "clear,usage,en-GB_to_en-US"
 # café, &notin;, afe (active formatting elements), vave (CSS-minify test value), grey (CSS Color 4), forin (JS dump),
 # opps (the _minify_js PyArg_ParseTuple format "Opps"), fo/nd/te (ISO 639-1 codes in the URL language filter),
-# januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary)
-ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha"
+# januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary),
+# shttp (a scheme in urllib's uses_relative list the URL join guard mirrors)
+ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp"
 skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h"  # generated tables of HTML5 / IANA / CSS / PSL / language names
 count = true
 quiet-level = 3
