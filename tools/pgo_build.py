@@ -27,7 +27,7 @@ from typing import Final
 _ROOT: Final = Path(__file__).resolve().parent.parent
 
 
-def _install(python: str, build_dir: Path, root: Path, phase: str) -> None:
+def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bool) -> None:
     """Reinstall the extension editable into ``python``'s environment at PGO ``phase``, reusing ``build_dir``."""
     subprocess.run(
         [
@@ -36,6 +36,8 @@ def _install(python: str, build_dir: Path, root: Path, phase: str) -> None:
             "install",
             "--python",
             python,
+            # cibuildwheel's manylinux interpreter is a system install, not a venv; uv refuses to touch it otherwise
+            *(["--system"] if system else []),
             "--reinstall",
             "--no-deps",
             "--no-build-isolation",
@@ -71,14 +73,14 @@ def _merge_clang_profile(build_dir: Path) -> None:
     subprocess.run([tool, "merge", "-output", str(build_dir / "default.profdata"), *map(str, raw)], check=True)
 
 
-def build(python: str, build_dir: Path, root: Path, phase: str) -> None:
+def build(python: str, build_dir: Path, root: Path, phase: str, *, system: bool) -> None:
     """Run the instrument-train-merge sequence, then optionally the profiled ``use`` install when ``phase`` is full."""
     build_dir.mkdir(parents=True, exist_ok=True)
-    _install(python, build_dir, root, "generate")
+    _install(python, build_dir, root, "generate", system=system)
     _train(python, build_dir, root)
     _merge_clang_profile(build_dir)
     if phase == "full":
-        _install(python, build_dir, root, "use")
+        _install(python, build_dir, root, "use", system=system)
 
 
 def main() -> None:
@@ -93,8 +95,13 @@ def main() -> None:
         choices=("full", "profile"),
         help="full finishes with the profiled use install; profile stops after collecting it for a later use build",
     )
+    parser.add_argument(
+        "--system",
+        action="store_true",
+        help="install into a non-virtual (system) interpreter, as cibuildwheel's manylinux image provides",
+    )
     args = parser.parse_args()
-    build(args.python, args.build_dir.resolve(), args.project.resolve(), args.phase)
+    build(args.python, args.build_dir.resolve(), args.project.resolve(), args.phase, system=args.system)
 
 
 if __name__ == "__main__":

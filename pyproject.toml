@@ -178,8 +178,8 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
-  pip install uv meson-python meson ninja && python {project}/tools/pgo_build.py --python python --project {project} \
-  --build-dir /tmp/turbohtml-pgo --phase profile\
+  rm -rf /tmp/turbohtml-pgo && pip install uv meson-python meson ninja && python {project}/tools/pgo_build.py --python \
+  python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use" ]
