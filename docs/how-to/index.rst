@@ -2,25 +2,38 @@
  How-to guides
 ###############
 
-Task-focused recipes for the common jobs: escaping text, parsing markup into a tree, querying, matching, and editing
-that tree, serializing it back to HTML, Markdown, or plain text, the tokenizer, link, encoding, and sanitizer helpers,
-and running the toolkit from a shell. Each page is a short, self-contained walkthrough you can lift straight into your
-own code.
+Task-focused recipes, one job each. The pages follow the eight turbohtml namespaces, in the order the :doc:`/reference`
+and :doc:`/migration/index` use: parse a document and edit its tree, detect an encoding, query and match nodes, clean
+and minify markup, convert a selector, extract the article and its tables, build a tree, and serialize it back to HTML,
+Markdown, or plain text. Each page is a short, self-contained walkthrough you can lift straight into your own code,
+ending with running the toolkit from a shell.
 
 .. toctree::
     :maxdepth: 1
 
-    escaping
     parsing
-    encoding
     tokenizing
-    querying
-    matching
     forms
     editing
+    encoding
+    selecting
+    finding
+    extracting
+    xpath
+    inspecting
+    pruning
+    chaining
+    matching
+    sanitizing
+    links
+    minifying
+    css-to-xpath
+    tables
+    main-content
+    structured-data
     building
     serializing
-    links
-    structured-data
-    sanitizing
+    markdown
+    plain-text
+    escaping
     cli
