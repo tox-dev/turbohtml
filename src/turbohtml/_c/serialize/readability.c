@@ -14,6 +14,7 @@
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
 
+#include <stddef.h>
 #include <string.h>
 
 /* A paragraph shorter than this is treated as noise, not content. */
@@ -522,18 +523,6 @@ static int read_is_author_link(th_tree *tree, th_node *node, const void *Py_UNUS
     return read_rel_has_token(node->attrs[found].value, node->attrs[found].value_len, "author");
 }
 
-/* Whether node is a <link> whose rel attribute carries the "canonical" token. */
-static int read_is_canonical_link(th_tree *tree, th_node *node, const void *Py_UNUSED(ctx)) {
-    if (node->ns != TH_NS_HTML || node->atom != TH_TAG_LINK) {
-        return 0;
-    }
-    Py_ssize_t found = th_node_attr_find(tree, node, "rel", 3);
-    if (found < 0) {
-        return 0;
-    }
-    return read_rel_has_token(node->attrs[found].value, node->attrs[found].value_len, "canonical");
-}
-
 /* The normalized content of the first <meta> matching key, or NULL when absent. */
 static Py_UCS4 *read_meta_content(th_tree *tree, th_node *root, const char *key, Py_ssize_t *out_len) {
     *out_len = 0;
@@ -647,36 +636,6 @@ static Py_UCS4 *read_harvest_lang(th_tree *tree, th_node *root, Py_ssize_t *out_
     return read_attr_value(tree, html, "lang", 4, out_len);
 }
 
-/* Canonical URL: the first <link rel=canonical>'s href, else the og:url meta. */
-static Py_UCS4 *read_harvest_canonical(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
-    th_node *link = read_find(tree, root, read_is_canonical_link, NULL);
-    if (link != NULL) {
-        Py_UCS4 *href = read_attr_value(tree, link, "href", 4, out_len);
-        if (href != NULL) {
-            return href;
-        }
-    }
-    return read_meta_content(tree, root, "og:url", out_len);
-}
-
-/* Site name: the og:site_name meta, else the application-name meta. */
-static Py_UCS4 *read_harvest_site_name(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
-    Py_UCS4 *og = read_meta_content(tree, root, "og:site_name", out_len);
-    if (og != NULL) {
-        return og;
-    }
-    return read_meta_content(tree, root, "application-name", out_len);
-}
-
-/* Lead image: the og:image meta, else the twitter:image meta. */
-static Py_UCS4 *read_harvest_image(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
-    Py_UCS4 *og = read_meta_content(tree, root, "og:image", out_len);
-    if (og != NULL) {
-        return og;
-    }
-    return read_meta_content(tree, root, "twitter:image", out_len);
-}
-
 /* Append the normalized [text, text+len) run to the tags array, growing it as needed.
    A run that normalizes to empty is skipped so a blank keyword reads as no tag. Returns
    -1 only on the excluded allocation-failure path. */
@@ -720,11 +679,48 @@ static int read_tags_split(th_article_tag **items, Py_ssize_t *count, Py_ssize_t
     return 0;
 }
 
-/* One <meta>'s tag contribution: comma-split when it names keywords, the whole content
-   when it is an article:tag, nothing otherwise. Returns -1 only on the excluded
-   allocation-failure path. */
-static int read_tags_from_meta(th_tree *tree, th_node *meta, th_article_tag **items, Py_ssize_t *count,
-                               Py_ssize_t *cap) {
+/* The first-seen source for each single-valued head field, gathered in one <head> walk
+   so the tree is crawled once rather than once per field. Each Py_UCS4 slot owns a
+   normalized buffer, NULL until a non-blank source fills it; tags grows as keyword and
+   article:tag values arrive. */
+typedef struct {
+    Py_UCS4 *canonical;
+    Py_ssize_t canonical_len;
+    Py_UCS4 *og_url;
+    Py_ssize_t og_url_len;
+    Py_UCS4 *og_site_name;
+    Py_ssize_t og_site_name_len;
+    Py_UCS4 *app_name;
+    Py_ssize_t app_name_len;
+    Py_UCS4 *og_image;
+    Py_ssize_t og_image_len;
+    Py_UCS4 *twitter_image;
+    Py_ssize_t twitter_image_len;
+    th_article_tag *tags;
+    Py_ssize_t tags_count;
+    Py_ssize_t tags_cap;
+} read_social;
+
+/* The single-valued <meta> keys and where their first non-blank content lands in a
+   read_social, addressed by offset so one loop covers them all. */
+typedef struct {
+    const char *key;
+    size_t field_offset;
+    size_t len_offset;
+} read_social_key;
+
+static const read_social_key read_social_keys[] = {
+    {"og:url", offsetof(read_social, og_url), offsetof(read_social, og_url_len)},
+    {"og:site_name", offsetof(read_social, og_site_name), offsetof(read_social, og_site_name_len)},
+    {"application-name", offsetof(read_social, app_name), offsetof(read_social, app_name_len)},
+    {"og:image", offsetof(read_social, og_image), offsetof(read_social, og_image_len)},
+    {"twitter:image", offsetof(read_social, twitter_image), offsetof(read_social, twitter_image_len)},
+};
+
+/* Fold one <meta>'s content into out: comma-split keywords and each article:tag into
+   tags, else the first non-blank content of a single-valued social key into its slot.
+   Returns -1 only on the excluded allocation-failure path. */
+static int read_social_visit_meta(th_tree *tree, th_node *meta, read_social *out) {
     Py_ssize_t content = th_node_attr_find(tree, meta, "content", 7);
     if (content < 0 || meta->attrs[content].value == NULL) {
         return 0;
@@ -732,49 +728,108 @@ static int read_tags_from_meta(th_tree *tree, th_node *meta, th_article_tag **it
     const Py_UCS4 *value = meta->attrs[content].value;
     Py_ssize_t value_len = meta->attrs[content].value_len;
     if (read_is_meta(tree, meta, "keywords")) {
-        return read_tags_split(items, count, cap, value, value_len);
+        return read_tags_split(&out->tags, &out->tags_count, &out->tags_cap, value, value_len);
     }
     if (read_is_meta(tree, meta, "article:tag")) {
-        return read_tags_append(items, count, cap, value, value_len);
+        return read_tags_append(&out->tags, &out->tags_count, &out->tags_cap, value, value_len);
+    }
+    for (size_t index = 0; index < sizeof(read_social_keys) / sizeof(read_social_keys[0]); index++) {
+        const read_social_key *entry = &read_social_keys[index];
+        if (!read_is_meta(tree, meta, entry->key)) {
+            continue;
+        }
+        Py_UCS4 **field = (Py_UCS4 **)((char *)out + entry->field_offset);
+        if (*field == NULL) {
+            *field = read_normalize(value, value_len, (Py_ssize_t *)((char *)out + entry->len_offset));
+        }
+        break;
     }
     return 0;
 }
 
-/* Gather every <meta name=keywords> value (comma-split) and every article:tag under
-   root into the tags array, in document order. Returns -1 only on the excluded
+/* Walk the <head> subtree, folding every <meta> into out and taking the first
+   <link rel=canonical> href. The head is where this metadata lives, so scoping the crawl
+   here keeps it independent of body size. Returns -1 only on the excluded
    allocation-failure path. */
-static int read_collect_tags(th_tree *tree, th_node *root, th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap) {
+static int read_walk_social(th_tree *tree, th_node *root, read_social *out) {
     for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (child->ns == TH_NS_HTML && child->atom == TH_TAG_META) {
-            if (read_tags_from_meta(tree, child, items, count, cap) < 0) { /* GCOVR_EXCL_BR_LINE: alloc-failure path */
-                return -1;                                                 /* GCOVR_EXCL_LINE: allocation-failure */
+        if (child->atom == TH_TAG_META) {
+            if (read_social_visit_meta(tree, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                return -1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        } else if (child->atom == TH_TAG_LINK && out->canonical == NULL) {
+            Py_ssize_t rel = th_node_attr_find(tree, child, "rel", 3);
+            if (rel >= 0 && read_rel_has_token(child->attrs[rel].value, child->attrs[rel].value_len, "canonical")) {
+                out->canonical = read_attr_value(tree, child, "href", 4, &out->canonical_len);
             }
         }
-        if (read_collect_tags(tree, child, items, count, cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            return -1;                                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (read_walk_social(tree, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return -1;                                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     return 0;
 }
 
-/* Tags: the keyword and article:tag values harvested by read_collect_tags. On the
-   excluded allocation-failure path the partial run is freed and the field stays
-   empty, the way an absent source reads. */
-static void read_harvest_tags(th_tree *tree, th_node *root, th_article_tag **out, Py_ssize_t *out_count) {
-    *out = NULL;
-    *out_count = 0;
-    Py_ssize_t cap = 0;
-    if (read_collect_tags(tree, root, out, out_count, &cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        for (Py_ssize_t index = 0; index < *out_count; index++) {  /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyMem_Free((*out)[index].data);                        /* GCOVR_EXCL_LINE */
+/* Resolve the gathered sources into meta, each field preferring its primary key and
+   falling back to the secondary, then hand tags over. Buffers the fallback drops are
+   freed. */
+static void read_apply_social(read_social *social, th_article_meta *meta) {
+    if (social->canonical != NULL) {
+        meta->canonical = social->canonical;
+        meta->canonical_len = social->canonical_len;
+        PyMem_Free(social->og_url);
+    } else {
+        meta->canonical = social->og_url;
+        meta->canonical_len = social->og_url_len;
+    }
+    if (social->og_site_name != NULL) {
+        meta->site_name = social->og_site_name;
+        meta->site_name_len = social->og_site_name_len;
+        PyMem_Free(social->app_name);
+    } else {
+        meta->site_name = social->app_name;
+        meta->site_name_len = social->app_name_len;
+    }
+    if (social->og_image != NULL) {
+        meta->image = social->og_image;
+        meta->image_len = social->og_image_len;
+        PyMem_Free(social->twitter_image);
+    } else {
+        meta->image = social->twitter_image;
+        meta->image_len = social->twitter_image_len;
+    }
+    meta->tags = social->tags;
+    meta->tags_count = social->tags_count;
+}
+
+/* Harvest canonical, site_name, tags, and image in one crawl of the <head> subtree. A
+   page with no head (a fragment or hand-built element) has nothing to harvest. On the
+   excluded allocation-failure path every gathered buffer is freed and the fields stay
+   absent, the way an empty head reads. */
+static void read_harvest_social(th_tree *tree, th_node *root, th_article_meta *meta) {
+    uint16_t head_atom = TH_TAG_HEAD;
+    th_node *head = read_find(tree, root, read_is_tag, &head_atom);
+    if (head == NULL) {
+        return;
+    }
+    read_social social = {0};
+    if (read_walk_social(tree, head, &social) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        PyMem_Free(social.canonical);                /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(social.og_url);                   /* GCOVR_EXCL_LINE */
+        PyMem_Free(social.og_site_name);             /* GCOVR_EXCL_LINE */
+        PyMem_Free(social.app_name);                 /* GCOVR_EXCL_LINE */
+        PyMem_Free(social.og_image);                 /* GCOVR_EXCL_LINE */
+        PyMem_Free(social.twitter_image);            /* GCOVR_EXCL_LINE */
+        for (Py_ssize_t index = 0; index < social.tags_count; index++) { /* GCOVR_EXCL_LINE */
+            PyMem_Free(social.tags[index].data);                         /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
-        PyMem_Free(*out); /* GCOVR_EXCL_LINE */
-        *out = NULL;      /* GCOVR_EXCL_LINE */
-        *out_count = 0;   /* GCOVR_EXCL_LINE */
+        PyMem_Free(social.tags); /* GCOVR_EXCL_LINE */
+        return;                  /* GCOVR_EXCL_LINE */
     } /* GCOVR_EXCL_LINE: llvm-cov flags this fall-through brace of the allocation-failure block */
+    read_apply_social(&social, meta);
 }
 
 void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta) {
@@ -788,10 +843,7 @@ void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta) {
     meta->date = read_harvest_date(tree, root, &meta->date_len);
     meta->description = read_harvest_description(tree, root, &meta->description_len);
     meta->lang = read_harvest_lang(tree, root, &meta->lang_len);
-    meta->canonical = read_harvest_canonical(tree, root, &meta->canonical_len);
-    meta->site_name = read_harvest_site_name(tree, root, &meta->site_name_len);
-    meta->image = read_harvest_image(tree, root, &meta->image_len);
-    read_harvest_tags(tree, root, &meta->tags, &meta->tags_count);
+    read_harvest_social(tree, root, meta);
 }
 
 void th_article_meta_clear(th_article_meta *meta) {

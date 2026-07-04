@@ -1,0 +1,3 @@
+Gather the ``canonical``, ``site_name``, ``tags``, and ``image`` fields of :meth:`~turbohtml.Node.article` in a single
+crawl of the ``<head>`` subtree rather than one whole-document walk per field, restoring ``article()`` on a large page
+to its pre-#476 cost.

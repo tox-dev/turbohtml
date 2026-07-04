@@ -659,6 +659,17 @@ def test_article_tags_grow_past_initial_capacity() -> None:
     assert art.tags == tuple(f"t{index}" for index in range(9))
 
 
+def test_article_first_of_duplicate_social_meta_wins() -> None:
+    # the single head walk keeps the first non-blank source, so a repeated key does not win.
+    head = "<meta property=og:site_name content='First'><meta property=og:site_name content='Second'>"
+    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().site_name == "First"
+
+
+def test_article_canonical_keeps_first_link_over_later_ones() -> None:
+    head = "<link rel=canonical href='https://ex.com/a'><link rel=canonical href='https://ex.com/b'>"
+    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().canonical == "https://ex.com/a"
+
+
 def test_article_fields_unpack_in_order() -> None:
     art = parse(f"<html lang=en><body>{BODY}</body></html>").article()
     element, text, title, byline, date, description, lang, canonical, site_name, tags, image = art
