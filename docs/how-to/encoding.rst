@@ -65,4 +65,4 @@ directly. Rank the alternatives with :func:`~turbohtml.detect.detect_all`, const
 
 .. testoutput::
 
-    UTF-8
+    UTF-8-SIG

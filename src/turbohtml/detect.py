@@ -5,8 +5,10 @@ turbohtml.detect: standalone character-encoding detection over bytes.
 are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse`
 uses for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024
 bytes), then the content detector ported from Firefox's `chardetng <https://github.com/hsivonen/chardetng>`__, then
-the spec's windows-1252 fallback. The same input therefore always yields the same encoding whether you detect it
-standalone or parse it with ``detect_encoding=True``.
+the spec's windows-1252 fallback. A non-mark input therefore always yields the same encoding whether you detect it
+standalone or parse it with ``detect_encoding=True``; a byte-order mark is the one divergence, reported here with its
+own label (``UTF-8-SIG`` and the UTF-16/UTF-32 marks) so a caller can strip it, where the spec-locked parse path keeps
+the plain WHATWG name.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
@@ -59,17 +61,22 @@ class EncodingMatch:
     One detection result: ``chardet.detect``'s ``{"encoding", "confidence", "language"}`` dict as a typed record.
 
     ``encoding`` is the WHATWG canonical name (the same string :attr:`turbohtml.Document.encoding` reports), or
-    ``None`` when the input is empty or every candidate was ruled out. ``confidence`` is 1.0 for a certain result (a
-    byte-order mark, a ``<meta>`` declaration, structurally valid UTF-8, escape-driven ISO-2022-JP, or pure ASCII),
-    the candidate's share of the positive frequency scores for a content-scored result, and 0.0 for the windows-1252
-    fallback chosen with no positive evidence. ``language`` names the language the winning frequency model targets
-    (``"Russian"`` for windows-1251, ``"Japanese"`` for Shift_JIS, ...); it is ``None`` for UTF-8, ASCII, and the
-    Latin encodings whose model spans several languages.
+    ``None`` when the input is empty or every candidate was ruled out. A leading byte-order mark reports the mark's own
+    label instead: ``"UTF-8-SIG"`` for a UTF-8 mark (so a caller can decode with the ``utf-8-sig`` codec to strip it),
+    and ``"UTF-16LE"`` / ``"UTF-16BE"`` / ``"UTF-32LE"`` / ``"UTF-32BE"`` for the UTF-16 and UTF-32 marks, which a mark
+    identifies unambiguously with no heuristic. ``confidence`` is 1.0 for a certain result (a byte-order mark, a
+    ``<meta>`` declaration, structurally valid UTF-8, escape-driven ISO-2022-JP, or pure ASCII), the candidate's share
+    of the positive frequency scores for a content-scored result, and 0.0 for the windows-1252 fallback chosen with no
+    positive evidence. ``language`` names the language the winning frequency model targets (``"Russian"`` for
+    windows-1251, ``"Japanese"`` for Shift_JIS, ...); it is ``None`` for UTF-8, ASCII, and the Latin encodings whose
+    model spans several languages. ``bom`` is true only when a byte-order mark decided the result, telling a caller the
+    decoded text still carries the mark unless the codec strips it.
     """
 
     encoding: str | None
     confidence: float
     language: str | None
+    bom: bool = False
 
 
 _NO_MATCH: Final = EncodingMatch(None, 0.0, None)
@@ -118,7 +125,10 @@ def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
 
     :param data: the bytes to sniff; HTML input also honors a ``<meta>`` charset declaration.
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
-    :returns: the best match; its ``encoding`` is ``None`` when the input is empty or every candidate was ruled out.
+    :returns: the best match; its ``encoding`` is ``None`` when the input is empty or every candidate was ruled out. A
+        leading byte-order mark reports its own label (``UTF-8-SIG``, ``UTF-16LE``/``BE``, ``UTF-32LE``/``BE``) with
+        ``bom`` set, so a caller can strip it.
+    :raises TypeError: when ``data`` is not a bytes-like object.
     """
     return _matches(data, options or _DEFAULT)[0]
 
@@ -130,7 +140,9 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
     :param data: the bytes to sniff; HTML input also honors a ``<meta>`` charset declaration.
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
     :returns: the matches best first, :func:`detect`'s result leading; ``[EncodingMatch(None, 0.0, None)]`` when the
-        input is empty or every candidate was ruled out.
+        input is empty or every candidate was ruled out. A leading byte-order mark collapses the ranking to one match
+        carrying its own label and ``bom``.
+    :raises TypeError: when ``data`` is not a bytes-like object.
     """
     return _matches(data, options or _DEFAULT)
 
@@ -172,8 +184,11 @@ class Detector:
         if self.done:
             return
         self._buffer += data
-        if self._buffer.startswith((b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")):
-            self.done = True  # a byte-order mark decides the stream outright, whatever follows
+        head = self._buffer
+        if head.startswith((b"\xef\xbb\xbf", b"\xfe\xff", b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00")):
+            self.done = True  # a fully-resolved byte-order mark decides the stream, whatever follows
+        elif head.startswith(b"\xff\xfe") and len(head) >= 4:
+            self.done = True  # FF FE is UTF-16LE now that the next pair rules out the FF FE 00 00 UTF-32LE mark
 
     def close(self) -> EncodingMatch:
         """Detect over everything fed so far, cache the result, and return it."""
@@ -191,7 +206,7 @@ class Detector:
 
 def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
     """Rank the candidates for ``data``, apply the options, and always return at least the no-match sentinel."""
-    ranked = _candidates(data)
+    ranked, had_bom = _candidates(data)
     if (allowed := options.allowed) is not None:
         permitted = {name.casefold() for name in allowed}
         ranked = [(name, confidence) for name, confidence in ranked if name.casefold() in permitted]
@@ -201,28 +216,30 @@ def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
         preferred = [pair for pair in ranked if pair[1] > 0.0 and _LANGUAGES.get(pair[0].casefold()) == hint]
         ranked = preferred + [pair for pair in ranked if pair not in preferred]
     matches = [
-        EncodingMatch(name, confidence, _LANGUAGES.get(name.casefold()))
+        EncodingMatch(name, confidence, _LANGUAGES.get(name.casefold()), had_bom)
         for name, confidence in ranked
         if confidence >= options.threshold
     ]
     return matches or [_NO_MATCH]
 
 
-def _candidates(data: bytes) -> list[tuple[str, float]]:
+def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
     """
-    Run the C sniff and shape its output into (canonical name, confidence) pairs, best first.
+    Run the C sniff and shape its output into (canonical name, confidence) pairs plus the byte-order-mark flag.
 
-    A certain result (declaration, structural proof, or pure ASCII) is a single pair at confidence 1.0. A scored
-    result normalizes each candidate's raw chardetng score to its share of the positive total, ordered score-descending
-    with the C emission order breaking ties exactly as the engine's strict-max does, and the engine's winner moved to
-    the front so index 0 always matches what ``parse(detect_encoding=True)`` would decode with. Two candidates can
-    share one encoding (the windows-1252 model runs once per language family), so the best-scored entry per name wins.
+    A certain result (a byte-order mark, a declaration, a structural proof, or pure ASCII) is a single pair at
+    confidence 1.0; a mark makes it so and sets the flag, so the flag is only ever true for that lone certain pair. A
+    scored result normalizes each candidate's raw chardetng score to its share of the positive total, ordered
+    score-descending with the C emission order breaking ties exactly as the engine's strict-max does, and the engine's
+    winner moved to the front so index 0 always matches what ``parse(detect_encoding=True)`` would decode with. Two
+    candidates can share one encoding (the windows-1252 model runs once per language family), so the best-scored entry
+    per name wins.
     """
     if not data:
-        return []
-    winner, certain, scored = _detect(data)
+        return [], False
+    winner, certain, scored, bom = _detect(data)
     if certain or winner is None:
-        return [(winner or "ascii", 1.0)]
+        return [(winner or "ascii", 1.0)], bom
     unique: dict[str, int] = {}
     for name, score in sorted(scored, key=lambda pair: -pair[1]):
         unique.setdefault(name, score)
@@ -230,5 +247,5 @@ def _candidates(data: bytes) -> list[tuple[str, float]]:
     ranked = [(name, score / total if score > 0 else 0.0) for name, score in unique.items()]
     at = next((index for index, pair in enumerate(ranked) if pair[0] == winner), None)
     if at is None:  # the windows-1252 fallback won without surviving as a candidate itself
-        return [(winner, 0.0), *ranked]
-    return [ranked[at], *ranked[:at], *ranked[at + 1 :]]
+        return [(winner, 0.0), *ranked], bom
+    return [ranked[at], *ranked[:at], *ranked[at + 1 :]], bom

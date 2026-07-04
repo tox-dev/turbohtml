@@ -18,17 +18,48 @@ def test_pure_ascii_is_certain() -> None:
     assert detect(b"<p>hello world</p>") == EncodingMatch("ascii", 1.0, None)
 
 
+def test_meta_prescan_is_certain_without_a_bom() -> None:
+    assert detect(b"<meta charset=iso-8859-2><p>x</p>") == EncodingMatch("ISO-8859-2", 1.0, None, bom=False)
+
+
 @pytest.mark.parametrize(
     ("raw", "encoding"),
     [
-        pytest.param(b"\xef\xbb\xbfhello", "UTF-8", id="utf-8-bom"),
-        pytest.param(b"\xff\xfeh\x00", "UTF-16LE", id="utf-16le-bom"),
-        pytest.param(b"\xfe\xff\x00h", "UTF-16BE", id="utf-16be-bom"),
-        pytest.param(b"<meta charset=iso-8859-2><p>x</p>", "ISO-8859-2", id="meta-prescan"),
+        pytest.param(b"\xef\xbb\xbfhello", "UTF-8-SIG", id="utf-8-sig"),
+        pytest.param(b"\xff\xfeh\x00", "UTF-16LE", id="utf-16le"),
+        pytest.param(b"\xfe\xff\x00h", "UTF-16BE", id="utf-16be"),
+        pytest.param(b"\xff\xfe\x00\x00h\x00\x00\x00", "UTF-32LE", id="utf-32le"),
+        pytest.param(b"\x00\x00\xfe\xff\x00\x00\x00h", "UTF-32BE", id="utf-32be"),
+        pytest.param(b"\xff\xfe", "UTF-16LE", id="utf-16le-bare-mark"),
     ],
 )
-def test_declarations_are_certain(raw: bytes, encoding: str) -> None:
-    assert detect(raw) == EncodingMatch(encoding, 1.0, None)
+def test_byte_order_mark_reports_its_label_and_flag(raw: bytes, encoding: str) -> None:
+    # a mark identifies the encoding unambiguously: UTF-8 reports UTF-8-SIG so a caller can strip it,
+    # and the UTF-16/UTF-32 marks report their exact label; every marked result carries bom=True
+    assert detect(raw) == EncodingMatch(encoding, 1.0, None, bom=True)
+
+
+def test_bom_precedence_utf_32le_beats_the_utf_16le_prefix() -> None:
+    # FF FE 00 00 is the UTF-32LE mark even though it starts with the UTF-16LE mark FF FE; the four-byte
+    # signature is tested first, and a bare FF FE (no trailing 00 00) stays UTF-16LE
+    assert detect(b"\xff\xfe\x00\x00").encoding == "UTF-32LE"
+    assert detect(b"\xff\xfe\x01\x00").encoding == "UTF-16LE"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(b"\xef\xbb\xbfhello", id="utf-8-bom"),
+        pytest.param(b"\xff\xfe\x00\x00h\x00\x00\x00", id="utf-32le-bom"),
+    ],
+)
+def test_bom_labels_do_not_reach_the_whatwg_parse_path(raw: bytes) -> None:
+    # scope boundary: the standalone detector reports the mark's own label, but parse() keeps the
+    # spec-locked WHATWG name -- a UTF-8 mark stays UTF-8 and FF FE 00 00 stays UTF-16LE
+    standalone = detect(raw).encoding
+    parsed = parse(raw, detect_encoding=True).encoding
+    assert standalone != parsed
+    assert parsed in {"UTF-8", "UTF-16LE"}
 
 
 def test_valid_utf8_is_certain() -> None:
@@ -119,6 +150,15 @@ def test_scored_detection_recovers_encoding_and_language(text: str, source: str,
 )
 def test_agrees_with_parse_detect_encoding(raw: bytes) -> None:
     assert detect(raw).encoding == parse(raw, detect_encoding=True).encoding
+
+
+def test_detect_all_on_a_bom_is_a_single_marked_match() -> None:
+    # a mark is certain, so it collapses the ranking to one entry that carries the bom flag
+    assert detect_all(b"\xef\xbb\xbfhello") == [EncodingMatch("UTF-8-SIG", 1.0, None, bom=True)]
+
+
+def test_scored_result_is_not_marked() -> None:
+    assert detect(_RUSSIAN_1251).bom is False
 
 
 def test_detect_all_leads_with_the_detect_winner() -> None:

@@ -46,7 +46,7 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
 /* Implemented in dom/document.c, next to the parse_bytes sniffing pipeline it
    reuses. _detect runs the encoding sniff (BOM, <meta> prescan, content detection)
    over a byte buffer without parsing; the turbohtml.detect facade shapes its
-   (winner, certain, ranked scores) tuple into EncodingMatch results. METH_O. */
+   (winner, certain, ranked scores, bom) tuple into EncodingMatch results. METH_O. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
 
 /* Implemented in query/css/to_xpath.h (#included into dom/element.c beside the

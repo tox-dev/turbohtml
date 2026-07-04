@@ -776,10 +776,12 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
 
 /* The standalone encoding-detection binding behind turbohtml.detect: run the same
    sniffing pipeline as parse_bytes (BOM, <meta> prescan, then the content detector)
-   without decoding or parsing. Returns (winner, certain, ranked): the winner's
+   without decoding or parsing. Returns (winner, certain, ranked, bom): the winner's
    canonical name or None for pure ASCII, whether it came from a declaration or a
-   structural proof rather than frequency scoring, and every surviving scored
-   candidate as (canonical name, raw score) pairs for the ranked surface. */
+   structural proof rather than frequency scoring, every surviving scored candidate as
+   (canonical name, raw score) pairs, and whether a leading byte-order mark decided it.
+   The BOM step uses th_detect_bom, which reports UTF-8-SIG and the UTF-32 marks the
+   spec-locked parse path does not; the parse path's th_encoding_bom is untouched. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     (void)module;
     Py_buffer view;
@@ -788,16 +790,19 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     }
     const unsigned char *bytes = view.buf;
     Py_ssize_t len = view.len;
-    const th_encoding_entry *entry = NULL;
-    th_encoding_bom(bytes, len, &entry);
-    if (entry == NULL) {
-        entry = th_encoding_prescan(bytes, len);
-    }
-    int certain = entry != NULL;
+    const char *bom = th_detect_bom(bytes, len);
+    const char *winner = bom;
+    int certain = bom != NULL;
     th_detect_scores scores = {.count = 0, .structural = 0};
-    if (entry == NULL) {
-        entry = th_encoding_detect(bytes, len, &scores);
-        certain = scores.structural;
+    if (bom == NULL) {
+        const th_encoding_entry *entry = th_encoding_prescan(bytes, len);
+        if (entry == NULL) {
+            entry = th_encoding_detect(bytes, len, &scores);
+            certain = scores.structural;
+        } else {
+            certain = 1;
+        }
+        winner = entry == NULL ? NULL : entry->canonical;
     }
     PyBuffer_Release(&view);
     PyObject *ranked = PyList_New(scores.count);
@@ -814,7 +819,7 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
         }
         PyList_SET_ITEM(ranked, index, pair);
     }
-    return Py_BuildValue("(zON)", entry == NULL ? NULL : entry->canonical, certain ? Py_True : Py_False, ranked);
+    return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom != NULL ? Py_True : Py_False);
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {

@@ -63,7 +63,7 @@ def test_excluded_promotes_the_runner_up() -> None:
 
 
 def test_excluding_a_certain_result_yields_no_match() -> None:
-    assert detect(b"\xef\xbb\xbfx", Detection(excluded=frozenset({"utf-8"}))) == _NO_MATCH
+    assert detect(b"\xef\xbb\xbfx", Detection(excluded=frozenset({"utf-8-sig"}))) == _NO_MATCH
 
 
 def test_language_hint_prefers_the_matching_model() -> None:
