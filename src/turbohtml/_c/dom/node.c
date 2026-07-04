@@ -1290,14 +1290,19 @@ PyDoc_STRVAR(serialize_doc, "serialize(options=None)\n--\n\n"
                             "Serialize this node and its subtree to a str.\n\n"
                             ":param options: an Html configuration object (formatter, layout, attribute\n"
                             "    ordering, and meta-charset handling), or None for the defaults.\n"
-                            ":returns: the serialized markup.");
+                            ":returns: the serialized markup.\n"
+                            ":raises TypeError: if options is not an Html configuration object.");
 
 PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None)\n--\n\n"
                          "Serialize this node and its subtree to bytes, with the same formatting controls\n"
                          "as serialize().\n\n"
                          ":param encoding: the codec to encode the markup with.\n"
                          ":param options: an Html configuration object, or None for the defaults.\n"
-                         ":returns: the serialized markup encoded as bytes.");
+                         ":returns: the serialized markup encoded as bytes.\n"
+                         ":raises TypeError: if options is not an Html configuration object.\n"
+                         ":raises LookupError: if encoding names a codec Python does not know.\n"
+                         ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
+                         "    represent.");
 
 PyDoc_STRVAR(find_doc,
              "find(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, **filters)\n--\n\n"
@@ -1310,7 +1315,9 @@ PyDoc_STRVAR(find_doc,
              ":param text: match the element's collected text (an exact str, a regex search, or a callable\n"
              "    predicate); filter a literal text attribute through attrs={'text': ...}.\n"
              ":param filters: further attribute filters given as keyword arguments.\n"
-             ":returns: the first matching Element, or None.");
+             ":returns: the first matching Element, or None.\n"
+             ":raises TypeError: if axis is not an Axis, or a filter is not a str, bool, regex,\n"
+             "    callable, or a list of those.");
 
 PyDoc_STRVAR(find_all_doc,
              "find_all(tag=None, /, *, axis=Axis.DESCENDANTS, attrs=None, class_=None, text=None, limit=None, "
@@ -1325,28 +1332,41 @@ PyDoc_STRVAR(find_all_doc,
              "    predicate).\n"
              ":param limit: stop after this many matches; None collects them all.\n"
              ":param filters: further attribute filters given as keyword arguments.\n"
-             ":returns: the matching Elements in document order.");
+             ":returns: the matching Elements in document order.\n"
+             ":raises TypeError: if axis is not an Axis, limit is not an int or None, or a\n"
+             "    filter is not a str, bool, regex, callable, or a list of those.\n"
+             ":raises ValueError: if limit is negative.");
 
 PyDoc_STRVAR(insert_before_doc, "insert_before(*nodes)\n--\n\n"
                                 "Insert each node into this node's parent right before this node, in order. A\n"
                                 "node already in a tree is moved; a node from another tree is adopted by copy.\n\n"
-                                ":param nodes: the nodes to insert.");
+                                ":param nodes: the nodes to insert.\n"
+                                ":raises TypeError: if an argument is not a node, or is a Document.\n"
+                                ":raises ValueError: if this node has no parent, or a node is an ancestor of\n"
+                                "    the insertion point (which would form a cycle).");
 
 PyDoc_STRVAR(insert_after_doc, "insert_after(*nodes)\n--\n\n"
                                "Insert each node into this node's parent right after this node, in order,\n"
                                "with the same move-or-adopt rule as insert_before().\n\n"
-                               ":param nodes: the nodes to insert.");
+                               ":param nodes: the nodes to insert.\n"
+                               ":raises TypeError: if an argument is not a node, or is a Document.\n"
+                               ":raises ValueError: if this node has no parent, or a node is an ancestor of\n"
+                               "    the insertion point (which would form a cycle).");
 
 PyDoc_STRVAR(replace_with_doc, "replace_with(*nodes)\n--\n\n"
                                "Put nodes where this node is, in order, and detach this node, which becomes a\n"
                                "standalone root the caller still holds. With no nodes this just removes this\n"
                                "node.\n\n"
-                               ":param nodes: the nodes to put in this node's place.");
+                               ":param nodes: the nodes to put in this node's place.\n"
+                               ":raises TypeError: if an argument is not a node, or is a Document.\n"
+                               ":raises ValueError: if this node has no parent, or a node is an ancestor of\n"
+                               "    this node (which would form a cycle).");
 
 PyDoc_STRVAR(wrap_doc, "wrap(wrapper, /)\n--\n\n"
                        "Put this node inside wrapper, in this node's place.\n\n"
                        ":param wrapper: the element to wrap this node in.\n"
-                       ":returns: wrapper, now holding this node.");
+                       ":returns: wrapper, now holding this node.\n"
+                       ":raises TypeError: if wrapper is not an element.");
 
 PyDoc_STRVAR(wrap_siblings_doc, "wrap_siblings(wrapper, /, *, until=None)\n--\n\n"
                                 "Wrap this node and the siblings that follow it in wrapper in one move; the\n"
@@ -1354,11 +1374,15 @@ PyDoc_STRVAR(wrap_siblings_doc, "wrap_siblings(wrapper, /, *, until=None)\n--\n\
                                 ":param wrapper: the element to wrap the run in.\n"
                                 ":param until: the last sibling to include (this node or a later one);\n"
                                 "    None reaches to the last sibling.\n"
-                                ":returns: wrapper, now holding the run.");
+                                ":returns: wrapper, now holding the run.\n"
+                                ":raises TypeError: if wrapper is not an element, or until is not a node.\n"
+                                ":raises ValueError: if this node has no parent, or until is not this node or\n"
+                                "    a following sibling.");
 
 PyDoc_STRVAR(unwrap_doc, "unwrap()\n--\n\n"
                          "Replace this node with its children, the inverse of wrap().\n\n"
-                         ":returns: this node, detached.");
+                         ":returns: this node, detached.\n"
+                         ":raises ValueError: if this node has no parent.");
 
 PyDoc_STRVAR(extract_doc, "extract()\n--\n\n"
                           "Detach this node from its parent, leaving a standalone node the caller can\n"

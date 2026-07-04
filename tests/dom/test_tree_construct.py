@@ -122,11 +122,19 @@ def test_element_attribute_name_is_lowercased() -> None:
         pytest.param("a/b", id="slash"),
         pytest.param("a>b", id="gt"),
         pytest.param("a<b", id="lt"),
+        pytest.param("a=b", id="eq"),
+        pytest.param('a"b', id="dquote"),
+        pytest.param("a'b", id="squote"),
     ],
 )
 def test_element_tag_is_rejected(tag: str) -> None:
     with pytest.raises(ValueError, match=r"empty|invalid character"):
         Element(tag)
+
+
+def test_element_tag_must_be_a_str() -> None:
+    with pytest.raises(TypeError, match="tag must be a str, not int"):
+        Element(5)  # ty: ignore[invalid-argument-type]  # tag must be a str
 
 
 @pytest.mark.parametrize(

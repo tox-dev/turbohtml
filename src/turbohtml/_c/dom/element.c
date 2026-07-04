@@ -2608,6 +2608,8 @@ PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and 
                           ":param attrs: initial attributes; a list value sets a token-list attribute and\n"
                           "    None a valueless one.\n"
                           ":param children: initial child nodes, appended in order.\n"
+                          ":raises TypeError: if tag or an attribute name is not a str, an attribute value\n"
+                          "    is not a str, a list of str, or None, or a child is not a node.\n"
                           ":raises ValueError: if the tag or an attribute name carries a character HTML\n"
                           "    forbids there, or if children are given for a void element.");
 
@@ -2636,18 +2638,29 @@ static PyObject *element_insert_adjacent_html(PyObject *self, PyObject *args);
 PyDoc_STRVAR(append_doc, "append(child, /)\n--\n\n"
                          "Add child as the last child of this element. A node already in a tree is\n"
                          "moved; a node from another tree is adopted by copy.\n\n"
-                         ":param child: the node to append.");
+                         ":param child: the node to append.\n"
+                         ":raises TypeError: if child is not a node, or is a Document.\n"
+                         ":raises ValueError: if child is an ancestor of this element (which would form a\n"
+                         "    cycle).");
 
 PyDoc_STRVAR(extend_doc, "extend(children, /)\n--\n\n"
                          "Append every node from the iterable in order, each one moved or adopted\n"
                          "like append().\n\n"
-                         ":param children: the nodes to append.");
+                         ":param children: the nodes to append.\n"
+                         ":raises TypeError: if children is not iterable, or a member is not a node or is\n"
+                         "    a Document.\n"
+                         ":raises ValueError: if a member is an ancestor of this element (which would form\n"
+                         "    a cycle).");
 
 PyDoc_STRVAR(insert_doc, "insert(index, child, /)\n--\n\n"
                          "Insert child among this element's children, counted and clamped like\n"
                          "list.insert.\n\n"
                          ":param index: position among the existing children.\n"
-                         ":param child: the node to insert.");
+                         ":param child: the node to insert.\n"
+                         ":raises TypeError: if index is not an int, or child is not a node or is a\n"
+                         "    Document.\n"
+                         ":raises ValueError: if child is an ancestor of this element (which would form a\n"
+                         "    cycle).");
 
 PyDoc_STRVAR(clear_doc, "clear()\n--\n\n"
                         "Detach every child of this element, leaving it empty.");
@@ -2661,7 +2674,8 @@ PyDoc_STRVAR(wrap_children_doc, "wrap_children(wrapper, /)\n--\n\n"
                                 "and return it. The bulk form of wrap() for a container's whole content; an\n"
                                 "empty element gains an empty wrapper.\n\n"
                                 ":param wrapper: the element to move the children into.\n"
-                                ":returns: wrapper, now holding the moved children.");
+                                ":returns: wrapper, now holding the moved children.\n"
+                                ":raises TypeError: if wrapper is not an element.");
 
 /* --- classList: the space-separated class token set ------------------------ */
 
@@ -2819,7 +2833,9 @@ static PyObject *class_mutate(PyObject *self, PyObject *arg, enum class_op op) {
 PyDoc_STRVAR(add_class_doc, "add_class(name, /)\n--\n\n"
                             "Add name to this element's class tokens when absent and return the element.\n"
                             "Existing tokens keep their order; on a change the class value is rewritten\n"
-                            "with single-space separators.");
+                            "with single-space separators.\n\n"
+                            ":raises TypeError: if name is not a str.\n"
+                            ":raises ValueError: if name is empty or contains whitespace.");
 
 static PyObject *element_add_class(PyObject *self, PyObject *arg) {
     return class_mutate(self, arg, CLASS_ADD);
@@ -2827,7 +2843,9 @@ static PyObject *element_add_class(PyObject *self, PyObject *arg) {
 
 PyDoc_STRVAR(remove_class_doc, "remove_class(name, /)\n--\n\n"
                                "Remove every occurrence of name from this element's class tokens and return\n"
-                               "the element. Removing the last token leaves an empty class attribute.");
+                               "the element. Removing the last token leaves an empty class attribute.\n\n"
+                               ":raises TypeError: if name is not a str.\n"
+                               ":raises ValueError: if name is empty or contains whitespace.");
 
 static PyObject *element_remove_class(PyObject *self, PyObject *arg) {
     return class_mutate(self, arg, CLASS_REMOVE);
@@ -2835,7 +2853,9 @@ static PyObject *element_remove_class(PyObject *self, PyObject *arg) {
 
 PyDoc_STRVAR(toggle_class_doc, "toggle_class(name, /)\n--\n\n"
                                "Remove name from this element's class tokens when present, add it when\n"
-                               "absent, and return the element.");
+                               "absent, and return the element.\n\n"
+                               ":raises TypeError: if name is not a str.\n"
+                               ":raises ValueError: if name is empty or contains whitespace.");
 
 static PyObject *element_toggle_class(PyObject *self, PyObject *arg) {
     return class_mutate(self, arg, CLASS_TOGGLE);
@@ -2845,12 +2865,14 @@ PyDoc_STRVAR(set_inner_html_doc, "set_inner_html(html, /)\n--\n\n"
                                  "Replace this element's children with the nodes parsed from html, a fragment\n"
                                  "parsed in this element's own context (the DOM innerHTML= setter). The\n"
                                  "string is run through the same HTML parser as parse(), so malformed markup\n"
-                                 "is repaired the same way.");
+                                 "is repaired the same way.\n\n"
+                                 ":raises TypeError: if html is not a str.");
 
 PyDoc_STRVAR(set_text_doc, "set_text(text, /)\n--\n\n"
                            "Replace this element's children with a single Text node holding text\n"
                            "verbatim (the DOM textContent= setter). text is never parsed, so any markup\n"
-                           "in it is escaped on serialization. The Element.text= setter is equivalent.");
+                           "in it is escaped on serialization. The Element.text= setter is equivalent.\n\n"
+                           ":raises TypeError: if text is not a str.");
 
 PyDoc_STRVAR(insert_adjacent_html_doc, "insert_adjacent_html(position, html, /)\n--\n\n"
                                        "Parse html as a fragment and insert it relative to this element at position,\n"
@@ -2858,7 +2880,10 @@ PyDoc_STRVAR(insert_adjacent_html_doc, "insert_adjacent_html(position, html, /)\
                                        "insertAdjacentHTML, matched case-insensitively). 'beforebegin' and 'afterend'\n"
                                        "place the nodes among this element's siblings, so they require an element\n"
                                        "parent; 'afterbegin' and 'beforeend' add them as the first or last children.\n"
-                                       "The fragment parses in the context of the element that will hold it.");
+                                       "The fragment parses in the context of the element that will hold it.\n\n"
+                                       ":raises TypeError: if position or html is not a str.\n"
+                                       ":raises ValueError: if position is not one of the four keywords, or a\n"
+                                       "    sibling-relative position is used on a node without an element parent.");
 
 /* ---- css_path() / xpath_path(): the unique locator for a node ---- */
 
@@ -3212,8 +3237,10 @@ static int validate_name(PyObject *name, int is_attr) {
     const void *data = PyUnicode_DATA(name);
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
-        int bad = character <= ' ' || character == '/' || character == '>' || character == '<' ||
-                  (is_attr && (character == '=' || character == '"' || character == '\''));
+        /* =, ", and ' break a tag name's serialization just as they do an attribute
+           name's, so both reject them (a tag <a"b> would round-trip as malformed markup) */
+        int bad = character <= ' ' || character == '/' || character == '>' || character == '<' || character == '=' ||
+                  character == '"' || character == '\'';
         if (bad) {
             PyObject *ch = PyUnicode_FromOrdinal((int)character);
             if (ch != NULL) { /* GCOVR_EXCL_BR_LINE: a forbidden character is ASCII and always builds */
@@ -3382,7 +3409,11 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     PyObject *tag;
     PyObject *attrs = NULL;
     PyObject *children = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U|OO", keywords, &tag, &attrs, &children)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO", keywords, &tag, &attrs, &children)) {
+        return NULL;
+    }
+    if (!PyUnicode_Check(tag)) {
+        PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(tag)->tp_name);
         return NULL;
     }
     if (validate_name(tag, 0) < 0) {

@@ -171,6 +171,10 @@ void th_node_normalize(th_tree *tree, th_node *root);
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
                                 Py_ssize_t context_len, int positions);
 
+/* Whether context names a real element the public parse_fragment() accepts: a known
+   HTML tag, or any explicitly namespaced (svg/math) foreign element. */
+int th_tree_fragment_context_known(const char *context, Py_ssize_t context_len);
+
 void th_tree_free(th_tree *tree);
 
 /* --- streaming (push) parse --- */

@@ -293,6 +293,21 @@ def test_streaming_crlf_across_feeds() -> None:
     assert [token.data for token in tokenizer.close()] == ["a\nb"]
 
 
+def test_feed_after_close_is_rejected() -> None:
+    tokenizer = Tokenizer()
+    list(tokenizer.feed("<p>"))
+    list(tokenizer.close())
+    with pytest.raises(ValueError, match="closed Tokenizer"):
+        tokenizer.feed("<b>")
+
+
+def test_reset_reopens_a_closed_tokenizer() -> None:
+    tokenizer = Tokenizer()
+    list(tokenizer.close())
+    tokenizer.reset()
+    assert [token.type for token in tokenizer.feed("<b>")] == [TokenType.START_TAG]
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

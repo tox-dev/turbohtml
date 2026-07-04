@@ -1,3 +1,12 @@
 :meth:`~turbohtml.Node.xpath` now raises a :exc:`ValueError` naming an unknown function, a :exc:`TypeError` when a query
 puts a value where the grammar requires a node-set, and a parse error that carries the offending token and its source
 offset, in place of the previous ``NotImplementedError``.
+
+More failure paths across the public API now raise a precise, actionable error instead of silently returning the wrong
+result or leaking a low-level type. :func:`~turbohtml.parse_fragment` rejects an unknown context tag with a
+:exc:`ValueError` rather than parsing under a garbage root; :func:`~turbohtml.parse` raises :exc:`LookupError` on an
+unknown ``encoding`` label instead of falling back to windows-1252, matching :meth:`~turbohtml.Node.encode`;
+:class:`~turbohtml.Element` reports a non-``str`` tag as ``TypeError: tag must be a str`` and rejects ``=``, ``"``, and
+``'`` in a tag name; :meth:`~turbohtml.Node.find_all` rejects a negative ``limit`` with a :exc:`ValueError`; and feeding
+a closed :class:`~turbohtml.Tokenizer` raises a :exc:`ValueError` instead of quietly resuming. Every public callable's
+docstring now documents the exceptions it raises with a ``:raises:`` block.

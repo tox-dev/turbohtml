@@ -18,6 +18,7 @@
 typedef struct {
     PyObject_HEAD th_tokenizer *sm;
     PyObject *source; /* borrowed-input owner for one-shot tokenize(), else NULL */
+    int closed;       /* set by close()/__exit__; feed() after it is an error until reset() */
 } TokenizerObject;
 
 typedef struct {
@@ -160,6 +161,7 @@ static PyObject *tokenizer_new(PyTypeObject *type, PyObject *args, PyObject *kwd
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     self->source = NULL;
+    self->closed = 0;
     self->sm = th_tok_new();
     if (self->sm == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(self);         /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -198,9 +200,15 @@ PyDoc_STRVAR(tokenizer_feed_doc, "feed(data)\n--\n\n"
                                  "Append a chunk of markup. Text before an unfinished tag stays buffered until\n"
                                  "more is fed or close() is called.\n\n"
                                  ":param data: the next chunk of markup.\n"
-                                 ":returns: an iterator over the tokens that are now complete.");
+                                 ":returns: an iterator over the tokens that are now complete.\n"
+                                 ":raises TypeError: if data is not a str.\n"
+                                 ":raises ValueError: if the tokenizer is closed; call reset() to reuse it.");
 
 static PyObject *tokenizer_feed(PyObject *self, PyObject *data) {
+    if (((TokenizerObject *)self)->closed) {
+        PyErr_SetString(PyExc_ValueError, "cannot feed a closed Tokenizer; call reset() to reuse it");
+        return NULL;
+    }
     th_tokenizer *sm = ((TokenizerObject *)self)->sm;
     int rc;
     Py_BEGIN_CRITICAL_SECTION(self); /* th_tok_feed mutates the shared state machine */
@@ -220,6 +228,7 @@ static PyObject *tokenizer_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_tokenizer *sm = ((TokenizerObject *)self)->sm;
     Py_BEGIN_CRITICAL_SECTION(self); /* th_tok_close mutates the shared state machine */
     th_tok_close(sm);
+    ((TokenizerObject *)self)->closed = 1;
     Py_END_CRITICAL_SECTION();
     return iter_new(state_of(self), self);
 }
@@ -230,6 +239,7 @@ PyDoc_STRVAR(tokenizer_reset_doc, "reset()\n--\n\n"
 static PyObject *tokenizer_reset(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_BEGIN_CRITICAL_SECTION(self); /* th_tok_reset mutates the shared state machine */
     th_tok_reset(((TokenizerObject *)self)->sm);
+    ((TokenizerObject *)self)->closed = 0;
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
 }
@@ -247,6 +257,7 @@ PyDoc_STRVAR(tokenizer_exit_doc, "__exit__(*exc)\n--\n\n"
 static PyObject *tokenizer_exit(PyObject *self, PyObject *Py_UNUSED(args)) {
     Py_BEGIN_CRITICAL_SECTION(self); /* th_tok_close mutates the shared state machine */
     th_tok_close(((TokenizerObject *)self)->sm);
+    ((TokenizerObject *)self)->closed = 1;
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
 }

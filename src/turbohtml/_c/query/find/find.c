@@ -483,6 +483,10 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
                 if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: an overflowing limit cannot be forced from a test */
                     return -1;          /* GCOVR_EXCL_LINE: overflow path */
                 }
+                if (query->limit < 0) {
+                    PyErr_Format(PyExc_ValueError, "limit must be non-negative, not %R", value);
+                    return -1;
+                }
             } else {
                 PyErr_SetString(PyExc_TypeError, "limit must be an int or None");
                 return -1;

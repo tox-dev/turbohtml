@@ -15,13 +15,15 @@ PyDoc_STRVAR(escape_doc, "escape(s, quote=True)\n--\n\n"
                          ":param s: text to escape.\n"
                          ":param quote: also translate the double (\") and single (') quotation marks,\n"
                          "    so the result is safe inside an attribute value.\n"
-                         ":returns: the escaped text.");
+                         ":returns: the escaped text.\n"
+                         ":raises TypeError: if s is not a str.");
 
 PyDoc_STRVAR(unescape_doc, "unescape(s, /)\n--\n\n"
                            "Convert all named and numeric character references in s to the\n"
                            "corresponding Unicode characters, following the HTML5 rules.\n\n"
                            ":param s: text containing character references.\n"
-                           ":returns: the text with every reference resolved.");
+                           ":returns: the text with every reference resolved.\n"
+                           ":raises TypeError: if s is not a str.");
 
 PyDoc_STRVAR(markup_escape_doc, "escape(s, /)\n--\n\n"
                                 "Replace &, <, >, ', and \" with HTML-safe sequences and return a Markup.\n\n"
@@ -49,7 +51,8 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            "    run; when False each one becomes its own CHARACTER_REFERENCE token.\n"
                            ":param capture_source: record each markup token's verbatim source on\n"
                            "    Token.source.\n"
-                           ":returns: an iterator of Token objects in document order.");
+                           ":returns: an iterator of Token objects in document order.\n"
+                           ":raises TypeError: if s is not a str.");
 
 PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True)\n--\n\n"
                         "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
@@ -64,7 +67,11 @@ PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_en
                         "    used only when the spec's encoding steps yield nothing.\n"
                         ":param positions: record each element's source_line/source_col; pass False to\n"
                         "    skip it when memory or speed matters more than source locations.\n"
-                        ":returns: the parsed Document.");
+                        ":returns: the parsed Document.\n"
+                        ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
+                        ":raises LookupError: if encoding names a codec Python does not know.\n"
+                        ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
+                        "    its error attribute carries the ParseError (code, line, col).");
 
 PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True)\n--\n\n"
                                  "Parse an HTML fragment as the innerHTML of a context element.\n\n"
@@ -73,7 +80,9 @@ PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positio
                                  "    (e.g. 'td', 'svg path').\n"
                                  ":param positions: record each element's source_line/source_col; pass\n"
                                  "    False to skip it.\n"
-                                 ":returns: the context Element with the parsed nodes as its children.");
+                                 ":returns: the context Element with the parsed nodes as its children.\n"
+                                 ":raises TypeError: if html or context is not a str.\n"
+                                 ":raises ValueError: if context is not a known element tag.");
 
 PyDoc_STRVAR(annotation_surface_doc, "annotation_surface(text, spans, /)\n--\n\n"
                                      "Group the annotated substrings by label, the inscriptis surface-form\n"

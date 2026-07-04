@@ -51,6 +51,7 @@ class Markdown:
     :param convert: the only tags to render as Markdown, every other tag dropped to text; mutually exclusive with
         ``strip``.
     :param converters: per-tag overrides, each a callable receiving the element and its rendered child Markdown.
+    :raises ValueError: if both ``strip`` and ``convert`` are given, since they are mutually exclusive.
     """
 
     @dataclass(frozen=True)

@@ -666,8 +666,18 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     Py_ssize_t len = view.len;
     const th_encoding_entry *entry = NULL;
     Py_ssize_t skip = th_encoding_bom(bytes, len, &entry);
-    if (entry == NULL && enc_arg != NULL) {
-        entry = th_encoding_lookup(enc_arg, enc_len);
+    if (enc_arg != NULL) {
+        /* validate the label even when a BOM already won, so a bogus encoding is an
+           error rather than a silent fallback, matching Document.encode's LookupError */
+        const th_encoding_entry *labeled = th_encoding_lookup(enc_arg, enc_len);
+        if (labeled == NULL) {
+            PyBuffer_Release(&view);
+            PyErr_Format(PyExc_LookupError, "unknown encoding: %s", enc_arg);
+            return NULL;
+        }
+        if (entry == NULL) {
+            entry = labeled;
+        }
     }
     if (entry == NULL) {
         entry = th_encoding_prescan(bytes, len);
@@ -819,6 +829,12 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
         if (context == NULL) { /* a lone-surrogate context has no UTF-8 form */
             return NULL;
         }
+        if (!th_tree_fragment_context_known(context, context_len)) {
+            PyErr_Format(PyExc_ValueError,
+                         "context must be a known element tag (optionally namespaced, e.g. 'svg path'), not %R",
+                         context_obj);
+            return NULL;
+        }
     }
     th_tree *tree = th_tree_parse_fragment(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text),
                                            context, context_len, positions);
@@ -936,7 +952,11 @@ PyDoc_STRVAR(stream_feed_doc, "feed(data)\n--\n\n"
                               "Raises ValueError once the parser is closed.\n\n"
                               ":param data: str (fed as code points) or a bytes-like object decoded with\n"
                               "    the parser's encoding, an incomplete trailing multi-byte sequence held\n"
-                              "    back until the next chunk.");
+                              "    back until the next chunk.\n"
+                              ":raises TypeError: if data is neither a str nor a bytes-like object.\n"
+                              ":raises ValueError: if the parser is already closed.\n"
+                              ":raises LookupError: if the parser's encoding names a codec Python does not\n"
+                              "    know (raised on the first bytes chunk).");
 
 static PyObject *stream_feed(PyObject *self, PyObject *data) {
     PyObject *result;

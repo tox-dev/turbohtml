@@ -3650,6 +3650,26 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
     return tree;
 }
 
+/* Whether a public parse_fragment() context names a real element. A bare name must
+   intern to a known HTML atom: an unknown one (a typo like "zzz") would otherwise
+   parse in "in body" mode under a garbage root, silently yielding the wrong tree.
+   An explicitly namespaced foreign context (svg/math) is always accepted, since
+   those element registries are open-ended. */
+int th_tree_fragment_context_known(const char *context, Py_ssize_t context_len) {
+    if ((context_len > 4 && memcmp(context, "svg ", 4) == 0) || (context_len > 5 && memcmp(context, "math ", 5) == 0)) {
+        return 1;
+    }
+    char lower[MAX_CONTEXT_NAME];
+    Py_ssize_t lower_len = context_len < (Py_ssize_t)sizeof(lower) ? context_len : (Py_ssize_t)sizeof(lower);
+    for (Py_ssize_t index = 0; index < lower_len; index++) {
+        char character = context[index];
+        lower[index] = character >= 'A' && character <= 'Z' ? (char)(character + 32) : character;
+    }
+    th_buf ctx_name = {lower, lower_len, 0, PyUnicode_1BYTE_KIND};
+    uint8_t ctx_flags;
+    return intern_atom(&ctx_name, &ctx_flags) != TH_TAG_UNKNOWN;
+}
+
 void th_tree_free(th_tree *tree) {
     arena_block *block = tree->arena;
     while (block != NULL) {

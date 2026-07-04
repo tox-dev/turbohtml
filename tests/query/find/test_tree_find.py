@@ -251,11 +251,15 @@ def test_axis_preceding_excludes_ancestors() -> None:
         pytest.param(None, 2, id="none"),
         pytest.param(1, 1, id="one"),
         pytest.param(0, 0, id="zero"),
-        pytest.param(-1, 2, id="negative-is-unlimited"),
     ],
 )
 def test_limit(limit: int | None, count: int) -> None:
     assert len(parse(_DOC).find_all("p", limit=limit)) == count
+
+
+def test_negative_limit_is_rejected() -> None:
+    with pytest.raises(ValueError, match="limit must be non-negative"):
+        parse(_DOC).find_all("p", limit=-1)
 
 
 def test_limit_on_the_general_path() -> None:

@@ -71,6 +71,30 @@ def test_parse_fragment_context_with_lone_surrogate_is_rejected() -> None:
 
 
 @pytest.mark.parametrize(
+    "context",
+    ["zzznotatag", "my-widget", "z" * 40],
+    ids=["typo", "custom-element", "overlong"],
+)
+def test_parse_fragment_rejects_unknown_context(context: str) -> None:
+    # an unknown context would silently parse in "in body" mode under a garbage root
+    with pytest.raises(ValueError, match="context must be a known element tag"):
+        parse_fragment("<p>", context)
+
+
+@pytest.mark.parametrize(
+    ("context", "tag"),
+    [
+        pytest.param("svg circle", "circle", id="svg-open-registry"),
+        pytest.param("math mrow", "mrow", id="math-open-registry"),
+        pytest.param("TABLE", "table", id="uppercase-known-tag"),
+    ],
+)
+def test_parse_fragment_accepts_context(context: str, tag: str) -> None:
+    # a namespaced foreign registry is open-ended; a known tag matches case-insensitively
+    assert parse_fragment("<p/>", context).tag == tag
+
+
+@pytest.mark.parametrize(
     ("html", "context", "tag", "child_tags", "text"),
     [
         pytest.param("<td>a<td>b", "tr", "tr", ["td", "td"], "ab", id="table-row-context"),

@@ -46,15 +46,32 @@ def test_bom_is_detected_and_stripped(data: bytes, encoding: str) -> None:
         pytest.param(b"\xef\xbb\xbf<p>x", "iso-8859-2", "UTF-8", id="bom-overrides-argument"),
         # the argument outranks a <meta>; a <meta> is used only without an argument
         pytest.param(b'<meta charset="utf-8"><p>x', "iso-8859-2", "ISO-8859-2", id="argument-outranks-meta"),
-        pytest.param(b"<p>x", "not-a-real-encoding", "windows-1252", id="unknown-label-falls-through"),
         pytest.param(b"<p>x", "  ISO-8859-2  ", "ISO-8859-2", id="whitespace-and-case-insensitive"),
-        pytest.param(b"<p>x", "", "windows-1252", id="empty-label"),
-        pytest.param(b"<p>x", "   ", "windows-1252", id="whitespace-label"),
-        pytest.param(b"<p>x", "x" * 80, "windows-1252", id="overlong-label"),
     ],
 )
 def test_encoding_argument(data: bytes, encoding_arg: str, expected: str) -> None:
     assert parse(data, encoding=encoding_arg).encoding == expected
+
+
+@pytest.mark.parametrize(
+    "encoding_arg",
+    [
+        pytest.param("not-a-real-encoding", id="unknown-label"),
+        pytest.param("", id="empty-label"),
+        pytest.param("   ", id="whitespace-label"),
+        pytest.param("x" * 80, id="overlong-label"),
+    ],
+)
+def test_unknown_encoding_argument_raises(encoding_arg: str) -> None:
+    # an unknown label is an error, not a silent windows-1252 fallback, matching Document.encode
+    with pytest.raises(LookupError, match="unknown encoding"):
+        parse(b"<p>x", encoding=encoding_arg)
+
+
+def test_unknown_encoding_argument_raises_even_with_bom() -> None:
+    # the label is validated before a BOM can win, so a bogus one is never silently ignored
+    with pytest.raises(LookupError, match="unknown encoding"):
+        parse(b"\xef\xbb\xbf<p>x", encoding="not-a-real-encoding")
 
 
 @pytest.mark.parametrize(
