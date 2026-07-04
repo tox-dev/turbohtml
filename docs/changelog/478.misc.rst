@@ -1,0 +1,4 @@
+Split the ~1640-line ``run_drain`` tree-construction driver into one handler per insertion mode, reading top to bottom
+in call order, and settle the C house style: drop the section-divider banner comments the audit found in a minority of
+files, rename the single-letter locals ``markdown.c`` had drifted to, and record the conventions in a repository
+``HOUSE_STYLE.md``. Parser output is byte-identical; this is structure only. Part of #478.
