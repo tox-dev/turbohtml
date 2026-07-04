@@ -7,13 +7,20 @@ turbohtml uses one name per concept and a typed shape where those libraries spre
 treebuilder choices. This page maps each library to turbohtml; `BeautifulSoup
 <https://www.crummy.com/software/BeautifulSoup/>`_ gets the deepest treatment because it shares the most surface.
 
-The guides are grouped by task so you can jump to the job you are porting; within each group, and across the sidebar as
-a whole, they are ordered by adoption, most to least monthly PyPI downloads, so the libraries you are most likely to
-port from come first. The all-time totals and each library's documentation sit alongside for context.
+The guides are grouped by the turbohtml namespace that replaces each library -- parse & DOM, detect, query, clean,
+convert, extract, build, serialize, the same order the :doc:`/reference` and :doc:`/how-to/index` use -- so a library
+that spans namespaces sits under the one it maps to most directly. Within each group they are ordered by adoption, most
+to least monthly PyPI downloads, from the pepy.tech badge on each row; where two libraries share a download tier the
+order follows that tier rather than a precise count. The all-time totals and each library's documentation sit alongside
+for context.
 
-***************
- Parsing & DOM
-***************
+*************
+ Parse & DOM
+*************
+
+These libraries parse HTML into a document tree. :func:`turbohtml.parse` builds the tree a browser would, so malformed
+input recovers the WHATWG way, and every node shares the navigation, query, and mutation surface in
+:doc:`/reference/nodes`.
 
 .. list-table::
     :header-rows: 1
@@ -93,9 +100,9 @@ port from come first. The all-time totals and each library's documentation sit a
       - Bundled with Python
       - --
 
-********************
- Encoding detection
-********************
+********
+ Detect
+********
 
 :func:`turbohtml.detect.detect` sniffs the character encoding of raw bytes with the same C pipeline
 :func:`turbohtml.parse` runs -- the WHATWG sniff, then Firefox's chardetng scoring -- so it answers what these libraries
@@ -120,7 +127,7 @@ answer, with the result a browser would pick.
             :alt: charset-normalizer total downloads
             :target: https://pepy.tech/project/charset-normalizer
     - - 2
-      - :doc:`chardet <chardet>` (also covers ``cchardet``)
+      - :doc:`chardet <chardet>`
       - `docs <https://chardet.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/chardet/month
             :alt: chardet monthly downloads
@@ -129,9 +136,13 @@ answer, with the result a browser would pick.
             :alt: chardet total downloads
             :target: https://pepy.tech/project/chardet
 
-*********************
- Query — CSS & XPath
-*********************
+*******
+ Query
+*******
+
+These libraries select nodes with CSS or XPath. turbohtml matches CSS selectors with :meth:`turbohtml.Node.select`,
+evaluates XPath 1.0 with :meth:`turbohtml.Node.xpath`, and exposes a soupsieve-shaped matching surface in
+:doc:`/reference/match`.
 
 .. list-table::
     :header-rows: 1
@@ -152,15 +163,6 @@ answer, with the result a browser would pick.
             :alt: soupsieve total downloads
             :target: https://pepy.tech/project/soupsieve
     - - 2
-      - :doc:`cssselect <cssselect>`
-      - `docs <https://cssselect.readthedocs.io/>`__
-      - .. image:: https://static.pepy.tech/badge/cssselect/month
-            :alt: cssselect monthly downloads
-            :target: https://pepy.tech/project/cssselect
-      - .. image:: https://static.pepy.tech/badge/cssselect
-            :alt: cssselect total downloads
-            :target: https://pepy.tech/project/cssselect
-    - - 3
       - :doc:`parsel <parsel>`
       - `docs <https://parsel.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/parsel/month
@@ -169,7 +171,7 @@ answer, with the result a browser would pick.
       - .. image:: https://static.pepy.tech/badge/parsel
             :alt: parsel total downloads
             :target: https://pepy.tech/project/parsel
-    - - 4
+    - - 3
       - :doc:`pyquery <pyquery>`
       - `docs <https://pyquery.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/pyquery/month
@@ -179,9 +181,13 @@ answer, with the result a browser would pick.
             :alt: pyquery total downloads
             :target: https://pepy.tech/project/pyquery
 
-******************
- Clean & sanitize
-******************
+*******
+ Clean
+*******
+
+These libraries scrub, sanitize, or shrink markup. :mod:`turbohtml.clean` sanitizes against an allowlist, autolinks bare
+URLs, and minifies HTML with :func:`~turbohtml.clean.minify`, CSS with :func:`~turbohtml.clean.minify_css`, and
+JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
 
 .. list-table::
     :header-rows: 1
@@ -229,51 +235,6 @@ answer, with the result a browser would pick.
             :alt: lxml_html_clean total downloads
             :target: https://pepy.tech/project/lxml_html_clean
     - - 5
-      - :doc:`minify-html <minify-html>`
-      - `docs <https://github.com/wilsonzlin/minify-html>`__
-      - .. image:: https://static.pepy.tech/badge/minify-html/month
-            :alt: minify-html monthly downloads
-            :target: https://pepy.tech/project/minify-html
-      - .. image:: https://static.pepy.tech/badge/minify-html
-            :alt: minify-html total downloads
-            :target: https://pepy.tech/project/minify-html
-    - - 6
-      - :doc:`htmlmin <htmlmin>`
-      - `docs <https://htmlmin.readthedocs.io/>`__
-      - .. image:: https://static.pepy.tech/badge/htmlmin/month
-            :alt: htmlmin monthly downloads
-            :target: https://pepy.tech/project/htmlmin
-      - .. image:: https://static.pepy.tech/badge/htmlmin
-            :alt: htmlmin total downloads
-            :target: https://pepy.tech/project/htmlmin
-    - - 7
-      - :doc:`html-sanitizer <html-sanitizer>`
-      - `docs <https://github.com/matthiask/html-sanitizer>`__
-      - .. image:: https://static.pepy.tech/badge/html-sanitizer/month
-            :alt: html-sanitizer monthly downloads
-            :target: https://pepy.tech/project/html-sanitizer
-      - .. image:: https://static.pepy.tech/badge/html-sanitizer
-            :alt: html-sanitizer total downloads
-            :target: https://pepy.tech/project/html-sanitizer
-
-******************
- CSS minification
-******************
-
-:func:`turbohtml.clean.minify_css` is a value-safe CSS minifier -- it rewrites every value to its shortest equivalent
-form, so the output is the smallest of any round-trip-safe minifier (the :doc:`performance </development/performance>`
-page benchmarks all of them).
-
-.. list-table::
-    :header-rows: 1
-    :widths: auto
-
-    - - #
-      - Library
-      - Docs
-      - Monthly downloads
-      - Total downloads
-    - - 1
       - :doc:`rcssmin <rcssmin>`
       - `docs <https://opensource.perlig.de/rcssmin/>`__
       - .. image:: https://static.pepy.tech/badge/rcssmin/month
@@ -282,7 +243,43 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/rcssmin
             :alt: rcssmin total downloads
             :target: https://pepy.tech/project/rcssmin
-    - - 2
+    - - 6
+      - :doc:`rjsmin <rjsmin>`
+      - `docs <https://opensource.perlig.de/rjsmin/>`__
+      - .. image:: https://static.pepy.tech/badge/rjsmin/month
+            :alt: rjsmin monthly downloads
+            :target: https://pepy.tech/project/rjsmin
+      - .. image:: https://static.pepy.tech/badge/rjsmin
+            :alt: rjsmin total downloads
+            :target: https://pepy.tech/project/rjsmin
+    - - 7
+      - :doc:`jsmin <jsmin>`
+      - `docs <https://github.com/tikitu/jsmin>`__
+      - .. image:: https://static.pepy.tech/badge/jsmin/month
+            :alt: jsmin monthly downloads
+            :target: https://pepy.tech/project/jsmin
+      - .. image:: https://static.pepy.tech/badge/jsmin
+            :alt: jsmin total downloads
+            :target: https://pepy.tech/project/jsmin
+    - - 8
+      - :doc:`minify-html <minify-html>`
+      - `docs <https://github.com/wilsonzlin/minify-html>`__
+      - .. image:: https://static.pepy.tech/badge/minify-html/month
+            :alt: minify-html monthly downloads
+            :target: https://pepy.tech/project/minify-html
+      - .. image:: https://static.pepy.tech/badge/minify-html
+            :alt: minify-html total downloads
+            :target: https://pepy.tech/project/minify-html
+    - - 9
+      - :doc:`htmlmin <htmlmin>`
+      - `docs <https://htmlmin.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/htmlmin/month
+            :alt: htmlmin monthly downloads
+            :target: https://pepy.tech/project/htmlmin
+      - .. image:: https://static.pepy.tech/badge/htmlmin
+            :alt: htmlmin total downloads
+            :target: https://pepy.tech/project/htmlmin
+    - - 10
       - :doc:`csscompressor <csscompressor>`
       - `docs <https://github.com/sprymix/csscompressor>`__
       - .. image:: https://static.pepy.tech/badge/csscompressor/month
@@ -291,7 +288,25 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/csscompressor
             :alt: csscompressor total downloads
             :target: https://pepy.tech/project/csscompressor
-    - - 3
+    - - 11
+      - :doc:`html-sanitizer <html-sanitizer>`
+      - `docs <https://github.com/matthiask/html-sanitizer>`__
+      - .. image:: https://static.pepy.tech/badge/html-sanitizer/month
+            :alt: html-sanitizer monthly downloads
+            :target: https://pepy.tech/project/html-sanitizer
+      - .. image:: https://static.pepy.tech/badge/html-sanitizer
+            :alt: html-sanitizer total downloads
+            :target: https://pepy.tech/project/html-sanitizer
+    - - 12
+      - :doc:`calmjs.parse <calmjs-parse>`
+      - `docs <https://github.com/calmjs/calmjs.parse>`__
+      - .. image:: https://static.pepy.tech/badge/calmjs.parse/month
+            :alt: calmjs.parse monthly downloads
+            :target: https://pepy.tech/project/calmjs.parse
+      - .. image:: https://static.pepy.tech/badge/calmjs.parse
+            :alt: calmjs.parse total downloads
+            :target: https://pepy.tech/project/calmjs.parse
+    - - 13
       - :doc:`lightningcss <lightningcss>`
       - `docs <https://pypi.org/project/lightningcss/>`__
       - .. image:: https://static.pepy.tech/badge/lightningcss/month
@@ -301,9 +316,12 @@ page benchmarks all of them).
             :alt: lightningcss total downloads
             :target: https://pepy.tech/project/lightningcss
 
-***************************
- Text, Markdown & escaping
-***************************
+*********
+ Convert
+*********
+
+:func:`turbohtml.convert.css_to_xpath` translates a CSS selector into the equivalent XPath 1.0 expression, the job
+cssselect does for lxml, parsel, and pyquery, so a system that speaks only XPath can run a CSS selector.
 
 .. list-table::
     :header-rows: 1
@@ -315,54 +333,22 @@ page benchmarks all of them).
       - Monthly downloads
       - Total downloads
     - - 1
-      - :doc:`markupsafe <markupsafe>`
-      - `docs <https://markupsafe.palletsprojects.com/>`__
-      - .. image:: https://static.pepy.tech/badge/markupsafe/month
-            :alt: markupsafe monthly downloads
-            :target: https://pepy.tech/project/markupsafe
-      - .. image:: https://static.pepy.tech/badge/markupsafe
-            :alt: markupsafe total downloads
-            :target: https://pepy.tech/project/markupsafe
-    - - 2
-      - :doc:`markdownify <markdownify>`
-      - `docs <https://github.com/matthewwithanm/python-markdownify>`__
-      - .. image:: https://static.pepy.tech/badge/markdownify/month
-            :alt: markdownify monthly downloads
-            :target: https://pepy.tech/project/markdownify
-      - .. image:: https://static.pepy.tech/badge/markdownify
-            :alt: markdownify total downloads
-            :target: https://pepy.tech/project/markdownify
-    - - 3
-      - :doc:`html2text <html2text>`
-      - `docs <https://github.com/Alir3z4/html2text>`__
-      - .. image:: https://static.pepy.tech/badge/html2text/month
-            :alt: html2text monthly downloads
-            :target: https://pepy.tech/project/html2text
-      - .. image:: https://static.pepy.tech/badge/html2text
-            :alt: html2text total downloads
-            :target: https://pepy.tech/project/html2text
-    - - 4
-      - :doc:`inscriptis <inscriptis>`
-      - `docs <https://inscriptis.readthedocs.io/>`__
-      - .. image:: https://static.pepy.tech/badge/inscriptis/month
-            :alt: inscriptis monthly downloads
-            :target: https://pepy.tech/project/inscriptis
-      - .. image:: https://static.pepy.tech/badge/inscriptis
-            :alt: inscriptis total downloads
-            :target: https://pepy.tech/project/inscriptis
-    - - 5
-      - :doc:`html-text <html-text>`
-      - `docs <https://github.com/zytedata/html-text>`__
-      - .. image:: https://static.pepy.tech/badge/html-text/month
-            :alt: html-text monthly downloads
-            :target: https://pepy.tech/project/html-text
-      - .. image:: https://static.pepy.tech/badge/html-text
-            :alt: html-text total downloads
-            :target: https://pepy.tech/project/html-text
+      - :doc:`cssselect <cssselect>`
+      - `docs <https://cssselect.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/cssselect/month
+            :alt: cssselect monthly downloads
+            :target: https://pepy.tech/project/cssselect
+      - .. image:: https://static.pepy.tech/badge/cssselect
+            :alt: cssselect total downloads
+            :target: https://pepy.tech/project/cssselect
 
-*******************************
- Content & metadata extraction
-*******************************
+*********
+ Extract
+*********
+
+These libraries pull the article, its metadata, or embedded structured data out of a page.
+:meth:`turbohtml.Node.main_content` isolates the article body, :meth:`turbohtml.Element.records` reads a table into
+records, and :meth:`turbohtml.Document.structured_data` collects JSON-LD, Microdata, OpenGraph, and RDFa.
 
 .. list-table::
     :header-rows: 1
@@ -410,6 +396,15 @@ page benchmarks all of them).
             :alt: courlan total downloads
             :target: https://pepy.tech/project/courlan
     - - 5
+      - :doc:`extruct <extruct>`
+      - `docs <https://github.com/scrapinghub/extruct>`__
+      - .. image:: https://static.pepy.tech/badge/extruct/month
+            :alt: extruct monthly downloads
+            :target: https://pepy.tech/project/extruct
+      - .. image:: https://static.pepy.tech/badge/extruct
+            :alt: extruct total downloads
+            :target: https://pepy.tech/project/extruct
+    - - 6
       - :doc:`justext <justext>`
       - `docs <https://github.com/miso-belica/jusText>`__
       - .. image:: https://static.pepy.tech/badge/justext/month
@@ -418,7 +413,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/justext
             :alt: justext total downloads
             :target: https://pepy.tech/project/justext
-    - - 6
+    - - 7
       - :doc:`readability-lxml <readability-lxml>`
       - `docs <https://github.com/buriy/python-readability>`__
       - .. image:: https://static.pepy.tech/badge/readability-lxml/month
@@ -427,7 +422,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/readability-lxml
             :alt: readability-lxml total downloads
             :target: https://pepy.tech/project/readability-lxml
-    - - 7
+    - - 8
       - :doc:`readabilipy <readabilipy>`
       - `docs <https://readabilipy.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/readabilipy/month
@@ -436,7 +431,16 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/readabilipy
             :alt: readabilipy total downloads
             :target: https://pepy.tech/project/readabilipy
-    - - 8
+    - - 9
+      - :doc:`metadata_parser <metadata_parser>`
+      - `docs <https://github.com/jvanasco/metadata_parser>`__
+      - .. image:: https://static.pepy.tech/badge/metadata_parser/month
+            :alt: metadata_parser monthly downloads
+            :target: https://pepy.tech/project/metadata_parser
+      - .. image:: https://static.pepy.tech/badge/metadata_parser
+            :alt: metadata_parser total downloads
+            :target: https://pepy.tech/project/metadata_parser
+    - - 10
       - :doc:`newspaper3k <newspaper3k>`
       - `docs <https://newspaper.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/newspaper3k/month
@@ -445,7 +449,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/newspaper3k
             :alt: newspaper3k total downloads
             :target: https://pepy.tech/project/newspaper3k
-    - - 9
+    - - 11
       - :doc:`boilerpy3 <boilerpy3>`
       - `docs <https://github.com/jmriebold/BoilerPy3>`__
       - .. image:: https://static.pepy.tech/badge/boilerpy3/month
@@ -454,7 +458,7 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/boilerpy3
             :alt: boilerpy3 total downloads
             :target: https://pepy.tech/project/boilerpy3
-    - - 10
+    - - 12
       - :doc:`goose3 <goose3>`
       - `docs <https://goose3.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/goose3/month
@@ -463,7 +467,16 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/goose3
             :alt: goose3 total downloads
             :target: https://pepy.tech/project/goose3
-    - - 11
+    - - 13
+      - :doc:`microdata <microdata>`
+      - `docs <https://github.com/edsu/microdata>`__
+      - .. image:: https://static.pepy.tech/badge/microdata/month
+            :alt: microdata monthly downloads
+            :target: https://pepy.tech/project/microdata
+      - .. image:: https://static.pepy.tech/badge/microdata
+            :alt: microdata total downloads
+            :target: https://pepy.tech/project/microdata
+    - - 14
       - :doc:`news-please <news-please>`
       - `docs <https://github.com/fhamborg/news-please>`__
       - .. image:: https://static.pepy.tech/badge/news-please/month
@@ -472,7 +485,16 @@ page benchmarks all of them).
       - .. image:: https://static.pepy.tech/badge/news-please
             :alt: news-please total downloads
             :target: https://pepy.tech/project/news-please
-    - - 12
+    - - 15
+      - :doc:`opengraph <opengraph>`
+      - `docs <https://pypi.org/project/opengraph-py3/>`__
+      - .. image:: https://static.pepy.tech/badge/opengraph-py3/month
+            :alt: opengraph-py3 monthly downloads
+            :target: https://pepy.tech/project/opengraph-py3
+      - .. image:: https://static.pepy.tech/badge/opengraph-py3
+            :alt: opengraph-py3 total downloads
+            :target: https://pepy.tech/project/opengraph-py3
+    - - 16
       - :doc:`htmldate <htmldate>`
       - `docs <https://htmldate.readthedocs.io/>`__
       - .. image:: https://static.pepy.tech/badge/htmldate/month
@@ -482,59 +504,12 @@ page benchmarks all of them).
             :alt: htmldate total downloads
             :target: https://pepy.tech/project/htmldate
 
-*****************
- Structured data
-*****************
+*******
+ Build
+*******
 
-.. list-table::
-    :header-rows: 1
-    :widths: auto
-
-    - - #
-      - Library
-      - Docs
-      - Monthly downloads
-      - Total downloads
-    - - 1
-      - :doc:`extruct <extruct>`
-      - `docs <https://github.com/scrapinghub/extruct>`__
-      - .. image:: https://static.pepy.tech/badge/extruct/month
-            :alt: extruct monthly downloads
-            :target: https://pepy.tech/project/extruct
-      - .. image:: https://static.pepy.tech/badge/extruct
-            :alt: extruct total downloads
-            :target: https://pepy.tech/project/extruct
-    - - 2
-      - :doc:`metadata_parser <metadata_parser>`
-      - `docs <https://github.com/jvanasco/metadata_parser>`__
-      - .. image:: https://static.pepy.tech/badge/metadata_parser/month
-            :alt: metadata_parser monthly downloads
-            :target: https://pepy.tech/project/metadata_parser
-      - .. image:: https://static.pepy.tech/badge/metadata_parser
-            :alt: metadata_parser total downloads
-            :target: https://pepy.tech/project/metadata_parser
-    - - 3
-      - :doc:`microdata <microdata>`
-      - `docs <https://github.com/edsu/microdata>`__
-      - .. image:: https://static.pepy.tech/badge/microdata/month
-            :alt: microdata monthly downloads
-            :target: https://pepy.tech/project/microdata
-      - .. image:: https://static.pepy.tech/badge/microdata
-            :alt: microdata total downloads
-            :target: https://pepy.tech/project/microdata
-    - - 4
-      - :doc:`opengraph <opengraph>`
-      - `docs <https://pypi.org/project/opengraph-py3/>`__
-      - .. image:: https://static.pepy.tech/badge/opengraph-py3/month
-            :alt: opengraph-py3 monthly downloads
-            :target: https://pepy.tech/project/opengraph-py3
-      - .. image:: https://static.pepy.tech/badge/opengraph-py3
-            :alt: opengraph-py3 total downloads
-            :target: https://pepy.tech/project/opengraph-py3
-
-***************
- HTML builders
-***************
+These libraries construct HTML from Python. :data:`turbohtml.build.E` builds a real element tree that queries, edits,
+and serializes like a parsed one.
 
 .. list-table::
     :header-rows: 1
@@ -627,9 +602,13 @@ page benchmarks all of them).
             :alt: hyperpython total downloads
             :target: https://pepy.tech/project/hyperpython
 
-*************************
- JavaScript minification
-*************************
+***********
+ Serialize
+***********
+
+These libraries render a tree back out -- as escaped HTML, Markdown, or plain text. :func:`turbohtml.escape` and the
+:mod:`turbohtml.migration.markupsafe` drop-in match markupsafe byte for byte, :meth:`turbohtml.Node.to_markdown` emits
+GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered text.
 
 .. list-table::
     :header-rows: 1
@@ -641,91 +620,109 @@ page benchmarks all of them).
       - Monthly downloads
       - Total downloads
     - - 1
-      - :doc:`rjsmin <rjsmin>`
-      - `docs <https://opensource.perlig.de/rjsmin/>`__
-      - .. image:: https://static.pepy.tech/badge/rjsmin/month
-            :alt: rjsmin monthly downloads
-            :target: https://pepy.tech/project/rjsmin
-      - .. image:: https://static.pepy.tech/badge/rjsmin
-            :alt: rjsmin total downloads
-            :target: https://pepy.tech/project/rjsmin
+      - :doc:`markupsafe <markupsafe>`
+      - `docs <https://markupsafe.palletsprojects.com/>`__
+      - .. image:: https://static.pepy.tech/badge/markupsafe/month
+            :alt: markupsafe monthly downloads
+            :target: https://pepy.tech/project/markupsafe
+      - .. image:: https://static.pepy.tech/badge/markupsafe
+            :alt: markupsafe total downloads
+            :target: https://pepy.tech/project/markupsafe
     - - 2
-      - :doc:`jsmin <jsmin>`
-      - `docs <https://github.com/tikitu/jsmin>`__
-      - .. image:: https://static.pepy.tech/badge/jsmin/month
-            :alt: jsmin monthly downloads
-            :target: https://pepy.tech/project/jsmin
-      - .. image:: https://static.pepy.tech/badge/jsmin
-            :alt: jsmin total downloads
-            :target: https://pepy.tech/project/jsmin
+      - :doc:`markdownify <markdownify>`
+      - `docs <https://github.com/matthewwithanm/python-markdownify>`__
+      - .. image:: https://static.pepy.tech/badge/markdownify/month
+            :alt: markdownify monthly downloads
+            :target: https://pepy.tech/project/markdownify
+      - .. image:: https://static.pepy.tech/badge/markdownify
+            :alt: markdownify total downloads
+            :target: https://pepy.tech/project/markdownify
     - - 3
-      - :doc:`calmjs.parse <calmjs-parse>`
-      - `docs <https://github.com/calmjs/calmjs.parse>`__
-      - .. image:: https://static.pepy.tech/badge/calmjs.parse/month
-            :alt: calmjs.parse monthly downloads
-            :target: https://pepy.tech/project/calmjs.parse
-      - .. image:: https://static.pepy.tech/badge/calmjs.parse
-            :alt: calmjs.parse total downloads
-            :target: https://pepy.tech/project/calmjs.parse
+      - :doc:`html2text <html2text>`
+      - `docs <https://github.com/Alir3z4/html2text>`__
+      - .. image:: https://static.pepy.tech/badge/html2text/month
+            :alt: html2text monthly downloads
+            :target: https://pepy.tech/project/html2text
+      - .. image:: https://static.pepy.tech/badge/html2text
+            :alt: html2text total downloads
+            :target: https://pepy.tech/project/html2text
+    - - 4
+      - :doc:`inscriptis <inscriptis>`
+      - `docs <https://inscriptis.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/inscriptis/month
+            :alt: inscriptis monthly downloads
+            :target: https://pepy.tech/project/inscriptis
+      - .. image:: https://static.pepy.tech/badge/inscriptis
+            :alt: inscriptis total downloads
+            :target: https://pepy.tech/project/inscriptis
+    - - 5
+      - :doc:`html-text <html-text>`
+      - `docs <https://github.com/zytedata/html-text>`__
+      - .. image:: https://static.pepy.tech/badge/html-text/month
+            :alt: html-text monthly downloads
+            :target: https://pepy.tech/project/html-text
+      - .. image:: https://static.pepy.tech/badge/html-text
+            :alt: html-text total downloads
+            :target: https://pepy.tech/project/html-text
 
 .. toctree::
     :hidden:
     :maxdepth: 1
 
-    charset-normalizer
-    pandas
-    markupsafe
     beautifulsoup
+    lxml
+    html5lib
+    selectolax
+    resiliparse
+    mechanicalsoup
+    html5-parser
+    stdlib
+    charset-normalizer
     chardet
     soupsieve
-    lxml
-    cssselect
+    parsel
+    pyquery
     linkify-it-py
     bleach
-    markdownify
     nh3
-    html5lib
-    html2text
     lxml-html-clean
+    rcssmin
+    rjsmin
+    jsmin
+    minify-html
+    htmlmin
+    csscompressor
+    html-sanitizer
+    calmjs-parse
+    lightningcss
+    cssselect
+    pandas
     w3lib
     trafilatura
     courlan
+    extruct
     justext
-    selectolax
-    parsel
-    rcssmin
-    rjsmin
-    dominate
-    pyquery
     readability-lxml
     readabilipy
-    inscriptis
-    minify-html
-    html-text
-    jsmin
-    resiliparse
-    htmlmin
-    csscompressor
+    metadata_parser
     newspaper3k
     boilerpy3
     goose3
+    microdata
     news-please
+    opengraph
     htmldate
-    html-sanitizer
+    dominate
     yattag
-    extruct
     htbuilder
     htpy
-    mechanicalsoup
     airium
-    calmjs-parse
     markyp
-    html5-parser
-    metadata_parser
-    microdata
-    opengraph
-    lightningcss
     fast-html
     simple-html
     hyperpython
-    stdlib
+    markupsafe
+    markdownify
+    html2text
+    inscriptis
+    html-text
