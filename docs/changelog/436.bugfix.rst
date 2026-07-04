@@ -1,2 +1,2 @@
-:func:`~turbohtml.minify_js` now reads a string literal's decoded value when deciding truthiness, so a
+:func:`~turbohtml.clean.minify_js` now reads a string literal's decoded value when deciding truthiness, so a
 line-continuation-only string (value ``""``) folds as falsy instead of truthy in a conditional or ``&&``/``||``.

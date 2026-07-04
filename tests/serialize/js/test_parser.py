@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from turbohtml import JSMinify, minify_js
+from turbohtml.clean import JSMinify, minify_js
 
 
 def minify(source: str) -> str:

@@ -13,12 +13,12 @@ only goal is to drop bytes the tokenizer proves are optional. Because a regex ne
 constant, the output stays close to the source size. Its whole surface is one function, ``jsmin(script,
 keep_bang_comments=False) -> str``, where ``keep_bang_comments`` preserves ``/*! ... */`` license blocks.
 
-:func:`~turbohtml.minify_js` covers the same ground with a real front end: it lexes and parses to an arena AST in C,
-renames function-local bindings, folds constants, and prints the result. It always does at least what rjsmin does (strip
-whitespace and comments) and, with its optional passes on, shrinks well past what a whitespace-only substitution can
-reach. The HTML-embedded case rjsmin leaves to you — it only ever sees a script string you extract — is built in: pass a
-:class:`~turbohtml.JSMinify` as :class:`~turbohtml.Minify`'s ``minify_js`` and inline ``<script>`` content is minified
-during serialization.
+:func:`~turbohtml.clean.minify_js` covers the same ground with a real front end: it lexes and parses to an arena AST in
+C, renames function-local bindings, folds constants, and prints the result. It always does at least what rjsmin does
+(strip whitespace and comments) and, with its optional passes on, shrinks well past what a whitespace-only substitution
+can reach. The HTML-embedded case rjsmin leaves to you — it only ever sees a script string you extract — is built in:
+pass a :class:`~turbohtml.clean.JSMinify` as :class:`~turbohtml.Minify`'s ``minify_js`` and inline ``<script>`` content
+is minified during serialization.
 
 *********************
  turbohtml vs rjsmin
@@ -56,7 +56,7 @@ Feature overlap
 
 The shared surface ports 1:1 — a single call that takes a JavaScript string and returns a smaller one:
 
-- ``rjsmin.jsmin(source)`` maps directly to :func:`turbohtml.minify_js(source) <turbohtml.minify_js>`.
+- ``rjsmin.jsmin(source)`` maps directly to :func:`turbohtml.clean.minify_js(source) <turbohtml.clean.minify_js>`.
 - Whitespace and ordinary-comment stripping is unconditional in both; the one difference is that turbohtml keeps ``/*!
   ... */`` license banners by default (see below), where the plain rjsmin call drops them.
 - Neither tool needs a browser, DOM, or Node runtime; both operate on the string in-process.
@@ -72,7 +72,7 @@ What turbohtml adds
   leaves them as written.
 - **A real parse, not a regex.** Because turbohtml tokenizes against ECMA-262 it distinguishes a regex literal from a
   division operator by grammar rather than by regex heuristics, so no crafted ``/`` sequence can be misread.
-- **Inline ``<script>`` minification.** Pass a :class:`~turbohtml.JSMinify` as :class:`~turbohtml.Minify`'s
+- **Inline ``<script>`` minification.** Pass a :class:`~turbohtml.clean.JSMinify` as :class:`~turbohtml.Minify`'s
   ``minify_js`` and ``<script>`` bodies are minified during HTML serialization. Only scripts whose ``type`` marks them
   as JavaScript are rewritten; a ``type="application/json"`` or ``importmap`` payload is left byte-for-byte. rjsmin only
   ever sees a bare script string you extract yourself.
@@ -120,11 +120,11 @@ Swap the import and the call. rjsmin exposes one function; turbohtml exposes the
     - - ``import rjsmin``
       - ``import turbohtml``
     - - ``rjsmin.jsmin(source)``
-      - ``turbohtml.minify_js(source)``
+      - ``turbohtml.clean.minify_js(source)``
     - - ``rjsmin.jsmin(source)`` (whitespace/comments only)
-      - ``turbohtml.minify_js(source, JSMinify(mangle=False, fold=False))`` for the closest whitespace-only match
+      - ``turbohtml.clean.minify_js(source, JSMinify(mangle=False, fold=False))`` for the closest whitespace-only match
     - - ``rjsmin.jsmin(source, keep_bang_comments=True)``
-      - ``turbohtml.minify_js(source)`` keeps ``/*! ... */`` and ``@license`` / ``@preserve`` banners by default
+      - ``turbohtml.clean.minify_js(source)`` keeps ``/*! ... */`` and ``@license`` / ``@preserve`` banners by default
 
 .. code-block:: python
 
@@ -136,15 +136,16 @@ Swap the import and the call. rjsmin exposes one function; turbohtml exposes the
     # turbohtml
     import turbohtml
 
-    turbohtml.minify_js(source)  # whitespace + rename locals + fold constants
+    turbohtml.clean.minify_js(source)  # whitespace + rename locals + fold constants
 
-To minify inline ``<script>`` content — which rjsmin leaves entirely to you — pass a :class:`~turbohtml.JSMinify` to the
-HTML serializer instead of extracting the script by hand:
+To minify inline ``<script>`` content — which rjsmin leaves entirely to you — pass a :class:`~turbohtml.clean.JSMinify`
+to the HTML serializer instead of extracting the script by hand:
 
 .. code-block:: python
 
     import turbohtml
-    from turbohtml import Html, Minify, JSMinify
+    from turbohtml import Html, Minify
+    from turbohtml.clean import JSMinify
 
     doc = turbohtml.parse("<p>hi<script>function plus(a, b) { return a + b; }</script>")
     doc.serialize(Html(layout=Minify(minify_js=JSMinify())))
@@ -153,15 +154,15 @@ HTML serializer instead of extracting the script by hand:
  Gotchas and pitfalls
 **********************
 
-- **Renaming is on by default.** ``turbohtml.minify_js(source)`` renames local bindings, which rjsmin never does. If a
-  consumer reflects on function-local variable names (rare), pass ``JSMinify(mangle=False)``. Top-level names are global
-  and are never renamed regardless of the setting.
+- **Renaming is on by default.** ``turbohtml.clean.minify_js(source)`` renames local bindings, which rjsmin never does.
+  If a consumer reflects on function-local variable names (rare), pass ``JSMinify(mangle=False)``. Top-level names are
+  global and are never renamed regardless of the setting.
 - **License banners are kept, not stripped, and hoisted to the top.** turbohtml keeps ``/*! ... */`` and ``@license`` /
   ``@preserve`` comments byte-exact and emits them as a leading banner in source order, while dropping every other
   comment. rjsmin only keeps them under ``keep_bang_comments=True`` and leaves them in place, so a diff against rjsmin
   output differs when a bang comment sits mid-script.
 - **Unparsable input raises by default.** rjsmin emits something for any string; the standalone
-  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
+  :func:`~turbohtml.clean.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
   ``on_error="passthrough"`` for rjsmin's never-fail behavior -- the source comes back verbatim instead of raising. The
   inline ``<script>`` path already applies that fallback and never raises.
 - **Number literals change form.** turbohtml rewrites numeric literals to their shortest equivalent; rjsmin leaves them

@@ -26,11 +26,12 @@ in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw
  Linkifying
 ************
 
-A :class:`Linkify` configuration object carries the knobs: a callback receives each generated :class:`Link` and returns
-it to keep the link or ``None`` to leave the text bare, ``process_existing`` runs the callbacks over ``<a>`` tags
-already in the input (a callback reads ``Link.existing`` to tell the two apart), ``extra_tlds`` extends bare-domain
-detection beyond the built-in IANA table, and ``schemes`` sets which explicit-scheme URLs autolink (defaulting to the
-built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain text).
+A :class:`Linkify` configuration object carries the knobs: a callback receives each generated :class:`LinkCandidate` and
+returns it to keep the link or ``None`` to leave the text bare, ``process_existing`` runs the callbacks over ``<a>``
+tags already in the input (a callback reads ``LinkCandidate.existing`` to tell the two apart), ``extra_tlds`` extends
+bare-domain detection beyond the built-in IANA table, and ``schemes`` sets which explicit-scheme URLs autolink
+(defaulting to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain
+text).
 
 .. autofunction:: linkify
 
@@ -40,7 +41,7 @@ built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://``
 .. autoclass:: Linker
     :members: linkify
 
-.. autoclass:: Link
+.. autoclass:: LinkCandidate
 
 .. autofunction:: nofollow
 
@@ -68,11 +69,25 @@ insignificant whitespace, omit optional tags, unquote attributes, strip comments
 .. autofunction:: minify
 
 The HTML minify layout emits ``<style>`` bodies verbatim; to also minify embedded CSS, run :func:`minify_css` (below)
-over a ``<style>`` body yourself, which is what ``minify-html``'s ``minify_css`` did inline. Passing a
-:class:`~turbohtml.JSMinify` as ``Minify(minify_js=...)`` rewrites inline ``<script>`` content, covering
-``minify-html``'s ``minify_js``. The doctype is always normalized to ``<!doctype html>`` (``minify-html``'s
-``minify_doctype`` is implicit), and HTML has no processing instructions to drop (``remove_processing_instructions`` is
-moot under the WHATWG parser, which reads them as bogus comments).
+over a ``<style>`` body yourself, which is what ``minify-html``'s ``minify_css`` did inline. Passing a :class:`JSMinify`
+as ``Minify(minify_js=...)`` rewrites inline ``<script>`` content, covering ``minify-html``'s ``minify_js``. The doctype
+is always normalized to ``<!doctype html>`` (``minify-html``'s ``minify_doctype`` is implicit), and HTML has no
+processing instructions to drop (``remove_processing_instructions`` is moot under the WHATWG parser, which reads them as
+bogus comments).
+
+*****************
+ JS minification
+*****************
+
+:func:`minify_js` minifies a JavaScript string on its own, the ``jsmin``/``rjsmin`` successor. It always folds
+whitespace, comments, and number literals; a frozen :class:`JSMinify` toggles the optional ``mangle`` (rename local
+bindings) and ``fold`` (constant-fold and eliminate dead code) passes. The same :class:`JSMinify` passed as
+``Minify(minify_js=...)`` rewrites inline ``<script>`` content during HTML minification.
+
+.. autofunction:: minify_js
+
+.. autoclass:: JSMinify
+    :members:
 
 ******************
  CSS minification
@@ -88,7 +103,6 @@ Both are value-safe at any baseline; the optional :class:`CSSMinify` ``baseline`
 .. autofunction:: minify_css_inline
 
 .. autoclass:: CSSMinify
-    :members:
 
 Transformations
 ===============

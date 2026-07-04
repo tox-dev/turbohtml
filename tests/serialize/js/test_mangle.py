@@ -15,7 +15,7 @@ import subprocess  # noqa: S404
 
 import pytest
 
-from turbohtml import minify_js
+from turbohtml.clean import minify_js
 
 _NODE = shutil.which("node")
 

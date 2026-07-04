@@ -597,7 +597,7 @@ that stays value-safe at the most compatible baseline and recovers from malforme
  JavaScript minification
 *************************
 
-:func:`turbohtml.minify_js` against the PyPI JavaScript minifiers it replaces -- `rjsmin
+:func:`turbohtml.clean.minify_js` against the PyPI JavaScript minifiers it replaces -- `rjsmin
 <https://opensource.perlig.de/rjsmin/>`_ (a regex substitution), `jsmin <https://github.com/tikitu/jsmin>`_ (Crockford's
 character state machine), and `calmjs.parse <https://github.com/calmjs/calmjs.parse>`_ (a full ES5 parser with an
 obfuscating printer) -- plus `terser <https://terser.org/>`_, the JavaScript ecosystem's reference minifier, run

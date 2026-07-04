@@ -1,2 +1,2 @@
-:func:`~turbohtml.minify_js` now accepts a string ``LineContinuation`` whose backslash is followed by a CR-LF pair, so a
-CRLF-authored source no longer fails to lex.
+:func:`~turbohtml.clean.minify_js` now accepts a string ``LineContinuation`` whose backslash is followed by a CR-LF
+pair, so a CRLF-authored source no longer fails to lex.

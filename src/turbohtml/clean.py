@@ -2,9 +2,11 @@
 turbohtml.clean: scrub and tidy HTML -- sanitize against an allowlist, auto-link plain URLs, and minify.
 
 The sanitizer replaces `bleach <https://github.com/mozilla/bleach>`__/``nh3``/``html-sanitizer``, the linkifier
-replaces ``bleach.linkify``/``linkify-it-py``, ``minify`` replaces ``minify-html``/``htmlmin``, and the CSS minifier
-(:func:`minify_css`) replaces ``rcssmin``/``csscompressor``/``cssmin``. Every configurable entry point takes a
-frozen, thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`).
+replaces ``bleach.linkify``/``linkify-it-py``, ``minify`` replaces ``minify-html``/``htmlmin``, the CSS minifier
+(:func:`minify_css`) replaces ``rcssmin``/``csscompressor``/``cssmin``, and the JavaScript minifier (:func:`minify_js`)
+replaces ``jsmin``/``rjsmin``. The three minifiers sit together here: ``minify`` for a whole HTML document,
+:func:`minify_css` for a stylesheet, and :func:`minify_js` for a script. Every configurable entry point takes a frozen,
+thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`, :class:`CSSMinify`, :class:`JSMinify`).
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from ._linkify import (
     nofollow,
     target_blank,
 )
-from ._minify import minify
+from ._minify import JSMinify, minify, minify_js
 from ._sanitizer import (
     DEFAULT_ATTRIBUTES,
     DEFAULT_CSS_PROPERTIES,
@@ -47,6 +49,7 @@ __all__ = [
     "DEFAULT_TAGS",
     "CSSMinify",
     "Callback",
+    "JSMinify",
     "LinkCandidate",
     "LinkDetector",
     "LinkSpan",
@@ -60,6 +63,7 @@ __all__ = [
     "minify",
     "minify_css",
     "minify_css_inline",
+    "minify_js",
     "nofollow",
     "sanitize",
     "target_blank",

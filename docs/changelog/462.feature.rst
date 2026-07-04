@@ -1,3 +1,4 @@
 Keep ``/*! ... */`` bang comments and any comment carrying an ``@license`` or ``@preserve`` annotation through
-:func:`~turbohtml.minify_js`, emitted byte-exact as a leading banner so a license header survives minification; every
-other comment is still dropped. The rule matches the CSS minifier and applies to inline ``<script>`` minification too.
+:func:`~turbohtml.clean.minify_js`, emitted byte-exact as a leading banner so a license header survives minification;
+every other comment is still dropped. The rule matches the CSS minifier and applies to inline ``<script>`` minification
+too.

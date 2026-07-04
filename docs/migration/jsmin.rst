@@ -13,10 +13,10 @@ output stays close to the source size. Being a pure-Python character loop it is 
 tracks state by hand rather than parsing it can mishandle the regex-versus-division ``/`` in some inputs. It ships a
 single ``jsmin(str) -> str`` entry point and nothing else.
 
-:func:`~turbohtml.minify_js` covers the same ground with a real front end: it lexes and parses to an arena AST in C,
-renames function-local bindings, folds constants, and prints the result. It always does at least what jsmin does (strip
-whitespace, comments and number literals) and, with its optional passes on, shrinks well past what a whitespace-only
-tool can reach.
+:func:`~turbohtml.clean.minify_js` covers the same ground with a real front end: it lexes and parses to an arena AST in
+C, renames function-local bindings, folds constants, and prints the result. It always does at least what jsmin does
+(strip whitespace, comments and number literals) and, with its optional passes on, shrinks well past what a
+whitespace-only tool can reach.
 
 ********************
  turbohtml vs jsmin
@@ -54,7 +54,7 @@ Feature overlap
 
 The shared surface ports 1:1 — a single call that takes a JavaScript string and returns a smaller one:
 
-- ``jsmin(source)`` maps directly to :func:`turbohtml.minify_js(source) <turbohtml.minify_js>`.
+- ``jsmin(source)`` maps directly to :func:`turbohtml.clean.minify_js(source) <turbohtml.clean.minify_js>`.
 - Whitespace and comment stripping is unconditional in both, so turbohtml is a drop-in for the plain call.
 - Neither tool needs a browser, DOM, or Node runtime; both operate on the string in-process.
 
@@ -69,7 +69,7 @@ What turbohtml adds
   leaves them as written.
 - **A real parse, not a character loop.** Because turbohtml tokenizes against ECMA-262 it distinguishes a regex literal
   from a division operator by grammar rather than by hand-tracked state.
-- **Inline ``<script>`` minification.** Pass a :class:`~turbohtml.JSMinify` as :class:`~turbohtml.Minify`'s
+- **Inline ``<script>`` minification.** Pass a :class:`~turbohtml.clean.JSMinify` as :class:`~turbohtml.Minify`'s
   ``minify_js`` and ``<script>`` bodies are minified during HTML serialization. Only scripts whose ``type`` marks them
   as JavaScript are rewritten; a ``type="application/json"`` or ``importmap`` payload is left byte-for-byte. jsmin only
   ever sees a bare script string you extract yourself.
@@ -92,7 +92,7 @@ runs the structural folds. Each ratio is against turbohtml:
     :file: bench/jsmin.json
 
 Unlike the regex-based :doc:`rjsmin <rjsmin>`, jsmin has no speed advantage to trade for its simpler output, so there is
-no case where it beats :func:`~turbohtml.minify_js`.
+no case where it beats :func:`~turbohtml.clean.minify_js`.
 
 ****************
  How to migrate
@@ -109,11 +109,11 @@ Swap the import and the call. jsmin exposes one function; turbohtml exposes the 
     - - ``from jsmin import jsmin``
       - ``import turbohtml``
     - - ``jsmin(source)``
-      - ``turbohtml.minify_js(source)``
+      - ``turbohtml.clean.minify_js(source)``
     - - (whitespace/comments only)
-      - ``turbohtml.minify_js(source, JSMinify(mangle=False, fold=False))`` for the closest whitespace-only match
+      - ``turbohtml.clean.minify_js(source, JSMinify(mangle=False, fold=False))`` for the closest whitespace-only match
     - - (renaming, no equivalent)
-      - ``turbohtml.minify_js(source, JSMinify(mangle=False))`` keeps readable names while still folding
+      - ``turbohtml.clean.minify_js(source, JSMinify(mangle=False))`` keeps readable names while still folding
 
 .. code-block:: python
 
@@ -125,15 +125,16 @@ Swap the import and the call. jsmin exposes one function; turbohtml exposes the 
     # turbohtml
     import turbohtml
 
-    turbohtml.minify_js(source)  # smaller output, in C
+    turbohtml.clean.minify_js(source)  # smaller output, in C
 
-To minify inline ``<script>`` content — which jsmin leaves entirely to you — pass a :class:`~turbohtml.JSMinify` to the
-HTML serializer instead of extracting the script by hand:
+To minify inline ``<script>`` content — which jsmin leaves entirely to you — pass a :class:`~turbohtml.clean.JSMinify`
+to the HTML serializer instead of extracting the script by hand:
 
 .. code-block:: python
 
     import turbohtml
-    from turbohtml import Html, Minify, JSMinify
+    from turbohtml import Html, Minify
+    from turbohtml.clean import JSMinify
 
     doc = turbohtml.parse("<p>hi<script>function plus(a, b) { return a + b; }</script>")
     doc.serialize(Html(layout=Minify(minify_js=JSMinify())))
@@ -142,11 +143,11 @@ HTML serializer instead of extracting the script by hand:
  Gotchas and pitfalls
 **********************
 
-- **Renaming is on by default.** ``turbohtml.minify_js(source)`` renames local bindings, which jsmin never does. If a
-  consumer reflects on function-local variable names (rare), pass ``JSMinify(mangle=False)``. Top-level names are global
-  and are never renamed regardless of the setting.
+- **Renaming is on by default.** ``turbohtml.clean.minify_js(source)`` renames local bindings, which jsmin never does.
+  If a consumer reflects on function-local variable names (rare), pass ``JSMinify(mangle=False)``. Top-level names are
+  global and are never renamed regardless of the setting.
 - **Unparsable input raises by default.** jsmin emits something for any string; the standalone
-  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
+  :func:`~turbohtml.clean.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
   ``on_error="passthrough"`` for jsmin's never-fail behavior -- the source comes back verbatim instead of raising. The
   inline ``<script>`` path already applies that fallback and never raises.
 - **Number literals change form.** turbohtml rewrites numeric literals to their shortest equivalent; jsmin leaves them

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
+from . import _jsminify  # noqa: F401  # registers the JSMinify record type with the C core on import
 from ._article import Article  # registers the Article record type with the C core on import
 from ._html import (
     Axis,
@@ -35,7 +36,6 @@ from ._html import (
     unescape,
 )
 from ._links import Link  # registers the Link record type with the C core on import
-from ._minify import JSMinify, minify_js
 from ._render import Html, Markdown, PlainText
 from ._structured_data import (  # registers the JSON-LD parser and record classes with the C core on import
     MicrodataItem,
@@ -63,7 +63,6 @@ __all__ = [
     "Html",
     "IncrementalParser",
     "Indent",
-    "JSMinify",
     "Link",
     "Markdown",
     "MicrodataItem",
@@ -85,7 +84,6 @@ __all__ = [
     "annotation_surface",
     "annotation_tags",
     "escape",
-    "minify_js",
     "parse",
     "parse_fragment",
     "tokenize",

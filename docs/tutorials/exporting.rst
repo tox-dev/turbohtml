@@ -67,12 +67,13 @@ escapes the elements it removes rather than discarding their text:
 *******************
 
 When you serialize a page to ship it, pass a :class:`~turbohtml.Minify` layout to drop the whitespace, optional tags and
-quotes the parser can put back. Hand its ``minify_js`` a :class:`~turbohtml.JSMinify` and inline ``<script>`` JavaScript
-is minified in the same pass, with local names renamed and constants folded:
+quotes the parser can put back. Hand its ``minify_js`` a :class:`~turbohtml.clean.JSMinify` and inline ``<script>``
+JavaScript is minified in the same pass, with local names renamed and constants folded:
 
 .. testcode::
 
-    from turbohtml import Html, Minify, JSMinify
+    from turbohtml import Html, Minify
+    from turbohtml.clean import JSMinify
 
     doc = turbohtml.parse('<p>Hi</p>  <script>function greet(who) { return "hi " + who; }</script>')
     print(doc.serialize(Html(layout=Minify(minify_js=JSMinify()))))

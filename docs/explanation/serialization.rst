@@ -41,20 +41,20 @@ whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 **********************
 
 Markup minification copies inline ``<script>`` text verbatim, because shrinking JavaScript is a different problem with a
-different correctness rule. :func:`~turbohtml.minify_js` is turbohtml's own minifier, a native-C subsystem built on the
-same infrastructure as the rest of the library, not a port of any existing tool. It is a real front end: lex, parse to a
-flat arena AST, run the size-reducing passes, print back as code. A tokenizer-only minifier of the ``jsmin`` school
-cannot tell a ``/`` that starts a regular expression from a ``/`` that means division (that needs grammar position, not
-just the token stream), so it is *known-incorrect*, and turbohtml's spec-authoritative rule rules it out. The same
-lex-parse-optimize-print shape already runs, correctly and fast, in the XPath engine.
+different correctness rule. :func:`~turbohtml.clean.minify_js` is turbohtml's own minifier, a native-C subsystem built
+on the same infrastructure as the rest of the library, not a port of any existing tool. It is a real front end: lex,
+parse to a flat arena AST, run the size-reducing passes, print back as code. A tokenizer-only minifier of the ``jsmin``
+school cannot tell a ``/`` that starts a regular expression from a ``/`` that means division (that needs grammar
+position, not just the token stream), so it is *known-incorrect*, and turbohtml's spec-authoritative rule rules it out.
+The same lex-parse-optimize-print shape already runs, correctly and fast, in the XPath engine.
 
 The passes split the way ``esbuild`` and ``terser`` split them. Whitespace, comment and number-literal minification is
 unconditional; ``mangle`` renames bindings and ``fold`` runs the structural rewrites and dead-code elimination, each
-toggled by :class:`~turbohtml.JSMinify`. Renaming is scope-aware: a script's top level is the global scope, whose names
-are observable, so only bindings local to a function are renamed, by reference count (the most-used binding in a scope
-gets the shortest base-54 name, the frequency model ``esbuild`` uses). The correctness gate is idempotence plus AST
-equivalence: the un-mangled output must reparse to the same tree, and ``minify(minify(x))`` must equal ``minify(x)``,
-checked across the competitors' own conformance corpora rather than a homegrown oracle.
+toggled by :class:`~turbohtml.clean.JSMinify`. Renaming is scope-aware: a script's top level is the global scope, whose
+names are observable, so only bindings local to a function are renamed, by reference count (the most-used binding in a
+scope gets the shortest base-54 name, the frequency model ``esbuild`` uses). The correctness gate is idempotence plus
+AST equivalence: the un-mangled output must reparse to the same tree, and ``minify(minify(x))`` must equal
+``minify(x)``, checked across the competitors' own conformance corpora rather than a homegrown oracle.
 
 Every transform names the ECMA-262 clause that makes it behavior-preserving; the spec is the authority, not parity with
 another tool. ``§`` numbers below link into the `ECMA-262 standard <https://tc39.es/ecma262/>`_.
@@ -125,8 +125,8 @@ rewritten only when its ``type`` marks it as JavaScript - absent, empty, ``modul
 - so a ``type="application/json"`` or ``importmap`` block, which is data that merely resembles code, is never handed to
 the JS parser; minifying it as JavaScript could change its quoting or numbers and break it. And a script the parser
 cannot handle is emitted byte-for-byte, so a single malformed or not-yet-supported ``<script>`` degrades to verbatim
-rather than breaking the surrounding document. The standalone :func:`~turbohtml.minify_js`, by contrast, raises on such
-input, because a caller asking to minify one script wants to hear that it could not.
+rather than breaking the surrounding document. The standalone :func:`~turbohtml.clean.minify_js`, by contrast, raises on
+such input, because a caller asking to minify one script wants to hear that it could not.
 
 ***********************
  Exporting to Markdown

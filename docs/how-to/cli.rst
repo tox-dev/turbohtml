@@ -22,7 +22,7 @@ is omitted or ``-``) and writes to stdout, or to the ``-o FILE`` given:
     - - ``minify-css``
       - :func:`turbohtml.clean.minify_css`
     - - ``minify-js``
-      - :func:`turbohtml.minify_js`
+      - :func:`turbohtml.clean.minify_js`
     - - ``detect``
       - :func:`turbohtml.detect.detect`, printing the encoding name of the input bytes.
     - - ``to-markdown``

@@ -14,7 +14,7 @@ output. Built for the calmjs Node.js integration toolchain, it is the most capab
 only ES5: modern syntax (arrow functions, ``let``/``const``, classes, template literals) raises a syntax error, and the
 pure-Python parse is slow.
 
-turbohtml covers the minification slice of that surface. :func:`~turbohtml.minify_js` is the same parse-and-rename
+turbohtml covers the minification slice of that surface. :func:`~turbohtml.clean.minify_js` is the same parse-and-rename
 approach implemented in C, matching or beating calmjs.parse's output size while running about two orders of magnitude
 faster and accepting a much larger slice of the language. It does not expose an AST, a pretty-printer, or source maps —
 it is a minifier, not a general JavaScript toolkit.
@@ -40,7 +40,7 @@ it is a minifier, not a general JavaScript toolkit.
       - Native C, single-digit milliseconds on the corpus below
       - Pure Python, hundreds of milliseconds on the same inputs
     - - Typing
-      - Typed public API (:func:`~turbohtml.minify_js`, :class:`~turbohtml.JSMinify`)
+      - Typed public API (:func:`~turbohtml.clean.minify_js`, :class:`~turbohtml.clean.JSMinify`)
       - Untyped
     - - Dependencies
       - None (ships the C extension)
@@ -55,7 +55,7 @@ Feature overlap
 The minification path ports 1:1:
 
 - Minify a source string to the shortest equivalent program: ``minify_print(es5(source))`` maps to
-  :func:`turbohtml.minify_js(source, JSMinify(mangle=False)) <turbohtml.minify_js>`.
+  :func:`turbohtml.clean.minify_js(source, JSMinify(mangle=False)) <turbohtml.clean.minify_js>`.
 - Rename local identifiers: calmjs.parse's ``minify_print(es5(source), obfuscate=True)`` maps to turbohtml's default
   ``mangle=True``.
 - Both fold whitespace, drop comments, and shorten numeric literals unconditionally.
@@ -65,12 +65,12 @@ What turbohtml adds
 
 - Modern JavaScript: arrow functions, ``let``/``const``, classes, and template literals minify instead of raising a
   syntax error.
-- Constant folding and dead-code elimination (:class:`~turbohtml.JSMinify` ``fold=True``), beyond calmjs.parse's
+- Constant folding and dead-code elimination (:class:`~turbohtml.clean.JSMinify` ``fold=True``), beyond calmjs.parse's
   whitespace-and-rename minification.
 - A native-C pipeline that runs about forty to eighty times faster on the corpus below.
 - Inline-``<script>`` minification inside a full HTML document via ``Minify(minify_js=JSMinify())`` on
   :meth:`~turbohtml.Node.serialize` — no separate JS toolchain step.
-- A typed surface: :func:`~turbohtml.minify_js` and the frozen :class:`~turbohtml.JSMinify` options object.
+- A typed surface: :func:`~turbohtml.clean.minify_js` and the frozen :class:`~turbohtml.clean.JSMinify` options object.
 
 What calmjs.parse has that turbohtml does not
 =============================================
@@ -114,9 +114,9 @@ Swap the parse-then-print pair for the single minify call:
     - - ``from calmjs.parse.unparsers.es5 import minify_print``
       - (none needed)
     - - ``minify_print(es5(src), obfuscate=True)``
-      - ``turbohtml.minify_js(src)``
+      - ``turbohtml.clean.minify_js(src)``
     - - ``minify_print(es5(src))``
-      - ``turbohtml.minify_js(src, JSMinify(mangle=False))``
+      - ``turbohtml.clean.minify_js(src, JSMinify(mangle=False))``
     - - ``pretty_print(es5(src))``
       - no equivalent (turbohtml only minifies)
 
@@ -131,14 +131,14 @@ Swap the parse-then-print pair for the single minify call:
     # turbohtml
     import turbohtml
 
-    turbohtml.minify_js(source)  # in C, modern syntax too
+    turbohtml.clean.minify_js(source)  # in C, modern syntax too
 
-To keep readable local names while still folding whitespace and comments, pass a :class:`~turbohtml.JSMinify` with
+To keep readable local names while still folding whitespace and comments, pass a :class:`~turbohtml.clean.JSMinify` with
 ``mangle=False``:
 
 .. code-block:: python
 
-    from turbohtml import minify_js, JSMinify
+    from turbohtml.clean import minify_js, JSMinify
 
     minify_js(source, JSMinify(mangle=False))
 
@@ -147,8 +147,8 @@ To keep readable local names while still folding whitespace and comments, pass a
 **********************
 
 - Error type. calmjs.parse raises ``ECMASyntaxError`` on a script it cannot parse; turbohtml's standalone
-  :func:`~turbohtml.minify_js` raises :class:`ValueError` (with the construct, byte offset, and offending token), and
-  :class:`TypeError` if ``source`` is not a :class:`str`. Inside HTML the inline-``<script>`` pass instead leaves an
+  :func:`~turbohtml.clean.minify_js` raises :class:`ValueError` (with the construct, byte offset, and offending token),
+  and :class:`TypeError` if ``source`` is not a :class:`str`. Inside HTML the inline-``<script>`` pass instead leaves an
   unminifiable script verbatim rather than raising.
 - Modern syntax is a hard stop in calmjs.parse (a syntax error), where turbohtml minifies it. A migration that was
   silently skipping ES6+ files because they failed to parse will start minifying them.

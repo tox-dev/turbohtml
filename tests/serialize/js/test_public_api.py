@@ -1,4 +1,4 @@
-"""The public ``turbohtml.minify_js`` entry point and its ``JSMinify`` options.
+"""The public ``turbohtml.clean.minify_js`` entry point and its ``JSMinify`` options.
 
 These exercise the configuration surface end to end: each ``JSMinify`` toggle maps to
 one optional pass (folding, mangling) over the always-on whitespace minification, the
@@ -11,7 +11,8 @@ from __future__ import annotations
 import pytest
 
 import turbohtml
-from turbohtml import Html, JSMinify, Minify, _html, minify_js
+from turbohtml import Html, Minify, _html
+from turbohtml.clean import JSMinify, minify_js
 
 _SOURCE = "function f(){var longName=true;return longName}"
 

@@ -26,7 +26,8 @@ from typing import TypeAlias
 
 import pytest
 
-from turbohtml import JSMinify, _html, minify_js
+from turbohtml import _html
+from turbohtml.clean import JSMinify, minify_js
 
 _SExpr: TypeAlias = "list[_SExpr] | str"  # an AST-dump node: a `(head child...)` list, or an atom
 

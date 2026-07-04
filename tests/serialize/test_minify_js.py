@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import Html, JSMinify, Minify, parse_fragment
+from turbohtml import Html, Minify, parse_fragment
+from turbohtml.clean import JSMinify
 
 _SCRIPT = "function f(){ var longName = 1 + 2 ; return longName }"
 
