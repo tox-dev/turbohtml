@@ -160,6 +160,13 @@ void th_node_insert_before(th_node *parent, th_node *child, th_node *ref);
 int th_node_contains(th_node *ancestor, th_node *node);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
 
+/* Whether two subtrees are structurally equal: same node type, and for an element the
+   same namespace, tag name, and attribute set (names + values, order-independent) with
+   the same ordered children compared recursively; for a leaf the same character data.
+   The two nodes may live in different trees. Pure structure -- it never touches node
+   identity (the `==` operator's domain). */
+int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right);
+
 /* DOM normalize over a subtree: merge each run of adjacent Text children into one
    node and drop empty Text nodes, recursing into every element. */
 void th_node_normalize(th_tree *tree, th_node *root);

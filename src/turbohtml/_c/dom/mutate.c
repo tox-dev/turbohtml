@@ -241,6 +241,124 @@ int th_node_contains(th_node *ancestor, th_node *node) {
     return 0;
 }
 
+/* Whether two attributes carry the same name. Names resolve to their interned
+   bytes, so a per-tree dynamic atom in one tree matches the same spelling in the
+   other (the numeric atoms differ across trees). */
+static int attr_name_equal(th_tree *left_tree, const th_node_attr *left, th_tree *right_tree,
+                           const th_node_attr *right) {
+    Py_ssize_t left_len, right_len;
+    const char *left_name = th_attr_name(left_tree, left->name_atom, &left_len);
+    const char *right_name = th_attr_name(right_tree, right->name_atom, &right_len);
+    return left_len == right_len && memcmp(left_name, right_name, (size_t)left_len) == 0;
+}
+
+/* Whether two attributes carry the same value. A valueless attribute (NULL value,
+   zero length) is the empty string per the DOM, so `disabled` equals `disabled=""`. */
+static int attr_value_equal(const th_node_attr *left, const th_node_attr *right) {
+    return left->value_len == right->value_len &&
+           (left->value_len == 0 || memcmp(left->value, right->value, (size_t)left->value_len * sizeof(Py_UCS4)) == 0);
+}
+
+/* Whether two elements carry the same attribute set, order-independent per the DOM.
+   An element's attribute names are unique, so a name match is the sole candidate and
+   its value settles the pair. */
+static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
+    if (left->attr_count != right->attr_count) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < left->attr_count; index++) {
+        const th_node_attr *want = &left->attrs[index];
+        int found = 0;
+        for (Py_ssize_t other = 0; other < right->attr_count; other++) {
+            if (attr_name_equal(left_tree, want, right_tree, &right->attrs[other])) {
+                if (!attr_value_equal(want, &right->attrs[other])) {
+                    return 0;
+                }
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether two nodes' own character data match, realizing a borrowed text span first. */
+static int data_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
+    if (left->text_len != right->text_len) {
+        return 0;
+    }
+    const Py_UCS4 *left_text = need_text(left_tree, left);
+    const Py_UCS4 *right_text = need_text(right_tree, right);
+    return left->text_len == 0 || memcmp(left_text, right_text, (size_t)left->text_len * sizeof(Py_UCS4)) == 0;
+}
+
+/* Whether two subtrees are structurally equal: the same node type, and for an
+   element the same namespace, tag name, and attribute set (order-independent) with
+   the same ordered children compared recursively; for a leaf the same character
+   data. The engine behind Node.equals, an explicit structural test distinct from
+   `==`, which stays node identity. Recurses on tree depth, the same bound the
+   deep-copy walk assumes. */
+int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
+    if (left->type != right->type) {
+        return 0;
+    }
+    switch (left->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
+    case TH_NODE_ELEMENT:
+        if (left->ns != right->ns) {
+            return 0;
+        }
+        if (!data_equal(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        if (!attrs_equal(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        break;
+    case TH_NODE_DOCTYPE:
+        /* tag_flags records whether the source supplied a public/system id, which the
+           id text alone cannot express (a missing and an empty id both serialize empty). */
+        if (left->tag_flags != right->tag_flags) {
+            return 0;
+        }
+        if (!data_equal(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        break;
+    case TH_NODE_PI:
+        /* attr_count holds the packed target/data split point. */
+        if (left->attr_count != right->attr_count) {
+            return 0;
+        }
+        if (!data_equal(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        break;
+    case TH_NODE_TEXT:
+    case TH_NODE_COMMENT:
+    case TH_NODE_CDATA:
+        if (!data_equal(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        break;
+    case TH_NODE_DOCUMENT:
+    case TH_NODE_CONTENT:
+        break; /* a document / template-content fragment compares purely by its children */
+    }
+    th_node *left_child = left->first_child;
+    th_node *right_child = right->first_child;
+    while (left_child != NULL && right_child != NULL) {
+        if (!th_node_equals(left_tree, left_child, right_tree, right_child)) {
+            return 0;
+        }
+        left_child = left_child->next_sibling;
+        right_child = right_child->next_sibling;
+    }
+    return left_child == NULL && right_child == NULL; /* an unequal child count leaves one non-NULL */
+}
+
 /* Deep-copy a node and its subtree from src into dest's arena, materializing
    borrowed text and re-interning per-tree attribute atoms. Used to adopt a node
    from another tree without retaining the source. NULL on allocation failure. */

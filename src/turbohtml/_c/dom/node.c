@@ -86,6 +86,45 @@ static Py_hash_t node_hash(PyObject *self) {
     return hash == -1 ? -2 : hash; /* GCOVR_EXCL_BR_LINE: an arena pointer is never (Py_hash_t)-1 */
 }
 
+PyDoc_STRVAR(equals_doc, "equals(other, /)\n--\n\n"
+                         "Test whether this node and other are structurally equal: the same node type,\n"
+                         "and for an element the same tag (namespace-aware) and attributes (names and\n"
+                         "values, order-independent per the DOM) with the same children compared in\n"
+                         "order; for a Text/Comment/other leaf the same data. The two nodes may come\n"
+                         "from different documents. This is the BeautifulSoup notion of tree equality.\n\n"
+                         "Distinct from ``==``, which is node identity: two separate parses of the same\n"
+                         "markup are ``==``-unequal but ``equals()``-equal.\n\n"
+                         ":param other: the node to compare against.\n"
+                         ":returns: whether the two subtrees are structurally equal.\n"
+                         ":raises TypeError: if other is not a node.");
+
+static PyObject *node_equals(PyObject *self, PyObject *other) {
+    if (!is_node(other, state_of(self))) {
+        PyErr_Format(PyExc_TypeError, "other must be a node, not %.80s", Py_TYPE(other)->tp_name);
+        return NULL;
+    }
+    th_tree *left_tree = tree_of(self);
+    th_node *left = ((NodeObject *)self)->node;
+    th_tree *right_tree = tree_of(other);
+    th_node *right = ((NodeObject *)other)->node;
+    PyObject *left_handle = ((NodeObject *)self)->handle;
+    PyObject *right_handle = ((NodeObject *)other)->handle;
+    int equal;
+    /* Both subtrees are walked read-only; hold each tree's lock so a concurrent mutate
+       cannot rewire it mid-walk (a no-op on the GIL build). Nest the second section only
+       when the nodes belong to different trees, matching adopt_into's cross-tree pattern. */
+    Py_BEGIN_CRITICAL_SECTION(left_handle);
+    if (right_handle == left_handle) {
+        equal = th_node_equals(left_tree, left, right_tree, right);
+    } else {
+        Py_BEGIN_CRITICAL_SECTION(right_handle);
+        equal = th_node_equals(left_tree, left, right_tree, right);
+        Py_END_CRITICAL_SECTION();
+    }
+    Py_END_CRITICAL_SECTION();
+    return PyBool_FromLong(equal);
+}
+
 static PyObject *walker_new(module_state *state, PyObject *handle, th_node *start, th_node *root, int mode) {
     PyTypeObject *type = (PyTypeObject *)state->walker_type;
     WalkerObject *self = (WalkerObject *)type->tp_alloc(type, 0);
@@ -1400,6 +1439,7 @@ static PyMethodDef node_methods[] = {
     {"xpath", (PyCFunction)(void (*)(void))node_xpath, METH_VARARGS | METH_KEYWORDS, xpath_doc},
     {"xpath_iter", (PyCFunction)(void (*)(void))node_xpath_iter, METH_VARARGS | METH_KEYWORDS, xpath_iter_doc},
     {"xpath_one", (PyCFunction)(void (*)(void))node_xpath_one, METH_VARARGS | METH_KEYWORDS, xpath_one_doc},
+    {"equals", node_equals, METH_O, equals_doc},
     {"matches", node_css_matches, METH_O, matches_doc},
     {"closest", node_css_closest, METH_O, closest_doc},
     {"prune", node_prune, METH_O, prune_doc},

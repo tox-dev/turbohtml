@@ -90,8 +90,6 @@ What BeautifulSoup has that turbohtml does not
   from byte frequency when there is no BOM or ``<meta charset>``. turbohtml sniffs only what the WHATWG algorithm reads,
   then falls back to ``windows-1252``. Workaround: detect with ``charset-normalizer`` first and hand turbohtml the
   decoded ``str`` (or bytes with an explicit ``encoding=``).
-- **Structural tree equality.** ``bs4`` compares two trees with ``==`` by name, attributes, and contents. turbohtml's
-  ``==`` is identity. Workaround: compare serializations (``a.html == b.html``) or walk the nodes.
 - **A named output-formatter registry.** ``bs4`` registers custom formatters by name. Workaround: pass a
   :class:`~turbohtml.Formatter` per :meth:`~turbohtml.Node.serialize` call.
 
@@ -298,8 +296,10 @@ attribute; ``class_`` and ``attrs`` match the rest; ``axis`` replaces the direct
   does not guess from byte frequency. A stream with no BOM and no declaration lands on ``windows-1252`` where
   ``charset-normalizer`` might name, say, ``koi8-r``. When there is nothing to sniff, detect first and hand turbohtml
   the decoded ``str``.
-- **``==`` compares identity.** Two trees with the same markup are unequal. Where ``bs4`` code leaned on structural
-  ``==``, compare serializations (``a.html == b.html``) or walk the nodes.
+- **``==`` compares identity; structural equality is a method.** Two parses of the same markup are ``==``-unequal
+  (``==`` stays node identity, so nodes remain usable as dict keys). Where ``bs4`` leaned on structural ``==``, call
+  :meth:`~turbohtml.Node.equals`: ``a.equals(b)`` compares two subtrees by name, attributes, and contents, the ``bs4``
+  notion of tree equality.
 - **``SoupStrainer`` has no parse-time equivalent.** turbohtml always runs the full WHATWG algorithm, then
   :meth:`~turbohtml.Node.prune` trims the parsed tree to a CSS selector in one C pass, so a large document still yields
   a small tree — but the whole document is parsed first.

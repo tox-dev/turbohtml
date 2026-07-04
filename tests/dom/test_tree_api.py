@@ -7,7 +7,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, Text, parse, parse_fragment
+from turbohtml import (
+    CData,
+    Comment,
+    Doctype,
+    Document,
+    Element,
+    Namespace,
+    Node,
+    ProcessingInstruction,
+    Text,
+    parse,
+    parse_fragment,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -122,6 +134,113 @@ def test_equality_is_node_identity() -> None:
     assert html != doc.find("body")
     assert (html == "html") is False  # a non-node is never equal
     assert (html != "html") is True
+
+
+def test_equals_is_structural_while_eq_stays_identity() -> None:
+    left = parse("<!DOCTYPE html><p class='a'>hi</p>")
+    right = parse("<!DOCTYPE html><p class='a'>hi</p>")
+    assert left.equals(right)  # same markup: structurally equal
+    assert left != right  # but distinct nodes: == is identity, not structure
+    assert left is not right
+
+
+def test_equals_within_one_tree_ignores_attribute_order() -> None:
+    doc = parse("<ul><li id=x class=a>t</li><li class=a id=x>t</li></ul>")
+    first, second = doc.find_all("li")  # two nodes sharing one tree and handle
+    assert first.equals(second)
+
+
+def test_equals_treats_valueless_attribute_as_empty_value() -> None:
+    # per the DOM an attribute with no value carries the empty string
+    assert Element("input", {"disabled": None}).equals(Element("input", {"disabled": ""}))
+
+
+def test_equals_is_namespace_aware() -> None:
+    svg_anchor = parse("<svg><a></a></svg>").find("a")
+    html_anchor = parse("<a></a>").find("a")
+    assert svg_anchor is not None
+    assert html_anchor is not None
+    assert not svg_anchor.equals(html_anchor)  # same tag name, different namespace
+
+
+def test_equals_matches_documents_with_the_same_doctype() -> None:
+    markup = "<!DOCTYPE html><html><body><p>hi</p></body></html>"
+    assert parse(markup).equals(parse(markup))
+
+
+def test_equals_distinguishes_doctype_names() -> None:
+    assert not parse("<!DOCTYPE html>").equals(parse("<!DOCTYPE svg>"))
+
+
+def test_equals_distinguishes_doctype_identifiers() -> None:
+    plain = parse("<!DOCTYPE html>")
+    legacy = parse('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">')
+    assert not plain.equals(legacy)  # a present public id differs from none
+
+
+def test_equals_matches_template_content() -> None:
+    markup = "<template><p>x</p></template>"
+    assert parse(markup).equals(parse(markup))
+
+
+def test_equals_rejects_non_node() -> None:
+    with pytest.raises(TypeError):
+        parse("<p></p>").equals("not a node")  # ty: ignore[invalid-argument-type]  # other must be a node
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        pytest.param(Element("div"), Element("span"), id="tag"),
+        pytest.param(Element("a", {"href": "/x"}), Element("a", {"href": "/y"}), id="attr-value"),
+        pytest.param(Element("a", {"href": "/x"}), Element("a", {"href": "/xyz"}), id="attr-value-length"),
+        pytest.param(Element("a", {"href": "/x"}), Element("a"), id="attr-presence"),
+        pytest.param(Element("a", {"href": "/x"}), Element("a", {"rel": "/x"}), id="attr-name"),
+        pytest.param(
+            Element("div", None, [Element("a")]),
+            Element("div", None, [Element("a"), Element("b")]),
+            id="fewer-children",
+        ),
+        pytest.param(
+            Element("div", None, [Element("a"), Element("b")]),
+            Element("div", None, [Element("a")]),
+            id="more-children",
+        ),
+        pytest.param(
+            Element("p", None, [Element("a"), Element("b")]),
+            Element("p", None, [Element("b"), Element("a")]),
+            id="child-order",
+        ),
+        pytest.param(Text("x"), Text("y"), id="text"),
+        pytest.param(Text("x"), Comment("x"), id="node-type"),
+        pytest.param(Comment("x"), Comment("yy"), id="comment"),
+        pytest.param(CData("x"), CData("y"), id="cdata"),
+        pytest.param(ProcessingInstruction("xml", "x"), ProcessingInstruction("t", "x"), id="pi-target"),
+        pytest.param(ProcessingInstruction("t", "x"), ProcessingInstruction("t", "y"), id="pi-data"),
+    ],
+)
+def test_equals_rejects_structural_differences(left: Node, right: Node) -> None:
+    assert not left.equals(right)
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        pytest.param(Element("div", {"a": "1", "b": "2"}), Element("div", {"b": "2", "a": "1"}), id="attr-order"),
+        pytest.param(Text(""), Text(""), id="empty-text"),
+        pytest.param(Text("same"), Text("same"), id="text"),
+        pytest.param(Comment("same"), Comment("same"), id="comment"),
+        pytest.param(CData("same"), CData("same"), id="cdata"),
+        pytest.param(ProcessingInstruction("t", "d"), ProcessingInstruction("t", "d"), id="pi"),
+        pytest.param(
+            Element("ul", None, [Element("li", None, [Text("x")])]),
+            Element("ul", None, [Element("li", None, [Text("x")])]),
+            id="nested",
+        ),
+    ],
+)
+def test_equals_accepts_structural_matches(left: Node, right: Node) -> None:
+    assert left.equals(right)
 
 
 def test_ordering_is_unsupported() -> None:
