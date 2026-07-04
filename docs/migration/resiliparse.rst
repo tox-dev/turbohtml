@@ -14,8 +14,8 @@ Common Crawl-scale archives in Python and need a fast, resilient HTML-to-text st
 turbohtml covers the DOM and text-extraction ground with one library: it parses the same WHATWG tree in its own C
 engine, then keeps you inside a fully typed, mutable :class:`~turbohtml.Document` where resiliparse's DOM traversal,
 ``get_element_by_*`` lookups, and CSS ``query_selector`` methods collapse into one ``find``/``find_all``/``select``
-grammar. It does not try to be a crawl toolkit; language detection, process guards, and WARC handling stay resiliparse's
-job.
+grammar. It also matches resiliparse's fast language detection with :func:`turbohtml.detect.detect_language`. It does
+not try to be a crawl toolkit; process guards and WARC handling stay resiliparse's job.
 
 **************************
  turbohtml vs resiliparse
@@ -36,7 +36,7 @@ job.
         :meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` grammar, a full edit surface, Markdown/plain-text
         renderers, sanitizer, linkifier, structured-data extraction
       - CSS ``query_selector`` plus ``get_element_by_*`` DOM lookups, boilerplate-aware ``extract_plain_text``, encoding
-        detection, fast language detection, process/memory guards
+        and language detection, process/memory guards
     - - Performance
       - Own C engine straight into the native tree; text extraction walks the WHATWG tree once in C
       - lexbor parse (a dead heat with turbohtml); ``extract_plain_text`` renders off the lexbor tree in a second pass
@@ -88,13 +88,15 @@ What turbohtml adds
   :meth:`~turbohtml.Node.resolve_links`, and the :class:`~turbohtml.clean.Linkify` pass.
 - Structured-data extraction: :attr:`~turbohtml.Document.json_ld`, :attr:`~turbohtml.Document.opengraph`,
   :attr:`~turbohtml.Document.microdata`.
+- Content-based language detection: :func:`turbohtml.detect.detect_language` classifies a string's natural language (ISO
+  639-3 code, confidence, and Unicode script) the way ``resiliparse.parse.lang.detect_fast`` does, over the same trigram
+  model whatlang uses. It replaces ``detect_fast`` for the text you extract with :meth:`~turbohtml.Node.text` or
+  :meth:`~turbohtml.Node.main_text`.
 - Full static typing across the tree with bundled stubs.
 
 What resiliparse has that turbohtml does not
 ============================================
 
-- **Fast language detection.** ``resiliparse.parse.lang`` (e.g. ``detect_fast``) classifies a document's language from
-  its text. turbohtml has no equivalent; reach for a dedicated language-ID library.
 - **Process and memory guards.** ``resiliparse.process_guard`` provides time and memory guards that kill a worker whose
   parse or extraction runs away, which matters when processing adversarial crawl data at scale. turbohtml ships no such
   guard; wrap calls in your own resource limits.
@@ -170,6 +172,8 @@ returned node:
       - :meth:`~turbohtml.Node.main_text`
     - - ``ExtractNode`` / boilerplate-stripped main content
       - :meth:`~turbohtml.Node.main_content`
+    - - ``detect_fast(text)`` (from ``resiliparse.parse.lang``)
+      - :func:`turbohtml.detect.detect_language`
 
 .. testcode::
 
@@ -196,6 +200,9 @@ returned node:
 - **Node identity, not markup identity.** turbohtml compares nodes by identity over the underlying arena node, so two
   wrappers for the same element are equal, but two separately parsed trees with identical markup are not. Compare
   serializations or walk the tree instead.
-- **The crawl toolkit stays behind.** Dropping resiliparse also drops its language detection, process guards, and the
-  FastWARC ingestion path. If a pipeline depends on those, keep resiliparse for that stage and hand turbohtml the HTML
-  string.
+- **Language detection reads text, not a tree.** :func:`turbohtml.detect.detect_language` takes the extracted string
+  (from :meth:`~turbohtml.Node.text` or :meth:`~turbohtml.Node.main_text`), where ``detect_fast`` takes the document; it
+  reports an ISO 639-3 code with a confidence rather than resiliparse's own label set, so map the codes your pipeline
+  expects.
+- **The crawl toolkit stays behind.** Dropping resiliparse also drops its process guards and the FastWARC ingestion
+  path. If a pipeline depends on those, keep resiliparse for that stage and hand turbohtml the HTML string.

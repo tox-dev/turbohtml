@@ -24,3 +24,14 @@ WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), the content detector 
 
     .. autoattribute:: done
         :no-value:
+
+Detect the natural language of text, a successor to ``whatlang``, ``resiliparse.parse.lang``, and trafilatura's language
+filter. :func:`detect_language` finds the dominant Unicode script and ranks the languages sharing it by a
+character-trigram model ported from `whatlang <https://github.com/greyblake/whatlang-rs>`_, reading the visible text
+rather than an ``<html lang>`` attribute.
+
+.. autofunction:: detect_language
+
+.. autoclass:: LanguageMatch
+
+.. autoclass:: LanguageDetection

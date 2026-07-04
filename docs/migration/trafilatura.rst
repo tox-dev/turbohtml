@@ -13,8 +13,9 @@ builds on). It is a common front end for building text corpora for NLP and searc
 
 turbohtml covers the extraction core of that: :meth:`~turbohtml.Node.article` scores a parsed page and harvests its
 *declared* metadata in one C pass, returning an :class:`~turbohtml.Article` record. It works on HTML you already have,
-so pair it with your own downloader and, when you need trafilatura's heavier heuristics (inferred dates, detected
-language, Markdown/XML output), keep those alongside it.
+so pair it with your own downloader and, when you need trafilatura's heavier heuristics (inferred dates, Markdown/XML
+output), keep those alongside it. Detected language it now matches: :func:`turbohtml.detect.detect_language` classifies
+the extracted text.
 
 **************************
  turbohtml vs trafilatura
@@ -82,9 +83,10 @@ What trafilatura has that turbohtml does not
 - ``favor_precision`` / ``favor_recall`` tuning and the readability-lxml / justext fallbacks. turbohtml has a single
   scoring model with no drop-in aggressiveness switch.
 - Cross-document deduplication (the LRU cache that drops repeated segments across a crawl). No equivalent.
-- Inferred publication dates via htmldate and prose language detection. ``article().date`` returns the declared date
-  string and ``article().lang`` reports ``<html lang>``; neither infers. Keep htmldate and a language detector for pages
-  where those are only inferable.
+- Inferred publication dates via htmldate. ``article().date`` returns the declared date string and does not infer; keep
+  htmldate for pages where the date is only inferable. Prose language, by contrast, turbohtml now infers:
+  :func:`turbohtml.detect.detect_language` classifies the extracted text (``article().lang`` still only reports the
+  declared ``<html lang>``).
 - Richer metadata fields (site name, categories, tags, license, canonical URL, hostname, lead image). turbohtml exposes
   ``title``, ``byline``, ``date``, ``description``, and ``lang``.
 
@@ -160,8 +162,9 @@ Before and after, harvesting the body and metadata from a full page:
   ``article:published_time`` meta, or a common date meta such as ``date``, ``pubdate``, ``dc.date``) without parsing or
   normalizing it. Wrap it in ``datetime.date.fromisoformat`` or ``dateutil`` for a real date object, and keep htmldate
   for pages whose date is only inferable.
-- ``article().lang`` reports the document's ``<html lang>`` attribute, not a language *detected* from the prose the way
-  trafilatura's optional language filter does; that inference is out of scope.
+- ``article().lang`` reports the document's declared ``<html lang>`` attribute, not a language detected from the prose.
+  To infer the language the way trafilatura's optional language filter does, pass the extracted ``text`` to
+  :func:`turbohtml.detect.detect_language`, which returns an ISO 639-3 code with a confidence.
 - A page with no scoring article leaves ``element`` ``None`` and ``text`` empty while still filling the metadata, so
   branch on ``art.element`` rather than assuming a body.
 - turbohtml returns plain text only. For the Markdown, XML, or JSON that ``extract(..., output_format=...)`` produces,

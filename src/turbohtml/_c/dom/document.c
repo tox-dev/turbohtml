@@ -5,6 +5,7 @@
 
 #include "encoding/encoding.h"
 #include "encoding/detect.h"
+#include "encoding/language.h"
 
 static PyObject *document_get_root(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
@@ -837,6 +838,55 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
         PyList_SET_ITEM(ranked, index, pair);
     }
     return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom != NULL ? Py_True : Py_False);
+}
+
+/* Resolve the caller's language constraints (frozensets of ISO 639-3 codes, or None for allowed)
+   into a per-language allow flag. The shim always passes sets, so membership never raises. */
+static int th_lang_build_allow(PyObject *allowed, PyObject *excluded, uint8_t *allow) {
+    for (int lang = 0; lang < (int)(sizeof(th_lang_meta_table) / sizeof(th_lang_meta_table[0])); lang++) {
+        PyObject *code = PyUnicode_FromString(th_lang_meta_table[lang].code);
+        if (code == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int included = allowed == Py_None ? 1 : PySet_Contains(allowed, code);
+        int denied = PySet_Contains(excluded, code);
+        Py_DECREF(code);
+        if (included < 0 || denied < 0) { /* GCOVR_EXCL_BR_LINE: set membership on a str never raises */
+            return -1;                    /* GCOVR_EXCL_LINE: unreachable membership error */
+        }
+        allow[lang] = (uint8_t)(included && !denied);
+    }
+    return 0;
+}
+
+PyObject *turbohtml_detect_language(PyObject *module, PyObject *args) {
+    (void)module;
+    PyObject *text;
+    PyObject *allowed;
+    PyObject *excluded;
+    if (!PyArg_ParseTuple(args, "UOO", &text, &allowed, &excluded)) {
+        return NULL;
+    }
+    uint8_t allow[sizeof(th_lang_meta_table) / sizeof(th_lang_meta_table[0])];
+    if (th_lang_build_allow(allowed, excluded, allow) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return NULL;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *lowered = PyObject_CallMethod(text, "lower", NULL);
+    if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower on a valid str never fails */
+        return NULL;       /* GCOVR_EXCL_LINE: unreachable lowercase error */
+    }
+    th_lang_result result;
+    int failed =
+        th_lang_detect(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text), PyUnicode_KIND(lowered),
+                       PyUnicode_DATA(lowered), PyUnicode_GET_LENGTH(lowered), allow, &result);
+    Py_DECREF(lowered);
+    if (failed < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    const char *lang = result.lang < 0 ? NULL : th_lang_meta_table[result.lang].code;
+    const char *name = result.lang < 0 ? NULL : th_lang_meta_table[result.lang].name;
+    const char *script = result.script < 0 ? NULL : th_lang_script_names[result.script];
+    return Py_BuildValue("(zdzz)", lang, result.confidence, script, name);
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {

@@ -14,6 +14,13 @@ A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confiden
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
 surviving candidate, :class:`Detector` accumulates a stream chunk by chunk like chardet's ``UniversalDetector``, and
 a frozen :class:`Detection` config carries the knobs (a confidence floor and encoding/language constraints).
+
+:func:`detect_language` answers the separate question ``whatlang``, ``resiliparse``, and ``trafilatura`` exist for --
+"what natural language is this text?" -- from the visible text rather than an ``<html lang>`` attribute. It runs a C
+port of whatlang's model: find the dominant Unicode script, then rank the languages sharing it by how closely the
+text's most frequent character trigrams match each language's embedded profile. It returns a :class:`LanguageMatch`
+(ISO 639-3 code, confidence, script, English name); a frozen :class:`LanguageDetection` config carries a confidence
+floor and language constraints.
 """
 
 from __future__ import annotations
@@ -21,14 +28,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from ._html import _detect
+from ._html import _detect, _detect_language
 
 __all__ = [
     "Detection",
     "Detector",
     "EncodingMatch",
+    "LanguageDetection",
+    "LanguageMatch",
     "detect",
     "detect_all",
+    "detect_language",
 ]
 
 _LANGUAGES: Final[dict[str, str]] = {
@@ -249,3 +259,79 @@ def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
     if at is None:  # the windows-1252 fallback won without surviving as a candidate itself
         return [(winner, 0.0), *ranked], bom
     return [ranked[at], *ranked[:at], *ranked[at + 1 :]], bom
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageMatch:
+    """
+    One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
+
+    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in
+    (``"eng"``, ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is
+    empty, or all punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
+    :class:`LanguageDetection`. ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses
+    (Greek, Georgian, Korean, ...) and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a
+    shared script (Latin, Cyrillic, Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short
+    to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
+    ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
+    the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
+    """
+
+    language: str | None
+    confidence: float
+    script: str | None
+    name: str | None = None
+
+
+_NO_LANGUAGE: Final = LanguageMatch(None, 0.0, None)
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageDetection:
+    """
+    Options for :func:`detect_language`.
+
+    :param threshold: the confidence floor; a result below it is reported as :data:`LanguageMatch(None, 0.0, None)
+        <LanguageMatch>` so a short or ambiguous input does not masquerade as a confident answer. The default 0.0
+        always answers.
+    :param allowed: when set, only these languages (ISO 639-3 codes) may be returned; a text whose script has no
+        allowed language yields no match. Constrains every script, including the single-language ones.
+    :param excluded: these languages are never returned; mutually exclusive with ``allowed``.
+    """
+
+    threshold: float = 0.0
+    allowed: frozenset[str] | None = None
+    excluded: frozenset[str] = frozenset()
+
+    def __post_init__(self) -> None:
+        """Reject an out-of-range threshold and the contradictory allowed+excluded combination."""
+        if not 0.0 <= self.threshold <= 1.0:
+            msg = f"threshold must be within [0.0, 1.0], got {self.threshold}"
+            raise ValueError(msg)
+        if self.allowed is not None and self.excluded:
+            msg = "allowed and excluded are mutually exclusive"
+            raise ValueError(msg)
+
+
+_DEFAULT_LANGUAGE: Final = LanguageDetection()
+
+
+def detect_language(text: str, options: LanguageDetection | None = None, /) -> LanguageMatch:
+    """
+    Detect the natural language a string is written in, the ``whatlang`` / ``resiliparse`` content-language successor.
+
+    The detector finds the dominant Unicode script, then ranks the languages that share it by the similarity between
+    the text's most frequent character trigrams and each language's embedded profile (the whatlang model, ported to
+    C). It reads the visible text only; it does not consult an ``<html lang>`` attribute.
+
+    :param text: the text to classify; extract it from a document first (e.g. ``node.text``).
+    :param options: the detection options; defaults to :class:`LanguageDetection` (always answer, no constraints).
+    :returns: the best match; its ``language`` is ``None`` when the text has no modeled script, every candidate was
+        ruled out, or the confidence fell below ``threshold``.
+    :raises TypeError: when ``text`` is not a ``str``.
+    """
+    settings = options or _DEFAULT_LANGUAGE
+    language, confidence, script, name = _detect_language(text, settings.allowed, settings.excluded)
+    if language is None or confidence < settings.threshold:
+        return _NO_LANGUAGE
+    return LanguageMatch(language, confidence, script, name)

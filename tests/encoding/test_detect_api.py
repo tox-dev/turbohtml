@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from itertools import islice, product
+
 import pytest
 
 from turbohtml import parse
-from turbohtml.detect import EncodingMatch, detect, detect_all
+from turbohtml.detect import (
+    EncodingMatch,
+    LanguageDetection,
+    LanguageMatch,
+    detect,
+    detect_all,
+    detect_language,
+)
 
 _RUSSIAN_1251 = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
 
@@ -203,3 +212,194 @@ def test_undecodable_bytes_fall_back_to_windows_1252_with_no_confidence() -> Non
 def test_non_bytes_input_is_rejected() -> None:
     with pytest.raises(TypeError):
         detect("text")  # ty: ignore[invalid-argument-type]  # str exposes no byte buffer
+
+
+# Content-based language detection (roadmap #459) ports whatlang's trigram model (Method::Trigram): the samples below
+# detect their language exactly, and the port reproduces whatlang bit-for-bit, agreeing with whatlang's own
+# Method::Trigram on all 69 entries of whatlang's example corpus, confidence to 1e-6 included.
+_LANGUAGE_CASES: list[tuple[str, str, str]] = [
+    ("There is no reason not to learn a new language every single year of your life.", "eng", "Latin"),
+    ("Die Ordnung muss für immer in diesem Codebase bleiben und zuverlässig funktionieren.", "deu", "Latin"),
+    ("Además de todo lo anteriormente dicho, también encontramos que resulta muy útil.", "spa", "Latin"),
+    (
+        "Aujourd'hui nous allons apprendre comment préparer un délicieux gâteau au chocolat pour la fête.",
+        "fra",
+        "Latin",
+    ),
+    ("Além de tudo o que foi mencionado antes, encontramos também algo muito interessante hoje.", "por", "Latin"),
+    ("Programmering hjælper med at forstå strukturen af moderne beregningssystemer i dag.", "dan", "Latin"),
+    ("Programmering hjelper oss med å forstå strukturen til beregningssystemer bedre nå.", "nob", "Latin"),
+    ("Программирование помогает понять структуру вычислительных систем сегодня здесь.", "rus", "Cyrillic"),
+    ("Та нічого, все нормально. А в тебе як справи сьогодні зранку, дорогий друже мій?", "ukr", "Cyrillic"),  # noqa: RUF001
+    ("Η γλώσσα μας είναι πολύ όμορφη και έχει πλούσια και μεγάλη ιστορία στον κόσμο.", "ell", "Greek"),  # noqa: RUF001
+    ("האקדמיה ללשון העברית היא המוסד העליון למדע הלשון העברית שנמצא היום בירושלים.", "heb", "Hebrew"),
+    ("ككل حوالي ومعظم الناس يتحدثون هذه اللغة الجميلة في جميع أنحاء العالم اليوم بسعادة.", "ara", "Arabic"),
+    ("हिमालयी वन में रहने वाली यह चिड़िया बहुत सुंदर होती है और यहाँ बहुत आम पाई जाती है।", "hin", "Devanagari"),
+    ("北京是中国的首都也是全国的政治文化中心而且历史非常悠久经济发展十分迅速。", "cmn", "Mandarin"),
+    ("これは日本語で書かれたテキストです。ひらがなとカタカナと漢字を一緒に使います。", "jpn", "Hiragana"),
+    ("한국어는 매우 아름다운 언어이며 배우기 쉽고 아주 재미있는 언어입니다 정말로요.", "kor", "Hangul"),
+    ("ภาษาไทยเป็นภาษาที่สวยงามและมีประวัติศาสตร์อันยาวนานมากในภูมิภาคนี้ครับ", "tha", "Thai"),
+    ("ქართული ენა არის ერთ-ერთი უძველესი ენა მსოფლიოში და მას აქვს საკუთარი ანბანი.", "kat", "Georgian"),
+]
+
+
+@pytest.mark.parametrize(("text", "language", "script"), [pytest.param(*case, id=case[1]) for case in _LANGUAGE_CASES])
+def test_detect_language_names_the_language_and_script(text: str, language: str, script: str) -> None:
+    match = detect_language(text)
+    assert (match.language, match.script) == (language, script)
+    # confidence is at least 0.9; only Norwegian dips below 1.0, tied close to its neighbor Danish
+    assert match.confidence >= 0.9
+
+
+def test_detect_language_accuracy_over_the_sample_set() -> None:
+    # every representative sample resolves to its language: 18/18 across nine scripts
+    correct = sum(detect_language(text).language == language for text, language, _script in _LANGUAGE_CASES)
+    assert correct == len(_LANGUAGE_CASES)
+
+
+def test_detect_language_reports_the_english_name() -> None:
+    assert detect_language("Die Ordnung muss für immer bleiben und gut funktionieren heute.").name == "German"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param("", id="empty"), pytest.param("1234567890 !@#$%^&*() []{}|~ +=<>?", id="symbols-and-digits")],
+)
+def test_text_without_a_script_has_no_language(text: str) -> None:
+    # nothing that carries a script survives, so there is no language and no script to report
+    assert detect_language(text) == LanguageMatch(None, 0.0, None)
+
+
+def test_short_input_is_low_confidence() -> None:
+    # two short words cannot separate the Latin languages, so the winner comes back well under full confidence
+    match = detect_language("por que")
+    assert match.language is not None
+    assert match.confidence < 0.1
+
+
+def test_threshold_drops_a_low_confidence_result() -> None:
+    assert detect_language("por que", LanguageDetection(threshold=0.5)) == LanguageMatch(None, 0.0, None)
+
+
+def test_threshold_keeps_a_confident_result() -> None:
+    match = detect_language("There is no reason not to learn a language today.", LanguageDetection(threshold=0.5))
+    assert match.language == "eng"
+
+
+def test_allowed_constrains_the_candidates() -> None:
+    # Esperanto shares the Latin script with Ukrainian's Cyrillic; only Esperanto is a Latin candidate, so it wins
+    assert detect_language("Mi ne scias!", LanguageDetection(allowed=frozenset({"epo", "ukr"}))).language == "epo"
+
+
+def test_allowed_with_a_single_candidate_is_certain() -> None:
+    # one surviving candidate has no runner-up to compare against, so its confidence is 1.0
+    match = detect_language("Mi ne scias hodiaŭ!", LanguageDetection(allowed=frozenset({"epo"})))
+    assert match == LanguageMatch("epo", 1.0, "Latin", "Esperanto")
+
+
+def test_excluded_removes_a_language() -> None:
+    match = detect_language(
+        "I am begging pardon",
+        LanguageDetection(excluded=frozenset({"jav", "nld", "uzb", "swe", "nob", "tgl", "cym"})),
+    )
+    assert match.language == "eng"
+
+
+def test_excluding_every_language_of_a_script_yields_no_match() -> None:
+    # Hebrew and Yiddish are the only Hebrew-script languages; excluding both leaves nothing to return
+    assert (
+        detect_language("האקדמיה ללשון העברית", LanguageDetection(excluded=frozenset({"heb", "yid"}))).language is None
+    )
+
+
+def test_excluded_applies_to_a_single_language_script() -> None:
+    # a single-language script still honors the constraint: excluding Greek leaves the Greek text unresolved
+    text = "Η γλώσσα μας είναι όμορφη"  # noqa: RUF001
+    assert detect_language(text, LanguageDetection(excluded=frozenset({"ell"}))).language is None
+
+
+@pytest.mark.parametrize(
+    ("suffix", "language", "confidence"),
+    [
+        pytest.param("", "cmn", 1.0, id="pure-han-is-chinese"),
+        pytest.param("の", "cmn", 0.5, id="a-little-kana-is-uncertain-chinese"),
+        pytest.param("のかさ", "jpn", 0.5, id="some-kana-is-uncertain-japanese"),
+        pytest.param("のかさたなはまやらわ", "jpn", 1.0, id="much-kana-is-japanese"),
+    ],
+)
+def test_han_text_splits_between_chinese_and_japanese_by_kana(suffix: str, language: str, confidence: float) -> None:
+    han = "北京是中国首都也是政治文化中心历史悠久发展迅速人口众多经济繁荣科技教育"
+    match = detect_language(han + suffix)
+    assert (match.language, match.confidence) == (language, pytest.approx(confidence))
+
+
+@pytest.mark.parametrize(
+    ("options", "language"),
+    [
+        pytest.param(LanguageDetection(allowed=frozenset({"jpn"})), "jpn", id="allow-only-japanese"),
+        pytest.param(LanguageDetection(allowed=frozenset({"cmn"})), "cmn", id="allow-only-chinese"),
+        pytest.param(LanguageDetection(excluded=frozenset({"cmn", "jpn"})), None, id="exclude-both"),
+    ],
+)
+def test_han_text_honors_the_language_filter(options: LanguageDetection, language: str | None) -> None:
+    assert detect_language("北京是中国的首都", options).language == language
+
+
+def test_gibberish_in_a_shared_script_has_zero_confidence() -> None:
+    # no language profile contains these trigrams, so the best score is zero and confidence collapses to 0.0
+    assert detect_language("qxqx").confidence == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_single_language_glyph_run_scores_its_lone_match() -> None:
+    # only Esperanto profiles carry the u-breve trigrams; every other candidate scores zero, so the confidence
+    # is Esperanto's own similarity rather than a comparison against a runner-up
+    match = detect_language("ŭaŭ")
+    assert match.language == "epo"
+    assert 0.0 < match.confidence < 1.0
+
+
+def test_unclassified_characters_do_not_derail_a_verdict() -> None:
+    # an emoji and a mathematical symbol belong to no script; they are ignored, and the German text still wins
+    assert detect_language("Die Ordnung muss ∀ 😀 für immer bleiben und gut funktionieren heute.").language == "deu"
+
+
+def test_a_long_passage_stays_confident() -> None:
+    passage = (
+        "The history of computing hardware covers the developments from early mechanical calculating devices to "
+        "modern electronic computers, spanning many centuries of gradual refinement and sudden revolutionary leaps. "
+        "Ancient civilisations built tally sticks, abacuses, and astronomical instruments long before anyone "
+        "imagined a programmable machine capable of arbitrary logic and endless tireless repetition without fatigue. "
+        "During the nineteenth century, inventors sketched elaborate mechanical engines driven by cranks, gears, "
+        "punched cards, and steam, yet most remained unfinished dreams scattered carelessly across dusty notebooks. "
+        "The twentieth century finally delivered vacuum tubes, transistors, integrated circuits, and eventually "
+        "microprocessors, shrinking room sized behemoths down into pocket companions cheaper than anybody promised. "
+        "Today a wristwatch outperforms the machines that once guided astronauts safely toward the distant moon, "
+        "and tomorrow's designs promise capabilities their earnest inventors can scarcely begin to describe aloud."
+    )
+    assert detect_language(passage) == LanguageMatch("eng", 1.0, "Latin", "English")
+
+
+def test_distance_saturates_on_an_adversarial_text() -> None:
+    # a long block of high-frequency nonsense trigrams pushes the real-language trigrams appended after it to
+    # the tail of the frequency ranking, so their rank displacement drives one candidate's distance past the
+    # 90000 ceiling and exercises the saturation clamp; the detector still returns a Latin verdict without error
+    filler = " ".join("".join(word) for word in islice(product("bcdfghjklmnpqrstvwxz", repeat=4), 300))
+    tail = "Đây là một đoạn văn bản tiếng Việt với nhiều dấu thanh khác nhau được viết ra hôm nay"
+    match = detect_language(f"{(filler + ' ') * 6}{tail}")
+    assert match.script == "Latin"
+
+
+def test_non_string_input_is_rejected() -> None:
+    with pytest.raises(TypeError):
+        detect_language(b"bytes")  # ty: ignore[invalid-argument-type]  # the detector requires text, not bytes
+
+
+@pytest.mark.parametrize("threshold", [pytest.param(1.5, id="above-one"), pytest.param(-0.1, id="below-zero")])
+def test_language_detection_rejects_an_out_of_range_threshold(threshold: float) -> None:
+    with pytest.raises(ValueError, match="threshold must be within"):
+        LanguageDetection(threshold=threshold)
+
+
+def test_language_detection_rejects_allowed_with_excluded() -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        LanguageDetection(allowed=frozenset({"eng"}), excluded=frozenset({"deu"}))

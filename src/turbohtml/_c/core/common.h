@@ -48,6 +48,7 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
    over a byte buffer without parsing; the turbohtml.detect facade shapes its
    (winner, certain, ranked scores, bom) tuple into EncodingMatch results. METH_O. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
+PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 
 /* Implemented in query/css/to_xpath.h (#included into dom/element.c beside the
    selector parser it reuses). _css_to_xpath(selector, prefix) translates a CSS
