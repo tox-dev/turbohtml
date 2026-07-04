@@ -86,6 +86,8 @@ void jm_lex_init(jm_lexer *lx, const Py_UCS4 *src, Py_ssize_t len) {
     lx->text = src;
     lx->text_len = 0;
     lx->newline_before = 0;
+    lx->sink = NULL;
+    lx->comment_count = 0;
     lx->error = 0;
 }
 
@@ -97,6 +99,59 @@ int jm_text_eq(const jm_lexer *lx, const char *keyword) {
         }
     }
     return index == lx->text_len;
+}
+
+/* ----------------------------------------------------------- kept comments */
+
+/* Whether body[0..body_len) contains needle (an ASCII literal) as a substring. */
+static int jm_body_has(const Py_UCS4 *body, Py_ssize_t body_len, const char *needle) {
+    Py_ssize_t needle_len = (Py_ssize_t)strlen(needle);
+    for (Py_ssize_t index = 0; index + needle_len <= body_len; index++) {
+        Py_ssize_t match = 0;
+        while (match < needle_len && body[index + match] == (Py_UCS4)(unsigned char)needle[match]) {
+            match++;
+        }
+        if (match == needle_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether a closed block comment (text spans the whole comment including both delimiters, so len >= 4 and
+   text[2] is the first body code point) is a license/banner comment kept through minification: a body that
+   opens with `!` -- the bang marker the CSS minifier keeps byte-exact -- or an @license / @preserve
+   annotation anywhere in the body. */
+static int jm_comment_is_kept(const Py_UCS4 *text, Py_ssize_t len) {
+    if (text[2] == '!') {
+        return 1;
+    }
+    const Py_UCS4 *body = text + 2;
+    Py_ssize_t body_len = len - 4; /* strip the two-code-point delimiters at each end */
+    return jm_body_has(body, body_len, "@license") || jm_body_has(body, body_len, "@preserve");
+}
+
+/* Record a kept comment into the program sink so the printer can re-emit it. Discards ordinary comments
+   and does nothing on the token-dump path (sink == NULL). The count lives on the lexer so a speculative
+   backtrack rewinds it, and a re-scan overwrites the same slots -- the committed run is left correct. */
+static void jm_capture_comment(jm_lexer *lx, const Py_UCS4 *text, Py_ssize_t len) {
+    if (lx->sink == NULL || !jm_comment_is_kept(text, len)) {
+        return;
+    }
+    struct jm_program *prog = lx->sink;
+    if (lx->comment_count == prog->comment_cap) {
+        int32_t cap = prog->comment_cap ? prog->comment_cap * 2 : 4;
+        jm_comment *grown = jm_realloc(prog->comments, (size_t)cap * sizeof(jm_comment));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return;           /* GCOVR_EXCL_LINE */
+        }
+        prog->comments = grown;
+        prog->comment_cap = cap;
+    }
+    prog->comments[lx->comment_count].text = text;
+    prog->comments[lx->comment_count].len = len;
+    lx->comment_count++;
 }
 
 /* ----------------------------------------------------------- skipping */
@@ -119,6 +174,7 @@ static void jm_skip_trivia(jm_lexer *lx) {
                 lx->pos++;
             }
         } else if (ch == '/' && lx->pos + 1 < lx->len && lx->src[lx->pos + 1] == '*') {
+            Py_ssize_t comment_start = lx->pos;
             lx->pos += 2;
             while (lx->pos < lx->len &&
                    !(lx->src[lx->pos] == '*' && lx->pos + 1 < lx->len && lx->src[lx->pos + 1] == '/')) {
@@ -129,6 +185,7 @@ static void jm_skip_trivia(jm_lexer *lx) {
             }
             if (lx->pos < lx->len) {
                 lx->pos += 2; /* past the closing star-slash */
+                jm_capture_comment(lx, lx->src + comment_start, lx->pos - comment_start);
             } else {
                 lx->error = 1; /* unterminated block comment */
                 return;

@@ -95,6 +95,19 @@ typedef enum {
     JT_NULLISH_ASSIGN, /* ??= */
 } jm_tok;
 
+/* ----------------------------------------------------------------- comments */
+
+/* A license/banner comment kept through minification: a bang block comment (its body opens with `!`, the
+   marker the CSS minifier also keeps) or one whose body carries an @license or @preserve annotation. text
+   borrows the source span including the surrounding block-comment delimiters, so the printer re-emits it
+   byte-exact; every other comment is discarded as trivia. */
+typedef struct {
+    const Py_UCS4 *text;
+    Py_ssize_t len;
+} jm_comment;
+
+struct jm_program; /* the lexer accrues kept comments into the program's list (defined below) */
+
 /* ----------------------------------------------------------------- lexer */
 
 typedef struct {
@@ -107,6 +120,9 @@ typedef struct {
     const Py_UCS4 *text; /* lexeme of a value-bearing token (into src) */
     Py_ssize_t text_len;
     int newline_before; /* a line terminator (or a block comment with one) preceded this token */
+
+    struct jm_program *sink; /* kept comments accrue here; NULL discards every comment (the token-dump path) */
+    int32_t comment_count;   /* kept-comment count so far, rewound with the lexer on a speculative backtrack */
 
     int error; /* a lexical error was hit; kind is JT_ERROR */
 } jm_lexer;
@@ -278,7 +294,7 @@ typedef struct {
 
 /* A parsed program: the node arena, the symbol and scope tables, the root node, and
    the borrowed source. Owned by one minify call and freed with jm_program_free. */
-typedef struct {
+typedef struct jm_program {
     jm_node *nodes;
     int32_t node_count;
     int32_t node_cap;
@@ -300,6 +316,15 @@ typedef struct {
     Py_UCS4 **owned;
     int32_t owned_count;
     int32_t owned_cap;
+
+    /* license/banner comments kept through minification, in source order; the printer emits them as a
+       leading block. Each borrows its source span (the source outlives the program), so only the array
+       itself is owned. jm_comment_count is the committed count the parser copies from the lexer once the
+       whole program is scanned, so a comment seen only on a backtracked branch never lands here. */
+    jm_comment *comments;
+    int32_t comment_count;
+    int32_t comment_cap;
+
     int failed; /* allocation failure */
 } jm_program;
 

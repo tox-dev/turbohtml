@@ -83,10 +83,11 @@ When the input is a string rather than a built tree -- the ``minify-html`` and `
 *******************
 
 :func:`~turbohtml.minify_js` minifies a JavaScript string on its own. It always folds whitespace, comments and number
-literals; a :class:`~turbohtml.JSMinify` toggles the two heavier passes — ``mangle`` renames local bindings to short
-names and ``fold`` runs constant folding and dead-code elimination. Top-level names are global, so they are never
-renamed; only bindings local to a function are. A construct the parser does not handle raises :class:`ValueError` rather
-than passing through silently.
+literals — ``/*! ... */`` bang comments and any ``@license`` / ``@preserve`` comment are the exception, kept byte-exact
+as a leading banner so a license header survives, exactly as the CSS minifier keeps them. A :class:`~turbohtml.JSMinify`
+toggles the two heavier passes — ``mangle`` renames local bindings to short names and ``fold`` runs constant folding and
+dead-code elimination. Top-level names are global, so they are never renamed; only bindings local to a function are. A
+construct the parser does not handle raises :class:`ValueError` rather than passing through silently.
 
 .. testcode::
 

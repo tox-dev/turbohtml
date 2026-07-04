@@ -24,10 +24,13 @@ class JSMinify:
     """
     Which optional JavaScript-minifier passes to run.
 
-    Whitespace, comment and numeric-literal minification is unconditional. ``mangle``
-    renames local bindings to short names (the bulk of the size win) and ``fold`` runs
-    constant folding and dead-code elimination; turning either off keeps that aspect of
-    the source readable (e.g. ``mangle=False`` for debuggable output).
+    Whitespace and numeric-literal minification is unconditional, as is comment removal
+    -- except ``/*! ... */`` bang comments and any comment carrying an ``@license`` or
+    ``@preserve`` annotation, which are kept byte-exact as a leading banner so a license
+    header survives (the same rule the CSS minifier applies). ``mangle`` renames local
+    bindings to short names (the bulk of the size win) and ``fold`` runs constant folding
+    and dead-code elimination; turning either off keeps that aspect of the source readable
+    (e.g. ``mangle=False`` for debuggable output).
 
     :param mangle: rename local bindings to short names.
     :param fold: constant-fold and eliminate dead code.

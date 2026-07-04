@@ -1311,6 +1311,13 @@ Py_UCS4 *jm_print(const jm_program *prog, Py_ssize_t *out_len) {
     if (st.failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return NULL; /* GCOVR_EXCL_LINE */
     }
+    /* Kept license/banner comments lead the output in source order. They carry no semantics, so hoisting
+       them to the top keeps a license header first and visible and stays byte-exact and idempotent,
+       without threading source offsets through the fold/compress/mangle passes. put_run's adjacency guard
+       spaces the comment's closing delimiter from a following token where a merge would change the run. */
+    for (int32_t index = 0; index < prog->comment_count; index++) {
+        put_run(&st, prog->comments[index].text, prog->comments[index].len);
+    }
     const jm_node *root = &prog->nodes[prog->root];
     int pending = 0;
     for (int32_t stmt = root->a; stmt >= 0; stmt = prog->nodes[stmt].next) {

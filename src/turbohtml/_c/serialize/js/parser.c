@@ -1525,6 +1525,7 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t er
         errbuf[0] = '\0';
     }
     jm_lex_init(&parser.lx, src, len);
+    parser.lx.sink = prog; /* accrue kept license/banner comments before the first token is read */
     advance(&parser);
 
     int32_t root = jm_node_new(prog, JN_PROGRAM);
@@ -1542,6 +1543,7 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t er
         tail = stmt;
     }
     prog->root = root;
+    prog->comment_count = parser.lx.comment_count; /* commit the run scanned on the real parse path */
 
     if (parser.err || prog->failed) {     /* GCOVR_EXCL_BR_LINE: prog->failed is only set on allocation failure */
         if (prog->failed && errlen > 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */

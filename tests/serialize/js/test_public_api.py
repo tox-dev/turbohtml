@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import JSMinify, _html, minify_js
+import turbohtml
+from turbohtml import Html, JSMinify, Minify, _html, minify_js
 
 _SOURCE = "function f(){var longName=true;return longName}"
 
@@ -47,6 +48,22 @@ def test_low_level_binding_requires_three_arguments() -> None:
     # the public wrapper always passes (source, fold, mangle); the seam rejects a short call
     with pytest.raises(TypeError):
         _html._minify_js("x")  # ty: ignore[missing-argument]  # too few args on purpose
+
+
+def _serialize_script(html: str) -> str:
+    return turbohtml.parse(html).serialize(Html(layout=Minify(minify_js=JSMinify())))
+
+
+def test_inline_script_keeps_bang_comment() -> None:
+    # the license header survives minification of an inline <script>, as it does for the standalone call
+    out = _serialize_script("<script>/*! lib v1 */\nfunction plus(a,b){return a+b}</script>")
+    assert out == "<script>/*! lib v1 */function plus(b,a){return b+a}</script>"
+
+
+def test_inline_script_unparsable_falls_back_verbatim() -> None:
+    # a script the parser cannot handle is emitted unchanged (the errlen==0 opt-out), so one bad
+    # <script> never breaks document serialization the way the standalone call's ValueError would
+    assert _serialize_script("<script>function (</script>") == "<script>function (</script>"
 
 
 @pytest.mark.parametrize(

@@ -336,6 +336,7 @@ void jm_program_free(jm_program *prog) {
         jm_free(prog->owned[index]);
     }
     jm_free(prog->owned);
+    jm_free(prog->comments);
     jm_free(prog->nodes);
     jm_free(prog->syms);
     jm_free(prog->scopes);

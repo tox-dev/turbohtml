@@ -26,6 +26,8 @@ def minify(source: str) -> str:
         pytest.param("a = 1 ; b = 2 ;", "a=1;b=2", id="statement-semicolons"),
         pytest.param("// line\nx = 1", "x=1", id="line-comment"),
         pytest.param("/* block */ x = 1", "x=1", id="block-comment"),
+        # a `//!` line comment is not a banner: only block bang comments are kept (see test_bang_comments_kept)
+        pytest.param("//! not a banner\nx = 1", "x=1", id="bang-line-comment-stripped"),
         pytest.param("function f ( a , b ) { return a + b }", "function f(a,b){return a+b}", id="function"),
         pytest.param("x = 1 + 2 * 3", "x=1+2*3", id="precedence-no-parens"),
         pytest.param("x = ( 1 + 2 ) * 3", "x=(1+2)*3", id="precedence-needs-parens"),
@@ -307,6 +309,47 @@ def test_operators_and_structural(source: str, expected: str) -> None:
 )
 def test_statement_position_parens_preserved(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # a bang block comment is a license/banner header kept byte-exact, the way the CSS minifier keeps
+        # `/*! ... */`; every other comment is still stripped
+        pytest.param("/*! (c) 2026 Me */\nvar x = 1", "/*! (c) 2026 Me */var x=1", id="bang-kept"),
+        pytest.param("/* @license MIT */\na = 1", "/* @license MIT */a=1", id="license-kept"),
+        pytest.param("/* @preserve keep */ a = 1", "/* @preserve keep */a=1", id="preserve-kept"),
+        # the body survives verbatim: internal stars, newlines and alignment are not touched
+        pytest.param("/*!\n * line\n */\na = 1", "/*!\n * line\n */a=1", id="bang-body-verbatim"),
+        pytest.param("/* plain */ a = 1", "a=1", id="plain-block-stripped"),
+        # a bang comment anywhere is hoisted into a leading banner, in source order
+        pytest.param("a = 1;/*! trailing */", "/*! trailing */a=1", id="trailing-bang-hoisted"),
+        pytest.param("/*! one */b = 1;/*! two */", "/*! one */ /*! two */b=1", id="two-bangs-source-order"),
+        # a program that is nothing but a banner still emits it
+        pytest.param("/*! banner only */", "/*! banner only */", id="banner-only"),
+        # more banners than the initial capacity, to exercise the growth of the kept-comment list
+        pytest.param(
+            "/*!1*//*!2*//*!3*//*!4*//*!5*/x = 1",
+            "/*!1*/ /*!2*/ /*!3*/ /*!4*/ /*!5*/x=1",
+            id="many-bangs-grow",
+        ),
+    ],
+)
+def test_bang_comments_kept(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("/*! keep */\nfunction f(longName){return longName*2}", id="mangle-fold"),
+        pytest.param("/* @license MIT */ const value = 1 + 2; use(value)", id="license-through-compress"),
+    ],
+)
+def test_bang_comment_survives_full_minify_and_is_idempotent(source: str) -> None:
+    once = minify_js(source)
+    assert once.startswith("/*")  # the banner leads the output even with mangle and fold on
+    assert minify_js(once) == once
 
 
 def test_unparseable_input_raises() -> None:
