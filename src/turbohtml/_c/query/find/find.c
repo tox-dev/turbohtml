@@ -536,12 +536,20 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
     return 0;
 }
 
+/* Whether the query pins a known subject tag on the descendant axis: the shape
+   whose candidates are exactly the tag's atom-index bucket. A query with no other
+   constraint reads the bucket straight through (query_is_simple_tag); one that adds
+   class or attribute filters runs the general matcher over the bucket instead of
+   over every descendant, so it tests only the elements of that tag. */
+static int query_is_indexed_tag(const query_t *query) {
+    return query->tag_plain && query->tag_atom != TH_TAG_UNKNOWN && query->axis == TH_AXIS_DESCENDANTS;
+}
+
 /* Whether the query is a plain known tag with no other constraint on the
    descendant axis: the shape the tag-only fast path handles with a pre-order
    walk and an integer atom compare, skipping the general matcher. */
 static int query_is_simple_tag(const query_t *query) {
-    return query->tag_plain && query->tag_atom != TH_TAG_UNKNOWN && query->nattr == 0 && query->class_ucs4 == NULL &&
-           query->class_filter == NULL && query->axis == TH_AXIS_DESCENDANTS;
+    return query_is_indexed_tag(query) && query->nattr == 0 && query->class_ucs4 == NULL && query->class_filter == NULL;
 }
 
 /* The cheap, pure-C structural prefilter for the text-search path: whether node
@@ -832,9 +840,25 @@ PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (handle_use_index(handle_obj, origin, query_is_simple_tag(&query))) {
-        if (handle_obj->index_offsets[query.tag_atom + 1] > handle_obj->index_offsets[query.tag_atom]) {
-            found = handle_obj->index_nodes[handle_obj->index_offsets[query.tag_atom]];
+    if (handle_use_index(handle_obj, origin, query_is_indexed_tag(&query))) {
+        Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom];
+        Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
+        if (query_is_simple_tag(&query)) {
+            if (end > pos) {
+                found = handle_obj->index_nodes[pos];
+            }
+        } else {
+            for (; pos < end; pos++) {
+                int matched = node_matches(state, handle_obj->index_nodes[pos], &query);
+                if (matched < 0) {
+                    error = 1;
+                    break;
+                }
+                if (matched) {
+                    found = handle_obj->index_nodes[pos];
+                    break;
+                }
+            }
         }
     } else if (query_is_simple_tag(&query)) {
         /* the first element whose atom matches, found with an integer compare */
@@ -891,15 +915,27 @@ PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (handle_use_index(handle_obj, origin, query_is_simple_tag(&query))) {
+    if (handle_use_index(handle_obj, origin, query_is_indexed_tag(&query))) {
+        int simple = query_is_simple_tag(&query);
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
             if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
                 break;
             }
-            if (append_wrapped(out, state, handle, handle_obj->index_nodes[pos]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                break;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            th_node *node = handle_obj->index_nodes[pos];
+            if (!simple) {
+                int matched = node_matches(state, node, &query);
+                if (matched < 0) {
+                    error = 1;
+                    break;
+                }
+                if (matched == 0) {
+                    continue;
+                }
+            }
+            if (append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                error = 1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
     } else if (query_is_simple_tag(&query)) {

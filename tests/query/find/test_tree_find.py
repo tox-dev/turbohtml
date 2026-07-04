@@ -300,6 +300,14 @@ def test_callable_error_propagates(id_filter: Filter) -> None:
         parse("<p>").find(id=id_filter)
 
 
+# a known-tag + attribute query rooted at the document reaches the matcher through the
+# atom-index bucket, so its error path is distinct from the general descendant walk's
+@pytest.mark.parametrize("query", [lambda doc: doc.find("p", id=_raise), lambda doc: doc.find_all("p", id=_raise)])
+def test_indexed_tag_filter_error_propagates(query: Callable[[Document], object]) -> None:
+    with pytest.raises(ZeroDivisionError):
+        query(parse("<p>x</p>"))
+
+
 # --- argument errors ---
 
 
