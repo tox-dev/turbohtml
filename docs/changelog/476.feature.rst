@@ -1,0 +1,5 @@
+Harvest four more metadata fields alongside the content body in :meth:`~turbohtml.Node.article`: ``canonical`` (the
+``<link rel=canonical>`` URL, then ``og:url``), ``site_name`` (``og:site_name``, then a ``<meta
+name=application-name>``), ``tags`` (every ``<meta name=keywords>`` value, comma-split, plus each ``article:tag``, in
+document order), and ``image`` (``og:image``, then ``twitter:image``). The existing fields keep their positions, so only
+code that reads past ``lang`` sees the new tail.

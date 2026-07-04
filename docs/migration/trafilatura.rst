@@ -87,8 +87,9 @@ What trafilatura has that turbohtml does not
   htmldate for pages where the date is only inferable. Prose language, by contrast, turbohtml now infers:
   :func:`turbohtml.detect.detect_language` classifies the extracted text (``article().lang`` still only reports the
   declared ``<html lang>``).
-- Richer metadata fields (site name, categories, tags, license, canonical URL, hostname, lead image). turbohtml exposes
-  ``title``, ``byline``, ``date``, ``description``, and ``lang``.
+- License and hostname metadata fields. :meth:`~turbohtml.Node.article` exposes ``title``, ``byline``, ``date``,
+  ``description``, ``lang``, ``canonical``, ``site_name``, ``tags``, and ``image`` (the lead image); derive the hostname
+  from ``canonical`` with :func:`urllib.parse.urlsplit` and read a license ``<link rel="license">`` with a selector.
 
 Performance
 ===========

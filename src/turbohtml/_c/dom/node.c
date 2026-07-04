@@ -1103,16 +1103,38 @@ static PyObject *article_field(const Py_UCS4 *data, Py_ssize_t len) {
     return ucs4_to_str(data, len);
 }
 
+/* Materialize the harvested tags as a tuple of str, empty when none were found. */
+static PyObject *article_tags(const th_article_tag *tags, Py_ssize_t count) {
+    PyObject *tuple = PyTuple_New(count);
+    if (tuple == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *item = ucs4_to_str(tags[index].data, tags[index].len);
+        if (item == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(tuple); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        PyTuple_SET_ITEM(tuple, index, item);
+    }
+    return tuple;
+}
+
 PyDoc_STRVAR(article_doc, "article()\n--\n\n"
                           "Return an Article record for the dominant content under this node: the\n"
                           "scored content body (element), its layout-aware plain text (text, as\n"
                           "main_text()), and the page metadata harvested from the document -- title,\n"
-                          "byline, date, description and lang. element is None and text is empty when\n"
-                          "nothing reads as content; each metadata field is None when absent. Title\n"
-                          "comes from <h1>, then og:title, then <title>; byline from a rel=author\n"
-                          "link, then a meta author, then article:author; date from <time>, then\n"
-                          "article:published_time, then a common date meta; description from\n"
-                          "og:description, then a meta description; lang from <html lang>. Pure C.");
+                          "byline, date, description, lang, canonical, site_name, tags and image.\n"
+                          "element is None and text is empty when nothing reads as content; each\n"
+                          "single-valued metadata field is None when absent and tags is an empty\n"
+                          "tuple. Title comes from <h1>, then og:title, then <title>; byline from a\n"
+                          "rel=author link, then a meta author, then article:author; date from\n"
+                          "<time>, then article:published_time, then a common date meta; description\n"
+                          "from og:description, then a meta description; lang from <html lang>;\n"
+                          "canonical from <link rel=canonical>, then og:url; site_name from\n"
+                          "og:site_name, then a meta application-name; tags from every <meta\n"
+                          "name=keywords> (comma-split) and article:tag; image from og:image, then\n"
+                          "twitter:image. Pure C.");
 
 static PyObject *node_article(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_tree *tree = tree_of(self);
@@ -1139,11 +1161,16 @@ static PyObject *node_article(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     PyObject *date = article_field(meta.date, meta.date_len);
     PyObject *description = article_field(meta.description, meta.description_len);
     PyObject *lang = article_field(meta.lang, meta.lang_len);
+    PyObject *canonical = article_field(meta.canonical, meta.canonical_len);
+    PyObject *site_name = article_field(meta.site_name, meta.site_name_len);
+    PyObject *image = article_field(meta.image, meta.image_len);
+    PyObject *tags = article_tags(meta.tags, meta.tags_count);
     th_article_meta_clear(&meta);
 
     /* Py_BuildValue("(N...)") steals each reference and, if any field is NULL from
        an (unforceable) allocation failure, propagates the error and frees the rest. */
-    PyObject *args = Py_BuildValue("(NNNNNNN)", element, text, title, byline, date, description, lang);
+    PyObject *args = Py_BuildValue("(NNNNNNNNNNN)", element, text, title, byline, date, description, lang, canonical,
+                                   site_name, tags, image);
     if (args == NULL) { /* GCOVR_EXCL_BR_LINE: a field is NULL only on an unforceable allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }

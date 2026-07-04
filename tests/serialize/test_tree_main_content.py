@@ -6,8 +6,9 @@ record. The readability content-density heuristic is pure C in
 ``treebuilder_readability.h``. These cases drive every scoring branch with
 article-shaped fixtures (tag and class/id weighting, boilerplate prunings,
 link-density discounting, candidate-array regrow, empty-result guards) and every
-metadata field beside it (title, byline, date, description and lang, each in its
-present, absent, and multiple-source-precedence form).
+metadata field beside it (title, byline, date, description, lang, canonical,
+site_name, tags and image, each in its present, absent, and
+multiple-source-precedence form).
 """
 
 from __future__ import annotations
@@ -325,6 +326,10 @@ def test_article_all_fields_absent_are_none() -> None:
     assert art.byline is None
     assert art.date is None
     assert art.description is None
+    assert art.canonical is None
+    assert art.site_name is None
+    assert art.image is None
+    assert art.tags == ()
 
 
 def test_article_available_on_element() -> None:
@@ -546,17 +551,129 @@ def test_article_meta_with_valueless_content_is_skipped() -> None:
     assert parse(html).article().title == "Fallback"
 
 
+@pytest.mark.parametrize(
+    ("head", "expected"),
+    [
+        pytest.param(
+            "<link rel=canonical href='https://ex.com/a'><meta property=og:url content='https://ex.com/og'>",
+            "https://ex.com/a",
+            id="canonical-link-wins",
+        ),
+        pytest.param("<meta property=og:url content='https://ex.com/og'>", "https://ex.com/og", id="og-url-fallback"),
+        pytest.param(
+            "<link rel=stylesheet href='/s.css'><meta property=og:url content='https://ex.com/og'>",
+            "https://ex.com/og",
+            id="non-canonical-link-ignored",
+        ),
+        pytest.param(
+            "<link rel=canonical><meta property=og:url content='https://ex.com/og'>",
+            "https://ex.com/og",
+            id="valueless-canonical-link-falls-through",
+        ),
+        pytest.param(
+            "<link href='/x'><meta property=og:url content='https://ex.com/og'>",
+            "https://ex.com/og",
+            id="link-without-rel-ignored",
+        ),
+    ],
+)
+def test_article_canonical_precedence(head: str, expected: str) -> None:
+    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    assert art.canonical == expected
+
+
+def test_article_canonical_absent_is_none() -> None:
+    assert parse(f"<body>{BODY}</body>").article().canonical is None
+
+
+@pytest.mark.parametrize(
+    ("head", "expected"),
+    [
+        pytest.param(
+            "<meta name=application-name content='App'><meta property=og:site_name content='Example News'>",
+            "Example News",
+            id="og-site-name-wins",
+        ),
+        pytest.param("<meta name=application-name content='App'>", "App", id="application-name-fallback"),
+    ],
+)
+def test_article_site_name_precedence(head: str, expected: str) -> None:
+    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    assert art.site_name == expected
+
+
+def test_article_site_name_absent_is_none() -> None:
+    assert parse(f"<body>{BODY}</body>").article().site_name is None
+
+
+@pytest.mark.parametrize(
+    ("head", "expected"),
+    [
+        pytest.param(
+            "<meta name=twitter:image content='https://ex.com/t.png'>"
+            "<meta property=og:image content='https://ex.com/o.png'>",
+            "https://ex.com/o.png",
+            id="og-image-wins",
+        ),
+        pytest.param(
+            "<meta name=twitter:image content='https://ex.com/t.png'>",
+            "https://ex.com/t.png",
+            id="twitter-image-fallback",
+        ),
+    ],
+)
+def test_article_image_precedence(head: str, expected: str) -> None:
+    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    assert art.image == expected
+
+
+def test_article_image_absent_is_none() -> None:
+    assert parse(f"<body>{BODY}</body>").article().image is None
+
+
+def test_article_tags_split_keywords_and_collect_article_tags() -> None:
+    head = (
+        "<meta name=keywords content='space,  comets , tails'>"
+        "<meta property=article:tag content='astronomy'>"
+        "<meta property=article:tag content='science'>"
+    )
+    # keywords are comma-split and each article:tag appended, all in document order.
+    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    assert art.tags == ("space", "comets", "tails", "astronomy", "science")
+
+
+def test_article_tags_skip_blank_keyword_segments() -> None:
+    # empty segments (leading/trailing comma, whitespace-only) leave no tag behind.
+    art = parse(f"<head><meta name=keywords content=' , solo ,, '></head><body>{BODY}</body>").article()
+    assert art.tags == ("solo",)
+
+
+def test_article_tags_ignore_valueless_content() -> None:
+    head = "<meta name=keywords><meta property=article:tag>"
+    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().tags == ()
+
+
+def test_article_tags_grow_past_initial_capacity() -> None:
+    keywords = ",".join(f"t{index}" for index in range(9))
+    art = parse(f"<head><meta name=keywords content='{keywords}'></head><body>{BODY}</body>").article()
+    assert art.tags == tuple(f"t{index}" for index in range(9))
+
+
 def test_article_fields_unpack_in_order() -> None:
     art = parse(f"<html lang=en><body>{BODY}</body></html>").article()
-    element, text, title, byline, date, description, lang = art
+    element, text, title, byline, date, description, lang, canonical, site_name, tags, image = art
     assert element is art.element
     assert text is art.text
-    assert (title, byline, date, description, lang) == (
+    assert (title, byline, date, description, lang, canonical, site_name, tags, image) == (
         art.title,
         art.byline,
         art.date,
         art.description,
         art.lang,
+        art.canonical,
+        art.site_name,
+        art.tags,
+        art.image,
     )
 
 

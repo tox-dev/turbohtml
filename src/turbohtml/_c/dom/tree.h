@@ -440,15 +440,26 @@ Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt,
    th_node_layout_text) afterwards. The engine for Node.main_content()/main_text(). */
 th_node *th_node_main_content(th_tree *tree, th_node *root);
 
+/* One harvested tag/keyword: a freshly PyMem-allocated, whitespace-normalized
+   code-point buffer and its length. */
+typedef struct {
+    Py_UCS4 *data;
+    Py_ssize_t len;
+} th_article_tag;
+
 /* The page-level article metadata Node.article() returns beside the content body:
-   each field is a freshly PyMem-allocated, whitespace-normalized code-point buffer
-   (NULL with a zero length when the source is absent), harvested in pure C from the
-   document the content sits in -- title from <h1> / og:title / <title>, byline from
-   a rel=author link / meta author / article:author, date from <time> / article:
-   published_time / a common date meta, description from og:description / meta
-   description, and lang from <html lang>. The caller holds the per-tree critical
-   section, materializes each buffer into a str (or None), then th_article_meta_clear
-   frees them. */
+   each single-valued field is a freshly PyMem-allocated, whitespace-normalized
+   code-point buffer (NULL with a zero length when the source is absent), harvested in
+   pure C from the document the content sits in -- title from <h1> / og:title /
+   <title>, byline from a rel=author link / meta author / article:author, date from
+   <time> / article:published_time / a common date meta, description from
+   og:description / meta description, lang from <html lang>, canonical from
+   <link rel=canonical> / og:url, site_name from og:site_name / meta application-name,
+   and image from og:image / twitter:image. tags holds each <meta name=keywords>
+   value (comma-split) and each article:tag in document order, tags_count of them (an
+   empty run when none appear). The caller holds the per-tree critical section,
+   materializes each buffer into a str (or None) and tags into a tuple, then
+   th_article_meta_clear frees them. */
 typedef struct {
     Py_UCS4 *title;
     Py_ssize_t title_len;
@@ -460,6 +471,14 @@ typedef struct {
     Py_ssize_t description_len;
     Py_UCS4 *lang;
     Py_ssize_t lang_len;
+    Py_UCS4 *canonical;
+    Py_ssize_t canonical_len;
+    Py_UCS4 *site_name;
+    Py_ssize_t site_name_len;
+    Py_UCS4 *image;
+    Py_ssize_t image_len;
+    th_article_tag *tags;
+    Py_ssize_t tags_count;
 } th_article_meta;
 
 /* Fill meta by harvesting the article metadata fields from root (the document the

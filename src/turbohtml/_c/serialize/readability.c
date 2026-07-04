@@ -490,19 +490,10 @@ static int read_is_meta(th_tree *tree, th_node *node, const void *ctx) {
     return 0;
 }
 
-/* Whether node is an <a> whose rel attribute carries the "author" token. */
-static int read_is_author_link(th_tree *tree, th_node *node, const void *Py_UNUSED(ctx)) {
-    if (node->ns != TH_NS_HTML || node->atom != TH_TAG_A) {
-        return 0;
-    }
-    Py_ssize_t found = th_node_attr_find(tree, node, "rel", 3);
-    if (found < 0) {
-        return 0;
-    }
-    /* a valueless rel carries value_len 0 (a NULL pointer if hand-built, an empty
-       string if parsed), so the token scan below simply yields no tokens */
-    const Py_UCS4 *value = node->attrs[found].value;
-    Py_ssize_t value_len = node->attrs[found].value_len;
+/* Whether a rel attribute run carries token as one of its whitespace-separated
+   values, compared case-insensitively. A valueless rel carries value_len 0 (a NULL
+   pointer if hand-built, an empty string if parsed), so the scan yields no tokens. */
+static int read_rel_has_token(const Py_UCS4 *value, Py_ssize_t value_len, const char *token) {
     Py_ssize_t index = 0;
     while (index < value_len) {
         while (index < value_len && read_is_ws(value[index])) {
@@ -512,11 +503,35 @@ static int read_is_author_link(th_tree *tree, th_node *node, const void *Py_UNUS
         while (index < value_len && !read_is_ws(value[index])) {
             index++;
         }
-        if (index > start && ser_value_iequals(value + start, index - start, "author")) {
+        if (index > start && ser_value_iequals(value + start, index - start, token)) {
             return 1;
         }
     }
     return 0;
+}
+
+/* Whether node is an <a> whose rel attribute carries the "author" token. */
+static int read_is_author_link(th_tree *tree, th_node *node, const void *Py_UNUSED(ctx)) {
+    if (node->ns != TH_NS_HTML || node->atom != TH_TAG_A) {
+        return 0;
+    }
+    Py_ssize_t found = th_node_attr_find(tree, node, "rel", 3);
+    if (found < 0) {
+        return 0;
+    }
+    return read_rel_has_token(node->attrs[found].value, node->attrs[found].value_len, "author");
+}
+
+/* Whether node is a <link> whose rel attribute carries the "canonical" token. */
+static int read_is_canonical_link(th_tree *tree, th_node *node, const void *Py_UNUSED(ctx)) {
+    if (node->ns != TH_NS_HTML || node->atom != TH_TAG_LINK) {
+        return 0;
+    }
+    Py_ssize_t found = th_node_attr_find(tree, node, "rel", 3);
+    if (found < 0) {
+        return 0;
+    }
+    return read_rel_has_token(node->attrs[found].value, node->attrs[found].value_len, "canonical");
 }
 
 /* The normalized content of the first <meta> matching key, or NULL when absent. */
@@ -632,6 +647,136 @@ static Py_UCS4 *read_harvest_lang(th_tree *tree, th_node *root, Py_ssize_t *out_
     return read_attr_value(tree, html, "lang", 4, out_len);
 }
 
+/* Canonical URL: the first <link rel=canonical>'s href, else the og:url meta. */
+static Py_UCS4 *read_harvest_canonical(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
+    th_node *link = read_find(tree, root, read_is_canonical_link, NULL);
+    if (link != NULL) {
+        Py_UCS4 *href = read_attr_value(tree, link, "href", 4, out_len);
+        if (href != NULL) {
+            return href;
+        }
+    }
+    return read_meta_content(tree, root, "og:url", out_len);
+}
+
+/* Site name: the og:site_name meta, else the application-name meta. */
+static Py_UCS4 *read_harvest_site_name(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
+    Py_UCS4 *og = read_meta_content(tree, root, "og:site_name", out_len);
+    if (og != NULL) {
+        return og;
+    }
+    return read_meta_content(tree, root, "application-name", out_len);
+}
+
+/* Lead image: the og:image meta, else the twitter:image meta. */
+static Py_UCS4 *read_harvest_image(th_tree *tree, th_node *root, Py_ssize_t *out_len) {
+    Py_UCS4 *og = read_meta_content(tree, root, "og:image", out_len);
+    if (og != NULL) {
+        return og;
+    }
+    return read_meta_content(tree, root, "twitter:image", out_len);
+}
+
+/* Append the normalized [text, text+len) run to the tags array, growing it as needed.
+   A run that normalizes to empty is skipped so a blank keyword reads as no tag. Returns
+   -1 only on the excluded allocation-failure path. */
+static int read_tags_append(th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap, const Py_UCS4 *text,
+                            Py_ssize_t len) {
+    Py_ssize_t norm_len = 0;
+    Py_UCS4 *norm = read_normalize(text, len, &norm_len);
+    if (norm == NULL) {
+        return 0;
+    }
+    if (*count == *cap) {
+        Py_ssize_t grown_cap = *cap < 4 ? 4 : *cap * 2;
+        th_article_tag *grown = PyMem_Realloc(*items, (size_t)grown_cap * sizeof(th_article_tag));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyMem_Free(norm); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        *items = grown;
+        *cap = grown_cap;
+    }
+    (*items)[*count].data = norm;
+    (*items)[*count].len = norm_len;
+    (*count)++;
+    return 0;
+}
+
+/* Append each comma-separated segment of a keywords content run as its own tag.
+   Returns -1 only on the excluded allocation-failure path. */
+static int read_tags_split(th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap, const Py_UCS4 *value,
+                           Py_ssize_t value_len) {
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index <= value_len; index++) {
+        if (index == value_len || value[index] == (Py_UCS4)',') {
+            if (read_tags_append(items, count, cap, value + start, index - start) < 0) { /* GCOVR_EXCL_BR_LINE:
+                                                                                        allocation-failure path */
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            start = index + 1;
+        }
+    }
+    return 0;
+}
+
+/* One <meta>'s tag contribution: comma-split when it names keywords, the whole content
+   when it is an article:tag, nothing otherwise. Returns -1 only on the excluded
+   allocation-failure path. */
+static int read_tags_from_meta(th_tree *tree, th_node *meta, th_article_tag **items, Py_ssize_t *count,
+                               Py_ssize_t *cap) {
+    Py_ssize_t content = th_node_attr_find(tree, meta, "content", 7);
+    if (content < 0 || meta->attrs[content].value == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *value = meta->attrs[content].value;
+    Py_ssize_t value_len = meta->attrs[content].value_len;
+    if (read_is_meta(tree, meta, "keywords")) {
+        return read_tags_split(items, count, cap, value, value_len);
+    }
+    if (read_is_meta(tree, meta, "article:tag")) {
+        return read_tags_append(items, count, cap, value, value_len);
+    }
+    return 0;
+}
+
+/* Gather every <meta name=keywords> value (comma-split) and every article:tag under
+   root into the tags array, in document order. Returns -1 only on the excluded
+   allocation-failure path. */
+static int read_collect_tags(th_tree *tree, th_node *root, th_article_tag **items, Py_ssize_t *count, Py_ssize_t *cap) {
+    for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (child->ns == TH_NS_HTML && child->atom == TH_TAG_META) {
+            if (read_tags_from_meta(tree, child, items, count, cap) < 0) { /* GCOVR_EXCL_BR_LINE: alloc-failure path */
+                return -1;                                                 /* GCOVR_EXCL_LINE: allocation-failure */
+            }
+        }
+        if (read_collect_tags(tree, child, items, count, cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return -1;                                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    return 0;
+}
+
+/* Tags: the keyword and article:tag values harvested by read_collect_tags. On the
+   excluded allocation-failure path the partial run is freed and the field stays
+   empty, the way an absent source reads. */
+static void read_harvest_tags(th_tree *tree, th_node *root, th_article_tag **out, Py_ssize_t *out_count) {
+    *out = NULL;
+    *out_count = 0;
+    Py_ssize_t cap = 0;
+    if (read_collect_tags(tree, root, out, out_count, &cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        for (Py_ssize_t index = 0; index < *out_count; index++) {  /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free((*out)[index].data);                        /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+        PyMem_Free(*out); /* GCOVR_EXCL_LINE */
+        *out = NULL;      /* GCOVR_EXCL_LINE */
+        *out_count = 0;   /* GCOVR_EXCL_LINE */
+    } /* GCOVR_EXCL_LINE: llvm-cov flags this fall-through brace of the allocation-failure block */
+}
+
 void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta) {
     if (root == NULL) {
         /* a node built by hand (Element(...)) owns a tree with no document root, so
@@ -643,6 +788,10 @@ void th_article_metadata(th_tree *tree, th_node *root, th_article_meta *meta) {
     meta->date = read_harvest_date(tree, root, &meta->date_len);
     meta->description = read_harvest_description(tree, root, &meta->description_len);
     meta->lang = read_harvest_lang(tree, root, &meta->lang_len);
+    meta->canonical = read_harvest_canonical(tree, root, &meta->canonical_len);
+    meta->site_name = read_harvest_site_name(tree, root, &meta->site_name_len);
+    meta->image = read_harvest_image(tree, root, &meta->image_len);
+    read_harvest_tags(tree, root, &meta->tags, &meta->tags_count);
 }
 
 void th_article_meta_clear(th_article_meta *meta) {
@@ -651,4 +800,11 @@ void th_article_meta_clear(th_article_meta *meta) {
     PyMem_Free(meta->date);
     PyMem_Free(meta->description);
     PyMem_Free(meta->lang);
+    PyMem_Free(meta->canonical);
+    PyMem_Free(meta->site_name);
+    PyMem_Free(meta->image);
+    for (Py_ssize_t index = 0; index < meta->tags_count; index++) {
+        PyMem_Free(meta->tags[index].data);
+    }
+    PyMem_Free(meta->tags);
 }

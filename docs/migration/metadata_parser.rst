@@ -88,8 +88,10 @@ What metadata_parser has that turbohtml does not
   ``metadata["meta"]``. :meth:`~turbohtml.Document.opengraph` gathers only ``og:``/``twitter:`` tags and
   :meth:`~turbohtml.Document.dublin_core` the ``dc.*``/``dcterms.*`` ones; read any other ``<meta>`` by selecting it,
   e.g. ``parse(html).find_all("meta")``.
-- **Page-level links** (``canonical``, ``shortlink``) collected into ``metadata["page"]``. Read those with a selector,
-  e.g. ``parse(html).find('link[rel="canonical"]')``.
+- **Page-level links** collected into ``metadata["page"]``. The canonical URL comes back through
+  :meth:`~turbohtml.Node.article` as ``article().canonical`` (the ``<link rel="canonical">`` href, falling back to
+  ``og:url``); read any other page link, such as ``shortlink``, with a selector, e.g.
+  ``parse(html).find('link[rel="shortlink"]')``.
 - **Namespace ``strategy`` ordering**: ``get_metadata(field, strategy=[...])`` picks the first namespace that carries a
   field. turbohtml keys tags by their full prefix (``og:title`` vs ``twitter:title``), so read the prefix you want
   directly.
