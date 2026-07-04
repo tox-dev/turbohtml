@@ -100,8 +100,8 @@ intermediate commits build, and a phase's user-visible value lands with its test
 1. **Fold / DCE** - peephole passes to a fixpoint: constant folding, boolean algebra (`!0`/`!1`, `void 0`/`undefined`),
    conditional and logical minimization, and unreachable-branch / unused-binding removal, each gated by a side-effect
    predicate. Long-tail single-digit %.
-1. **Bindings + HTML hook** - `turbohtml.clean.minify_js(source) -> str`; a `minify_js` flag on the `Minify` options object
-   threaded through `dom/formatters.c`, `dom/node.c` and `th_minify_opts`; route `<script>` rawtext through
+1. **Bindings + HTML hook** - `turbohtml.clean.minify_js(source) -> str`; a `minify_js` flag on the `Minify` options
+   object threaded through `dom/formatters.c`, `dom/node.c` and `th_minify_opts`; route `<script>` rawtext through
    `th_js_minify` in `serialize_minify`. Update the `.pyi` stubs and `_render.py`.
 1. **Tests / docs / gates** - see below.
 
