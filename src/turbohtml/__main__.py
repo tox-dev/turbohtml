@@ -14,9 +14,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import minify_js, parse
+from . import parse
 from ._html import Minify
-from .clean import minify, minify_css, sanitize
+from .clean import minify, minify_css, minify_js, sanitize
 from .detect import detect
 
 if TYPE_CHECKING:

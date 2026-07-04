@@ -54,6 +54,6 @@ soupsieve's free functions. Reuse a :func:`compile` result instead when matching
 
 .. autodata:: DEBUG
 
-.. autoexception:: SelectorSyntaxError
+A malformed selector raises :class:`turbohtml.SelectorSyntaxError`, the one error every selector-parse path shares.
 
-.. autofunction:: escape
+.. autofunction:: escape_identifier

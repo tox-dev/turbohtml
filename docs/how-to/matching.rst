@@ -80,7 +80,7 @@ from data cannot break out of the selector:
     \31 2\ col
     found
 
-A malformed selector raises :class:`~turbohtml.match.SelectorSyntaxError` (a :class:`ValueError` subclass, so
-soupsieve's exception name and the native engine's ``ValueError`` both catch it). soupsieve's ``namespaces`` and
-``flags`` arguments are carried on a :class:`~turbohtml.match.Matching` config for API parity but do not change which
-elements match -- see :doc:`the reference </reference/match>` for that limitation.
+A malformed selector raises :class:`~turbohtml.SelectorSyntaxError` (a :class:`ValueError` subclass, so soupsieve's
+exception name and the native engine's ``ValueError`` both catch it). soupsieve's ``namespaces`` and ``flags`` arguments
+are carried on a :class:`~turbohtml.match.Matching` config for API parity but do not change which elements match -- see
+:doc:`the reference </reference/match>` for that limitation.

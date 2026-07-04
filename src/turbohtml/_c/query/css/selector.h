@@ -1113,17 +1113,17 @@ static void selector_free(sel_compiled *compiled) {
     PyMem_Free(compiled);
 }
 
-/* Set a ValueError naming the selector, the reason the parse failed, and the position
-   the failing token starts at (issue #434), e.g.
+/* Set a SelectorSyntaxError naming the selector, the reason the parse failed, and the
+   position the failing token starts at (issue #434), e.g.
    invalid CSS selector ":nth-child(foo)": expected An+B at position 11 */
-static void sel_raise(PyObject *selector_str, const sel_parser *parser) {
-    PyErr_Format(PyExc_ValueError, "invalid CSS selector \"%U\": %s at position %zd", selector_str, parser->err_reason,
+static void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser) {
+    PyErr_Format(selector_error, "invalid CSS selector \"%U\": %s at position %zd", selector_str, parser->err_reason,
                  parser->err_pos);
 }
 
 /* Compile a selector string against the tree it will run on. Returns NULL with a
-   ValueError set on a syntax error. */
-static sel_compiled *selector_compile(th_tree *tree, PyObject *selector_str) {
+   SelectorSyntaxError set on a syntax error. */
+static sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
     sel_compiled *compiled = PyMem_Calloc(1, sizeof(sel_compiled));
     if (compiled == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return (void *)PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1137,7 +1137,7 @@ static sel_compiled *selector_compile(th_tree *tree, PyObject *selector_str) {
     compiled->tree = tree;
     sel_parser parser = {compiled->source, 0, PyUnicode_GET_LENGTH(selector_str), tree, 0, 0, 0, "unexpected token"};
     if (sel_parse_alts(&parser, &compiled->alts, &compiled->count, 0, 0, 0) < 0) {
-        sel_raise(selector_str, &parser);
+        sel_raise(selector_error, selector_str, &parser);
         PyMem_Free(compiled->source);
         PyMem_Free(compiled);
         return NULL;

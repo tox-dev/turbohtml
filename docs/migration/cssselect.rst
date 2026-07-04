@@ -9,8 +9,8 @@ parses the selector in Python, walks the parsed tree, and emits an XPath string;
 document. That translator is the engine behind ``lxml.cssselect()``, `parsel <https://parsel.readthedocs.io/>`_ (and so
 Scrapy), and `pyquery <https://pyquery.readthedocs.io/>`_, wherever a library wants CSS syntax on top of an XPath
 evaluator. Its public surface is small: a ``GenericTranslator`` (XML rules) and an ``HTMLTranslator`` (HTML lowercasing
-rules), each exposing ``css_to_xpath(css, prefix="descendant-or-self::")``, plus the ``SelectorError`` /
-``SelectorSyntaxError`` / ``ExpressionError`` hierarchy.
+rules), each exposing ``css_to_xpath(css, prefix="descendant-or-self::")``, plus its ``SelectorError`` /
+``SelectorSyntaxError`` / ``ExpressionError`` error types.
 
 :func:`turbohtml.convert.css_to_xpath` does the same job in a single C pass over the parsed selector, and
 :class:`turbohtml.convert.GenericTranslator` / :class:`turbohtml.convert.HTMLTranslator` keep cssselect's
@@ -59,8 +59,8 @@ Portable 1:1 without behavior change:
 - The default ``prefix="descendant-or-self::"`` and its role of scoping each translated arm to the context node's
   subtree.
 - A comma-separated selector list translating to an XPath ``|`` union, one arm per selector.
-- The ``SelectorError`` base with ``SelectorSyntaxError`` and ``ExpressionError`` children, raised for the same two
-  failure modes (selector rejected by the grammar vs. valid selector with no XPath 1.0 form).
+- The two failure modes as typed errors: :class:`turbohtml.SelectorSyntaxError` for a selector the grammar rejects and
+  ``ExpressionError`` for a valid selector with no XPath 1.0 form.
 
 What turbohtml adds
 ===================
@@ -149,9 +149,10 @@ translator object.
 
     descendant-or-self::div[@id = 'main']/descendant::a[starts-with(@href, 'https')]
 
-The ``prefix`` argument works as in cssselect (default ``descendant-or-self::``), and the error types keep their names:
-``SelectorSyntaxError`` for a selector the grammar rejects, ``ExpressionError`` for a valid selector XPath 1.0 cannot
-express, both under a common ``SelectorError``.
+The ``prefix`` argument works as in cssselect (default ``descendant-or-self::``). A selector the grammar rejects raises
+:class:`turbohtml.SelectorSyntaxError` -- the one error every turbohtml selector-parse path shares, a
+:class:`ValueError` -- and a valid selector with no XPath 1.0 form raises ``ExpressionError``, under the
+cssselect-shaped ``SelectorError``.
 
 .. testcode::
 
@@ -186,6 +187,6 @@ express, both under a common ``SelectorError``.
 - ``[lang|="en"]``, ``[type=CHECKBOX]``, ``li:empty`` on whitespace-only elements, and ``:disabled`` on hidden inputs or
   around ``legend`` select per the current specs, so their node-sets can differ from cssselect's approximations (the
   differential suite pins each divergence).
-- ``SelectorSyntaxError`` subclasses ``SyntaxError`` and ``ExpressionError`` subclasses ``RuntimeError``, so a bare
-  ``except Exception`` still catches them, but code catching cssselect's classes by import must switch the import to
-  :mod:`turbohtml.convert`.
+- ``SelectorSyntaxError`` is :class:`turbohtml.SelectorSyntaxError`, a :class:`ValueError` (not cssselect's
+  ``SyntaxError``), unifying it with the CSS matching engine; ``ExpressionError`` subclasses ``RuntimeError`` under
+  ``SelectorError``. Code catching cssselect's classes by import must switch the import to :mod:`turbohtml.convert`.

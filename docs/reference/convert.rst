@@ -18,8 +18,10 @@ is context-free (no bare ``position()`` tests), so the expression stays valid in
 
 .. autoclass:: HTMLTranslator
 
-.. autoexception:: SelectorError
+A selector the CSS grammar rejects raises :class:`turbohtml.SelectorSyntaxError` (the one error every selector-parse
+path shares); a valid selector XPath 1.0 cannot express raises :exc:`ExpressionError`, under the cssselect-shaped
+:exc:`SelectorError` base.
 
-.. autoexception:: SelectorSyntaxError
+.. autoexception:: SelectorError
 
 .. autoexception:: ExpressionError

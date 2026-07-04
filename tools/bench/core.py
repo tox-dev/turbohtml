@@ -17,7 +17,7 @@ from turbohtml import Markdown as _Markdown
 from turbohtml import clean as _clean
 from turbohtml import match as _match
 from turbohtml.build import E
-from turbohtml.clean import Detector as _Detector
+from turbohtml.clean import LinkDetector as _LinkDetector
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
 from turbohtml.convert import css_to_xpath as _css_to_xpath
@@ -44,7 +44,7 @@ _HAS = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP = "code, a, q"  # a bulk set of tags to drop or unwrap
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
-_DETECTOR = _Detector()
+_DETECTOR = _LinkDetector()
 _ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
 
 
@@ -163,7 +163,7 @@ def minify(text: str) -> None:
 
 def minify_js(source: str) -> None:
     """Minify a JavaScript source with turbohtml's native lex-parse-optimize-print minifier."""
-    _ = turbohtml.minify_js(source)
+    _ = _clean.minify_js(source)
 
 
 def edit(document: turbohtml.Document) -> None:

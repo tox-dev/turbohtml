@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from turbohtml import Document, Element, parse
+from turbohtml import Document, Element, SelectorSyntaxError, parse
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _DOC = (
     '<section id="s" class="box wide">'
@@ -522,6 +527,22 @@ def test_invalid_selector_error_names_the_position_and_reason() -> None:
     # the message carries the offending selector, the reason, and the position (issue #434)
     with pytest.raises(ValueError, match=r'invalid CSS selector ":nth-child\(foo\)": expected An\+B at position 11'):
         parse("<p>x</p>").select(":nth-child(foo)")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda node: node.select("a["), id="select"),
+        pytest.param(lambda node: node.select_one("a["), id="select_one"),
+        pytest.param(lambda node: node.matches("a["), id="matches"),
+        pytest.param(lambda node: node.closest("a["), id="closest"),
+    ],
+)
+def test_native_selector_parse_raises_the_unified_error(call: Callable[[Element], object]) -> None:
+    node = parse("<div><p>x</p></div>").select_one("p")
+    assert node is not None
+    with pytest.raises(SelectorSyntaxError):
+        call(node)
 
 
 _PSEUDO_DOC = (

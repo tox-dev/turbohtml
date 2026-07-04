@@ -37,6 +37,7 @@ from ._html import (
 )
 from ._links import Link  # registers the Link record type with the C core on import
 from ._render import Html, Markdown, PlainText
+from ._selectors import SelectorSyntaxError  # registers the selector error type with the C core on import
 from ._structured_data import (  # registers the JSON-LD parser and record classes with the C core on import
     MicrodataItem,
     RdfaItem,
@@ -73,6 +74,7 @@ __all__ = [
     "PlainText",
     "ProcessingInstruction",
     "RdfaItem",
+    "SelectorSyntaxError",
     "StructuredData",
     "Text",
     "Token",

@@ -58,6 +58,7 @@ typedef struct {
     PyObject *markup_type;           /* turbohtml.markup.Markup, stamped onto escape() results */
     PyObject *xpath_string_type;     /* turbohtml._xpath.XPathString, for smart_strings xpath() results */
     PyObject *xpath_type;            /* XPath, the precompiled reusable expression object */
+    PyObject *selector_error;        /* turbohtml.SelectorSyntaxError, raised on a malformed CSS selector or XPath */
     PyObject *link_type;             /* turbohtml._links.Link, the (element, attribute, url) record links() yields */
     PyObject *json_ld_parser;        /* turbohtml._structured_data._parse_json_ld, the JSON-LD text parser */
     PyObject *microdata_item_type;   /* turbohtml._structured_data.MicrodataItem, one Microdata item record */

@@ -662,7 +662,7 @@ only), and ``//`` produces a document-absolute path:
     //li[not(preceding-sibling::*)]
 
 A selector list becomes a union with the prefix on each arm, and a selector that the CSS grammar rejects raises
-:class:`~turbohtml.convert.SelectorSyntaxError` while a valid one that XPath 1.0 cannot express (``:dir()``, an of-type
+:class:`~turbohtml.SelectorSyntaxError` while a valid one that XPath 1.0 cannot express (``:dir()``, an of-type
 pseudo-class without a type) raises :class:`~turbohtml.convert.ExpressionError`:
 
 .. testcode::

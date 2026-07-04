@@ -895,9 +895,9 @@ static void xt_path_complex(xt_ctx *ctx, const sel_complex *complex) {
 /* ------------------------------------------------------------ binding */
 
 /* _css_to_xpath(selector, prefix, /): translate a CSS selector list to XPath 1.0.
-   Raises ValueError on a selector the CSS grammar rejects and NotImplementedError on
-   a valid selector XPath 1.0 cannot express; the facade maps both to typed errors. */
-PyObject *turbohtml_css_to_xpath(PyObject *Py_UNUSED(module), PyObject *args) {
+   Raises SelectorSyntaxError on a selector the CSS grammar rejects and NotImplementedError
+   on a valid selector XPath 1.0 cannot express; the facade maps the latter to ExpressionError. */
+PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     PyObject *selector = NULL;
     PyObject *prefix = NULL;
     if (!PyArg_ParseTuple(args, "UU:_css_to_xpath", &selector, &prefix)) {
@@ -911,7 +911,7 @@ PyObject *turbohtml_css_to_xpath(PyObject *Py_UNUSED(module), PyObject *args) {
     sel_complex *alts = NULL;
     int count = 0;
     if (sel_parse_alts(&parser, &alts, &count, 0, 0, 0) < 0) {
-        sel_raise(selector, &parser);
+        sel_raise(((module_state *)PyModule_GetState(module))->selector_error, selector, &parser);
         PyMem_Free(source);
         return NULL;
     }

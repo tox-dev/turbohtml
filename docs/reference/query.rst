@@ -21,6 +21,12 @@ expression once and evaluates it against many context nodes or documents, skippi
     :members:
     :special-members: __call__
 
+Every selector-parse path -- :meth:`~Node.select`, :meth:`~Node.matches`, :meth:`~Node.closest`, the
+:mod:`turbohtml.match` helpers, and :func:`turbohtml.convert.css_to_xpath` -- raises this one error on a malformed
+selector. It subclasses :class:`ValueError`, so code catching ``ValueError`` keeps working.
+
+.. autoexception:: SelectorSyntaxError
+
 *****************
  turbohtml.query
 *****************

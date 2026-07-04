@@ -16,6 +16,7 @@ delegate to the same engine, which always applies the HTML rules (element and at
 from __future__ import annotations
 
 from ._html import _css_to_xpath
+from ._selectors import SelectorSyntaxError
 
 __all__ = [
     "ExpressionError",
@@ -28,11 +29,7 @@ __all__ = [
 
 
 class SelectorError(Exception):
-    """Common parent of :class:`SelectorSyntaxError` and :class:`ExpressionError`, mirroring cssselect's hierarchy."""
-
-
-class SelectorSyntaxError(SelectorError, SyntaxError):
-    """The selector does not parse under the CSS grammar."""
+    """Parent of :class:`ExpressionError`, mirroring cssselect's error base for a valid-but-untranslatable selector."""
 
 
 class ExpressionError(SelectorError, RuntimeError):
@@ -55,8 +52,6 @@ def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
     """
     try:
         return _css_to_xpath(selector, prefix)
-    except ValueError as error:
-        raise SelectorSyntaxError(str(error)) from None
     except NotImplementedError as error:
         raise ExpressionError(str(error)) from None
 

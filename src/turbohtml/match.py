@@ -9,9 +9,10 @@ module wraps those node methods in the soupsieve call shapes so porting a soupsi
 a mechanical import swap rather than a rewrite.
 
 It is a pure-Python facade -- no second engine. :func:`compile` validates the selector once up front (soupsieve
-compiles eagerly), raising :class:`SelectorSyntaxError` for a malformed selector, and the returned :class:`Matcher`
-re-runs the native engine per call. The selector entry points on the C core take only the selector string, so the
-soupsieve ``namespaces`` and ``flags`` arguments are bundled into one immutable :class:`Matching` config that travels
+compiles eagerly), raising :class:`turbohtml.SelectorSyntaxError` for a malformed selector, and the returned
+:class:`Matcher` re-runs the native engine per call. The selector entry points on the C core take only the selector
+string, so the soupsieve ``namespaces`` and ``flags`` arguments are bundled into one immutable :class:`Matching` config
+that travels
 with the matcher for API parity; they do not alter match *results* (mirroring soupsieve, whose ``flags`` are advisory
 and whose namespace discrimination turbohtml does not yet apply -- see the module reference for the limitation).
 """
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from ._html import Document, Element, parse
+from ._selectors import SelectorSyntaxError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping
@@ -29,15 +31,6 @@ if TYPE_CHECKING:
 #: The soupsieve ``DEBUG`` flag value, re-exported so a port can pass it without importing soupsieve. turbohtml exposes
 #: no compiled-selector dump, so it is accepted and carried but has no effect.
 DEBUG = 0x1
-
-
-class SelectorSyntaxError(ValueError):
-    """
-    A CSS selector was malformed, raised by :func:`compile` and the module-level helpers.
-
-    It subclasses :class:`ValueError` -- the error the native :meth:`~turbohtml.Node.select` raises -- so code catching
-    ``ValueError`` keeps working while a soupsieve port can catch :class:`SelectorSyntaxError` by its soupsieve name.
-    """
 
 
 def escape_identifier(ident: str) -> str:
@@ -116,16 +109,14 @@ class Matcher:
     Build one with :func:`compile` and reuse it; it is immutable and thread-safe. Each method runs the native selector
     engine over the node passed in, so one :class:`Matcher` serves many trees.
 
-    :param selector: the CSS selector; validated immediately, raising :class:`SelectorSyntaxError` when malformed.
+    :param selector: the CSS selector; validated immediately, raising :class:`turbohtml.SelectorSyntaxError` when
+        malformed.
     :param options: the :class:`Matching` config, or ``None`` for soupsieve's defaults.
     """
 
     def __init__(self, selector: str, options: Matching | None = None, /) -> None:
-        """Validate the selector eagerly and store it with its config."""
-        try:
-            _PROBE.matches(selector)
-        except ValueError as exc:
-            raise SelectorSyntaxError(str(exc)) from exc
+        """Validate the selector (a bad one raises :class:`turbohtml.SelectorSyntaxError`) and store it."""
+        _PROBE.matches(selector)
         self._selector = selector
         self._options = options if options is not None else _DEFAULT
 
@@ -211,8 +202,8 @@ def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # no
     """
     Compile a CSS selector into a reusable :class:`Matcher`, like ``soupsieve.compile``.
 
-    The selector is validated up front, so a malformed one raises :class:`SelectorSyntaxError` here rather than at the
-    first match.
+    The selector is validated up front, so a malformed one raises :class:`turbohtml.SelectorSyntaxError` here, not at
+    the first match.
 
     :param selector: the CSS selector.
     :param options: the :class:`Matching` config, or ``None`` for soupsieve's defaults.

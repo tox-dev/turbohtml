@@ -1081,7 +1081,7 @@ static int check_selector_arg(PyObject *arg) {
    once-absent attribute now resolves. The caller must already hold the handle's
    critical section and have type-checked arg; the returned pointer is borrowed
    (the cache owns it). Returns NULL with a Python error set on a compile error. */
-static sel_compiled *cached_compile(HandleObject *handle, PyObject *arg) {
+static sel_compiled *cached_compile(PyObject *selector_error, HandleObject *handle, PyObject *arg) {
     uint32_t gen = th_tree_attr_generation(handle->tree);
     for (int index = 0; index < handle->sel_cache_len; index++) {
         sel_cache_entry entry = handle->sel_cache[index];
@@ -1089,7 +1089,7 @@ static sel_compiled *cached_compile(HandleObject *handle, PyObject *arg) {
             continue;
         }
         if (entry.attr_gen != gen) {
-            sel_compiled *fresh = selector_compile(handle->tree, arg);
+            sel_compiled *fresh = selector_compile(selector_error, handle->tree, arg);
             if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: recompiling a valid selector fails only on alloc */
                 return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
@@ -1101,7 +1101,7 @@ static sel_compiled *cached_compile(HandleObject *handle, PyObject *arg) {
         handle->sel_cache[0] = entry;
         return entry.compiled;
     }
-    sel_compiled *compiled = selector_compile(handle->tree, arg);
+    sel_compiled *compiled = selector_compile(selector_error, handle->tree, arg);
     if (compiled == NULL) {
         return NULL;
     }
@@ -1118,6 +1118,14 @@ static sel_compiled *cached_compile(HandleObject *handle, PyObject *arg) {
     return compiled;
 }
 
+/* Store the SelectorSyntaxError type the selector and CSS-to-XPath parsers raise on a
+   malformed selector; turbohtml._selectors registers it on import. */
+PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type) {
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->selector_error, Py_NewRef(type));
+    Py_RETURN_NONE;
+}
+
 PyObject *node_select(PyObject *self, PyObject *arg) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
@@ -1132,7 +1140,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: a concurrent mutate must not rewire mid-walk */
     HandleObject *handle_obj = (HandleObject *)handle;
-    sel_compiled *compiled = cached_compile(handle_obj, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, handle_obj, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -1186,7 +1194,7 @@ PyObject *node_select_one(PyObject *self, PyObject *arg) {
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the walk */
     HandleObject *handle_obj = (HandleObject *)handle;
-    sel_compiled *compiled = cached_compile(handle_obj, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, handle_obj, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -2283,7 +2291,7 @@ PyObject *node_css_matches(PyObject *self, PyObject *arg) {
     int matched = 0;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* selector_matches walks ancestors/siblings */
-    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -2305,7 +2313,7 @@ PyObject *node_css_closest(PyObject *self, PyObject *arg) {
     th_node *found = NULL;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the ancestor walk */
-    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -2420,7 +2428,7 @@ PyObject *node_prune(PyObject *self, PyObject *arg) {
     Py_ssize_t capacity = 0;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: match and edit must see one stable tree */
-    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -2537,7 +2545,7 @@ PyObject *node_remove(PyObject *self, PyObject *arg) {
     node_snapshot snapshot = {NULL, 0, 0};
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: match and edit must see one stable tree */
-    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
         error = 1;
     } else {
@@ -2570,7 +2578,7 @@ PyObject *node_strip_tags(PyObject *self, PyObject *arg) {
     node_snapshot snapshot = {NULL, 0, 0};
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: match and edit must see one stable tree */
-    sel_compiled *compiled = cached_compile((HandleObject *)handle, arg);
+    sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
         error = 1;
     } else {

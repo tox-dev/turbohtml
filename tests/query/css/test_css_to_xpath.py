@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+import turbohtml
+from turbohtml import match
 from turbohtml.convert import (
     ExpressionError,
     GenericTranslator,
@@ -118,10 +120,13 @@ def test_expression_error(selector: str, match: str) -> None:
         css_to_xpath(selector)
 
 
-def test_errors_share_the_selector_error_parent() -> None:
-    assert issubclass(SelectorSyntaxError, SelectorError)
+def test_syntax_error_is_the_one_unified_selector_error() -> None:
+    assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is match.SelectorSyntaxError
+    assert issubclass(SelectorSyntaxError, ValueError)
+
+
+def test_expression_error_keeps_the_cssselect_shape() -> None:
     assert issubclass(ExpressionError, SelectorError)
-    assert issubclass(SelectorSyntaxError, SyntaxError)
     assert issubclass(ExpressionError, RuntimeError)
 
 
