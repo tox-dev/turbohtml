@@ -5,8 +5,9 @@ linkify recognizes a bare domain like ``example.com`` as a link only when its la
 rule bleach used. The canonical list is IANA's, so this downloads it, lowercases and sorts every entry (including the
 ``xn--`` punycode TLDs, so a real ``xn--p1ai`` matches while a made-up ``xn--whatever`` does not), and emits a
 generated header shaped like ``tag_atom.h``: a sorted ``{name, len}`` array plus a 256-entry first-byte index, so a
-label is matched by bucketing on its first byte and a case-insensitive ``memcmp``. The IANA ``Version`` line is
-recorded in the header so a regeneration shows an auditable diff.
+label is matched by bucketing on its first byte and a case-insensitive ``memcmp``. IANA serves only the current list,
+so the expected ``IANA_VERSION`` is pinned and a rebuild refuses a silent drift; the version is also recorded in the
+header so a deliberate bump shows an auditable diff.
 
 Usage:  python tools/generate_tlds.py src/turbohtml/_c/data/tld_table.h
 """
@@ -19,9 +20,14 @@ from pathlib import Path
 
 IANA_TLDS_URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
 
+# IANA publishes only the latest list at a stable URL, so a rebuild can never fetch a past version -- the committed
+# table would drift with whatever IANA serves that day. Pin the expected version and fail a rebuild that sees a
+# different one; bump IANA_VERSION deliberately and review the tld_table.h diff. Matches the committed table.
+IANA_VERSION = "Version 2026061600"
+
 
 def fetch_tlds() -> tuple[str, list[str]]:
-    """Return the IANA version line and the lowercased ASCII TLDs, punycode entries included."""
+    """Return the pinned IANA version and the lowercased ASCII TLDs, punycode entries included."""
     with urllib.request.urlopen(IANA_TLDS_URL) as response:
         text = response.read().decode("ascii")
     version = ""
@@ -33,6 +39,9 @@ def fetch_tlds() -> tuple[str, list[str]]:
             continue
         if name := line.strip().lower():
             names.append(name)
+    if version != IANA_VERSION:
+        msg = f"IANA served {version!r}, expected the pinned {IANA_VERSION!r}; bump IANA_VERSION to regenerate"
+        raise SystemExit(msg)
     return version, sorted(names)
 
 

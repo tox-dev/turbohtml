@@ -176,7 +176,10 @@ shared header, so each unit inlines its own copy; the serialize and tree-builder
 the same way.
 
 **Generated tables have one owner.** The ``data/`` headers come from ``tools/generate_*.py``; edit the generator, not
-the output, and they stay out of formatting and clang-tidy.
+the output, and they stay out of formatting and clang-tidy. The two network-sourced tables carry a pin so a rebuild
+stays deterministic and auditable. ``generate_psl.py`` fetches the Public Suffix List at the ``PSL_COMMIT`` it names
+rather than off ``main``, and ``generate_tlds.py`` refuses to regenerate unless IANA still serves the ``IANA_VERSION``
+it expects. Bump the pin by hand, review the table diff, and let the header banner record the exact commit or version.
 
 **Coverage gates on two toolchains.** Both the gcc (Linux) and llvm-cov (macOS, Windows) gates require full line and
 branch coverage; an exclusion needs a written reason that testing it is impossible.
