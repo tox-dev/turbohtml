@@ -1,0 +1,3 @@
+Build the manylinux and musllinux wheels with profile-guided optimization. gcc compiles the extension against a profile
+that training collects over the real corpora across the parser, selectors, serializer, and the other hot operations, so
+the published binary is laid out for the way turbohtml runs. part of #478
