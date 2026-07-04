@@ -28,6 +28,9 @@ typedef struct {
     PyObject *set_attributes;   /* dict[str, dict[str, str]]: per-tag attribute values to force-set on kept elements */
     PyObject *remove_with_content; /* frozenset[str]: disallowed tags whose whole subtree is dropped, not escaped */
     PyObject *css_properties;      /* frozenset[str]: CSS property names kept when scrubbing a `style` attribute */
+    PyObject *attribute_prefixes;  /* frozenset[str]: allow any attribute whose name starts with one of these */
+    PyObject *attribute_values;    /* dict[str, dict[str, frozenset[str]]]: per (tag, attr) literal value allowlist */
+    PyObject *media_hosts; /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
     int allow_relative;
     int on_disallowed;
     int strip_comments;
@@ -188,8 +191,36 @@ static int is_srcset_attr(const char *name, Py_ssize_t len) {
     return 0;
 }
 
-/* Is `name` allowed on element `tag` by the policy? A "*" inside an attribute set allows every attribute name.
-   Returns 1 allow, 0 drop, -1 error. */
+/* Does `name` begin with any allowlisted attribute-name prefix (nh3's generic_attribute_prefixes, the `data-*` case)?
+   The prefixes are validated as non-empty str at setup, so each check is a byte-prefix compare. Returns 1 match, 0
+   none, -1 error. Only reached when the prefix set is non-empty, so a policy without prefixes never iterates. */
+static int name_has_allowed_prefix(sanitizer *s, const char *name, Py_ssize_t len) {
+    PyObject *iterator = PyObject_GetIter(s->attribute_prefixes);
+    if (iterator == NULL) { /* GCOVR_EXCL_BR_LINE: getting an iterator over a set cannot fail */
+        return -1;          /* GCOVR_EXCL_LINE: error path */
+    }
+    int matched = 0;
+    PyObject *prefix;
+    while (!matched && (prefix = PyIter_Next(iterator)) != NULL) {
+        Py_ssize_t prefix_len = 0;
+        const char *prefix_bytes = PyUnicode_AsUTF8AndSize(prefix, &prefix_len);
+        if (prefix_bytes == NULL) { /* GCOVR_EXCL_BR_LINE: prefixes are validated as str at setup */
+            Py_DECREF(prefix);      /* GCOVR_EXCL_LINE: error path */
+            Py_DECREF(iterator);    /* GCOVR_EXCL_LINE */
+            return -1;              /* GCOVR_EXCL_LINE */
+        }
+        matched = len >= prefix_len && memcmp(name, prefix_bytes, (size_t)prefix_len) == 0;
+        Py_DECREF(prefix);
+    }
+    Py_DECREF(iterator);
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: set iteration raises no error of its own */
+        return -1;          /* GCOVR_EXCL_LINE: error path */
+    }
+    return matched;
+}
+
+/* Is `name` allowed on element `tag` by the policy? A "*" inside an attribute set allows every attribute name, and an
+   allowlisted name prefix allows a whole family. Returns 1 allow, 0 drop, -1 error. */
 static int attr_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_t len) {
     PyObject *attr = PyUnicode_FromStringAndSize(name, len);
     if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -203,6 +234,129 @@ static int attr_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_
         }
     }
     Py_DECREF(attr);
+    if (!allowed && PySet_GET_SIZE(s->attribute_prefixes) > 0) {
+        allowed = name_has_allowed_prefix(s, name, len);
+    }
+    return allowed;
+}
+
+/* Restrict a surviving (tag, attribute) to its literal value allowlist (nh3's tag_attribute_values), if the policy set
+   one for it. An attribute with no per-(tag, attr) entry is unrestricted. Returns 1 keep, 0 drop, -1 error. Only
+   reached when the value map is non-empty. */
+static int value_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
+                         Py_ssize_t value_len) {
+    PyObject *per_tag = PyDict_GetItemWithError(s->attribute_values, tag);
+    if (per_tag == NULL) {
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: PyDict_GetItemWithError only errors on a non-hashable key */
+            return -1;          /* GCOVR_EXCL_LINE: error path */
+        }
+        return 1; /* no value allowlist for this tag */
+    }
+    PyObject *attr = PyUnicode_FromStringAndSize(name, name_len);
+    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *allowed_values = PyDict_GetItemWithError(per_tag, attr);
+    Py_DECREF(attr);
+    if (allowed_values == NULL) {
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the key is a freshly built str, always hashable */
+            return -1;          /* GCOVR_EXCL_LINE: error path */
+        }
+        return 1; /* this attribute is unrestricted */
+    }
+    PyObject *text = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value, value_len);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int keep = PySet_Contains(allowed_values, text);
+    Py_DECREF(text);
+    return keep;
+}
+
+/* The embedded-media elements whose `src` a host allowlist governs. iframe/embed/object are absent because the safety
+   baseline escapes them outright (is_unsafe_tag), so they never reach a kept element's attributes; these media elements
+   a policy can allowlist and keep. */
+static int is_media_host_tag(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_AUDIO:
+    case TH_TAG_VIDEO:
+    case TH_TAG_SOURCE:
+    case TH_TAG_TRACK:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The authority marker bytes that end a URL host: a path, query, or fragment. */
+static int ends_authority(Py_UCS4 c) {
+    switch (c) {
+    case '/':
+    case '?':
+    case '#':
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Locate the authority host of a URL value: the reg-name after "scheme://" or a protocol-relative "//", after any
+   "userinfo@" and before a ":port" or the path/query/fragment -- the same split urllib.parse.urlsplit makes, without
+   re-parsing the whole URL. Sets *start,*end to the host span and returns 0, or returns -1 when the URL carries no
+   authority (a relative or opaque src, which has no host to match). */
+static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end) {
+    Py_ssize_t authority = -1;
+    if (len >= 2 && value[0] == '/' && value[1] == '/') {
+        authority = 2; /* protocol-relative //host/path */
+    }
+    for (Py_ssize_t index = 0; authority < 0 && index + 2 < len; index++) {
+        if (value[index] == ':' && value[index + 1] == '/' && value[index + 2] == '/') {
+            authority = index + 3; /* scheme://host */
+        }
+    }
+    if (authority < 0) {
+        return -1;
+    }
+    Py_ssize_t host_start = authority;
+    Py_ssize_t pos = authority;
+    while (pos < len && !ends_authority(value[pos])) {
+        if (value[pos] == '@') {
+            host_start = pos + 1; /* userinfo precedes the host; the last '@' before the path wins */
+        }
+        pos++;
+    }
+    Py_ssize_t host_end = host_start;
+    while (host_end < pos && value[host_end] != ':') {
+        host_end++; /* stop at a ":port" */
+    }
+    *start = host_start;
+    *end = host_end;
+    return 0;
+}
+
+/* Keep an embedded-media `src` only when its URL host is on the allowlist, compared case-insensitively against the
+   lowercase entries. Returns 1 allow, 0 drop, -1 error. */
+static int host_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t host_start = 0;
+    Py_ssize_t host_end = 0;
+    if (url_host_span(value, len, &host_start, &host_end) < 0) {
+        return 0; /* a relative or opaque src has no host, so no allowlisted host can admit it */
+    }
+    Py_UCS4 host[256];
+    Py_ssize_t host_len = host_end - host_start;
+    if (host_len >= (Py_ssize_t)(sizeof(host) / sizeof(host[0]))) {
+        return 0; /* longer than any real DNS host (max 253), so it cannot be on the allowlist */
+    }
+    for (Py_ssize_t index = 0; index < host_len; index++) {
+        Py_UCS4 c = value[host_start + index];
+        host[index] = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+    }
+    PyObject *key = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, host, host_len);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int allowed = PySet_Contains(s->media_hosts, key);
+    Py_DECREF(key);
     return allowed;
 }
 
@@ -531,6 +685,13 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             }
             drop = !allowed;
         }
+        if (!drop && PyDict_GET_SIZE(s->attribute_values) > 0) {
+            int keep = value_allowed(s, tag, name, name_len, attr->value, attr->value_len);
+            if (keep < 0) { /* GCOVR_EXCL_BR_LINE: value_allowed only fails on allocation failure */
+                return -1;  /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            drop = !keep;
+        }
         int url_disallowed = 0;
         if (!drop && is_url_attr(name, name_len)) {
             int ok = scheme_allowed(s, attr->value, attr->value_len);
@@ -545,6 +706,14 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
                 return -1; /* GCOVR_EXCL_LINE */
             }
             url_disallowed = !ok;
+        }
+        if (!drop && !url_disallowed && PySet_GET_SIZE(s->media_hosts) > 0 && is_media_host_tag(element->atom) &&
+            name_len == 3 && memcmp(name, "src", 3) == 0) {
+            int ok = host_allowed(s, attr->value, attr->value_len);
+            if (ok < 0) {  /* GCOVR_EXCL_BR_LINE: host_allowed only fails on allocation failure */
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            url_disallowed = !ok; /* a disallowed host drops every src occurrence, like a disallowed scheme */
         }
         if (url_disallowed) {
             /* A duplicate URL attribute desyncs the per-value scheme check from the
@@ -787,20 +956,51 @@ static int require_anyset(PyObject *value, const char *field) {
     return 0;
 }
 
+/* Every attribute-name prefix must be a non-empty str: a non-string cannot be a name prefix, and an empty prefix would
+   match every name and quietly defeat the allowlist. Checked once at setup so the per-attribute test stays a compare.
+ */
+static int require_prefixes(PyObject *prefixes) {
+    PyObject *iterator = PyObject_GetIter(prefixes);
+    if (iterator == NULL) { /* GCOVR_EXCL_BR_LINE: getting an iterator over a set cannot fail */
+        return -1;          /* GCOVR_EXCL_LINE: error path */
+    }
+    int status = 0;
+    PyObject *prefix;
+    while (status == 0 && (prefix = PyIter_Next(iterator)) != NULL) {
+        if (!PyUnicode_Check(prefix)) {
+            PyErr_Format(PyExc_TypeError, "Policy.attribute_prefixes must contain only str, got %.100s",
+                         Py_TYPE(prefix)->tp_name);
+            status = -1;
+        } else if (PyUnicode_GET_LENGTH(prefix) == 0) {
+            PyErr_SetString(PyExc_ValueError, "Policy.attribute_prefixes must not contain an empty prefix");
+            status = -1;
+        }
+        Py_DECREF(prefix);
+    }
+    Py_DECREF(iterator);
+    if (status == 0 && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: set iteration raises no error of its own */
+        return -1;                         /* GCOVR_EXCL_LINE: error path */
+    }
+    return status;
+}
+
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
-   attribute_filter, set_attributes, remove_with_content, css_properties) -> None. Filters the fragment in place;
-   sanitizer.py serializes it. */
+   attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
+   media_hosts) -> None. Filters the fragment in place; sanitizer.py serializes it. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
-                          &s.set_attributes, &s.remove_with_content, &s.css_properties)) {
+                          &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
+                          &s.attribute_values, &s.media_hosts)) {
         return NULL;
     }
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
         require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
-        require_anyset(s.css_properties, "css_properties") < 0) {
+        require_anyset(s.css_properties, "css_properties") < 0 ||
+        require_anyset(s.attribute_prefixes, "attribute_prefixes") < 0 ||
+        require_anyset(s.media_hosts, "media_hosts") < 0 || require_prefixes(s.attribute_prefixes) < 0) {
         return NULL;
     }
     th_node *root;

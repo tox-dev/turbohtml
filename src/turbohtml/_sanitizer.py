@@ -101,6 +101,13 @@ class Policy:
         escaped or stripped, so their text never leaks into the output.
     :param css_properties: when ``style`` is allowed, its value is scrubbed against this set and any declaration whose
         property name is not in it is dropped, so dangerous CSS cannot ride in on a kept ``style``.
+    :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
+        every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
+    :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;
+        a surviving attribute whose value is outside its set is dropped. This narrows an attribute ``attributes``
+        already admits and cannot admit a new one.
+    :param media_hosts: allowed hosts for an embedded-media ``src`` (``audio``, ``video``, ``source``, ``track``); a
+        ``src`` whose URL host is not one of these lowercase entries is dropped. Empty means no host restriction.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -115,6 +122,9 @@ class Policy:
     set_attributes: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     remove_with_content: frozenset[str] = frozenset()
     css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES
+    attribute_prefixes: frozenset[str] = frozenset()
+    attribute_values: Mapping[str, Mapping[str, frozenset[str]]] = field(default_factory=dict)
+    media_hosts: frozenset[str] = frozenset()
 
     @classmethod
     def strict(cls) -> Policy:
@@ -161,6 +171,10 @@ class Sanitizer:
         self._attributes = dict(self.policy.attributes)
         self._link_rel = " ".join(sorted(self.policy.add_link_rel)) or None
         self._set_attributes = {tag: dict(values) for tag, values in self.policy.set_attributes.items()}
+        self._attribute_values = {
+            tag: {attr: frozenset(values) for attr, values in attrs.items()}
+            for tag, attrs in self.policy.attribute_values.items()
+        }
 
     def sanitize(self, html: str) -> str:
         """
@@ -169,7 +183,9 @@ class Sanitizer:
         :param html: the untrusted HTML fragment.
         :returns: the sanitized, safe HTML.
         :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
-            ``css_properties``) holds a value that is not a set or frozenset.
+            ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset,
+            or ``attribute_prefixes`` contains a non-string.
+        :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
         """
         policy = self.policy
         root = parse_fragment(html)
@@ -186,6 +202,9 @@ class Sanitizer:
             self._set_attributes,
             policy.remove_with_content,
             policy.css_properties,
+            policy.attribute_prefixes,
+            self._attribute_values,
+            policy.media_hosts,
         )
         return root.inner_html
 
@@ -198,7 +217,9 @@ def sanitize(html: str, policy: Policy | None = None) -> str:
     :param policy: the policy to enforce; None uses bleach's default allowlist.
     :returns: the sanitized, safe HTML.
     :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
-        ``css_properties``) holds a value that is not a set or frozenset.
+        ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset, or
+        ``attribute_prefixes`` contains a non-string.
+    :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
     """
     return Sanitizer(policy).sanitize(html)
 

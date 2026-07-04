@@ -581,6 +581,8 @@ def test_sanitizer_is_reusable() -> None:
         pytest.param("url_schemes", ["http"], "list", id="url_schemes"),
         pytest.param("remove_with_content", ["x"], "list", id="remove_with_content"),
         pytest.param("css_properties", "color", "str", id="css_properties"),
+        pytest.param("attribute_prefixes", ["data-"], "list", id="attribute_prefixes"),
+        pytest.param("media_hosts", ["x.com"], "list", id="media_hosts"),
     ],
 )
 def test_non_set_policy_field_raises_typeerror(field: str, value: list[str] | str, type_name: str) -> None:
@@ -634,8 +636,11 @@ def test_strip_propagates_a_child_filter_error() -> None:
 def test_sanitize_rejects_non_element() -> None:
     from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
 
-    # the eleven policy arguments after the element; only the non-element first argument matters to this guard
-    policy_args = (frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset())
+    # the fourteen policy arguments after the element; only the non-element first argument matters to this guard
+    policy_args = (
+        frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset(), frozenset(), {},
+        frozenset(),
+    )  # fmt: skip
     with pytest.raises(TypeError):
         _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]
 
@@ -671,3 +676,165 @@ def test_module_constants_match_bleach_defaults() -> None:
         "acronym": frozenset({"title"}),
     }
     assert frozenset({"http", "https", "mailto"}) == DEFAULT_SCHEMES
+
+
+def _prefix_policy(prefixes: frozenset[str]) -> Policy:
+    """Allow <a href> plus any attribute matching one of the given name prefixes."""
+    return Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_prefixes=prefixes)
+
+
+def test_attribute_prefix_allows_matching_family() -> None:
+    out = sanitize(
+        '<a href="http://x" data-id="1" data-role="nav" class="c">y</a>', _prefix_policy(frozenset({"data-"}))
+    )
+    assert out == '<a href="http://x" data-id="1" data-role="nav">y</a>'
+
+
+def test_attribute_prefix_multiple_prefixes_each_allow() -> None:
+    policy = _prefix_policy(frozenset({"data-", "aria-"}))
+    assert sanitize('<a href="http://x" aria-label="l" data-x="1">y</a>', policy) == (
+        '<a href="http://x" aria-label="l" data-x="1">y</a>'
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("dat", id="shorter-than-prefix"),
+        pytest.param("datax", id="same-length-mismatch"),
+        pytest.param("role", id="unrelated"),
+    ],
+)
+def test_attribute_prefix_non_matching_name_dropped(name: str) -> None:
+    # a name shorter than the prefix, or the prefix length but a different byte, is not a prefix match
+    assert sanitize(f'<a href="http://x" {name}="1">y</a>', _prefix_policy(frozenset({"data-"}))) == (
+        '<a href="http://x">y</a>'
+    )
+
+
+def test_attribute_prefix_default_policy_drops_data_attributes() -> None:
+    # without a configured prefix set, prefix matching pays nothing and data-* is not admitted
+    assert sanitize('<a href="http://x" data-id="1">y</a>') == '<a href="http://x">y</a>'
+
+
+def test_attribute_prefix_empty_string_raises_valueerror() -> None:
+    with pytest.raises(ValueError, match="attribute_prefixes must not contain an empty prefix"):
+        sanitize("<a>y</a>", _prefix_policy(frozenset({""})))
+
+
+def test_attribute_prefix_non_string_raises_typeerror() -> None:
+    policy = _prefix_policy(frozenset({123}))  # ty: ignore[invalid-argument-type]  # a non-str prefix is rejected
+    with pytest.raises(TypeError, match="attribute_prefixes must contain only str, got int"):
+        sanitize("<a>y</a>", policy)
+
+
+def _value_policy() -> Policy:
+    """Allow <a href target> and <b>, restricting <a target> to two literal values."""
+    return Policy(
+        tags=frozenset({"a", "b"}),
+        attributes={"a": frozenset({"href", "target"}), "b": frozenset({"target"})},
+        attribute_values={"a": {"target": frozenset({"_blank", "_self"})}},
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "kept"),
+    [pytest.param("_blank", True, id="allowed"), pytest.param("_top", False, id="disallowed")],
+)
+def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # noqa: FBT001
+    out = sanitize(f'<a href="http://x" target="{value}">y</a>', _value_policy())
+    assert (f'target="{value}"' in out) is kept
+
+
+def test_attribute_value_allowlist_leaves_unrestricted_attribute() -> None:
+    # href has no value entry, so its value is not constrained
+    assert sanitize('<a href="http://weird" target="_self">y</a>', _value_policy()) == (
+        '<a href="http://weird" target="_self">y</a>'
+    )
+
+
+def test_attribute_value_allowlist_leaves_unrestricted_tag() -> None:
+    # <b> is not keyed in attribute_values, so its target is unrestricted
+    assert sanitize('<b target="_top">y</b>', _value_policy()) == '<b target="_top">y</b>'
+
+
+def test_attribute_value_allowlist_only_narrows_never_allows() -> None:
+    # target is absent from <a>'s attribute allowlist, so a value entry cannot resurrect it
+    policy = Policy(
+        tags=frozenset({"a"}),
+        attributes={"a": frozenset({"href"})},
+        attribute_values={"a": {"target": frozenset({"_blank"})}},
+    )
+    assert sanitize('<a href="http://x" target="_blank">y</a>', policy) == '<a href="http://x">y</a>'
+
+
+def _media_policy(hosts: frozenset[str], *, extra_attrs: frozenset[str] = frozenset()) -> Policy:
+    """Allow the embedded-media elements plus <img>, gating their src by host allowlist."""
+    return Policy(
+        tags=frozenset({"video", "audio", "source", "track", "img"}),
+        attributes={"*": frozenset({"src"}) | extra_attrs},
+        media_hosts=hosts,
+    )
+
+
+@pytest.mark.parametrize("tag", ["video", "audio", "source", "track"])
+def test_media_host_allowlist_keeps_allowed_host(tag: str) -> None:
+    policy = _media_policy(frozenset({"youtube.com"}))
+    assert f'<{tag} src="https://youtube.com/e/x">' in sanitize(f'<{tag} src="https://youtube.com/e/x">', policy)
+
+
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param("https://youtube.com/e/x", True, id="scheme-host-path"),
+        pytest.param("https://youtube.com", True, id="host-no-path"),
+        pytest.param("https://youtube.com?q=1", True, id="host-query"),
+        pytest.param("https://youtube.com#f", True, id="host-fragment"),
+        pytest.param("https://youtube.com:8080/x", True, id="host-port"),
+        pytest.param("https://user@youtube.com/x", True, id="host-userinfo"),
+        pytest.param("//youtube.com/x", True, id="protocol-relative"),
+        pytest.param("https://evil.com/x", False, id="disallowed-host"),
+        pytest.param("https:///x", False, id="empty-host"),
+        pytest.param("local.mp4", False, id="relative-no-authority"),
+        pytest.param("/local.mp4", False, id="rooted-relative"),
+        pytest.param("x", False, id="single-char"),
+        pytest.param("https:ab", False, id="allowed-scheme-opaque"),
+        pytest.param("https:/x", False, id="allowed-scheme-one-slash"),
+    ],
+)
+def test_media_host_allowlist_gates_src(src: str, kept: bool) -> None:  # noqa: FBT001
+    out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))
+    assert ("src=" in out) is kept
+
+
+def test_media_host_allowlist_matches_host_case_insensitively() -> None:
+    assert 'src="https://YouTube.COM/x"' in sanitize(
+        '<video src="https://YouTube.COM/x">', _media_policy(frozenset({"youtube.com"}))
+    )
+
+
+def test_media_host_allowlist_rejects_overlong_host() -> None:
+    host = "a" * 300 + ".com"
+    assert "src=" not in sanitize(f'<video src="https://{host}/x">', _media_policy(frozenset({"youtube.com"})))
+
+
+def test_media_host_allowlist_does_not_touch_non_media_src() -> None:
+    # <img> is not an embedded-media element, so its src is not host-gated
+    assert sanitize('<img src="https://evil.com/x">', _media_policy(frozenset({"youtube.com"}))) == (
+        '<img src="https://evil.com/x">'
+    )
+
+
+def test_media_host_allowlist_skips_non_src_media_attributes() -> None:
+    # only src is host-gated; a sibling attribute on the same media element is untouched
+    policy = _media_policy(frozenset({"youtube.com"}), extra_attrs=frozenset({"alt", "width"}))
+    out = sanitize('<video src="https://youtube.com/x" alt="a" width="10">', policy)
+    assert 'src="https://youtube.com/x"' in out
+    assert 'alt="a"' in out
+    assert 'width="10"' in out
+
+
+def test_media_host_default_policy_leaves_src_unrestricted() -> None:
+    # with no media_hosts configured, the host check pays nothing and any allowed-scheme src survives
+    policy = Policy(tags=frozenset({"video"}), attributes={"*": frozenset({"src"})})
+    assert 'src="https://evil.com/x"' in sanitize('<video src="https://evil.com/x">', policy)

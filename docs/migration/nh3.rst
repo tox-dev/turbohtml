@@ -31,7 +31,8 @@ WHATWG-conformant parser, so the same tree can be parsed, queried, sanitized, an
       - Full WHATWG parser with a sanitize/linkify/minify/CSS-minify suite
       - HTML sanitization only, plus ``clean_text``/``is_html`` helpers
     - - Feature breadth
-      - Escape/strip/remove modes, ``Policy`` presets, linkifier, HTML and CSS minifiers
+      - Escape/strip/remove modes, ``Policy`` presets, linkifier, attribute-prefix/value allowlists, embedded-media host
+        allowlist, HTML and CSS minifiers
       - Allowlist sanitize with ``attribute_filter``, style-property filter, attribute-prefix and value allowlists
     - - Performance
       - Native C, leads on the corpus below
@@ -64,6 +65,10 @@ The allowlist surface ports one-to-one; only the call shape changes.
   <turbohtml.clean.Policy>`.
 - Inline-style property allowlist: ``filter_style_properties=`` -> :class:`Policy.css_properties
   <turbohtml.clean.Policy>`.
+- Attribute-name prefix allowlist (the ``data-*`` family): ``generic_attribute_prefixes=`` ->
+  :class:`Policy.attribute_prefixes <turbohtml.clean.Policy>`.
+- Restrict an attribute to literal values: ``tag_attribute_values=`` -> :class:`Policy.attribute_values
+  <turbohtml.clean.Policy>` (narrows an attribute already admitted by ``attributes``; it cannot admit a new one).
 
 What turbohtml adds
 ===================
@@ -83,11 +88,6 @@ What turbohtml adds
 What nh3 has that turbohtml does not
 ====================================
 
-- ``generic_attribute_prefixes`` -- allow attributes whose name starts with a given prefix (e.g. every ``data-*``).
-  turbohtml matches attribute names exactly or with a ``"*"`` wildcard per tag, with no prefix matching. Workaround:
-  allow ``"*"`` and reject unwanted names in an ``attribute_filter``, or enumerate the concrete names.
-- ``tag_attribute_values`` -- restrict an attribute to a specific set of literal values. turbohtml has no dedicated
-  field. Workaround: an ``attribute_filter`` that returns ``None`` for values outside the set.
 - ``nh3.is_html(text)`` -- a heuristic bool for whether a string contains HTML. No turbohtml equivalent.
 - ``nh3.clean_text(text)`` -- escape a string for safe insertion as text. Workaround: ``sanitize(text,
   Policy.strict())`` escapes all markup to text.
@@ -131,6 +131,10 @@ frozen config object plus :func:`~turbohtml.clean.sanitize`.
       - ``Policy.set_attributes``
     - - ``filter_style_properties=``
       - ``Policy.css_properties``
+    - - ``generic_attribute_prefixes=``
+      - ``Policy.attribute_prefixes``
+    - - ``tag_attribute_values=``
+      - ``Policy.attribute_values``
     - - (drops disallowed tags)
       - :class:`~turbohtml.clean.OnDisallowed` (``ESCAPE`` by default; ``STRIP`` / ``REMOVE`` for nh3-style dropping)
 
@@ -165,8 +169,9 @@ frozen config object plus :func:`~turbohtml.clean.sanitize`.
 - Set-typed fields must be sets. ``tags``, ``url_schemes``, ``remove_with_content``, and ``css_properties`` expect a
   ``set``/``frozenset``; passing another type raises :class:`TypeError`. nh3 accepts any iterable for the equivalent
   arguments.
-- Attribute allowlisting is by exact name or a per-tag ``"*"`` wildcard. There is no prefix rule, so ``data-*`` style
-  families need ``"*"`` plus an ``attribute_filter`` rather than nh3's ``generic_attribute_prefixes``.
+- Attribute allowlisting is by exact name, a per-tag ``"*"`` wildcard, or a name prefix in ``attribute_prefixes`` (nh3's
+  ``generic_attribute_prefixes``, e.g. ``"data-"`` for every ``data-*``). ``attribute_values`` restricts a kept
+  attribute to literal values; it narrows an attribute ``attributes`` already admits and cannot admit a new one.
 - ``sanitize`` takes an HTML fragment and returns a fragment; it does not add ``<html>``/``<body>`` scaffolding,
   matching nh3's fragment-in, fragment-out contract.
 - Reuse the compiled :class:`~turbohtml.clean.Sanitizer` when sanitizing many inputs with one policy; each bare

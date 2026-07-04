@@ -31,8 +31,9 @@ the filtering walk in C.
       - Allowlist HTML sanitizer, plus linkify and HTML/CSS minify in one module
       - Blocklist ``Cleaner`` extracted from ``lxml.html.clean``; sanitization only
     - - Feature breadth
-      - Policy presets (``strict``/``basic``/``relaxed``), per-tag attribute allowlists, ``style`` scrubbing, link
-        ``rel`` injection, attribute-filter hook
+      - Policy presets (``strict``/``basic``/``relaxed``), per-tag attribute allowlists, attribute-prefix/value
+        allowlists, embedded-media ``host_whitelist``, ``style`` scrubbing, link ``rel`` injection, attribute-filter
+        hook
       - ~20 category toggles, ``host_whitelist`` for embedded media, ``safe_attrs``, ``add_nofollow``, in-place tree
         mutation
     - - Performance
@@ -63,6 +64,9 @@ The shared surface ports directly:
   ``frozenset({"nofollow"})``).
 - Remove forms, frames, and embedded media: leave those tags out of ``Policy.tags`` instead of toggling ``forms``,
   ``frames``, ``embedded``.
+- Restrict embedded media to named hosts: ``host_whitelist=`` maps to :class:`Policy.media_hosts
+  <turbohtml.clean.Policy>`, which drops an ``audio``/``video``/``source``/``track`` ``src`` whose URL host is not on
+  the allowlist.
 
 What turbohtml adds
 ===================
@@ -83,9 +87,6 @@ What turbohtml adds
 What lxml-html-clean has that turbohtml does not
 ================================================
 
-- ``host_whitelist``: allow embedded media (``iframe``, ``embed``) only from named hosts. turbohtml has no built-in host
-  allowlist; implement one in a ``Policy.attribute_filter`` that parses the ``src`` host and returns ``None`` to drop a
-  disallowed value.
 - In-place cleaning of an existing lxml element or subtree: ``Cleaner`` mutates the tree you already hold.
   :func:`~turbohtml.clean.sanitize` takes an HTML string and returns an HTML string, so there is no in-tree equivalent.
 - ``annoying_tags``: a named toggle for presentational cruft (``blink``, ``marquee``). turbohtml has no dedicated flag;
@@ -132,7 +133,7 @@ Swap the import and invert the model: instead of switching dangerous categories 
     - - ``add_nofollow=True``
       - ``Policy.add_link_rel``
     - - ``host_whitelist=``
-      - ``Policy.attribute_filter`` (no built-in host allowlist)
+      - ``Policy.media_hosts``
 
 .. testcode::
 
@@ -156,6 +157,9 @@ The ``javascript:`` URL is gone because ``http``/``https``/``mailto`` are the on
  Gotchas and pitfalls
 **********************
 
+- ``host_whitelist`` in ``Cleaner`` gates ``iframe``/``embed``; turbohtml escapes those framing elements outright (they
+  are never kept), so ``Policy.media_hosts`` instead gates the ``src`` of the media elements turbohtml can keep --
+  ``audio``, ``video``, ``source``, ``track`` -- dropping a ``src`` whose host is not on the lowercase allowlist.
 - turbohtml scrubs a kept ``style`` attribute against ``Policy.css_properties`` but drops ``<style>`` elements, where
   ``Cleaner`` scrubs their text and keeps the element.
 - ``Cleaner`` rewrites a disallowed scheme to an empty ``href``; turbohtml drops the attribute outright.
