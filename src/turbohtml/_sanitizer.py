@@ -99,8 +99,10 @@ class Policy:
         present); unlike ``attribute_filter``, this can add attributes that were not there.
     :param remove_with_content: disallowed tags whose whole subtree is dropped (e.g. ``script``/``style``) rather than
         escaped or stripped, so their text never leaks into the output.
-    :param css_properties: when ``style`` is allowed, its value is scrubbed against this set and any declaration whose
-        property name is not in it is dropped, so dangerous CSS cannot ride in on a kept ``style``.
+    :param css_properties: the CSS property allowlist. A kept ``style`` attribute and, when ``style`` is in ``tags``,
+        the ``<style>`` element's stylesheet body are both scrubbed against it: any declaration whose property name is
+        not in the set (or whose value smuggles ``expression()`` or a ``url()`` with a disallowed scheme) is dropped,
+        while selectors and block nesting are kept, so dangerous CSS cannot ride in on a kept ``style``.
     :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
         every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;

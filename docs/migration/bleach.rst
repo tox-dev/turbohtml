@@ -77,10 +77,6 @@ What turbohtml adds
 What bleach has that turbohtml does not
 =======================================
 
-- ``css_sanitizer`` (bleach's tinycss2-backed CSS cleaner) scrubbed both the ``style`` attribute and ``<style>`` element
-  contents. turbohtml's native sanitizer scrubs a kept ``style`` *attribute* against ``Policy.css_properties`` but drops
-  ``<style>`` element contents rather than cleaning them; the compat shim rejects a ``css_sanitizer`` argument with
-  ``NotImplementedError``. Workaround: pre-scrub or strip ``<style>`` before sanitizing.
 - A pluggable html5lib filter pipeline (``bleach.sanitizer.Cleaner(filters=[...])``) let you insert arbitrary html5lib
   ``Filter`` classes into the clean pass. turbohtml has no equivalent filter chain; express the transform through
   ``attribute_filter``, ``set_attributes``, or a post-parse walk over the tree instead.
@@ -127,7 +123,8 @@ The bleach-compatible shim keeps ``clean``'s signature, so the import is the onl
     - - ``strip_comments=``
       - ``Policy.strip_comments``
     - - ``css_sanitizer=``
-      - ``Policy.css_properties`` (style attribute only)
+      - ``Policy.css_properties`` (scrubs both the ``style`` attribute and, when ``style`` is allowed, the ``<style>``
+        element body)
 
 ``clean(text, tags=..., attributes=..., protocols=..., strip=..., strip_comments=...)`` maps onto a
 :class:`~turbohtml.clean.Policy`. ``attributes`` accepts bleach's list, per-tag dict, or callable forms; ``strip``
@@ -218,9 +215,11 @@ bleach shipped a frozen list. A bare domain such as ``example.com`` still links 
 
 - turbohtml's safety baseline (``<script>``, ``on*`` handlers, ``javascript:`` URLs) is not configurable, so even a
   permissive ``attributes`` callable cannot re-admit them, where bleach faithfully kept whatever you allowed.
-- The bleach-compatible ``clean`` shim does not take a ``css_sanitizer`` argument; passing one raises
-  ``NotImplementedError``. ``<style>`` element contents are dropped rather than scrubbed. The native sanitizer scrubs a
-  kept ``style`` *attribute* against ``Policy.css_properties`` but leaves ``<style>`` contents out.
+- The bleach-compatible ``clean`` shim does not take a ``css_sanitizer`` object; passing one raises
+  ``NotImplementedError``. Configure CSS scrubbing through ``Policy.css_properties`` on the native
+  :func:`~turbohtml.clean.sanitize` instead: it vets a kept ``style`` attribute and, when ``style`` is in
+  ``Policy.tags``, the ``<style>`` element body against the same property allowlist, dropping unsafe declarations while
+  keeping selectors and block nesting.
 - turbohtml leaves an existing ``<a>`` untouched so linkifying is idempotent, where bleach always reprocessed present
   links. Opt back in with the ``Linkify.process_existing`` field to run the callbacks over author-written anchors too
   (the callback reads ``Link.existing`` to branch).

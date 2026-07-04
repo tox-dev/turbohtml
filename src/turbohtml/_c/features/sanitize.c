@@ -543,10 +543,13 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
     return 1;
 }
 
-/* Append the declaration `value[start:end)` to `out` if the property name (the part before `colon`) is allowlisted,
-   trimming surrounding whitespace and joining kept declarations with "; ". Returns 0, or -1 on error. */
-static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
-                                 Py_UCS4 *out, Py_ssize_t *out_len) {
+/* Decide whether the declaration `value[start:end)`, split at `colon` into property and value, survives the policy:
+   its property name must be allowlisted and its value free of expression()/url(disallowed-scheme). On a keep, the
+   trimmed declaration span (property start through the value's last non-whitespace byte) is returned in *name_start
+   and *decl_end. Returns 1 keep, 0 drop, -1 error. Shared by the `style` attribute and `<style>` body scrubbers so the
+   safety rules stay identical across both. */
+static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
+                                Py_ssize_t *name_start_out, Py_ssize_t *decl_end_out) {
     if (colon < start) {
         return 0; /* no property:value split in this declaration, so drop it */
     }
@@ -572,11 +575,24 @@ static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t 
     if (!value_ok) {
         return 0; /* an allowlisted property carrying expression()/url(disallowed-scheme) is still dropped */
     }
-    /* output from the trimmed name start to the value's last non-whitespace byte (the leading whitespace was already
-       trimmed into name_start, so a kept declaration is emitted without its surrounding whitespace) */
     Py_ssize_t decl_end = end;
     while (decl_end > colon + 1 && is_ascii_ws(value[decl_end - 1])) {
         decl_end--;
+    }
+    *name_start_out = name_start;
+    *decl_end_out = decl_end;
+    return 1;
+}
+
+/* Append the declaration `value[start:end)` to `out` if it survives the policy, trimming surrounding whitespace and
+   joining kept declarations with "; " (the `style` attribute's declaration-list form). Returns 0, or -1 on error. */
+static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
+                                 Py_UCS4 *out, Py_ssize_t *out_len) {
+    Py_ssize_t name_start = 0;
+    Py_ssize_t decl_end = 0;
+    int kept = css_declaration_kept(s, value, start, end, colon, &name_start, &decl_end);
+    if (kept <= 0) { /* GCOVR_EXCL_BR_LINE: the -1 half is css_declaration_kept's allocation-failure path */
+        return kept;
     }
     if (*out_len > 0) {
         out[(*out_len)++] = ';';
@@ -669,6 +685,170 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr) {
     int result = th_node_attr_set(s->tree, element, "style", 5, out, out_len, 1);
     PyMem_Free(out);
     return result;
+}
+
+/* Copy the rule prelude (a selector or at-rule head) `value[start:end)` to `out`, trimmed of surrounding whitespace.
+   A prelude carries no declarations, so it is kept verbatim: CSS selectors cannot run script, and the value-level
+   dangers (expression(), url(disallowed-scheme)) live in declaration values, which css_declaration_kept still vets. */
+static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
+                             Py_ssize_t *out_len) {
+    while (start < end && is_ascii_ws(value[start])) {
+        start++;
+    }
+    while (end > start && is_ascii_ws(value[end - 1])) {
+        end--;
+    }
+    for (Py_ssize_t index = start; index < end; index++) {
+        out[(*out_len)++] = value[index];
+    }
+}
+
+/* Append the declaration `value[start:end)` to `out` if it survives the policy, terminated with ';' (the stylesheet's
+   block form, so `p{color:red}` re-serializes to `p{color:red;}` and re-scrubbing is a fixpoint). Returns 0, or -1 on
+   error. */
+static int css_emit_block_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end,
+                                      Py_ssize_t colon, Py_UCS4 *out, Py_ssize_t *out_len) {
+    Py_ssize_t name_start = 0;
+    Py_ssize_t decl_end = 0;
+    int kept = css_declaration_kept(s, value, start, end, colon, &name_start, &decl_end);
+    if (kept <= 0) { /* GCOVR_EXCL_BR_LINE: the -1 half is css_declaration_kept's allocation-failure path */
+        return kept;
+    }
+    for (Py_ssize_t index = name_start; index < decl_end; index++) {
+        out[(*out_len)++] = value[index];
+    }
+    out[(*out_len)++] = ';';
+    return 0;
+}
+
+/* Scrub a `<style>` body: a stylesheet is a sequence of rules, each a prelude (selector or at-rule head) and a `{...}`
+   block. A block's declarations are vetted like a `style` attribute -- only allowlisted, expression()/url-safe
+   declarations survive -- while preludes and block nesting are kept, so `p{color:red;position:fixed}` becomes
+   `p{color:red;}`. Segmentation runs a single pass whose terminator classifies each run: a `{` makes the run a prelude
+   (open a block), a `;`/`}` a declaration. An at-rule statement (`@import ...;`, `@charset ...`) has no property:value
+   split, so css_declaration_kept drops it, and a `url()`/quoted/commented `;`, `:`, `{`, or `}` is skipped so it is
+   never mistaken for a separator. brace_depth is an int counter, not recursion, so a pathologically nested body cannot
+   overflow the C stack. Writes the scrubbed body length to *out_len_out. Returns 0, or -1 on error. */
+static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 *out, Py_ssize_t *out_len_out) {
+    Py_ssize_t out_len = 0;
+    Py_ssize_t seg_start = 0;
+    Py_ssize_t colon = -1;
+    int mode = 0; /* 0 normal, 1 string, 2 comment */
+    Py_UCS4 quote = 0;
+    int depth = 0; /* parenthesis nesting, so a separator inside url(...) is not a separator */
+    int brace_depth = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 c = value[index];
+        if (mode == 2) {
+            if (c == '*' && index + 1 < len && value[index + 1] == '/') {
+                mode = 0;
+                index++;
+            }
+            continue;
+        }
+        if (mode == 1) {
+            if (c == '\\') {
+                index++; /* a backslash escapes the next byte, even a quote */
+            } else if (c == quote) {
+                mode = 0;
+            }
+            continue;
+        }
+        if (c == '/' && index + 1 < len && value[index + 1] == '*') {
+            mode = 2;
+            index++;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            mode = 1;
+            quote = c;
+            continue;
+        }
+        if (c == '(') {
+            depth++;
+            continue;
+        }
+        if (c == ')') {
+            depth -= depth > 0;
+            continue;
+        }
+        if (depth > 0) {
+            continue;
+        }
+        if (c == '{') {
+            css_emit_prelude(value, seg_start, index, out, &out_len);
+            out[out_len++] = '{';
+            brace_depth++;
+            seg_start = index + 1;
+            colon = -1;
+            continue;
+        }
+        if (c == '}') {
+            if (brace_depth > 0) { /* a stray '}' outside any block is dropped, carrying no declaration to flush */
+                int flushed = css_emit_block_declaration(s, value, seg_start, index, colon, out, &out_len);
+                if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
+                    return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                out[out_len++] = '}';
+                brace_depth--;
+            }
+            seg_start = index + 1;
+            colon = -1;
+            continue;
+        }
+        if (c == ';') {
+            if (brace_depth > 0) { /* a run ended by ';' outside a block is an at-statement, dropped with its body */
+                int flushed = css_emit_block_declaration(s, value, seg_start, index, colon, out, &out_len);
+                if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
+                    return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+            }
+            seg_start = index + 1;
+            colon = -1;
+            continue;
+        }
+        if (c == ':' && colon < 0) {
+            colon = index;
+        }
+    }
+    if (brace_depth > 0) { /* an unclosed block: flush its trailing declaration and balance the missing braces */
+        int flushed = css_emit_block_declaration(s, value, seg_start, len, colon, out, &out_len);
+        if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        while (brace_depth-- > 0) {
+            out[out_len++] = '}';
+        }
+    }
+    *out_len_out = out_len;
+    return 0;
+}
+
+/* Scrub the CSS a kept `<style>` element holds: a raw-text element carries its stylesheet as one text child (or none
+   when empty), so rewrite that child's data in place with the policy-safe subset. Returns 0, or -1 on error. */
+static int sanitize_style_body(sanitizer *s, th_node *element) {
+    th_node *text = element->first_child;
+    if (text == NULL) {
+        return 0; /* an empty <style></style> has no body to scrub */
+    }
+    Py_ssize_t len = 0;
+    Py_UCS4 *body = th_node_data(s->tree, text, &len); /* a parsed text node is a source slice, so materialize it */
+    if (body == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS4 *out = PyMem_Malloc((size_t)(2 * len + 16) * sizeof(Py_UCS4));
+    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(body); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t out_len = 0;
+    int status = scrub_stylesheet(s, body, len, out, &out_len);
+    if (status == 0) { /* GCOVR_EXCL_BR_LINE: scrub_stylesheet's non-zero return is its allocation-failure path */
+        status = th_node_set_data(s->tree, text, out, out_len);
+    }
+    PyMem_Free(out);
+    PyMem_Free(body);
+    return status;
 }
 
 static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
@@ -896,8 +1076,11 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     /* an allowlisted element matches by its serialized name (a foreign element by
        e.g. "svg"/"foreignObject"); the unsafe-tag set still escapes scripting and
        raw-text elements in any namespace, and a foreign element also needs kept
-       context so it stays inside real foreign markup */
-    int allowed = is_unsafe_tag(element->atom) ? 0 : PySet_Contains(s->tags, tag);
+       context so it stays inside real foreign markup. An HTML <style> is exempt from
+       the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
+       against css_properties (like a `style` attribute), rather than dropping its CSS. */
+    int style_element = element->atom == TH_TAG_STYLE && is_html;
+    int allowed = (is_unsafe_tag(element->atom) && !style_element) ? 0 : PySet_Contains(s->tags, tag);
     if (allowed > 0 && !is_html && !parent_kept) {
         allowed = 0;
     }
@@ -906,6 +1089,9 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     int status = 0;
     if (allowed < 0 || remove_content < 0) { /* GCOVR_EXCL_BR_LINE: PySet_Contains never fails on a str key */
         status = -1;                         /* GCOVR_EXCL_LINE */
+    } else if (allowed && style_element) {
+        /* a kept <style> holds raw CSS, not child elements, so scrub its stylesheet body instead of walking children */
+        status = sanitize_attributes(s, element, tag) < 0 ? -1 : sanitize_style_body(s, element);
     } else if (allowed) {
         status = sanitize_attributes(s, element, tag) < 0 ? -1 : sanitize_children(s, element, 1);
     } else if (remove_content || s->on_disallowed == ON_REMOVE || (s->on_disallowed == ON_STRIP && !is_html)) {

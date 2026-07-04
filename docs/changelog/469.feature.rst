@@ -1,0 +1,6 @@
+Scrub the CSS inside a kept ``<style>`` element in :func:`turbohtml.clean.sanitize`, closing the last gap left by
+bleach's ``css_sanitizer``. When ``style`` is in ``Policy.tags`` the element is kept and its stylesheet body is vetted
+against ``Policy.css_properties``, the same allowlist a ``style`` attribute already uses: a declaration survives only
+when its property is allowlisted and its value carries no ``expression()`` or ``url()`` with a disallowed scheme, while
+selectors and block nesting are preserved. A ``<style>`` the policy does not allow is still neutralized - by
+:user:`gaborbernat`.

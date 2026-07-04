@@ -34,8 +34,10 @@ def _style_policy(
 
 
 # frame and frameset are absent: the parser drops them outside a frameset document, so a fragment never contains one.
+# style is absent too: unlike the others, allowlisting it keeps the element with its CSS scrubbed (see the style-body
+# tests), rather than neutralizing it.
 _UNSAFE_TAGS = [
-    "script", "style", "iframe", "embed", "object", "noscript",
+    "script", "iframe", "embed", "object", "noscript",
     "noembed", "noframes", "base", "basefont", "title", "xmp", "template",
 ]  # fmt: skip
 # (tag, markup that yields it) -- col and area need a table/map context to parse as an element.
@@ -352,6 +354,99 @@ def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: boo
 def test_style_double_quoted_url_scheme_is_stripped() -> None:
     # a double-quoted url() (in a single-quoted attribute) cannot smuggle a disallowed scheme past the value scan
     assert "style=" not in sanitize("""<p style='color: url("javascript:x")'>y</p>""", _style_policy())
+
+
+def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES) -> Policy:
+    """A policy that allowlists the <style> element, so its stylesheet body is scrubbed rather than dropped."""
+    return Policy(tags=frozenset({"style"}), attributes={}, css_properties=css_properties)
+
+
+@pytest.mark.parametrize(
+    ("css", "expected_body"),
+    [
+        pytest.param("p{color:red;position:fixed}", "p{color:red;}", id="keep-one-drop-one"),
+        pytest.param("p{position:fixed}", "p{}", id="drop-all-keeps-empty-rule"),
+        pytest.param("a{color:red}b{width:5px}", "a{color:red;}b{width:5px;}", id="two-rules"),
+        pytest.param("@media screen{p{color:red;position:fixed}}", "@media screen{p{color:red;}}", id="nested-at-rule"),
+        pytest.param('@import "evil";p{color:red}', "p{color:red;}", id="at-statement-dropped"),
+        pytest.param("p{color:expression(a)}", "p{}", id="expression-value-dropped"),
+        pytest.param("p{color:url(javascript:x)}", "p{}", id="url-bad-scheme-dropped"),
+        pytest.param("p{color:url(http://ok)}", "p{color:url(http://ok);}", id="url-allowed-scheme-kept"),
+        pytest.param("p{color:rgb(1,2,3)}", "p{color:rgb(1,2,3);}", id="parenthesised-value-kept"),
+        pytest.param("p{color:red", "p{color:red;}", id="unclosed-block-balanced"),
+        pytest.param("}p{color:red}", "p{color:red;}", id="stray-close-brace-dropped"),
+        pytest.param('p{content:"a{b};c";color:red}', "p{color:red;}", id="string-holds-separators"),
+        pytest.param(
+            "p{color:red/* ; : */;width:5px}", "p{color:red/* ; : */;width:5px;}", id="comment-holds-separators"
+        ),
+        pytest.param(r'p{font-family:"a\";b";color:red}', r'p{font-family:"a\";b";color:red;}', id="string-escape"),
+        pytest.param("p{color:red}/", "p{color:red;}", id="trailing-slash-not-comment"),
+        pytest.param("p{color:red}/* unterminated", "p{color:red;}", id="unterminated-comment"),
+        pytest.param("p{color:red}/* x*", "p{color:red;}", id="comment-trailing-asterisk"),
+        pytest.param("p{color:red}/* a*b */", "p{color:red;}", id="comment-lone-asterisk"),
+        pytest.param("p{color:1/2}", "p{color:1/2;}", id="slash-not-comment-in-value"),
+        pytest.param("p{color:red)}", "p{color:red);}", id="stray-close-paren"),
+        pytest.param("p{color:a:b}", "p{color:a:b;}", id="value-has-second-colon"),
+        pytest.param("  p  {color:red}", "p{color:red;}", id="prelude-whitespace-trimmed"),
+        pytest.param("   {color:red}", "{color:red;}", id="whitespace-only-prelude"),
+        pytest.param("p{content:'a;b';color:red}", "p{color:red;}", id="single-quoted-string"),
+        pytest.param("p{novalue;color:red}", "p{color:red;}", id="declaration-without-colon-dropped"),
+    ],
+)
+def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
+    # an allowlisted <style> keeps its element and structure; each declaration is vetted like a style attribute
+    assert sanitize(f"<style>{css}</style>", _style_element_policy()) == f"<style>{expected_body}</style>"
+
+
+@pytest.mark.parametrize("css", ["", "  "], ids=["no-text-child", "whitespace-only"])
+def test_style_element_kept_when_body_empty(css: str) -> None:
+    # keeping the element is the point: an empty body leaves <style></style> standing, never escaped or dropped
+    assert sanitize(f"<style>{css}</style>", _style_element_policy()) == "<style></style>"
+
+
+def test_style_element_body_is_idempotent() -> None:
+    # re-sanitizing the scrubbed output is a fixpoint, the correctness gate for a value-safe transform
+    once = sanitize(
+        "<style>a{color:red;position:fixed}@media(min-width:1px){p{width:5px;top:0}}</style>", _style_element_policy()
+    )
+    assert sanitize(once, _style_element_policy()) == once
+
+
+def test_style_element_empty_property_set_drops_all_css() -> None:
+    # an empty css_properties set means no declaration is allowlisted, so every rule scrubs to an empty block
+    assert (
+        sanitize("<style>p{color:red}</style>", _style_element_policy(css_properties=frozenset()))
+        == "<style>p{}</style>"
+    )
+
+
+def test_style_element_attributes_still_scrubbed() -> None:
+    # a kept <style> is a normal allowed element for attributes: a disallowed one is dropped, the body still scrubbed
+    out = sanitize('<style bad="x">p{color:red;position:fixed}</style>', _style_element_policy())
+    assert out == "<style>p{color:red;}</style>"
+
+
+def test_style_element_attribute_filter_error_propagates() -> None:
+    # a kept <style> runs its surviving attributes through the filter like any element, so a filter error surfaces
+    def boom(_tag: str, name: str, _value: str) -> str:
+        raise ValueError(name)
+
+    policy = Policy(tags=frozenset({"style"}), attributes={"style": frozenset({"foo"})}, attribute_filter=boom)
+    with pytest.raises(ValueError, match="foo"):
+        sanitize('<style foo="x">p{color:red}</style>', policy)
+
+
+def test_style_element_dropped_when_not_allowed() -> None:
+    # the baseline is unchanged: a <style> the policy does not allowlist is escaped, never kept as live CSS
+    out = sanitize("<style>p{color:red}</style>")
+    assert "<style>" not in out
+    assert "&lt;style&gt;" in out
+
+
+def test_style_element_removed_with_content_when_named() -> None:
+    # naming style in remove_with_content still drops the whole element, even though the tag is otherwise unsafe-exempt
+    policy = Policy(tags=frozenset({"b"}), remove_with_content=frozenset({"style"}))
+    assert sanitize("<b>ok</b><style>p{color:red}</style>", policy) == "<b>ok</b>"
 
 
 @pytest.mark.parametrize(
