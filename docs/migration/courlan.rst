@@ -77,6 +77,10 @@ What turbohtml adds
   on special URLs, host punycoded to ASCII, empty path segments preserved).
 - ``query_allow`` and ``query_deny`` on :class:`~turbohtml.extract.UrlCleaning` give a per-call keep-list and drop-list
   (``w3lib.url.url_query_cleaner``'s keep and ``remove=True`` modes), which courlan does not expose.
+- ``external_only`` splits links on the registrable domain (eTLD+1), the same public-suffix boundary courlan reaches for
+  through the ``tld`` package: ``spam.example.co.uk`` and ``example.co.uk`` count as one site, ``a.co.uk`` and
+  ``b.co.uk`` as two. The suffix comes from the shipped IANA and Public Suffix List tables in C, so there is no ``tld``
+  dependency and no Python fallback.
 - One frozen config drives all three functions, no per-call keyword drift, and no Python runtime dependency.
 
 What courlan has that turbohtml does not
@@ -87,10 +91,6 @@ What courlan has that turbohtml does not
 - **Crawl-policy filters.** ``check_url``'s content-type, spam/adult, and site-structure filters,
   ``is_navigation_page``, ``is_not_crawlable``, ``filter_links``, and the ``with_redirects`` HTTP probe are out of
   scope. They are fetch policy, not URL hygiene; keep courlan where you need them.
-- **Registrable-domain classification.** courlan compares hosts through the public-suffix list (``tld``), so
-  ``spam.example.co.uk`` versus ``example.co.uk`` classifies correctly. turbohtml's ``external_only`` boundary is the
-  ``www.``-less host with subdomains counting as internal; filter through a public-suffix library if you need the
-  registrable-domain rule.
 - **Content-based language scoring.** courlan's language filter can fall back to locale scoring of the content;
   turbohtml consults only URL-based markers (a leading path segment, a ``lang``/``language`` query parameter, an
   anchor's ``hreflang``, and in strict mode a language subdomain). No equivalent for the content-scoring path.
@@ -200,9 +200,9 @@ Behavioral differences to watch when porting call sites:
 - ``extract_links`` returns every surviving link by default; ``external_only=True`` restricts to other sites. courlan's
   ``external_bool`` flag instead *splits* the set: ``False`` means internal links only. Filter the result by host when
   you need the internal half.
-- The site boundary for ``external_only`` is the ``www.``-less host, with subdomains counting as internal; courlan
-  compares registrable domains through the public-suffix list, so ``spam.example.co.uk`` versus ``example.co.uk`` can
-  classify differently.
+- The site boundary for ``external_only`` is the registrable domain (eTLD+1), the same public-suffix rule courlan
+  applies through the ``tld`` package, so ``spam.example.co.uk`` and ``example.co.uk`` are one site while sibling
+  subdomains such as ``a.co.uk`` and ``b.co.uk`` are two.
 - ``UrlCleaning(language=...)`` rejects in :func:`~turbohtml.extract.clean_url` and
   :func:`~turbohtml.extract.extract_links` but never in :func:`~turbohtml.extract.normalize_url`, which is total;
   courlan's ``normalize_url`` raises ``ValueError`` on a language mismatch.

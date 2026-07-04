@@ -29,7 +29,7 @@ repos:
     hooks:
       - id: clang-format
         files: ^src/turbohtml/.*\.(c|h)$
-        exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table)|encoding/detect_data)\.h$ # generated tables
+        exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: "v0.15.20" # v0.15.16
     hooks:

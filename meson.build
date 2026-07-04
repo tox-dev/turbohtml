@@ -56,6 +56,7 @@ py.extension_module(
         'src/turbohtml/_c/features/sanitize.c',
         'src/turbohtml/_c/features/linkify.c',
         'src/turbohtml/_c/features/links.c',
+        'src/turbohtml/_c/features/registrable.c',
         'src/turbohtml/_c/features/annotation.c',
         'src/turbohtml/_c/features/structured_data.c',
         'src/turbohtml/_c/features/tables.c',

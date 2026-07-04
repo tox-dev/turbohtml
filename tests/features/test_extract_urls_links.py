@@ -81,18 +81,36 @@ def test_external_only_keeps_other_sites() -> None:
 
 
 @pytest.mark.parametrize(
-    ("href", "external"),
+    ("base", "href", "external"),
     [
-        pytest.param("https://test.com/x", False, id="same-host"),
-        pytest.param("https://www.test.com/x", False, id="www-twin"),
-        pytest.param("https://blog.test.com/x", False, id="subdomain"),
-        pytest.param("https://test.com.evil.example/x", True, id="host-suffix-attack"),
-        pytest.param("https://other.net/x", True, id="other-host"),
+        pytest.param("https://www.test.com/", "https://test.com/x", False, id="same-host"),
+        pytest.param("https://www.test.com/", "https://www.test.com/x", False, id="www-twin"),
+        pytest.param("https://www.test.com/", "https://blog.test.com/x", False, id="subdomain"),
+        pytest.param("https://a.test.com/", "https://b.test.com/x", False, id="sibling-subdomains-share-etld1"),
+        pytest.param("https://www.test.com/", "https://test.com.evil.example/x", True, id="host-suffix-attack"),
+        pytest.param("https://www.test.com/", "https://other.net/x", True, id="other-host"),
+        pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", False, id="multi-suffix-same-site"),
+        pytest.param("https://a.co.uk/", "https://b.co.uk/x", True, id="multi-suffix-distinct-registrants"),
+        pytest.param("https://foo.github.io/", "https://bar.github.io/x", True, id="private-suffix-github-io"),
+        pytest.param("https://sub.tv.com/", "https://other.tv.com/x", False, id="tld-like-label-is-not-a-suffix"),
+        pytest.param("https://www.ck/", "https://other.ck/x", True, id="wildcard-and-exception-suffix"),
+        pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", True, id="ip-hosts-compare-whole"),
     ],
 )
-def test_external_boundary_is_the_www_less_host(href: str, *, external: bool) -> None:
-    links = extract_links(f'<a href="{href}">x</a>', "https://www.test.com/", external_only=True)
+def test_external_boundary_is_the_registrable_domain(base: str, href: str, *, external: bool) -> None:
+    links = extract_links(f'<a href="{href}">x</a>', base, external_only=True)
     assert links == ({href} if external else set())
+
+
+def test_external_boundary_punycodes_a_unicode_base_host() -> None:
+    html = '<a href="https://xn--mnchen-3ya.de/keep">x</a><a href="https://other.example/leave">y</a>'
+    links = extract_links(html, "https://münchen.de/", external_only=True)
+    assert links == {"https://other.example/leave"}
+
+
+def test_external_boundary_with_a_hostless_base_keeps_every_absolute_link() -> None:
+    html = '<a href="https://a.example/x">x</a>'
+    assert extract_links(html, "mailto:me@example.org", external_only=True) == {"https://a.example/x"}
 
 
 def test_external_only_requires_a_base() -> None:

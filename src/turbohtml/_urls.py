@@ -18,7 +18,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Final
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
-from ._html import parse
+from ._html import _registrable_domain, parse
 
 if TYPE_CHECKING:
     from urllib.parse import SplitResult
@@ -247,8 +247,9 @@ def extract_links(
     :param base_url: the URL the page was fetched from; relative links resolve against it, and it anchors the
         external/internal split. Without it relative links are dropped, since they cannot be made absolute.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).
-    :param external_only: keep only links leaving ``base_url``'s site, where the site boundary is the host with any
-        ``www.`` prefix removed, subdomains counting as internal.
+    :param external_only: keep only links leaving ``base_url``'s site, where the site boundary is the registrable
+        domain (the public suffix plus one label, ``spam.example.co.uk`` and ``example.co.uk`` counting as one site);
+        the eTLD+1 is read from the shipped IANA and Public Suffix List tables, so sibling subdomains stay internal.
     :returns: the surviving absolute URLs.
     :raises ValueError: if ``external_only`` is set without a ``base_url`` to define what external means.
     """
@@ -256,7 +257,7 @@ def extract_links(
     if external_only and base_url is None:
         msg = "external_only requires a base_url to compare hosts against"
         raise ValueError(msg)
-    site = _site_host(base_url) if base_url is not None else ""
+    site = _site_of(base_url) if base_url is not None else ""
     document = parse(html)
     base = document.base_url(base_url or "") or None  # honor a <base href>, the document base URL (HTML spec 4.2.3)
     found: set[str] = set()
@@ -275,7 +276,7 @@ def extract_links(
         else:
             candidate = link.url if base is None or link.url.startswith(_WEB_PREFIXES) else urljoin(base, link.url)
             cleaned = cleaned_of[link.url] = clean_url(candidate, active)
-        if cleaned is None or (external_only and not _is_external(cleaned, site)):
+        if cleaned is None or (external_only and _site_of(cleaned) == site):
             continue
         if (key := _variant_key(cleaned)) not in seen:
             seen.add(key)
@@ -459,15 +460,15 @@ def _hreflang_matches(hreflang: str | list[str] | None, language: str) -> bool:
     return code == "x-default" or code.partition("-")[0] == language
 
 
-def _site_host(url: str) -> str:
-    """Return the host that defines the site boundary: lowercased, without a ``www.`` prefix."""
-    return ((urlsplit(url).hostname or "").removeprefix("www.")).lower()
+def _site_of(url: str) -> str:
+    """
+    Return the registrable domain (eTLD+1) that defines a URL's ``external_only`` site, or ``""`` for no host.
 
-
-def _is_external(url: str, site: str) -> bool:
-    """Whether the URL's host falls outside the site, subdomains counting as inside (no public-suffix registry)."""
-    host = _site_host(url)
-    return not (host == site or host.endswith(f".{site}") or site.endswith(f".{host}"))
+    The host is punycoded first so a Unicode ``base_url`` compares against the ASCII hosts :func:`clean_url` emits; the
+    eTLD+1 is then read in C from the shipped IANA and Public Suffix List tables (``www.example.com`` and
+    ``blog.example.com`` both collapse to ``example.com``, ``a.co.uk`` and ``b.co.uk`` stay distinct).
+    """
+    return _registrable_domain(_ascii_host(urlsplit(url).hostname or ""))
 
 
 def _variant_key(url: str) -> str:

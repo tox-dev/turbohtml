@@ -60,6 +60,11 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
 
+/* Implemented in registrable.c. _registrable_domain(host) returns a lowercased
+   host's registrable domain (eTLD+1) from the shipped IANA and Public Suffix List
+   tables, the site boundary behind extract_links(external_only=True). METH_O. */
+PyObject *turbohtml_registrable_domain(PyObject *module, PyObject *arg);
+
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented
    in dom/node.c and lends sanitize.c the tree+node a Python element wraps. */

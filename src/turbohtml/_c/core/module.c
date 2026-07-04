@@ -134,6 +134,7 @@ static PyMethodDef html_methods[] = {
     {"_detect", turbohtml_detect_encoding, METH_O, NULL},
     {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
+    {"_registrable_domain", turbohtml_registrable_domain, METH_O, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };

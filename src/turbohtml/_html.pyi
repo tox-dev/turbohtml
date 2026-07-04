@@ -93,6 +93,9 @@ from ._stubs.features import (
     _register_structured_data as _register_structured_data,
 )
 from ._stubs.features import (
+    _registrable_domain as _registrable_domain,
+)
+from ._stubs.features import (
     _sanitize as _sanitize,
 )
 from ._stubs.features import (
