@@ -128,6 +128,12 @@ C tree and expose all of this to users.
 <https://mesonbuild.com/meson-python/>`_ is the build backend because `hatchling <https://hatch.pypa.io>`_ (used by our
 pure-Python projects) does not compile C; meson-python builds C extensions and supports coverage instrumentation.
 
+**Profile-guided optimization on the Linux wheels.** ``tools/pgo_build.py`` builds the manylinux and musllinux extension
+twice: instrumented, then against a profile that ``tools/pgo_train.py`` collects by driving the hot operations over the
+real corpora. It reaches the parser hot path no other build flag speeds up. The ``codspeed`` gate builds the same way,
+so it measures the win the wheels ship; the macOS and Windows wheels and the coverage, sanitizer, and dev builds stay
+un-profiled, so those gates are untouched.
+
 **No stable ABI (abi3).** The fast paths require buffer macros outside the :ref:`Limited API <python:stable>`:
 ``PyUnicode_KIND``, ``PyUnicode_DATA``, ``PyUnicode_READ``, ``PyUnicode_WRITE`` and ``PyUnicode_New`` (see the
 `PyUnicode C API <https://docs.python.org/3/c-api/unicode.html>`_ and :PEP:`393`). The `Limited API
@@ -215,4 +221,5 @@ Adding a C feature:
 
 The ``🚀 Release`` GitHub Actions workflow cuts a release: it builds the sdist and the full wheel matrix with
 `cibuildwheel <https://cibuildwheel.pypa.io>`_ and publishes to PyPI via `trusted publishing
-<https://docs.pypi.org/trusted-publishers/>`_, so it stores no API token.
+<https://docs.pypi.org/trusted-publishers/>`_, so it stores no API token. The Linux wheels build profile-guided (see the
+architecture decision above), so that job checks out the training submodules the ``before-build`` hook reads.
