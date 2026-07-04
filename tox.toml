@@ -213,10 +213,21 @@ commands = [ [ "python", "-m", "bench", { replace = "posargs", extend = true } ]
 [env.codspeed]
 description = "run the pytest-codspeed hot-path benchmarks (the CodSpeed CI regression gate)"
 base_python = [ "3.14" ]
-package = "editable"  # an optimized build, not the coverage-instrumented one env_run_base installs
+package = "skip"  # pgo_build below reinstalls a profile-guided editable build; a plain editable package would undo it
 deps = []  # drop the gcovr the coverage gate pulls in; the benchmarks never measure coverage
-dependency_groups = [ "test" ]  # carries pytest-codspeed and the benchmark fixture
-commands_pre = []  # no instrumented reinstall; the editable package above is the build we benchmark
+dependency_groups = [ "test" ]  # carries pytest-codspeed, the benchmark fixture, and the meson build backend
+commands_pre = [
+  # build the extension profile-guided (instrument, train on the real corpora, rebuild against the profile) so the
+  # gate measures the same optimization the release wheels ship; the training corpora ride in as submodules in CI
+  [
+    "python",
+    "{tox_root}{/}tools{/}pgo_build.py",
+    "--python",
+    "{env_python}",
+    "--build-dir",
+    "{env_dir}{/}cbuild"
+  ],
+]
 commands = [
   [ "pytest", "{tox_root}{/}tests{/}benchmarks", "--codspeed", { replace = "posargs", extend = true } ],
 ]

@@ -27,10 +27,15 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
-      # build the optimized extension and install the benchmark deps outside the runner, so
-      # only the pytest process below is measured under instrumentation, never the uv/meson build
-      - name: 🏗️ Build the extension and install benchmark deps
-        run: uvx --with tox-uv tox run -e codspeed --notest
+      # build the optimized extension and install the benchmark deps outside the runner, so only the pytest process
+      # below is measured under instrumentation, never the uv/meson build. --notest creates the environment and installs
+      # the benchmark deps but skips tox's commands; pgo_build then does the two-phase profile-guided build (instrument,
+      # train on the real corpora, rebuild against the profile) into that environment, so the gate measures the same
+      # optimization the release wheels ship rather than a plain -O3 build.
+      - name: 🏗️ Build the extension profile-guided and install benchmark deps
+        run: |
+          uvx --with tox-uv tox run -e codspeed --notest
+          .tox/codspeed/bin/python tools/pgo_build.py --python .tox/codspeed/bin/python --build-dir .tox/codspeed/cbuild
         env:
           UV_PYTHON_PREFERENCE: only-managed
       - name: 🚀 Run benchmarks

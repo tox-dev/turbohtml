@@ -172,6 +172,17 @@ release = [
 enable = [ "cpython-prerelease" ]
 build-frontend = "build[uv]"
 test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtml.escape('a & b')) == 'a & b'\""
+# Profile-guided optimization for the manylinux/musllinux wheels, where the gcc the spike measured runs. before-build
+# builds the extension instrumented and trains it on the real corpora, leaving the profile in the shared build
+# directory; the wheel build below reuses that directory with -Db_pgo=use so the shipped object is laid out for the
+# hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
+# release does not need. See tools/pgo_build.py.
+linux.before-build = """\
+  pip install uv meson-python meson ninja && python {project}/tools/pgo_build.py --python python --project {project} \
+  --build-dir /tmp/turbohtml-pgo --phase profile\
+  """
+linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
+linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use" ]
 macos.archs = [ "arm64" ]  # Apple silicon only; x86_64 macOS is end-of-life
 windows.archs = [ "AMD64" ]  # 64-bit only; skip the 32-bit x86 build
 # force the MSVC toolchain: meson otherwise picks up MinGW from the runner's PATH
