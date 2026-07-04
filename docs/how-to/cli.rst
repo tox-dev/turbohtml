@@ -44,6 +44,6 @@ is omitted or ``-``) and writes to stdout, or to the ``-o FILE`` given:
     $ curl -s https://example.com | python -m turbohtml detect
     UTF-8
 
-A subcommand exits ``0`` on success and ``1`` with a message on stderr when the library rejects the input (an
-unparsable script, an empty byte stream to ``detect``) or the input file cannot be read; argument errors exit ``2``.
-For policies, renderer options, or streaming, call the API from Python.
+A subcommand exits ``0`` on success and ``1`` with a message on stderr when the library rejects the input (an unparsable
+script, an empty byte stream to ``detect``) or the input file cannot be read; argument errors exit ``2``. For policies,
+renderer options, or streaming, call the API from Python.
