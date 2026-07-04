@@ -22,6 +22,32 @@ in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw
 .. autoclass:: OnDisallowed
     :members:
 
+The sanitizer ships bleach's default allowlists as module constants, so a :class:`Policy` can extend a known baseline
+instead of enumerating a safe set from scratch.
+
+.. autodata:: DEFAULT_TAGS
+    :no-value:
+
+    The tags the default policy keeps: ``a``, ``abbr``, ``acronym``, ``b``, ``blockquote``, ``code``, ``em``, ``i``,
+    ``li``, ``ol``, ``strong``, ``ul``.
+
+.. autodata:: DEFAULT_ATTRIBUTES
+    :no-value:
+
+    The attributes the default policy keeps, keyed by tag: ``href`` and ``title`` on ``a``, and ``title`` on ``abbr``
+    and ``acronym``.
+
+.. autodata:: DEFAULT_SCHEMES
+    :no-value:
+
+    The URL schemes the default policy allows in an ``href`` or ``src``: ``http``, ``https``, ``mailto``.
+
+.. autodata:: DEFAULT_CSS_PROPERTIES
+    :no-value:
+
+    The CSS properties the default policy keeps when scrubbing a ``style`` attribute: the CSS 2.1 safe set plus the SVG
+    paint properties.
+
 ************
  Linkifying
 ************
@@ -46,6 +72,18 @@ text).
 .. autofunction:: nofollow
 
 .. autofunction:: target_blank
+
+.. autodata:: Callback
+    :no-value:
+
+    The type of a linkify callback: a callable that takes one :class:`LinkCandidate` and returns it to keep the link or
+    ``None`` to leave the text bare. :func:`nofollow` and :func:`target_blank` are built-in examples.
+
+.. autodata:: DEFAULT_CALLBACKS
+    :no-value:
+
+    The callbacks :func:`linkify` applies when the caller passes none: ``(nofollow,)``, so bare-URL links get
+    ``rel="nofollow"`` unless you opt out.
 
 To only *locate* links in plain text rather than rewrite HTML, use :class:`LinkDetector`. It returns a :class:`LinkSpan`
 for each match and accepts custom ``tlds`` and scheme-less ``schemes``.
