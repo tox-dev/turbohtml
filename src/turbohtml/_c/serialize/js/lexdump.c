@@ -19,7 +19,7 @@
 
 #include <string.h>
 
-static PyObject *minify_js_impl(PyObject *arg, int fold, int mangle) {
+static PyObject *minify_js_impl(PyObject *arg, int fold, int mangle, int passthrough) {
     if (!PyUnicode_Check(arg)) {
         PyErr_SetString(PyExc_TypeError, "source must be a str");
         return NULL;
@@ -35,6 +35,11 @@ static PyObject *minify_js_impl(PyObject *arg, int fold, int mangle) {
     PyMem_Free(src);
     if (out == NULL) {
         if (err[0] != '\0') { /* GCOVR_EXCL_BR_LINE: the empty-message case is an allocation failure */
+            if (passthrough) {
+                /* lenient mode: an unparsable script passes through unchanged, the leniency the
+                   inline-<script> path already has via th_js_minify's errlen==0 opt-out */
+                return Py_NewRef(arg);
+            }
             PyErr_SetString(PyExc_ValueError, err);
             return NULL;
         }
@@ -45,16 +50,27 @@ static PyObject *minify_js_impl(PyObject *arg, int fold, int mangle) {
     return result;
 }
 
-/* The single minify seam, exposed as _minify_js(source, fold, mangle); the public
-   turbohtml.minify_js() wrapper and the HTML inline-<script> path both drive it. */
+/* The single minify seam, exposed as _minify_js(source, fold, mangle, on_error); the public
+   turbohtml.minify_js() wrapper and the HTML inline-<script> path both drive it. on_error
+   "passthrough" returns the source unchanged on a parse failure instead of raising. */
 PyObject *turbohtml_minify_js(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *source = NULL;
     int fold = 1;
     int mangle = 1;
-    if (!PyArg_ParseTuple(args, "Opp:_minify_js", &source, &fold, &mangle)) {
+    const char *on_error = NULL;
+    if (!PyArg_ParseTuple(args, "Opps:_minify_js", &source, &fold, &mangle, &on_error)) {
         return NULL;
     }
-    return minify_js_impl(source, fold, mangle);
+    int passthrough;
+    if (strcmp(on_error, "raise") == 0) {
+        passthrough = 0;
+    } else if (strcmp(on_error, "passthrough") == 0) {
+        passthrough = 1;
+    } else {
+        PyErr_Format(PyExc_ValueError, "on_error must be 'raise' or 'passthrough', not '%s'", on_error);
+        return NULL;
+    }
+    return minify_js_impl(source, fold, mangle, passthrough);
 }
 
 typedef struct {

@@ -57,9 +57,7 @@ These HTML folds port one-to-one; each minify-html flag becomes a field on :clas
   turbohtml default; comments go unless you opt out).
 - Optional-tag omission — ``keep_closing_tags`` and ``keep_html_and_head_opening_tags`` map to the single
   ``Minify(omit_optional_tags=True)``, which drops the start and end tags the WHATWG rules make optional.
-- Attribute unquoting and boolean-attribute collapse — on by default in both; maps to
-  ``Minify(unquote_attributes=True)``, which drops redundant quotes and rewrites a boolean attribute whose value repeats
-  its name (``checked="checked"``) to the bare ``checked``.
+- Attribute unquoting — on by default in both; maps to ``Minify(unquote_attributes=True)``.
 - Inline JavaScript minification — ``minify_js=True`` maps to ``Minify(minify_js=JSMinify())``, which rewrites
   ``<script>`` bodies with turbohtml's shipped JS minifier.
 - Inline CSS minification — ``minify_css=True`` maps to ``Minify(minify_css=True)``, which shrinks ``<style>`` bodies
@@ -83,9 +81,9 @@ What minify-html has that turbohtml does not
 - Aggressive whitespace removal — minify-html's context-aware model can delete inter-element whitespace outright where
   its sensitivity rules judge it insignificant. turbohtml collapses each run to a single space and never deletes it, so
   the output stays render-safe. No equivalent by design.
-- Entity shortening — minify-html shortens ``&amp;`` to ``&`` where safe; turbohtml keeps ``&amp;``. No equivalent.
-  (Boolean-attribute collapse now matches: ``Minify(unquote_attributes=True)`` rewrites ``checked="checked"`` to a bare
-  ``checked``.)
+- Boolean-attribute and entity shortening — minify-html rewrites ``checked="checked"`` to a bare ``checked`` and
+  shortens ``&amp;`` to ``&`` where safe. turbohtml writes boolean attributes in full and keeps ``&amp;``. No
+  equivalent.
 - Template and server-side markers — ``preserve_brace_template_syntax``, ``preserve_chevron_percent_template_syntax``,
   ``keep_ssi_comments``, ``keep_input_type_text_attr``, ``ensure_spec_compliant_unquoted_attribute_values``,
   ``remove_bangs``, and ``remove_processing_instructions`` tune edge cases turbohtml does not expose knobs for. No
@@ -137,8 +135,8 @@ Each fold is a field on :class:`~turbohtml.Minify`, so a flag becomes one keywor
       - ``Minify(strip_comments=...)`` (default ``True``)
     - - ``keep_closing_tags``, ``keep_html_and_head_opening_tags``
       - ``Minify(omit_optional_tags=...)`` (default ``True``; set ``False`` to keep every tag)
-    - - attribute unquoting and boolean-attribute collapse (on by default)
-      - ``Minify(unquote_attributes=...)`` (default ``True``; also collapses ``checked="checked"`` to bare ``checked``)
+    - - attribute unquoting (on by default)
+      - ``Minify(unquote_attributes=...)`` (default ``True``)
     - - ``minify_js``
       - ``Minify(minify_js=JSMinify())`` rewrites inline ``<script>`` content (the default ``None`` leaves it verbatim)
     - - ``minify_css``
@@ -168,9 +166,10 @@ The default call minifies with every HTML fold engaged:
   is idempotent and the output reparses to the input tree; turbohtml is the more conservative of the two, so port
   against behavior rather than string equality.
 - turbohtml keeps attributes in source order; minify-html sorts them.
-- turbohtml collapses each whitespace run to one space rather than deleting it, so its output stays render-safe while
-  running a few bytes larger; it also keeps the optional start tags (``<colgroup>``, ``<tbody>``) minify-html can drop.
-- turbohtml keeps ``&amp;`` where minify-html shortens it to a bare ``&``.
+- turbohtml collapses each whitespace run to one space and keeps a few optional end tags (``</body>``, ``</html>``,
+  ``</li>``) that minify-html drops, so its output stays valid and render-safe while running a few bytes larger.
+- turbohtml writes boolean attributes in full (``checked="checked"``) and keeps ``&amp;`` where minify-html shortens to
+  a bare ``checked`` and ``&``.
 - Embedded CSS and JavaScript minification is opt-in: ``Minify(minify_css=True)`` shrinks ``<style>`` bodies and
   ``style`` attribute values, and ``Minify(minify_js=...)`` rewrites inline ``<script>`` content. minify-html folds both
   in the same call and turbohtml leaves them verbatim unless asked.

@@ -1,4 +1,0 @@
-Shrink two more render-safe forms in :func:`turbohtml.clean.minify`, both under existing :class:`~turbohtml.Minify`
-flags. ``unquote_attributes`` collapses a WHATWG boolean attribute whose value repeats its name (``checked="checked"``)
-to the bare ``checked``, and ``omit_optional_tags`` now also drops the optional ``</caption>`` and ``</colgroup>`` end
-tags. Both stay round-trip safe, so the output reparses to the same tree and re-minifying is a fixpoint.

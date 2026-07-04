@@ -281,12 +281,12 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
 typedef struct {
     int collapse_whitespace; /* fold ASCII-whitespace runs to a single space outside pre/textarea/listing */
     int omit_optional_tags;  /* drop the start/end tags the WHATWG optional-tag rules allow */
-    int unquote_attributes; /* drop redundant attribute quotes, empty values, and boolean values that repeat the name */
-    int strip_comments;     /* skip comment nodes */
-    int minify_js;          /* minify inline <script> JavaScript (a parse failure falls back to verbatim) */
-    int minify_js_fold;     /* run the JS constant-folding / dead-code pass */
-    int minify_js_mangle;   /* run the JS identifier-renaming pass */
-    int minify_css;         /* minify <style> bodies and style="" values through the CSS minifier */
+    int unquote_attributes;  /* drop redundant attribute quotes and write empty values as bare names */
+    int strip_comments;      /* skip comment nodes */
+    int minify_js;           /* minify inline <script> JavaScript (a parse failure falls back to verbatim) */
+    int minify_js_fold;      /* run the JS constant-folding / dead-code pass */
+    int minify_js_mangle;    /* run the JS identifier-renaming pass */
+    int minify_css;          /* minify <style> bodies and style="" values through the CSS minifier */
 } th_minify_opts;
 
 /* Serialize node and its subtree minified under minify and the output options.

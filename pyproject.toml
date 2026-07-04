@@ -233,9 +233,9 @@ lint.preview = true
 [tool.codespell]
 builtin = "clear,usage,en-GB_to_en-US"
 # café, &notin;, afe (active formatting elements), vave (CSS-minify test value), grey (CSS Color 4), forin (JS dump),
-# fo/nd/te (ISO 639-1 codes in the URL language filter), januar/februar/juni/juli/oktober/dezember (German month
-# names in the date extractor's vocabulary)
-ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,fo,nd,te,januar,februar,juni,juli,oktober,dezember"
+# opps (the _minify_js PyArg_ParseTuple format "Opps"), fo/nd/te (ISO 639-1 codes in the URL language filter),
+# januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary)
+ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember"
 skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/css_colors.h"  # generated tables of HTML5 / IANA / CSS names
 count = true
 quiet-level = 3

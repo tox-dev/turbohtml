@@ -80,11 +80,6 @@ What jsmin has that turbohtml does not
 
 - **Pure-Python, zero-dependency install.** jsmin is a single Python module with no compiled extension. turbohtml ships
   a C extension; if a pure-Python wheel is a hard requirement, jsmin still fits where turbohtml cannot.
-- **Guaranteed pass-through of any input.** jsmin's byte-level loop emits *something* for every input. turbohtml parses,
-  so a construct its parser does not handle raises :class:`ValueError` for the standalone call. For the inline
-  ``<script>`` path there is an equivalent to jsmin's leniency: a script the parser cannot handle is emitted verbatim,
-  so one bad ``<script>`` never breaks the document. For the standalone call, wrap it in ``try/except ValueError`` and
-  fall back to the original source if you need the same never-fail behavior.
 
 Performance
 ===========
@@ -150,10 +145,10 @@ HTML serializer instead of extracting the script by hand:
 - **Renaming is on by default.** ``turbohtml.minify_js(source)`` renames local bindings, which jsmin never does. If a
   consumer reflects on function-local variable names (rare), pass ``JSMinify(mangle=False)``. Top-level names are global
   and are never renamed regardless of the setting.
-- **Unparsable input raises instead of passing through.** jsmin emits something for any string; the standalone
-  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Catch it and fall
-  back to the source if you relied on jsmin's never-fail behavior. The inline ``<script>`` path does not raise — it
-  emits the offending script verbatim.
+- **Unparsable input raises by default.** jsmin emits something for any string; the standalone
+  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
+  ``on_error="passthrough"`` for jsmin's never-fail behavior -- the source comes back verbatim instead of raising. The
+  inline ``<script>`` path already applies that fallback and never raises.
 - **Number literals change form.** turbohtml rewrites numeric literals to their shortest equivalent; jsmin leaves them
   verbatim. The value is preserved, but a byte-for-byte diff against jsmin output will differ here even with the
   optional passes off.

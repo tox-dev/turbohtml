@@ -13,6 +13,8 @@ inline-``<script>`` path are configured the same way.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from ._html import Minify, _minify_js, parse
 from ._jsminify import JSMinify
 from ._render import Html
@@ -37,19 +39,28 @@ def minify(html: str, options: Minify | None = None) -> str:
     return parse(html).serialize(Html(layout=options if options is not None else _DEFAULT))
 
 
-def minify_js(source: str, options: JSMinify | None = None) -> str:
+def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["raise", "passthrough"] = "raise") -> str:
     """
     Minify a JavaScript source string, returning the shortest equivalent program.
 
     Every transform preserves semantics, so the result evaluates identically to ``source``.
     ``options`` defaults to the full pipeline (fold and mangle).
 
+    ``on_error`` chooses what happens when the parser cannot handle the script. The default
+    ``"raise"`` fails loudly; ``"passthrough"`` returns ``source`` unchanged instead, the
+    never-fail contract ``jsmin`` and ``rjsmin`` guarantee -- the same verbatim fallback the
+    inline-``<script>`` path already applies so one bad script cannot break serialization.
+
     :param source: the JavaScript source to minify.
     :param options: which optional passes to run; ``None`` runs the full pipeline.
-    :returns: the minified JavaScript.
+    :param on_error: ``"raise"`` (default) to raise on a script the parser cannot handle, or
+        ``"passthrough"`` to return ``source`` unchanged.
+    :returns: the minified JavaScript, or ``source`` verbatim when it is unparsable and
+        ``on_error="passthrough"``.
     :raises TypeError: if ``source`` is not a :class:`str`.
-    :raises ValueError: if the parser cannot handle the script -- a lexical or syntax error, or input
-        nested past the depth limit -- with the message naming the construct, its byte offset, and the
-        offending token; an unminifiable script fails loudly rather than passing through unchanged.
+    :raises ValueError: if ``on_error`` is not ``"raise"`` or ``"passthrough"``, or -- when
+        ``on_error="raise"`` -- if the parser cannot handle the script (a lexical or syntax error,
+        or input nested past the depth limit), with the message naming the construct, its byte
+        offset, and the offending token.
     """
-    return _minify_js(source, (config := options or JSMinify()).fold, config.mangle)
+    return _minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)

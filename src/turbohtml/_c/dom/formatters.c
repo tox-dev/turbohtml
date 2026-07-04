@@ -109,8 +109,7 @@ static PyObject *minify_get_minify_css(PyObject *self, void *Py_UNUSED(closure))
 static PyGetSetDef minify_getset[] = {
     {"collapse_whitespace", minify_get_collapse, NULL, "fold insignificant whitespace runs to a single space", NULL},
     {"omit_optional_tags", minify_get_omit, NULL, "drop the start/end tags the WHATWG rules make optional", NULL},
-    {"unquote_attributes", minify_get_unquote, NULL,
-     "drop redundant attribute quotes, empty values, and boolean values that repeat the name", NULL},
+    {"unquote_attributes", minify_get_unquote, NULL, "drop redundant attribute quotes and empty values", NULL},
     {"strip_comments", minify_get_strip, NULL, "remove comment nodes", NULL},
     {"minify_js", minify_get_minify_js, NULL, "the JSMinify config for inline <script>, or None when off", NULL},
     {"minify_css", minify_get_minify_css, NULL, "minify <style> bodies and style attributes", NULL},
@@ -176,9 +175,7 @@ PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags
                          "reparses to the same tree.\n\n"
                          ":param collapse_whitespace: collapse runs of insignificant whitespace.\n"
                          ":param omit_optional_tags: drop start/end tags the parser can infer.\n"
-                         ":param unquote_attributes: remove quotes around attribute values that allow it, drop\n"
-                         "    an empty value to a bare name, and collapse a boolean attribute whose value repeats\n"
-                         "    its name (checked=\"checked\") to the bare name.\n"
+                         ":param unquote_attributes: remove quotes around attribute values that allow it.\n"
                          ":param strip_comments: remove comments.\n"
                          ":param minify_js: a JSMinify to also minify inline <script> JavaScript, or None\n"
                          "    (the default) to leave scripts untouched. A script that fails to parse is\n"

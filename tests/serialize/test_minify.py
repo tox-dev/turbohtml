@@ -274,26 +274,6 @@ def test_keep_comment_when_off() -> None:
             "<table><tbody><tr><td>a<th>b</table>",
             id="td-before-th",
         ),
-        pytest.param(
-            "<table><caption>c</caption><tbody><tr><td>a</td></tr></tbody></table>",
-            "<table><caption>c<tbody><tr><td>a</table>",
-            id="caption-before-section",
-        ),
-        pytest.param(
-            "<table><caption>c</caption></table>",
-            "<table><caption>c</table>",
-            id="caption-last",
-        ),
-        pytest.param(
-            "<table><colgroup><col></colgroup><tbody><tr><td>a</td></tr></tbody></table>",
-            "<table><colgroup><col><tbody><tr><td>a</table>",
-            id="colgroup-before-section",
-        ),
-        pytest.param(
-            "<table><colgroup><col></colgroup><colgroup><col></colgroup><tr><td>a</td></tr></table>",
-            "<table><colgroup><col><colgroup><col><tbody><tr><td>a</table>",
-            id="colgroup-before-colgroup",
-        ),
         pytest.param("<p>a</p><p>b</p>", "<p>a<p>b", id="p-before-p"),
         pytest.param("<p>a</p><ul><li>x</li></ul>", "<p>a<ul><li>x</ul>", id="p-before-ul"),
         pytest.param("<ol><li><p>a</p></li></ol>", "<ol><li><p>a</ol>", id="p-last-in-li"),
@@ -404,94 +384,6 @@ def test_html_body_end_kept_before_comment() -> None:
 def test_head_end_kept_before_whitespace() -> None:
     out = parse("<html><head><title>t</title></head> <body>x</body></html>").serialize(Html(layout=Minify()))
     assert "</head>" in out
-
-
-@pytest.mark.parametrize(
-    ("element", "follow"),
-    [
-        pytest.param("caption", " ", id="caption-before-whitespace"),
-        pytest.param("caption", "<!--c-->", id="caption-before-comment"),
-        pytest.param("colgroup", " ", id="colgroup-before-whitespace"),
-        pytest.param("colgroup", "<!--c-->", id="colgroup-before-comment"),
-    ],
-)
-def test_caption_colgroup_end_kept_before_whitespace_or_comment(element: str, follow: str) -> None:
-    # an inserted whitespace text node or a comment after the element would reattach
-    # inside it on reparse, so the end tag must survive; every other following node is a
-    # table section the parser's own close reconstructs
-    inner = "<col>" if element == "colgroup" else "c"
-    source = f"<table><{element}>{inner}</{element}>{follow}<tbody><tr><td>a</table>"
-    once = parse(source).serialize(Html(layout=Minify(strip_comments=False)))
-    assert f"</{element}>" in once
-    assert parse(once).html == parse(source).html
-    assert parse(once).serialize(Html(layout=Minify(strip_comments=False))) == once
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "allowfullscreen",
-        "async",
-        "autofocus",
-        "autoplay",
-        "checked",
-        "controls",
-        "default",
-        "defer",
-        "disabled",
-        "formnovalidate",
-        "inert",
-        "ismap",
-        "itemscope",
-        "loop",
-        "multiple",
-        "muted",
-        "nomodule",
-        "novalidate",
-        "open",
-        "playsinline",
-        "readonly",
-        "required",
-        "reversed",
-        "selected",
-    ],
-)
-def test_boolean_attribute_value_collapses_to_bare_name(name: str) -> None:
-    # a boolean attribute renders on presence alone, so a value that repeats the name is
-    # redundant; the bare form reparses to an empty value that re-minifies to itself
-    source = f'<div {name}="{name}">t</div>'
-    out = frag(source, omit_optional_tags=False)
-    assert out == f"<div {name}>t</div>"
-    assert frag(out, omit_optional_tags=False) == out  # the bare form is a re-minify fixpoint
-
-
-def test_boolean_attribute_value_collapse_is_case_insensitive() -> None:
-    assert frag('<input checked="CHECKED">', omit_optional_tags=False) == "<input checked>"
-
-
-def test_boolean_attribute_empty_value_collapses_to_bare_name() -> None:
-    assert frag('<input disabled="">', omit_optional_tags=False) == "<input disabled>"
-
-
-def test_boolean_attribute_keeps_value_when_it_differs_from_name() -> None:
-    # only a value repeating the name (or empty) is redundant; any other value is preserved
-    assert frag('<input disabled="true">', omit_optional_tags=False) == "<input disabled=true>"
-
-
-def test_non_boolean_attribute_value_matching_name_is_kept() -> None:
-    # title is not a boolean attribute, so title="title" carries a real value and stays
-    assert frag('<a title="title">t</a>', omit_optional_tags=False) == "<a title=title>t</a>"
-
-
-def test_attribute_value_same_length_as_name_but_different_is_kept() -> None:
-    # a value the same length as the name but not repeating it is a real value: no collapse
-    assert frag('<a class="claYY">t</a>', omit_optional_tags=False) == "<a class=claYY>t</a>"
-
-
-def test_boolean_attribute_collapse_needs_unquote() -> None:
-    assert frag('<input checked="checked">', omit_optional_tags=False, unquote_attributes=False) == (
-        '<input checked="checked">'
-    )
 
 
 def test_head_start_omitted_when_empty() -> None:

@@ -88,11 +88,6 @@ What rjsmin has that turbohtml does not
 - **A cheaper whitespace-only pass.** rjsmin's single regex substitution is faster than a full parse and is the lighter
   tool when the only requirement is stripping space as cheaply as possible. turbohtml parses, so it spends more time to
   produce a smaller result.
-- **Guaranteed pass-through of any input.** rjsmin's regex emits *something* for every input. turbohtml parses, so a
-  construct its parser does not handle raises :class:`ValueError` for the standalone call. For the inline ``<script>``
-  path there is an equivalent to rjsmin's leniency: a script the parser cannot handle is emitted verbatim, so one bad
-  ``<script>`` never breaks the document. For the standalone call, wrap it in ``try/except ValueError`` and fall back to
-  the original source if you need the same never-fail behavior.
 - **Pure-Python-only install.** rjsmin runs from its pure-Python fallback with no compiled extension at all. turbohtml
   ships a C extension; if a build must avoid compiled code entirely, rjsmin still fits where turbohtml cannot.
 
@@ -165,10 +160,10 @@ HTML serializer instead of extracting the script by hand:
   ``@preserve`` comments byte-exact and emits them as a leading banner in source order, while dropping every other
   comment. rjsmin only keeps them under ``keep_bang_comments=True`` and leaves them in place, so a diff against rjsmin
   output differs when a bang comment sits mid-script.
-- **Unparsable input raises instead of passing through.** rjsmin emits something for any string; the standalone
-  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Catch it and fall
-  back to the source if you relied on rjsmin's never-fail behavior. The inline ``<script>`` path does not raise — it
-  emits the offending script verbatim.
+- **Unparsable input raises by default.** rjsmin emits something for any string; the standalone
+  :func:`~turbohtml.minify_js` raises :class:`ValueError` on a construct its parser does not handle. Pass
+  ``on_error="passthrough"`` for rjsmin's never-fail behavior -- the source comes back verbatim instead of raising. The
+  inline ``<script>`` path already applies that fallback and never raises.
 - **Number literals change form.** turbohtml rewrites numeric literals to their shortest equivalent; rjsmin leaves them
   verbatim. The value is preserved, but a byte-for-byte diff against rjsmin output will differ here even with the
   optional passes off.

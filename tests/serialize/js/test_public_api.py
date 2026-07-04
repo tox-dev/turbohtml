@@ -39,13 +39,31 @@ def test_minify_js_raises_on_unhandled_syntax() -> None:
         minify_js("function (")
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # the never-fail contract: an unparsable script comes back byte-exact instead of raising
+        pytest.param("function (", "function (", id="unparsable-verbatim"),
+        # leniency only changes the failure path; a parsable script still minifies
+        pytest.param(_SOURCE, "function f(){return!0}", id="valid-still-minifies"),
+    ],
+)
+def test_minify_js_passthrough(source: str, expected: str) -> None:
+    assert minify_js(source, on_error="passthrough") == expected
+
+
+def test_minify_js_rejects_unknown_on_error() -> None:
+    with pytest.raises(ValueError, match="on_error must be 'raise' or 'passthrough', not 'skip'"):
+        minify_js(_SOURCE, on_error="skip")  # ty: ignore[invalid-argument-type]  # bad mode on purpose
+
+
 def test_minify_js_rejects_non_string() -> None:
     with pytest.raises(TypeError, match="source must be a str"):
         minify_js(123)  # ty: ignore[invalid-argument-type]  # wrong type on purpose, to test the guard
 
 
-def test_low_level_binding_requires_three_arguments() -> None:
-    # the public wrapper always passes (source, fold, mangle); the seam rejects a short call
+def test_low_level_binding_requires_all_arguments() -> None:
+    # the public wrapper always passes (source, fold, mangle, on_error); the seam rejects a short call
     with pytest.raises(TypeError):
         _html._minify_js("x")  # ty: ignore[missing-argument]  # too few args on purpose
 

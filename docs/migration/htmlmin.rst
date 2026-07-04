@@ -57,10 +57,9 @@ These folds port one-to-one; each htmlmin flag becomes a field on :class:`~turbo
   the default).
 - Comment removal — ``remove_comments=True`` maps to ``Minify(strip_comments=True)`` (the turbohtml default; comments go
   unless you opt out).
-- Attribute-quote removal, empty-attribute reduction, and boolean-attribute reduction —
-  ``remove_optional_attribute_quotes``, ``reduce_empty_attributes``, and ``reduce_boolean_attributes`` map to the single
-  ``Minify(unquote_attributes=True)``, which drops redundant quotes, collapses an empty value to a bare attribute name,
-  and rewrites a boolean attribute whose value repeats its name (``checked="checked"``) to the bare ``checked``.
+- Attribute-quote removal and empty-attribute reduction — ``remove_optional_attribute_quotes`` and
+  ``reduce_empty_attributes`` map to the single ``Minify(unquote_attributes=True)``, which also collapses an empty value
+  to a bare attribute name.
 
 What turbohtml adds
 ===================
@@ -82,6 +81,8 @@ What htmlmin has that turbohtml does not
 - ``remove_empty_space`` / ``remove_all_empty_space`` — htmlmin can delete inter-element whitespace outright. turbohtml
   has no equivalent by design: dropping that whitespace can change rendering, so every run collapses to a single space
   and the output reparses to the same tree. No equivalent.
+- ``reduce_boolean_attributes`` — htmlmin can rewrite ``checked="checked"`` to ``checked``. turbohtml leaves boolean
+  attributes written in full. No equivalent.
 - ``keep_pre`` / ``pre_tags`` / ``pre_attr`` — htmlmin lets you configure which tags and per-attribute markers preserve
   whitespace. turbohtml always preserves whitespace inside ``<pre>`` and ``<textarea>`` (significant per WHATWG) and
   offers no per-attribute opt-out. Workaround: none needed for the common case; the preservation is automatic and
@@ -137,14 +138,15 @@ Each fold is a field on :class:`~turbohtml.Minify`, so a flag becomes one keywor
       - ``Minify(collapse_whitespace=...)`` (default ``True``)
     - - ``remove_comments`` (default ``False``)
       - ``Minify(strip_comments=...)`` (default ``True``; comments go unless you opt out)
-    - - ``remove_optional_attribute_quotes``, ``reduce_empty_attributes``, ``reduce_boolean_attributes``
-      - ``Minify(unquote_attributes=...)`` (default ``True``; an empty value becomes a bare attribute name, and a
-        boolean attribute whose value repeats its name -- ``checked="checked"`` -- collapses to bare ``checked``)
+    - - ``remove_optional_attribute_quotes``, ``reduce_empty_attributes``
+      - ``Minify(unquote_attributes=...)`` (default ``True``; an empty value becomes a bare attribute name)
     - - no equivalent -- htmlmin keeps every tag
       - ``Minify(omit_optional_tags=...)`` (default ``True``) drops the tags the WHATWG rules make optional
     - - ``remove_empty_space``, ``remove_all_empty_space``
       - not supported -- deleting inter-element whitespace outright can change rendering, so every run collapses to one
         space and the output reparses to the same tree
+    - - ``reduce_boolean_attributes``
+      - not supported -- boolean attributes stay written in full (``checked="checked"``)
     - - ``keep_pre``, ``pre_tags``, ``pre_attr``
       - whitespace inside ``<pre>`` and ``<textarea>`` is significant per WHATWG and always survives; there is no
         per-attribute opt-out
