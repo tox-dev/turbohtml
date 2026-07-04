@@ -1,0 +1,4 @@
+Minify embedded CSS in :func:`turbohtml.clean.minify` with the opt-in ``Minify(minify_css=True)``: it shrinks every
+``<style>`` element body and ``style`` attribute value through the shipped value-safe CSS minifier, so the output
+reparses to the same cascade and re-minifying stays a fixpoint. Off by default, matching ``minify-html``'s
+``minify_css`` flag.
