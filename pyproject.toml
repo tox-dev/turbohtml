@@ -46,6 +46,7 @@ urls.Documentation = "https://turbohtml.readthedocs.io"
 urls.Homepage = "https://github.com/tox-dev/turbohtml"
 urls.Source = "https://github.com/tox-dev/turbohtml"
 urls.Tracker = "https://github.com/tox-dev/turbohtml/issues"
+scripts.turbohtml = "turbohtml.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -284,6 +285,8 @@ paths.source = [
 ]
 html.show_contexts = true
 html.skip_covered = false
+# covdefaults omits */__main__.py by default; the CLI lives there, so gate it like the rest
+covdefaults.subtract_omit = "*/__main__.py"
 
 [tool.towncrier]
 name = "turbohtml"

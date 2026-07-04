@@ -81,6 +81,8 @@ What turbohtml adds
   that mirrors chardet's ``UniversalDetector`` and always agrees with :func:`~turbohtml.detect.detect` of the
   concatenated bytes.
 - A ``Detection.chardet()`` preset that reproduces chardet's 0.2 minimum-confidence behavior.
+- A shell entry point: ``python -m turbohtml detect`` (installed as the ``turbohtml`` console script) prints the
+  encoding of a file or stdin, covering the ``normalizer`` command's core job.
 
 What charset-normalizer has that turbohtml does not
 ===================================================
@@ -88,8 +90,9 @@ What charset-normalizer has that turbohtml does not
 - Arbitrary CPython codecs: charset-normalizer can propose any codec the interpreter ships (``big5hkscs``,
   ``shift_jis_2004``, and other exotic encodings). turbohtml detects only ``chardetng``'s web-focused set (UTF-8,
   ISO-2022-JP, five CJK encodings, 19 single-byte encodings). No equivalent for encodings outside that set.
-- A CLI: the ``normalizer`` command has no turbohtml counterpart. Workaround: call :func:`~turbohtml.detect.detect` from
-  a short script.
+- ``normalizer``'s richer report: its command tabulates chaos, coherence, and alphabets, where ``python -m turbohtml
+  detect`` prints only the winning encoding name. Workaround: :func:`~turbohtml.detect.detect_all` from a script for the
+  ranked candidates.
 - ``explain=True`` verbose logging of the scoring decision. Workaround: :func:`~turbohtml.detect.detect_all` exposes the
   ranked candidates and their confidences as the introspection surface.
 - File and stream helpers ``from_path`` / ``from_fp``. Workaround: read the bytes yourself and pass them to

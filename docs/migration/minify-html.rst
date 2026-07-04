@@ -74,6 +74,8 @@ What turbohtml adds
   minifying twice changes nothing.
 - Self-contained C extension — no separate Rust minifier in the toolchain; minify shares the parser turbohtml already
   ships.
+- A shell entry point — ``python -m turbohtml minify`` (installed as the ``turbohtml`` console script, with a
+  ``--minify-css`` flag) reads a file or stdin, covering minify-html's standalone CLI on Python.
 
 What minify-html has that turbohtml does not
 ============================================
@@ -88,9 +90,8 @@ What minify-html has that turbohtml does not
   ``keep_ssi_comments``, ``keep_input_type_text_attr``, ``ensure_spec_compliant_unquoted_attribute_values``,
   ``remove_bangs``, and ``remove_processing_instructions`` tune edge cases turbohtml does not expose knobs for. No
   equivalent; turbohtml applies the WHATWG-safe default in each case.
-- Non-Python bindings and a CLI — minify-html ships for Node, Deno, Ruby, Java, and as a standalone binary. turbohtml
-  exposes no minify CLI and is Python-only. Workaround: a two-line ``python -c`` invocation of
-  :func:`~turbohtml.clean.minify`.
+- Non-Python bindings — minify-html ships for Node, Deno, Ruby, and Java; turbohtml is Python-only (the standalone
+  binary's job is covered by ``python -m turbohtml minify``).
 
 Performance
 ===========

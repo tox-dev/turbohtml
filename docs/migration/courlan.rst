@@ -96,7 +96,9 @@ What courlan has that turbohtml does not
   anchor's ``hreflang``, and in strict mode a language subdomain). No equivalent for the content-scoring path.
 - **Punycode-to-Unicode and slash collapsing.** courlan decodes punycode hosts to Unicode and collapses repeated
   slashes; turbohtml keeps the WHATWG forms (ASCII host, empty segments preserved). No flag toggles this.
-- **A command-line interface.** courlan ships a CLI; turbohtml exposes the Python API only.
+- **A URL-cleaning command line.** courlan ships a CLI for its URL operations. turbohtml now ships ``python -m
+  turbohtml`` (minify, convert, sanitize, detect), but none of its subcommands clean URLs; run the extract API from a
+  short script for that job.
 
 Performance
 ===========

@@ -79,13 +79,12 @@ What turbohtml adds
   discoverable, versus markdownify's flat set of untyped keyword options.
 - Reference-style links, image-render modes, transliteration, and a Google Docs inline-CSS mode
   (``Markdown.google_doc()``) that markdownify does not expose.
+- A shell entry point: ``python -m turbohtml to-markdown`` (installed as the ``turbohtml`` console script) reads a file
+  or stdin, covering markdownify's command-line converter.
 
 What markdownify has that turbohtml does not
 ============================================
 
-- A command-line converter (``python -m markdownify`` / the ``markdownify`` console script). turbohtml exposes Markdown
-  as a library method only; wrap ``turbohtml.parse(open(path).read()).to_markdown()`` in a short script for equivalent
-  shell use.
 - Subclass-based extension: markdownify lets a ``MarkdownConverter`` subclass override any ``convert_<tag>`` method and
   call the parent implementation with ``super()``. turbohtml's ``Markdown(converters=...)`` maps a tag name to a
   callable receiving the element and its already-rendered child Markdown, which covers per-tag replacement but not

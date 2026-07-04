@@ -76,6 +76,8 @@ What turbohtml adds
 - **Other output modes** on the same node: :meth:`~turbohtml.Node.to_markdown`, :meth:`~turbohtml.Node.serialize`, and
   the raw :attr:`~turbohtml.Node.text` concatenation with no layout at all.
 - **No lxml dependency** and a native C layout pass, which is where the speedup comes from.
+- **A shell entry point.** ``python -m turbohtml to-text`` (installed as the ``turbohtml`` console script) reads a file
+  or stdin, covering inscriptis's ``inscript`` command-line tool.
 
 What inscriptis has that turbohtml does not
 ===========================================
@@ -84,8 +86,6 @@ What inscriptis has that turbohtml does not
   ``padding``, ``white-space`` rules) through ``ParserConfig(css=...)``. turbohtml exposes only the fixed
   ``layout="strict"`` / ``layout="extended"`` profiles, not per-tag overrides. Workaround: pick the closest profile and
   post-process, or mutate the tree before ``to_text``.
-- **The ``inscript`` command-line tool.** turbohtml has no shipped CLI for text conversion; call
-  ``turbohtml.parse(...).to_text()`` from a short script.
 - **Anchor and caption toggles.** inscriptis's ``display_anchors`` (render ``id`` targets) and ``deduplicate_captions``
   have no direct :class:`~turbohtml.PlainText` equivalent. Workaround: strip or dedupe the relevant nodes on the tree
   before rendering.

@@ -74,6 +74,8 @@ What turbohtml adds
   stylesheets. htmlmin never touches ``<style>`` bodies.
 - A real parse — the input runs through the full WHATWG algorithm, so malformed markup is repaired to the same tree a
   browser builds before it is serialized.
+- A shell entry point — ``python -m turbohtml minify`` (installed as the ``turbohtml`` console script, with a
+  ``--minify-css`` flag) reads a file or stdin, covering htmlmin's command-line tool.
 
 What htmlmin has that turbohtml does not
 ========================================
@@ -92,8 +94,6 @@ What htmlmin has that turbohtml does not
 - WSGI middleware and framework decorator — htmlmin ships ``htmlmin.middleware.HTMLMinMiddleware`` and a decorator to
   minify HTTP responses in place. turbohtml has no built-in web-framework integration. Workaround: call
   :func:`~turbohtml.clean.minify` on the rendered response body in your own middleware or view wrapper.
-- ``htmlmin`` command-line tool — htmlmin installs a console script. turbohtml exposes no minify CLI. Workaround: a
-  two-line ``python -c`` invocation of :func:`~turbohtml.clean.minify`.
 
 Performance
 ===========

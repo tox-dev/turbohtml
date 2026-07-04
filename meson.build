@@ -68,6 +68,7 @@ py.extension_module(
 py.install_sources(
     [
         'src/turbohtml/__init__.py',
+        'src/turbohtml/__main__.py',
         'src/turbohtml/_article.py',
         'src/turbohtml/_cssmin.py',
         'src/turbohtml/_dates.py',

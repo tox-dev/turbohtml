@@ -72,12 +72,12 @@ What turbohtml adds
   before it is rendered to Markdown.
 - Grouped, frozen-dataclass config (``Markdown.Links``, ``Markdown.Images``, ``Markdown.Tables`` ...) is fully typed and
   discoverable, versus html2text's flat set of untyped instance attributes.
+- A shell entry point: ``python -m turbohtml to-markdown`` (installed as the ``turbohtml`` console script) reads a file
+  or stdin, covering html2text's command-line converter.
 
 What html2text has that turbohtml does not
 ==========================================
 
-- A command-line converter and ``python -m html2text`` entry point. turbohtml exposes Markdown as a library method only;
-  wrap ``turbohtml.parse(open(path).read()).to_markdown()`` in a short script for equivalent shell use.
 - Pure-Python install with no compiled extension. html2text runs anywhere a Python interpreter does; turbohtml needs a
   prebuilt wheel (or a C toolchain to build from source) for the target platform.
 - ``baseurl`` in html2text and ``Markdown.Links(base_url=...)`` both prefix rather than fully resolve; neither does
