@@ -1,0 +1,161 @@
+# turbohtml — full documentation map
+
+> turbohtml is a fast, fully typed HTML toolkit for Python built on a C-accelerated core. It parses WHATWG-conformant HTML into a navigable tree you query with CSS selectors and XPath, edit in place, build from scratch, sanitize, minify, and serialize back to HTML, Markdown, or plain text — each several times faster than its pure-Python counterpart, with a free-threaded build.
+
+Every documentation page, grouped by section, with a one-line description. Fetch a page's URL for its full content.
+
+## Tutorials
+
+- [Getting started](https://turbohtml.readthedocs.io/en/latest/tutorials/getting-started.html): Go from an empty environment to escaping and unescaping your first HTML.
+- [Tokenizing a document](https://turbohtml.readthedocs.io/en/latest/tutorials/tokenizing.html): Go from a string of HTML to a stream of tokens you can inspect.
+- [Parsing a document into a tree](https://turbohtml.readthedocs.io/en/latest/tutorials/navigating.html): A token stream is flat.
+- [Building and editing a tree](https://turbohtml.readthedocs.io/en/latest/tutorials/editing.html): Everything so far read a document that already existed.
+- [Exporting to text](https://turbohtml.readthedocs.io/en/latest/tutorials/exporting.html): Once you have the node you want, `turbohtml.Node.to_markdown` turns it into GitHub-Flavored Markdown in one call, so a scraping script ends with Markdown instead of a tag soup:
+
+## How-to guides
+
+- [Parse HTML into a tree](https://turbohtml.readthedocs.io/en/latest/how-to/parsing.html): Turn markup into a navigable tree with `turbohtml.parse`:
+- [Tokenize HTML](https://turbohtml.readthedocs.io/en/latest/how-to/tokenizing.html): Run the WHATWG tokenizer over HTML:
+- [Work with forms](https://turbohtml.readthedocs.io/en/latest/how-to/forms.html): Read and set form-control values with form semantics, and collect a form's data the way a browser submit would, through `turbohtml.Element.field_value` and the form helpers.
+- [Edit the tree](https://turbohtml.readthedocs.io/en/latest/how-to/editing.html): Change a parsed tree in place:
+- [Handle character encodings](https://turbohtml.readthedocs.io/en/latest/how-to/encoding.html): Decode bytes of unknown or declared encoding the way a browser would, and inspect what the sniffer chose, with `turbohtml.parse` and `turbohtml.detect.detect`.
+- [Select elements with a CSS selector](https://turbohtml.readthedocs.io/en/latest/how-to/selecting.html): Match descendants against a CSS selector and test a node you already hold.
+- [Find elements with the find filter](https://turbohtml.readthedocs.io/en/latest/how-to/finding.html): Search a tree with `turbohtml.Node.find` and `turbohtml.Node.find_all` and the filter grammar they take — strings, regexes, callables, booleans, and lists — applied to the tag, an attribute, the class list, or the collected text.
+- [Extract strings and attributes](https://turbohtml.readthedocs.io/en/latest/how-to/extracting.html): Pull plain strings out of a page the way Scrapy's parsel does, with `turbohtml.Element.attr`, `turbohtml.Node.re`, and `turbohtml.Node.re_first`, so scraping code ends with the values it wants rather than nodes.
+- [Query a tree with XPath](https://turbohtml.readthedocs.io/en/latest/how-to/xpath.html): Evaluate XPath 1.0 against a node with `turbohtml.Node.xpath`, `turbohtml.Node.xpath_one`, and `turbohtml.Node.xpath_iter`:
+- [Inspect a node you already hold](https://turbohtml.readthedocs.io/en/latest/how-to/inspecting.html): Work with a node in hand rather than search beneath it:
+- [Trim a document to a selector](https://turbohtml.readthedocs.io/en/latest/how-to/pruning.html): Keep only the part of a parsed document you care about with `turbohtml.Node.prune`, the parse-then-keep pattern BeautifulSoup spelled with a `SoupStrainer`.
+- [Chain queries like pyquery](https://turbohtml.readthedocs.io/en/latest/how-to/chaining.html): Wrap a set of elements in `turbohtml.query.Query` and compose traversals and edits, for code migrating off pyquery's jQuery-style chaining.
+- [Match elements the soupsieve way](https://turbohtml.readthedocs.io/en/latest/how-to/matching.html): compile and reuse CSS selectors the soupsieve way, with one-shot match helpers and selectors built from data.
+- [Sanitize untrusted HTML](https://turbohtml.readthedocs.io/en/latest/how-to/sanitizing.html): Clean untrusted HTML against an allowlist with `turbohtml.clean.sanitize`, the `bleach.clean` successor, keeping only a safe subset of tags, attributes, and URL schemes.
+- [Find and rewrite links](https://turbohtml.readthedocs.io/en/latest/how-to/links.html): Work with the URLs in a page:
+- [Minify HTML and JavaScript](https://turbohtml.readthedocs.io/en/latest/how-to/minifying.html): Shrink a document with the round-trip-safe `turbohtml.Minify` layout, and minify the inline `<script>` content it carries with `turbohtml.clean.minify_js`.
+- [Translate a CSS selector to XPath](https://turbohtml.readthedocs.io/en/latest/how-to/css-to-xpath.html): Emit an XPath 1.0 expression that selects the same nodes as a CSS selector with `turbohtml.convert.css_to_xpath`, for systems that speak only XPath.
+- [Read tables into rows and records](https://turbohtml.readthedocs.io/en/latest/how-to/tables.html): Turn an HTML `<table>` into Python data with `turbohtml.Element.rows`, `turbohtml.Element.records`, and `turbohtml.Node.tables`, with `rowspan` and `colspan` resolved so the result is rectangular — no pandas dependency.
+- [Extract the main article](https://turbohtml.readthedocs.io/en/latest/how-to/main-content.html): Isolate the article from the navigation, sidebars, and boilerplate with `turbohtml.Node.main_content`, pull it with its metadata, and classify paragraphs one at a time.
+- [Extract structured data](https://turbohtml.readthedocs.io/en/latest/how-to/structured-data.html): Pull the machine-readable metadata a page embeds — JSON-LD, Microdata, OpenGraph and Twitter cards, RDFa — with `turbohtml.Document.structured_data`, the `extruct` successor.
+- [Build HTML with E](https://turbohtml.readthedocs.io/en/latest/how-to/building.html): Generate HTML in code with `turbohtml.build.E`, then fold the result into a parsed tree you can keep editing or serializing — no parse step required.
+- [Serialize a tree to HTML](https://turbohtml.readthedocs.io/en/latest/how-to/serializing.html): Render a tree back to conformant HTML and control the result:
+- [Export a tree to Markdown](https://turbohtml.readthedocs.io/en/latest/how-to/markdown.html): Turn a node into GitHub-Flavored Markdown with `turbohtml.Node.to_markdown`, so a scraping script ends with Markdown instead of tag soup.
+- [Export a tree to plain text](https://turbohtml.readthedocs.io/en/latest/how-to/plain-text.html): Extract rendered text with `turbohtml.Node.to_text`, and get the same text with span labels attached through `turbohtml.Node.to_annotated_text`.
+- [Escape and unescape text](https://turbohtml.readthedocs.io/en/latest/how-to/escaping.html): Escape text for HTML output and reverse it with `turbohtml.escape` and `turbohtml.unescape` — the standard library's behavior, byte for byte, several times faster.
+- [Run turbohtml from a shell](https://turbohtml.readthedocs.io/en/latest/how-to/cli.html): Drive turbohtml from a shell.
+
+## Reference
+
+- [Parsing](https://turbohtml.readthedocs.io/en/latest/reference/parsing.html): Turn markup into a navigable `Document`.
+- [Nodes](https://turbohtml.readthedocs.io/en/latest/reference/nodes.html): A parsed tree is made of nodes.
+- [Tokenizer](https://turbohtml.readthedocs.io/en/latest/reference/tokenizer.html): The low-level WHATWG tokenization surface, below tree construction.
+- [Detect](https://turbohtml.readthedocs.io/en/latest/reference/detect.html): Detect the character encoding of bytes without parsing them, a successor to `chardet.detect`, `cchardet.detect`, and `charset_normalizer.from_bytes`.
+- [Query](https://turbohtml.readthedocs.io/en/latest/reference/query.html): Search a tree with the methods on `Node`:
+- [Match](https://turbohtml.readthedocs.io/en/latest/reference/match.html): A soupsieve-shaped CSS matching surface over turbohtml's native selector engine, for code migrating off soupsieve (BeautifulSoup's selector library) or a bs4 `Tag.select` stack.
+- [Clean](https://turbohtml.readthedocs.io/en/latest/reference/clean.html): Clean untrusted or raw HTML:
+- [Convert](https://turbohtml.readthedocs.io/en/latest/reference/convert.html): Translate between the query languages turbohtml speaks.
+- [Extract](https://turbohtml.readthedocs.io/en/latest/reference/extract.html): Pull content and data out of HTML.
+- [Structured data](https://turbohtml.readthedocs.io/en/latest/reference/structured-data.html): per-format helpers `Document.json_ld`, `Document.opengraph`, `Document.microdata`,
+- [Build](https://turbohtml.readthedocs.io/en/latest/reference/build.html): Construct HTML trees in code, the way `lxml.builder.E` does.
+- [Serialize](https://turbohtml.readthedocs.io/en/latest/reference/serialize.html): Turn a tree back into markup or text.
+
+## Explanation
+
+- [Why a C core](https://turbohtml.readthedocs.io/en/latest/explanation/c-core.html): Escaping and unescaping sit on hot paths:
+- [Matching the standard library](https://turbohtml.readthedocs.io/en/latest/explanation/stdlib-parity.html): `turbohtml` reproduces the exact behavior of `python:html.escape` and `python:html.unescape`.
+- [Parsing: from bytes to a navigable tree](https://turbohtml.readthedocs.io/en/latest/explanation/parsing.html): A parse runs as a pipeline.
+- [The node and tree model](https://turbohtml.readthedocs.io/en/latest/explanation/tree-model.html): Every node in a parsed document is one of a small sealed set of types, all sharing the navigation defined on
+- [Querying the tree](https://turbohtml.readthedocs.io/en/latest/explanation/queries.html): Three engines branch off any node, each answering the same question (which nodes do I want?) in a different language:
+- [Structured-data extraction](https://turbohtml.readthedocs.io/en/latest/explanation/structured-data.html): what machine-readable metadata does this page embed? It pulls JSON-LD, Microdata, OpenGraph/Twitter card metadata, RDFa, and Dublin Core in one walk, with the per-format helpers `turbohtml.Document.json_ld`,
+- [Serialization and export](https://turbohtml.readthedocs.io/en/latest/explanation/serialization.html): One parsed tree fans out into several output forms.
+- [Finding the main content](https://turbohtml.readthedocs.io/en/latest/explanation/main-content.html): but *which part of it is the article*.
+- [Mutating the tree](https://turbohtml.readthedocs.io/en/latest/explanation/mutation.html): The arena that makes reading cheap is built for append-only construction, not random edits, so making the tree mutable took a deliberate rule rather than a writable wrapper over the read path:
+- [Free-threading](https://turbohtml.readthedocs.io/en/latest/explanation/free-threading.html): The extension holds no shared mutable state:
+
+## Migration guides
+
+Grouped by the turbohtml namespace that replaces each library; within a group, ordered by monthly downloads.
+
+### Parse & DOM
+
+- [From BeautifulSoup](https://turbohtml.readthedocs.io/en/latest/migration/beautifulsoup.html): BeautifulSoup is the long-standing convenience layer over a choice of HTML parsers (`html.parser`, `lxml`, or `html5lib`):
+- [From lxml](https://turbohtml.readthedocs.io/en/latest/migration/lxml.html): lxml is the libxml2/libxslt binding that most Python HTML and XML processing has been built on.
+- [From html5lib](https://turbohtml.readthedocs.io/en/latest/migration/html5lib.html): html5lib is the reference pure-Python implementation of the WHATWG parsing algorithm.
+- [From selectolax](https://turbohtml.readthedocs.io/en/latest/migration/selectolax.html): selectolax is a fast HTML parser that wraps a C engine and exposes CSS selection.
+- [From resiliparse](https://turbohtml.readthedocs.io/en/latest/migration/resiliparse.html): resiliparse is the web-crawl processing toolkit from the Webis group behind ChatNoir.
+- [From MechanicalSoup](https://turbohtml.readthedocs.io/en/latest/migration/mechanicalsoup.html): MechanicalSoup is a stateful headless browser for Python.
+- [From html5-parser](https://turbohtml.readthedocs.io/en/latest/migration/html5-parser.html): html5-parser wraps gumbo, the C WHATWG parser, and hands the result back as an lxml/ElementTree tree.
+- [From the standard library](https://turbohtml.readthedocs.io/en/latest/migration/stdlib.html): Python's standard library ships HTML primitives in the `python:html` package.
+
+### Detect
+
+- [From charset-normalizer](https://turbohtml.readthedocs.io/en/latest/migration/charset-normalizer.html): charset-normalizer is the encoding detector `requests` ships with in place of chardet.
+- [From chardet](https://turbohtml.readthedocs.io/en/latest/migration/chardet.html): chardet is the pure-Python universal character encoding detector, the tool most projects reach for when they receive undeclared bytes from a file, a socket, or an HTTP body with no reliable `Content-Type`.
+
+### Query
+
+- [From soupsieve](https://turbohtml.readthedocs.io/en/latest/migration/soupsieve.html): soupsieve is BeautifulSoup's CSS selector engine and the library behind every `Tag.select` call.
+- [From parsel](https://turbohtml.readthedocs.io/en/latest/migration/parsel.html): parsel is Scrapy's extraction-oriented selector library.
+- [From pyquery](https://turbohtml.readthedocs.io/en/latest/migration/pyquery.html): pyquery puts a jQuery-style fluent, chainable wrapper over lxml/cssselect, so you select and mutate a document with method chains.
+
+### Clean
+
+- [From linkify-it-py](https://turbohtml.readthedocs.io/en/latest/migration/linkify-it-py.html): linkify-it-py is the pure-Python link scanner that markdown-it-py pulls in.
+- [From bleach](https://turbohtml.readthedocs.io/en/latest/migration/bleach.html): bleach was the standard Python HTML allowlist sanitizer and linkifier, built on html5lib.
+- [From nh3](https://turbohtml.readthedocs.io/en/latest/migration/nh3.html): nh3 is the Python binding (via PyO3/maturin) for the Rust ammonia HTML sanitizer, and a common landing spot for projects leaving the unmaintained bleach.
+- [From lxml-html-clean](https://turbohtml.readthedocs.io/en/latest/migration/lxml-html-clean.html): lxml-html-clean is the `Cleaner` that used to live in `lxml.html.clean`, split into its own package when lxml dropped the module.
+- [From rcssmin](https://turbohtml.readthedocs.io/en/latest/migration/rcssmin.html): rcssmin is the most-used CSS minifier on PyPI, a fast C extension (with a pure-Python fallback) that is deliberately *non-destructive*.
+- [From rjsmin](https://turbohtml.readthedocs.io/en/latest/migration/rjsmin.html): rjsmin minifies JavaScript with a single regular-expression substitution:
+- [From jsmin](https://turbohtml.readthedocs.io/en/latest/migration/jsmin.html): jsmin is the Python port of Douglas Crockford's `jsmin`:
+- [From minify-html](https://turbohtml.readthedocs.io/en/latest/migration/minify-html.html): minify-html is a Rust HTML minifier with bindings for Python, Node, Deno, Ruby, Java, and a standalone CLI.
+- [From htmlmin](https://turbohtml.readthedocs.io/en/latest/migration/htmlmin.html): htmlmin is a pure-Python HTML minifier built on the standard library's `HTMLParser`.
+- [From csscompressor](https://turbohtml.readthedocs.io/en/latest/migration/csscompressor.html): csscompressor is a pure-Python port of the CSS half of the YUI Compressor.
+- [From html-sanitizer](https://turbohtml.readthedocs.io/en/latest/migration/html-sanitizer.html): html-sanitizer is an allowlist HTML sanitizer built on lxml, from the author of FeinCMS and django-content-editor.
+- [From calmjs.parse](https://turbohtml.readthedocs.io/en/latest/migration/calmjs-parse.html): calmjs.parse is a full JavaScript front end in pure Python.
+- [From lightningcss](https://turbohtml.readthedocs.io/en/latest/migration/lightningcss.html): lightningcss binds the Rust CSS engine behind Parcel to Python through `process_stylesheet`.
+
+### Convert
+
+- [From cssselect](https://turbohtml.readthedocs.io/en/latest/migration/cssselect.html): cssselect translates a CSS selector into an equivalent XPath 1.0 expression.
+
+### Extract
+
+- [From pandas](https://turbohtml.readthedocs.io/en/latest/migration/pandas.html): pandas is the standard Python library for tabular data analysis:
+- [From w3lib](https://turbohtml.readthedocs.io/en/latest/migration/w3lib.html): w3lib is the Scrapy project's grab-bag of stateless web utilities:
+- [From trafilatura](https://turbohtml.readthedocs.io/en/latest/migration/trafilatura.html): trafilatura extracts the main text and metadata from a web page:
+- [From courlan](https://turbohtml.readthedocs.io/en/latest/migration/courlan.html): courlan is the URL cleaner and filter underneath `trafilatura`.
+- [From extruct](https://turbohtml.readthedocs.io/en/latest/migration/extruct.html): extruct pulls the machine-readable metadata a page embeds:
+- [From justext](https://turbohtml.readthedocs.io/en/latest/migration/justext.html): justext removes boilerplate from a web page paragraph by paragraph.
+- [From readability-lxml](https://turbohtml.readthedocs.io/en/latest/migration/readability-lxml.html): readability-lxml is a Python port of Arc90's Readability.
+- [From readabilipy](https://turbohtml.readthedocs.io/en/latest/migration/readabilipy.html): readabilipy is the Alan Turing Institute's article-extraction wrapper.
+- [From metadata_parser](https://turbohtml.readthedocs.io/en/latest/migration/metadata_parser.html): metadata_parser reads the social-card metadata a page advertises:
+- [From newspaper3k](https://turbohtml.readthedocs.io/en/latest/migration/newspaper3k.html): newspaper3k is a news-article scraper built on `requests` and `lxml`.
+- [From boilerpy3](https://turbohtml.readthedocs.io/en/latest/migration/boilerpy3.html): boilerpy3 is the pure-Python port of boilerpipe, the original boilerplate-removal library.
+- [From goose3](https://turbohtml.readthedocs.io/en/latest/migration/goose3.html): goose3 is an article extractor in the newspaper mold:
+- [From microdata](https://turbohtml.readthedocs.io/en/latest/migration/microdata.html): microdata is a small pure-Python library that pulls the HTML Microdata items a page embeds — the WHATWG `itemscope`/`itemprop` vocabulary sites use to mark up schema.org products, recipes, people, and events.
+- [From news-please](https://turbohtml.readthedocs.io/en/latest/migration/news-please.html): news-please is a news-crawling system.
+- [From opengraph](https://turbohtml.readthedocs.io/en/latest/migration/opengraph.html): opengraph (the `opengraph_py3` Python 3 fork of erikriver's `opengraph`) reads a page's Open Graph card.
+- [From htmldate](https://turbohtml.readthedocs.io/en/latest/migration/htmldate.html): htmldate is the standalone publication-date finder that sits underneath `trafilatura`.
+
+### Build
+
+- [From dominate](https://turbohtml.readthedocs.io/en/latest/migration/dominate.html): dominate assembles HTML in Python from the other direction than a parser:
+- [From yattag](https://turbohtml.readthedocs.io/en/latest/migration/yattag.html): yattag assembles HTML in Python from the other direction than a parser.
+- [From htbuilder](https://turbohtml.readthedocs.io/en/latest/migration/htbuilder.html): htbuilder assembles HTML in Python from the other direction than a parser:
+- [From htpy](https://turbohtml.readthedocs.io/en/latest/migration/htpy.html): htpy assembles HTML in Python from the other direction than a parser:
+- [From airium](https://turbohtml.readthedocs.io/en/latest/migration/airium.html): airium assembles HTML in Python from the other direction than a parser:
+- [From markyp](https://turbohtml.readthedocs.io/en/latest/migration/markyp.html): markyp assembles HTML in Python from the other direction than a parser:
+- [From fast-html](https://turbohtml.readthedocs.io/en/latest/migration/fast-html.html): fast-html is a small pure-Python library that assembles HTML5 from the inside out.
+- [From simple-html](https://turbohtml.readthedocs.io/en/latest/migration/simple-html.html): simple-html is a pure-Python library for *generating* HTML from the inside out:
+- [From hyperpython](https://turbohtml.readthedocs.io/en/latest/migration/hyperpython.html): hyperpython assembles HTML in Python from the other direction than a parser:
+
+### Serialize
+
+- [From markupsafe](https://turbohtml.readthedocs.io/en/latest/migration/markupsafe.html): markupsafe is the safe-string library behind Jinja2, WTForms, and Werkzeug.
+- [From markdownify](https://turbohtml.readthedocs.io/en/latest/migration/markdownify.html): markdownify converts HTML to Markdown by walking a BeautifulSoup tree.
+- [From html2text](https://turbohtml.readthedocs.io/en/latest/migration/html2text.html): html2text converts HTML to Markdown.
+- [From inscriptis](https://turbohtml.readthedocs.io/en/latest/migration/inscriptis.html): inscriptis converts HTML to *layout-aware* plain text.
+- [From html-text](https://turbohtml.readthedocs.io/en/latest/migration/html-text.html): html-text (Zyte) extracts the visible text from a page.
+
+## Project
+
+- [Performance](https://turbohtml.readthedocs.io/en/latest/development/performance.html): benchmark methodology and tables.
+- [Changelog](https://turbohtml.readthedocs.io/en/latest/changelog.html): release notes.
+- [License](https://turbohtml.readthedocs.io/en/latest/license.html): MIT.

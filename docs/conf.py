@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ast
 import copy
+import os
 import re
 import sys
+from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,9 +45,15 @@ extensions = [
 html_theme = "furo"
 html_title = "turbohtml"
 html_static_path = ["_static"]
+# _extra is copied verbatim to the site root, so llms.txt and llms-full.txt (the llmstxt.org map for AI agents) are
+# served at /llms.txt and /llms-full.txt.
+html_extra_path = ["_extra"]
 html_css_files = ["custom.css"]
 html_logo = "_static/turbohtml.svg"
 html_favicon = "_static/turbohtml.svg"
+# Read the Docs sets the versioned canonical URL; the fallback keeps canonical links and the sitemap working on a
+# local or CI build. Sphinx emits a <link rel="canonical"> per page from this, and the sitemap below reuses it.
+html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "https://turbohtml.readthedocs.io/en/latest/")
 
 # News fragments are assembled by towncrier, not rendered as standalone pages.
 exclude_patterns = ["changelog/*"]
@@ -279,9 +287,47 @@ class _PackageMeta(Directive):
         return [row]
 
 
+_DESCRIPTION_LIMIT = 160
+
+
+def _add_page_description(
+    app: Sphinx,  # noqa: ARG001
+    pagename: str,  # noqa: ARG001
+    templatename: str,  # noqa: ARG001
+    context: dict[str, Any],
+    doctree: nodes.document | None,
+) -> None:
+    """Give each page a ``<meta name="description">`` from its first paragraph so search results read well."""
+    if doctree is None:
+        return
+    for paragraph in doctree.findall(nodes.paragraph):
+        if not (text := " ".join(paragraph.astext().split())):
+            continue
+        summary = text if len(text) <= _DESCRIPTION_LIMIT else f"{text[: _DESCRIPTION_LIMIT - 1].rstrip()}…"
+        tag = f'<meta name="description" content="{_html_escape(summary, quote=True)}" />'
+        context["metatags"] = context.get("metatags", "") + f"\n    {tag}"
+        return
+
+
+def _write_sitemap(app: Sphinx, exception: Exception | None) -> None:
+    """Emit a sitemap.xml over every built HTML page, so crawlers find the whole documentation tree."""
+    if exception is not None or app.builder.name != "html":
+        return
+    base = f"{html_baseurl.rstrip('/')}/"
+    entries = "".join(f"  <url><loc>{base}{name}.html</loc></url>\n" for name in sorted(app.env.found_docs))
+    sitemap = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{entries}</urlset>\n"
+    )
+    (Path(app.outdir) / "sitemap.xml").write_text(sitemap, encoding="utf-8")
+
+
 def setup(app: Sphinx) -> dict[str, Any]:
-    """Wire the stub-sourced type annotations into autodoc and register the package-meta badge row."""
+    """Wire the stub-sourced type annotations into autodoc and register the badge row, meta tags, and sitemap."""
     _patch_autodoc_engine()
     app.connect("autodoc-process-signature", _stub_signature_for_alias)
+    app.connect("html-page-context", _add_page_description)
+    app.connect("build-finished", _write_sitemap)
     app.add_directive("package-meta", _PackageMeta)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
