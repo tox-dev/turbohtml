@@ -103,15 +103,24 @@ PyObject *turbohtml_node_resolve_links(PyObject *owner, struct th_tree *tree, st
 
 /* Implemented in features/structured_data.c, the engine behind the Document.structured_data()/json_ld()/opengraph()/
    microdata() methods (wired into the document method table in dom/document.c). Each gathers one structured-data format
-   from the document in a pure-C tree walk under the per-tree critical section and matches METH_NOARGS; json_ld()
-   gathers the raw <script type=application/ld+json> texts and parses them through the Python facade. structured_data()
-   and microdata() hand their gathered fields to the StructuredData / MicrodataItem record classes the facade defines.
-   _register_structured_data (METH_VARARGS) stores the JSON-LD parser and those two classes. */
-PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *unused);
+   from the document in a pure-C tree walk under the per-tree critical section. structured_data()/opengraph()/
+   microdata() match METH_VARARGS | METH_KEYWORDS for their optional base_url that absolutizes URL-valued fields;
+   json_ld() matches METH_NOARGS, gathering the raw <script type=application/ld+json> texts and parsing them through the
+   Python facade. structured_data() and microdata() hand their gathered fields to the StructuredData / MicrodataItem
+   record classes the facade defines. _register_structured_data (METH_VARARGS) stores the JSON-LD parser and those two
+   classes. */
+PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *unused);
-PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *unused);
-PyObject *turbohtml_document_microdata(PyObject *self, PyObject *unused);
+PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject *kwargs);
+PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args);
+
+/* Implemented in dom/document.c, the URL-resolution routine base_url() runs, shared with the extraction methods so
+   their base_url reuses it rather than reinventing RFC 3986 resolution. th_url_resolve joins a (possibly relative)
+   target onto a base and percent-encodes the result; th_document_base_url resolves the document's <base href> against a
+   fallback. Both return a new reference, NULL with a ValueError set when a component cannot be split. */
+PyObject *th_url_resolve(PyObject *base, PyObject *target);
+PyObject *th_document_base_url(PyObject *self, PyObject *fallback);
 
 /* Implemented in tables.c, the engine behind Element.rows()/records() and Node.tables(). Each takes the wrapping node
    (owner, for the per-tree handle) and the already-derived tree+node the thin C methods in dom/element.c and dom/node.c

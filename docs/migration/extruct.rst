@@ -80,9 +80,6 @@ What extruct has that turbohtml does not
   Keep extruct for those two syntaxes until the phase lands; the field names are already in place so code that reads
   them will not break.
 - **Dublin Core**: no equivalent. Read the ``<meta name="dc.*">`` tags yourself off the tree if you need them.
-- **``base_url`` resolution**: extruct's ``base_url`` argument resolves relative URLs inside extracted values; turbohtml
-  returns values verbatim. Resolve against your own base URL afterward with :func:`turbohtml.extract.normalize_url` or
-  :func:`urllib.parse.urljoin`.
 - **``uniform`` / ``return_html_node`` options**: no equivalent. turbohtml's output shape is fixed per format; there is
   no normalized cross-syntax view or embedded lxml node handle.
 
@@ -187,8 +184,11 @@ after the document is gone:
   handling; ``extruct``'s ``errors="strict"`` mode has no turbohtml equivalent. Pass the raw ``<script>`` text to
   :mod:`json` yourself if you need to see the decode error. A block whose payload is a scalar or ``null`` is also
   dropped, since it is not a JSON-LD node object.
-- Extracted URL values are returned verbatim, not resolved against a base URL the way ``extruct``'s ``base_url``
-  argument resolves them. Post-process with :func:`turbohtml.extract.normalize_url` or :func:`urllib.parse.urljoin`.
+- Extracted URL values are returned verbatim by default. Pass ``base_url=`` to
+  :meth:`~turbohtml.Document.structured_data` (or to :meth:`~turbohtml.Document.opengraph` /
+  :meth:`~turbohtml.Document.microdata`) to absolutize the Microdata and OpenGraph URL-valued fields against it, the way
+  ``extruct``'s ``base_url`` argument resolves them; a ``<base href>`` refines it. JSON-LD is left verbatim, so resolve
+  any ``@id`` yourself with :func:`urllib.parse.urljoin`.
 - turbohtml decodes the string to the WHATWG tree; ``extruct`` decodes bytes with ``w3lib`` per its ``encoding``
   argument. Hand turbohtml already-decoded ``str`` and let it apply the WHATWG encoding rules rather than pre-forcing a
   codec.

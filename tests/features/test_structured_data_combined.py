@@ -48,3 +48,28 @@ def test_empty_document() -> None:
         microformats=[],
         rdfa=[],
     )
+
+
+_RELATIVE = (
+    '<meta property="og:image" content="/pic.png">'
+    '<script type="application/ld+json">{"@id": "/thing"}</script>'
+    '<div itemscope><a itemprop="link" href="/l">x</a></div>'
+)
+
+
+def test_structured_data_base_url_resolves_microdata_and_opengraph_not_json_ld() -> None:
+    data = parse(_RELATIVE).structured_data(base_url="http://ex.com/dir/")
+    assert data.opengraph == {"og:image": "http://ex.com/pic.png"}
+    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["http://ex.com/l"]})]
+    assert data.json_ld == [{"@id": "/thing"}]  # json_ld @id resolution is out of scope, left verbatim
+
+
+def test_structured_data_base_url_none_is_verbatim() -> None:
+    data = parse(_RELATIVE).structured_data(base_url=None)
+    assert data.opengraph == {"og:image": "/pic.png"}
+    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["/l"]})]
+
+
+def test_structured_data_malformed_base_url_raises() -> None:
+    with pytest.raises(ValueError, match="not a valid absolute URL"):
+        parse(_RELATIVE).structured_data(base_url="http://[bad")

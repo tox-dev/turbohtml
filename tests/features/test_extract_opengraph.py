@@ -75,3 +75,12 @@ def test_direct_construction() -> None:
     og = OpenGraph({"title": "Hi", "type": "article", "image": "i", "url": "u"})
     assert og.is_valid() is True
     assert len(og) == 4
+
+
+def test_opengraph_resolves_url_against_base() -> None:
+    html = '<meta property="og:image" content="/rock.jpg"><meta property="og:title" content="R">'
+    assert opengraph(html, "http://x.com/dir/") == {"image": "http://x.com/rock.jpg", "title": "R"}
+
+
+def test_opengraph_base_url_omitted_is_verbatim() -> None:
+    assert opengraph('<meta property="og:image" content="/rock.jpg">') == {"image": "/rock.jpg"}

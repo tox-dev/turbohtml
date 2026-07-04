@@ -113,6 +113,10 @@ What turbohtml adds
 
 - A text property's value follows the spec's ``textContent`` rule, so text nested in the property element is kept where
   ``microdata`` drops it (see :ref:`microdata-divergences`).
+- URL-valued properties (an ``a``/``area``/``link`` href, a media ``src``, an ``object`` data) are returned verbatim by
+  default; pass ``base_url=`` to :func:`~turbohtml.extract.microdata` (or :meth:`~turbohtml.Document.microdata`) to
+  absolutize them against it, the way ``microdata``'s ``url`` argument resolves them. A ``<base href>`` refines the base
+  URL.
 
 What microdata has that turbohtml does not
 ==========================================

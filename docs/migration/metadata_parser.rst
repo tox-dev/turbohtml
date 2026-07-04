@@ -82,9 +82,6 @@ What metadata_parser has that turbohtml does not
 
 - **URL fetching**: ``MetadataParser(url=...)`` downloads the page, follows redirects, and detects the response
   encoding. turbohtml takes parsed HTML only, so pair it with ``urllib`` or ``httpx``.
-- **URL absolutization**: ``get_metadata_link`` and ``get_discrete_url`` resolve relative URL-valued tags against the
-  page URL. :meth:`~turbohtml.Document.opengraph` returns raw tag values; resolve them yourself against
-  :meth:`~turbohtml.Document.base_url`.
 - **Dublin Core (``dc``) and generic ``name``/``content`` namespaces**: metadata_parser groups these into
   ``metadata["dc"]`` and ``metadata["meta"]``. :meth:`~turbohtml.Document.opengraph` gathers only ``og:`` and
   ``twitter:`` tags; read any other ``<meta>`` by selecting it, e.g. ``parse(html).find_all("meta")``.
@@ -126,7 +123,7 @@ the URL for you, download the markup first and pass it to :func:`turbohtml.parse
     - - ``mp.parsed_result.get_metadatas("card", strategy=["twitter"])``
       - the ``twitter:card`` key of :meth:`~turbohtml.Document.opengraph`
     - - ``mp.get_metadata_link("image", strategy=["og"])``
-      - the ``og:image`` key, absolutized yourself against :meth:`~turbohtml.Document.base_url`
+      - the ``og:image`` key of ``doc.opengraph(base_url=page_url)``, absolutized against the page URL
     - - ``mp.parsed_result.metadata["dc"]`` / ``["meta"]``
       - ``doc.find_all("meta")``, read ``name``/``content`` off each tag
 
@@ -148,8 +145,9 @@ the URL for you, download the markup first and pass it to :func:`turbohtml.parse
 - metadata_parser groups tags into per-namespace dicts with unprefixed keys (``metadata["og"]["title"]``), while
   :meth:`~turbohtml.Document.opengraph` returns one flat mapping with prefixed keys (``og:title``, ``twitter:card``)
   because pages mix the ``property`` and ``name`` attributes freely.
-- :meth:`~turbohtml.Document.opengraph` returns the raw tag value; ``metadata_parser``'s ``get_metadata_link``
-  absolutizes URL-valued tags against the page URL. Resolve those yourself with :meth:`~turbohtml.Document.base_url`.
+- :meth:`~turbohtml.Document.opengraph` returns the raw tag value by default; pass ``base_url=`` (the page URL) to
+  absolutize the URL-valued tags (``og:url``, ``og:image``, ``og:video``, ``twitter:image``, ...) against it, the way
+  ``metadata_parser``'s ``get_metadata_link`` and ``get_discrete_url`` do. A ``<base href>`` refines the base URL.
 - When a key repeats, the last occurrence wins in the flat mapping; read :meth:`~turbohtml.Document.structured_data`
   when you need every occurrence of a repeated key.
 - metadata_parser can fetch (``MetadataParser(url=...)``) and detect the response encoding; turbohtml takes parsed HTML,

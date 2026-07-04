@@ -118,7 +118,7 @@ class Extraction:
 _DEFAULT: Final = Extraction()
 
 
-def microdata(html: str, /) -> list[MicrodataItem]:
+def microdata(html: str, base_url: str | None = None, /) -> list[MicrodataItem]:
     """
     Extract a page's top-level HTML Microdata items, the successor to ``microdata.get_items(html)``.
 
@@ -129,9 +129,13 @@ def microdata(html: str, /) -> list[MicrodataItem]:
     Shorthand for :meth:`turbohtml.Document.microdata` when a page string is all you hold.
 
     :param html: the page markup.
+    :param base_url: when given, the URL each relative URL-valued property (an ``a``/``area``/``link`` href, a media
+        ``src``, an ``object`` data) is resolved against, the ``microdata`` library's ``base_url``; a ``<base href>``
+        refines it. ``None`` (the default) returns every value verbatim.
     :returns: one :class:`~turbohtml.MicrodataItem` per top-level ``itemscope`` element, in document order.
+    :raises ValueError: if ``base_url`` is given and is not a valid absolute URL.
     """
-    return parse(html).microdata()
+    return parse(html).microdata(base_url)
 
 
 _OG_PREFIX: Final = "og:"
@@ -182,7 +186,7 @@ class OpenGraph(Mapping[str, str]):
         return all(self._properties.get(name) for name in _OG_REQUIRED)
 
 
-def opengraph(html: str, /) -> OpenGraph:
+def opengraph(html: str, base_url: str | None = None, /) -> OpenGraph:
     """
     Extract a page's Open Graph metadata, the successor to ``opengraph.OpenGraph(html=...)``.
 
@@ -190,9 +194,13 @@ def opengraph(html: str, /) -> OpenGraph:
     method also returns, and strips the ``og:`` prefix from each key so ``og["title"]`` reads the ``og:title`` tag.
 
     :param html: the page markup.
+    :param base_url: when given, the URL each relative URL-valued property (``og:url``, ``og:image``, ``og:video``,
+        ...) is resolved against, extruct's and metadata_parser's absolutization; a ``<base href>`` refines it.
+        ``None`` (the default) returns every value verbatim.
     :returns: an :class:`OpenGraph` mapping of the prefix-stripped ``og:`` properties, empty when the page has none.
+    :raises ValueError: if ``base_url`` is given and is not a valid absolute URL.
     """
-    tags = parse(html).opengraph()
+    tags = parse(html).opengraph(base_url)
     return OpenGraph({key[len(_OG_PREFIX) :]: value for key, value in tags.items() if key.startswith(_OG_PREFIX)})
 
 

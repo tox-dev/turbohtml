@@ -82,3 +82,13 @@ def test_json_omits_absent_type_and_id() -> None:
 def test_json_is_two_space_indented() -> None:
     item = microdata('<div itemscope><span itemprop="name">Ada</span></div>')[0]
     assert item.json() == '{\n  "properties": {\n    "name": [\n      "Ada"\n    ]\n  }\n}'
+
+
+def test_microdata_resolves_url_against_base() -> None:
+    items = microdata('<div itemscope><a itemprop="u" href="/l">x</a></div>', "http://x.com/dir/")
+    assert items == [MicrodataItem(type=None, id=None, properties={"u": ["http://x.com/l"]})]
+
+
+def test_microdata_base_url_omitted_is_verbatim() -> None:
+    items = microdata('<div itemscope><a itemprop="u" href="/l">x</a></div>')
+    assert items == [MicrodataItem(type=None, id=None, properties={"u": ["/l"]})]

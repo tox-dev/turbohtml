@@ -211,3 +211,92 @@ _NESTED = (
 )
 def test_microdata(html: str, expected: list[MicrodataItem]) -> None:
     assert parse(html).microdata() == expected
+
+
+_BASE = "http://ex.com/dir/"
+
+
+def test_microdata_resolves_url_props_only() -> None:
+    html = (
+        "<div itemscope>"
+        '<a itemprop="a" href="/l">x</a>'
+        '<img itemprop="i" src="i.png">'
+        '<object itemprop="o" data="/d"></object>'
+        '<meta itemprop="m" content="/not-url">'
+        '<data itemprop="d" value="/keep">z</data>'
+        '<time itemprop="t" datetime="/keep">now</time>'
+        "</div>"
+    )
+    assert parse(html).microdata(base_url=_BASE) == [
+        MicrodataItem(
+            type=None,
+            id=None,
+            properties={
+                "a": ["http://ex.com/l"],
+                "i": ["http://ex.com/dir/i.png"],
+                "o": ["http://ex.com/d"],
+                "m": ["/not-url"],
+                "d": ["/keep"],
+                "t": ["/keep"],
+            },
+        ),
+    ]
+
+
+def test_microdata_resolves_nested_item() -> None:
+    html = (
+        "<div itemscope>"
+        '<a itemprop="a" href="/l">x</a>'
+        '<div itemprop="child" itemscope><img itemprop="i" src="c.png"></div>'
+        "</div>"
+    )
+    assert parse(html).microdata(base_url=_BASE) == [
+        MicrodataItem(
+            type=None,
+            id=None,
+            properties={
+                "a": ["http://ex.com/l"],
+                "child": [MicrodataItem(type=None, id=None, properties={"i": ["http://ex.com/dir/c.png"]})],
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            '<div itemscope><a itemprop="p" href="http://cdn.com/x">x</a></div>',
+            "http://cdn.com/x",
+            id="absolute-url-kept",
+        ),
+        pytest.param('<div itemscope><img itemprop="p" src></div>', "", id="empty-url-stays-empty"),
+        pytest.param(
+            '<div itemscope><a itemprop="p" href="http://[bad">x</a></div>',
+            "http://[bad",
+            id="malformed-value-kept-verbatim",
+        ),
+    ],
+)
+def test_microdata_url_resolution_cases(html: str, expected: str) -> None:
+    assert parse(html).microdata(base_url=_BASE)[0].properties["p"] == [expected]
+
+
+def test_microdata_base_href_refines_base_url() -> None:
+    html = '<base href="http://b.com/sub/"><div itemscope><a itemprop="a" href="p">x</a></div>'
+    assert parse(html).microdata(base_url="http://ex.com/")[0].properties["a"] == ["http://b.com/sub/p"]
+
+
+def test_microdata_base_url_none_is_verbatim() -> None:
+    html = '<div itemscope><a itemprop="a" href="/l">x</a></div>'
+    assert parse(html).microdata(base_url=None)[0].properties["a"] == ["/l"]
+
+
+def test_microdata_malformed_base_url_raises() -> None:
+    with pytest.raises(ValueError, match="not a valid absolute URL"):
+        parse('<div itemscope><a itemprop="a" href="/l">x</a></div>').microdata(base_url="http://[bad")
+
+
+def test_microdata_base_url_wrong_type_raises() -> None:
+    with pytest.raises(TypeError, match="base_url must be a str or None"):
+        parse("<p>x</p>").microdata(base_url=123)  # ty: ignore[invalid-argument-type]  # non-str exercises TypeError

@@ -1,0 +1,8 @@
+Resolve relative URLs in extracted metadata against a base URL. :meth:`~turbohtml.Document.opengraph`,
+:meth:`~turbohtml.Document.microdata`, and :meth:`~turbohtml.Document.structured_data` (with the string helpers
+:func:`turbohtml.extract.opengraph` and :func:`turbohtml.extract.microdata`) take an optional ``base_url`` that
+absolutizes the URL-valued fields -- ``og:url``, ``og:image``, ``og:video``, ``twitter:image``, ``twitter:player``, and
+the Microdata ``a``/``area``/``link`` href, media ``src``, and ``object`` data -- through the same WHATWG resolution
+behind :meth:`~turbohtml.Document.base_url`, with a ``<base href>`` refining it. Without ``base_url`` every value stays
+verbatim, and a malformed ``base_url`` raises :exc:`ValueError`. This closes the base-URL gap the extruct,
+metadata_parser, and microdata migration guides listed - by :user:`gaborbernat`.

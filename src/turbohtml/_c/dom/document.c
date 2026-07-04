@@ -168,6 +168,19 @@ static PyObject *url_percent_encode(PyObject *url) {
     return result; /* NULL on the excluded decode-failure path */
 }
 
+/* Resolve `target` against `base` and percent-encode the result the way base_url() does, the URL-resolution routine the
+   extraction methods reuse rather than reinventing. A relative target absolutizes against base; an absolute one wins.
+   NULL with a ValueError set when base or target cannot be split (e.g. an unclosed IPv6 bracket). */
+PyObject *th_url_resolve(PyObject *base, PyObject *target) {
+    PyObject *joined = url_join(base, target);
+    if (joined == NULL) {
+        return NULL;
+    }
+    PyObject *encoded = url_percent_encode(joined);
+    Py_DECREF(joined);
+    return encoded;
+}
+
 /* The value of `node`'s `name` attribute as a new str reference (the empty string when valueless), or NULL when the
    attribute is absent (or, on the excluded allocation-failure path, with an error set). */
 static PyObject *element_attr_str(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
@@ -312,16 +325,11 @@ PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
                            "    itself when the document has no <base href>.\n"
                            ":returns: the document's base URL.");
 
-static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwargs) {
-    static char *keywords[] = {"fallback", NULL};
-    PyObject *fallback = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|U:base_url", keywords, &fallback)) {
-        return NULL;
-    }
-    fallback = refresh_fallback(fallback);
-    if (fallback == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+/* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
+   when there is none or the href is blank (HTML spec 4.2.3). Returns a new reference; the extraction methods share it
+   so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
+   cannot be resolved against fallback, or on the excluded allocation-failure path. */
+PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
     th_node *root = ((NodeObject *)self)->node;
@@ -334,23 +342,34 @@ static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwa
     }
     Py_END_CRITICAL_SECTION();
     if (href == NULL) {
-        return fallback; /* no <base href>: the fallback is the base */
+        return Py_NewRef(fallback); /* no <base href>: the fallback is the base */
     }
     PyObject *stripped = PyObject_CallMethod(href, "strip", NULL);
     Py_DECREF(href);
-    if (stripped == NULL) {  /* GCOVR_EXCL_BR_LINE: str.strip cannot fail here */
-        Py_DECREF(fallback); /* GCOVR_EXCL_LINE */
-        return NULL;         /* GCOVR_EXCL_LINE */
+    if (stripped == NULL) { /* GCOVR_EXCL_BR_LINE: str.strip cannot fail here */
+        return NULL;        /* GCOVR_EXCL_LINE */
     }
     PyObject *result;
     if (PyUnicode_GET_LENGTH(stripped) == 0) {
         result = Py_NewRef(fallback); /* a blank href leaves the fallback as the base */
     } else {
-        PyObject *joined = url_join(fallback, stripped);
-        result = joined == NULL ? NULL : url_percent_encode(joined); /* GCOVR_EXCL_BR_LINE: import-only failure */
-        Py_XDECREF(joined);
+        result = th_url_resolve(fallback, stripped);
     }
     Py_DECREF(stripped);
+    return result;
+}
+
+static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwargs) {
+    static char *keywords[] = {"fallback", NULL};
+    PyObject *fallback = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|U:base_url", keywords, &fallback)) {
+        return NULL;
+    }
+    fallback = refresh_fallback(fallback);
+    if (fallback == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = th_document_base_url(self, fallback);
     Py_DECREF(fallback);
     return result;
 }
@@ -440,36 +459,52 @@ static PyObject *document_meta_refresh(PyObject *self, PyObject *args, PyObject 
     return result;
 }
 
-PyDoc_STRVAR(structured_data_doc, "structured_data()\n--\n\n"
-                                  "Extract every supported structured-data format from the document, a successor to\n"
-                                  "extruct. Returns a StructuredData record with .json_ld (list of parsed JSON-LD\n"
-                                  "values), .microdata (list of MicrodataItem), .opengraph (dict of og:/twitter: keys\n"
-                                  "to their content), and .microformats/.rdfa (empty lists, a later phase).");
+PyDoc_STRVAR(structured_data_doc,
+             "structured_data(base_url=None)\n--\n\n"
+             "Extract every supported structured-data format from the document, a successor to\n"
+             "extruct. Returns a StructuredData record with .json_ld (list of parsed JSON-LD\n"
+             "values), .microdata (list of MicrodataItem), .opengraph (dict of og:/twitter: keys\n"
+             "to their content), and .microformats/.rdfa (empty lists, a later phase).\n\n"
+             ":param base_url: when given, the URL each relative URL-valued microdata or opengraph\n"
+             "    field is resolved against (a <base href> refines it, HTML spec 4.2.3); json_ld is\n"
+             "    left verbatim. None (the default) returns every value verbatim.\n"
+             ":raises ValueError: if base_url is not a valid absolute URL.");
 
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "Parse every <script type=\"application/ld+json\"> block in the document with the\n"
                           "standard library json module, returning the list of decoded values in document order.\n"
                           "A block that is not valid JSON is skipped.");
 
-PyDoc_STRVAR(opengraph_doc, "opengraph()\n--\n\n"
+PyDoc_STRVAR(opengraph_doc, "opengraph(base_url=None)\n--\n\n"
                             "Return a dict mapping each <meta property=\"og:...\"> or <meta name=\"twitter:...\">\n"
-                            "key to its content value. When a key repeats, the last occurrence wins.");
+                            "key to its content value. When a key repeats, the last occurrence wins.\n\n"
+                            ":param base_url: when given, the URL each relative URL-valued key (og:url, og:image,\n"
+                            "    og:video, twitter:image, ...) is resolved against; a <base href> refines it. None\n"
+                            "    (the default) returns every value verbatim.\n"
+                            ":raises ValueError: if base_url is not a valid absolute URL.");
 
 PyDoc_STRVAR(microdata_doc,
-             "microdata()\n--\n\n"
+             "microdata(base_url=None)\n--\n\n"
              "Extract HTML Microdata as a list of MicrodataItem, one per top-level itemscope. Each item\n"
              "has .properties (a dict mapping each itemprop name to its list of values), plus .type and\n"
              ".id carrying the itemtype/itemid attribute or None. A property value is a nested\n"
-             "MicrodataItem for an itemscope, otherwise the element's microdata value.");
+             "MicrodataItem for an itemscope, otherwise the element's microdata value.\n\n"
+             ":param base_url: when given, the URL each relative URL-valued property (an a/area/link\n"
+             "    href, a media src, an object data) is resolved against; a <base href> refines it.\n"
+             "    None (the default) returns every value verbatim.\n"
+             ":raises ValueError: if base_url is not a valid absolute URL.");
 
 static PyMethodDef document_methods[] = {
     {"base_url", (PyCFunction)(void (*)(void))document_base_url, METH_VARARGS | METH_KEYWORDS, base_url_doc},
     {"meta_refresh", (PyCFunction)(void (*)(void))document_meta_refresh, METH_VARARGS | METH_KEYWORDS,
      meta_refresh_doc},
-    {"structured_data", turbohtml_document_structured_data, METH_NOARGS, structured_data_doc},
+    {"structured_data", (PyCFunction)(void (*)(void))turbohtml_document_structured_data, METH_VARARGS | METH_KEYWORDS,
+     structured_data_doc},
     {"json_ld", turbohtml_document_json_ld, METH_NOARGS, json_ld_doc},
-    {"opengraph", turbohtml_document_opengraph, METH_NOARGS, opengraph_doc},
-    {"microdata", turbohtml_document_microdata, METH_NOARGS, microdata_doc},
+    {"opengraph", (PyCFunction)(void (*)(void))turbohtml_document_opengraph, METH_VARARGS | METH_KEYWORDS,
+     opengraph_doc},
+    {"microdata", (PyCFunction)(void (*)(void))turbohtml_document_microdata, METH_VARARGS | METH_KEYWORDS,
+     microdata_doc},
     {NULL, NULL, 0, NULL},
 };
 

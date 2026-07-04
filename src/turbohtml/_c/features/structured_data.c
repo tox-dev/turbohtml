@@ -71,6 +71,56 @@ static int is_social_key(const Py_UCS4 *value, Py_ssize_t len) {
     return 0;
 }
 
+/* Whether an og:/twitter: key names a URL-valued property, so an active base_url absolutizes its content. The Open
+   Graph protocol types og:url and the og:image/og:audio/og:video URLs (plus their :url/:secure_url structured forms) as
+   URLs, and the Twitter card spec types twitter:image and twitter:player (plus twitter:player:stream); every other key
+   (title, type, description, dimensions, ...) is an opaque string left verbatim. Matched case-insensitively; an
+   array+loop keeps the branch count stable. */
+static int is_url_social_key(const Py_UCS4 *value, Py_ssize_t len) {
+    static const char *const keys[] = {
+        "og:url",
+        "og:image",
+        "og:image:url",
+        "og:image:secure_url",
+        "og:audio",
+        "og:audio:url",
+        "og:audio:secure_url",
+        "og:video",
+        "og:video:url",
+        "og:video:secure_url",
+        "twitter:image",
+        "twitter:image:src",
+        "twitter:player",
+        "twitter:player:stream",
+    };
+    for (size_t index = 0; index < sizeof(keys) / sizeof(keys[0]); index++) {
+        if (ucs4_ieq_trimmed(value, len, keys[index], (Py_ssize_t)strlen(keys[index]))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Absolutize *value against `base` in place: a relative URL joins onto base, an absolute one is left as is, an empty
+   value stays empty (an absent attribute is not "the base URL"). A value the URL parser rejects (an unclosed IPv6
+   bracket left in the page) stays verbatim rather than failing the whole extraction; only the caller's own base_url is
+   validated up front. -1 with an error set only on the excluded allocation-failure path. */
+static int resolve_in_place(PyObject *base, PyObject **value) {
+    if (PyUnicode_GET_LENGTH(*value) == 0) {
+        return 0;
+    }
+    PyObject *resolved = th_url_resolve(base, *value);
+    if (resolved == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only url_percent_encode allocation */
+            return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear(); /* a malformed URL in the page is not fatal; keep the raw value verbatim */
+        return 0;
+    }
+    Py_SETREF(*value, resolved);
+    return 0;
+}
+
 /* A named attribute's value as a new str, the empty string when the attribute is absent or valueless (the way
    getAttribute reports a missing URL attribute as ""). NULL only on the excluded allocation-failure path. */
 static PyObject *attr_str_or_empty(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
@@ -99,7 +149,7 @@ static const microdata_attr_prop MICRODATA_ATTR_PROPS[] = {
     {TH_TAG_METER, "value", 5, 0}, {TH_TAG_META, "content", 7, 0},
 };
 
-static PyObject *build_item(module_state *state, th_tree *tree, th_node *element);
+static PyObject *build_item(module_state *state, th_tree *tree, th_node *element, PyObject *base);
 
 /* A URL-valued attribute's value with leading and trailing ASCII whitespace stripped (the URL parser trims it), or the
    empty string when the attribute is absent or valueless. NULL only on the excluded allocation-failure path. */
@@ -131,10 +181,11 @@ static PyObject *attr_value_or_none(const th_node_attr *attr) {
 
 /* One Microdata property element's value: a nested MicrodataItem when it carries itemscope, otherwise the HTML
    Microdata value algorithm (a URL attribute for the link/media tags, datetime or text for <time>, content for <meta>,
-   else the element's text content). NULL only on the excluded allocation-failure path. */
-static PyObject *microdata_value(module_state *state, th_tree *tree, th_node *element) {
+   else the element's text content). A URL-valued attribute is absolutized against `base` when the caller passed one
+   (base is NULL otherwise, leaving values verbatim). NULL only on the excluded allocation-failure path. */
+static PyObject *microdata_value(module_state *state, th_tree *tree, th_node *element, PyObject *base) {
     if (find_node_attr(element, TH_ATTR_ITEMSCOPE) != NULL) {
-        return build_item(state, tree, element);
+        return build_item(state, tree, element, base);
     }
     if (element->atom == TH_TAG_TIME) {
         Py_ssize_t datetime = th_node_attr_find(tree, element, "datetime", 8);
@@ -146,8 +197,20 @@ static PyObject *microdata_value(module_state *state, th_tree *tree, th_node *el
     for (size_t index = 0; index < sizeof(MICRODATA_ATTR_PROPS) / sizeof(MICRODATA_ATTR_PROPS[0]); index++) {
         const microdata_attr_prop *prop = &MICRODATA_ATTR_PROPS[index];
         if (element->atom == prop->atom) {
-            return prop->url ? attr_url_or_empty(tree, element, prop->attr, prop->attr_len)
-                             : attr_str_or_empty(tree, element, prop->attr, prop->attr_len);
+            if (!prop->url) {
+                return attr_str_or_empty(tree, element, prop->attr, prop->attr_len);
+            }
+            PyObject *value = attr_url_or_empty(tree, element, prop->attr, prop->attr_len);
+            if (value == NULL) { /* GCOVR_EXCL_BR_LINE: attr_url_or_empty only fails on allocation */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            if (base != NULL) {
+                if (resolve_in_place(base, &value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    Py_DECREF(value);                     /* GCOVR_EXCL_LINE: allocation-failure path */
+                    return NULL;                          /* GCOVR_EXCL_LINE */
+                }
+            }
+            return value;
         }
     }
     return str_from_accessor(th_node_text, tree, element);
@@ -372,7 +435,8 @@ static int node_ptr_before(const void *left, const void *right) {
 
 /* Crawl the properties of the item rooted at `element` into `properties`, in document (tree) order per the spec's
    final sort, each itemprop name mapping to its list of values. -1 only on the excluded allocation-failure path. */
-static int collect_properties(module_state *state, th_tree *tree, th_node *element, PyObject *properties) {
+static int collect_properties(module_state *state, th_tree *tree, th_node *element, PyObject *properties,
+                              PyObject *base) {
     node_stack results = {NULL, 0, 0};
     int status = -1;
     if (crawl_item_properties(tree, element, &results) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -384,7 +448,7 @@ static int collect_properties(module_state *state, th_tree *tree, th_node *eleme
     for (Py_ssize_t index = 0; index < results.len; index++) {
         th_node *property = results.items[index];
         const th_node_attr *itemprop = find_node_attr(property, TH_ATTR_ITEMPROP);
-        PyObject *value = microdata_value(state, tree, property);
+        PyObject *value = microdata_value(state, tree, property, base);
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             goto done;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -413,14 +477,14 @@ static int tuple_set_or_fail(PyObject *tuple, Py_ssize_t index, PyObject *value)
 /* Build one MicrodataItem(type, id, properties): the verbatim itemtype / itemid attribute (or None when absent or
    valueless) and a properties mapping of each itemprop name to its list of values, each value a str or a nested
    MicrodataItem. NULL only on the excluded allocation-failure path. */
-static PyObject *build_item(module_state *state, th_tree *tree, th_node *element) {
+static PyObject *build_item(module_state *state, th_tree *tree, th_node *element, PyObject *base) {
     PyObject *properties = PyDict_New();
     if (properties == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (collect_properties(state, tree, element, properties) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(properties);                                      /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                                /* GCOVR_EXCL_LINE */
+    if (collect_properties(state, tree, element, properties, base) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure */
+        Py_DECREF(properties);                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                                      /* GCOVR_EXCL_LINE */
     }
     PyObject *type_obj = attr_value_or_none(find_node_attr(element, TH_ATTR_ITEMTYPE));
     if (type_obj == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -499,9 +563,10 @@ static const th_node_attr *social_meta_attr(th_tree *tree, th_node *node) {
     return NULL;
 }
 
-/* Map every <meta property=og:*> / <meta name=twitter:*> key to its content value (last occurrence wins). NULL only on
-   the excluded allocation-failure path. */
-static PyObject *gather_opengraph(PyObject *self) {
+/* Map every <meta property=og:*> / <meta name=twitter:*> key to its content value (last occurrence wins). A URL-valued
+   key's content is absolutized against `base` when the caller passed one (base is NULL otherwise, leaving every value
+   verbatim). NULL only on the excluded allocation-failure path. */
+static PyObject *gather_opengraph(PyObject *self, PyObject *base) {
     PyObject *result = PyDict_New();
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -529,6 +594,14 @@ static PyObject *gather_opengraph(PyObject *self) {
             failed = 1;        /* GCOVR_EXCL_LINE */
             break;             /* GCOVR_EXCL_LINE */
         }
+        if (base != NULL && is_url_social_key(key_attr->value, key_attr->value_len)) {
+            if (resolve_in_place(base, &content) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                Py_DECREF(key);                         /* GCOVR_EXCL_LINE: allocation-failure path */
+                Py_DECREF(content);                     /* GCOVR_EXCL_LINE */
+                failed = 1;                             /* GCOVR_EXCL_LINE */
+                break;                                  /* GCOVR_EXCL_LINE */
+            }
+        }
         int set_failed = PyDict_SetItem(result, key, content) < 0;
         Py_DECREF(key);
         Py_DECREF(content);
@@ -546,8 +619,9 @@ static PyObject *gather_opengraph(PyObject *self) {
 }
 
 /* Build one MicrodataItem for every top-level Microdata item (an element with itemscope and no itemprop, so it is not a
-   property of another item). NULL only on the excluded allocation-failure path. */
-static PyObject *gather_microdata(PyObject *self) {
+   property of another item). URL-valued properties are absolutized against `base` when the caller passed one (base is
+   NULL otherwise, leaving values verbatim). NULL only on the excluded allocation-failure path. */
+static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     PyObject *items = PyList_New(0);
     if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -562,7 +636,7 @@ static PyObject *gather_microdata(PyObject *self) {
             find_node_attr(node, TH_ATTR_ITEMPROP) != NULL) {
             continue;
         }
-        PyObject *item = build_item(state, tree, node);
+        PyObject *item = build_item(state, tree, node, base);
         if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             break;          /* GCOVR_EXCL_LINE */
@@ -593,36 +667,102 @@ PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *Py_UNUSED(ignored
     return parsed;
 }
 
-/* Document.opengraph() -> dict. */
-PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    return gather_opengraph(self);
+/* The effective document base for an opt-in base_url: the caller's URL validated once (so a malformed one raises an
+   actionable ValueError here rather than surfacing deep in the walk) with any <base href> resolved against it (HTML
+   spec 4.2.3). A malformed <base href> is ignored so an untrusted page cannot break the extraction. Returns a new
+   reference, NULL with an exception set on a bad base_url. */
+static PyObject *resolve_base(PyObject *self, PyObject *base_url) {
+    PyObject *probe = th_url_resolve(base_url, base_url);
+    if (probe == NULL) {
+        if (PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: the else is an allocation-only failure */
+            PyErr_Clear();
+            PyErr_Format(PyExc_ValueError, "base_url %R is not a valid absolute URL to resolve relative URLs against",
+                         base_url);
+        }
+        return NULL;
+    }
+    Py_DECREF(probe);
+    PyObject *base = th_document_base_url(self, base_url);
+    if (base == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation past a validated base */
+            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyErr_Clear(); /* a malformed <base href> falls back to base_url rather than failing */
+        return Py_NewRef(base_url);
+    }
+    return base;
 }
 
-/* Document.microdata() -> list[MicrodataItem]. */
-PyObject *turbohtml_document_microdata(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    return gather_microdata(self);
+/* Parse the optional base_url the opengraph/microdata/structured_data methods share, `spec` naming the method for the
+   error. None or an omitted argument leaves *base NULL (verbatim output); a str resolves the effective document base.
+   Returns 0 on success, -1 with an exception on a bad type or a malformed base_url. */
+static int parse_base_url(PyObject *self, PyObject *args, PyObject *kwargs, const char *spec, PyObject **base) {
+    static char *keywords[] = {"base_url", NULL};
+    PyObject *base_url = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, spec, keywords, &base_url)) {
+        return -1;
+    }
+    *base = NULL;
+    if (base_url == NULL || base_url == Py_None) {
+        return 0;
+    }
+    if (!PyUnicode_Check(base_url)) {
+        PyErr_Format(PyExc_TypeError, "base_url must be a str or None, got %.200s", Py_TYPE(base_url)->tp_name);
+        return -1;
+    }
+    *base = resolve_base(self, base_url);
+    return *base == NULL ? -1 : 0;
 }
 
-/* Document.structured_data() -> StructuredData(json_ld, microdata, opengraph, microformats, rdfa). microformats and
-   rdfa are a later phase, present as empty lists so the record's shape is stable. NULL only on the excluded
-   allocation-failure path. */
-PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    PyObject *args = PyTuple_New(5);
-    if (args == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+/* Document.opengraph(base_url=None) -> dict. */
+PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *base = NULL;
+    if (parse_base_url(self, args, kwargs, "|O:opengraph", &base) < 0) {
+        return NULL;
+    }
+    PyObject *result = gather_opengraph(self, base);
+    Py_XDECREF(base);
+    return result;
+}
+
+/* Document.microdata(base_url=None) -> list[MicrodataItem]. */
+PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *base = NULL;
+    if (parse_base_url(self, args, kwargs, "|O:microdata", &base) < 0) {
+        return NULL;
+    }
+    PyObject *result = gather_microdata(self, base);
+    Py_XDECREF(base);
+    return result;
+}
+
+/* Document.structured_data(base_url=None) -> StructuredData(json_ld, microdata, opengraph, microformats, rdfa). A
+   base_url absolutizes the microdata and opengraph URL fields; json_ld stays verbatim (resolving @id inside arbitrary
+   JSON is a separate concern). microformats and rdfa are a later phase, present as empty lists so the record's shape is
+   stable. NULL only on the excluded allocation-failure path (or with an exception set on a bad base_url). */
+PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *base = NULL;
+    if (parse_base_url(self, args, kwargs, "|O:structured_data", &base) < 0) {
+        return NULL;
+    }
+    PyObject *sections = PyTuple_New(5);
+    if (sections == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(base);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE */
     }
     int failed = 0;
-    failed |= tuple_set_or_fail(args, 0, turbohtml_document_json_ld(self, NULL));
-    failed |= tuple_set_or_fail(args, 1, gather_microdata(self));
-    failed |= tuple_set_or_fail(args, 2, gather_opengraph(self));
-    failed |= tuple_set_or_fail(args, 3, PyList_New(0));
-    failed |= tuple_set_or_fail(args, 4, PyList_New(0));
-    if (failed != 0) {   /* GCOVR_EXCL_BR_LINE: a section build fails only on unforceable allocation */
-        Py_DECREF(args); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;     /* GCOVR_EXCL_LINE */
+    failed |= tuple_set_or_fail(sections, 0, turbohtml_document_json_ld(self, NULL));
+    failed |= tuple_set_or_fail(sections, 1, gather_microdata(self, base));
+    failed |= tuple_set_or_fail(sections, 2, gather_opengraph(self, base));
+    failed |= tuple_set_or_fail(sections, 3, PyList_New(0));
+    failed |= tuple_set_or_fail(sections, 4, PyList_New(0));
+    Py_XDECREF(base);
+    if (failed != 0) {       /* GCOVR_EXCL_BR_LINE: a section build fails only on unforceable allocation */
+        Py_DECREF(sections); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE */
     }
-    PyObject *result = PyObject_Call(state_of(self)->structured_data_type, args, NULL);
-    Py_DECREF(args);
+    PyObject *result = PyObject_Call(state_of(self)->structured_data_type, sections, NULL);
+    Py_DECREF(sections);
     return result;
 }
 
