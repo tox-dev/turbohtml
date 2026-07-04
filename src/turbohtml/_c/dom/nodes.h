@@ -131,6 +131,7 @@ typedef struct {
     unsigned char minify_js; /* run the inline-<script> JS pass */
     unsigned char minify_js_fold;
     unsigned char minify_js_mangle;
+    unsigned char minify_css; /* run the CSS pass over <style> bodies and style="" values */
 } MinifyObject;
 
 /* The serialize(layout=...) pretty-print mode: a per-level whitespace unit. Like

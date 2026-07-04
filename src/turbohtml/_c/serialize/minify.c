@@ -14,6 +14,7 @@
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
+#include "serialize/css.h"
 #include "serialize/js/minify.h"
 
 #include <string.h>
@@ -117,11 +118,80 @@ static int mini_attr_unquotable(const Py_UCS4 *value, Py_ssize_t len) {
     return value[len - 1] != '/';
 }
 
+/* Encode text[0..len) as UTF-8 into a freshly PyMem-allocated buffer (caller frees); *out_len
+   receives the byte count. The CSS engine works over UTF-8 bytes while the tree stores code
+   points, so the <style>/style= paths transcode through here. Tree text is well-formed code
+   points (the parser folds surrogates to U+FFFD), so the four UTF-8 lengths cover every input. */
+static unsigned char *mini_ucs4_to_utf8(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *out_len) {
+    unsigned char *buf = PyMem_Malloc((size_t)(len * 4 + 1));
+    if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t at = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (character < 0x80) {
+            buf[at++] = (unsigned char)character;
+        } else if (character < 0x800) {
+            buf[at++] = (unsigned char)(0xC0 | (character >> 6));
+            buf[at++] = (unsigned char)(0x80 | (character & 0x3F));
+        } else if (character < 0x10000) {
+            buf[at++] = (unsigned char)(0xE0 | (character >> 12));
+            buf[at++] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+            buf[at++] = (unsigned char)(0x80 | (character & 0x3F));
+        } else {
+            buf[at++] = (unsigned char)(0xF0 | (character >> 18));
+            buf[at++] = (unsigned char)(0x80 | ((character >> 12) & 0x3F));
+            buf[at++] = (unsigned char)(0x80 | ((character >> 6) & 0x3F));
+            buf[at++] = (unsigned char)(0x80 | (character & 0x3F));
+        }
+    }
+    *out_len = at;
+    return buf;
+}
+
+/* Minify src[0..len) through the shipped CSS engine, returning its UTF-8 output in a freshly
+   PyMem-allocated buffer (caller frees) with the byte length in *out_len. Input that minifies
+   to nothing yields a zero-length buffer (*out_len 0), which the callers treat as empty.
+   inline_mode 1 selects the style="" declaration-list grammar over the full-stylesheet one.
+   baseline 0 keeps the output syntax portable to every browser. The engine is value-safe and
+   idempotent, so the emitted CSS reparses to the same cascade and re-minifying is a fixpoint. */
+static unsigned char *mini_css_bytes(const Py_UCS4 *src, Py_ssize_t len, int inline_mode, Py_ssize_t *out_len) {
+    Py_ssize_t utf8_len;
+    unsigned char *utf8 = mini_ucs4_to_utf8(src, len, &utf8_len);
+    if (utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        *out_len = 0;   /* GCOVR_EXCL_LINE */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    unsigned char *result = th_minify_css_bytes(utf8, utf8_len, inline_mode, 0, out_len);
+    PyMem_Free(utf8);
+    return result;
+}
+
+/* Minify a style="" declaration list, returning its value as a freshly PyMem-allocated code-point
+   buffer (caller frees) with the length in *out_len, or NULL when the declarations minify to
+   nothing (the caller then renders the empty value). */
+static Py_UCS4 *mini_style_attr_css(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *out_len) {
+    Py_ssize_t css_len;
+    unsigned char *result = mini_css_bytes(value, len, 1, &css_len);
+    if (css_len == 0) {
+        PyMem_Free(result); /* the declarations minified to nothing: the caller renders an empty value */
+        *out_len = 0;
+        return NULL;
+    }
+    sbuf decoded = {NULL, 0, 0, 0};
+    sbuf_put_utf8(&decoded, (const char *)result, css_len);
+    PyMem_Free(result);
+    return sbuf_finish(&decoded, out_len);
+}
+
 /* Write an element's start tag, dropping redundant attribute quotes and writing a
    valueless/empty attribute as just its name when unquoting is enabled. Attribute
    order and charset normalization come from the shared output options (a normalized
-   charset value always keeps its quotes). */
-static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts, int unquote) {
+   charset value always keeps its quotes). A style="" value is minified when minify_css
+   is set, before the quote decision so the shorter value can also shed its quotes. */
+static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts, int unquote,
+                          int minify_css) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, node->text, node->text_len);
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
@@ -136,17 +206,25 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         if (ser_put_charset_value(out, opts, charset_kind, name, name_len)) {
             continue;
         }
-        if (unquote && attr->value_len == 0) {
+        const Py_UCS4 *value = attr->value;
+        Py_ssize_t value_len = attr->value_len;
+        Py_UCS4 *minified = NULL;
+        if (minify_css && value_len > 0 && name_len == 5 && memcmp(name, "style", 5) == 0) {
+            /* NULL with value_len 0 when the declarations minified to empty, rendered as an empty value below */
+            value = minified = mini_style_attr_css(value, value_len, &value_len);
+        }
+        if (unquote && value_len == 0) {
             continue; /* an empty value reparses identically as a bare attribute name */
         }
-        if (unquote && mini_attr_unquotable(attr->value, attr->value_len)) {
+        if (unquote && mini_attr_unquotable(value, value_len)) {
             sbuf_putc(out, '=');
-            sbuf_put_run(out, attr->value, attr->value_len); /* unquotable means no character needs escaping */
+            sbuf_put_run(out, value, value_len); /* unquotable means no character needs escaping */
         } else {
             sbuf_puts(out, "=\"");
-            sbuf_put_text(out, attr->value, attr->value_len, 1, opts->formatter);
+            sbuf_put_text(out, value, value_len, 1, opts->formatter);
             sbuf_putc(out, '"');
         }
+        PyMem_Free(minified);
     }
     ser_attr_order_free(order, stack_order);
     sbuf_putc(out, '>');
@@ -448,6 +526,39 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
     return 1;
 }
 
+/* Emit a <style>'s CSS content minified, returning 1 when it did. Returns 0 — leaving the
+   caller to emit the content verbatim — for a non-style raw-text element or an empty <style>,
+   so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
+   would have ended the element there), and the CSS engine never synthesizes one, so the
+   minified stylesheet stays inside the element and reparses to the same raw-text node. */
+static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node) {
+    if (node->atom != TH_TAG_STYLE) {
+        return 0; /* script/textarea/title and other raw-text elements are never CSS */
+    }
+    Py_ssize_t total = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        total += child->text_len;
+    }
+    if (total == 0) {
+        return 0; /* an empty <style>: the verbatim path emits nothing either */
+    }
+    Py_UCS4 *src = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+    if (src == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return 0;      /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t pos = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
+        pos += child->text_len;
+    }
+    Py_ssize_t css_len;
+    unsigned char *result = mini_css_bytes(src, total, 0, &css_len);
+    PyMem_Free(src);
+    sbuf_put_utf8(out, (const char *)result, css_len); /* css_len 0 (a whitespace-only stylesheet) writes nothing */
+    PyMem_Free(result);
+    return 1;
+}
+
 /* Minified outer serialization. The walk is iterative like serialize_compact,
    descending through first_child and ascending through parent pointers, with a
    preserve counter so text inside pre/textarea/listing skips whitespace
@@ -467,7 +578,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             /* the serialization root is what the caller asked to serialize, so its own tags
                always render (matching the plain serializer); only inner tags may be omitted */
             if (!(opts->omit_optional_tags && node != root && mini_omit_start_tag(tree, node, opts->strip_comments))) {
-                mini_open_tag(out, tree, node, st, opts->unquote_attributes);
+                mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css);
             }
             ser_inject_head_meta(out, tree, node, st);
             if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
@@ -477,7 +588,14 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 sbuf_putc(out, '\n');
             }
             if (is_rawtext_element(node)) {
-                if (!(opts->minify_js && mini_emit_script_js(out, tree, node, opts))) {
+                int emitted = 0;
+                if (opts->minify_js) {
+                    emitted = mini_emit_script_js(out, tree, node, opts);
+                }
+                if (!emitted && opts->minify_css) {
+                    emitted = mini_emit_style_css(out, tree, node);
+                }
+                if (!emitted) {
                     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
                         sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
                     }

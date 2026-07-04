@@ -23,6 +23,9 @@ from turbohtml import Html, Minify, parse
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 _MINIFY = Minify()
+# the CSS pass rewrites every <style> body and style="" value the corpus carries; the
+# value-safe engine is itself idempotent, so enabling it must keep the reparse a fixpoint
+_MINIFY_CSS = Minify(minify_css=True)
 
 
 def _iter_dat(path: Path) -> list[str]:
@@ -41,20 +44,21 @@ def _plain_roundtrips(source: str) -> bool:
     return once == parse(once).serialize()
 
 
-def _minify_idempotent(source: str) -> bool:
-    once = parse(source).serialize(Html(layout=_MINIFY))
-    return once == parse(once).serialize(Html(layout=_MINIFY))
+def _minify_idempotent(source: str, layout: Minify) -> bool:
+    once = parse(source).serialize(Html(layout=layout))
+    return once == parse(once).serialize(Html(layout=layout))
 
 
+@pytest.mark.parametrize("layout", [pytest.param(_MINIFY, id="default"), pytest.param(_MINIFY_CSS, id="minify-css")])
 @pytest.mark.parametrize("filename", sorted(p.name for p in _TREE_DIR.glob("*.dat")))
-def test_minify_idempotent_over_tree_construction(filename: str) -> None:
+def test_minify_idempotent_over_tree_construction(filename: str, layout: Minify) -> None:
     # only the subset the plain serializer round-trips can be asked of the minifier;
     # the rest are inherently non-idempotent adoption-agency reconstructions
     failures = [
-        f"{data!r}\n  once:    {parse(data).serialize(Html(layout=_MINIFY))!r}\n"
-        f"  reparse: {parse(parse(data).serialize(Html(layout=_MINIFY))).serialize(Html(layout=_MINIFY))!r}"
+        f"{data!r}\n  once:    {parse(data).serialize(Html(layout=layout))!r}\n"
+        f"  reparse: {parse(parse(data).serialize(Html(layout=layout))).serialize(Html(layout=layout))!r}"
         for data in _iter_dat(_TREE_DIR / filename)
-        if _plain_roundtrips(data) and not _minify_idempotent(data)
+        if _plain_roundtrips(data) and not _minify_idempotent(data, layout)
     ]
     assert not failures, f"{filename}: {len(failures)} non-idempotent\n\n" + "\n\n".join(failures[:5])
 

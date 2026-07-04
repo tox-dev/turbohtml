@@ -23,15 +23,21 @@ static int minify_unpack_js(PyObject *config, unsigned char *fold, unsigned char
 }
 
 static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"collapse_whitespace", "omit_optional_tags", "unquote_attributes",
-                               "strip_comments",      "minify_js",          NULL};
+    static char *keywords[] = {"collapse_whitespace",
+                               "omit_optional_tags",
+                               "unquote_attributes",
+                               "strip_comments",
+                               "minify_js",
+                               "minify_css",
+                               NULL};
     int collapse = 1;
     int omit = 1;
     int unquote = 1;
     int strip = 1;
     PyObject *minify_js = NULL; /* a JSMinify enables the inline-<script> pass; None (the default) leaves it off */
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppppO:Minify", keywords, &collapse, &omit, &unquote, &strip,
-                                     &minify_js)) {
+    int minify_css = 0;         /* the CSS pass is off by default: byte-identical to the pre-CSS minify */
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppppOp:Minify", keywords, &collapse, &omit, &unquote, &strip,
+                                     &minify_js, &minify_css)) {
         return NULL;
     }
     unsigned char js = 0;
@@ -63,6 +69,7 @@ static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
     self->minify_js = js;
     self->minify_js_fold = js_fold;
     self->minify_js_mangle = js_mangle;
+    self->minify_css = (unsigned char)minify_css;
     return (PyObject *)self;
 }
 
@@ -95,12 +102,17 @@ static PyObject *minify_get_minify_js(PyObject *self, void *Py_UNUSED(closure)) 
                                  minify->minify_js_fold ? Py_True : Py_False);
 }
 
+static PyObject *minify_get_minify_css(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(((MinifyObject *)self)->minify_css);
+}
+
 static PyGetSetDef minify_getset[] = {
     {"collapse_whitespace", minify_get_collapse, NULL, "fold insignificant whitespace runs to a single space", NULL},
     {"omit_optional_tags", minify_get_omit, NULL, "drop the start/end tags the WHATWG rules make optional", NULL},
     {"unquote_attributes", minify_get_unquote, NULL, "drop redundant attribute quotes and empty values", NULL},
     {"strip_comments", minify_get_strip, NULL, "remove comment nodes", NULL},
     {"minify_js", minify_get_minify_js, NULL, "the JSMinify config for inline <script>, or None when off", NULL},
+    {"minify_css", minify_get_minify_css, NULL, "minify <style> bodies and style attributes", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -115,7 +127,8 @@ PyObject *turbohtml_register_js_minify(PyObject *module, PyObject *type) {
    equal regardless of their (unused) cached fold/mangle. */
 static long minify_bits(MinifyObject *self) {
     return self->collapse_whitespace | self->omit_optional_tags << 1 | self->unquote_attributes << 2 |
-           self->strip_comments << 3 | self->minify_js << 4 | self->minify_js_fold << 5 | self->minify_js_mangle << 6;
+           self->strip_comments << 3 | self->minify_js << 4 | self->minify_js_fold << 5 | self->minify_js_mangle << 6 |
+           self->minify_css << 7;
 }
 
 static PyObject *minify_richcompare(PyObject *self, PyObject *other, int op) {
@@ -147,15 +160,16 @@ static PyObject *minify_repr(PyObject *self) {
     }
     PyObject *repr = PyUnicode_FromFormat(
         "Minify(collapse_whitespace=%s, omit_optional_tags=%s, unquote_attributes=%s, "
-        "strip_comments=%s, minify_js=%U)",
+        "strip_comments=%s, minify_js=%U, minify_css=%s)",
         minify->collapse_whitespace ? "True" : "False", minify->omit_optional_tags ? "True" : "False",
-        minify->unquote_attributes ? "True" : "False", minify->strip_comments ? "True" : "False", js);
+        minify->unquote_attributes ? "True" : "False", minify->strip_comments ? "True" : "False", js,
+        minify->minify_css ? "True" : "False");
     Py_DECREF(js);
     return repr;
 }
 
 PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags=True, unquote_attributes=True, "
-                         "strip_comments=True, minify_js=None)\n--\n\n"
+                         "strip_comments=True, minify_js=None, minify_css=False)\n--\n\n"
                          "A serialize(layout=...)/encode(layout=...) mode that shrinks the output. Each\n"
                          "markup flag toggles one round-trip-safe transform: the minified output always\n"
                          "reparses to the same tree.\n\n"
@@ -165,7 +179,9 @@ PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags
                          ":param strip_comments: remove comments.\n"
                          ":param minify_js: a JSMinify to also minify inline <script> JavaScript, or None\n"
                          "    (the default) to leave scripts untouched. A script that fails to parse is\n"
-                         "    emitted verbatim, so one bad script never breaks serialization.");
+                         "    emitted verbatim, so one bad script never breaks serialization.\n"
+                         ":param minify_css: also minify <style> element bodies and style attribute values\n"
+                         "    through the value-safe CSS minifier. Off by default.");
 
 static PyType_Slot minify_slots[] = {
     {Py_tp_doc, (void *)minify_doc},

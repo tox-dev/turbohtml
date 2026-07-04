@@ -143,7 +143,7 @@ def test_minify_js_none_is_explicit_off() -> None:
     ],
 )
 def test_minify_repr_includes_minify_js(options: JSMinify | None, text: str) -> None:
-    assert repr(Minify(minify_js=options)).endswith(f", {text})")
+    assert repr(Minify(minify_js=options)).endswith(f", {text}, minify_css=False)")
 
 
 def test_minify_equality_accounts_for_minify_js() -> None:

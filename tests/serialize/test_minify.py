@@ -60,11 +60,11 @@ def test_minify_flags_independent() -> None:
 def test_minify_repr_roundtrips_through_eval() -> None:
     assert repr(Minify(omit_optional_tags=False)) == (
         "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True, "
-        "minify_js=None)"
+        "minify_js=None, minify_css=False)"
     )
     assert repr(Minify(collapse_whitespace=False, unquote_attributes=False, strip_comments=False)) == (
         "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False, "
-        "minify_js=None)"
+        "minify_js=None, minify_css=False)"
     )
 
 
@@ -507,3 +507,140 @@ def test_foreign_end_tags_kept() -> None:
 
 def test_rawtext_script_preserved() -> None:
     assert frag("<script>a  <  b</script>", omit_optional_tags=False) == "<script>a  <  b</script>"
+
+
+def css_frag(source: str, *, minify_css: bool = True, unquote_attributes: bool = True) -> str:
+    """Minify source in a <div> fragment with the CSS pass, returning the inner markup."""
+    layout = Minify(minify_css=minify_css, unquote_attributes=unquote_attributes)
+    out = parse_fragment(source, "div").serialize(Html(layout=layout))
+    assert out.startswith("<div>")
+    assert out.endswith("</div>")
+    return out[len("<div>") : -len("</div>")]
+
+
+def test_minify_css_defaults_off() -> None:
+    assert Minify().minify_css is False
+
+
+def test_minify_css_getter_round_trips() -> None:
+    assert Minify(minify_css=True).minify_css is True
+    assert Minify(minify_css=False).minify_css is False
+
+
+def test_minify_css_equality_and_hash() -> None:
+    assert Minify(minify_css=True) != Minify()
+    assert Minify(minify_css=True) == Minify(minify_css=True)
+    assert hash(Minify(minify_css=True)) != hash(Minify())
+
+
+@pytest.mark.parametrize(
+    ("minify_css", "text"),
+    [pytest.param(False, "minify_css=False", id="off"), pytest.param(True, "minify_css=True", id="on")],
+)
+def test_minify_css_repr(minify_css: bool, text: str) -> None:  # noqa: FBT001
+    assert repr(Minify(minify_css=minify_css)).endswith(f", {text})")
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<style>  a  {  color : red ;  margin : 0 0 0 0 }  </style>",
+            "<style>a{color:red;margin:0}</style>",
+            id="style-body",
+        ),
+        pytest.param(
+            "<style>@media screen { .a { color: #ff0000 } }</style>",
+            "<style>@media screen{.a{color:red}}</style>",
+            id="style-body-at-rule",
+        ),
+        pytest.param("<style></style>", "<style></style>", id="empty-style-element"),
+        pytest.param("<style>   </style>", "<style></style>", id="whitespace-only-style-folds-to-empty"),
+        pytest.param(
+            '<style>a::before { content: "café€\U0001f600" }</style>',
+            '<style>a:before{content:"café€\U0001f600"}</style>',
+            id="style-body-transcodes-non-ascii",
+        ),
+        # a <script> is raw text too but never CSS, so the style pass leaves it verbatim
+        pytest.param("<script>a  <  b</script>", "<script>a  <  b</script>", id="script-untouched"),
+        pytest.param(
+            '<p style="color: red ; margin : 0 0 0 0">x</p>', "<p style=color:red;margin:0>x", id="style-attr"
+        ),
+        # a minified value carrying a double quote (a string literal) keeps its quotes and escapes
+        pytest.param(
+            "<p style='content: \"hi there\"'>x</p>",
+            '<p style="content:&quot;hi there&quot;">x',
+            id="attr-needs-quotes",
+        ),
+        pytest.param('<p style="  /* only a comment */  ">x</p>', "<p style>x", id="empty-attr-folds-to-bare-name"),
+        # the style attribute is CSS on any element, so an SVG rect's declarations minify too
+        pytest.param(
+            '<svg><rect style="fill: #ffffff"/></svg>', "<svg><rect style=fill:#fff></rect></svg>", id="foreign-attr"
+        ),
+    ],
+)
+def test_minify_css_output(source: str, expected: str) -> None:
+    assert css_frag(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<style>  a  {  color : red  }  </style>", "<style>  a  {  color : red  }  </style>", id="body"),
+        pytest.param('<p style="color: red">x</p>', '<p style="color: red">x', id="attr"),
+    ],
+)
+def test_minify_css_off_is_noop(source: str, expected: str) -> None:
+    assert css_frag(source, minify_css=False) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<p style="color: red">x</p>', '<p style="color:red">x', id="minified-value-stays-quoted"),
+        pytest.param('<p style="  ">x</p>', '<p style="">x', id="empty-value-stays-quoted"),
+    ],
+)
+def test_minify_css_with_unquote_off(source: str, expected: str) -> None:
+    assert css_frag(source, unquote_attributes=False) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<a href="/some/path">x</a>', "<a href=/some/path>x</a>", id="href-4-char-name"),
+        pytest.param('<a class="a b c">x</a>', '<a class="a b c">x</a>', id="class-5-char-name"),
+    ],
+)
+def test_non_style_attribute_untouched_by_minify_css(source: str, expected: str) -> None:
+    # only the style attribute is CSS; a same-length (class) or different-length (href) name is left as-is
+    assert css_frag(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("literal", "expected"),
+    [
+        pytest.param("ascii", '<p style="content:&quot;ascii&quot;">x', id="one-byte"),
+        pytest.param("café", '<p style="content:&quot;café&quot;">x', id="two-byte"),
+        pytest.param("a€b", '<p style="content:&quot;a€b&quot;">x', id="three-byte"),
+        pytest.param("a\U0001f600b", '<p style="content:&quot;a\U0001f600b&quot;">x', id="four-byte"),
+    ],
+)
+def test_style_attribute_transcodes_every_utf8_length(literal: str, expected: str) -> None:
+    # each UTF-8 length exercises one arm of the code-point-to-UTF-8 transcoder the CSS engine reads
+    assert css_frag(f"<p style='content: \"{literal}\"'>x</p>") == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<style>  a  {  color : #ff0000 }  </style>", id="style-body"),
+        pytest.param('<p style="color: red ; margin: 0 0 0 0">x</p>', id="style-attr"),
+        pytest.param("<p style='content: \"café\"'>x</p>", id="style-attr-unicode"),
+        pytest.param('<svg><rect style="fill: #ffffff"/></svg>', id="foreign-style-attr"),
+    ],
+)
+def test_minify_css_is_idempotent_and_reparse_safe(source: str) -> None:
+    layout = Minify(minify_css=True)
+    once = parse(source).serialize(Html(layout=layout))
+    assert parse(once).serialize(Html(layout=layout)) == once

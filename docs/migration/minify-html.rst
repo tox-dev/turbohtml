@@ -13,7 +13,8 @@ HTML at build time and in response pipelines across those language ecosystems.
 turbohtml covers the same HTML folds with :func:`turbohtml.clean.minify`, one call that minifies a document over the
 WHATWG tree turbohtml already builds, configured by the frozen :class:`~turbohtml.Minify` options object. It collapses
 insignificant whitespace, omits the optional tags, unquotes attributes, strips comments, and optionally rewrites inline
-JavaScript, running the work in a compiled C serializer over the parsed tree rather than as a separate Rust pass.
+JavaScript and CSS, running the work in a compiled C serializer over the parsed tree rather than as a separate Rust
+pass.
 
 **************************
  turbohtml vs minify-html
@@ -30,7 +31,7 @@ JavaScript, running the work in a compiled C serializer over the parsed tree rat
       - Full WHATWG parser plus serializer; minify is one output layout of a queryable tree
       - Standalone string-in/string-out HTML/CSS/JS minifier
     - - Feature breadth
-      - Whitespace, comment, optional-tag, and attribute-quote folds plus opt-in inline JS minification
+      - Whitespace, comment, optional-tag, and attribute-quote folds plus opt-in inline JS and CSS minification
       - The same HTML folds plus in-pass CSS and JS minification, template-syntax and SSI preservation flags, and more
         aggressive whitespace and attribute rewrites
     - - Performance
@@ -59,6 +60,8 @@ These HTML folds port one-to-one; each minify-html flag becomes a field on :clas
 - Attribute unquoting — on by default in both; maps to ``Minify(unquote_attributes=True)``.
 - Inline JavaScript minification — ``minify_js=True`` maps to ``Minify(minify_js=JSMinify())``, which rewrites
   ``<script>`` bodies with turbohtml's shipped JS minifier.
+- Inline CSS minification — ``minify_css=True`` maps to ``Minify(minify_css=True)``, which shrinks ``<style>`` bodies
+  and ``style`` attribute values with turbohtml's shipped, value-safe CSS minifier.
 
 What turbohtml adds
 ===================
@@ -75,9 +78,6 @@ What turbohtml adds
 What minify-html has that turbohtml does not
 ============================================
 
-- In-pass CSS minification — ``minify_css=True`` shrinks ``<style>`` bodies and ``style`` attributes with lightningcss
-  during the same call. turbohtml leaves ``<style>`` bodies verbatim. Workaround: run :func:`turbohtml.clean.minify_css`
-  over ``<style>`` bodies yourself (and :func:`turbohtml.clean.minify_css_inline` over ``style`` attribute values).
 - Aggressive whitespace removal — minify-html's context-aware model can delete inter-element whitespace outright where
   its sensitivity rules judge it insignificant. turbohtml collapses each run to a single space and never deletes it, so
   the output stays render-safe. No equivalent by design.
@@ -140,7 +140,7 @@ Each fold is a field on :class:`~turbohtml.Minify`, so a flag becomes one keywor
     - - ``minify_js``
       - ``Minify(minify_js=JSMinify())`` rewrites inline ``<script>`` content (the default ``None`` leaves it verbatim)
     - - ``minify_css``
-      - no inline hook -- run :func:`turbohtml.clean.minify_css` over ``<style>`` bodies yourself
+      - ``Minify(minify_css=True)`` shrinks ``<style>`` bodies and ``style`` attribute values (default ``False``)
     - - ``minify_doctype`` / ``do_not_minify_doctype``
       - the doctype is always normalized to ``<!doctype html>``
     - - ``remove_processing_instructions``
@@ -170,7 +170,8 @@ The default call minifies with every HTML fold engaged:
   ``</li>``) that minify-html drops, so its output stays valid and render-safe while running a few bytes larger.
 - turbohtml writes boolean attributes in full (``checked="checked"``) and keeps ``&amp;`` where minify-html shortens to
   a bare ``checked`` and ``&``.
-- Embedded ``<style>`` bodies pass through unchanged (:func:`turbohtml.clean.minify_css` shrinks them separately), and
-  inline ``<script>`` minification is opt-in via ``Minify(minify_js=...)``. minify-html folds both in the same call.
+- Embedded CSS and JavaScript minification is opt-in: ``Minify(minify_css=True)`` shrinks ``<style>`` bodies and
+  ``style`` attribute values, and ``Minify(minify_js=...)`` rewrites inline ``<script>`` content. minify-html folds both
+  in the same call and turbohtml leaves them verbatim unless asked.
 - ``minify`` parses the input as a full document, so a bare fragment gains the ``<html>``/``<body>`` structure the
   WHATWG algorithm infers; call it on whole pages, not detached fragments.

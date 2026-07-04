@@ -32,6 +32,7 @@
 #include "serialize/css_shorthand.h"
 #include "serialize/css_selector.h"
 #include "serialize/css_grammar.h"
+#include "serialize/css.h"
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
    harness and the CPython binding both call this; it touches no CPython runtime. */

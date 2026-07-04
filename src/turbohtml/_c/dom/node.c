@@ -1480,6 +1480,7 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
         opts->minify_js = minify->minify_js;
         opts->minify_js_fold = minify->minify_js_fold;
         opts->minify_js_mangle = minify->minify_js_mangle;
+        opts->minify_css = minify->minify_css;
         *mode = TH_LAYOUT_MINIFY;
         return 0;
     }
