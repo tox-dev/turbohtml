@@ -71,6 +71,12 @@ PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
    tables, the site boundary behind extract_links(external_only=True). METH_O. */
 PyObject *turbohtml_registrable_domain(PyObject *module, PyObject *arg);
 
+/* Implemented in url/url.c. _url_split(url) breaks a URL into (scheme, netloc,
+   path, query, fragment, userinfo, host, port, has_port, host_kind) the way the
+   WHATWG basic parser bounds the components, the split step the _urls.py cleaner
+   delegates instead of urllib.parse.urlsplit. METH_O. */
+PyObject *turbohtml_url_split(PyObject *module, PyObject *arg);
+
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented
    in dom/node.c and lends sanitize.c the tree+node a Python element wraps. */

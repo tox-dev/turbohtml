@@ -8,6 +8,7 @@
    Python, so a policy cannot route around it. */
 
 #include "core/common.h"
+#include "url/url.h"
 
 #include "dom/tree.h"
 
@@ -81,11 +82,6 @@ static int is_url_attr(const char *name, Py_ssize_t len) {
     }
 }
 
-static int is_scheme_char(Py_UCS4 c) {
-    Py_UCS4 lower = c | 0x20;
-    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
-}
-
 /* Bytes to ignore when reading a URL scheme: the control characters and whitespace browsers strip, plus the
    zero-width and soft-hyphen format characters that obfuscate a scheme, so java&zwsp;script: is still caught. */
 static int is_url_ignorable(Py_UCS4 c) {
@@ -126,7 +122,7 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
         int letter = (c | 0x20) >= 'a' && (c | 0x20) <= 'z';
         /* before the colon, every byte must be a scheme byte and the first must be a letter (so 1http:// is relative)
          */
-        if (started ? !is_scheme_char(c) : !letter) {
+        if (started ? !th_scheme_char(c) : !letter) {
             return s->allow_relative;
         }
         if (length < (Py_ssize_t)sizeof(scheme)) { /* cap the buffer but keep scanning, so an over-long scheme is */

@@ -15,13 +15,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Final
-from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
+from typing import Final, NamedTuple
+from urllib.parse import quote, unquote, urljoin, urlunsplit
 
-from ._html import _registrable_domain, parse
-
-if TYPE_CHECKING:
-    from urllib.parse import SplitResult
+from ._html import _registrable_domain, _url_split, parse
 
 __all__ = [
     "UrlCleaning",
@@ -116,6 +113,36 @@ _DEFAULT_PORTS: Final[dict[str, int]] = {"ftp": 21, "http": 80, "ws": 80, "https
 _WEB_SCHEMES: Final = ("http", "https")
 _WEB_PREFIXES: Final = ("http://", "https://")
 
+# The host kinds _url_split tags an authority with, mirroring the TH_HOST_* enum in _c/url/url.h: a registered name
+# reaches the domain-to-ASCII step, while an IPv4 or IPv6 literal is already ASCII and only needs lowercasing.
+_HOST_REGNAME: Final = 0
+_HOST_IPV6: Final = 2
+
+
+class _Split(NamedTuple):
+    """The components :func:`_url_split` reports for a URL, the fields the normalize and clean passes read."""
+
+    scheme: str
+    netloc: str
+    path: str
+    query: str
+    fragment: str
+    userinfo: str
+    host: str
+    port: str
+    has_port: bool
+    host_kind: int
+
+    @property
+    def hostname(self) -> str:
+        """The lowercased, bracket-stripped host that urllib's ``SplitResult.hostname`` returned, ``""`` for none."""
+        return self.host.lower()
+
+
+def _split(url: str) -> _Split:
+    """Split a URL into its components in C, the ``urllib.parse.urlsplit`` replacement; raises on an unbalanced host."""
+    return _Split(*_url_split(url))
+
 
 @dataclass(frozen=True, slots=True)
 class UrlCleaning:
@@ -185,10 +212,10 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     active = options or _DEFAULT
     scrubbed = _scrub(url)
     try:
-        parts = urlsplit(scrubbed)
+        parts = _split(scrubbed)
     except ValueError:
         return None
-    host = parts.hostname or ""
+    host = parts.hostname
     if parts.scheme not in _WEB_SCHEMES or not host or ("." not in host and ":" not in parts.netloc):
         return None
     if active.language is not None and not _language_matches(parts, active.language, strict=active.strict):
@@ -222,7 +249,7 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     if not isinstance(url, str):
         msg = f"url must be a str, got {type(url).__name__}"
         raise TypeError(msg)
-    return _normalize(urlsplit(url), options or _DEFAULT)
+    return _normalize(_split(url), options or _DEFAULT)
 
 
 def extract_links(
@@ -293,7 +320,7 @@ def _scrub(url: str) -> str:
     return remainder.removesuffix("&") if remainder.endswith("/&") else remainder
 
 
-def _language_matches(parts: SplitResult, language: str, *, strict: bool) -> bool:
+def _language_matches(parts: _Split, language: str, *, strict: bool) -> bool:
     """
     Judge the URL's own language markers against the target language.
 
@@ -311,15 +338,15 @@ def _language_matches(parts: SplitResult, language: str, *, strict: bool) -> boo
     if (match := _LANGUAGE_SEGMENT.fullmatch(leading)) and match[1] in _ISO_639_1 and match[1] != language:
         return False
     if strict:
-        label = (parts.hostname or "").partition(".")[0]
+        label = parts.hostname.partition(".")[0]
         if len(label) == 2 and label in _ISO_639_1 and label != language:
             return False
     return True
 
 
-def _normalize(parts: SplitResult, options: UrlCleaning) -> str:
+def _normalize(parts: _Split, options: UrlCleaning) -> str:
     """Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization."""
-    scheme = parts.scheme.lower()
+    scheme = parts.scheme
     netloc = _normalize_netloc(parts, scheme) if parts.netloc else ""
     path = _encode(parts.path, _PATH_UNSAFE, _PATH_SAFE)
     if netloc:
@@ -333,23 +360,24 @@ def _normalize(parts: SplitResult, options: UrlCleaning) -> str:
     return urlunsplit((scheme, netloc, path, query, fragment))
 
 
-def _normalize_netloc(parts: SplitResult, scheme: str) -> str:
+def _normalize_netloc(parts: _Split, scheme: str) -> str:
     """Lowercase the host into its ASCII form and drop an empty or scheme-default port, keeping userinfo verbatim."""
-    userinfo, _, hostport = parts.netloc.rpartition("@")
-    if hostport.startswith("["):
-        closing = hostport.find("]") + 1
-        host, port_suffix = hostport[:closing].lower(), hostport[closing:]
-    else:
-        name, _, port_digits = hostport.partition(":")
-        host = _ascii_host(name)
-        port_suffix = f":{port_digits}" if port_digits else ""
-    if port_suffix[1:].isdigit():
-        port = int(port_suffix[1:])
-        port_suffix = "" if port == _DEFAULT_PORTS.get(scheme) else f":{port}"
-    elif port_suffix == ":":
-        port_suffix = ""  # an empty port serializes as no port at all (port state, spec 4.4)
-    prefix = f"{userinfo}@" if userinfo else ""
-    return f"{prefix}{host}{port_suffix}"
+    if parts.host_kind == _HOST_REGNAME:
+        host = _ascii_host(parts.host)
+    else:  # an IPv4/IPv6 literal is already ASCII, so it only needs lowercasing, and IPv6 keeps its brackets
+        host = f"[{parts.hostname}]" if parts.host_kind == _HOST_IPV6 else parts.hostname
+    prefix = f"{parts.userinfo}@" if parts.userinfo else ""
+    return f"{prefix}{host}{_port_suffix(parts, scheme)}"
+
+
+def _port_suffix(parts: _Split, scheme: str) -> str:
+    """Return ``:port``, or nothing for an empty or scheme-default port (port state, spec 4.4)."""
+    if not parts.has_port or not parts.port:
+        return ""
+    if not parts.port.isdigit():
+        return f":{parts.port}"
+    port = int(parts.port)
+    return "" if port == _DEFAULT_PORTS.get(scheme) else f":{port}"
 
 
 @lru_cache(maxsize=1024)  # a crawl resolves the same hosts over and over, and the IDNA codec is the pass's hot spot
@@ -468,7 +496,7 @@ def _site_of(url: str) -> str:
     eTLD+1 is then read in C from the shipped IANA and Public Suffix List tables (``www.example.com`` and
     ``blog.example.com`` both collapse to ``example.com``, ``a.co.uk`` and ``b.co.uk`` stay distinct).
     """
-    return _registrable_domain(_ascii_host(urlsplit(url).hostname or ""))
+    return _registrable_domain(_ascii_host(_split(url).hostname))
 
 
 def _variant_key(url: str) -> str:

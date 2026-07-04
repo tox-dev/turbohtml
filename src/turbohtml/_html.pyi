@@ -108,6 +108,9 @@ from ._stubs.features import (
     _sanitize as _sanitize,
 )
 from ._stubs.features import (
+    _url_split as _url_split,
+)
+from ._stubs.features import (
     annotation_surface as annotation_surface,
 )
 from ._stubs.features import (

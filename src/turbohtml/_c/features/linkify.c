@@ -11,6 +11,7 @@
    the input; the scan never allocates per match. */
 
 #include "core/common.h"
+#include "url/url.h"
 
 #include "data/tld_table.h"
 
@@ -79,12 +80,6 @@ static inline int is_local_char(Py_UCS4 c) {
     default:
         return is_ascii_alpha(c) || is_ascii_digit(c) || (c >= 0x80 && !is_unicode_space(c));
     }
-}
-
-/* A scheme character left of the ``:`` (RFC 3986 scheme grammar after the first
-   letter): letters, digits, and the +-. separators. */
-static inline int is_scheme_char(Py_UCS4 c) {
-    return is_ascii_alpha(c) || is_ascii_digit(c) || c == '+' || c == '-' || c == '.';
 }
 
 /* A code point that can appear in the path/query/fragment tail of a URL. The
@@ -307,7 +302,7 @@ static int blocked_on_left(int kind, const void *data, Py_ssize_t start) {
    scheme start if one of the autolinked schemes is present, else -1. */
 static Py_ssize_t scan_scheme_start(int kind, const void *data, Py_ssize_t colon, Py_ssize_t start) {
     Py_ssize_t pos = colon;
-    while (pos > start && is_scheme_char(READ(pos - 1))) {
+    while (pos > start && th_scheme_char(READ(pos - 1))) {
         pos--;
     }
     if (pos == colon || !is_ascii_alpha(READ(pos))) {
