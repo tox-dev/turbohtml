@@ -6,34 +6,114 @@
 
 .. package-meta:: lxml lxml/lxml
 
-`lxml <https://lxml.de>`_ is the libxml2/libxslt binding that most Python HTML and XML processing has been built on:
+`lxml <https://lxml.de>`_ is the libxml2/libxslt binding that most Python HTML and XML processing has been built on.
 ``lxml.html`` parses documents into ElementTree-style elements with ``.text``/``.tail`` strings, and the wider stack
-adds XPath, XSLT, and schema validation.
+adds XPath, XSLT, RelaxNG/DTD/XML-Schema validation, and C14N. It is the default reach for scraping, feed parsing, and
+XML pipelines because it wraps a fast, battle-tested C library and exposes the full ElementTree API.
 
-***************
- Why turbohtml
-***************
+turbohtml covers the HTML side of that ground with a native C core of its own. :func:`turbohtml.parse` builds the WHATWG
+document tree libxml2's HTML parser does not, returns a fully type annotated :class:`~turbohtml.Document`, and folds
+XPath 1.0 (with EXSLT), CSS selection, and the ``find``/``find_all`` grammar into one node API instead of separate
+``findall``/``xpath``/``cssselect`` entry points. It does not attempt XSLT, schema validation, or generic XML; it
+targets browser-accurate HTML parsing and the query/edit/serialize surface around it.
 
-:func:`turbohtml.parse` builds the WHATWG document tree that libxml2's HTML parser does not, returns a fully type
-annotated :class:`~turbohtml.Document`, and folds XPath, CSS, and the ``find``/``find_all`` grammar into one node API
-instead of separate ``findall``/``xpath``/``cssselect`` entry points. It parses two to four times faster than lxml while
-matching a browser on malformed input, and stays ahead across the operational surface -- fragment parsing, CSS
-selection, text and tree walks, the link helpers, XPath, and the node-path generators:
+*******************
+ turbohtml vs lxml
+*******************
+
+.. list-table::
+    :header-rows: 1
+    :widths: 20 40 40
+
+    - - Dimension
+      - turbohtml
+      - lxml
+    - - Scope
+      - WHATWG HTML5 parse, serialize, edit, CSS, XPath 1.0 + EXSLT, link helpers
+      - Generic XML and HTML via libxml2, plus XSLT, schema validation, C14N
+    - - Feature breadth
+      - Browser-accurate HTML tree, one node API for XPath/CSS/find, streaming parse, builder
+      - Full ElementTree API, XPath 1.0, XSLT 1.0, DTD/RelaxNG/XML-Schema, iterparse
+    - - Performance
+      - Parses two to four times faster than lxml; stays ahead across the operational surface
+      - Mature libxml2 C core; streaming evaluation narrows on multi-megabyte inputs
+    - - Typing
+      - Fully type annotated, ships stubs
+      - Partial; relies on third-party stub packages
+    - - Dependencies
+      - Self-contained native C extension
+      - Bundles or links libxml2 and libxslt
+    - - Maintenance
+      - Newer, WHATWG-spec-driven
+      - Long-established, widely deployed, actively maintained
+
+Feature overlap
+===============
+
+These port one-to-one from ``lxml.html``/``lxml.etree`` to turbohtml:
+
+- Parsing a document (``lxml.html.document_fromstring``) and a fragment (``lxml.html.fromstring``).
+- Element identity and attributes: ``el.tag``, ``el.get``/``el.set``/``el.attrib``, the ``el.classes`` set operations.
+- Tree navigation: ``getparent``, ``getnext``, ``getprevious``, ``iterdescendants``, ``iterancestors``, ``list(el)``.
+- Queries: ``findall`` and ``xpath`` (XPath 1.0), ``cssselect`` (CSS), precompiled ``etree.XPath`` objects, node-set
+  ``$variable`` bindings, ``namespaces=`` prefix maps, and custom XPath callables.
+- The EXSLT ``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` function namespaces.
+- Locator generation (``getroottree().getpath``), link iteration and rewriting (``iterlinks``, ``make_links_absolute``,
+  ``rewrite_links``), source positions (``sourceline``), tree edits (``drop_tag``, ``drop_tree``), the
+  ``lxml.builder.E`` builder, and serialization (``lxml.html.tostring``).
+
+What turbohtml adds
+===================
+
+- A WHATWG-conformant parse: malformed input lands in the same tree a browser builds, where libxml2's HTML parser does
+  not follow the HTML5 tree-construction algorithm.
+- One node API. XPath, CSS, and the ``find``/``find_all`` grammar are methods on every node rather than three separate
+  extension entry points, and a callable or ``extensions=`` mapping that returns an :class:`~turbohtml.Element` is
+  marshaled straight back into the evaluator's node-set.
+- Built-in EXSLT. The ``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` namespaces dispatch in the compiled-C XPath
+  engine with no per-call registration; lxml has to register ``libexslt`` and re-resolve the namespace map on each
+  evaluation.
+- :meth:`~turbohtml.Element.css_path`, a unique CSS-selector locator, which lxml has no equivalent for.
+- Full type annotations and shipped stubs across the whole surface.
+
+What lxml has that turbohtml does not
+=====================================
+
+The wider libxml2 toolchain is a deliberate clean-break scope cut:
+
+- XSLT (``lxml.etree.XSLT``): no equivalent.
+- Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
+- C14N canonicalization: no equivalent.
+- Generic XML parsing and namespaced XML documents: turbohtml targets HTML; use lxml for arbitrary XML.
+- XPath is at parity, not a gap. Both are XPath 1.0, and both run EXSLT. The only pieces out of scope are the
+  node-synthesizing ``str:tokenize``/``str:split`` and the implicit current-date ``date:`` forms.
+
+Performance
+===========
+
+turbohtml parses two to four times faster than lxml while matching a browser on malformed input, and stays ahead across
+the operational surface: fragment parsing, CSS selection, text and tree walks, the link helpers, XPath, and the
+node-path generators.
 
 .. bench-table::
     :file: bench/lxml.json
 
 The :doc:`/development/performance` page benchmarks the full serializer, builder, editor, CSS, XPath 1.0, and EXSLT
-surface against lxml directly.
+surface against lxml directly, and sweeps the node-path generators across every page size. Compiling a hot expression
+once with :class:`~turbohtml.XPath` (the parse happens at construction, so the call site only supplies the context node
+and any ``$name`` variables) stays ahead of lxml per evaluation, as the precompiled ``//a[@href]`` row shows. On the
+EXSLT cases, a ``re:test`` predicate runs several times ahead of lxml even though ``re:`` dispatches to Python's
+:mod:`re` where lxml uses C ``libexslt``, because it skips the per-call namespace resolution; lxml's streaming
+evaluation narrows the node-set reductions on the multi-megabyte inputs.
 
-*************
- The renames
-*************
+****************
+ How to migrate
+****************
 
-:func:`turbohtml.parse` replaces ``lxml.html.document_fromstring`` and returns a :class:`~turbohtml.Document`;
-:func:`turbohtml.parse_fragment` replaces ``lxml.html.fromstring`` for a fragment. The biggest change is the tree shape:
-lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtml models it as real child
-:class:`~turbohtml.Text` nodes, so you iterate children instead of reading two string fields.
+The two parse entry points swap directly: :func:`turbohtml.parse` replaces ``lxml.html.document_fromstring`` and
+:func:`turbohtml.parse_fragment` replaces ``lxml.html.fromstring``. The biggest change is the tree shape. lxml stores
+text as an element's ``.text`` and ``.tail`` strings; turbohtml models it as real child :class:`~turbohtml.Text` nodes,
+so you iterate :attr:`~turbohtml.Node.children` instead of reading two string fields.
 
 .. list-table::
     :header-rows: 1
@@ -77,6 +157,8 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
         for a CSS selector)
     - - ``lxml.html.Element("div")``, ``etree.SubElement(p, "div")``
       - :class:`~turbohtml.Element`, :meth:`p.append(Element("div")) <turbohtml.Element.append>`
+    - - ``lxml.builder.E.ul(E.li("a"), E.li("b"))``
+      - :data:`turbohtml.build.E` (``E.<tag>(attrs, *children)`` with a leading attribute mapping)
     - - ``el.drop_tag()``, ``el.drop_tree()``
       - :meth:`~turbohtml.Node.unwrap`, :meth:`~turbohtml.Node.decompose`
     - - ``el.sourceline``
@@ -85,8 +167,12 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
       - :meth:`~turbohtml.Node.links`
     - - ``el.make_links_absolute(base)``, ``el.rewrite_links(fn)``
       - :meth:`~turbohtml.Node.resolve_links`, :meth:`~turbohtml.Node.rewrite_links`
+    - - ``etree.iterparse(...)``
+      - :class:`turbohtml.IncrementalParser` (``feed`` chunks, ``close`` for the :class:`~turbohtml.Document`)
     - - ``lxml.html.tostring(el)``
       - :attr:`~turbohtml.Node.html`
+
+A query-and-select flow ports directly:
 
 .. testcode::
 
@@ -99,16 +185,8 @@ lxml stores text as an element's ``.text`` and ``.tail`` strings, while turbohtm
     [Element('a')]
     /x
 
-*******
- XPath
-*******
-
-When one expression runs against many nodes, precompile it once with :class:`~turbohtml.XPath` instead of calling
-:meth:`~turbohtml.Node.xpath`, which reparses the expression on every call. This is the same move as reaching for
-``lxml.etree.XPath`` over a bare ``el.xpath``: the parse happens at construction, and the call site only supplies the
-context node and any ``$name`` variables. turbohtml's compiled program is tree-independent, so a single object evaluates
-against many documents, and it stays ahead of lxml per evaluation (the precompiled ``//a[@href]`` row in the table
-above).
+Precompile a hot XPath the same way you would reach for ``lxml.etree.XPath`` over a bare ``el.xpath``. turbohtml's
+compiled program is tree-independent, so a single object evaluates against many documents:
 
 .. testcode::
 
@@ -122,72 +200,8 @@ above).
 
     ['/x']
 
-lxml registers custom XPath callables through ``etree.FunctionNamespace``; turbohtml passes them per call through the
-``extensions=`` mapping of :meth:`~turbohtml.Node.xpath`. Both dispatch a Python callable per match, but lxml
-re-resolves its namespace and function table on every evaluation while turbohtml binds the mapping once against the
-compiled expression, and a callable that returns an :class:`~turbohtml.Element` (or an iterable of them) is marshaled
-straight back into the evaluator's node-set so the next path step stays on the all-C fast path.
-
-Both engines accept a node-set ``$variable``, so a prior result feeds a later expression without re-querying:
-:meth:`el.xpath("$rows/td", rows=el.xpath("//tr")) <turbohtml.Node.xpath>` binds the node-set lxml's
-``tree.xpath("$rows/td", rows=tree.xpath("//tr"))`` would. turbohtml normalizes the bound node-set into the compiled
-program once and walks the following step over interned atoms, so binding a prior result and reusing it stays ahead of
-lxml across page sizes.
-
-A namespace-prefixed name test ports unchanged: pass the same ``namespaces=`` mapping to :meth:`~turbohtml.Node.xpath`
-that you give lxml. turbohtml binds the prefix at evaluation time against the per-tree cached program and resolves the
-suffix to an interned atom, while lxml re-reads the namespace map on every call, so ``//svg:rect`` with
-``namespaces={"svg": "http://www.w3.org/2000/svg"}`` runs several times faster across page sizes.
-
-``el.getroottree().getpath(el)`` ports to :meth:`~turbohtml.Element.xpath_path` (a positional XPath) or
-:meth:`~turbohtml.Element.css_path` (a unique CSS selector, which lxml has no equivalent for). Both walk only the
-element's ancestor chain under the per-tree lock instead of indexing siblings from the root, so generating the locator
-for every node runs several times ahead of ``getpath`` (the ``css_path``/``xpath_path`` rows in the table above).
-
-The :doc:`/development/performance` page benchmarks the rest of the XPath surface against lxml, and sweeps the node-path
-generators across every page size.
-
-**********
- Pitfalls
-**********
-
-- No ``text``/``tail``. A node's children are its text runs and elements interleaved; read :attr:`~turbohtml.Node.text`
-  for the concatenation.
-- lxml parses with libxml2, which is not WHATWG-conformant, so malformed input lands in a different tree than the one
-  turbohtml (and a browser) builds.
-- For a document that arrives in pieces, ``etree.iterparse`` is replaced by :class:`turbohtml.IncrementalParser`: feed
-  ``str`` or ``bytes`` chunks with ``feed`` and call ``close`` for the finished :class:`~turbohtml.Document`. The parser
-  never holds the whole source at once, so you can parse a stream larger than the source buffer you would otherwise
-  materialize for :func:`turbohtml.parse`.
-- The wider libxml2 toolchain is a deliberate clean-break scope cut: XSLT, DTD/RelaxNG/XML-Schema validation, and C14N
-  have no turbohtml equivalent. XPath is at parity, not a gap: both are XPath 1.0, and the EXSLT ``re:``, ``set:``,
-  ``str:``, ``math:``, and ``date:`` namespaces ``libexslt`` adds are built into :meth:`~turbohtml.Node.xpath`,
-  :meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` (lxml has to register them, and has no XPath
-  2.0/XQuery either), so an lxml ``el.xpath(...)`` call ports straight to :meth:`~turbohtml.Node.xpath` — only the
-  node-synthesizing ``str:tokenize``/``str:split`` and the implicit current-date ``date:`` forms stay out of scope.
-
-*******
- EXSLT
-*******
-
-turbohtml's EXSLT namespaces dispatch in the same compiled-C XPath engine as the core functions, so an EXSLT predicate
-through :meth:`~turbohtml.Node.xpath` costs no registration: the prefix is built in. lxml resolves the namespace map and
-routes each call through a ``libexslt`` function you register with ``namespaces=``, so the same expression carries a
-per-call setup cost. lxml *can* run the same EXSLT, so this is a direct race, not a no-competitor note: a ``re:test``
-predicate runs several times ahead even though ``re:`` dispatches to Python's :mod:`re` where lxml uses C libexslt,
-because it skips the per-call namespace resolution; ``set:distinct`` stays in C on both sides. The
-:doc:`/development/performance` page sweeps these EXSLT cases — alongside the structural axes, predicates, and the core
-function library — across every page size, where lxml's streaming evaluation narrows the node-set reductions on the
-multi-megabyte inputs.
-
-****************************
- The builder (lxml.builder)
-****************************
-
-``lxml.builder``'s ``E`` assembles a tree from nested calls -- ``E.ul(E.li("a"), E.li("b"))`` -- and you serialize it
-with ``lxml.html.tostring``. :data:`turbohtml.build.E` reads the same way, ``E.<tag>(attrs, *children)`` with a leading
-mapping for attributes, and hands back a real :class:`~turbohtml.Element` rather than an lxml node, so the edit, query,
-and serialize surface above stays available on what you build:
+The builder reads like ``lxml.builder.E`` but hands back a real :class:`~turbohtml.Element`, so the query, edit, and
+serialize surface stays available on what you build:
 
 .. testcode::
 
@@ -198,3 +212,23 @@ and serialize surface above stays available on what you build:
 .. testoutput::
 
     <ul><li class="item">one</li><li class="item">two</li></ul>
+
+**********************
+ Gotchas and pitfalls
+**********************
+
+- No ``text``/``tail``. A node's children are its text runs and elements interleaved; read :attr:`~turbohtml.Node.text`
+  for the concatenation.
+- Different tree on malformed input. lxml parses with libxml2, which is not WHATWG-conformant, so broken markup lands in
+  a different tree than the one turbohtml (and a browser) builds. Do not expect byte-identical trees when porting
+  scrapers that leaned on libxml2's recovery quirks.
+- Custom XPath functions bind per call, not globally. lxml registers callables through ``etree.FunctionNamespace``;
+  turbohtml passes them through the ``extensions=`` mapping of :meth:`~turbohtml.Node.xpath`, bound once against the
+  compiled expression rather than a process-wide table.
+- Streaming differs. For a document that arrives in pieces, ``etree.iterparse`` is replaced by
+  :class:`turbohtml.IncrementalParser`: feed ``str`` or ``bytes`` chunks with ``feed`` and call ``close`` for the
+  finished :class:`~turbohtml.Document`. It never holds the whole source at once, but it does not expose lxml's
+  event-driven element callbacks; you walk the completed tree.
+- EXSLT is built in but not exhaustive. The node-synthesizing ``str:tokenize``/``str:split`` and the implicit
+  current-date ``date:`` forms stay out of scope; every other ``re:``/``set:``/``str:``/``math:``/``date:`` form ports
+  straight through with no registration.

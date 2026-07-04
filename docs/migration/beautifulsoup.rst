@@ -6,30 +6,113 @@
 
 `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ is the long-standing convenience layer over a
 choice of HTML parsers (``html.parser``, ``lxml``, or ``html5lib``): you pick a backend, then navigate and search the
-resulting soup with a large, alias-rich API. It shares the most surface with turbohtml, so this is the deepest section.
+resulting soup with a large, alias-rich API. It also parses XML through the ``lxml-xml`` backend, decodes unknown byte
+streams with ``UnicodeDammit``, and matches CSS selectors through its ``soupsieve`` dependency. Its reach and forgiving
+API made it the default scraping tool for a generation of Python code, from one-off screen scrapes to production
+pipelines.
 
-***************
- Why turbohtml
-***************
+turbohtml covers the HTML side of that ground with one engine. :func:`turbohtml.parse` runs the WHATWG algorithm in C,
+returns a fully type annotated :class:`~turbohtml.Document`, and exposes a single ``find``/``find_all``/``select``
+grammar plus XPath. It shares the most surface with turbohtml of any library here, so this is the deepest migration
+section.
 
-:func:`turbohtml.parse` returns a fully type annotated :class:`~turbohtml.Document` with no parser backend to choose,
-since it always runs the WHATWG algorithm in C. The search surface is one ``find``/``find_all``/``select`` grammar with
-:class:`~turbohtml.Axis` directions instead of a dozen directional finders. And it parses, queries, and serializes one
-to three orders of magnitude faster than BeautifulSoup over ``html.parser`` -- including text filtering
-(``find(text=...)`` against ``find_all(string=...)``), walking the tree (:attr:`~turbohtml.Node.descendants` against
-``soup.descendants``), and reading its text (:attr:`~turbohtml.Node.text` against ``soup.get_text()``):
+****************************
+ turbohtml vs BeautifulSoup
+****************************
+
+.. list-table::
+    :header-rows: 1
+    :widths: 18 41 41
+
+    - - Dimension
+      - turbohtml
+      - BeautifulSoup
+    - - Scope
+      - WHATWG HTML: parse, query, mutate, and serialize in one C engine
+      - HTML and XML navigation layer over a pluggable third-party parser
+    - - Feature breadth
+      - ``find`` grammar with :class:`~turbohtml.Axis`, CSS selectors, XPath, source positions, linkify, WHATWG
+        serialization formatters
+      - ``find`` grammar, CSS via ``soupsieve``, XML mode, ``UnicodeDammit`` encoding guessing, output-formatter
+        registry
+    - - Performance
+      - C core; one to three orders of magnitude faster than ``bs4`` over ``html.parser`` across parse, query, and
+        serialize
+      - Pure-Python navigation; speed tracks the chosen backend and is slowest on ``html.parser``
+    - - Typing
+      - Ships ``py.typed``; every public method annotated
+      - No inline types; relies on the third-party ``types-beautifulsoup4`` stubs
+    - - Dependencies
+      - Zero runtime dependencies (self-contained C extension)
+      - Requires ``soupsieve``; ``lxml`` or ``html5lib`` optional for those backends
+    - - Maintenance
+      - Actively developed, single-engine
+      - Mature, widely deployed, long release history
+
+Feature overlap
+===============
+
+These port one-to-one; the calls differ only in name (see the mapping table under `How to migrate`_):
+
+- Parsing markup into a navigable tree.
+- ``find`` / ``find_all`` by tag, attribute, ``class_``, and text.
+- CSS selectors via ``select`` / ``select_one``.
+- Directional navigation (parents, siblings, next/previous elements) — turbohtml folds these into ``find`` with an
+  :class:`~turbohtml.Axis`.
+- Tree mutation: ``decompose``, ``extract``, ``unwrap``, ``wrap``, ``insert_before``, ``insert_after``,
+  ``replace_with``.
+- Text access: ``get_text`` maps to :attr:`~turbohtml.Node.text`, :attr:`~turbohtml.Node.strings`, and
+  :attr:`~turbohtml.Node.stripped_strings`.
+- Pretty-printing via :meth:`~turbohtml.Node.serialize` with ``Html(layout=Indent(2))`` for ``prettify()``.
+- Source positions: ``sourceline`` / ``sourcepos`` map to :attr:`~turbohtml.Node.source_line` /
+  :attr:`~turbohtml.Node.source_col`.
+
+What turbohtml adds
+===================
+
+- **XPath.** :meth:`~turbohtml.Node.xpath` and :meth:`~turbohtml.Node.xpath_iter` evaluate expressions with namespaces,
+  variables, and extension functions. BeautifulSoup has no XPath support at all.
+- **A C engine.** Parsing, querying, text collection, and serialization all run in C, so migrating off ``html.parser``
+  is a large speedup with no backend to install.
+- **WHATWG-conformant serialization.** :class:`~turbohtml.Formatter` selection controls entities, and output matches the
+  spec by default; ``Formatter.NAMED_ENTITIES`` reproduces ``bs4``'s ``html`` formatter when you need it.
+- **Post-parse pruning.** :meth:`~turbohtml.Node.prune` trims a fully parsed tree to a CSS selector in one C pass.
+- **Zero runtime dependencies and full typing.** No ``soupsieve`` install, and every public API is annotated.
+
+What BeautifulSoup has that turbohtml does not
+==============================================
+
+- **XML parsing.** ``BeautifulSoup(markup, "lxml-xml")`` parses arbitrary XML. turbohtml runs the WHATWG *HTML*
+  algorithm only; there is no XML tree-builder. No equivalent — keep ``lxml`` for XML documents.
+- **Pluggable parser backends.** ``bs4`` lets you swap ``html.parser``, ``lxml``, and ``html5lib``. turbohtml always
+  runs its own WHATWG parser; this is a deliberate clean-break omission, not a gap you work around.
+- **Statistical encoding detection.** ``UnicodeDammit`` (and ``chardet`` / ``charset-normalizer``) guess an encoding
+  from byte frequency when there is no BOM or ``<meta charset>``. turbohtml sniffs only what the WHATWG algorithm reads,
+  then falls back to ``windows-1252``. Workaround: detect with ``charset-normalizer`` first and hand turbohtml the
+  decoded ``str`` (or bytes with an explicit ``encoding=``).
+- **Structural tree equality.** ``bs4`` compares two trees with ``==`` by name, attributes, and contents. turbohtml's
+  ``==`` is identity. Workaround: compare serializations (``a.html == b.html``) or walk the nodes.
+- **A named output-formatter registry.** ``bs4`` registers custom formatters by name. Workaround: pass a
+  :class:`~turbohtml.Formatter` per :meth:`~turbohtml.Node.serialize` call.
+
+Performance
+===========
+
+turbohtml parses, queries, and serializes one to three orders of magnitude faster than BeautifulSoup over
+``html.parser`` — including text filtering (``find(text=...)`` against ``find_all(string=...)``), walking the tree
+(:attr:`~turbohtml.Node.descendants` against ``soup.descendants``), and reading text (:attr:`~turbohtml.Node.text`
+against ``soup.get_text()``):
 
 .. bench-table::
     :file: bench/beautifulsoup.json
 
 The :doc:`/development/performance` page benchmarks the build and edit paths against BeautifulSoup too.
 
-*********
- Parsing
-*********
+****************
+ How to migrate
+****************
 
-Parsing returns a :class:`~turbohtml.Document` instead of a ``BeautifulSoup`` object. There is no parser name to pass,
-since turbohtml always runs the WHATWG algorithm:
+Swap the import and the constructor. There is no parser name to pass, since turbohtml always runs the WHATWG algorithm:
 
 .. code-block:: python
 
@@ -63,22 +146,8 @@ Bytes work too; pass the raw response and read the resolved encoding back from :
     café
     windows-1252
 
-********************
- Encoding detection
-********************
-
-``parse`` runs the WHATWG sniffing algorithm on bytes: a leading BOM, then a ``<meta charset>`` prescan, then a
-``windows-1252`` fallback. That covers what ``UnicodeDammit`` reads from the markup, and it stops there. turbohtml does
-not guess an encoding from the byte distribution. ``UnicodeDammit``'s optional statistical pass and the dedicated
-detectors (`charset-normalizer <https://github.com/jawah/charset_normalizer>`_, `chardet
-<https://github.com/chardet/chardet>`_, ``cchardet``) read byte frequency, so a markup-less stream, or a document with
-no BOM and no declaration, lands on ``windows-1252`` here where they would name, say, ``koi8-r``. When there is nothing
-to sniff, detect the encoding with ``charset-normalizer`` first and hand turbohtml the decoded ``str`` (or the bytes
-with an explicit ``encoding=``).
-
-*************
- The renames
-*************
+API mapping
+===========
 
 .. list-table::
     :header-rows: 1
@@ -110,6 +179,8 @@ with an explicit ``encoding=``).
       - :meth:`~turbohtml.Node.find` / :meth:`~turbohtml.Node.find_all` with ``text=``
     - - ``soup.select(".cls")``, ``soup.select_one(".cls")``
       - :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`
+    - - (no XPath)
+      - :meth:`~turbohtml.Node.xpath`, :meth:`~turbohtml.Node.xpath_iter`
     - - ``BeautifulSoup(markup, parse_only=SoupStrainer("article"))``
       - ``turbohtml.parse(markup).prune("article")`` (:meth:`~turbohtml.Node.prune`)
     - - ``tag.decompose()``, ``tag.extract()``, ``tag.unwrap()``, ``tag.wrap(...)``
@@ -126,10 +197,6 @@ with an explicit ``encoding=``).
       - :meth:`~turbohtml.Element.normalize`
     - - ``tag.sourceline``, ``tag.sourcepos``
       - :attr:`~turbohtml.Node.source_line`, :attr:`~turbohtml.Node.source_col`
-
-***********
- Searching
-***********
 
 The ``find``/``find_all`` filter grammar covers what ``bs4`` spread across many methods. A keyword filter matches an
 attribute; ``class_`` and ``attrs`` match the rest; ``axis`` replaces the directional finders and ``recursive=False``:
@@ -162,78 +229,77 @@ attribute; ``class_`` and ``attrs`` match the rest; ``axis`` replaces the direct
     section
     section
 
-``text`` replaces ``bs4``'s ``find(string=...)`` search. The one shift: ``bs4`` returns the matching
-``NavigableString``, while ``text`` filters *elements* by their collected text (the whole subtree, as
-:attr:`~turbohtml.Node.text` returns), so it composes with the tag and attribute filters and a plain string is the full
-text rather than a substring (use a regex to search within):
+**********************
+ Gotchas and pitfalls
+**********************
 
-.. testcode::
+- **Indexing reaches children, not attributes.** ``node[i]`` indexes child nodes, so attributes are reached only through
+  ``.attrs``, never ``node["attr"]``. Multi-valued attributes (``class``, ``rel``, ...) read back as a ``list[str]``.
 
-    import re
+  .. testcode::
 
-    doc = parse("<ul><li>Buy now</li><li>Later</li></ul>")
-    print(doc.find("li", text="Buy now").text)
-    print([li.text for li in doc.find_all("li", text=re.compile(r"now"))])
+      a = parse('<a class="btn lg" href="/x">go</a>').find("a")
+      print(a.attrs["class"])
+      print(a[0])  # indexing reaches children, never attributes
 
-.. testoutput::
+  .. testoutput::
 
-    Buy now
-    ['Buy now']
+      ['btn', 'lg']
+      Text('go')
 
-*********************
- Attributes and text
-*********************
+- **No ``.string`` shortcut and no ``text``/``tail`` split.** Text is real child nodes (the WHATWG DOM shape), so there
+  is no ``.string`` and no `lxml <https://lxml.de>`_-style ``text``/``tail``; iterate the children or read
+  :attr:`~turbohtml.Node.text`:
 
-``.attrs`` is the single access point; there is no ``tag["x"]`` shortcut, because ``node[i]`` indexes child nodes.
-Multi-valued attributes (``class``, ``rel``, ...) read back as a ``list[str]``, and text is real child nodes (the WHATWG
-DOM shape), so there is no ``.string`` shortcut and no `lxml <https://lxml.de>`_-style ``text``/``tail`` split:
+  .. testcode::
 
-.. testcode::
+      p = parse("<p>Hello <b>bold</b> world</p>").find("p")
+      print((p.text, list(p.stripped_strings)))
 
-    a = parse('<a class="btn lg" href="/x">go</a>').find("a")
-    print(a.attrs["class"])
-    print(a[0])  # indexing reaches children, never attributes
-    p = parse("<p>Hello <b>bold</b> world</p>").find("p")
-    print((p.text, list(p.stripped_strings)))
+  .. testoutput::
 
-.. testoutput::
+      ('Hello bold world', ['Hello', 'bold', 'world'])
 
-    ['btn', 'lg']
-    Text('go')
-    ('Hello bold world', ['Hello', 'bold', 'world'])
+- **``text=`` filters elements, not ``NavigableString``.** ``bs4``'s ``find(string=...)`` returns the matching string
+  node; turbohtml's ``text=`` filters *elements* by their collected subtree text, so it composes with tag and attribute
+  filters. A plain string matches the full text; use a regex to search within:
 
-********
- Output
-********
+  .. testcode::
 
-The default serialization is WHATWG-conformant, so it differs from ``bs4``'s ``html`` formatter on named entities,
-attribute order, and ``<br>`` versus ``<br/>``. Choose ``Formatter.NAMED_ENTITIES`` to approximate ``bs4``:
+      import re
 
-.. testcode::
+      doc = parse("<ul><li>Buy now</li><li>Later</li></ul>")
+      print(doc.find("li", text="Buy now").text)
+      print([li.text for li in doc.find_all("li", text=re.compile(r"now"))])
 
-    from turbohtml import Formatter, Html
+  .. testoutput::
 
-    node = parse("<p>café &amp; co</p>").find("p")
-    print(node.html)
-    print(node.serialize(Html(formatter=Formatter.NAMED_ENTITIES)))
+      Buy now
+      ['Buy now']
 
-.. testoutput::
+- **Serialization is WHATWG-conformant by default.** Output differs from ``bs4``'s ``html`` formatter on named entities,
+  attribute order, and ``<br>`` versus ``<br/>``. Pick ``Formatter.NAMED_ENTITIES`` to approximate ``bs4``:
 
-    <p>café &amp; co</p>
-    <p>caf&eacute; &amp; co</p>
+  .. testcode::
 
-**********
- Pitfalls
-**********
+      from turbohtml import Formatter, Html
 
-- ``node[i]`` indexes children; attributes are reached through ``.attrs``, never ``node["attr"]``.
-- Text is real child nodes, so there is no ``.string`` shortcut and no ``text``/``tail``; iterate the children.
-- Default output is WHATWG-conformant; pick ``Formatter.NAMED_ENTITIES`` to come close to ``bs4``'s ``html`` formatter.
-- ``==`` compares identity, so two trees with the same markup are unequal. Where ``bs4`` code leaned on ``==`` between
-  trees, compare serializations (``a.html == b.html``) or walk the nodes.
-- ``SoupStrainer`` filtered the tree *during* parsing; turbohtml always runs the full WHATWG algorithm, then
+      node = parse("<p>café &amp; co</p>").find("p")
+      print(node.html)
+      print(node.serialize(Html(formatter=Formatter.NAMED_ENTITIES)))
+
+  .. testoutput::
+
+      <p>café &amp; co</p>
+      <p>caf&eacute; &amp; co</p>
+
+- **Encoding sniffing stops at the markup.** ``parse`` runs the WHATWG algorithm on bytes — BOM, then a ``<meta
+  charset>`` prescan, then a ``windows-1252`` fallback — which covers what ``UnicodeDammit`` reads from the markup but
+  does not guess from byte frequency. A stream with no BOM and no declaration lands on ``windows-1252`` where
+  ``charset-normalizer`` might name, say, ``koi8-r``. When there is nothing to sniff, detect first and hand turbohtml
+  the decoded ``str``.
+- **``==`` compares identity.** Two trees with the same markup are unequal. Where ``bs4`` code leaned on structural
+  ``==``, compare serializations (``a.html == b.html``) or walk the nodes.
+- **``SoupStrainer`` has no parse-time equivalent.** turbohtml always runs the full WHATWG algorithm, then
   :meth:`~turbohtml.Node.prune` trims the parsed tree to a CSS selector in one C pass, so a large document still yields
-  a small tree.
-- A couple of bs4 entry points are deliberate clean-break omissions: the choice of parser backend (turbohtml always runs
-  the WHATWG algorithm) and registering a named output formatter. Pick a :class:`~turbohtml.Formatter` per
-  :meth:`~turbohtml.Node.serialize` call instead.
+  a small tree — but the whole document is parsed first.

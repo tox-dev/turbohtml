@@ -5,30 +5,110 @@
 .. package-meta:: trafilatura adbar/trafilatura
 
 `trafilatura <https://trafilatura.readthedocs.io>`_ extracts the main text and metadata from a web page: it downloads
-the URL, scores the content body, and returns the article alongside its title, author, date, and description. It also
-layers in optional language detection and precision-tuned publication-date inference, the latter from the `htmldate
-<https://htmldate.readthedocs.io>`_ library it builds on.
+the URL, scores the content body against navigation and boilerplate, and returns the article alongside its title,
+author, date, description, and site name. It serializes to plain text, Markdown, XML/TEI, JSON, or CSV, and layers in
+optional comment extraction, table and link handling, deduplication across a crawl, language detection, and
+precision-tuned publication-date inference (the last from the `htmldate <https://htmldate.readthedocs.io>`_ library it
+builds on). It is a common front end for building text corpora for NLP and search indexing.
 
-***************
- Why turbohtml
-***************
+turbohtml covers the extraction core of that: :meth:`~turbohtml.Node.article` scores a parsed page and harvests its
+*declared* metadata in one C pass, returning an :class:`~turbohtml.Article` record. It works on HTML you already have,
+so pair it with your own downloader and, when you need trafilatura's heavier heuristics (inferred dates, detected
+language, Markdown/XML output), keep those alongside it.
 
-:meth:`~turbohtml.Node.article` answers the same question -- *given a cluttered page, what is the article and its
-metadata* -- in one C pass over the parsed tree. It returns an :class:`~turbohtml.Article` record (``element``,
-``text``, ``title``, ``byline``, ``date``, ``description``, ``lang``), harvesting the *declared* metadata rather than
-inferring it. turbohtml works on HTML you already have, so pair it with a downloader (``urllib`` or ``httpx``) and, when
-you need them, trafilatura's heavier language and date heuristics.
+**************************
+ turbohtml vs trafilatura
+**************************
 
-Extracting the content body and metadata from a full page -- navigation, a scored article, and a footer.
+.. list-table::
+    :header-rows: 1
+    :widths: 20 40 40
+
+    - - Dimension
+      - turbohtml
+      - trafilatura
+    - - Scope
+      - Full WHATWG HTML parser with DOM, query, serialize, and content extraction on top
+      - Content-and-metadata extraction plus fetching, crawling, and multi-format output
+    - - Feature breadth
+      - One C scoring pass yielding a body element and declared metadata (:class:`~turbohtml.Article`)
+      - Extraction with comments, tables, links, images, dedup, language ID, and inferred dates
+    - - Performance
+      - C scoring pass over the parsed tree (see below)
+      - Python scoring over an lxml tree, with optional readability/justext fallbacks
+    - - Typing
+      - Fully annotated, ships PEP 561 stubs
+      - Annotated pure-Python source
+    - - Dependencies
+      - Compiled C extension
+      - lxml plus courlan, htmldate, and charset-normalizer
+    - - Maintenance
+      - Actively developed
+      - Actively developed and widely used
+
+Feature overlap
+===============
+
+The shared surface ports one call to one call:
+
+- ``trafilatura.extract(html)`` -> ``parse(html).article().text`` (or :meth:`~turbohtml.Node.main_text`), the scored
+  body as plain text.
+- ``extract_metadata(html).title`` -> ``article().title``.
+- ``extract_metadata(html).author`` -> ``article().byline``.
+- ``extract_metadata(html).date`` -> ``article().date`` (as declared, see the date pitfall below).
+- ``extract_metadata(html).description`` -> ``article().description``.
+- the extracted content body -> ``article().element``, the scored element (:attr:`~turbohtml.Node.html` for its markup),
+  or ``None`` when nothing reads as content.
+
+What turbohtml adds
+===================
+
+- The extraction rides on a full WHATWG parse, so the scored body comes back as a DOM element you can query, mutate, and
+  serialize, not only as text. :meth:`~turbohtml.Node.main_content` returns that element directly.
+- Metadata is harvested from what the page *declares* (``<html lang>``, ``article:published_time``, ``rel=author``,
+  ``og:*``, ``<title>``) in the same C pass as the body, with no second Python analysis stage.
+- :func:`turbohtml.parse` follows the WHATWG recovery rules and never raises on malformed markup, and the parsed tree is
+  reusable for anything else you need from the page.
+
+What trafilatura has that turbohtml does not
+============================================
+
+- Fetching and crawling: ``fetch_url(url)``, ``fetch_response``, plus sitemap, feed, and spider helpers. turbohtml has
+  no fetcher; read the page with ``urllib`` or ``httpx`` and pass the markup to :func:`~turbohtml.parse`.
+- Output formats. ``extract(html, output_format="markdown" | "xml" | "xmltei" | "json" | "csv")`` serializes the result;
+  turbohtml returns plain text and the DOM element, so build Markdown or JSON from ``article()`` yourself.
+- Comment, table, link, and image extraction toggles (``include_comments``, ``include_tables``, ``include_links``,
+  ``include_images``). turbohtml scores one prose body; extract those regions from the DOM by hand.
+- ``favor_precision`` / ``favor_recall`` tuning and the readability-lxml / justext fallbacks. turbohtml has a single
+  scoring model with no drop-in aggressiveness switch.
+- Cross-document deduplication (the LRU cache that drops repeated segments across a crawl). No equivalent.
+- Inferred publication dates via htmldate and prose language detection. ``article().date`` returns the declared date
+  string and ``article().lang`` reports ``<html lang>``; neither infers. Keep htmldate and a language detector for pages
+  where those are only inferable.
+- Richer metadata fields (site name, categories, tags, license, canonical URL, hostname, lead image). turbohtml exposes
+  ``title``, ``byline``, ``date``, ``description``, and ``lang``.
+
+Performance
+===========
+
 :meth:`~turbohtml.Node.article` scores and harvests in one C pass over the parsed tree; trafilatura builds an lxml tree
-in Python first. Numbers vary with input and hardware.
+in Python first and scores it there. Numbers vary with input and hardware.
 
 .. bench-table::
     :file: bench/trafilatura.json
 
-*************
- The renames
-*************
+****************
+ How to migrate
+****************
+
+Swap the trafilatura import for :func:`turbohtml.parse` and read the fields off one :meth:`~turbohtml.Node.article`
+call:
+
+.. code-block:: python
+
+    from turbohtml import parse
+
+The call mapping:
 
 .. list-table::
     :header-rows: 1
@@ -48,6 +128,10 @@ in Python first. Numbers vary with input and hardware.
       - ``doc.article().description``
     - - the extracted content body
       - ``doc.article().element`` (the scored element; :attr:`~turbohtml.Node.html` for its markup, or ``None``)
+    - - ``trafilatura.fetch_url(url)``
+      - fetch the page yourself (``urllib`` or ``httpx``), then parse the markup
+
+Before and after, harvesting the body and metadata from a full page:
 
 .. testcode::
 
@@ -66,24 +150,19 @@ in Python first. Numbers vary with input and hardware.
 
     Comets | Ada Lovelace | 2024-05-06 | en
 
-******************************
- Publication dates (htmldate)
-******************************
-
-trafilatura's date support comes from `htmldate <https://htmldate.readthedocs.io>`_, whose ``find_date(html)`` scans
-many patterns and validates the result against a range. ``doc.article().date`` is the lightweight counterpart: it
-returns the first of a ``<time>``, an ``article:published_time`` meta, and a common date meta (``date``, ``pubdate``,
-``dc.date``) exactly as the page declares it, without parsing or normalizing the value. Wrap it in
-``datetime.date.fromisoformat`` or ``dateutil`` when you need a real date object, and keep htmldate for pages whose date
-is only inferable.
-
-**********
- Pitfalls
-**********
+**********************
+ Gotchas and pitfalls
+**********************
 
 - trafilatura downloads URLs; :meth:`~turbohtml.Node.article` takes parsed HTML. Fetch the page yourself (``urllib`` or
   ``httpx``) and pass the markup to :func:`turbohtml.parse`.
+- ``article().date`` returns the date exactly as the page declares it (the first of a ``<time>``, an
+  ``article:published_time`` meta, or a common date meta such as ``date``, ``pubdate``, ``dc.date``) without parsing or
+  normalizing it. Wrap it in ``datetime.date.fromisoformat`` or ``dateutil`` for a real date object, and keep htmldate
+  for pages whose date is only inferable.
 - ``article().lang`` reports the document's ``<html lang>`` attribute, not a language *detected* from the prose the way
   trafilatura's optional language filter does; that inference is out of scope.
 - A page with no scoring article leaves ``element`` ``None`` and ``text`` empty while still filling the metadata, so
   branch on ``art.element`` rather than assuming a body.
+- turbohtml returns plain text only. For the Markdown, XML, or JSON that ``extract(..., output_format=...)`` produces,
+  serialize the ``article()`` fields (and the ``element`` subtree) yourself.

@@ -4,26 +4,105 @@
 
 .. package-meta:: bleach mozilla/bleach
 
-`bleach <https://github.com/mozilla/bleach>`_ was the standard HTML allowlist sanitizer and linkifier, built on
-html5lib. It is end of life with no maintained successor, so its two jobs split across turbohtml: ``bleach.clean`` maps
-to ``turbohtml.clean`` and ``bleach.linkify`` maps to ``turbohtml.clean``.
+`bleach <https://github.com/mozilla/bleach>`_ was the standard Python HTML allowlist sanitizer and linkifier, built on
+html5lib. Two jobs live in one library: ``bleach.clean`` strips markup down to an allowed set of tags, attributes, and
+URL schemes so user-supplied HTML is safe to render, and ``bleach.linkify`` scans plain text for URLs and wraps them in
+``<a>`` tags. It powered comment fields, wikis, and message bodies across the Django ecosystem for a decade.
 
-***************
- Why turbohtml
-***************
+bleach reached end of life with no maintained successor. turbohtml covers both jobs from its ``turbohtml.clean`` module:
+``bleach.clean`` maps to the allowlist :class:`~turbohtml.clean.Sanitizer` (with a drop-in
+:func:`turbohtml.migration.bleach.clean` shim), and ``bleach.linkify`` maps to :func:`turbohtml.clean.linkify`. Both run
+their filtering in C, ship full type annotations, and take a frozen, thread-safe configuration.
 
-Both replacements are fully type annotated, run the filtering and link scan in C, and expose a frozen, thread-safe
-configuration where ``bleach.clean`` had a documented thread-safety footgun. The sanitizer leads bleach by an order of
-magnitude and the linkifier by five to twenty times:
+*********************
+ turbohtml vs bleach
+*********************
+
+.. list-table::
+    :header-rows: 1
+    :widths: 22 39 39
+
+    - - Dimension
+      - turbohtml
+      - bleach
+    - - Scope
+      - Full WHATWG parser, serializer, sanitizer, linkifier, selectors
+      - Sanitize and linkify only, over html5lib
+    - - Feature breadth
+      - Escape/strip/remove per tag, value-rewriting attribute filter, forced attributes, regenerable IANA TLD table
+      - Allow/strip tags, bool attribute callback, ``css_sanitizer`` for style scrubbing
+    - - Performance
+      - Filtering and link scan in C
+      - Pure-Python over html5lib
+    - - Typing
+      - Fully annotated, ``py.typed``
+      - Untyped
+    - - Dependencies
+      - None (self-contained C extension)
+      - html5lib, plus tinycss2 for CSS sanitizing
+    - - Maintenance
+      - Active
+      - End of life, no successor
+
+Feature overlap
+===============
+
+The shared surface ports one-to-one:
+
+- ``bleach.clean(text, tags=, attributes=, protocols=, strip=, strip_comments=)`` ->
+  :func:`turbohtml.migration.bleach.clean` (same signature) or a native :class:`~turbohtml.clean.Policy` +
+  :class:`~turbohtml.clean.Sanitizer`.
+- ``bleach.linkify(text, ...)`` and the reusable ``Linker`` -> :func:`turbohtml.clean.linkify` and
+  :class:`turbohtml.clean.Linker`.
+- The ``nofollow`` and ``target_blank`` callbacks and ``DEFAULT_CALLBACKS`` keep their names in :mod:`turbohtml.clean`.
+- bleach's default allowed tags, attributes, and URL schemes are the turbohtml migration baseline (``DEFAULT_TAGS``,
+  ``DEFAULT_ATTRIBUTES``, ``DEFAULT_SCHEMES``), so an unconfigured ``clean`` behaves the same.
+
+What turbohtml adds
+===================
+
+- A frozen, thread-safe :class:`~turbohtml.clean.Policy`, where sharing a configured ``bleach.Cleaner`` across threads
+  was a documented footgun.
+- An :class:`~turbohtml.clean.OnDisallowed` enum that names escape, strip, and remove, where bleach overloaded the two
+  booleans ``strip`` and ``strip_comments``.
+- An ``attribute_filter`` that returns a replacement value or ``None`` to drop, where bleach's attribute callable only
+  returned a bool.
+- ``set_attributes`` to force attributes (for example ``rel="noopener"``) onto every kept instance of a tag, which
+  bleach could only approximate through a linkify callback.
+- A safety baseline that removes ``<script>``, ``on*`` handlers, and ``javascript:`` URLs by construction, so no policy
+  can re-admit them.
+- An IANA TLD table you can regenerate and extend with ``Linkify.extra_tlds``, where bleach shipped a frozen list.
+- Idempotent linkifying: an existing ``<a>`` is left untouched unless you opt in with ``Linkify.process_existing``.
+
+What bleach has that turbohtml does not
+=======================================
+
+- ``css_sanitizer`` (bleach's tinycss2-backed CSS cleaner) scrubbed both the ``style`` attribute and ``<style>`` element
+  contents. turbohtml's native sanitizer scrubs a kept ``style`` *attribute* against ``Policy.css_properties`` but drops
+  ``<style>`` element contents rather than cleaning them; the compat shim rejects a ``css_sanitizer`` argument with
+  ``NotImplementedError``. Workaround: pre-scrub or strip ``<style>`` before sanitizing.
+- A pluggable html5lib filter pipeline (``bleach.sanitizer.Cleaner(filters=[...])``) let you insert arbitrary html5lib
+  ``Filter`` classes into the clean pass. turbohtml has no equivalent filter chain; express the transform through
+  ``attribute_filter``, ``set_attributes``, or a post-parse walk over the tree instead.
+- A fully configurable safety baseline. bleach kept whatever you listed, including ``<script>`` if you allowed it;
+  turbohtml's baseline is fixed. No equivalent, by design.
+
+Performance
+===========
+
+The sanitizer leads bleach by an order of magnitude and the linkifier by five to twenty times:
 
 .. bench-table::
     :file: bench/bleach.json
 
-**************
- bleach.clean
-**************
+****************
+ How to migrate
+****************
 
-The bleach-compatible shim keeps ``clean``'s signature so the import is the only change:
+Sanitizing
+==========
+
+The bleach-compatible shim keeps ``clean``'s signature, so the import is the only change:
 
 .. code-block:: python
 
@@ -48,7 +127,7 @@ The bleach-compatible shim keeps ``clean``'s signature so the import is the only
     - - ``strip_comments=``
       - ``Policy.strip_comments``
     - - ``css_sanitizer=``
-      - ``Policy.css_properties``
+      - ``Policy.css_properties`` (style attribute only)
 
 ``clean(text, tags=..., attributes=..., protocols=..., strip=..., strip_comments=...)`` maps onto a
 :class:`~turbohtml.clean.Policy`. ``attributes`` accepts bleach's list, per-tag dict, or callable forms; ``strip``
@@ -65,22 +144,12 @@ chooses between dropping a disallowed tag and keeping its children (``True``) an
     &lt;p&gt;Hi <a href="http://x">link</a>&lt;/p&gt;&lt;script&gt;evil()&lt;/script&gt;
 
 For new code prefer the native :class:`~turbohtml.clean.Policy`/:class:`~turbohtml.clean.Sanitizer` API: a frozen,
-thread-safe policy, an :class:`~turbohtml.clean.OnDisallowed` enum that names escape/strip/remove where bleach
+thread-safe policy, an :class:`~turbohtml.clean.OnDisallowed` enum that names escape, strip, and remove where bleach
 overloaded two booleans, and an ``attribute_filter`` that rewrites or drops a value where bleach's callable only
 returned a bool.
 
-Pitfalls
-========
-
-- turbohtml's safety baseline (``<script>``, ``on*`` handlers, ``javascript:`` URLs) is not configurable, so even a
-  permissive ``attributes`` callable cannot re-admit them, where bleach faithfully kept whatever you allowed.
-- The bleach-compatible ``clean`` shim does not yet take a ``css_sanitizer`` argument (it raises), and ``<style>``
-  element contents are dropped rather than scrubbed; the native sanitizer scrubs a kept ``style`` *attribute* against
-  ``Policy.css_properties``.
-
-****************
- bleach.linkify
-****************
+Linkifying
+==========
 
 The entry points keep bleach's names, so the import changes and the common case is identical:
 
@@ -143,9 +212,17 @@ bleach's ``protocols`` maps to the ``Linkify.schemes`` field, which restricts th
 and bleach's custom-TLD support maps to ``Linkify.extra_tlds``, on top of a current IANA table you can regenerate where
 bleach shipped a frozen list. A bare domain such as ``example.com`` still links only when its last label is a known TLD.
 
-Pitfalls
-========
+**********************
+ Gotchas and pitfalls
+**********************
 
+- turbohtml's safety baseline (``<script>``, ``on*`` handlers, ``javascript:`` URLs) is not configurable, so even a
+  permissive ``attributes`` callable cannot re-admit them, where bleach faithfully kept whatever you allowed.
+- The bleach-compatible ``clean`` shim does not take a ``css_sanitizer`` argument; passing one raises
+  ``NotImplementedError``. ``<style>`` element contents are dropped rather than scrubbed. The native sanitizer scrubs a
+  kept ``style`` *attribute* against ``Policy.css_properties`` but leaves ``<style>`` contents out.
 - turbohtml leaves an existing ``<a>`` untouched so linkifying is idempotent, where bleach always reprocessed present
   links. Opt back in with the ``Linkify.process_existing`` field to run the callbacks over author-written anchors too
   (the callback reads ``Link.existing`` to branch).
+- Linkify callbacks read :class:`~turbohtml.clean.Link` fields (``url``, ``text``, ``attrs``), not bleach's
+  ``(namespace, name)`` tuple keys or the ``"_text"`` pseudo-key; a straight copy of a bleach callback will not run.

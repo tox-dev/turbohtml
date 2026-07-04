@@ -7,32 +7,87 @@
 `markyp <https://github.com/volfpeter/markyp>`_ assembles HTML in Python from the other direction than a parser: its
 `markyp-html <https://github.com/volfpeter/markyp-html>`_ package provides one element class per tag, split across topic
 modules (``markyp_html.block.div``, ``markyp_html.text.h1``, ``markyp_html.lists.li``), each taking children
-positionally and attributes as trailing keywords, and stringifying the root renders the tree. turbohtml replaces both
-packages with the terse :data:`turbohtml.build.E` builder.
+positionally and attributes as trailing keywords, and stringifying the root renders the tree. It is a pure-Python
+generator: markyp itself is the tiny element core, markyp-html the HTML tag layer, and a small ecosystem of companion
+packages (``markyp-bootstrap``, ``markyp-highlightjs``, ``markyp-fontawesome``) wraps component libraries on top. A
+``webpage(...)`` factory builds the full HTML5 document shell. It is used to emit reports, templated pages, and
+component markup from Python without a template engine.
 
-***************
- Why turbohtml
-***************
+turbohtml covers the same construction ground with the terse :data:`turbohtml.build.E` builder, replacing both packages,
+but every call returns a real :class:`~turbohtml.Element` in turbohtml's C-backed tree, so the markup you generate is
+also a document you can query, edit, re-serialize, or convert -- not a one-way string.
 
-turbohtml builds HTML with :class:`~turbohtml.Element` plus :meth:`~turbohtml.Node.serialize`, and
-:data:`turbohtml.build.E` is a terse front end for it: ``E.<tag>(attrs, *children)``, where a leading mapping is the
-attributes and each child is a node or a string that becomes text. The result is a real turbohtml tree, so the whole
-edit, query, and serialize surface stays available and the markup you generate serializes by exactly the rules that
-parse it back:
+*********************
+ turbohtml vs markyp
+*********************
 
-.. testcode::
+.. list-table::
+    :header-rows: 1
+    :widths: 20 40 40
 
-    from turbohtml.build import E
+    - - Dimension
+      - turbohtml
+      - markyp
+    - - Scope
+      - Parse, build, query, edit, serialize, and convert one WHATWG tree
+      - One-way HTML generation from Python, one element class per tag
+    - - Feature breadth
+      - ``E`` builder, CSS ``select``, ``xpath``, ``find``/``find_all``, ``to_markdown``/``to_text``, indent or minify
+        layout
+      - Per-tag classes across topic modules, a ``webpage`` page-shell factory, pretty-printed output, companion
+        component packages
+    - - Performance
+      - Builds in a C arena and serializes in C
+      - Pure-Python string assembly (about a third faster on the microbenchmark below)
+    - - Typing
+      - Ships ``.pyi`` stubs for the element, query, and serialize surface
+      - A concrete class per tag imported from its topic module; attributes stay untyped keywords
+    - - Dependencies
+      - Self-contained C extension (needs a wheel or a build)
+      - Pure Python over the small ``markyp`` core; runs anywhere Python does
+    - - Maintenance
+      - Actively developed C core with a thin Python shim
+      - Small, narrowly-scoped project with a companion-package ecosystem
 
-    card = E.div({"class": "card"}, E.h1("Title"), E.p("body"))
-    print(card.serialize())
+Feature overlap
+===============
 
-.. testoutput::
+The construction surface ports one-for-one:
 
-    <div class="card"><h1>Title</h1><p>body</p></div>
+- Elements with attributes: ``div(class_="card")`` becomes :data:`E.div({"class": "card"}) <turbohtml.build.E>`.
+- Nested children: markyp's positional children become positional children on the ``E`` call.
+- Text nodes: a string argument becomes a plain string child in both.
+- ``data-*`` and boolean attributes: markyp's ``**{"data-i": "1"}`` and turbohtml's ``{"data-i": "1"}`` / ``{"disabled":
+  None}``.
+- Void tags close themselves in both.
+- Stringify: ``str(root)`` becomes :meth:`~turbohtml.Node.serialize`.
 
-``E`` assembles the fragment in turbohtml's arena and serializes it in C; markyp stays in Python. The same ``<ul>`` of
-rows -- a class, a ``data`` attribute, and a text child apiece -- built both ways:
+What turbohtml adds
+===================
+
+- The result is a real :class:`~turbohtml.Element`, not a string, so the same call that builds the markup leaves a tree
+  you can walk and mutate with ``append``, ``insert``, ``remove``, and ``extend``.
+- Query the built tree with CSS :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.xpath`, and
+  :meth:`~turbohtml.Node.find`/``find_all`` -- markyp has no query surface over what it emits.
+- Convert with :meth:`~turbohtml.Node.to_markdown` and :meth:`~turbohtml.Node.to_text`.
+- Round-trip: the same tree type parses arbitrary HTML back in, so generation and parsing share one API.
+- No per-tag imports: any tag is named on ``E`` (or built via ``E("tag", ...)`` for a non-identifier name), so there is
+  no ``markyp_html.block`` / ``markyp_html.text`` module to track.
+
+What markyp has that turbohtml does not
+=======================================
+
+- Companion component packages. ``markyp-bootstrap``, ``markyp-highlightjs``, and ``markyp-fontawesome`` add typed
+  wrappers for Bootstrap components, syntax highlighting, and icons on top of the element core. turbohtml builds raw
+  elements only; there is no component library -- write the component markup as ``E`` calls yourself.
+- A ``webpage(...)`` page-shell factory. markyp ships a one-call helper that emits a complete HTML5 document (doctype,
+  ``<html>``, ``<head>``, ``<body>``). turbohtml has no shell factory: build the shell with :data:`E.html(E.head(...),
+  E.body(...)) <turbohtml.build.E>`, or append your fragment under a parsed document.
+- Pure-Python, wheel-less install. markyp needs no compiled extension and runs in any restricted environment. turbohtml
+  ships a C extension, so it depends on a wheel or a local build.
+
+Performance
+===========
 
 .. bench-table::
     :file: bench/markyp.json
@@ -41,12 +96,17 @@ markyp renders about a third faster than ``E`` on this microbenchmark -- it conc
 decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call
 that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
-*************
- The renames
-*************
+****************
+ How to migrate
+****************
 
-markyp imports one class per tag from a topic module and trails the attributes; turbohtml names any tag on ``E`` and
-leads with them:
+Swap the per-tag imports for the single ``E`` singleton; there is no topic module to import from:
+
+.. code-block:: python
+
+    from turbohtml.build import E  # was: from markyp_html.block import div; from markyp_html.text import h1, p
+
+markyp trails the attributes after positional children; turbohtml leads with a mapping and names any tag on ``E``:
 
 .. list-table::
     :header-rows: 1
@@ -62,6 +122,25 @@ leads with them:
     - - ``webpage(...)`` for the full page shell
       - build it: :data:`E.html(E.head(...), E.body(...)) <turbohtml.build.E>`, or append the fragment under a parsed
         document
+    - - ``str(root)``
+      - :meth:`element.serialize() <turbohtml.Node.serialize>`
+
+The same ``<div class="card">`` built both ways:
+
+.. code-block:: python
+
+    # markyp
+    from markyp_html.block import div
+    from markyp_html.text import h1, p
+
+    card = div(h1("Title"), p("body"), class_="card")
+    html = str(card)
+
+    # turbohtml
+    from turbohtml.build import E
+
+    card = E.div({"class": "card"}, E.h1("Title"), E.p("body"))
+    html = card.serialize()
 
 ``E("tag", ...)`` is the call form for a tag that is not a Python identifier (a custom element, say), and a list-valued
 attribute joins on a space so a class list reads naturally:
@@ -76,15 +155,19 @@ attribute joins on a space so a class list reads naturally:
 
     <my-card class="card lg">hi</my-card>
 
-**********
- Pitfalls
-**********
+**********************
+ Gotchas and pitfalls
+**********************
 
 - ``E`` builds a fragment, not a document: there is no implicit ``<html>``/``<head>``/``<body>`` wrapper and no doctype.
-  Serialize the element you built, or append it under a parsed document when you need the full page shell.
+  Serialize the element you built, or append it under a parsed document when you need the full page shell -- markyp's
+  ``webpage(...)`` writes that shell for you, ``E`` does not.
 - markyp strips a trailing underscore (``class_`` to ``class``) but keeps other underscores, so hyphenated names need an
-  unpacked dict already; ``E`` takes the real attribute name as a plain dict key everywhere.
+  unpacked dict already; ``E`` takes the real attribute name as a plain dict key everywhere (``"class"``, ``"data-i"``).
+- A leading mapping is always read as attributes; to start an element with literal text, pass the string first
+  (``E.p("text", E.b("bold"))``).
 - markyp pretty-prints -- a newline between children and a space after a bare tag name (``<h1 >``); ``E`` serializes
-  compact markup. Parse and re-serialize, or use a formatter, when you need indented output.
+  compact markup. Pass ``serialize(Html(layout=Indent(2)))`` for indented output, or ``Html(layout=Minify())`` to
+  minify.
 - The result is an ordinary :class:`~turbohtml.Element`, so the whole edit and query surface (``append``, ``find``,
   ``select``, ``serialize``, ``to_markdown``) is available -- the builder only saves the construction boilerplate.
