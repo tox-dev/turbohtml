@@ -1,6 +1,6 @@
 /* Translate a CSS selector list into an equivalent XPath 1.0 expression, the engine
-   behind turbohtml.convert.css_to_xpath (the cssselect replacement). #included into
-   dom/element.c after css/selector.h so it reuses the selector parser (run with no
+   behind turbohtml.convert.css_to_xpath (the cssselect replacement). compiled as its own
+   translation unit (spec-tracked in issue #478); it reuses the selector parser (run with no
    tree: atoms stay unresolved, only the parsed structure matters).
 
    The output is not cssselect's string: every emitted predicate is context-free (no
@@ -12,9 +12,7 @@
    pseudo-classes without a type) raise NotImplementedError, which the Python facade
    maps to turbohtml.convert.ExpressionError. */
 
-#ifndef TURBOHTML_CSS_TO_XPATH_H
-#define TURBOHTML_CSS_TO_XPATH_H
-
+#include "dom/nodes.h"
 #include "query/css/selector.h"
 
 typedef struct {
@@ -921,5 +919,3 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     PyMem_Free(ctx.out.data);
     return result;
 }
-
-#endif /* TURBOHTML_CSS_TO_XPATH_H */

@@ -1,6 +1,9 @@
-/* Quirks-mode doctype detection. Included into dom/tree.c ahead of the
-   initial insertion mode so the mode can consult these legacy public/system
-   identifier tables and their case-insensitive compare. */
+/* Quirks-mode doctype detection: the legacy public/system identifier tables and their
+   case-insensitive compare the initial insertion mode consults. #included at the top of
+   dom/tree.c in the same translation unit. */
+
+#ifndef TURBOHTML_DOM_QUIRKS_H
+#define TURBOHTML_DOM_QUIRKS_H
 
 /* Match buf against pat case-insensitively. With whole set, require equal
    length; otherwise accept pat as a prefix of buf. */
@@ -111,3 +114,5 @@ static int doctype_is_quirky(const th_token *tok) {
     }
     return 0;
 }
+
+#endif /* TURBOHTML_DOM_QUIRKS_H */

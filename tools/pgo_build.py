@@ -46,6 +46,10 @@ def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bo
             f"--config-settings=build-dir={build_dir}",
             "--config-settings=setup-args=-Dbuildtype=release",
             f"--config-settings=setup-args=-Db_pgo={phase}",
+            # link-time optimization re-inlines the selector/tokenizer bodies that the 1.0 rearchitecture split out of
+            # their monolith units (spike #478); both PGO phases carry it so the profile stays LTO-consistent. The
+            # CodSpeed gate builds through here, so its measured object matches the LTO the release wheel ships.
+            "--config-settings=setup-args=-Db_lto=true",
         ],
         check=True,
     )

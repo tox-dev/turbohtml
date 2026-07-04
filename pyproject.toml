@@ -182,7 +182,11 @@ linux.before-build = """\
   python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
-linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use" ]
+# -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot
+# selector/tokenizer bodies moved out of their monolith translation units, and LTO is what re-inlines them at link
+# time so the split is perf-neutral. It layers on top of PGO (the profile the use build reads is LTO-consistent
+# because pgo_build.py trains the generate phase with the same flag).
+linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use", "-Db_lto=true" ]
 macos.archs = [ "arm64" ]  # Apple silicon only; x86_64 macOS is end-of-life
 windows.archs = [ "AMD64" ]  # 64-bit only; skip the 32-bit x86 build
 # force the MSVC toolchain: meson otherwise picks up MinGW from the runner's PATH

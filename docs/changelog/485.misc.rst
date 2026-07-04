@@ -1,0 +1,6 @@
+Turn on link-time optimization for the release wheel and the CodSpeed benchmark build, then split the CSS selector
+engine into ``query/css/selector.c``, move the CSS-to-XPath translator to ``query/css/to_xpath.c``, and lift the Node
+select, regex, and XPath query bindings out of ``dom/element.c`` into ``query/methods.c``. LTO re-inlines across the new
+unit boundaries, so the C core holds its speed while ``element.c`` sheds about 1600 lines. ``tree.c`` now includes its
+foreign-content and quirks helpers at the top rather than mid-file. Parser and query output are byte-identical; this is
+structure and build configuration only. Part of #478.

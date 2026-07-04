@@ -50,9 +50,9 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
 PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 
-/* Implemented in query/css/to_xpath.h (#included into dom/element.c beside the
-   selector parser it reuses). _css_to_xpath(selector, prefix) translates a CSS
-   selector list to an equivalent XPath 1.0 expression; matches METH_VARARGS. */
+/* Implemented in query/css/to_xpath.c, which reuses the selector parser.
+   _css_to_xpath(selector, prefix) translates a CSS selector list to an
+   equivalent XPath 1.0 expression; matches METH_VARARGS. */
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 
 /* Implemented in dom/element.c: stores the SelectorSyntaxError type the selector

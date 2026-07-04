@@ -24,7 +24,7 @@
 typedef struct {
     PyObject *key;     /* the selector str (a strong reference) */
     void *compiled;    /* sel_compiled* compiled against this handle's tree; opaque here so the */
-                       /* header-only css/selector.h need only be included by element.c */
+                       /* selector types stay confined to the query units that include selector.h */
     uint32_t attr_gen; /* tree attribute generation when compiled */
 } sel_cache_entry;
 
@@ -476,9 +476,17 @@ static inline int append_wrapped(PyObject *out, module_state *state, PyObject *h
     return 0;
 }
 
-/* Free a handle's compiled-selector and compiled-XPath caches. Lives in element.c so the
-   header-only css/selector.h stays confined to the single unit that uses it. */
+/* Free a handle's compiled-selector and compiled-XPath caches. Lives in query/methods.c
+   with the bindings that populate them. */
 void handle_clear_caches(HandleObject *handle);
+
+/* Drop a handle's cached selector index and id map after a structural mutation. Lives in
+   element.c beside the mutation bindings; query/methods.c calls it from prune/remove/strip. */
+void handle_drop_index(PyObject *handle_obj);
+
+/* Lower-case an attribute-name str into a freshly allocated (PyMem_Free) UTF-8 buffer, or
+   NULL with an exception set. Defined in element.c; query/methods.c reuses it for re(). */
+char *attr_key_utf8(PyObject *key, Py_ssize_t *out_len);
 
 PyObject *node_get_text(PyObject *self, void *Py_UNUSED(closure));
 PyObject *element_get_tag(PyObject *self, void *Py_UNUSED(closure));

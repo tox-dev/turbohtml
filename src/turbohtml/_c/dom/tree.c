@@ -18,6 +18,12 @@
 
 #include <string.h>
 
+/* Doctype quirks tables and the foreign-content step: static helper collections that
+   compile into this translation unit. foreign.h forward-declares the tree-builder
+   statics it shares (defined below), so both include cleanly at the top. */
+#include "dom/quirks.h"
+#include "dom/foreign.h"
+
 /* Copy a th_buf's code points into an arena UCS4 array. */
 static Py_UCS4 *buf_to_ucs4(th_tree *tree, const th_buf *buf, Py_ssize_t *out_len) {
     *out_len = buf->len;
@@ -594,8 +600,6 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
     node_insert_before(parent, node, before);
     return node;
 }
-
-#include "dom/quirks.h"
 
 /* Build a doctype node's serialized text: the name, plus ` "public" "system"`
    when either identifier is present (html5lib's #document format). */
@@ -1457,8 +1461,6 @@ static void any_other_end_tag(th_tree *tree, uint16_t atom, const th_token *toke
         }
     }
 }
-
-#include "dom/foreign.h"
 
 enum mode {
     M_INITIAL,

@@ -1,6 +1,24 @@
 /* Foreign-content (SVG / MathML) handling: name/attribute case adjustments,
    integration-point and breakout checks, and the foreign insertion-mode step.
-   #included into dom/tree.c so the static helpers inline against the tree. */
+   #included at the top of dom/tree.c so the static helpers inline against the
+   tree in the same translation unit. */
+
+#ifndef TURBOHTML_DOM_FOREIGN_H
+#define TURBOHTML_DOM_FOREIGN_H
+
+/* Tree-builder helpers defined further down in dom/tree.c. foreign.h is included at
+   the top of that file (issue #478 removed the mid-file include), so it forward-declares
+   the static helpers it shares rather than relying on their definitions appearing first. */
+static th_node *current_node(th_tree *tree);
+static int stack_push(th_tree *tree, th_node *node);
+static void stack_pop(th_tree *tree);
+static th_node *insert_element(th_tree *tree, const th_token *token);
+static void insert_comment(th_tree *tree, const th_token *token, th_node *parent);
+static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len);
+static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out_len);
+static uint16_t tok_atom(const th_token *tok);
+static int name_matches(const th_node *node, const th_token *token, int fold);
+static int all_whitespace(const Py_UCS4 *text, Py_ssize_t len);
 
 /* SVG element names that take a specific mixed case (the spec's "SVG element
    name adjustments"); everything else stays lowercase. */
@@ -338,8 +356,6 @@ static int use_foreign_rules(th_tree *tree, const th_token *token) {
     return 1;
 }
 
-static int all_whitespace(const Py_UCS4 *text, Py_ssize_t len);
-
 /* Process a token under foreign-content rules. Returns 1 when handled, 0 when an
    HTML breakout/end-tag match means the caller should run the HTML rules. */
 static int foreign_step(th_tree *tree, const th_token *token) {
@@ -416,3 +432,5 @@ static int foreign_step(th_tree *tree, const th_token *token) {
     } /* GCOVR_EXCL_BR_LINE: the walk always reaches the fragment root or an html element first */
     return 1; /* GCOVR_EXCL_LINE: same — the foreign end-tag walk never falls through */
 }
+
+#endif /* TURBOHTML_DOM_FOREIGN_H */
