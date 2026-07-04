@@ -25,8 +25,6 @@
 
 #include <string.h>
 
-/* ----------------------------------------------------------- block classes */
-
 /* Whether an element's own Markdown markup is dropped under the strip/convert
    filter, leaving its children to render transparently in the surrounding flow.
    A strip set names the tags to drop; a convert set names the only tags to keep,
@@ -38,8 +36,6 @@ static int md_tag_filtered(const md_opts *opt, uint16_t atom) {
     int present = (opt->filter_tags[atom >> 6] >> (atom & 63)) & 1;
     return opt->tag_filter == TH_MD_FILTER_STRIP ? present : !present;
 }
-
-/* ----------------------------------------------------------------- options */
 
 md_opts th_markdown_default_opts(void) {
     md_opts opt = {0};
@@ -82,8 +78,6 @@ md_opts th_markdown_default_opts(void) {
     opt.wrap_node_ctx = NULL;
     return opt;
 }
-
-/* -------------------------------------------------------------- the cursor */
 
 /* A reference-style link or image collected during the walk, flushed as a
    numbered "[n]: url" definition at the end. */
@@ -132,15 +126,15 @@ typedef struct {
 
 /* Emit a configured option string, which may hold non-ASCII (a typographic
    quote, a unicode bullet), decoding its UTF-8 to code points. */
-static void md_puts8(sbuf *out, const char *s) {
-    sbuf_put_utf8(out, s, (Py_ssize_t)strlen(s));
+static void md_puts8(sbuf *out, const char *text) {
+    sbuf_put_utf8(out, text, (Py_ssize_t)strlen(text));
 }
 
 /* Append n spaces to the continuation prefix and return the start offset, so the
    caller can pop them back off after the nested block. */
-static Py_ssize_t md_push_spaces(md_ctx *ctx, Py_ssize_t n) {
+static Py_ssize_t md_push_spaces(md_ctx *ctx, Py_ssize_t count) {
     Py_ssize_t base = ctx->prefix.len;
-    for (Py_ssize_t i = 0; i < n; i++) {
+    for (Py_ssize_t index = 0; index < count; index++) {
         sbuf_putc(&ctx->prefix, ' ');
     }
     return base;
@@ -252,13 +246,11 @@ static void md_before_visible(md_ctx *ctx) {
     md_emit_pending(ctx, ctx->pending);
 }
 
-/* ----------------------------------------------------------- inline output */
-
 /* Characters that begin a markdown construct and so are backslash-escaped in
    running text. Leading line markers (#, >, -, +) are handled separately, only
    at the very start of a line. */
-static int md_needs_escape(const md_opts *opt, Py_UCS4 c) {
-    switch (c) {
+static int md_needs_escape(const md_opts *opt, Py_UCS4 ch) {
+    switch (ch) {
     case '\\':
     case '`':
     case '[':
@@ -272,8 +264,8 @@ static int md_needs_escape(const md_opts *opt, Py_UCS4 c) {
         break;
     }
     /* the "all" mode escapes every other character a markdown reader could act on */
-    return opt->escape_mode == TH_MD_ESCAPE_ALL && (c == '<' || c == '>' || c == '#' || c == '+' || c == '-' ||
-                                                    c == '=' || c == '~' || c == '|' || c == '!' || c == '&');
+    return opt->escape_mode == TH_MD_ESCAPE_ALL && (ch == '<' || ch == '>' || ch == '#' || ch == '+' || ch == '-' ||
+                                                    ch == '=' || ch == '~' || ch == '|' || ch == '!' || ch == '&');
 }
 
 /* The transliterate map: common non-ASCII typography folded to an ASCII spelling.
@@ -302,21 +294,21 @@ static const md_translit_entry MD_TRANSLIT[] = {
 
 /* The ASCII spelling for a code point, or NULL to emit it unchanged. ASCII never
    maps, so the common path costs one comparison. */
-static const char *md_translit(Py_UCS4 c) {
-    if (c < 0x80) {
+static const char *md_translit(Py_UCS4 ch) {
+    if (ch < 0x80) {
         return NULL;
     }
     for (size_t index = 0; index < sizeof(MD_TRANSLIT) / sizeof(MD_TRANSLIT[0]); index++) {
-        if (MD_TRANSLIT[index].cp == c) {
+        if (MD_TRANSLIT[index].cp == ch) {
             return MD_TRANSLIT[index].ascii;
         }
     }
     return NULL;
 }
 
-static void md_put_char(md_ctx *ctx, Py_UCS4 c) {
+static void md_put_char(md_ctx *ctx, Py_UCS4 ch) {
     if (ctx->opt->transliterate) {
-        const char *ascii = md_translit(c);
+        const char *ascii = md_translit(ch);
         if (ascii != NULL) {
             for (const char *cursor = ascii; *cursor != '\0'; cursor++) {
                 md_put_char(ctx, (Py_UCS4)(unsigned char)*cursor);
@@ -324,31 +316,31 @@ static void md_put_char(md_ctx *ctx, Py_UCS4 c) {
             return;
         }
     }
-    int line_start_marker = !ctx->line_has_content && (c == '#' || c == '>' || c == '-' || c == '+');
-    if (md_needs_escape(ctx->opt, c) || line_start_marker) {
+    int line_start_marker = !ctx->line_has_content && (ch == '#' || ch == '>' || ch == '-' || ch == '+');
+    if (md_needs_escape(ctx->opt, ch) || line_start_marker) {
         sbuf_putc(&ctx->out, '\\');
     }
-    sbuf_putc(&ctx->out, c);
+    sbuf_putc(&ctx->out, ch);
     ctx->line_has_content = 1;
 }
 
 /* At a line start, "12. " or "3) " would be read as an ordered-list item, so a
    leading run of digits before a dot or paren is escaped. Returns how many code
    points were consumed (0 when the run is not list-like). */
-static Py_ssize_t md_escape_line_number(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t i, Py_ssize_t len) {
+static Py_ssize_t md_escape_line_number(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len) {
     /* the caller only enters here on a digit, so the run is at least one long */
-    Py_ssize_t j = i;
-    while (j < len && text[j] >= '0' && text[j] <= '9') {
-        j++;
+    Py_ssize_t scan = index;
+    while (scan < len && text[scan] >= '0' && text[scan] <= '9') {
+        scan++;
     }
-    if (j >= len || (text[j] != '.' && text[j] != ')')) {
+    if (scan >= len || (text[scan] != '.' && text[scan] != ')')) {
         return 0;
     }
-    sbuf_put_run(&ctx->out, &text[i], j - i);
+    sbuf_put_run(&ctx->out, &text[index], scan - index);
     sbuf_putc(&ctx->out, '\\');
-    sbuf_putc(&ctx->out, text[j]);
+    sbuf_putc(&ctx->out, text[scan]);
     ctx->line_has_content = 1;
-    return j + 1 - i;
+    return scan + 1 - index;
 }
 
 /* Emit inline text with normal-flow whitespace collapsing and markdown escaping.
@@ -357,37 +349,38 @@ static Py_ssize_t md_escape_line_number(md_ctx *ctx, const Py_UCS4 *text, Py_ssi
    no whitespace, nothing to escape — is bulk-copied in one memcpy. */
 static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
     int translit = ctx->opt->transliterate;
-    Py_ssize_t i = 0;
-    while (i < len) {
-        Py_UCS4 c = text[i];
-        if (md_is_ws(c)) {
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_UCS4 ch = text[index];
+        if (md_is_ws(ch)) {
             ctx->space_pending = 1;
-            i++;
+            index++;
             continue;
         }
         /* the upcoming word's code-point count tells md_flush_space whether the
            owed space should become a wrap break before the word is laid down */
-        Py_ssize_t word_end = i;
+        Py_ssize_t word_end = index;
         while (word_end < len && !md_is_ws(text[word_end])) {
             word_end++;
         }
-        ctx->pending_word = (int)(word_end - i);
+        ctx->pending_word = (int)(word_end - index);
         md_before_visible(ctx);
-        if (!ctx->line_has_content && c >= '0' && c <= '9') {
-            Py_ssize_t consumed = md_escape_line_number(ctx, text, i, len);
+        if (!ctx->line_has_content && ch >= '0' && ch <= '9') {
+            Py_ssize_t consumed = md_escape_line_number(ctx, text, index, len);
             if (consumed > 0) {
-                i += consumed;
+                index += consumed;
                 continue;
             }
         }
-        md_put_char(ctx, c);
-        i++;
-        Py_ssize_t start = i;
-        while (i < len && !md_is_ws(text[i]) && !md_needs_escape(ctx->opt, text[i]) && !(translit && text[i] >= 0x80)) {
-            i++;
+        md_put_char(ctx, ch);
+        index++;
+        Py_ssize_t start = index;
+        while (index < len && !md_is_ws(text[index]) && !md_needs_escape(ctx->opt, text[index]) &&
+               !(translit && text[index] >= 0x80)) {
+            index++;
         }
-        if (i > start) {
-            sbuf_put_run(&ctx->out, &text[start], i - start);
+        if (index > start) {
+            sbuf_put_run(&ctx->out, &text[start], index - start);
         }
     }
 }
@@ -520,11 +513,11 @@ static void md_wrap(md_ctx *ctx, th_node *node, const char *marker) {
 
 /* The longest run of backticks anywhere in s, so an inline code span can fence
    with one more backtick than that and never be split by its own content. */
-static Py_ssize_t md_max_backtick_run(const Py_UCS4 *s, Py_ssize_t len) {
+static Py_ssize_t md_max_backtick_run(const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t best = 0;
     Py_ssize_t run = 0;
-    for (Py_ssize_t i = 0; i < len; i++) {
-        if (s[i] == '`') {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] == '`') {
             run++;
             if (run > best) {
                 best = run;
@@ -565,7 +558,7 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
     Py_ssize_t len = content.len;
     Py_ssize_t fence = md_max_backtick_run(content.data, len) + 1;
     int pad = len > 0 && (content.data[0] == '`' || content.data[len - 1] == '`');
-    for (Py_ssize_t i = 0; i < fence; i++) {
+    for (Py_ssize_t index = 0; index < fence; index++) {
         sbuf_putc(&ctx->out, '`');
     }
     if (pad) {
@@ -575,7 +568,7 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
     if (pad) {
         sbuf_putc(&ctx->out, ' ');
     }
-    for (Py_ssize_t i = 0; i < fence; i++) {
+    for (Py_ssize_t index = 0; index < fence; index++) {
         sbuf_putc(&ctx->out, '`');
     }
     ctx->line_has_content = 1;
@@ -586,8 +579,8 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
    wrapped in angle brackets so the destination stays a single token. */
 static void md_emit_url(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t len) {
     int has_space = 0;
-    for (Py_ssize_t i = 0; i < len; i++) {
-        if (url[i] == ' ') {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (url[index] == ' ') {
             has_space = 1;
         }
     }
@@ -603,11 +596,11 @@ static void md_emit_url(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t len) {
 /* Write a link/image title inside its `"..."` delimiters: a `"` would close the
    title early and a `\` would escape the next character, so both are backslashed. */
 static void md_emit_title(sbuf *out, const Py_UCS4 *title, Py_ssize_t len) {
-    for (Py_ssize_t i = 0; i < len; i++) {
-        if (title[i] == '"' || title[i] == '\\') {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (title[index] == '"' || title[index] == '\\') {
             sbuf_putc(out, '\\');
         }
-        sbuf_putc(out, title[i]);
+        sbuf_putc(out, title[index]);
     }
 }
 
@@ -620,11 +613,11 @@ static int md_href_internal(const Py_UCS4 *href) {
 /* An href that already carries a scheme ("https://", "mailto:") is absolute and
    takes no base-url prefix; the autolink shortcut also needs an absolute target. */
 static int md_href_absolute(const Py_UCS4 *href, Py_ssize_t len) {
-    for (Py_ssize_t i = 0; i < len; i++) {
-        if (href[i] == ':') {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (href[index] == ':') {
             return 1;
         }
-        if (href[i] == '/' || href[i] == '#' || href[i] == '?') {
+        if (href[index] == '/' || href[index] == '#' || href[index] == '?') {
             return 0;
         }
     }
@@ -741,11 +734,11 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
 static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
     if (alt != NULL) {
         if (escape) {
-            for (Py_ssize_t i = 0; i < alt_len; i++) {
-                if (alt[i] == '[' || alt[i] == ']' || alt[i] == '\\') {
+            for (Py_ssize_t index = 0; index < alt_len; index++) {
+                if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\') {
                     sbuf_putc(&ctx->out, '\\');
                 }
-                sbuf_putc(&ctx->out, alt[i]);
+                sbuf_putc(&ctx->out, alt[index]);
             }
         } else {
             sbuf_put_run(&ctx->out, alt, alt_len);
@@ -964,8 +957,6 @@ static void md_render_inline(md_ctx *ctx, th_node *node) {
     md_render_inline_tag(ctx, node);
 }
 
-/* ------------------------------------------------------------ block output */
-
 /* A block that lays out as a plain paragraph run, as opposed to a list, blockquote,
    table, heading, rule or pre that frames its own lines. Its first paragraph rides
    the list marker, and a second such block makes the item loose. <p> is the explicit
@@ -982,8 +973,8 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
-            for (Py_ssize_t i = 0; i < child->text_len; i++) {
-                if (!md_is_ws(text[i])) {
+            for (Py_ssize_t index = 0; index < child->text_len; index++) {
+                if (!md_is_ws(text[index])) {
                     return 1; /* leading visible text rides on the bullet line */
                 }
             }
@@ -1012,8 +1003,8 @@ static int md_item_is_loose(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
-            for (Py_ssize_t i = 0; i < child->text_len; i++) {
-                if (!md_is_ws(text[i])) {
+            for (Py_ssize_t index = 0; index < child->text_len; index++) {
+                if (!md_is_ws(text[index])) {
                     if (!in_run) {
                         units++;
                         in_run = 1;
@@ -1074,8 +1065,8 @@ static void md_block_children(md_ctx *ctx, th_node *node) {
             int only_ws = child->type == TH_NODE_TEXT;
             if (only_ws) {
                 const Py_UCS4 *text = need_text(ctx->tree, child);
-                for (Py_ssize_t i = 0; i < child->text_len; i++) {
-                    if (!md_is_ws(text[i])) {
+                for (Py_ssize_t index = 0; index < child->text_len; index++) {
+                    if (!md_is_ws(text[index])) {
                         only_ws = 0;
                         break;
                     }
@@ -1255,9 +1246,9 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
         if (start != NULL) {
             Py_ssize_t value = 0;
             int seen = 0;
-            for (Py_ssize_t i = 0; i < start_len; i++) {
-                if (start[i] >= '0' && start[i] <= '9') {
-                    value = value * 10 + (start[i] - '0');
+            for (Py_ssize_t index = 0; index < start_len; index++) {
+                if (start[index] >= '0' && start[index] <= '9') {
+                    value = value * 10 + (start[index] - '0');
                     seen = 1;
                 } else {
                     break;
@@ -1373,9 +1364,9 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
     ctx->space_pending = saved_space;
     ctx->drop_space = saved_drop;
     int space_run = 0;
-    for (Py_ssize_t i = 0; i < rendered.len; i++) {
-        Py_UCS4 c = rendered.data[i];
-        if (c == '\n' || c == ' ') {
+    for (Py_ssize_t index = 0; index < rendered.len; index++) {
+        Py_UCS4 ch = rendered.data[index];
+        if (ch == '\n' || ch == ' ') {
             space_run = 1;
             continue;
         }
@@ -1383,10 +1374,10 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
             sbuf_putc(dst, ' ');
             space_run = 0;
         }
-        if (c == '|') {
+        if (ch == '|') {
             sbuf_puts(dst, "\\|");
         } else {
-            sbuf_putc(dst, c);
+            sbuf_putc(dst, ch);
         }
     }
     PyMem_Free(rendered.data);
@@ -1458,14 +1449,14 @@ static Py_ssize_t md_collect_rows(th_node *node, th_node **rows, Py_ssize_t *cou
    width, wrapped in pipes. A NULL grid emits an all-spaces (empty header) row. */
 static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize_t columns, const Py_ssize_t *widths) {
     sbuf_puts(&ctx->out, "| ");
-    for (Py_ssize_t c = 0; c < columns; c++) {
+    for (Py_ssize_t column = 0; column < columns; column++) {
         Py_ssize_t len = 0;
         if (grid != NULL) {
-            sbuf *cell = &grid[row * columns + c];
+            sbuf *cell = &grid[row * columns + column];
             sbuf_put_run(&ctx->out, cell->data, cell->len);
             len = cell->len;
         }
-        for (Py_ssize_t pad = len; pad < widths[c]; pad++) {
+        for (Py_ssize_t pad = len; pad < widths[column]; pad++) {
             sbuf_putc(&ctx->out, ' ');
         }
         sbuf_puts(&ctx->out, " | ");
@@ -1484,42 +1475,42 @@ static void md_render_table_padded(md_ctx *ctx, th_node **rows, Py_ssize_t count
         ctx->out.failed = 1;              /* GCOVR_EXCL_LINE: allocation-failure path */
         return;                           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    for (Py_ssize_t r = 0; r < count; r++) {
+    for (Py_ssize_t row = 0; row < count; row++) {
         Py_ssize_t col = 0;
-        for (th_node *cell = rows[r]->first_child; cell != NULL; cell = cell->next_sibling) {
+        for (th_node *cell = rows[row]->first_child; cell != NULL; cell = cell->next_sibling) {
             if (cell->type != TH_NODE_ELEMENT || (cell->atom != TH_TAG_TD && cell->atom != TH_TAG_TH)) {
                 continue;
             }
             /* columns is the widest row's cell count, so col never reaches it */
-            md_cell_text(ctx, cell, &grid[r * columns + col]);
-            if (grid[r * columns + col].len > widths[col]) {
-                widths[col] = grid[r * columns + col].len;
+            md_cell_text(ctx, cell, &grid[row * columns + col]);
+            if (grid[row * columns + col].len > widths[col]) {
+                widths[col] = grid[row * columns + col].len;
             }
             col++;
         }
     }
-    for (Py_ssize_t c = 0; c < columns; c++) {
-        if (widths[c] < 3) {
-            widths[c] = 3; /* the "---" separator needs at least three dashes */
+    for (Py_ssize_t column = 0; column < columns; column++) {
+        if (widths[column] < 3) {
+            widths[column] = 3; /* the "---" separator needs at least three dashes */
         }
     }
     Py_ssize_t body_start = has_header ? 1 : 0;
     md_emit_padded_row(ctx, has_header ? grid : NULL, 0, columns, widths);
     md_newline(ctx);
     sbuf_puts(&ctx->out, "| ");
-    for (Py_ssize_t c = 0; c < columns; c++) {
-        for (Py_ssize_t d = 0; d < widths[c]; d++) {
+    for (Py_ssize_t column = 0; column < columns; column++) {
+        for (Py_ssize_t pad = 0; pad < widths[column]; pad++) {
             sbuf_putc(&ctx->out, '-');
         }
         sbuf_puts(&ctx->out, " | ");
     }
     ctx->line_has_content = 1;
-    for (Py_ssize_t r = body_start; r < count; r++) {
+    for (Py_ssize_t row = body_start; row < count; row++) {
         md_newline(ctx);
-        md_emit_padded_row(ctx, grid, r, columns, widths);
+        md_emit_padded_row(ctx, grid, row, columns, widths);
     }
-    for (Py_ssize_t i = 0; i < count * columns; i++) {
-        PyMem_Free(grid[i].data);
+    for (Py_ssize_t index = 0; index < count * columns; index++) {
+        PyMem_Free(grid[index].data);
     }
     PyMem_Free(grid);
     PyMem_Free(widths);
@@ -1553,10 +1544,10 @@ static void md_render_table(md_ctx *ctx, th_node *node) {
     }
     if (opt->table_mode == TH_MD_TABLE_STRIP) {
         /* drop the grid, keep each cell's text as a space-joined block per row */
-        for (Py_ssize_t r = 0; r < count; r++) {
+        for (Py_ssize_t row = 0; row < count; row++) {
             md_block_line(ctx, 1);
             int first = 1;
-            for (th_node *cell = rows[r]->first_child; cell != NULL; cell = cell->next_sibling) {
+            for (th_node *cell = rows[row]->first_child; cell != NULL; cell = cell->next_sibling) {
                 if (cell->type != TH_NODE_ELEMENT || (cell->atom != TH_TAG_TD && cell->atom != TH_TAG_TH)) {
                     continue;
                 }
@@ -1583,20 +1574,20 @@ static void md_render_table(md_ctx *ctx, th_node *node) {
             md_emit_row(ctx, rows[0], columns);
         } else {
             sbuf_puts(&ctx->out, "| ");
-            for (Py_ssize_t c = 0; c < columns; c++) {
+            for (Py_ssize_t column = 0; column < columns; column++) {
                 sbuf_puts(&ctx->out, " | ");
             }
             ctx->line_has_content = 1;
         }
         md_newline(ctx);
         sbuf_puts(&ctx->out, "| ");
-        for (Py_ssize_t c = 0; c < columns; c++) {
+        for (Py_ssize_t column = 0; column < columns; column++) {
             sbuf_puts(&ctx->out, "--- | ");
         }
         ctx->line_has_content = 1;
-        for (Py_ssize_t r = body_start; r < count; r++) {
+        for (Py_ssize_t row = body_start; row < count; row++) {
             md_newline(ctx);
-            md_emit_row(ctx, rows[r], columns);
+            md_emit_row(ctx, rows[row], columns);
         }
     }
     PyMem_Free(rows);
@@ -1605,11 +1596,11 @@ static void md_render_table(md_ctx *ctx, th_node *node) {
 /* Emit preformatted text verbatim, restarting the line prefix at each newline so
    a fence indent or blockquote marker carries down every line. */
 static void md_emit_pre_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t end) {
-    for (Py_ssize_t i = 0; i < end; i++) {
-        if (text[i] == '\n') {
+    for (Py_ssize_t index = 0; index < end; index++) {
+        if (text[index] == '\n') {
             md_newline(ctx);
         } else {
-            sbuf_putc(&ctx->out, text[i]);
+            sbuf_putc(&ctx->out, text[index]);
             ctx->line_has_content = 1;
         }
     }
@@ -1630,8 +1621,8 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
             Py_ssize_t want_len = 9;
             if (cls_len > want_len) {
                 int match = 1;
-                for (Py_ssize_t i = 0; i < want_len; i++) {
-                    if (cls[i] != (Py_UCS4)(unsigned char)want[i]) {
+                for (Py_ssize_t index = 0; index < want_len; index++) {
+                    if (cls[index] != (Py_UCS4)(unsigned char)want[index]) {
                         match = 0;
                         break;
                     }
@@ -1639,9 +1630,9 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
                 if (match) {
                     lang = cls + want_len;
                     lang_len = cls_len - want_len;
-                    for (Py_ssize_t i = 0; i < lang_len; i++) {
-                        if (md_is_ws(lang[i])) {
-                            lang_len = i;
+                    for (Py_ssize_t index = 0; index < lang_len; index++) {
+                        if (md_is_ws(lang[index])) {
+                            lang_len = index;
                             break;
                         }
                     }
@@ -1682,7 +1673,7 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
     } else {
         Py_ssize_t fence = md_max_backtick_run(text, text_len);
         fence = fence + 1 > 3 ? fence + 1 : 3;
-        for (Py_ssize_t i = 0; i < fence; i++) {
+        for (Py_ssize_t index = 0; index < fence; index++) {
             sbuf_putc(&ctx->out, '`');
         }
         if (lang != NULL) {
@@ -1694,7 +1685,7 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
         md_newline(ctx);
         md_emit_pre_text(ctx, text, end);
         md_newline(ctx);
-        for (Py_ssize_t i = 0; i < fence; i++) {
+        for (Py_ssize_t index = 0; index < fence; index++) {
             sbuf_putc(&ctx->out, '`');
         }
         ctx->line_has_content = 1;
@@ -1733,13 +1724,13 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
             Py_ssize_t width = ctx->out.len - mark;
             md_newline(ctx);
             Py_UCS4 rule = level == 1 ? '=' : '-';
-            for (Py_ssize_t i = 0; i < width; i++) {
+            for (Py_ssize_t index = 0; index < width; index++) {
                 sbuf_putc(&ctx->out, rule);
             }
             ctx->line_has_content = 1;
             return;
         }
-        for (int i = 0; i < level; i++) {
+        for (int index = 0; index < level; index++) {
             sbuf_putc(&ctx->out, '#');
         }
         sbuf_putc(&ctx->out, ' ');
@@ -1748,7 +1739,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         md_inline_children(ctx, node);
         if (ctx->opt->heading_style == TH_MD_HEADING_ATX_CLOSED) {
             sbuf_putc(&ctx->out, ' ');
-            for (int i = 0; i < level; i++) {
+            for (int index = 0; index < level; index++) {
                 sbuf_putc(&ctx->out, '#');
             }
         }
@@ -1817,17 +1808,17 @@ static void md_flush_references(md_ctx *ctx) {
         return;
     }
     sbuf_puts(&ctx->out, "\n\n");
-    for (Py_ssize_t i = 0; i < ctx->ref_count; i++) {
-        if (i > 0) {
+    for (Py_ssize_t index = 0; index < ctx->ref_count; index++) {
+        if (index > 0) {
             sbuf_putc(&ctx->out, '\n');
         }
         sbuf_putc(&ctx->out, '[');
-        md_put_decimal(&ctx->out, i + 1);
+        md_put_decimal(&ctx->out, index + 1);
         sbuf_puts(&ctx->out, "]: ");
-        sbuf_put_run(&ctx->out, ctx->refs[i].url, ctx->refs[i].url_len);
-        if (ctx->refs[i].title != NULL) {
+        sbuf_put_run(&ctx->out, ctx->refs[index].url, ctx->refs[index].url_len);
+        if (ctx->refs[index].title != NULL) {
             sbuf_puts(&ctx->out, " \"");
-            md_emit_title(&ctx->out, ctx->refs[i].title, ctx->refs[i].title_len);
+            md_emit_title(&ctx->out, ctx->refs[index].title, ctx->refs[index].title_len);
             sbuf_putc(&ctx->out, '"');
         }
     }
