@@ -533,6 +533,10 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
 Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
                                  Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    /* one chunk grows to about TH_SERIALIZE_CHUNK before it is handed off, so size the
+       buffer to that up front rather than let the doubling reserve walk 256 -> 8192 on
+       every chunk (a node straddling the limit still forces at most one more grow) */
+    sbuf_reserve(&out, TH_SERIALIZE_CHUNK);
     if (indent == NULL) {
         while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
             cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts);
