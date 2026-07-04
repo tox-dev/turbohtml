@@ -1,7 +1,7 @@
 # Subsystem: features (_c/features) — sanitizing, linkify scanning, annotation, and type registration.
 from collections.abc import Callable, Iterable, Mapping
 
-from turbohtml._structured_data import JSONValue, MicrodataItem, RdfaItem, StructuredData
+from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
 from .dom import Element
 
@@ -30,6 +30,7 @@ def _register_structured_data(
     microdata_item: type[MicrodataItem],
     rdfa_item: type[RdfaItem],
     structured_data: type[StructuredData],
+    opengraph: type[OpenGraph],
     /,
 ) -> None: ...
 def _register_article(article_type: type, /) -> None: ...

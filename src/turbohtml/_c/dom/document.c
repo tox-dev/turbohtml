@@ -478,11 +478,13 @@ PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "A block that is not valid JSON is skipped.");
 
 PyDoc_STRVAR(opengraph_doc, "opengraph(base_url=None)\n--\n\n"
-                            "Return a dict mapping each <meta property=\"og:...\"> or <meta name=\"twitter:...\">\n"
-                            "key to its content value. When a key repeats, the last occurrence wins.\n\n"
+                            "Return an OpenGraph record of the page's Open Graph metadata, a successor to the\n"
+                            "opengraph library. Each <meta property=\"og:...\"> key is read with the og: prefix\n"
+                            "stripped (og:title reads as og[\"title\"]) and the twitter: keys are dropped; when a\n"
+                            "key repeats, the last occurrence wins.\n\n"
                             ":param base_url: when given, the URL each relative URL-valued key (og:url, og:image,\n"
-                            "    og:video, twitter:image, ...) is resolved against; a <base href> refines it. None\n"
-                            "    (the default) returns every value verbatim.\n"
+                            "    og:video, ...) is resolved against; a <base href> refines it. None (the default)\n"
+                            "    returns every value verbatim.\n"
                             ":raises ValueError: if base_url is not a valid absolute URL.");
 
 PyDoc_STRVAR(microdata_doc,

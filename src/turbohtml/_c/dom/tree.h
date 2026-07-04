@@ -323,6 +323,7 @@ typedef struct {
     int minify_js_fold;      /* run the JS constant-folding / dead-code pass */
     int minify_js_mangle;    /* run the JS identifier-renaming pass */
     int minify_css;          /* minify <style> bodies and style="" values through the CSS minifier */
+    int minify_css_baseline; /* the CSSMinify baseline bounding the output syntax, 0 for None */
 } th_minify_opts;
 
 /* Serialize node and its subtree minified under minify and the output options.

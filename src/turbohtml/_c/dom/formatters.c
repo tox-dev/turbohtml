@@ -22,6 +22,29 @@ static int minify_unpack_js(PyObject *config, unsigned char *fold, unsigned char
     return 0;
 }
 
+/* Read the baseline off a CSSMinify: an int year, or None (the default) as 0, which the CSS
+   engine reads as "only long-interoperable syntax". The argument was already confirmed to be
+   a CSSMinify, so the attribute always exists. Returns 0 on success, -1 with an exception on
+   allocation or an overflowing year. */
+static int minify_unpack_css(PyObject *config, int *baseline) {
+    PyObject *baseline_attr = PyObject_GetAttrString(config, "baseline");
+    if (baseline_attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return -1;               /* GCOVR_EXCL_LINE */
+    }
+    if (baseline_attr == Py_None) {
+        *baseline = 0;
+        Py_DECREF(baseline_attr);
+        return 0;
+    }
+    long year = PyLong_AsLong(baseline_attr);
+    Py_DECREF(baseline_attr);
+    if (year == -1 && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a year wider than long cannot be forced here */
+        return -1;                        /* GCOVR_EXCL_LINE: overflow path */
+    }
+    *baseline = (int)year;
+    return 0;
+}
+
 static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     static char *keywords[] = {"collapse_whitespace",
                                "omit_optional_tags",
@@ -34,9 +57,9 @@ static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
     int omit = 1;
     int unquote = 1;
     int strip = 1;
-    PyObject *minify_js = NULL; /* a JSMinify enables the inline-<script> pass; None (the default) leaves it off */
-    int minify_css = 0;         /* the CSS pass is off by default: byte-identical to the pre-CSS minify */
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppppOp:Minify", keywords, &collapse, &omit, &unquote, &strip,
+    PyObject *minify_js = NULL;  /* a JSMinify enables the inline-<script> pass; None (the default) leaves it off */
+    PyObject *minify_css = NULL; /* a CSSMinify enables the <style>/style="" pass; None (the default) leaves it off */
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppppOO:Minify", keywords, &collapse, &omit, &unquote, &strip,
                                      &minify_js, &minify_css)) {
         return NULL;
     }
@@ -58,6 +81,23 @@ static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
         }
         js = 1;
     }
+    unsigned char css = 0;
+    int css_baseline = 0;
+    if (minify_css != NULL && minify_css != Py_None) {
+        module_state *state = PyType_GetModuleState(type);
+        int matches = PyObject_IsInstance(minify_css, state->css_minify_type);
+        if (matches < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return NULL;   /* GCOVR_EXCL_LINE */
+        }
+        if (!matches) {
+            PyErr_SetString(PyExc_TypeError, "minify_css must be a CSSMinify or None");
+            return NULL;
+        }
+        if (minify_unpack_css(minify_css, &css_baseline) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return NULL;                                        /* GCOVR_EXCL_LINE */
+        }
+        css = 1;
+    }
     MinifyObject *self = (MinifyObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -69,7 +109,8 @@ static PyObject *minify_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
     self->minify_js = js;
     self->minify_js_fold = js_fold;
     self->minify_js_mangle = js_mangle;
-    self->minify_css = (unsigned char)minify_css;
+    self->minify_css = css;
+    self->minify_css_baseline = css_baseline;
     return (PyObject *)self;
 }
 
@@ -102,8 +143,23 @@ static PyObject *minify_get_minify_js(PyObject *self, void *Py_UNUSED(closure)) 
                                  minify->minify_js_fold ? Py_True : Py_False);
 }
 
+/* Rebuild the CSSMinify the constructor was handed (a frozen value type, so a fresh one with
+   the same baseline compares equal), or None when the style pass is off. A stored baseline of
+   0 rebuilds as CSSMinify(baseline=None), the same normalization CSSMinify itself applies. */
 static PyObject *minify_get_minify_css(PyObject *self, void *Py_UNUSED(closure)) {
-    return PyBool_FromLong(((MinifyObject *)self)->minify_css);
+    MinifyObject *minify = (MinifyObject *)self;
+    if (!minify->minify_css) {
+        Py_RETURN_NONE;
+    }
+    PyObject *baseline =
+        minify->minify_css_baseline ? PyLong_FromLong(minify->minify_css_baseline) : Py_NewRef(Py_None);
+    if (baseline == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    module_state *state = PyType_GetModuleState(Py_TYPE(self));
+    PyObject *config = PyObject_CallOneArg(state->css_minify_type, baseline);
+    Py_DECREF(baseline);
+    return config;
 }
 
 static PyGetSetDef minify_getset[] = {
@@ -112,7 +168,7 @@ static PyGetSetDef minify_getset[] = {
     {"unquote_attributes", minify_get_unquote, NULL, "drop redundant attribute quotes and empty values", NULL},
     {"strip_comments", minify_get_strip, NULL, "remove comment nodes", NULL},
     {"minify_js", minify_get_minify_js, NULL, "the JSMinify config for inline <script>, or None when off", NULL},
-    {"minify_css", minify_get_minify_css, NULL, "minify <style> bodies and style attributes", NULL},
+    {"minify_css", minify_get_minify_css, NULL, "the CSSMinify config for <style>/style=\"\", or None when off", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -122,13 +178,19 @@ PyObject *turbohtml_register_js_minify(PyObject *module, PyObject *type) {
     Py_RETURN_NONE;
 }
 
-/* Pack every flag into the low bits so equality and hashing reduce to one integer
-   compare; the script toggles only differ when the pass is on, keeping two off configs
-   equal regardless of their (unused) cached fold/mangle. */
+PyObject *turbohtml_register_css_minify(PyObject *module, PyObject *type) {
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->css_minify_type, Py_NewRef(type));
+    Py_RETURN_NONE;
+}
+
+/* Pack every flag into the low bits so equality and hashing reduce to one integer compare; the
+   script toggles only differ when the JS pass is on, and the baseline (shifted above the flags)
+   only when the CSS pass is on, keeping two off configs equal regardless of their cached fields. */
 static long minify_bits(MinifyObject *self) {
     return self->collapse_whitespace | self->omit_optional_tags << 1 | self->unquote_attributes << 2 |
            self->strip_comments << 3 | self->minify_js << 4 | self->minify_js_fold << 5 | self->minify_js_mangle << 6 |
-           self->minify_css << 7;
+           self->minify_css << 7 | (long)self->minify_css_baseline << 8;
 }
 
 static PyObject *minify_richcompare(PyObject *self, PyObject *other, int op) {
@@ -158,18 +220,28 @@ static PyObject *minify_repr(PyObject *self) {
     if (js == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return NULL;  /* GCOVR_EXCL_LINE */
     }
+    /* mirror CSSMinify's own dataclass repr (baseline None when the year is 0) */
+    PyObject *css =
+        minify->minify_css
+            ? (minify->minify_css_baseline ? PyUnicode_FromFormat("CSSMinify(baseline=%d)", minify->minify_css_baseline)
+                                           : PyUnicode_FromString("CSSMinify(baseline=None)"))
+            : PyUnicode_FromString("None");
+    if (css == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        Py_DECREF(js); /* GCOVR_EXCL_LINE */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
     PyObject *repr = PyUnicode_FromFormat(
         "Minify(collapse_whitespace=%s, omit_optional_tags=%s, unquote_attributes=%s, "
-        "strip_comments=%s, minify_js=%U, minify_css=%s)",
+        "strip_comments=%s, minify_js=%U, minify_css=%U)",
         minify->collapse_whitespace ? "True" : "False", minify->omit_optional_tags ? "True" : "False",
-        minify->unquote_attributes ? "True" : "False", minify->strip_comments ? "True" : "False", js,
-        minify->minify_css ? "True" : "False");
+        minify->unquote_attributes ? "True" : "False", minify->strip_comments ? "True" : "False", js, css);
     Py_DECREF(js);
+    Py_DECREF(css);
     return repr;
 }
 
 PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags=True, unquote_attributes=True, "
-                         "strip_comments=True, minify_js=None, minify_css=False)\n--\n\n"
+                         "strip_comments=True, minify_js=None, minify_css=None)\n--\n\n"
                          "A serialize(layout=...)/encode(layout=...) mode that shrinks the output. Each\n"
                          "markup flag toggles one round-trip-safe transform: the minified output always\n"
                          "reparses to the same tree.\n\n"
@@ -180,8 +252,9 @@ PyDoc_STRVAR(minify_doc, "Minify(*, collapse_whitespace=True, omit_optional_tags
                          ":param minify_js: a JSMinify to also minify inline <script> JavaScript, or None\n"
                          "    (the default) to leave scripts untouched. A script that fails to parse is\n"
                          "    emitted verbatim, so one bad script never breaks serialization.\n"
-                         ":param minify_css: also minify <style> element bodies and style attribute values\n"
-                         "    through the value-safe CSS minifier. Off by default.");
+                         ":param minify_css: a CSSMinify to also minify <style> element bodies and style\n"
+                         "    attribute values through the value-safe CSS minifier, or None (the default)\n"
+                         "    to leave CSS untouched. Its baseline bounds how new the output syntax may be.");
 
 static PyType_Slot minify_slots[] = {
     {Py_tp_doc, (void *)minify_doc},

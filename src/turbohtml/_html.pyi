@@ -6,6 +6,9 @@ from ._structured_data import (
     MicrodataItem as MicrodataItem,
 )
 from ._structured_data import (
+    OpenGraph as OpenGraph,
+)
+from ._structured_data import (
     StructuredData as StructuredData,
 )
 from ._stubs.dom import (
@@ -157,6 +160,9 @@ from ._stubs.serialize import (
 )
 from ._stubs.serialize import (
     _minify_js_tokens as _minify_js_tokens,
+)
+from ._stubs.serialize import (
+    _register_css_minify as _register_css_minify,
 )
 from ._stubs.serialize import (
     _register_js_minify as _register_js_minify,

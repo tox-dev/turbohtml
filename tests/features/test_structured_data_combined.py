@@ -39,7 +39,9 @@ def test_fields_match_per_format_helpers(rich: Document) -> None:
     data = rich.structured_data()
     assert data.json_ld == rich.json_ld()
     assert data.microdata == rich.microdata()
-    assert data.opengraph == rich.opengraph()
+    # structured_data keeps the raw og:/twitter: map; opengraph() returns the og:-stripped OpenGraph record
+    assert data.opengraph == {"og:title": "T"}
+    assert rich.opengraph() == {"title": "T"}
     assert data.rdfa == rich.rdfa()
     assert data.dublin_core == rich.dublin_core()
 

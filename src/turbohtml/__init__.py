@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
-from . import _jsminify  # noqa: F401  # registers the JSMinify record type with the C core on import
+from . import (
+    _cssmin,  # noqa: F401  # registers the CSSMinify record type with the C core on import
+    _jsminify,  # noqa: F401  # registers the JSMinify record type with the C core on import
+)
 from ._article import Article  # registers the Article record type with the C core on import
 from ._html import (
     Axis,
@@ -40,6 +43,7 @@ from ._render import Html, Markdown, PlainText
 from ._selectors import SelectorSyntaxError  # registers the selector error type with the C core on import
 from ._structured_data import (  # registers the JSON-LD parser and record classes with the C core on import
     MicrodataItem,
+    OpenGraph,
     RdfaItem,
     StructuredData,
 )
@@ -70,6 +74,7 @@ __all__ = [
     "Minify",
     "Namespace",
     "Node",
+    "OpenGraph",
     "ParseError",
     "PlainText",
     "ProcessingInstruction",

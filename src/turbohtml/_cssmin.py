@@ -11,13 +11,18 @@ keeping custom-property values and string contents byte-exact, so it is the smal
 The whole tokenizer, grammar, and value engine run in C (``turbohtml._html._minify_css``), working directly on the
 input's UTF-8 bytes. Every transform is value-safe at any baseline; the baseline only bounds how new the output
 *syntax* may be, so the result always parses to the same cascade as the input.
+
+Importing this module also registers :class:`CSSMinify` with the core, so the HTML serializer's
+``Minify(minify_css=...)`` hook reaches it with a module-state pointer load. Registering from here, which imports only
+:mod:`turbohtml._html`, keeps the reference graph small enough to collect at interpreter shutdown, the way
+:mod:`turbohtml._jsminify` registers its own config type.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._html import _minify_css, _minify_css_inline
+from ._html import _minify_css, _minify_css_inline, _register_css_minify
 
 __all__ = [
     "CSSMinify",
@@ -39,6 +44,11 @@ class CSSMinify:
     """
 
     baseline: int | None = None
+
+
+# Hand the type to the serializer so Minify(minify_css=...) reaches it with a module-state pointer
+# load (speed over a per-call import), not a global; mirrors the other type registers.
+_register_css_minify(CSSMinify)
 
 
 def minify_css(css: str, options: CSSMinify | None = None) -> str:

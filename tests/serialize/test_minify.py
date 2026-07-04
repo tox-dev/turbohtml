@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import Element, Formatter, Html, Minify, Text, parse, parse_fragment
+from turbohtml.clean import CSSMinify
 
 
 def frag(
@@ -60,11 +61,11 @@ def test_minify_flags_independent() -> None:
 def test_minify_repr_roundtrips_through_eval() -> None:
     assert repr(Minify(omit_optional_tags=False)) == (
         "Minify(collapse_whitespace=True, omit_optional_tags=False, unquote_attributes=True, strip_comments=True, "
-        "minify_js=None, minify_css=False)"
+        "minify_js=None, minify_css=None)"
     )
     assert repr(Minify(collapse_whitespace=False, unquote_attributes=False, strip_comments=False)) == (
         "Minify(collapse_whitespace=False, omit_optional_tags=True, unquote_attributes=False, strip_comments=False, "
-        "minify_js=None, minify_css=False)"
+        "minify_js=None, minify_css=None)"
     )
 
 
@@ -509,7 +510,10 @@ def test_rawtext_script_preserved() -> None:
     assert frag("<script>a  <  b</script>", omit_optional_tags=False) == "<script>a  <  b</script>"
 
 
-def css_frag(source: str, *, minify_css: bool = True, unquote_attributes: bool = True) -> str:
+_CSS = CSSMinify()
+
+
+def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attributes: bool = True) -> str:
     """Minify source in a <div> fragment with the CSS pass, returning the inner markup."""
     layout = Minify(minify_css=minify_css, unquote_attributes=unquote_attributes)
     out = parse_fragment(source, "div").serialize(Html(layout=layout))
@@ -519,26 +523,45 @@ def css_frag(source: str, *, minify_css: bool = True, unquote_attributes: bool =
 
 
 def test_minify_css_defaults_off() -> None:
-    assert Minify().minify_css is False
+    assert Minify().minify_css is None
 
 
 def test_minify_css_getter_round_trips() -> None:
-    assert Minify(minify_css=True).minify_css is True
-    assert Minify(minify_css=False).minify_css is False
+    assert Minify(minify_css=CSSMinify()).minify_css == CSSMinify()
+    assert Minify(minify_css=CSSMinify(baseline=2021)).minify_css == CSSMinify(baseline=2021)
+    assert Minify(minify_css=None).minify_css is None
+
+
+def test_minify_css_rejects_non_config() -> None:
+    with pytest.raises(TypeError, match="minify_css must be a CSSMinify or None"):
+        Minify(minify_css=True)  # ty: ignore[invalid-argument-type]  # a bool is no longer accepted
 
 
 def test_minify_css_equality_and_hash() -> None:
-    assert Minify(minify_css=True) != Minify()
-    assert Minify(minify_css=True) == Minify(minify_css=True)
-    assert hash(Minify(minify_css=True)) != hash(Minify())
+    assert Minify(minify_css=CSSMinify()) != Minify()
+    assert Minify(minify_css=CSSMinify()) == Minify(minify_css=CSSMinify())
+    assert Minify(minify_css=CSSMinify(baseline=2021)) != Minify(minify_css=CSSMinify())
+    assert hash(Minify(minify_css=CSSMinify())) != hash(Minify())
+    assert hash(Minify(minify_css=CSSMinify(baseline=2021))) != hash(Minify(minify_css=CSSMinify()))
 
 
 @pytest.mark.parametrize(
     ("minify_css", "text"),
-    [pytest.param(False, "minify_css=False", id="off"), pytest.param(True, "minify_css=True", id="on")],
+    [
+        pytest.param(None, "minify_css=None", id="off"),
+        pytest.param(CSSMinify(), "minify_css=CSSMinify(baseline=None)", id="on"),
+        pytest.param(CSSMinify(baseline=2021), "minify_css=CSSMinify(baseline=2021)", id="baseline"),
+    ],
 )
-def test_minify_css_repr(minify_css: bool, text: str) -> None:  # noqa: FBT001
+def test_minify_css_repr(minify_css: CSSMinify | None, text: str) -> None:
     assert repr(Minify(minify_css=minify_css)).endswith(f", {text})")
+
+
+def test_minify_css_baseline_bounds_output_syntax() -> None:
+    # the inset shorthand reached Baseline 2021; below that year the four physical properties stay separate
+    source = "<style>a{top:1px;right:2px;bottom:3px;left:4px}</style>"
+    assert css_frag(source) == "<style>a{top:1px;right:2px;bottom:3px;left:4px}</style>"
+    assert css_frag(source, minify_css=CSSMinify(baseline=2021)) == "<style>a{inset:1px 2px 3px 4px}</style>"
 
 
 @pytest.mark.parametrize(
@@ -591,7 +614,7 @@ def test_minify_css_output(source: str, expected: str) -> None:
     ],
 )
 def test_minify_css_off_is_noop(source: str, expected: str) -> None:
-    assert css_frag(source, minify_css=False) == expected
+    assert css_frag(source, minify_css=None) == expected
 
 
 @pytest.mark.parametrize(
@@ -641,6 +664,6 @@ def test_style_attribute_transcodes_every_utf8_length(literal: str, expected: st
     ],
 )
 def test_minify_css_is_idempotent_and_reparse_safe(source: str) -> None:
-    layout = Minify(minify_css=True)
+    layout = Minify(minify_css=CSSMinify())
     once = parse(source).serialize(Html(layout=layout))
     assert parse(once).serialize(Html(layout=layout)) == once

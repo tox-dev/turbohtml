@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from . import parse
 from ._html import Minify
-from .clean import minify, minify_css, minify_js, sanitize
+from .clean import CSSMinify, minify, minify_css, minify_js, sanitize
 from .detect import detect
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _run_minify(args: argparse.Namespace) -> int:
-    _write(minify(_read_text(args.file), Minify(minify_css=args.minify_css)), args.output)
+    _write(minify(_read_text(args.file), Minify(minify_css=CSSMinify() if args.minify_css else None)), args.output)
     return 0
 
 

@@ -115,6 +115,7 @@ static PyMethodDef html_methods[] = {
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},
     {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
+    {"_register_css_minify", turbohtml_register_css_minify, METH_O, NULL},
     {"_register_render_configs", turbohtml_register_render_configs, METH_VARARGS, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
@@ -199,8 +200,10 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->microdata_item_type);   /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->rdfa_item_type);        /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->structured_data_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->opengraph_type);        /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->article_type);          /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->js_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->css_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->plaintext_config_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->html_config_type);      /* GCOVR_EXCL_BR_LINE: same */
@@ -258,8 +261,10 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->microdata_item_type);
     Py_CLEAR(state->rdfa_item_type);
     Py_CLEAR(state->structured_data_type);
+    Py_CLEAR(state->opengraph_type);
     Py_CLEAR(state->article_type);
     Py_CLEAR(state->js_minify_type);
+    Py_CLEAR(state->css_minify_type);
     Py_CLEAR(state->markdown_config_type);
     Py_CLEAR(state->plaintext_config_type);
     Py_CLEAR(state->html_config_type);

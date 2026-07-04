@@ -154,16 +154,18 @@ static unsigned char *mini_ucs4_to_utf8(const Py_UCS4 *text, Py_ssize_t len, Py_
    PyMem-allocated buffer (caller frees) with the byte length in *out_len. Input that minifies
    to nothing yields a zero-length buffer (*out_len 0), which the callers treat as empty.
    inline_mode 1 selects the style="" declaration-list grammar over the full-stylesheet one.
-   baseline 0 keeps the output syntax portable to every browser. The engine is value-safe and
-   idempotent, so the emitted CSS reparses to the same cascade and re-minifying is a fixpoint. */
-static unsigned char *mini_css_bytes(const Py_UCS4 *src, Py_ssize_t len, int inline_mode, Py_ssize_t *out_len) {
+   baseline (a CSSMinify year, 0 for the most portable output) bounds how new the emitted syntax
+   may be. The engine is value-safe and idempotent, so the emitted CSS reparses to the same
+   cascade and re-minifying is a fixpoint. */
+static unsigned char *mini_css_bytes(const Py_UCS4 *src, Py_ssize_t len, int inline_mode, int baseline,
+                                     Py_ssize_t *out_len) {
     Py_ssize_t utf8_len;
     unsigned char *utf8 = mini_ucs4_to_utf8(src, len, &utf8_len);
     if (utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         *out_len = 0;   /* GCOVR_EXCL_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
-    unsigned char *result = th_minify_css_bytes(utf8, utf8_len, inline_mode, 0, out_len);
+    unsigned char *result = th_minify_css_bytes(utf8, utf8_len, inline_mode, baseline, out_len);
     PyMem_Free(utf8);
     return result;
 }
@@ -171,9 +173,9 @@ static unsigned char *mini_css_bytes(const Py_UCS4 *src, Py_ssize_t len, int inl
 /* Minify a style="" declaration list, returning its value as a freshly PyMem-allocated code-point
    buffer (caller frees) with the length in *out_len, or NULL when the declarations minify to
    nothing (the caller then renders the empty value). */
-static Py_UCS4 *mini_style_attr_css(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *out_len) {
+static Py_UCS4 *mini_style_attr_css(const Py_UCS4 *value, Py_ssize_t len, int baseline, Py_ssize_t *out_len) {
     Py_ssize_t css_len;
-    unsigned char *result = mini_css_bytes(value, len, 1, &css_len);
+    unsigned char *result = mini_css_bytes(value, len, 1, baseline, &css_len);
     if (css_len == 0) {
         PyMem_Free(result); /* the declarations minified to nothing: the caller renders an empty value */
         *out_len = 0;
@@ -191,7 +193,7 @@ static Py_UCS4 *mini_style_attr_css(const Py_UCS4 *value, Py_ssize_t len, Py_ssi
    charset value always keeps its quotes). A style="" value is minified when minify_css
    is set, before the quote decision so the shorter value can also shed its quotes. */
 static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts, int unquote,
-                          int minify_css) {
+                          int minify_css, int css_baseline) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, node->text, node->text_len);
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
@@ -211,7 +213,7 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
         Py_UCS4 *minified = NULL;
         if (minify_css && value_len > 0 && name_len == 5 && memcmp(name, "style", 5) == 0) {
             /* NULL with value_len 0 when the declarations minified to empty, rendered as an empty value below */
-            value = minified = mini_style_attr_css(value, value_len, &value_len);
+            value = minified = mini_style_attr_css(value, value_len, css_baseline, &value_len);
         }
         if (unquote && value_len == 0) {
             continue; /* an empty value reparses identically as a bare attribute name */
@@ -531,7 +533,7 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
    would have ended the element there), and the CSS engine never synthesizes one, so the
    minified stylesheet stays inside the element and reparses to the same raw-text node. */
-static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node) {
+static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int baseline) {
     if (node->atom != TH_TAG_STYLE) {
         return 0; /* script/textarea/title and other raw-text elements are never CSS */
     }
@@ -552,7 +554,7 @@ static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node) {
         pos += child->text_len;
     }
     Py_ssize_t css_len;
-    unsigned char *result = mini_css_bytes(src, total, 0, &css_len);
+    unsigned char *result = mini_css_bytes(src, total, 0, baseline, &css_len);
     PyMem_Free(src);
     sbuf_put_utf8(out, (const char *)result, css_len); /* css_len 0 (a whitespace-only stylesheet) writes nothing */
     PyMem_Free(result);
@@ -578,7 +580,8 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             /* the serialization root is what the caller asked to serialize, so its own tags
                always render (matching the plain serializer); only inner tags may be omitted */
             if (!(opts->omit_optional_tags && node != root && mini_omit_start_tag(tree, node, opts->strip_comments))) {
-                mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css);
+                mini_open_tag(out, tree, node, st, opts->unquote_attributes, opts->minify_css,
+                              opts->minify_css_baseline);
             }
             ser_inject_head_meta(out, tree, node, st);
             if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
@@ -593,7 +596,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                     emitted = mini_emit_script_js(out, tree, node, opts);
                 }
                 if (!emitted && opts->minify_css) {
-                    emitted = mini_emit_style_css(out, tree, node);
+                    emitted = mini_emit_style_css(out, tree, node, opts->minify_css_baseline);
                 }
                 if (!emitted) {
                     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {

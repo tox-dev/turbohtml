@@ -64,8 +64,10 @@ typedef struct {
     PyObject *microdata_item_type;   /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
     PyObject *rdfa_item_type;        /* turbohtml._structured_data.RdfaItem, one RDFa resource record */
     PyObject *structured_data_type;  /* turbohtml._structured_data.StructuredData, the combined-format record */
+    PyObject *opengraph_type;        /* turbohtml._structured_data.OpenGraph, the record Document.opengraph() yields */
     PyObject *article_type;          /* turbohtml._article.Article, the record Node.article() yields */
     PyObject *js_minify_type;        /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
+    PyObject *css_minify_type;       /* turbohtml._cssmin.CSSMinify, the Minify(minify_css=...) style-pass config */
     PyObject *markdown_config_type;  /* turbohtml._render.Markdown, the to_markdown() options type */
     PyObject *plaintext_config_type; /* turbohtml._render.PlainText, the to_text()/to_annotated_text() options type */
     PyObject *html_config_type;      /* turbohtml._render.Html, the serialize()/encode() options type */

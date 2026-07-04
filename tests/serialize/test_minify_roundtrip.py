@@ -20,12 +20,13 @@ from pathlib import Path
 import pytest
 
 from turbohtml import Html, Minify, parse
+from turbohtml.clean import CSSMinify
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 _MINIFY = Minify()
 # the CSS pass rewrites every <style> body and style="" value the corpus carries; the
 # value-safe engine is itself idempotent, so enabling it must keep the reparse a fixpoint
-_MINIFY_CSS = Minify(minify_css=True)
+_MINIFY_CSS = Minify(minify_css=CSSMinify())
 
 
 def _iter_dat(path: Path) -> list[str]:

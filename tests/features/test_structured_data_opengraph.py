@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse
+from turbohtml._structured_data import OpenGraph
 
 
 @pytest.mark.parametrize(
@@ -10,40 +11,46 @@ from turbohtml import parse
     [
         pytest.param(
             '<meta property="og:title" content="Hello"><meta property="og:type" content="article">',
-            {"og:title": "Hello", "og:type": "article"},
+            {"title": "Hello", "type": "article"},
             id="opengraph-via-property",
         ),
         pytest.param(
             '<meta name="twitter:card" content="summary"><meta name="twitter:site" content="@x">',
-            {"twitter:card": "summary", "twitter:site": "@x"},
-            id="twitter-via-name",
+            {},
+            id="twitter-keys-dropped",
         ),
-        pytest.param('<meta name="og:title" content="By name">', {"og:title": "By name"}, id="og-via-name"),
-        pytest.param(
-            '<meta property="twitter:card" content="summary">',
-            {"twitter:card": "summary"},
-            id="twitter-via-property",
-        ),
+        pytest.param('<meta name="og:title" content="By name">', {"title": "By name"}, id="og-via-name"),
+        pytest.param('<meta property="twitter:card" content="summary">', {}, id="twitter-via-property-dropped"),
         pytest.param(
             '<meta property="og:title" name="twitter:title" content="P">',
-            {"og:title": "P"},
+            {"title": "P"},
             id="property-wins-over-name",
         ),
         pytest.param(
+            '<meta property="og:title" content="Hi"><meta name="twitter:card" content="c">',
+            {"title": "Hi"},
+            id="og-kept-twitter-dropped",
+        ),
+        pytest.param(
             '<meta property="description" name="og:title" content="N">',
-            {"og:title": "N"},
+            {"title": "N"},
             id="name-used-when-property-not-social",
         ),
         pytest.param(
             '<meta property name="og:title" content="N">',
-            {"og:title": "N"},
+            {"title": "N"},
             id="name-used-when-property-valueless",
         ),
-        pytest.param('<meta property="og:title">', {"og:title": ""}, id="missing-content-empty-string"),
-        pytest.param('<meta property="og:title" content>', {"og:title": ""}, id="valueless-content-empty-string"),
+        pytest.param('<meta property="og:title">', {"title": ""}, id="missing-content-empty-string"),
+        pytest.param('<meta property="og:title" content>', {"title": ""}, id="valueless-content-empty-string"),
+        pytest.param(
+            '<meta property="og:image" content="a"><meta property="og:image:width" content="400">',
+            {"image": "a", "image:width": "400"},
+            id="structured-subkey-kept",
+        ),
         pytest.param(
             '<meta property="og:title" content="first"><meta property="og:title" content="second">',
-            {"og:title": "second"},
+            {"title": "second"},
             id="last-occurrence-wins",
         ),
         pytest.param('<meta name="description" content="x">', {}, id="non-social-name"),
@@ -56,6 +63,18 @@ from turbohtml import parse
 )
 def test_opengraph(html: str, expected: dict[str, str]) -> None:
     assert parse(html).opengraph() == expected
+
+
+def test_opengraph_returns_record() -> None:
+    result = parse('<meta property="og:title" content="Hi">').opengraph()
+    assert isinstance(result, OpenGraph)
+    assert result["title"] == "Hi"
+
+
+def test_opengraph_keeps_twitter_in_structured_data_but_drops_it_in_record() -> None:
+    html = '<meta property="og:title" content="T"><meta name="twitter:card" content="summary">'
+    assert parse(html).structured_data().opengraph == {"og:title": "T", "twitter:card": "summary"}
+    assert parse(html).opengraph() == {"title": "T"}
 
 
 _BASE = "http://ex.com/dir/"
@@ -74,15 +93,25 @@ _BASE = "http://ex.com/dir/"
         pytest.param("og:video", id="og-video"),
         pytest.param("og:video:url", id="og-video-url"),
         pytest.param("og:video:secure_url", id="og-video-secure-url"),
+    ],
+)
+def test_opengraph_resolves_url_valued_key(key: str) -> None:
+    html = f'<meta property="{key}" content="/a.png">'
+    assert parse(html).opengraph(base_url=_BASE) == {key[len("og:") :]: "http://ex.com/a.png"}
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
         pytest.param("twitter:image", id="twitter-image"),
         pytest.param("twitter:image:src", id="twitter-image-src"),
         pytest.param("twitter:player", id="twitter-player"),
         pytest.param("twitter:player:stream", id="twitter-player-stream"),
     ],
 )
-def test_opengraph_resolves_url_valued_key(key: str) -> None:
-    html = f'<meta property="{key}" content="/a.png">'
-    assert parse(html).opengraph(base_url=_BASE) == {key: "http://ex.com/a.png"}
+def test_opengraph_drops_twitter_url_valued_key(key: str) -> None:
+    html = f'<meta property="{key}" content="/a.png"><meta property="og:title" content="T">'
+    assert parse(html).opengraph(base_url=_BASE) == {"title": "T"}
 
 
 @pytest.mark.parametrize(
@@ -90,23 +119,23 @@ def test_opengraph_resolves_url_valued_key(key: str) -> None:
     [
         pytest.param(
             '<meta property="og:image" content="a.png"><meta property="og:title" content="a.png">',
-            {"og:image": "http://ex.com/dir/a.png", "og:title": "a.png"},
+            {"image": "http://ex.com/dir/a.png", "title": "a.png"},
             id="only-url-key-resolved-not-same-length-string-key",
         ),
         pytest.param(
             '<meta property="og:image" content="http://cdn.com/x.png">',
-            {"og:image": "http://cdn.com/x.png"},
+            {"image": "http://cdn.com/x.png"},
             id="absolute-url-kept",
         ),
-        pytest.param('<meta property="og:image" content>', {"og:image": ""}, id="empty-url-stays-empty"),
+        pytest.param('<meta property="og:image" content>', {"image": ""}, id="empty-url-stays-empty"),
         pytest.param(
             '<meta property="og:Image" content="/a.png">',
-            {"og:Image": "http://ex.com/a.png"},
+            {"Image": "http://ex.com/a.png"},
             id="key-case-insensitive",
         ),
         pytest.param(
             '<meta property="og:image" content="http://[bad">',
-            {"og:image": "http://[bad"},
+            {"image": "http://[bad"},
             id="malformed-value-kept-verbatim",
         ),
     ],
@@ -117,17 +146,17 @@ def test_opengraph_resolution_cases(html: str, expected: dict[str, str]) -> None
 
 def test_opengraph_base_href_refines_base_url() -> None:
     html = '<base href="http://b.com/sub/"><meta property="og:image" content="a.png">'
-    assert parse(html).opengraph(base_url="http://ex.com/") == {"og:image": "http://b.com/sub/a.png"}
+    assert parse(html).opengraph(base_url="http://ex.com/") == {"image": "http://b.com/sub/a.png"}
 
 
 def test_opengraph_malformed_base_href_falls_back_to_base_url() -> None:
     html = '<base href="http://[bad"><meta property="og:image" content="a.png">'
-    assert parse(html).opengraph(base_url="http://ex.com/d/") == {"og:image": "http://ex.com/d/a.png"}
+    assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}
 
 
 def test_opengraph_base_url_none_is_verbatim() -> None:
     html = '<meta property="og:image" content="/a.png">'
-    assert parse(html).opengraph(base_url=None) == {"og:image": "/a.png"}
+    assert parse(html).opengraph(base_url=None) == {"image": "/a.png"}
 
 
 def test_opengraph_malformed_base_url_raises() -> None:

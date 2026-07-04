@@ -1353,13 +1353,61 @@ static int parse_base_url(PyObject *self, PyObject *args, PyObject *kwargs, cons
     return *base == NULL ? -1 : 0;
 }
 
-/* Document.opengraph(base_url=None) -> dict. */
+/* Build the OpenGraph record Document.opengraph() returns from the og:/twitter: <meta> map the shared walk gathers:
+   keep only the og: keys, strip that prefix (og:title -> "title"), drop the twitter: keys, and wrap the result in the
+   registered OpenGraph mapping type. NULL only on the excluded allocation-failure path (or with an exception set on a
+   bad base_url the caller passed). */
+static PyObject *build_opengraph_record(PyObject *self, PyObject *base) {
+    PyObject *tags = gather_opengraph(self, base);
+    if (tags == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *og_prefix = PyUnicode_FromStringAndSize("og:", 3);
+    PyObject *properties = PyDict_New();
+    if (og_prefix == NULL || properties == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        Py_XDECREF(og_prefix);                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(properties);                    /* GCOVR_EXCL_LINE */
+        Py_DECREF(tags);                           /* GCOVR_EXCL_LINE */
+        return NULL;                               /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t position = 0;
+    PyObject *key = NULL;
+    PyObject *value = NULL;
+    int failed = 0;
+    while (PyDict_Next(tags, &position, &key, &value)) {
+        if (PyUnicode_Tailmatch(key, og_prefix, 0, PyUnicode_GET_LENGTH(key), -1) <= 0) {
+            continue; /* a twitter: key: OpenGraph carries only the og: properties */
+        }
+        PyObject *stripped = PyUnicode_Substring(key, 3, PyUnicode_GET_LENGTH(key));
+        if (stripped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            failed = 1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;              /* GCOVR_EXCL_LINE */
+        }
+        int set_failed = PyDict_SetItem(properties, stripped, value) < 0;
+        Py_DECREF(stripped);
+        if (set_failed) { /* GCOVR_EXCL_BR_LINE: insert fails only on unforceable allocation */
+            failed = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(og_prefix);
+    Py_DECREF(tags);
+    if (failed) {              /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        Py_DECREF(properties); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
+    PyObject *record = PyObject_CallOneArg(state_of(self)->opengraph_type, properties);
+    Py_DECREF(properties);
+    return record;
+}
+
+/* Document.opengraph(base_url=None) -> OpenGraph. */
 PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *base = NULL;
     if (parse_base_url(self, args, kwargs, "|O:opengraph", &base) < 0) {
         return NULL;
     }
-    PyObject *result = gather_opengraph(self, base);
+    PyObject *result = build_opengraph_record(self, base);
     Py_XDECREF(base);
     return result;
 }
@@ -1423,15 +1471,16 @@ PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyO
     return result;
 }
 
-/* Store the JSON-LD text parser and the MicrodataItem / RdfaItem / StructuredData record classes the C walks build
-   their results from; turbohtml._structured_data registers all four on import. */
+/* Store the JSON-LD text parser and the MicrodataItem / RdfaItem / StructuredData / OpenGraph record classes the C
+   walks build their results from; turbohtml._structured_data registers all five on import. */
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args) {
     PyObject *parser = NULL;
     PyObject *microdata_item = NULL;
     PyObject *rdfa_item = NULL;
     PyObject *structured_data = NULL;
-    int parsed = PyArg_ParseTuple(args, "OOOO", &parser, &microdata_item, &rdfa_item, &structured_data);
-    if (!parsed) {   /* GCOVR_EXCL_BR_LINE: the facade always registers with four callables */
+    PyObject *opengraph = NULL;
+    int parsed = PyArg_ParseTuple(args, "OOOOO", &parser, &microdata_item, &rdfa_item, &structured_data, &opengraph);
+    if (!parsed) {   /* GCOVR_EXCL_BR_LINE: the facade always registers with five callables */
         return NULL; /* GCOVR_EXCL_LINE: argument-error path */
     }
     module_state *state = PyModule_GetState(module);
@@ -1439,5 +1488,6 @@ PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args) {
     Py_XSETREF(state->microdata_item_type, Py_NewRef(microdata_item));
     Py_XSETREF(state->rdfa_item_type, Py_NewRef(rdfa_item));
     Py_XSETREF(state->structured_data_type, Py_NewRef(structured_data));
+    Py_XSETREF(state->opengraph_type, Py_NewRef(opengraph));
     Py_RETURN_NONE;
 }

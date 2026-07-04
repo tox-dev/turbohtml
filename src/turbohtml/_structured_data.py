@@ -4,19 +4,23 @@ The typed result classes and JSON-LD parsing facade behind :meth:`turbohtml.Docu
 The tree walk that locates structured data and the OpenGraph/Microdata extraction all live in the C core
 (``turbohtml._html``), exposed as the :meth:`~turbohtml.Document.structured_data`, :meth:`~turbohtml.Document.json_ld`,
 :meth:`~turbohtml.Document.opengraph`, and :meth:`~turbohtml.Document.microdata` methods. The C pass assembles the plain
-dict/list/str pieces and then hands them to the :class:`MicrodataItem` and :class:`StructuredData` record classes
-defined here, so the typed, read-only result shapes live in Python while every walk stays in C. The other piece of real
-Python logic is parsing the gathered ``<script type="application/ld+json">`` texts with the standard library
-:mod:`json`. Importing this module registers the parser and both record classes with the core.
+dict/list/str pieces and then hands them to the :class:`MicrodataItem`, :class:`StructuredData`, and :class:`OpenGraph`
+record classes defined here, so the typed, read-only result shapes live in Python while every walk stays in C. The other
+piece of real Python logic is parsing the gathered ``<script type="application/ld+json">`` texts with the standard
+library :mod:`json`. Importing this module registers the parser and every record class with the core.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from ._html import _register_structured_data
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 JSONValue: TypeAlias = bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"] | None
 """A decoded JSON value: a scalar, ``None``, or a list/dict nesting more of the same."""
@@ -117,6 +121,53 @@ class StructuredData:
     """each ``dc.*``/``dcterms.*`` ``<meta>`` name (lower-cased) mapped to its content."""
 
 
+_OG_REQUIRED: Final = ("title", "type", "image", "url")
+"""The Open Graph protocol's four required properties; the check behind :meth:`OpenGraph.is_valid`."""
+
+
+class OpenGraph(Mapping[str, str]):
+    """
+    A page's Open Graph metadata as a read-only mapping, the record :meth:`turbohtml.Document.opengraph` returns.
+
+    Keys are the ``og:`` property names with that prefix stripped (``og:title`` reads as ``og["title"]``), matching the
+    ``opengraph`` library's ``OpenGraph`` dict. The mapping supports the full read surface -- ``og["title"]``,
+    ``"title" in og``, ``og.get("title")``, iteration, and equality against a plain ``dict`` -- and adds
+    :meth:`is_valid`.
+    """
+
+    __slots__ = ("_properties",)
+
+    def __init__(self, properties: dict[str, str], /) -> None:
+        """Wrap the already prefix-stripped ``og:`` property mapping the C walk builds."""
+        self._properties = properties
+
+    def __getitem__(self, key: str) -> str:
+        """Return the value of the ``og:<key>`` property, raising :exc:`KeyError` when the page lacks it."""
+        return self._properties[key]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate the prefix-stripped property names in document order."""
+        return iter(self._properties)
+
+    def __len__(self) -> int:
+        """Return the number of ``og:`` properties the page carries."""
+        return len(self._properties)
+
+    def __repr__(self) -> str:
+        """Render as ``OpenGraph({...})`` around the underlying property mapping."""
+        return f"OpenGraph({self._properties!r})"
+
+    def is_valid(self) -> bool:
+        """
+        Return whether the page carries the four properties the Open Graph protocol requires, each non-empty.
+
+        Mirrors the ``opengraph`` library's ``is_valid``: every one of ``og:title``, ``og:type``, ``og:image``, and
+        ``og:url`` is present with a non-empty value. The ``opengraph_py3`` fork also demands ``og:description``; the
+        `Open Graph protocol <https://ogp.me/>`_ does not, so it is not required here.
+        """
+        return all(self._properties.get(name) for name in _OG_REQUIRED)
+
+
 def _as_dict(item: MicrodataItem) -> dict[str, JSONValue]:
     """Render the item as nested plain dicts: ``type`` (whitespace-split), ``id``, and its properties recursively."""
     result: dict[str, JSONValue] = {}
@@ -149,4 +200,4 @@ def _parse_json_ld(texts: list[str]) -> list[JSONValue]:
     return parsed
 
 
-_register_structured_data(_parse_json_ld, MicrodataItem, RdfaItem, StructuredData)
+_register_structured_data(_parse_json_ld, MicrodataItem, RdfaItem, StructuredData, OpenGraph)

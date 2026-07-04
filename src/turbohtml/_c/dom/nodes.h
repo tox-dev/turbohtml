@@ -129,9 +129,10 @@ typedef struct {
 } AttrsObject;
 
 /* The serialize(minify=...) options object: four independent round-trip-safe markup
-   transforms plus an opt-in inline-<script> JS pass. minify_js gates the pass and caches
-   the two JSMinify toggles as flags, so the object stays immutable, reference-free and
-   outside the garbage collector like Token (the getter rebuilds a value-equal JSMinify on
+   transforms plus an opt-in inline-<script> JS pass and an opt-in <style>/style="" CSS
+   pass. minify_js/minify_css gate their passes and cache the JSMinify toggles and the
+   CSSMinify baseline as plain fields, so the object stays immutable, reference-free and
+   outside the garbage collector like Token (each getter rebuilds a value-equal config on
    demand from the module-state type). */
 typedef struct {
     PyObject_HEAD unsigned char collapse_whitespace;
@@ -142,6 +143,7 @@ typedef struct {
     unsigned char minify_js_fold;
     unsigned char minify_js_mangle;
     unsigned char minify_css; /* run the CSS pass over <style> bodies and style="" values */
+    int minify_css_baseline;  /* the CSSMinify baseline year bounding the output syntax, 0 for None */
 } MinifyObject;
 
 /* The serialize(layout=...) pretty-print mode: a per-level whitespace unit. Like

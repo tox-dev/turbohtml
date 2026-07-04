@@ -169,10 +169,12 @@ PyObject *turbohtml_minify_js(PyObject *module, PyObject *args);
 PyObject *turbohtml_minify_js_tokens(PyObject *module, PyObject *arg);
 PyObject *turbohtml_minify_js_parse(PyObject *module, PyObject *arg);
 
-/* Implemented in dom/formatters.c: stores the JSMinify config type in module state so
-   Minify(minify_js=...) validation and its getter reach it with a pointer load rather than
-   an import (METH_O); turbohtml._minify registers it on import. */
+/* Implemented in dom/formatters.c: store the JSMinify / CSSMinify config types in module state so
+   Minify(minify_js=...)/Minify(minify_css=...) validation and their getters reach them with a
+   pointer load rather than an import (METH_O); turbohtml._jsminify and turbohtml._cssmin register
+   them on import. */
 PyObject *turbohtml_register_js_minify(PyObject *module, PyObject *type);
+PyObject *turbohtml_register_css_minify(PyObject *module, PyObject *type);
 
 /* SWAR lane probes over a 64-bit word holding four UCS-2 / two UCS-4 code
    points. The has-zero test is exact as an existence test: the subtraction can
