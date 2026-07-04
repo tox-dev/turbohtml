@@ -1,20 +1,104 @@
 """Conformance tests for the C ``_url_join`` primitive behind :mod:`turbohtml._urls`.
 
 ``_url_join`` resolves a relative reference against a base URL, the RFC 3986 section 5.3 reference transform
-``urllib.parse.urljoin`` runs. It reproduces urljoin exactly -- the resolver ``base_url()`` and the extraction methods
-share it, and their goldens are urljoin's -- so the bulk of the coverage is a differential against urllib over a
-generated base-by-reference corpus, with the RFC 3986 section 5.4 examples pinned on their own and the degenerate
-operands (empty base or reference, a foreign or opaque scheme, an unbalanced bracket) asserted directly.
+``urllib.parse.urljoin`` runs. It reproduces the transform ``urljoin`` runs on Python 3.14, where the standard library
+adopted the WHATWG rule that a bare ``?`` or ``#`` keeps its empty query or fragment rather than inheriting the base's;
+3.13 and earlier fall back to the base, so the differential oracle is a frozen port of the 3.14 algorithm rather than
+the running interpreter's ``urljoin``, keeping the corpus stable across versions. The RFC 3986 section 5.4 examples are
+pinned on their own, and the degenerate operands (empty base or reference, a foreign or opaque scheme, an unbalanced
+bracket) are asserted directly.
 """
 
 from __future__ import annotations
 
 import random
-from urllib.parse import urljoin
 
 import pytest
 
 from turbohtml._html import _url_join
+
+_SCHEME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.")
+_C0_OR_SPACE = "".join(map(chr, range(0x21)))
+_USES_RELATIVE = frozenset({
+    *("", "ftp", "http", "gopher", "nntp", "imap", "wais", "file", "https", "shttp"),
+    *("mms", "prospero", "rtsp", "rtsps", "rtspu", "sftp", "svn", "svn+ssh", "ws", "wss"),
+})
+
+
+def _split5(url: str) -> tuple[str | None, str | None, str, str | None, str | None]:
+    """CPython 3.14's ``_urlsplit`` reduced to a ``str``: leading strip, scheme, authority, query, and fragment."""
+    url = url.lstrip(_C0_OR_SPACE)
+    for unsafe in "\t\r\n":
+        url = url.replace(unsafe, "")
+    scheme = netloc = query = fragment = None
+    colon = url.find(":")
+    if colon > 0 and url[0].isascii() and url[0].isalpha() and all(char in _SCHEME_CHARS for char in url[:colon]):
+        scheme, url = url[:colon].lower(), url[colon + 1 :]
+    if url[:2] == "//":
+        delimiter = min([len(url), *(offset for char in "/?#" if (offset := url.find(char, 2)) >= 0)])
+        netloc, url = url[2:delimiter], url[delimiter:]
+        if ("[" in netloc) != ("]" in netloc):
+            message = "Invalid IPv6 URL"
+            raise ValueError(message)
+    if "#" in url:
+        url, fragment = url.split("#", 1)
+    if "?" in url:
+        url, query = url.split("?", 1)
+    return scheme, netloc, url, query, fragment
+
+
+def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | None, fragment: str | None) -> str:
+    if netloc is not None:
+        if path and path[:1] != "/":
+            path = "/" + path
+        path = "//" + netloc + path
+    prefix = f"{scheme}:" if scheme else ""
+    suffix = ("?" + query if query is not None else "") + ("#" + fragment if fragment is not None else "")
+    return f"{prefix}{path}{suffix}"
+
+
+def _merge(bpath: str, path: str) -> str:
+    """The RFC 3986 5.2.3 merge and 5.2.4 dot removal, in urljoin's segment-list form; ``path`` is never empty here."""
+    base_parts = bpath.split("/")
+    if base_parts[-1]:
+        del base_parts[-1]  # the base's last segment is a file, so the reference replaces it
+    if path[:1] == "/":
+        segments = path.split("/")
+    else:
+        segments = base_parts + path.split("/")
+        segments[1:-1] = filter(None, segments[1:-1])  # drop the empty interior segments a splice would rejoin
+    resolved: list[str] = []
+    for segment in segments:
+        if segment == "..":
+            if resolved:
+                resolved.pop()
+        elif segment != ".":
+            resolved.append(segment)
+    if segments[-1] in {".", ".."}:
+        resolved.append("")
+    return "/".join(resolved) or "/"
+
+
+def _reference_join(base: str, url: str) -> str:
+    """CPython 3.14's ``urljoin`` frozen against a ``str`` pair, the version-stable oracle the corpus differs from."""
+    if not base or not url:
+        return url or base
+    bscheme, bnetloc, bpath, bquery, bfragment = _split5(base)
+    scheme, netloc, path, query, fragment = _split5(url)
+    if scheme is None:
+        scheme = bscheme
+    if scheme != bscheme or (scheme and scheme not in _USES_RELATIVE):
+        return url  # a foreign or opaque scheme leaves the reference verbatim
+    if netloc:
+        return _unsplit(scheme, netloc, path, query, fragment)
+    if not path:
+        if query is None:
+            query = bquery
+            if fragment is None:
+                fragment = bfragment
+        return _unsplit(scheme, bnetloc, bpath, query, fragment)
+    return _unsplit(scheme, bnetloc, _merge(bpath, path), query, fragment)
+
 
 _BASES = (
     "http://a/b/c/d;p?q",
@@ -129,12 +213,12 @@ def _join(base: str, reference: str) -> tuple[str | None, bool]:
 
 def _oracle(base: str, reference: str) -> tuple[str | None, bool]:
     try:
-        return urljoin(base, reference), False
+        return _reference_join(base, reference), False
     except ValueError:
         return None, True
 
 
-def test_url_join_matches_urljoin_over_corpus() -> None:
+def test_url_join_matches_reference_over_corpus() -> None:
     for base, reference in _corpus():
         assert _join(base, reference) == _oracle(base, reference), (base, reference)
 
