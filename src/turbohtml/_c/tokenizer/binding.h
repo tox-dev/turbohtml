@@ -60,6 +60,7 @@ typedef struct {
     PyObject *link_type;             /* turbohtml._links.Link, the (element, attribute, url) record links() yields */
     PyObject *json_ld_parser;        /* turbohtml._structured_data._parse_json_ld, the JSON-LD text parser */
     PyObject *microdata_item_type;   /* turbohtml._structured_data.MicrodataItem, one Microdata item record */
+    PyObject *rdfa_item_type;        /* turbohtml._structured_data.RdfaItem, one RDFa resource record */
     PyObject *structured_data_type;  /* turbohtml._structured_data.StructuredData, the combined-format record */
     PyObject *article_type;          /* turbohtml._article.Article, the record Node.article() yields */
     PyObject *js_minify_type;        /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */

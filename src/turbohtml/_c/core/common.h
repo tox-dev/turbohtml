@@ -118,6 +118,8 @@ PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyO
 PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *unused);
 PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject *kwargs);
+PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwargs);
+PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *unused);
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args);
 
 /* Implemented in dom/document.c, the URL-resolution routine base_url() runs, shared with the extraction methods so

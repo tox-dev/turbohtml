@@ -55,6 +55,42 @@ class MicrodataItem:
 
 
 @dataclass(frozen=True, slots=True)
+class RdfaItem:
+    """
+    One RDFa resource: an element carrying ``typeof`` and the ``property`` values beneath it.
+
+    Mirrors :class:`MicrodataItem` with the RDFa vocabulary context added. ``property`` keys and the ``type`` IRIs are
+    expanded against the in-scope ``@vocab`` and ``@prefix`` mappings (the RDFa 1.1 initial context seeds the common
+    prefixes, so ``schema:``, ``dc:``, ``foaf:`` resolve without a page-level declaration); a token whose prefix is
+    undeclared, or a bare term with no ``@vocab`` in scope, is kept verbatim.
+
+    :param vocab: the in-scope ``@vocab`` IRI, or ``None`` when no vocabulary is set.
+    :param type: the expanded ``@typeof`` IRIs in document order, an empty list for a valueless ``typeof``.
+    :param resource: the resource subject (``@about``/``@resource``/``@href``/``@src``), or ``None`` for a blank node.
+    :param properties: each expanded ``property`` IRI mapped to its values in document order, a value being a literal or
+        IRI ``str`` or a nested :class:`RdfaItem` for a property that is itself a ``typeof``.
+    """
+
+    vocab: str | None
+    """the in-scope ``@vocab`` IRI, or ``None`` when no vocabulary is set."""
+    type: list[str]
+    """the expanded ``@typeof`` IRIs in document order, an empty list for a valueless ``typeof``."""
+    resource: str | None
+    """the resource subject (``@about``/``@resource``/``@href``/``@src``), or ``None`` for a blank node."""
+    properties: dict[str, list[str | RdfaItem]]
+    """each expanded ``property`` IRI mapped to its values in document order."""
+
+    def get(self, name: str) -> str | RdfaItem | None:
+        """Return the property's first value, or ``None`` when the item lacks it."""
+        values = self.properties.get(name)
+        return values[0] if values else None
+
+    def get_all(self, name: str) -> list[str | RdfaItem]:
+        """Return the property's values in document order, an empty list when absent."""
+        return self.properties.get(name, [])
+
+
+@dataclass(frozen=True, slots=True)
 class StructuredData:
     """
     Every machine-readable metadata format a document embeds, the combined result of one walk.
@@ -63,7 +99,8 @@ class StructuredData:
     :param microdata: every top-level :class:`MicrodataItem`.
     :param opengraph: each ``og:``/``twitter:`` ``<meta>`` key mapped to its content.
     :param microformats: reserved for a later phase, an empty list for now.
-    :param rdfa: reserved for a later phase, an empty list for now.
+    :param rdfa: every top-level :class:`RdfaItem`.
+    :param dublin_core: each ``dc.*``/``dcterms.*`` ``<meta>`` name (lower-cased) mapped to its content.
     """
 
     json_ld: list[JSONValue]
@@ -74,8 +111,10 @@ class StructuredData:
     """each ``og:``/``twitter:`` ``<meta>`` key mapped to its content."""
     microformats: list[JSONValue]
     """reserved for a later phase, an empty list for now."""
-    rdfa: list[JSONValue]
-    """reserved for a later phase, an empty list for now."""
+    rdfa: list[RdfaItem]
+    """every top-level :class:`RdfaItem`."""
+    dublin_core: dict[str, str]
+    """each ``dc.*``/``dcterms.*`` ``<meta>`` name (lower-cased) mapped to its content."""
 
 
 def _as_dict(item: MicrodataItem) -> dict[str, JSONValue]:
@@ -110,4 +149,4 @@ def _parse_json_ld(texts: list[str]) -> list[JSONValue]:
     return parsed
 
 
-_register_structured_data(_parse_json_ld, MicrodataItem, StructuredData)
+_register_structured_data(_parse_json_ld, MicrodataItem, RdfaItem, StructuredData)

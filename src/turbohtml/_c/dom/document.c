@@ -464,10 +464,11 @@ PyDoc_STRVAR(structured_data_doc,
              "Extract every supported structured-data format from the document, a successor to\n"
              "extruct. Returns a StructuredData record with .json_ld (list of parsed JSON-LD\n"
              "values), .microdata (list of MicrodataItem), .opengraph (dict of og:/twitter: keys\n"
-             "to their content), and .microformats/.rdfa (empty lists, a later phase).\n\n"
-             ":param base_url: when given, the URL each relative URL-valued microdata or opengraph\n"
-             "    field is resolved against (a <base href> refines it, HTML spec 4.2.3); json_ld is\n"
-             "    left verbatim. None (the default) returns every value verbatim.\n"
+             "to their content), .rdfa (list of RdfaItem), .dublin_core (dict of dc.*/dcterms.*\n"
+             "names to their content), and .microformats (an empty list, a later phase).\n\n"
+             ":param base_url: when given, the URL each relative URL-valued microdata, opengraph, or\n"
+             "    RDFa field is resolved against (a <base href> refines it, HTML spec 4.2.3); json_ld\n"
+             "    and Dublin Core are left verbatim. None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.");
 
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
@@ -494,6 +495,20 @@ PyDoc_STRVAR(microdata_doc,
              "    None (the default) returns every value verbatim.\n"
              ":raises ValueError: if base_url is not a valid absolute URL.");
 
+PyDoc_STRVAR(rdfa_doc, "rdfa(base_url=None)\n--\n\n"
+                       "Extract RDFa as a list of RdfaItem, one per top-level typeof resource. Each item has\n"
+                       ".properties (a dict mapping each expanded property IRI to its list of values), plus\n"
+                       ".type (the expanded typeof IRIs), .resource (the subject), and .vocab (the in-scope\n"
+                       "@vocab). property/typeof tokens expand against @vocab and @prefix (the RDFa 1.1 initial\n"
+                       "context seeds the common prefixes); an undeclared prefix stays verbatim.\n\n"
+                       ":param base_url: when given, the URL each resource/href/src IRI is resolved against; a\n"
+                       "    <base href> refines it. None (the default) returns every value verbatim.\n"
+                       ":raises ValueError: if base_url is not a valid absolute URL.");
+
+PyDoc_STRVAR(dublin_core_doc, "dublin_core()\n--\n\n"
+                              "Return a dict mapping each <meta name=\"dc.*\"> or <meta name=\"dcterms.*\"> name\n"
+                              "(lower-cased) to its content value. When a name repeats, the last occurrence wins.");
+
 static PyMethodDef document_methods[] = {
     {"base_url", (PyCFunction)(void (*)(void))document_base_url, METH_VARARGS | METH_KEYWORDS, base_url_doc},
     {"meta_refresh", (PyCFunction)(void (*)(void))document_meta_refresh, METH_VARARGS | METH_KEYWORDS,
@@ -505,6 +520,8 @@ static PyMethodDef document_methods[] = {
      opengraph_doc},
     {"microdata", (PyCFunction)(void (*)(void))turbohtml_document_microdata, METH_VARARGS | METH_KEYWORDS,
      microdata_doc},
+    {"rdfa", (PyCFunction)(void (*)(void))turbohtml_document_rdfa, METH_VARARGS | METH_KEYWORDS, rdfa_doc},
+    {"dublin_core", turbohtml_document_dublin_core, METH_NOARGS, dublin_core_doc},
     {NULL, NULL, 0, NULL},
 };
 

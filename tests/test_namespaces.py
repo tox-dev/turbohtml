@@ -7,7 +7,7 @@ import pytest
 import turbohtml
 from turbohtml import clean, extract
 
-_EXTRACT_RECORDS = ("Article", "Link", "MicrodataItem", "StructuredData")
+_EXTRACT_RECORDS = ("Article", "Link", "MicrodataItem", "RdfaItem", "StructuredData")
 _CLEAN_SANITIZE = (
     "DEFAULT_ATTRIBUTES",
     "DEFAULT_SCHEMES",

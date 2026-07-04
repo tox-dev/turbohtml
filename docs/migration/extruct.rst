@@ -30,7 +30,7 @@ parsed tree in a single C walk, so extraction is not a second tree build but a w
       - Full WHATWG parser; structured data is one feature of many
       - Focused metadata extractor, one job
     - - Feature breadth
-      - JSON-LD, Microdata, OpenGraph/Twitter today; RDFa and microformats reserved (empty lists)
+      - JSON-LD, Microdata, OpenGraph/Twitter, RDFa, Dublin Core; microformats reserved (empty list)
       - JSON-LD, Microdata, RDFa, OpenGraph, microformats, Dublin Core
     - - Performance
       - One C walk of the parsed tree; ~9-11x faster on a combined page
@@ -63,8 +63,8 @@ What turbohtml adds
 ===================
 
 - A single walk over the parsed tree returns every format at once as a frozen, fully typed
-  :class:`~turbohtml.StructuredData` record whose five fields you read by attribute, so reading a result never depends
-  on which extractors you enabled.
+  :class:`~turbohtml.StructuredData` record whose six fields you read by attribute, so reading a result never depends on
+  which extractors you enabled.
 - The locating runs in the C core under the per-tree critical section; only JSON-LD decoding stays in Python.
 - The records hold no reference back into the tree, so they outlive the document they came from.
 - Standalone string entry points :func:`turbohtml.extract.microdata` and :func:`turbohtml.extract.opengraph` cover the
@@ -72,14 +72,26 @@ What turbohtml adds
   in.
 - No third-party runtime dependency: no lxml, w3lib, or mf2py to install or pin.
 
+What turbohtml also covers now
+==============================
+
+- **RDFa**: :meth:`~turbohtml.Document.structured_data` fills :attr:`~turbohtml.StructuredData.rdfa` with
+  :class:`~turbohtml.RdfaItem` records (also via :meth:`~turbohtml.Document.rdfa`). Rather than extruct's expanded
+  JSON-LD triples, turbohtml returns the Microdata item shape -- ``type``/``resource``/``properties`` -- with
+  ``property`` keys and ``typeof`` IRIs expanded against the in-scope ``@vocab`` and ``@prefix`` (the RDFa 1.1 initial
+  context seeds the well-known prefixes).
+- **Dublin Core**: :meth:`~turbohtml.Document.dublin_core` (and :attr:`~turbohtml.StructuredData.dublin_core`) maps the
+  ``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased, to their content.
+
 What extruct has that turbohtml does not
 ========================================
 
-- **RDFa** and **microformats**: a documented later phase. :meth:`~turbohtml.Document.structured_data` returns the
-  :attr:`~turbohtml.StructuredData.rdfa` and :attr:`~turbohtml.StructuredData.microformats` fields as empty lists today.
-  Keep extruct for those two syntaxes until the phase lands; the field names are already in place so code that reads
-  them will not break.
-- **Dublin Core**: no equivalent. Read the ``<meta name="dc.*">`` tags yourself off the tree if you need them.
+- **microformats**: a documented later phase. :meth:`~turbohtml.Document.structured_data` returns the
+  :attr:`~turbohtml.StructuredData.microformats` field as an empty list today. Keep extruct for that syntax until the
+  phase lands; the field name is already in place so code that reads it will not break.
+- **RDFa as expanded triples**: extruct returns RDFa as JSON-LD-expanded triples via ``pyRdfa``; turbohtml returns the
+  Microdata-shaped :class:`~turbohtml.RdfaItem` instead, and does not expand CURIEs embedded in arbitrary IRIs or
+  surface the ``datatype`` type IRI (typed literals come back as their lexical string).
 - **``uniform`` / ``return_html_node`` options**: no equivalent. turbohtml's output shape is fixed per format; there is
   no normalized cross-syntax view or embedded lxml node handle.
 
@@ -114,9 +126,13 @@ Swap the import and the extractor call for a parse plus a method on the document
       - :meth:`~turbohtml.Document.opengraph`
     - - ``extruct.extract(html, syntaxes=["microdata"])``
       - :meth:`~turbohtml.Document.microdata`
-    - - ``extruct.extract(html, syntaxes=["rdfa", "microformat"])``
-      - the :attr:`~turbohtml.StructuredData.rdfa` / :attr:`~turbohtml.StructuredData.microformats` fields of the
-        :class:`~turbohtml.StructuredData` record (a later phase)
+    - - ``extruct.extract(html, syntaxes=["rdfa"])``
+      - :meth:`~turbohtml.Document.rdfa` (Microdata-shaped :class:`~turbohtml.RdfaItem`, not expanded triples)
+    - - ``extruct.extract(html, syntaxes=["dublincore"])``
+      - :meth:`~turbohtml.Document.dublin_core`
+    - - ``extruct.extract(html, syntaxes=["microformat"])``
+      - the :attr:`~turbohtml.StructuredData.microformats` field of the :class:`~turbohtml.StructuredData` record (a
+        later phase)
 
 Before, with extruct, each syntax comes back under a string key in a dict:
 
@@ -177,9 +193,13 @@ after the document is gone:
   ``og:`` and ``twitter:`` tags share the one mapping because pages mix the ``property`` and ``name`` attributes freely.
   When a key repeats, the last occurrence wins; read :meth:`~turbohtml.Document.json_ld` when you need every occurrence
   of a repeated key.
-- :attr:`~turbohtml.StructuredData.rdfa` and :attr:`~turbohtml.StructuredData.microformats` are a later phase:
-  :meth:`~turbohtml.Document.structured_data` returns those two fields as empty lists today, so code that reads them
-  will not break when they land, but the values are not there yet.
+- :attr:`~turbohtml.StructuredData.microformats` is a later phase: :meth:`~turbohtml.Document.structured_data` returns
+  it as an empty list today, so code that reads it will not break when it lands, but the values are not there yet. RDFa
+  and Dublin Core are populated, in :attr:`~turbohtml.StructuredData.rdfa` and
+  :attr:`~turbohtml.StructuredData.dublin_core`.
+- RDFa ``property`` keys and ``typeof`` IRIs are expanded against the in-scope ``@vocab``/``@prefix`` (with the RDFa 1.1
+  initial context seeding the common prefixes); an undeclared prefix or a bare term with no vocabulary in scope stays
+  verbatim. Pass ``base_url=`` to :meth:`~turbohtml.Document.rdfa` to absolutize the ``resource``/``href``/``src`` IRIs.
 - A JSON-LD block whose body is not valid JSON is skipped rather than raising, matching ``extruct``'s default error
   handling; ``extruct``'s ``errors="strict"`` mode has no turbohtml equivalent. Pass the raw ``<script>`` text to
   :mod:`json` yourself if you need to see the decode error. A block whose payload is a scalar or ``null`` is also

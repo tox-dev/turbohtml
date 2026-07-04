@@ -33,7 +33,8 @@ fetching, so it slots behind whatever downloader you use.
       - WHATWG HTML parser with metadata extraction on parsed trees
       - Social-card metadata reader with URL fetching and normalization
     - - Feature breadth
-      - Full DOM, selectors, serialization, ``opengraph()``, ``structured_data()``, ``base_url()``
+      - Full DOM, selectors, serialization, ``opengraph()``, ``dublin_core()``, ``rdfa()``, ``structured_data()``,
+        ``base_url()``
       - ``og``/``twitter``/``dc``/``meta``/``page`` namespaces, URL fetch, redirect and canonical-URL resolution
     - - Performance
       - One C walk over the parsed tree (see below)
@@ -69,8 +70,9 @@ What turbohtml adds
 - Zero runtime dependencies. metadata_parser pulls in requests and BeautifulSoup4; turbohtml is a self-contained C
   extension.
 - Full type coverage with shipped stubs, so ``opengraph()`` and its result check under a type checker.
-- Structured data beyond the social card: :meth:`~turbohtml.Document.structured_data` returns JSON-LD and Microdata in
-  the same walk, with :meth:`~turbohtml.Document.json_ld` and :meth:`~turbohtml.Document.microdata` beside
+- Structured data beyond the social card: :meth:`~turbohtml.Document.structured_data` returns JSON-LD, Microdata, RDFa,
+  and Dublin Core in the same walk, with :meth:`~turbohtml.Document.json_ld`, :meth:`~turbohtml.Document.microdata`,
+  :meth:`~turbohtml.Document.rdfa`, and :meth:`~turbohtml.Document.dublin_core` beside
   :meth:`~turbohtml.Document.opengraph`.
 - Document URL hints on the parsed tree: :meth:`~turbohtml.Document.base_url` resolves the effective ``<base>`` and
   :meth:`~turbohtml.Document.meta_refresh` reads the refresh target.
@@ -82,9 +84,10 @@ What metadata_parser has that turbohtml does not
 
 - **URL fetching**: ``MetadataParser(url=...)`` downloads the page, follows redirects, and detects the response
   encoding. turbohtml takes parsed HTML only, so pair it with ``urllib`` or ``httpx``.
-- **Dublin Core (``dc``) and generic ``name``/``content`` namespaces**: metadata_parser groups these into
-  ``metadata["dc"]`` and ``metadata["meta"]``. :meth:`~turbohtml.Document.opengraph` gathers only ``og:`` and
-  ``twitter:`` tags; read any other ``<meta>`` by selecting it, e.g. ``parse(html).find_all("meta")``.
+- **Generic ``name``/``content`` namespace**: metadata_parser groups arbitrary ``<meta name>`` tags into
+  ``metadata["meta"]``. :meth:`~turbohtml.Document.opengraph` gathers only ``og:``/``twitter:`` tags and
+  :meth:`~turbohtml.Document.dublin_core` the ``dc.*``/``dcterms.*`` ones; read any other ``<meta>`` by selecting it,
+  e.g. ``parse(html).find_all("meta")``.
 - **Page-level links** (``canonical``, ``shortlink``) collected into ``metadata["page"]``. Read those with a selector,
   e.g. ``parse(html).find('link[rel="canonical"]')``.
 - **Namespace ``strategy`` ordering**: ``get_metadata(field, strategy=[...])`` picks the first namespace that carries a
@@ -124,7 +127,9 @@ the URL for you, download the markup first and pass it to :func:`turbohtml.parse
       - the ``twitter:card`` key of :meth:`~turbohtml.Document.opengraph`
     - - ``mp.get_metadata_link("image", strategy=["og"])``
       - the ``og:image`` key of ``doc.opengraph(base_url=page_url)``, absolutized against the page URL
-    - - ``mp.parsed_result.metadata["dc"]`` / ``["meta"]``
+    - - ``mp.parsed_result.metadata["dc"]``
+      - :meth:`~turbohtml.Document.dublin_core` (the ``dc.*``/``dcterms.*`` names, lower-cased)
+    - - ``mp.parsed_result.metadata["meta"]``
       - ``doc.find_all("meta")``, read ``name``/``content`` off each tag
 
 .. testcode::
@@ -152,5 +157,6 @@ the URL for you, download the markup first and pass it to :func:`turbohtml.parse
   when you need every occurrence of a repeated key.
 - metadata_parser can fetch (``MetadataParser(url=...)``) and detect the response encoding; turbohtml takes parsed HTML,
   so fetch the page yourself and pass the markup to :func:`turbohtml.parse`.
-- Only ``og:`` and ``twitter:`` tags land in :meth:`~turbohtml.Document.opengraph`. Dublin Core, generic
-  ``name``/``content`` pairs, and page-level ``<link>`` tags come back through selectors, not the metadata mapping.
+- Only ``og:`` and ``twitter:`` tags land in :meth:`~turbohtml.Document.opengraph`; Dublin Core comes back through
+  :meth:`~turbohtml.Document.dublin_core`. Generic ``name``/``content`` pairs and page-level ``<link>`` tags come back
+  through selectors, not the metadata mapping.

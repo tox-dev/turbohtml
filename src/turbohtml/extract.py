@@ -36,7 +36,7 @@ from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates
 from ._html import Element, parse
 from ._links import Link
-from ._structured_data import MicrodataItem, StructuredData
+from ._structured_data import MicrodataItem, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
 if TYPE_CHECKING:
@@ -51,6 +51,7 @@ __all__ = [
     "OpenGraph",
     "Paragraph",
     "PublicationDate",
+    "RdfaItem",
     "StructuredData",
     "UrlCleaning",
     "boilerplate",

@@ -39,6 +39,7 @@ from ._minify import JSMinify, minify_js
 from ._render import Html, Markdown, PlainText
 from ._structured_data import (  # registers the JSON-LD parser and record classes with the C core on import
     MicrodataItem,
+    RdfaItem,
     StructuredData,
 )
 from ._xpath import XPathString  # registers the smart-string type with the C core on import
@@ -72,6 +73,7 @@ __all__ = [
     "ParseError",
     "PlainText",
     "ProcessingInstruction",
+    "RdfaItem",
     "StructuredData",
     "Text",
     "Token",

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import Document, MicrodataItem, StructuredData, parse
+from turbohtml import Document, MicrodataItem, RdfaItem, StructuredData, parse
 
 _RICH = (
-    '<head><meta property="og:title" content="T"></head>'
+    '<head><meta property="og:title" content="T"><meta name="dc.title" content="D"></head>'
     '<body><script type="application/ld+json">{"@type": "Thing"}</script>'
-    '<div itemscope><span itemprop="name">Ada</span></div></body>'
+    '<div itemscope><span itemprop="name">Ada</span></div>'
+    '<div vocab="http://schema.org/" typeof="Person"><span property="name">Grace</span></div></body>'
 )
 
 
@@ -22,7 +23,15 @@ def test_structured_data_record(rich: Document) -> None:
         microdata=[MicrodataItem(type=None, id=None, properties={"name": ["Ada"]})],
         opengraph={"og:title": "T"},
         microformats=[],
-        rdfa=[],
+        rdfa=[
+            RdfaItem(
+                vocab="http://schema.org/",
+                type=["http://schema.org/Person"],
+                resource=None,
+                properties={"http://schema.org/name": ["Grace"]},
+            ),
+        ],
+        dublin_core={"dc.title": "D"},
     )
 
 
@@ -31,6 +40,8 @@ def test_fields_match_per_format_helpers(rich: Document) -> None:
     assert data.json_ld == rich.json_ld()
     assert data.microdata == rich.microdata()
     assert data.opengraph == rich.opengraph()
+    assert data.rdfa == rich.rdfa()
+    assert data.dublin_core == rich.dublin_core()
 
 
 def test_record_is_read_only(rich: Document) -> None:
@@ -47,6 +58,7 @@ def test_empty_document() -> None:
         opengraph={},
         microformats=[],
         rdfa=[],
+        dublin_core={},
     )
 
 
