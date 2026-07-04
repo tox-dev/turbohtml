@@ -1675,22 +1675,1589 @@ static void run_state_init(th_run_state *run_state, enum mode start_mode) {
     run_state->foster_pending = 0;
 }
 
+/* What one insertion-mode handler reads and updates for the token it is handed:
+   the tokenizer (to switch its scanner state) plus the insertion-mode state. The
+   four mode fields mirror th_run_state; table_origin is per-token and never crosses
+   a feed. A handler returns TH_DRAIN_NEXT to advance to the next token, or
+   TH_DRAIN_REPROCESS to run the same token again under the mode it just set. */
+typedef struct {
+    th_tokenizer *sm;
+    enum mode mode;
+    enum mode original_mode;
+    enum mode foster_return;
+    enum mode table_origin;
+    int foster_pending;
+} th_insert;
+
+enum th_drain { TH_DRAIN_NEXT, TH_DRAIN_REPROCESS };
+
+static enum th_drain drain_initial(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace(text, len)) {
+            return TH_DRAIN_NEXT; /* ignore leading whitespace */
+        }
+        tree->quirks = 1; /* no doctype before content */
+        dc->mode = M_BEFORE_HTML;
+        return TH_DRAIN_REPROCESS;
+    }
+    if (tok->kind == TH_DOCTYPE) {
+        th_node *node = node_new(tree, TH_NODE_DOCTYPE);
+        if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            node->text = build_doctype_text(tree, tok, &node->text_len);
+            node->tag_flags = (uint8_t)((tok->has_public_id ? TH_DOCTYPE_HAS_PUBLIC : 0) |
+                                        (tok->has_system_id ? TH_DOCTYPE_HAS_SYSTEM : 0));
+            node_append(tree->document, node);
+        }
+        tree->quirks = doctype_is_quirky(tok);
+        dc->mode = M_BEFORE_HTML;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, tree->document);
+        return TH_DRAIN_NEXT;
+    }
+    tree->quirks = 1; /* no doctype before content */
+    dc->mode = M_BEFORE_HTML;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_before_html(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, tree->document);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace(text, len)) {
+            return TH_DRAIN_NEXT;
+        }
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        th_node *html = insert_element(tree, tok);
+        if (html != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, html);
+        }
+        dc->mode = M_BEFORE_HEAD;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_END_TAG) {
+        uint16_t end_atom = tok_atom(tok);
+        if (end_atom != TH_TAG_HEAD && end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
+            return TH_DRAIN_NEXT; /* any other end tag before html is a parse error and ignored */
+        }
+    }
+    {
+        th_node *html = insert_implicit(tree, "html", TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
+        if (html != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, html);
+        }
+    }
+    dc->mode = M_BEFORE_HEAD;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_before_head(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        Py_ssize_t ws = 0;
+        while (ws < len && (is_space(text[ws]))) {
+            ws++;
+        }
+        if (ws == len) {
+            return TH_DRAIN_NEXT; /* whitespace only: ignored before the head */
+        }
+        tree->text_offset += ws; /* the whitespace prefix is dropped, not moved */
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        /* a redundant html start tag is processed via the in-body rules
+           (merge attributes onto the open html), leaving the mode intact */
+        if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
+            stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+            merge_attrs(tree, tree->open[0], tok);
+        }
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HEAD) {
+        th_node *head = insert_element(tree, tok);
+        if (head != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, head);
+            tree->head = head;
+        }
+        dc->mode = M_IN_HEAD;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_END_TAG) {
+        uint16_t end_atom = tok_atom(tok);
+        if (end_atom != TH_TAG_HEAD && end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
+            return TH_DRAIN_NEXT; /* any other end tag before head is a parse error and ignored */
+        }
+    }
+    tree->head = insert_implicit(tree, "head", TH_TAG_HEAD, TH_TAG_SPECIAL);
+    stack_push(tree, tree->head);
+    dc->mode = M_IN_HEAD;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        Py_ssize_t ws = 0;
+        while (ws < len && (is_space(text[ws]))) {
+            ws++;
+        }
+        if (ws > 0) {
+            insert_text(tree, text, ws); /* leading whitespace stays in the head */
+        }
+        if (ws == len) {
+            return TH_DRAIN_NEXT;
+        }
+        tree->text_offset += ws; /* reprocess only the remainder after the head */
+        stack_pop(tree);         /* pop head */
+        dc->mode = M_AFTER_HEAD;
+        return TH_DRAIN_REPROCESS;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint8_t flags = tok->tag_flags;
+        uint16_t atom = tok->atom;
+        if (atom == TH_TAG_HTML) {
+            /* a redundant html start tag merges attributes via the in-body
+               rules; the head insertion mode is left untouched */
+            if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
+                stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+                merge_attrs(tree, tree->open[0], tok);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_HEAD) {
+            return TH_DRAIN_NEXT; /* a duplicate head start tag is a parse error, ignored */
+        }
+        /* only the head's own raw-text/RCDATA elements switch to text
+           mode here; textarea/xmp/iframe/etc belong in the body */
+        if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
+            int model = content_model_for(atom, flags);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, (enum th_initial_state)model);
+            dc->original_mode = M_IN_HEAD;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
+            atom == TH_TAG_META) {
+            insert_element(tree, tok); /* void metadata: inserted, not pushed */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_NOSCRIPT) {
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_HEAD_NOSCRIPT;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TEMPLATE) {
+            th_node *node = insert_template(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                afe_push_marker(tree);
+            }
+            tmpl_push(tree, M_IN_TEMPLATE);
+            dc->mode = M_IN_TEMPLATE;
+            return TH_DRAIN_NEXT;
+        }
+        /* anything else belongs after the head */
+        stack_pop(tree);
+        dc->mode = M_AFTER_HEAD;
+        return TH_DRAIN_REPROCESS;
+    }
+    /* only an end tag reaches here: text/comment/start break above, a DOCTYPE is ignored before the switch */
+    if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
+        uint16_t end_atom = tok_atom(tok);
+        if (end_atom == TH_TAG_HEAD) {
+            stack_pop(tree);
+            dc->mode = M_AFTER_HEAD;
+            return TH_DRAIN_NEXT;
+        }
+        if (end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
+            return TH_DRAIN_NEXT; /* any other end tag in head is a parse error, ignored */
+        }
+    }
+    stack_pop(tree);
+    dc->mode = M_AFTER_HEAD;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_head_noscript(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_END_TAG) {
+        uint16_t end_atom = tok_atom(tok);
+        if (end_atom == TH_TAG_NOSCRIPT) {
+            stack_pop(tree); /* pop noscript */
+            dc->mode = M_IN_HEAD;
+            return TH_DRAIN_NEXT;
+        }
+        if (end_atom != TH_TAG_BR) {
+            return TH_DRAIN_NEXT; /* any other end tag is a parse error, ignored */
+        }
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        /* process via the in-body rules (merges attributes) */
+        /* open stack always holds html at index 0 */
+        if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
+            stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+            merge_attrs(tree, tree->open[0], tok);
+        }
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace(text, len)) {
+            insert_text(tree, text, len);
+            return TH_DRAIN_NEXT;
+        }
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK || atom == TH_TAG_META) {
+            insert_element(tree, tok); /* void metadata */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_STYLE || atom == TH_TAG_NOFRAMES) {
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
+            dc->original_mode = M_IN_HEAD_NOSCRIPT;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_HEAD || atom == TH_TAG_NOSCRIPT) {
+            return TH_DRAIN_NEXT; /* ignore */
+        }
+    }
+    /* anything else: pop the noscript (parse error) and reprocess in head */
+    stack_pop(tree);
+    dc->mode = M_IN_HEAD;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        Py_ssize_t ws = 0;
+        while (ws < len && is_space(text[ws])) {
+            ws++;
+        }
+        if (ws > 0) {
+            insert_text(tree, text, ws); /* leading whitespace goes under html, between head and body */
+        }
+        if (ws == len) {
+            return TH_DRAIN_NEXT;
+        }
+        tree->text_offset += ws; /* the body is created below; reprocess only the remainder there */
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_BODY) {
+        th_node *body = insert_element(tree, tok);
+        if (body != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, body);
+        }
+        tree->frameset_ok = 0; /* an explicit body can't be replaced by a frameset */
+        dc->mode = M_IN_BODY;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_FRAMESET) {
+        th_node *fs = insert_element(tree, tok);
+        if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, fs);
+        }
+        dc->mode = M_IN_FRAMESET;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint8_t flags = tok->tag_flags;
+        uint16_t atom = tok->atom;
+        /* head-content tags re-enter the head element, are processed
+           there, and leave the head off the stack again */
+        if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
+            atom == TH_TAG_META || atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT ||
+            atom == TH_TAG_NOFRAMES || atom == TH_TAG_TEMPLATE) {
+            /* after-head is entered only once a head element exists */
+            if (tree->head != NULL /* GCOVR_EXCL_BR_LINE */) {
+                stack_push(tree, tree->head); /* insert into the head element */
+                if (atom == TH_TAG_TEMPLATE) {
+                    th_node *node = insert_template(tree, tok);
+                    /* the head is removed from under the template on the
+                       stack; the template itself stays open */
+                    tree->open[tree->open_len - 1] = node;
+                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                        afe_push_marker(tree);
+                        tmpl_push(tree, M_IN_TEMPLATE);
+                        dc->mode = M_IN_TEMPLATE;
+                    } else {
+                        stack_pop(tree); /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+                    }
+                    return TH_DRAIN_NEXT;
+                }
+                th_node *node = insert_element(tree, tok);
+                stack_pop(tree); /* remove head again */
+                if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
+                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                        stack_push(tree, node);
+                    }
+                    th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags));
+                    dc->original_mode = M_AFTER_HEAD;
+                    dc->mode = M_TEXT;
+                }
+            }
+            return TH_DRAIN_NEXT;
+        }
+    }
+    if (tok->kind == TH_END_TAG) {
+        uint16_t end_atom = tok_atom(tok);
+        if (end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
+            return TH_DRAIN_NEXT; /* any other end tag after head is a parse error, ignored */
+        }
+    }
+    {
+        th_node *body = insert_implicit(tree, "body", TH_TAG_BODY, TH_TAG_SPECIAL);
+        if (body != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, body);
+        }
+    }
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_END_TAG) {
+        return TH_DRAIN_NEXT; /* </template> is handled by the dispatcher above; other end tags are ignored */
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint8_t flags = tok->tag_flags;
+        uint16_t atom = tok->atom;
+        if (atom == TH_TAG_TEMPLATE) {
+            th_node *node = insert_template(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                afe_push_marker(tree);
+            }
+            tmpl_push(tree, M_IN_TEMPLATE);
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
+            atom == TH_TAG_META) {
+            insert_element(tree, tok); /* void head content */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags));
+            dc->original_mode = M_IN_TEMPLATE;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        /* table-section tags select the matching table sub-mode (updating
+           the template insertion stack so a later reset resumes here);
+           everything else is body content */
+        if (atom == TH_TAG_CAPTION || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
+            atom == TH_TAG_THEAD) {
+            tmpl_set(tree, M_IN_TABLE);
+            dc->mode = M_IN_TABLE;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_COL) {
+            tmpl_set(tree, M_IN_COLUMN_GROUP);
+            dc->mode = M_IN_COLUMN_GROUP;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_TR) {
+            tmpl_set(tree, M_IN_TABLE_BODY);
+            dc->mode = M_IN_TABLE_BODY;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            tmpl_set(tree, M_IN_ROW);
+            dc->mode = M_IN_ROW;
+            return TH_DRAIN_REPROCESS;
+        }
+        /* any other start tag switches the template to body content */
+        tmpl_set(tree, M_IN_BODY);
+        dc->mode = M_IN_BODY;
+        return TH_DRAIN_REPROCESS;
+    }
+    /* characters and comments run the in-body rules, then return here */
+    dc->foster_pending = 1;
+    dc->foster_return = M_IN_TEMPLATE;
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        insert_whitespace_only(tree, text, len);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_FRAMESET) {
+            th_node *fs = insert_element(tree, tok);
+            if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, fs);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_FRAME) {
+            insert_element(tree, tok); /* void */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_NOFRAMES) {
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
+            dc->original_mode = M_IN_FRAMESET;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        return TH_DRAIN_NEXT;
+    }
+    /* a DOCTYPE is ignored before the switch, so the kind!=end-tag branch here is dead */
+    if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_FRAMESET) { /* GCOVR_EXCL_BR_LINE */
+        if (current_node(tree)->atom != TH_TAG_HTML) {
+            stack_pop(tree);
+        }
+        if (tree->fragment_root == NULL && current_node(tree)->atom != TH_TAG_FRAMESET) {
+            dc->mode = M_AFTER_FRAMESET;
+        }
+        return TH_DRAIN_NEXT;
+    }
+    return TH_DRAIN_NEXT;
+}
+
+static enum th_drain drain_after_frameset(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        insert_whitespace_only(tree, text, len);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_NOFRAMES) {
+        th_node *node = insert_element(tree, tok);
+        if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, node);
+        }
+        th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
+        dc->original_mode = M_AFTER_FRAMESET;
+        dc->mode = M_TEXT;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        dc->mode = M_AFTER_AFTER_FRAMESET; /* only comments and whitespace remain */
+    }
+    return TH_DRAIN_NEXT;
+}
+
+static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        if (tok->is_slice && tree->can_span && !tree->has_nul) {
+            /* zero-copy: scan the input span directly for the frameset
+               and leading-newline rules, then store a span node */
+            Py_ssize_t off = tok->src_start + tree->text_offset;
+            Py_ssize_t len = tok->src_len - tree->text_offset;
+            /* a text token always has a positive length */
+            if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && input_read(tree, off) == '\n') {
+                off++;
+                len--;
+            }
+            tree->drop_newline = 0;
+            reconstruct_afe(tree);
+            for (Py_ssize_t index = 0; index < len; index++) {
+                Py_UCS4 character = input_read(tree, off + index);
+                if (!is_space(character)) {
+                    tree->frameset_ok = 0;
+                    break;
+                }
+            }
+            insert_text_span(tree, off, len);
+            return TH_DRAIN_NEXT;
+        }
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        /* a text token always has a positive length */
+        if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && text[0] == '\n') {
+            text++;
+            len--;
+        }
+        tree->drop_newline = 0;
+        reconstruct_afe(tree);
+        /* a U+0000 is dropped and, like whitespace, does not clear
+           frameset-ok; only a real visible character does */
+        for (Py_ssize_t index = 0; index < len; index++) {
+            Py_UCS4 character = text[index];
+            if (!is_space(character) && character != 0) {
+                tree->frameset_ok = 0;
+                break;
+            }
+        }
+        insert_text(tree, text, len);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint8_t flags = tok->tag_flags;
+        uint16_t atom = tok->atom;
+        if (atom_breaks_frameset(atom) || (atom == TH_TAG_INPUT && !input_is_hidden(tok))) {
+            tree->frameset_ok = 0;
+        }
+        if (atom == TH_TAG_HTML) {
+            /* open stack always holds html at index 0 */
+            if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
+                stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+                merge_attrs(tree, tree->open[0], tok);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BODY) {
+            if (tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY &&
+                stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+                merge_attrs(tree, tree->open[1], tok);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_HEAD || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
+            atom == TH_TAG_FRAME || atom == TH_TAG_TBODY || atom == TH_TAG_TD || atom == TH_TAG_TFOOT ||
+            atom == TH_TAG_TH || atom == TH_TAG_THEAD || atom == TH_TAG_TR) {
+            return TH_DRAIN_NEXT; /* stray table-structure tags are parse errors, ignored */
+        }
+        if (atom == TH_TAG_FRAMESET) {
+            /* replaces an empty body when no non-whitespace content yet */
+            if (tree->frameset_ok && tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY) {
+                node_remove(tree->open[1]);
+                while (tree->open_len > 1) {
+                    stack_pop(tree);
+                }
+                th_node *fs = insert_element(tree, tok);
+                if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                    stack_push(tree, fs);
+                }
+                dc->mode = M_IN_FRAMESET;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        /* block and heading elements close an open p and are inserted
+           WITHOUT reconstructing the active formatting elements */
+        if (is_heading_atom(atom)) {
+            close_p_in_button_scope(tree);
+            if (is_heading_atom(current_node(tree)->atom)) {
+                stack_pop(tree); /* nested headings don't stack */
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (is_p_closing_block(atom) && atom != TH_TAG_PLAINTEXT && atom != TH_TAG_PRE &&
+            atom != TH_TAG_LISTING) { /* pre/listing also drop a leading newline below */
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TABLE) {
+            if (!tree->quirks && has_in_button_scope(tree, TH_TAG_P)) {
+                generate_implied_end_tags(tree, TH_TAG_P);
+                pop_until_atom(tree, TH_TAG_P);
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_TABLE;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_SELECT) {
+            /* select content is plain in-body content now; a nested
+               select start closes the open one instead of nesting */
+            if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
+                return TH_DRAIN_NEXT; /* fragment case: ignored */
+            }
+            if (has_in_scope(tree, TH_TAG_SELECT)) {
+                pop_until_atom(tree, TH_TAG_SELECT);
+                return TH_DRAIN_NEXT;
+            }
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            tree->frameset_ok = 0;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_SVG || atom == TH_TAG_MATH) {
+            reconstruct_afe(tree);
+            th_node *node = insert_foreign(tree, tok, atom == TH_TAG_SVG ? TH_NS_SVG : TH_NS_MATHML);
+            if (node != NULL && !tok->self_closing) { /* GCOVR_EXCL_BR_LINE: insert_foreign returns NULL only on
+                                                         allocation failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_LI) {
+            /* html bounds the stack walk */
+            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+                uint16_t open_atom = tree->open[index]->atom;
+                if (open_atom == TH_TAG_LI) {
+                    generate_implied_end_tags(tree, TH_TAG_LI);
+                    pop_until_atom(tree, TH_TAG_LI);
+                    break;
+                }
+                if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
+                    open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
+                    break;
+                }
+            }
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_DD || atom == TH_TAG_DT) {
+            /* html bounds the stack walk */
+            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+                uint16_t open_atom = tree->open[index]->atom;
+                if (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT) {
+                    generate_implied_end_tags(tree, open_atom);
+                    pop_until_atom(tree, open_atom);
+                    break;
+                }
+                if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
+                    open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
+                    break;
+                }
+            }
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_HR) {
+            close_p_in_button_scope(tree);
+            if (has_in_scope(tree, TH_TAG_SELECT) || (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
+                /* in a select (or a select-context fragment) close the open option/optgroup
+                   first, so the hr lands at select level rather than inside the option */
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+            }
+            insert_element(tree, tok); /* void */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BUTTON) {
+            if (has_in_scope(tree, TH_TAG_BUTTON)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, TH_TAG_BUTTON);
+            }
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_OPTION || atom == TH_TAG_OPTGROUP) {
+            if (has_in_scope(tree, TH_TAG_SELECT) || (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
+                /* inside a select (or a select-context fragment, where no select node
+                   is on the stack), implied end tags close open option and (for an
+                   optgroup start) optgroup elements */
+                generate_implied_end_tags(tree, atom == TH_TAG_OPTION ? TH_TAG_OPTGROUP : TH_TAG_UNKNOWN);
+            } else if (current_node(tree)->atom == TH_TAG_OPTION) {
+                stack_pop(tree);
+            }
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_RB || atom == TH_TAG_RTC) {
+            if (has_in_scope(tree, TH_TAG_RUBY)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_RP || atom == TH_TAG_RT) {
+            if (has_in_scope(tree, TH_TAG_RUBY)) {
+                generate_implied_end_tags(tree, TH_TAG_RTC);
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
+            atom == TH_TAG_META) {
+            insert_element(tree, tok); /* head metadata: in-head rules, no AFE reconstruction */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_FORM) {
+            int in_template = stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0;
+            if (tree->form != NULL && !in_template) {
+                return TH_DRAIN_NEXT; /* a nested form is ignored */
+            }
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                if (!in_template) {
+                    tree->form = node;
+                }
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_INPUT || atom == TH_TAG_KEYGEN) {
+            /* an input or keygen closes an open select entirely (and is
+               ignored outright in a select-context fragment) */
+            if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
+                return TH_DRAIN_NEXT;
+            }
+            if (has_in_scope(tree, TH_TAG_SELECT)) {
+                pop_until_atom(tree, TH_TAG_SELECT);
+            }
+            reconstruct_afe(tree);
+            insert_element(tree, tok); /* void */
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_IMAGE) {
+            /* the famous quirk: <image> becomes <img> */
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                node->atom = TH_TAG_IMG;
+                static const char img[] = "img";
+                node->text = arena_alloc(tree, 3 * (Py_ssize_t)sizeof(Py_UCS4));
+                if (node->text != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                    for (int index = 0; index < 3; index++) {
+                        node->text[index] = (Py_UCS4)img[index];
+                    }
+                    node->text_len = 3;
+                }
+            }
+            return TH_DRAIN_NEXT; /* img is void */
+        }
+        if (atom == TH_TAG_PLAINTEXT) {
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, TH_INIT_PLAINTEXT);
+            return TH_DRAIN_NEXT; /* PLAINTEXT runs to EOF; no end tag returns from it */
+        }
+        int model = content_model_for(atom, flags);
+        if (model >= 0) { /* rawtext / rcdata / script: no reconstruction */
+            if (atom == TH_TAG_XMP) {
+                close_p_in_button_scope(tree);
+                reconstruct_afe(tree);
+                tree->frameset_ok = 0;
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            if (atom == TH_TAG_TEXTAREA) {
+                tree->drop_newline = 1; /* a leading LF in a textarea is ignored */
+            }
+            th_tok_switch(dc->sm, (enum th_initial_state)model);
+            /* when fostered out of a table the in-body rules run but the real insertion
+               mode is still the table mode, so the text mode must return there, not to
+               in body, or the table's later rows would be dropped */
+            dc->original_mode = dc->foster_pending ? dc->foster_return : M_IN_BODY;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_PRE || atom == TH_TAG_LISTING) {
+            close_p_in_button_scope(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            tree->drop_newline = 1; /* a leading LF in pre/listing is ignored */
+            tree->frameset_ok = 0;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_A) {
+            th_node *existing = afe_find_atom(tree, TH_TAG_A);
+            if (existing != NULL) {
+                adoption_agency(tree, TH_TAG_A);
+                Py_ssize_t ai = afe_index_of(tree, existing);
+                if (ai >= 0) {
+                    afe_remove_at(tree, ai);
+                }
+                Py_ssize_t si = stack_index_of(tree, existing);
+                if (si >= 0) {
+                    stack_remove_at(tree, si);
+                }
+            }
+        }
+        if (atom == TH_TAG_NOBR) {
+            reconstruct_afe(tree);
+            if (has_in_scope(tree, TH_TAG_NOBR)) {
+                adoption_agency(tree, TH_TAG_NOBR);
+                reconstruct_afe(tree);
+            }
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                afe_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (flags & TH_TAG_FORMATTING) {
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                afe_push(tree, node);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
+            reconstruct_afe(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            afe_push_marker(tree);
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TEMPLATE) {
+            th_node *node = insert_template(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+                afe_push_marker(tree);
+            }
+            tmpl_push(tree, M_IN_TEMPLATE);
+            dc->mode = M_IN_TEMPLATE;
+            return TH_DRAIN_NEXT;
+        }
+        reconstruct_afe(tree);
+        th_node *node = insert_element(tree, tok);
+        if (is_void_atom(atom)) {
+            return TH_DRAIN_NEXT; /* void: inserted, not pushed (a stray "/" on any
+                      other element is ignored in HTML content) */
+        }
+        if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            stack_push(tree, node);
+        }
+        return TH_DRAIN_NEXT;
+    }
+    /* only an end tag reaches here: text/comment/start break above, a DOCTYPE is ignored before the switch */
+    if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
+        uint8_t flags = tok->tag_flags;
+        uint16_t atom = tok->atom;
+        if (atom == TH_TAG_BODY || atom == TH_TAG_HTML) {
+            dc->mode = M_AFTER_BODY;
+            if (atom == TH_TAG_HTML) {
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_P) {
+            if (!has_in_button_scope(tree, TH_TAG_P)) {
+                insert_implicit(tree, "p", TH_TAG_P, TH_TAG_SPECIAL); /* empty p, immediately closed */
+            } else {
+                generate_implied_end_tags(tree, TH_TAG_P);
+                pop_until_atom(tree, TH_TAG_P);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (is_heading_atom(atom)) {
+            int in_scope = 0;
+            /* html bounds the stack walk */
+            for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+                if (is_heading_atom(tree->open[index]->atom)) {
+                    in_scope = 1;
+                    break;
+                }
+                if (tree->open[index]->tag_flags & TH_TAG_SCOPING) {
+                    break;
+                }
+            }
+            if (in_scope) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the heading is in scope when this runs, so
+                                                the stack never empties */
+                    th_node *node = current_node(tree);
+                    stack_pop(tree);
+                    if (is_heading_atom(node->atom)) {
+                        break;
+                    }
+                }
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_LI || atom == TH_TAG_DD || atom == TH_TAG_DT) {
+            if (atom == TH_TAG_LI ? has_in_list_item_scope(tree, atom) : has_in_scope(tree, atom)) {
+                generate_implied_end_tags(tree, atom);
+                pop_until_atom(tree, atom);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_FORM) {
+            if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+                th_node *node = tree->form;
+                tree->form = NULL;
+                int in_scope = 0;
+                /* the html element is a scope boundary, so the walk always breaks before the stack bottom */
+                for (Py_ssize_t index = tree->open_len - 1; node != NULL && index >= 0 /* GCOVR_EXCL_BR_LINE */;
+                     index--) {
+                    if (tree->open[index] == node) {
+                        in_scope = 1;
+                        break;
+                    }
+                    if (is_scope_boundary(tree->open[index])) {
+                        break;
+                    }
+                }
+                if (!in_scope) {
+                    return TH_DRAIN_NEXT; /* parse error, ignored */
+                }
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                /* the form is removed from wherever it sits on the stack */
+                /* the form element is on the stack when this runs, so it */
+                for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
+                    if (tree->open[index] == node) {
+                        stack_remove_at(tree, index);
+                        break;
+                    }
+                }
+                /* a template on the stack always has a form in scope when this end tag runs */
+            } else if (has_in_scope(tree, TH_TAG_FORM) /* GCOVR_EXCL_BR_LINE */) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, TH_TAG_FORM);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (is_block_end_atom(atom)) {
+            if (has_in_scope(tree, atom)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, atom);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (flags & TH_TAG_FORMATTING) {
+            adoption_agency(tree, atom);
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
+            if (has_in_scope(tree, atom)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, atom);
+                afe_clear_to_marker(tree);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BR) {
+            /* </br> acts as a <br> start tag (attributes dropped) */
+            reconstruct_afe(tree);
+            insert_implicit(tree, "br", TH_TAG_BR, TH_TAG_SPECIAL);
+            tree->frameset_ok = 0;
+            return TH_DRAIN_NEXT;
+        }
+        any_other_end_tag(tree, atom, tok);
+        return TH_DRAIN_NEXT;
+    }
+    return TH_DRAIN_NEXT; /* GCOVR_EXCL_LINE: in body handles every text/comment/start/end token in a branch
+              that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
+}
+
+static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        /* a nul anywhere in the input disables span sharing */
+        if (tok->is_slice && tree->can_span && !tree->has_nul /* GCOVR_EXCL_BR_LINE */) {
+            Py_ssize_t off = tok->src_start + tree->text_offset;
+            Py_ssize_t len = tok->src_len - tree->text_offset;
+            /* a text token always has a positive length */
+            if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && input_read(tree, off) == '\n') {
+                off++;
+                len--;
+            }
+            tree->drop_newline = 0;
+            insert_text_span(tree, off, len);
+            return TH_DRAIN_NEXT;
+        }
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        /* a text token always has a positive length */
+        if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && text[0] == '\n') {
+            text++;
+            len--;
+        }
+        tree->drop_newline = 0;
+        insert_text(tree, text, len);
+        return TH_DRAIN_NEXT;
+    }
+    /* end tag (or EOF) closes the raw-text/RCDATA element */
+    stack_pop(tree);
+    dc->mode = dc->original_mode;
+    return TH_DRAIN_NEXT;
+}
+
+static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace_or_nul(text, len)) {
+            insert_text(tree, text, len);
+        } else {
+            /* non-space character: foster-parent it out of the table */
+            tree->foster = 1;
+            reconstruct_afe(tree);
+            insert_text(tree, text, len);
+            tree->foster = 0;
+        }
+        dc->mode = dc->table_origin;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        dc->mode = dc->table_origin;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok->atom;
+        if (atom == TH_TAG_CAPTION) {
+            clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
+            afe_push_marker(tree);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_CAPTION;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_COLGROUP) {
+            clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_COLUMN_GROUP;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_COL) {
+            clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
+            {
+                th_node *cg = insert_implicit(tree, "colgroup", TH_TAG_COLGROUP, TH_TAG_SPECIAL);
+                if (cg != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                    stack_push(tree, cg);
+                }
+            }
+            dc->mode = M_IN_COLUMN_GROUP;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
+            clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_TABLE_BODY;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TD || atom == TH_TAG_TH || atom == TH_TAG_TR) {
+            clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
+            {
+                th_node *tb = insert_implicit(tree, "tbody", TH_TAG_TBODY, TH_TAG_SPECIAL);
+                if (tb != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                    stack_push(tree, tb);
+                }
+            }
+            dc->mode = M_IN_TABLE_BODY;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_TABLE) {
+            /* a nested table closes the current one, then reprocesses */
+            if (has_in_table_scope(tree, TH_TAG_TABLE)) {
+                pop_until_atom(tree, TH_TAG_TABLE);
+                dc->mode = reset_insertion_mode(tree);
+                return TH_DRAIN_REPROCESS;
+            }
+            dc->mode = dc->table_origin;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT) {
+            uint8_t f2 = tok->tag_flags;
+            uint16_t a2 = tok->atom;
+            int model = content_model_for(a2, f2);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, (enum th_initial_state)model);
+            dc->original_mode = dc->table_origin;
+            dc->mode = M_TEXT;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_INPUT && input_is_hidden(tok)) {
+            insert_element(tree, tok); /* a hidden input stays in the table, no fostering */
+            dc->mode = dc->table_origin;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_FORM) {
+            /* a form in a table is inserted in place and closed at once,
+               unless one is already open or a template is on the stack */
+            if (tree->form == NULL && stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+                tree->form = insert_element(tree, tok);
+            }
+            dc->mode = dc->table_origin;
+            return TH_DRAIN_NEXT;
+        }
+        /* anything else: foster-parent this one token under in-body rules */
+        tree->foster = 1;
+        dc->foster_pending = 1;
+        dc->foster_return = dc->table_origin;
+        dc->mode = M_IN_BODY;
+        return TH_DRAIN_REPROCESS;
+    }
+    /* only an end tag reaches here: text/comment/start break or foster above, a DOCTYPE is ignored before it */
+    if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TABLE) {
+            if (has_in_table_scope(tree, TH_TAG_TABLE)) {
+                pop_until_atom(tree, TH_TAG_TABLE);
+                dc->mode = reset_insertion_mode(tree);
+            } else {
+                dc->mode = dc->table_origin;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BODY || atom == TH_TAG_HTML || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
+            atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH ||
+            atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP) {
+            dc->mode = dc->table_origin;
+            return TH_DRAIN_NEXT; /* ignore stray table-related end tags */
+        }
+        tree->foster = 1;
+        dc->foster_pending = 1;
+        dc->foster_return = dc->table_origin;
+        dc->mode = M_IN_BODY;
+        return TH_DRAIN_REPROCESS;
+    }
+    return TH_DRAIN_NEXT; /* GCOVR_EXCL_LINE: in table handles every text/comment/start/end token in a branch
+              that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
+}
+
+static enum th_drain drain_in_caption(th_tree *tree, th_token *tok, th_insert *dc) {
+    uint16_t atom = tok_atom(tok);
+    if (tok->kind == TH_END_TAG && atom == TH_TAG_CAPTION) {
+        if (has_in_table_scope(tree, TH_TAG_CAPTION)) {
+            generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+            pop_until_atom(tree, TH_TAG_CAPTION);
+            afe_clear_to_marker(tree);
+            dc->mode = M_IN_TABLE;
+        }
+        return TH_DRAIN_NEXT;
+    }
+    if ((tok->kind == TH_START_TAG && (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
+                                       atom == TH_TAG_TBODY || atom == TH_TAG_TD || atom == TH_TAG_TFOOT ||
+                                       atom == TH_TAG_TH || atom == TH_TAG_THEAD || atom == TH_TAG_TR)) ||
+        (tok->kind == TH_END_TAG && atom == TH_TAG_TABLE)) {
+        if (has_in_table_scope(tree, TH_TAG_CAPTION)) {
+            generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+            pop_until_atom(tree, TH_TAG_CAPTION);
+            afe_clear_to_marker(tree);
+            dc->mode = M_IN_TABLE;
+            return TH_DRAIN_REPROCESS;
+        }
+        return TH_DRAIN_NEXT;
+    }
+    dc->foster_pending = 1;
+    dc->foster_return = M_IN_CAPTION;
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_column_group(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        Py_ssize_t ws = 0;
+        while (ws < len && (is_space(text[ws]))) {
+            ws++;
+        }
+        if (ws > 0) {
+            insert_text(tree, text, ws); /* the whitespace prefix stays in the colgroup */
+        }
+        if (ws == len) {
+            return TH_DRAIN_NEXT;
+        }
+        tree->text_offset += ws; /* reprocess only the remainder below */
+    }
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, NULL);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        /* a stray html start tag uses the in-body rules: merge attributes onto
+           the open html and leave the stack (so the colgroup stays open) */
+        if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
+            stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
+            merge_attrs(tree, tree->open[0], tok);
+        }
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_COL) {
+        insert_element(tree, tok); /* col is void */
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_COLGROUP) {
+        if (current_node(tree)->atom == TH_TAG_COLGROUP) {
+            stack_pop(tree);
+            dc->mode = M_IN_TABLE;
+        }
+        return TH_DRAIN_NEXT;
+    }
+    /* anything else: only a real colgroup can be popped to fall back to
+       in-table; otherwise (fragment/template root) the token is ignored */
+    if (current_node(tree)->atom != TH_TAG_COLGROUP) {
+        return TH_DRAIN_NEXT;
+    }
+    stack_pop(tree);
+    dc->mode = M_IN_TABLE;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_table_body(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TR) {
+            clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            dc->mode = M_IN_ROW;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
+            {
+                th_node *row = insert_implicit(tree, "tr", TH_TAG_TR, TH_TAG_SPECIAL);
+                if (row != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                    stack_push(tree, row);
+                }
+            }
+            dc->mode = M_IN_ROW;
+            return TH_DRAIN_REPROCESS;
+        }
+        if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
+            atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD) {
+            if (has_in_table_scope(tree, TH_TAG_TBODY) || has_in_table_scope(tree, TH_TAG_THEAD) ||
+                has_in_table_scope(tree, TH_TAG_TFOOT)) {
+                clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+    }
+    if (tok->kind == TH_END_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
+            if (has_in_table_scope(tree, atom)) {
+                clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TABLE) {
+            if (has_in_table_scope(tree, TH_TAG_TBODY) || has_in_table_scope(tree, TH_TAG_THEAD) ||
+                has_in_table_scope(tree, TH_TAG_TFOOT)) {
+                clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
+            atom == TH_TAG_HTML || atom == TH_TAG_TD || atom == TH_TAG_TH || atom == TH_TAG_TR) {
+            return TH_DRAIN_NEXT; /* ignore */
+        }
+    }
+    dc->table_origin = dc->mode;
+    dc->mode = M_IN_TABLE;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            afe_push_marker(tree);
+            dc->mode = M_IN_CELL;
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
+            atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD || atom == TH_TAG_TR) {
+            if (has_in_table_scope(tree, TH_TAG_TR)) {
+                clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE_BODY;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+    }
+    if (tok->kind == TH_END_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TR) {
+            if (has_in_table_scope(tree, TH_TAG_TR)) {
+                clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE_BODY;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TABLE) {
+            if (has_in_table_scope(tree, TH_TAG_TR)) {
+                clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE_BODY;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
+            if (has_in_table_scope(tree, atom)) {
+                clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
+                stack_pop(tree);
+                dc->mode = M_IN_TABLE_BODY;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
+            atom == TH_TAG_HTML || atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            return TH_DRAIN_NEXT; /* ignore */
+        }
+    }
+    dc->table_origin = dc->mode;
+    dc->mode = M_IN_TABLE;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_in_cell(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_END_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            if (has_in_table_scope(tree, atom)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, atom);
+                afe_clear_to_marker(tree);
+                dc->mode = M_IN_ROW;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD ||
+            atom == TH_TAG_TR) {
+            if (has_in_table_scope(tree, atom)) {
+                uint16_t close = has_in_table_scope(tree, TH_TAG_TD) ? TH_TAG_TD : TH_TAG_TH;
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, close);
+                afe_clear_to_marker(tree);
+                dc->mode = M_IN_ROW;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
+            atom == TH_TAG_HTML) {
+            return TH_DRAIN_NEXT; /* ignore */
+        }
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
+            atom == TH_TAG_TD || atom == TH_TAG_TFOOT || atom == TH_TAG_TH || atom == TH_TAG_THEAD ||
+            atom == TH_TAG_TR) {
+            uint16_t close = has_in_table_scope(tree, TH_TAG_TD) ? TH_TAG_TD : TH_TAG_TH;
+            if (has_in_table_scope(tree, close)) {
+                generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                pop_until_atom(tree, close);
+                afe_clear_to_marker(tree);
+                dc->mode = M_IN_ROW;
+                return TH_DRAIN_REPROCESS;
+            }
+            return TH_DRAIN_NEXT;
+        }
+    }
+    dc->foster_pending = 1;
+    dc->foster_return = M_IN_CELL;
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_after_body(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_COMMENT) {
+        /* open[0] is always the html element in this mode, never the document */
+        th_node *root = tree->open_len > 0 ? tree->open[0] : tree->document; /* GCOVR_EXCL_BR_LINE */
+        insert_comment(tree, tok, root);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace(text, len)) {
+            /* whitespace runs the in-body rules without leaving after-body */
+            dc->foster_pending = 1;
+            dc->foster_return = M_AFTER_BODY;
+            dc->mode = M_IN_BODY;
+            return TH_DRAIN_REPROCESS;
+        }
+    }
+    if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        dc->mode = M_AFTER_AFTER_BODY;
+        return TH_DRAIN_NEXT;
+    }
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_after_after_body(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_COMMENT) {
+        /* a fragment has no document node to attach to; use its root */
+        insert_comment(tree, tok, tree->fragment_root != NULL ? tree->fragment_root : tree->document);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        if (all_whitespace(text, len)) {
+            /* whitespace runs the in-body rules without leaving this mode */
+            dc->foster_pending = 1;
+            dc->foster_return = M_AFTER_AFTER_BODY;
+            dc->mode = M_IN_BODY;
+            return TH_DRAIN_REPROCESS;
+        }
+    }
+    dc->mode = M_IN_BODY;
+    return TH_DRAIN_REPROCESS;
+}
+
+static enum th_drain drain_after_after_frameset(th_tree *tree, th_token *tok, th_insert *dc) {
+    if (tok->kind == TH_COMMENT) {
+        insert_comment(tree, tok, tree->document);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_TEXT) {
+        Py_ssize_t len;
+        Py_UCS4 *text = token_text(tree, tok, &len);
+        insert_whitespace_only(tree, text, len);
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG) {
+        uint16_t atom = tok_atom(tok);
+        if (atom == TH_TAG_HTML) {
+            /* in-body rules: merge attributes into the existing html */
+            /* open stack always holds html at index 0 */
+            if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML) { /* GCOVR_EXCL_BR_LINE */
+                merge_attrs(tree, tree->open[0], tok);
+            }
+            return TH_DRAIN_NEXT;
+        }
+        if (atom == TH_TAG_NOFRAMES) {
+            th_node *node = insert_element(tree, tok);
+            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+                stack_push(tree, node);
+            }
+            th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
+            dc->original_mode = M_AFTER_AFTER_FRAMESET;
+            dc->mode = M_TEXT;
+        }
+    }
+    return TH_DRAIN_NEXT; /* everything else is a parse error and ignored */
+}
+
 /* Drive tree construction over the tokens the tokenizer can produce now,
    returning when it stalls (TH_STEP_NEED_MORE), reaches EOF (TH_STEP_DONE), or
    fails. The insertion-mode state is restored from run_state on entry and saved
    back on exit so a later call resumes the WHATWG algorithm in place. */
 static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) {
-    enum mode mode = run_state->mode;
-    enum mode original_mode = run_state->original_mode;
-    /* a table mode foster-parents a stray token by processing it once under
-       in-body rules and then returning to the table mode; foster_return holds
-       the mode to restore once that one token has been consumed */
-    enum mode foster_return = run_state->foster_return;
-    int foster_pending = run_state->foster_pending;
-    /* the row/section modes delegate unhandled tokens to the in-table rules;
-       per spec that delegation does not change the insertion mode, so the
-       delegating mode is remembered and restored after the token is consumed */
-    enum mode table_origin = M_IN_TABLE;
+    /* foster_return: a table mode foster-parents a stray token by processing it
+       once under in-body rules and then returning to the table mode. table_origin:
+       the row/section modes delegate unhandled tokens to the in-table rules without
+       changing the insertion mode, so the delegating mode is remembered here. */
+    th_insert local = {
+        .sm = sm,
+        .mode = run_state->mode,
+        .original_mode = run_state->original_mode,
+        .foster_return = run_state->foster_return,
+        .foster_pending = run_state->foster_pending,
+        .table_origin = M_IN_TABLE,
+    };
+    th_insert *dc = &local;
     th_token *tok;
 
     /* the <![CDATA[ decision depends on the adjusted current node, so the
@@ -1699,18 +3266,18 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
     while (!tree->failed /* GCOVR_EXCL_BR_LINE */ &&
            (th_tok_set_cdata(sm, tree->open_len > 0 && current_node(tree)->ns != TH_NS_HTML),
             th_tok_next(sm, &tok) == TH_STEP_TOKEN)) {
-        if (foster_pending) {
+        if (dc->foster_pending) {
             /* The one fostered token was processed under in-body rules; restore
                the table/cell mode only if those rules did not themselves switch
                the insertion mode (a fostered <select>/<table> legitimately
                does, and that switch must survive). */
-            if (mode == M_IN_BODY) {
-                mode = foster_return;
+            if (dc->mode == M_IN_BODY) {
+                dc->mode = dc->foster_return;
             }
             tree->foster = 0;
-            foster_pending = 0;
+            dc->foster_pending = 0;
         }
-        table_origin = M_IN_TABLE;
+        dc->table_origin = M_IN_TABLE;
         tree->text_offset = 0; /* a fresh token: any consumed-prefix offset is stale */
         /* the pre/listing/textarea leading-LF skip applies only to the token
            immediately following the start tag: a text token consumes it in its
@@ -1736,19 +3303,19 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         /* template tags are handled uniformly across the table/select modes (the
            spec routes them through in-head); in-body/in-head/in-template keep
            their own handlers for the active-formatting interactions */
-        if (tok->kind == TH_END_TAG && mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
+        if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
             if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
                 pop_until_atom(tree, TH_TAG_TEMPLATE);
                 afe_clear_to_marker(tree);
                 tmpl_pop(tree);
-                mode = reset_insertion_mode(tree);
+                dc->mode = reset_insertion_mode(tree);
             }
             continue;
         }
         if (tok->kind == TH_START_TAG &&
-            (mode == M_IN_TABLE || mode == M_IN_TABLE_BODY || mode == M_IN_ROW || mode == M_IN_CELL ||
-             mode == M_IN_COLUMN_GROUP || mode == M_IN_CAPTION) &&
+            (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
+             dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
             tok_atom(tok) == TH_TAG_TEMPLATE) {
             th_node *node = insert_template(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
@@ -1756,7 +3323,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
                 afe_push_marker(tree);
             }
             tmpl_push(tree, M_IN_TEMPLATE);
-            mode = M_IN_TEMPLATE;
+            dc->mode = M_IN_TEMPLATE;
             continue;
         }
         /* "in select in table": a select opened in a table context does not get its own
@@ -1764,1566 +3331,95 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
            Per the spec it pops the select, resets the insertion mode, and reprocesses, so
            the table element becomes a sibling of the closed select (#90). */
         if (tok->kind == TH_START_TAG && has_in_scope(tree, TH_TAG_SELECT) &&
-            (mode == M_IN_TABLE || mode == M_IN_TABLE_BODY || mode == M_IN_ROW || mode == M_IN_CELL ||
-             mode == M_IN_CAPTION)) {
+            (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
+             dc->mode == M_IN_CAPTION)) {
             uint16_t a = tok_atom(tok);
             if (a == TH_TAG_CAPTION || a == TH_TAG_TABLE || a == TH_TAG_TBODY || a == TH_TAG_TFOOT ||
                 a == TH_TAG_THEAD || a == TH_TAG_TR || a == TH_TAG_TD || a == TH_TAG_TH) {
                 pop_until_atom(tree, TH_TAG_SELECT);
-                mode = reset_insertion_mode(tree);
+                dc->mode = reset_insertion_mode(tree);
                 goto reprocess;
             }
         }
         /* a DOCTYPE in any insertion mode other than "initial" is a parse error that is
            ignored without changing the insertion mode (foreign content already handled
            its own DOCTYPE above); only the initial mode builds the doctype node */
-        if (tok->kind == TH_DOCTYPE && mode != M_INITIAL) {
+        if (tok->kind == TH_DOCTYPE && dc->mode != M_INITIAL) {
             th_error_sink_push(&tree->errors, "unexpected-doctype", tok->line, tok->col);
             continue;
         }
         /* every insertion mode has an explicit case, so the compiler default arm is unreachable */
-        switch (mode) /* GCOVR_EXCL_BR_LINE */ {
+        enum th_drain action = TH_DRAIN_NEXT;
+        switch (dc->mode) /* GCOVR_EXCL_BR_LINE */ {
         case M_INITIAL:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace(text, len)) {
-                    break; /* ignore leading whitespace */
-                }
-                tree->quirks = 1; /* no doctype before content */
-                mode = M_BEFORE_HTML;
-                goto reprocess;
-            }
-            if (tok->kind == TH_DOCTYPE) {
-                th_node *node = node_new(tree, TH_NODE_DOCTYPE);
-                if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    node->text = build_doctype_text(tree, tok, &node->text_len);
-                    node->tag_flags = (uint8_t)((tok->has_public_id ? TH_DOCTYPE_HAS_PUBLIC : 0) |
-                                                (tok->has_system_id ? TH_DOCTYPE_HAS_SYSTEM : 0));
-                    node_append(tree->document, node);
-                }
-                tree->quirks = doctype_is_quirky(tok);
-                mode = M_BEFORE_HTML;
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, tree->document);
-                break;
-            }
-            tree->quirks = 1; /* no doctype before content */
-            mode = M_BEFORE_HTML;
-            goto reprocess;
-
+            action = drain_initial(tree, tok, dc);
+            break;
         case M_BEFORE_HTML:
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, tree->document);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace(text, len)) {
-                    break;
-                }
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                th_node *html = insert_element(tree, tok);
-                if (html != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, html);
-                }
-                mode = M_BEFORE_HEAD;
-                break;
-            }
-            if (tok->kind == TH_END_TAG) {
-                uint16_t end_atom = tok_atom(tok);
-                if (end_atom != TH_TAG_HEAD && end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML &&
-                    end_atom != TH_TAG_BR) {
-                    break; /* any other end tag before html is a parse error and ignored */
-                }
-            }
-            {
-                th_node *html = insert_implicit(tree, "html", TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
-                if (html != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, html);
-                }
-            }
-            mode = M_BEFORE_HEAD;
-            goto reprocess;
-
+            action = drain_before_html(tree, tok, dc);
+            break;
         case M_BEFORE_HEAD:
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                Py_ssize_t ws = 0;
-                while (ws < len && (is_space(text[ws]))) {
-                    ws++;
-                }
-                if (ws == len) {
-                    break; /* whitespace only: ignored before the head */
-                }
-                tree->text_offset += ws; /* the whitespace prefix is dropped, not moved */
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                /* a redundant html start tag is processed via the in-body rules
-                   (merge attributes onto the open html), leaving the mode intact */
-                if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
-                    stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                    merge_attrs(tree, tree->open[0], tok);
-                }
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HEAD) {
-                th_node *head = insert_element(tree, tok);
-                if (head != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, head);
-                    tree->head = head;
-                }
-                mode = M_IN_HEAD;
-                break;
-            }
-            if (tok->kind == TH_END_TAG) {
-                uint16_t end_atom = tok_atom(tok);
-                if (end_atom != TH_TAG_HEAD && end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML &&
-                    end_atom != TH_TAG_BR) {
-                    break; /* any other end tag before head is a parse error and ignored */
-                }
-            }
-            tree->head = insert_implicit(tree, "head", TH_TAG_HEAD, TH_TAG_SPECIAL);
-            stack_push(tree, tree->head);
-            mode = M_IN_HEAD;
-            goto reprocess;
-
+            action = drain_before_head(tree, tok, dc);
+            break;
         case M_IN_HEAD:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                Py_ssize_t ws = 0;
-                while (ws < len && (is_space(text[ws]))) {
-                    ws++;
-                }
-                if (ws > 0) {
-                    insert_text(tree, text, ws); /* leading whitespace stays in the head */
-                }
-                if (ws == len) {
-                    break;
-                }
-                tree->text_offset += ws; /* reprocess only the remainder after the head */
-                stack_pop(tree);         /* pop head */
-                mode = M_AFTER_HEAD;
-                goto reprocess;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint8_t flags = tok->tag_flags;
-                uint16_t atom = tok->atom;
-                if (atom == TH_TAG_HTML) {
-                    /* a redundant html start tag merges attributes via the in-body
-                       rules; the head insertion mode is left untouched */
-                    if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
-                        stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                        merge_attrs(tree, tree->open[0], tok);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_HEAD) {
-                    break; /* a duplicate head start tag is a parse error, ignored */
-                }
-                /* only the head's own raw-text/RCDATA elements switch to text
-                   mode here; textarea/xmp/iframe/etc belong in the body */
-                if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
-                    int model = content_model_for(atom, flags);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, (enum th_initial_state)model);
-                    original_mode = M_IN_HEAD;
-                    mode = M_TEXT;
-                    break;
-                }
-                if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
-                    atom == TH_TAG_META) {
-                    insert_element(tree, tok); /* void metadata: inserted, not pushed */
-                    break;
-                }
-                if (atom == TH_TAG_NOSCRIPT) {
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_HEAD_NOSCRIPT;
-                    break;
-                }
-                if (atom == TH_TAG_TEMPLATE) {
-                    th_node *node = insert_template(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        afe_push_marker(tree);
-                    }
-                    tmpl_push(tree, M_IN_TEMPLATE);
-                    mode = M_IN_TEMPLATE;
-                    break;
-                }
-                /* anything else belongs after the head */
-                stack_pop(tree);
-                mode = M_AFTER_HEAD;
-                goto reprocess;
-            }
-            /* only an end tag reaches here: text/comment/start break above, a DOCTYPE is ignored before the switch */
-            if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
-                uint16_t end_atom = tok_atom(tok);
-                if (end_atom == TH_TAG_HEAD) {
-                    stack_pop(tree);
-                    mode = M_AFTER_HEAD;
-                    break;
-                }
-                if (end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
-                    break; /* any other end tag in head is a parse error, ignored */
-                }
-            }
-            stack_pop(tree);
-            mode = M_AFTER_HEAD;
-            goto reprocess;
-
+            action = drain_in_head(tree, tok, dc);
+            break;
         case M_IN_HEAD_NOSCRIPT:
-            if (tok->kind == TH_END_TAG) {
-                uint16_t end_atom = tok_atom(tok);
-                if (end_atom == TH_TAG_NOSCRIPT) {
-                    stack_pop(tree); /* pop noscript */
-                    mode = M_IN_HEAD;
-                    break;
-                }
-                if (end_atom != TH_TAG_BR) {
-                    break; /* any other end tag is a parse error, ignored */
-                }
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                /* process via the in-body rules (merges attributes) */
-                /* open stack always holds html at index 0 */
-                if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
-                    stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                    merge_attrs(tree, tree->open[0], tok);
-                }
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace(text, len)) {
-                    insert_text(tree, text, len);
-                    break;
-                }
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK || atom == TH_TAG_META) {
-                    insert_element(tree, tok); /* void metadata */
-                    break;
-                }
-                if (atom == TH_TAG_STYLE || atom == TH_TAG_NOFRAMES) {
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, TH_INIT_RAWTEXT);
-                    original_mode = M_IN_HEAD_NOSCRIPT;
-                    mode = M_TEXT;
-                    break;
-                }
-                if (atom == TH_TAG_HEAD || atom == TH_TAG_NOSCRIPT) {
-                    break; /* ignore */
-                }
-            }
-            /* anything else: pop the noscript (parse error) and reprocess in head */
-            stack_pop(tree);
-            mode = M_IN_HEAD;
-            goto reprocess;
-
+            action = drain_in_head_noscript(tree, tok, dc);
+            break;
         case M_AFTER_HEAD:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                Py_ssize_t ws = 0;
-                while (ws < len && is_space(text[ws])) {
-                    ws++;
-                }
-                if (ws > 0) {
-                    insert_text(tree, text, ws); /* leading whitespace goes under html, between head and body */
-                }
-                if (ws == len) {
-                    break;
-                }
-                tree->text_offset += ws; /* the body is created below; reprocess only the remainder there */
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_BODY) {
-                th_node *body = insert_element(tree, tok);
-                if (body != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, body);
-                }
-                tree->frameset_ok = 0; /* an explicit body can't be replaced by a frameset */
-                mode = M_IN_BODY;
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_FRAMESET) {
-                th_node *fs = insert_element(tree, tok);
-                if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, fs);
-                }
-                mode = M_IN_FRAMESET;
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint8_t flags = tok->tag_flags;
-                uint16_t atom = tok->atom;
-                /* head-content tags re-enter the head element, are processed
-                   there, and leave the head off the stack again */
-                if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
-                    atom == TH_TAG_META || atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT ||
-                    atom == TH_TAG_NOFRAMES || atom == TH_TAG_TEMPLATE) {
-                    /* after-head is entered only once a head element exists */
-                    if (tree->head != NULL /* GCOVR_EXCL_BR_LINE */) {
-                        stack_push(tree, tree->head); /* insert into the head element */
-                        if (atom == TH_TAG_TEMPLATE) {
-                            th_node *node = insert_template(tree, tok);
-                            /* the head is removed from under the template on the
-                               stack; the template itself stays open */
-                            tree->open[tree->open_len - 1] = node;
-                            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                                afe_push_marker(tree);
-                                tmpl_push(tree, M_IN_TEMPLATE);
-                                mode = M_IN_TEMPLATE;
-                            } else {
-                                stack_pop(tree); /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-                            }
-                            break;
-                        }
-                        th_node *node = insert_element(tree, tok);
-                        stack_pop(tree); /* remove head again */
-                        if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT ||
-                            atom == TH_TAG_NOFRAMES) {
-                            if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                                stack_push(tree, node);
-                            }
-                            th_tok_switch(sm, (enum th_initial_state)content_model_for(atom, flags));
-                            original_mode = M_AFTER_HEAD;
-                            mode = M_TEXT;
-                        }
-                    }
-                    break;
-                }
-            }
-            if (tok->kind == TH_END_TAG) {
-                uint16_t end_atom = tok_atom(tok);
-                if (end_atom != TH_TAG_BODY && end_atom != TH_TAG_HTML && end_atom != TH_TAG_BR) {
-                    break; /* any other end tag after head is a parse error, ignored */
-                }
-            }
-            {
-                th_node *body = insert_implicit(tree, "body", TH_TAG_BODY, TH_TAG_SPECIAL);
-                if (body != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, body);
-                }
-            }
-            mode = M_IN_BODY;
-            goto reprocess;
-
+            action = drain_after_head(tree, tok, dc);
+            break;
         case M_IN_TEMPLATE:
-            if (tok->kind == TH_END_TAG) {
-                break; /* </template> is handled by the dispatcher above; other end tags are ignored */
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint8_t flags = tok->tag_flags;
-                uint16_t atom = tok->atom;
-                if (atom == TH_TAG_TEMPLATE) {
-                    th_node *node = insert_template(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        afe_push_marker(tree);
-                    }
-                    tmpl_push(tree, M_IN_TEMPLATE);
-                    break;
-                }
-                if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
-                    atom == TH_TAG_META) {
-                    insert_element(tree, tok); /* void head content */
-                    break;
-                }
-                if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, (enum th_initial_state)content_model_for(atom, flags));
-                    original_mode = M_IN_TEMPLATE;
-                    mode = M_TEXT;
-                    break;
-                }
-                /* table-section tags select the matching table sub-mode (updating
-                   the template insertion stack so a later reset resumes here);
-                   everything else is body content */
-                if (atom == TH_TAG_CAPTION || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
-                    atom == TH_TAG_THEAD) {
-                    tmpl_set(tree, M_IN_TABLE);
-                    mode = M_IN_TABLE;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_COL) {
-                    tmpl_set(tree, M_IN_COLUMN_GROUP);
-                    mode = M_IN_COLUMN_GROUP;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_TR) {
-                    tmpl_set(tree, M_IN_TABLE_BODY);
-                    mode = M_IN_TABLE_BODY;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                    tmpl_set(tree, M_IN_ROW);
-                    mode = M_IN_ROW;
-                    goto reprocess;
-                }
-                /* any other start tag switches the template to body content */
-                tmpl_set(tree, M_IN_BODY);
-                mode = M_IN_BODY;
-                goto reprocess;
-            }
-            /* characters and comments run the in-body rules, then return here */
-            foster_pending = 1;
-            foster_return = M_IN_TEMPLATE;
-            mode = M_IN_BODY;
-            goto reprocess;
-
+            action = drain_in_template(tree, tok, dc);
+            break;
         case M_IN_FRAMESET:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                insert_whitespace_only(tree, text, len);
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_FRAMESET) {
-                    th_node *fs = insert_element(tree, tok);
-                    if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, fs);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_FRAME) {
-                    insert_element(tree, tok); /* void */
-                    break;
-                }
-                if (atom == TH_TAG_NOFRAMES) {
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, TH_INIT_RAWTEXT);
-                    original_mode = M_IN_FRAMESET;
-                    mode = M_TEXT;
-                    break;
-                }
-                break;
-            }
-            /* a DOCTYPE is ignored before the switch, so the kind!=end-tag branch here is dead */
-            if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_FRAMESET) { /* GCOVR_EXCL_BR_LINE */
-                if (current_node(tree)->atom != TH_TAG_HTML) {
-                    stack_pop(tree);
-                }
-                if (tree->fragment_root == NULL && current_node(tree)->atom != TH_TAG_FRAMESET) {
-                    mode = M_AFTER_FRAMESET;
-                }
-                break;
-            }
+            action = drain_in_frameset(tree, tok, dc);
             break;
-
         case M_AFTER_FRAMESET:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                insert_whitespace_only(tree, text, len);
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_NOFRAMES) {
-                th_node *node = insert_element(tree, tok);
-                if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, node);
-                }
-                th_tok_switch(sm, TH_INIT_RAWTEXT);
-                original_mode = M_AFTER_FRAMESET;
-                mode = M_TEXT;
-                break;
-            }
-            if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                mode = M_AFTER_AFTER_FRAMESET; /* only comments and whitespace remain */
-            }
+            action = drain_after_frameset(tree, tok, dc);
             break;
-
         case M_IN_BODY:
-            if (tok->kind == TH_TEXT) {
-                if (tok->is_slice && tree->can_span && !tree->has_nul) {
-                    /* zero-copy: scan the input span directly for the frameset
-                       and leading-newline rules, then store a span node */
-                    Py_ssize_t off = tok->src_start + tree->text_offset;
-                    Py_ssize_t len = tok->src_len - tree->text_offset;
-                    /* a text token always has a positive length */
-                    if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && input_read(tree, off) == '\n') {
-                        off++;
-                        len--;
-                    }
-                    tree->drop_newline = 0;
-                    reconstruct_afe(tree);
-                    for (Py_ssize_t index = 0; index < len; index++) {
-                        Py_UCS4 character = input_read(tree, off + index);
-                        if (!is_space(character)) {
-                            tree->frameset_ok = 0;
-                            break;
-                        }
-                    }
-                    insert_text_span(tree, off, len);
-                    break;
-                }
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                /* a text token always has a positive length */
-                if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && text[0] == '\n') {
-                    text++;
-                    len--;
-                }
-                tree->drop_newline = 0;
-                reconstruct_afe(tree);
-                /* a U+0000 is dropped and, like whitespace, does not clear
-                   frameset-ok; only a real visible character does */
-                for (Py_ssize_t index = 0; index < len; index++) {
-                    Py_UCS4 character = text[index];
-                    if (!is_space(character) && character != 0) {
-                        tree->frameset_ok = 0;
-                        break;
-                    }
-                }
-                insert_text(tree, text, len);
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint8_t flags = tok->tag_flags;
-                uint16_t atom = tok->atom;
-                if (atom_breaks_frameset(atom) || (atom == TH_TAG_INPUT && !input_is_hidden(tok))) {
-                    tree->frameset_ok = 0;
-                }
-                if (atom == TH_TAG_HTML) {
-                    /* open stack always holds html at index 0 */
-                    if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
-                        stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                        merge_attrs(tree, tree->open[0], tok);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BODY) {
-                    if (tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY &&
-                        stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                        merge_attrs(tree, tree->open[1], tok);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_HEAD || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
-                    atom == TH_TAG_FRAME || atom == TH_TAG_TBODY || atom == TH_TAG_TD || atom == TH_TAG_TFOOT ||
-                    atom == TH_TAG_TH || atom == TH_TAG_THEAD || atom == TH_TAG_TR) {
-                    break; /* stray table-structure tags are parse errors, ignored */
-                }
-                if (atom == TH_TAG_FRAMESET) {
-                    /* replaces an empty body when no non-whitespace content yet */
-                    if (tree->frameset_ok && tree->open_len > 1 && tree->open[1]->atom == TH_TAG_BODY) {
-                        node_remove(tree->open[1]);
-                        while (tree->open_len > 1) {
-                            stack_pop(tree);
-                        }
-                        th_node *fs = insert_element(tree, tok);
-                        if (fs != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                            stack_push(tree, fs);
-                        }
-                        mode = M_IN_FRAMESET;
-                    }
-                    break;
-                }
-                /* block and heading elements close an open p and are inserted
-                   WITHOUT reconstructing the active formatting elements */
-                if (is_heading_atom(atom)) {
-                    close_p_in_button_scope(tree);
-                    if (is_heading_atom(current_node(tree)->atom)) {
-                        stack_pop(tree); /* nested headings don't stack */
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (is_p_closing_block(atom) && atom != TH_TAG_PLAINTEXT && atom != TH_TAG_PRE &&
-                    atom != TH_TAG_LISTING) { /* pre/listing also drop a leading newline below */
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_TABLE) {
-                    if (!tree->quirks && has_in_button_scope(tree, TH_TAG_P)) {
-                        generate_implied_end_tags(tree, TH_TAG_P);
-                        pop_until_atom(tree, TH_TAG_P);
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_TABLE;
-                    break;
-                }
-                if (atom == TH_TAG_SELECT) {
-                    /* select content is plain in-body content now; a nested
-                       select start closes the open one instead of nesting */
-                    if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
-                        break; /* fragment case: ignored */
-                    }
-                    if (has_in_scope(tree, TH_TAG_SELECT)) {
-                        pop_until_atom(tree, TH_TAG_SELECT);
-                        break;
-                    }
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    tree->frameset_ok = 0;
-                    break;
-                }
-                if (atom == TH_TAG_SVG || atom == TH_TAG_MATH) {
-                    reconstruct_afe(tree);
-                    th_node *node = insert_foreign(tree, tok, atom == TH_TAG_SVG ? TH_NS_SVG : TH_NS_MATHML);
-                    if (node != NULL && !tok->self_closing) { /* GCOVR_EXCL_BR_LINE: insert_foreign returns NULL only on
-                                                                 allocation failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_LI) {
-                    /* html bounds the stack walk */
-                    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
-                        uint16_t open_atom = tree->open[index]->atom;
-                        if (open_atom == TH_TAG_LI) {
-                            generate_implied_end_tags(tree, TH_TAG_LI);
-                            pop_until_atom(tree, TH_TAG_LI);
-                            break;
-                        }
-                        if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
-                            open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
-                            break;
-                        }
-                    }
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_DD || atom == TH_TAG_DT) {
-                    /* html bounds the stack walk */
-                    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
-                        uint16_t open_atom = tree->open[index]->atom;
-                        if (open_atom == TH_TAG_DD || open_atom == TH_TAG_DT) {
-                            generate_implied_end_tags(tree, open_atom);
-                            pop_until_atom(tree, open_atom);
-                            break;
-                        }
-                        if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
-                            open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
-                            break;
-                        }
-                    }
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_HR) {
-                    close_p_in_button_scope(tree);
-                    if (has_in_scope(tree, TH_TAG_SELECT) ||
-                        (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
-                        /* in a select (or a select-context fragment) close the open option/optgroup
-                           first, so the hr lands at select level rather than inside the option */
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                    }
-                    insert_element(tree, tok); /* void */
-                    break;
-                }
-                if (atom == TH_TAG_BUTTON) {
-                    if (has_in_scope(tree, TH_TAG_BUTTON)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, TH_TAG_BUTTON);
-                    }
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_OPTION || atom == TH_TAG_OPTGROUP) {
-                    if (has_in_scope(tree, TH_TAG_SELECT) ||
-                        (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
-                        /* inside a select (or a select-context fragment, where no select node
-                           is on the stack), implied end tags close open option and (for an
-                           optgroup start) optgroup elements */
-                        generate_implied_end_tags(tree, atom == TH_TAG_OPTION ? TH_TAG_OPTGROUP : TH_TAG_UNKNOWN);
-                    } else if (current_node(tree)->atom == TH_TAG_OPTION) {
-                        stack_pop(tree);
-                    }
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_RB || atom == TH_TAG_RTC) {
-                    if (has_in_scope(tree, TH_TAG_RUBY)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_RP || atom == TH_TAG_RT) {
-                    if (has_in_scope(tree, TH_TAG_RUBY)) {
-                        generate_implied_end_tags(tree, TH_TAG_RTC);
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
-                    atom == TH_TAG_META) {
-                    insert_element(tree, tok); /* head metadata: in-head rules, no AFE reconstruction */
-                    break;
-                }
-                if (atom == TH_TAG_FORM) {
-                    int in_template = stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0;
-                    if (tree->form != NULL && !in_template) {
-                        break; /* a nested form is ignored */
-                    }
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        if (!in_template) {
-                            tree->form = node;
-                        }
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_INPUT || atom == TH_TAG_KEYGEN) {
-                    /* an input or keygen closes an open select entirely (and is
-                       ignored outright in a select-context fragment) */
-                    if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
-                        break;
-                    }
-                    if (has_in_scope(tree, TH_TAG_SELECT)) {
-                        pop_until_atom(tree, TH_TAG_SELECT);
-                    }
-                    reconstruct_afe(tree);
-                    insert_element(tree, tok); /* void */
-                    break;
-                }
-                if (atom == TH_TAG_IMAGE) {
-                    /* the famous quirk: <image> becomes <img> */
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        node->atom = TH_TAG_IMG;
-                        static const char img[] = "img";
-                        node->text = arena_alloc(tree, 3 * (Py_ssize_t)sizeof(Py_UCS4));
-                        if (node->text != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                            for (int index = 0; index < 3; index++) {
-                                node->text[index] = (Py_UCS4)img[index];
-                            }
-                            node->text_len = 3;
-                        }
-                    }
-                    break; /* img is void */
-                }
-                if (atom == TH_TAG_PLAINTEXT) {
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, TH_INIT_PLAINTEXT);
-                    break; /* PLAINTEXT runs to EOF; no end tag returns from it */
-                }
-                int model = content_model_for(atom, flags);
-                if (model >= 0) { /* rawtext / rcdata / script: no reconstruction */
-                    if (atom == TH_TAG_XMP) {
-                        close_p_in_button_scope(tree);
-                        reconstruct_afe(tree);
-                        tree->frameset_ok = 0;
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    if (atom == TH_TAG_TEXTAREA) {
-                        tree->drop_newline = 1; /* a leading LF in a textarea is ignored */
-                    }
-                    th_tok_switch(sm, (enum th_initial_state)model);
-                    /* when fostered out of a table the in-body rules run but the real insertion
-                       mode is still the table mode, so the text mode must return there, not to
-                       in body, or the table's later rows would be dropped */
-                    original_mode = foster_pending ? foster_return : M_IN_BODY;
-                    mode = M_TEXT;
-                    break;
-                }
-                if (atom == TH_TAG_PRE || atom == TH_TAG_LISTING) {
-                    close_p_in_button_scope(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    tree->drop_newline = 1; /* a leading LF in pre/listing is ignored */
-                    tree->frameset_ok = 0;
-                    break;
-                }
-                if (atom == TH_TAG_A) {
-                    th_node *existing = afe_find_atom(tree, TH_TAG_A);
-                    if (existing != NULL) {
-                        adoption_agency(tree, TH_TAG_A);
-                        Py_ssize_t ai = afe_index_of(tree, existing);
-                        if (ai >= 0) {
-                            afe_remove_at(tree, ai);
-                        }
-                        Py_ssize_t si = stack_index_of(tree, existing);
-                        if (si >= 0) {
-                            stack_remove_at(tree, si);
-                        }
-                    }
-                }
-                if (atom == TH_TAG_NOBR) {
-                    reconstruct_afe(tree);
-                    if (has_in_scope(tree, TH_TAG_NOBR)) {
-                        adoption_agency(tree, TH_TAG_NOBR);
-                        reconstruct_afe(tree);
-                    }
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        afe_push(tree, node);
-                    }
-                    break;
-                }
-                if (flags & TH_TAG_FORMATTING) {
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        afe_push(tree, node);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
-                    reconstruct_afe(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    afe_push_marker(tree);
-                    break;
-                }
-                if (atom == TH_TAG_TEMPLATE) {
-                    th_node *node = insert_template(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                        afe_push_marker(tree);
-                    }
-                    tmpl_push(tree, M_IN_TEMPLATE);
-                    mode = M_IN_TEMPLATE;
-                    break;
-                }
-                reconstruct_afe(tree);
-                th_node *node = insert_element(tree, tok);
-                if (is_void_atom(atom)) {
-                    break; /* void: inserted, not pushed (a stray "/" on any
-                              other element is ignored in HTML content) */
-                }
-                if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    stack_push(tree, node);
-                }
-                break;
-            }
-            /* only an end tag reaches here: text/comment/start break above, a DOCTYPE is ignored before the switch */
-            if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
-                uint8_t flags = tok->tag_flags;
-                uint16_t atom = tok->atom;
-                if (atom == TH_TAG_BODY || atom == TH_TAG_HTML) {
-                    mode = M_AFTER_BODY;
-                    if (atom == TH_TAG_HTML) {
-                        goto reprocess;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_P) {
-                    if (!has_in_button_scope(tree, TH_TAG_P)) {
-                        insert_implicit(tree, "p", TH_TAG_P, TH_TAG_SPECIAL); /* empty p, immediately closed */
-                    } else {
-                        generate_implied_end_tags(tree, TH_TAG_P);
-                        pop_until_atom(tree, TH_TAG_P);
-                    }
-                    break;
-                }
-                if (is_heading_atom(atom)) {
-                    int in_scope = 0;
-                    /* html bounds the stack walk */
-                    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
-                        if (is_heading_atom(tree->open[index]->atom)) {
-                            in_scope = 1;
-                            break;
-                        }
-                        if (tree->open[index]->tag_flags & TH_TAG_SCOPING) {
-                            break;
-                        }
-                    }
-                    if (in_scope) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the heading is in scope when this runs, so
-                                                        the stack never empties */
-                            th_node *node = current_node(tree);
-                            stack_pop(tree);
-                            if (is_heading_atom(node->atom)) {
-                                break;
-                            }
-                        }
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_LI || atom == TH_TAG_DD || atom == TH_TAG_DT) {
-                    if (atom == TH_TAG_LI ? has_in_list_item_scope(tree, atom) : has_in_scope(tree, atom)) {
-                        generate_implied_end_tags(tree, atom);
-                        pop_until_atom(tree, atom);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_FORM) {
-                    if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                        th_node *node = tree->form;
-                        tree->form = NULL;
-                        int in_scope = 0;
-                        /* the html element is a scope boundary, so the walk always breaks before the stack bottom */
-                        for (Py_ssize_t index = tree->open_len - 1; node != NULL && index >= 0 /* GCOVR_EXCL_BR_LINE */;
-                             index--) {
-                            if (tree->open[index] == node) {
-                                in_scope = 1;
-                                break;
-                            }
-                            if (is_scope_boundary(tree->open[index])) {
-                                break;
-                            }
-                        }
-                        if (!in_scope) {
-                            break; /* parse error, ignored */
-                        }
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        /* the form is removed from wherever it sits on the stack */
-                        /* the form element is on the stack when this runs, so it */
-                        for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
-                            if (tree->open[index] == node) {
-                                stack_remove_at(tree, index);
-                                break;
-                            }
-                        }
-                        /* a template on the stack always has a form in scope when this end tag runs */
-                    } else if (has_in_scope(tree, TH_TAG_FORM) /* GCOVR_EXCL_BR_LINE */) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, TH_TAG_FORM);
-                    }
-                    break;
-                }
-                if (is_block_end_atom(atom)) {
-                    if (has_in_scope(tree, atom)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, atom);
-                    }
-                    break;
-                }
-                if (flags & TH_TAG_FORMATTING) {
-                    adoption_agency(tree, atom);
-                    break;
-                }
-                if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
-                    if (has_in_scope(tree, atom)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, atom);
-                        afe_clear_to_marker(tree);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BR) {
-                    /* </br> acts as a <br> start tag (attributes dropped) */
-                    reconstruct_afe(tree);
-                    insert_implicit(tree, "br", TH_TAG_BR, TH_TAG_SPECIAL);
-                    tree->frameset_ok = 0;
-                    break;
-                }
-                any_other_end_tag(tree, atom, tok);
-                break;
-            }
-            break; /* GCOVR_EXCL_LINE: in body handles every text/comment/start/end token in a branch
-                      that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
-
-        case M_TEXT:
-            if (tok->kind == TH_TEXT) {
-                /* a nul anywhere in the input disables span sharing */
-                if (tok->is_slice && tree->can_span && !tree->has_nul /* GCOVR_EXCL_BR_LINE */) {
-                    Py_ssize_t off = tok->src_start + tree->text_offset;
-                    Py_ssize_t len = tok->src_len - tree->text_offset;
-                    /* a text token always has a positive length */
-                    if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && input_read(tree, off) == '\n') {
-                        off++;
-                        len--;
-                    }
-                    tree->drop_newline = 0;
-                    insert_text_span(tree, off, len);
-                    break;
-                }
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                /* a text token always has a positive length */
-                if (tree->drop_newline && len > 0 /* GCOVR_EXCL_BR_LINE */ && text[0] == '\n') {
-                    text++;
-                    len--;
-                }
-                tree->drop_newline = 0;
-                insert_text(tree, text, len);
-                break;
-            }
-            /* end tag (or EOF) closes the raw-text/RCDATA element */
-            stack_pop(tree);
-            mode = original_mode;
+            action = drain_in_body(tree, tok, dc);
             break;
-
+        case M_TEXT:
+            action = drain_text(tree, tok, dc);
+            break;
         case M_IN_TABLE:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace_or_nul(text, len)) {
-                    insert_text(tree, text, len);
-                } else {
-                    /* non-space character: foster-parent it out of the table */
-                    tree->foster = 1;
-                    reconstruct_afe(tree);
-                    insert_text(tree, text, len);
-                    tree->foster = 0;
-                }
-                mode = table_origin;
-                break;
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                mode = table_origin;
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok->atom;
-                if (atom == TH_TAG_CAPTION) {
-                    clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-                    afe_push_marker(tree);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_CAPTION;
-                    break;
-                }
-                if (atom == TH_TAG_COLGROUP) {
-                    clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_COLUMN_GROUP;
-                    break;
-                }
-                if (atom == TH_TAG_COL) {
-                    clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-                    {
-                        th_node *cg = insert_implicit(tree, "colgroup", TH_TAG_COLGROUP, TH_TAG_SPECIAL);
-                        if (cg != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                            stack_push(tree, cg);
-                        }
-                    }
-                    mode = M_IN_COLUMN_GROUP;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
-                    clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_TABLE_BODY;
-                    break;
-                }
-                if (atom == TH_TAG_TD || atom == TH_TAG_TH || atom == TH_TAG_TR) {
-                    clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-                    {
-                        th_node *tb = insert_implicit(tree, "tbody", TH_TAG_TBODY, TH_TAG_SPECIAL);
-                        if (tb != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                            stack_push(tree, tb);
-                        }
-                    }
-                    mode = M_IN_TABLE_BODY;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_TABLE) {
-                    /* a nested table closes the current one, then reprocesses */
-                    if (has_in_table_scope(tree, TH_TAG_TABLE)) {
-                        pop_until_atom(tree, TH_TAG_TABLE);
-                        mode = reset_insertion_mode(tree);
-                        goto reprocess;
-                    }
-                    mode = table_origin;
-                    break;
-                }
-                if (atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT) {
-                    uint8_t f2 = tok->tag_flags;
-                    uint16_t a2 = tok->atom;
-                    int model = content_model_for(a2, f2);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, (enum th_initial_state)model);
-                    original_mode = table_origin;
-                    mode = M_TEXT;
-                    break;
-                }
-                if (atom == TH_TAG_INPUT && input_is_hidden(tok)) {
-                    insert_element(tree, tok); /* a hidden input stays in the table, no fostering */
-                    mode = table_origin;
-                    break;
-                }
-                if (atom == TH_TAG_FORM) {
-                    /* a form in a table is inserted in place and closed at once,
-                       unless one is already open or a template is on the stack */
-                    if (tree->form == NULL && stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                        tree->form = insert_element(tree, tok);
-                    }
-                    mode = table_origin;
-                    break;
-                }
-                /* anything else: foster-parent this one token under in-body rules */
-                tree->foster = 1;
-                foster_pending = 1;
-                foster_return = table_origin;
-                mode = M_IN_BODY;
-                goto reprocess;
-            }
-            /* only an end tag reaches here: text/comment/start break or foster above, a DOCTYPE is ignored before it */
-            if (tok->kind == TH_END_TAG) { /* GCOVR_EXCL_BR_LINE: the non-end-tag branch is unreachable */
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TABLE) {
-                    if (has_in_table_scope(tree, TH_TAG_TABLE)) {
-                        pop_until_atom(tree, TH_TAG_TABLE);
-                        mode = reset_insertion_mode(tree);
-                    } else {
-                        mode = table_origin;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BODY || atom == TH_TAG_HTML || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
-                    atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH ||
-                    atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP) {
-                    mode = table_origin;
-                    break; /* ignore stray table-related end tags */
-                }
-                tree->foster = 1;
-                foster_pending = 1;
-                foster_return = table_origin;
-                mode = M_IN_BODY;
-                goto reprocess;
-            }
-            break; /* GCOVR_EXCL_LINE: in table handles every text/comment/start/end token in a branch
-                      that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
-
-        case M_IN_CAPTION: {
-            uint16_t atom = tok_atom(tok);
-            if (tok->kind == TH_END_TAG && atom == TH_TAG_CAPTION) {
-                if (has_in_table_scope(tree, TH_TAG_CAPTION)) {
-                    generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                    pop_until_atom(tree, TH_TAG_CAPTION);
-                    afe_clear_to_marker(tree);
-                    mode = M_IN_TABLE;
-                }
-                break;
-            }
-            if ((tok->kind == TH_START_TAG &&
-                 (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
-                  atom == TH_TAG_TD || atom == TH_TAG_TFOOT || atom == TH_TAG_TH || atom == TH_TAG_THEAD ||
-                  atom == TH_TAG_TR)) ||
-                (tok->kind == TH_END_TAG && atom == TH_TAG_TABLE)) {
-                if (has_in_table_scope(tree, TH_TAG_CAPTION)) {
-                    generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                    pop_until_atom(tree, TH_TAG_CAPTION);
-                    afe_clear_to_marker(tree);
-                    mode = M_IN_TABLE;
-                    goto reprocess;
-                }
-                break;
-            }
-            foster_pending = 1;
-            foster_return = M_IN_CAPTION;
-            mode = M_IN_BODY;
-            goto reprocess;
-        }
-
+            action = drain_in_table(tree, tok, dc);
+            break;
+        case M_IN_CAPTION:
+            action = drain_in_caption(tree, tok, dc);
+            break;
         case M_IN_COLUMN_GROUP:
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                Py_ssize_t ws = 0;
-                while (ws < len && (is_space(text[ws]))) {
-                    ws++;
-                }
-                if (ws > 0) {
-                    insert_text(tree, text, ws); /* the whitespace prefix stays in the colgroup */
-                }
-                if (ws == len) {
-                    break;
-                }
-                tree->text_offset += ws; /* reprocess only the remainder below */
-            }
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, NULL);
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                /* a stray html start tag uses the in-body rules: merge attributes onto
-                   the open html and leave the stack (so the colgroup stays open) */
-                if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML && /* GCOVR_EXCL_BR_LINE */
-                    stack_index_of_atom(tree, TH_TAG_TEMPLATE) < 0) {
-                    merge_attrs(tree, tree->open[0], tok);
-                }
-                break;
-            }
-            if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_COL) {
-                insert_element(tree, tok); /* col is void */
-                break;
-            }
-            if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_COLGROUP) {
-                if (current_node(tree)->atom == TH_TAG_COLGROUP) {
-                    stack_pop(tree);
-                    mode = M_IN_TABLE;
-                }
-                break;
-            }
-            /* anything else: only a real colgroup can be popped to fall back to
-               in-table; otherwise (fragment/template root) the token is ignored */
-            if (current_node(tree)->atom != TH_TAG_COLGROUP) {
-                break;
-            }
-            stack_pop(tree);
-            mode = M_IN_TABLE;
-            goto reprocess;
-
+            action = drain_in_column_group(tree, tok, dc);
+            break;
         case M_IN_TABLE_BODY:
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TR) {
-                    clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    mode = M_IN_ROW;
-                    break;
-                }
-                if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                    clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
-                    {
-                        th_node *row = insert_implicit(tree, "tr", TH_TAG_TR, TH_TAG_SPECIAL);
-                        if (row != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                            stack_push(tree, row);
-                        }
-                    }
-                    mode = M_IN_ROW;
-                    goto reprocess;
-                }
-                if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
-                    atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD) {
-                    if (has_in_table_scope(tree, TH_TAG_TBODY) || has_in_table_scope(tree, TH_TAG_THEAD) ||
-                        has_in_table_scope(tree, TH_TAG_TFOOT)) {
-                        clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE;
-                        goto reprocess;
-                    }
-                    break;
-                }
-            }
-            if (tok->kind == TH_END_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
-                    if (has_in_table_scope(tree, atom)) {
-                        clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_TABLE) {
-                    if (has_in_table_scope(tree, TH_TAG_TBODY) || has_in_table_scope(tree, TH_TAG_THEAD) ||
-                        has_in_table_scope(tree, TH_TAG_TFOOT)) {
-                        clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE;
-                        goto reprocess;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
-                    atom == TH_TAG_HTML || atom == TH_TAG_TD || atom == TH_TAG_TH || atom == TH_TAG_TR) {
-                    break; /* ignore */
-                }
-            }
-            table_origin = mode;
-            mode = M_IN_TABLE;
-            goto reprocess;
-
+            action = drain_in_table_body(tree, tok, dc);
+            break;
         case M_IN_ROW:
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                    clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    afe_push_marker(tree);
-                    mode = M_IN_CELL;
-                    break;
-                }
-                if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
-                    atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD || atom == TH_TAG_TR) {
-                    if (has_in_table_scope(tree, TH_TAG_TR)) {
-                        clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE_BODY;
-                        goto reprocess;
-                    }
-                    break;
-                }
-            }
-            if (tok->kind == TH_END_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TR) {
-                    if (has_in_table_scope(tree, TH_TAG_TR)) {
-                        clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE_BODY;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_TABLE) {
-                    if (has_in_table_scope(tree, TH_TAG_TR)) {
-                        clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE_BODY;
-                        goto reprocess;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_TBODY || atom == TH_TAG_THEAD || atom == TH_TAG_TFOOT) {
-                    if (has_in_table_scope(tree, atom)) {
-                        clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
-                        stack_pop(tree);
-                        mode = M_IN_TABLE_BODY;
-                        goto reprocess;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
-                    atom == TH_TAG_HTML || atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                    break; /* ignore */
-                }
-            }
-            table_origin = mode;
-            mode = M_IN_TABLE;
-            goto reprocess;
-
+            action = drain_in_row(tree, tok, dc);
+            break;
         case M_IN_CELL:
-            if (tok->kind == TH_END_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                    if (has_in_table_scope(tree, atom)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, atom);
-                        afe_clear_to_marker(tree);
-                        mode = M_IN_ROW;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT || atom == TH_TAG_THEAD ||
-                    atom == TH_TAG_TR) {
-                    if (has_in_table_scope(tree, atom)) {
-                        uint16_t close = has_in_table_scope(tree, TH_TAG_TD) ? TH_TAG_TD : TH_TAG_TH;
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, close);
-                        afe_clear_to_marker(tree);
-                        mode = M_IN_ROW;
-                        goto reprocess;
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_BODY || atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP ||
-                    atom == TH_TAG_HTML) {
-                    break; /* ignore */
-                }
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_CAPTION || atom == TH_TAG_COL || atom == TH_TAG_COLGROUP || atom == TH_TAG_TBODY ||
-                    atom == TH_TAG_TD || atom == TH_TAG_TFOOT || atom == TH_TAG_TH || atom == TH_TAG_THEAD ||
-                    atom == TH_TAG_TR) {
-                    uint16_t close = has_in_table_scope(tree, TH_TAG_TD) ? TH_TAG_TD : TH_TAG_TH;
-                    if (has_in_table_scope(tree, close)) {
-                        generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
-                        pop_until_atom(tree, close);
-                        afe_clear_to_marker(tree);
-                        mode = M_IN_ROW;
-                        goto reprocess;
-                    }
-                    break;
-                }
-            }
-            foster_pending = 1;
-            foster_return = M_IN_CELL;
-            mode = M_IN_BODY;
-            goto reprocess;
-
+            action = drain_in_cell(tree, tok, dc);
+            break;
         case M_AFTER_BODY:
-            if (tok->kind == TH_COMMENT) {
-                /* open[0] is always the html element in this mode, never the document */
-                th_node *root = tree->open_len > 0 ? tree->open[0] : tree->document; /* GCOVR_EXCL_BR_LINE */
-                insert_comment(tree, tok, root);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace(text, len)) {
-                    /* whitespace runs the in-body rules without leaving after-body */
-                    foster_pending = 1;
-                    foster_return = M_AFTER_BODY;
-                    mode = M_IN_BODY;
-                    goto reprocess;
-                }
-            }
-            if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
-                mode = M_AFTER_AFTER_BODY;
-                break;
-            }
-            mode = M_IN_BODY;
-            goto reprocess;
-
+            action = drain_after_body(tree, tok, dc);
+            break;
         case M_AFTER_AFTER_BODY:
-            if (tok->kind == TH_COMMENT) {
-                /* a fragment has no document node to attach to; use its root */
-                insert_comment(tree, tok, tree->fragment_root != NULL ? tree->fragment_root : tree->document);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                if (all_whitespace(text, len)) {
-                    /* whitespace runs the in-body rules without leaving this mode */
-                    foster_pending = 1;
-                    foster_return = M_AFTER_AFTER_BODY;
-                    mode = M_IN_BODY;
-                    goto reprocess;
-                }
-            }
-            mode = M_IN_BODY;
-            goto reprocess;
-
+            action = drain_after_after_body(tree, tok, dc);
+            break;
         case M_AFTER_AFTER_FRAMESET:
-            if (tok->kind == TH_COMMENT) {
-                insert_comment(tree, tok, tree->document);
-                break;
-            }
-            if (tok->kind == TH_TEXT) {
-                Py_ssize_t len;
-                Py_UCS4 *text = token_text(tree, tok, &len);
-                insert_whitespace_only(tree, text, len);
-                break;
-            }
-            if (tok->kind == TH_START_TAG) {
-                uint16_t atom = tok_atom(tok);
-                if (atom == TH_TAG_HTML) {
-                    /* in-body rules: merge attributes into the existing html */
-                    /* open stack always holds html at index 0 */
-                    if (tree->open_len > 0 && tree->open[0]->atom == TH_TAG_HTML) { /* GCOVR_EXCL_BR_LINE */
-                        merge_attrs(tree, tree->open[0], tok);
-                    }
-                    break;
-                }
-                if (atom == TH_TAG_NOFRAMES) {
-                    th_node *node = insert_element(tree, tok);
-                    if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                        stack_push(tree, node);
-                    }
-                    th_tok_switch(sm, TH_INIT_RAWTEXT);
-                    original_mode = M_AFTER_AFTER_FRAMESET;
-                    mode = M_TEXT;
-                }
-            }
-            break; /* everything else is a parse error and ignored */
+            action = drain_after_after_frameset(tree, tok, dc);
+            break;
+        }
+        if (action == TH_DRAIN_REPROCESS) {
+            goto reprocess;
         }
     }
-    run_state->mode = mode;
-    run_state->original_mode = original_mode;
-    run_state->foster_return = foster_return;
-    run_state->foster_pending = foster_pending;
+    run_state->mode = dc->mode;
+    run_state->original_mode = dc->original_mode;
+    run_state->foster_return = dc->foster_return;
+    run_state->foster_pending = dc->foster_pending;
 }
 
 /* Stop parsing at EOF: pop the remaining open elements, which runs the
