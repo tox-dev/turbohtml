@@ -164,12 +164,12 @@ class Sanitizer:
     """
     A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
 
-    :param policy: the policy to enforce; None uses bleach's default allowlist.
+    :param options: the policy to enforce; None uses bleach's default allowlist.
     """
 
-    def __init__(self, policy: Policy | None = None) -> None:
+    def __init__(self, options: Policy | None = None) -> None:
         """Compile a policy into the form the C walk consumes."""
-        self.policy = policy if policy is not None else Policy()
+        self.policy = options if options is not None else Policy()
         self._attributes = dict(self.policy.attributes)
         self._link_rel = " ".join(sorted(self.policy.add_link_rel)) or None
         self._set_attributes = {tag: dict(values) for tag, values in self.policy.set_attributes.items()}
@@ -211,19 +211,19 @@ class Sanitizer:
         return root.inner_html
 
 
-def sanitize(html: str, policy: Policy | None = None) -> str:
+def sanitize(html: str, options: Policy | None = None) -> str:
     """
     Sanitize an HTML fragment against a policy.
 
     :param html: the untrusted HTML fragment.
-    :param policy: the policy to enforce; None uses bleach's default allowlist.
+    :param options: the policy to enforce; None uses bleach's default allowlist.
     :returns: the sanitized, safe HTML.
     :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
         ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset, or
         ``attribute_prefixes`` contains a non-string.
     :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
     """
-    return Sanitizer(policy).sanitize(html)
+    return Sanitizer(options).sanitize(html)
 
 
 __all__ = [

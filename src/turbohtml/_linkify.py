@@ -152,12 +152,12 @@ class Linker:
     """
     A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
 
-    :param config: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
     """
 
-    def __init__(self, config: Linkify | None = None) -> None:
+    def __init__(self, options: Linkify | None = None) -> None:
         """Compile a configuration into the form the walk consumes."""
-        config = config if config is not None else Linkify()
+        config = options if options is not None else Linkify()
         self.callbacks = list(config.callbacks)
         self.skip_tags = frozenset(config.skip_tags or ())
         self.parse_email = config.parse_email
@@ -254,15 +254,15 @@ class Linker:
         return anchor
 
 
-def linkify(text: str, config: Linkify | None = None) -> str:
+def linkify(text: str, options: Linkify | None = None) -> str:
     """
     Find URLs and email addresses in HTML and wrap them in ``<a>`` links, leaving existing markup untouched.
 
     :param text: the HTML to linkify.
-    :param config: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
     :returns: the linkified HTML.
     """
-    return Linker(config).linkify(text)
+    return Linker(options).linkify(text)
 
 
 class LinkSpan:
