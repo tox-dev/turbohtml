@@ -490,4 +490,9 @@ uint16_t th_tag_lookup(const char *bytes, Py_ssize_t len);
 /* The tree-construction category bitmask for an atom (0 for TH_TAG_UNKNOWN). */
 uint8_t th_tag_flags(uint16_t atom);
 
+/* Whether an atom names an HTML void element, which the spec forbids from having
+   children. The serializer uses the static-inline is_void_atom on its hot path;
+   this is the cold cross-TU entry the element constructor validates against. */
+int th_tag_is_void(uint16_t atom);
+
 #endif /* TURBOHTML_TREEBUILDER_H */

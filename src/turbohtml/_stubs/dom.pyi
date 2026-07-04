@@ -161,7 +161,12 @@ class Node:
 @final
 class Element(Node):
     __match_args__ = ("tag",)
-    def __init__(self, tag: str, attrs: Mapping[str, str | list[str] | None] | None = None) -> None: ...
+    def __init__(
+        self,
+        tag: str,
+        attrs: Mapping[str, str | list[str] | None] | None = None,
+        children: Iterable[Node] | None = None,
+    ) -> None: ...
     @property
     def tag(self) -> str: ...
     @property

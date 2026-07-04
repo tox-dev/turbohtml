@@ -51,15 +51,19 @@ def _to_node(arg: Content) -> Node:
 
 
 def _build(tag: str, args: tuple[Content, ...]) -> Element:
-    """Build one element: a leading mapping sets its attributes, and the rest become children in order."""
+    """
+    Build one element: a leading mapping sets its attributes, and the rest become children in order.
+
+    :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
+        void element such as ``br`` or ``img`` is given children.
+    :raises TypeError: if an attribute mapping is not the first argument.
+    """
     attrs: Attributes | None = None
     children = args
     if args and _is_attributes(args[0]):
         attrs = args[0]
         children = args[1:]
-    element = Element(tag, attrs)
-    element.extend(_to_node(arg) for arg in children)
-    return element
+    return Element(tag, attrs, [_to_node(arg) for arg in children])
 
 
 class _TagFactory:
@@ -72,7 +76,13 @@ class _TagFactory:
         self._tag = tag
 
     def __call__(self, *args: Content) -> Element:
-        """Build the element from a leading attribute mapping and the child nodes and strings that follow."""
+        """
+        Build the element from a leading attribute mapping and the child nodes and strings that follow.
+
+        :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
+            void element such as ``br`` or ``img`` is given children.
+        :raises TypeError: if an attribute mapping is not the first argument.
+        """
         return _build(self._tag, args)
 
 
@@ -91,7 +101,13 @@ class ElementMaker:
         return _TagFactory(tag)
 
     def __call__(self, tag: str, /, *args: Content) -> Element:
-        """Build ``tag`` from a leading attribute mapping and the child nodes and strings that follow."""
+        """
+        Build ``tag`` from a leading attribute mapping and the child nodes and strings that follow.
+
+        :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
+            void element such as ``br`` or ``img`` is given children.
+        :raises TypeError: if an attribute mapping is not the first argument.
+        """
         return _build(tag, args)
 
 

@@ -2606,9 +2606,14 @@ PyObject *node_strip_tags(PyObject *self, PyObject *arg) {
 PyDoc_STRVAR(element_doc, "An element node: a tag, a namespace, attributes, and child nodes.\n\n"
                           ":param tag: the tag name.\n"
                           ":param attrs: initial attributes; a list value sets a token-list attribute and\n"
-                          "    None a valueless one.");
+                          "    None a valueless one.\n"
+                          ":param children: initial child nodes, appended in order.\n"
+                          ":raises ValueError: if the tag or an attribute name carries a character HTML\n"
+                          "    forbids there, or if children are given for a void element.");
 
 static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds);
+
+static int append_build_children(PyObject *element, PyObject *tag, PyObject *children);
 
 static PyObject *element_append(PyObject *self, PyObject *child);
 
@@ -3193,8 +3198,10 @@ PyType_Spec element_spec = {
 
 /* Reject a tag or attribute name the HTML spec forbids, the way DOM
    createElement / setAttribute raise InvalidCharacterError: empty, or carrying
-   whitespace, a control, "/" or ">" (none of which round-trip), plus "<" in a
-   tag name and "=" or a quote in an attribute name. */
+   whitespace, a control, "/", ">" or "<" (none of which round-trip through the
+   tokenizer), plus "=" or a quote in an attribute name. "<" is rejected in an
+   attribute name too: it is an unexpected-character-in-attribute-name parse
+   error, so a name carrying it reparses differently and is non-conforming. */
 static int validate_name(PyObject *name, int is_attr) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(name);
     if (len == 0) {
@@ -3205,13 +3212,13 @@ static int validate_name(PyObject *name, int is_attr) {
     const void *data = PyUnicode_DATA(name);
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
-        int bad = character <= ' ' || character == '/' || character == '>' ||
-                  (is_attr ? (character == '=' || character == '"' || character == '\'') : character == '<');
+        int bad = character <= ' ' || character == '/' || character == '>' || character == '<' ||
+                  (is_attr && (character == '=' || character == '"' || character == '\''));
         if (bad) {
             PyObject *ch = PyUnicode_FromOrdinal((int)character);
             if (ch != NULL) { /* GCOVR_EXCL_BR_LINE: a forbidden character is ASCII and always builds */
-                PyErr_Format(PyExc_ValueError, "%s name contains an invalid character: %R",
-                             is_attr ? "attribute" : "tag", ch);
+                PyErr_Format(PyExc_ValueError, "%s name %R contains an invalid character: %R",
+                             is_attr ? "attribute" : "tag", name, ch);
                 Py_DECREF(ch);
             }
             return -1;
@@ -3371,16 +3378,25 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
 }
 
 static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"tag", "attrs", NULL};
+    static char *keywords[] = {"tag", "attrs", "children", NULL};
     PyObject *tag;
     PyObject *attrs = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U|O", keywords, &tag, &attrs)) {
+    PyObject *children = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U|OO", keywords, &tag, &attrs, &children)) {
         return NULL;
     }
     if (validate_name(tag, 0) < 0) {
         return NULL;
     }
-    return make_element(type, tag, attrs);
+    PyObject *element = make_element(type, tag, attrs);
+    if (element == NULL) {
+        return NULL;
+    }
+    if (children != NULL && children != Py_None && append_build_children(element, tag, children) < 0) {
+        Py_DECREF(element);
+        return NULL;
+    }
+    return element;
 }
 
 /* Prepare child_obj to become a child of dest_parent in anchor's tree and return
@@ -3423,6 +3439,38 @@ static th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *c
     Py_SETREF(child->handle, Py_NewRef(anchor->handle));
     child->node = copy;
     return copy;
+}
+
+/* Attach a freshly built element's children, rejecting content on a void tag the
+   way the constructor rejects an invalid attribute name. A void element takes no
+   children per the HTML spec, so storing them only for the serializer to drop
+   would silently lose what the caller passed; a hard error at construction time
+   surfaces the programming mistake instead. */
+static int append_build_children(PyObject *element, PyObject *tag, PyObject *children) {
+    PyObject *sequence = PySequence_Fast(children, "children must be iterable");
+    if (sequence == NULL) {
+        return -1;
+    }
+    Py_ssize_t count = PySequence_Fast_GET_SIZE(sequence);
+    NodeObject *self = (NodeObject *)element;
+    if (count > 0 && th_tag_is_void(self->node->atom)) {
+        Py_DECREF(sequence);
+        PyErr_Format(PyExc_ValueError, "void element %R cannot have children", tag);
+        return -1;
+    }
+    int error = 0;
+    Py_BEGIN_CRITICAL_SECTION(self->handle);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        th_node *node = adopt_into(self, self->node, PySequence_Fast_GET_ITEM(sequence, index));
+        if (node == NULL) {
+            error = 1;
+            break;
+        }
+        th_node_append_child(self->node, node);
+    }
+    Py_END_CRITICAL_SECTION();
+    Py_DECREF(sequence);
+    return error ? -1 : 0;
 }
 
 /* Whether new_obj is a node wrapping the same C node as ref: inserting a node

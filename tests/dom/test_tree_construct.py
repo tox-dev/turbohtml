@@ -136,6 +136,7 @@ def test_element_tag_is_rejected(tag: str) -> None:
         pytest.param("a b", id="space"),
         pytest.param("a/b", id="slash"),
         pytest.param("a>b", id="gt"),
+        pytest.param("a<b", id="lt"),
         pytest.param("a=b", id="eq"),
         pytest.param('a"b', id="dquote"),
         pytest.param("a'b", id="squote"),

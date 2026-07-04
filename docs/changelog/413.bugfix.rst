@@ -1,0 +1,4 @@
+:class:`turbohtml.build.ElementMaker` (the ``E`` builder) and the :class:`~turbohtml.Element` constructor now reject an
+attribute name carrying ``<`` with :exc:`ValueError`, alongside the whitespace, ``=`` and quote characters they already
+refused. ``<`` in an attribute name is an unexpected-character-in-attribute-name parse error, so a name keeping it
+reparses differently and serializes non-conforming markup. The message names the offending attribute and character.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -103,6 +104,58 @@ def test_a_separate_maker_builds_the_same_way(maker: ElementMaker) -> None:
 def test_non_leading_mapping_is_rejected() -> None:
     with pytest.raises(TypeError, match="must come first"):
         E.div("text", {"id": "b"})
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("a<b", id="less-than"),  # <  is the issue #413 regression: it used to slip through
+        pytest.param('a"b', id="double-quote"),
+        pytest.param("a'b", id="single-quote"),
+        pytest.param("a=b", id="equals"),
+        pytest.param("a b", id="space"),
+        pytest.param("a/b", id="slash"),
+        pytest.param("a>b", id="greater-than"),
+    ],
+)
+def test_invalid_attribute_name_is_rejected(name: str) -> None:
+    expected = rf"attribute name {re.escape(repr(name))} contains an invalid character: {re.escape(repr(name[1]))}"
+    with pytest.raises(ValueError, match=expected):
+        E.div({name: "x"}, "hi")
+
+
+@pytest.mark.parametrize(
+    ("build", "tag"),
+    [
+        pytest.param(lambda: E.br("x"), "br", id="br-text-child"),
+        pytest.param(lambda: E.img("x", E.span("y")), "img", id="img-mixed-children"),
+        pytest.param(lambda: E.hr(E.span("y")), "hr", id="hr-node-child"),
+        pytest.param(lambda: E("input", "x"), "input", id="call-form-input"),
+    ],
+)
+def test_void_element_rejects_children(build: Callable[[], Element], tag: str) -> None:
+    with pytest.raises(ValueError, match=rf"void element '{tag}' cannot have children"):
+        build()
+
+
+def test_non_node_child_is_rejected() -> None:
+    with pytest.raises(TypeError, match="child must be a node"):
+        E.div(42)  # ty: ignore[invalid-argument-type]  # neither a node nor a string
+
+
+def test_constructor_children_none_builds_empty() -> None:
+    # the builder always passes a list, so None reaches the constructor only directly
+    assert Element("div", None, None).serialize() == "<div></div>"
+
+
+def test_constructor_accepts_a_children_tuple() -> None:
+    # the builder always passes a list, so a tuple reaches the constructor only directly
+    assert Element("div", None, (Text("a"), Text("b"))).serialize() == "<div>ab</div>"
+
+
+def test_constructor_children_must_be_iterable() -> None:
+    with pytest.raises(TypeError, match="children must be iterable"):
+        Element("div", None, 42)  # ty: ignore[invalid-argument-type]  # children must be an iterable of nodes
 
 
 @pytest.mark.parametrize(

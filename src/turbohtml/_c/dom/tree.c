@@ -330,6 +330,10 @@ uint8_t th_tag_flags(uint16_t atom) {
     return 0;
 }
 
+int th_tag_is_void(uint16_t atom) {
+    return is_void_atom(atom);
+}
+
 /* --------------------------------------------------------------- nodes */
 
 /* node_pos, node_new and the node_append/node_remove/node_insert_before linkers
