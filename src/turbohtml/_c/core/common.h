@@ -74,8 +74,13 @@ PyObject *turbohtml_registrable_domain(PyObject *module, PyObject *arg);
 /* Implemented in url/url.c. _url_split(url) breaks a URL into (scheme, netloc,
    path, query, fragment, userinfo, host, port, has_port, host_kind) the way the
    WHATWG basic parser bounds the components, the split step the _urls.py cleaner
-   delegates instead of urllib.parse.urlsplit. METH_O. */
+   delegates instead of urllib.parse.urlsplit. METH_O. _url_percent_encode(text,
+   set_id) and _url_percent_decode(text) are the component percent-coders the
+   cleaner reaches instead of urllib.parse.quote/unquote; encode raises
+   UnicodeEncodeError on a lone surrogate (the shim rewraps it as ValueError). */
 PyObject *turbohtml_url_split(PyObject *module, PyObject *arg);
+PyObject *turbohtml_url_percent_encode(PyObject *module, PyObject *args);
+PyObject *turbohtml_url_percent_decode(PyObject *module, PyObject *arg);
 
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented

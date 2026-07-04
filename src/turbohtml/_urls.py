@@ -16,9 +16,9 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Final, NamedTuple
-from urllib.parse import quote, unquote, urljoin, urlunsplit
+from urllib.parse import urljoin, urlunsplit
 
-from ._html import _registrable_domain, _url_split, parse
+from ._html import _registrable_domain, _url_percent_decode, _url_percent_encode, _url_split, parse
 
 __all__ = [
     "UrlCleaning",
@@ -94,18 +94,13 @@ _CONTENT_PARAMS: Final[frozenset[str]] = frozenset({
 
 _LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
 
-# The characters each URL component may carry raw, complementing the WHATWG percent-encode sets (spec 1.3): the path
-# set adds # ? { } to the fragment set (C0 controls, space, ", <, >, `), and the special-scheme query set adds '.
-# Each safe string pairs with a search pattern for its complement, so the common already-encoded component skips
-# urllib's per-character quote loop after one C regex scan.
-_PATH_SAFE: Final = "!$%&'()*+,-./:;=@[\\]^_|~"
-_PATH_UNSAFE: Final = re.compile(r"[^!$%&'()*+,\-./0-9:;=@A-Z\[\\\]\^_a-z|~]")
-_QUERY_SAFE: Final = "!$%&()*+,-./:;=?@[\\]^_`{|}~"
-_QUERY_UNSAFE: Final = re.compile(r"[^!$%&()*+,\-./0-9:;=?@A-Z\[\\\]\^_`a-z{|}~]")
-_FRAGMENT_SAFE: Final = "!#$%&'()*+,-./:;=?@[\\]^_{|}~"
-_FRAGMENT_UNSAFE: Final = re.compile(r"[^!#$%&'()*+,\-./0-9:;=?@A-Z\[\\\]\^_a-z{|}~]")
+# The WHATWG component percent-encode set (spec 1.3) each _encode call applies in C, mirroring the TH_URL_SET_* enum in
+# _c/url/url.h. The C encoder keeps the set's raw characters, UTF-8 percent-encodes the rest, and uppercases existing
+# %XX escapes, so a component that is already clean passes through unchanged.
+_SET_PATH: Final = 0
+_SET_QUERY: Final = 1
+_SET_FRAGMENT: Final = 2
 
-_ESCAPE: Final = re.compile(r"%[0-9a-fA-F]{2}")
 _MARKUP_DELIMITER: Final = re.compile(r'[<>"]')
 _C0_AND_SPACE: Final = "".join(map(chr, range(0x21)))
 _LANGUAGE_SEGMENT: Final = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
@@ -330,8 +325,8 @@ def _language_matches(parts: _Split, language: str, *, strict: bool) -> bool:
     """
     for pair in parts.query.split("&"):
         key, separator, value = pair.partition("=")
-        if separator and unquote(key).lower() in _LANGUAGE_PARAMS:
-            code = unquote(value).lower()
+        if separator and _url_percent_decode(key).lower() in _LANGUAGE_PARAMS:
+            code = _url_percent_decode(value).lower()
             if code and not code.startswith(language):
                 return False
     leading = next((segment for segment in parts.path.lower().split("/") if segment), "")
@@ -348,7 +343,7 @@ def _normalize(parts: _Split, options: UrlCleaning) -> str:
     """Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization."""
     scheme = parts.scheme
     netloc = _normalize_netloc(parts, scheme) if parts.netloc else ""
-    path = _encode(parts.path, _PATH_UNSAFE, _PATH_SAFE)
+    path = _encode(parts.path, _SET_PATH)
     if netloc:
         path = _remove_dot_segments(path)
     query = _normalize_query(parts.query, options)
@@ -393,22 +388,14 @@ def _ascii_host(host: str) -> str:
         return lowered
 
 
-def _encode(text: str, unsafe: re.Pattern[str], safe: str) -> str:
-    """Percent-encode a component's out-of-set characters, uppercasing escape hex, skipping already-clean input."""
-    text = _uppercase_escapes(text)
-    if not unsafe.search(text):
-        return text
+def _encode(text: str, url_set: int) -> str:
+    """Percent-encode a component's out-of-set characters in C, uppercasing existing escape hex (RFC 3986 6.2.2.1)."""
     try:
-        return quote(text, safe=safe)
+        return _url_percent_encode(text, url_set)
     except UnicodeEncodeError as exc:
-        # quote() UTF-8-encodes the component; a lone surrogate has no encoding, so the URL is not serializable
+        # the C encoder UTF-8-encodes the component; a lone surrogate has no encoding, so the URL is not serializable
         msg = f"URL component {text!r} has a character that cannot be percent-encoded: {exc.reason}"
         raise ValueError(msg) from exc
-
-
-def _uppercase_escapes(text: str) -> str:
-    """Normalize percent-escape hex digits to uppercase, the canonical spelling (RFC 3986 6.2.2.1)."""
-    return _ESCAPE.sub(lambda match: match[0].upper(), text) if "%" in text else text
 
 
 def _remove_dot_segments(path: str) -> str:
@@ -439,7 +426,7 @@ def _normalize_query(query: str, options: UrlCleaning) -> str:
     for pair in query.split("&"):
         if not pair:
             continue
-        key = unquote(pair.partition("=")[0]).lower()
+        key = _url_percent_decode(pair.partition("=")[0]).lower()
         if key in deny:
             continue
         if allow is not None:
@@ -450,7 +437,7 @@ def _normalize_query(query: str, options: UrlCleaning) -> str:
             dropped = _is_tracker(key)
         if dropped:
             continue
-        kept.append((key, _encode(pair, _QUERY_UNSAFE, _QUERY_SAFE)))
+        kept.append((key, _encode(pair, _SET_QUERY)))
     return "&".join(pair for _key, pair in sorted(kept))
 
 
@@ -469,9 +456,9 @@ def _normalize_fragment(fragment: str, options: UrlCleaning) -> str:
     if "=" in fragment:
         if "&" in fragment:
             return _normalize_query(fragment, options)
-        if _is_tracker(unquote(fragment.partition("=")[0]).lower()):
+        if _is_tracker(_url_percent_decode(fragment.partition("=")[0]).lower()):
             return ""
-    return _encode(fragment, _FRAGMENT_UNSAFE, _FRAGMENT_SAFE)
+    return _encode(fragment, _SET_FRAGMENT)
 
 
 def _has_nofollow(rel: str | list[str] | None) -> bool:

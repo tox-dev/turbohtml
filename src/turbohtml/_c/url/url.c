@@ -11,6 +11,168 @@
 
 #include "url/url.h"
 
+/* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
+   byte outside its set is UTF-8 percent-encoded. The three sets share the RFC 3986 unreserved run; the query set drops
+   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. All three keep
+   '%', so an already-encoded %XX passes through the encoder unchanged (only its hex digits are uppercased). */
+#define URL_UNRESERVED TH_URL_ALPHA "0123456789-._~"
+static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
+static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
+static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
+static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP};
+static const size_t URL_KEEP_LENS[] = {sizeof(URL_PATH_KEEP) - 1, sizeof(URL_QUERY_KEEP) - 1,
+                                       sizeof(URL_FRAGMENT_KEEP) - 1};
+static const char HEX_UPPER[] = "0123456789ABCDEF";
+
+/* The value of a hex digit, or -1 when `ch` is not one; a memchr over the digit set, never a chained range test, so the
+   two hex probes an escape needs stay branch-gate stable when clang inlines them. */
+static int hex_value(Py_UCS4 ch) {
+    static const char HEX_DIGITS[] = "0123456789abcdefABCDEF";
+    if (ch > 0x7F) {
+        return -1;
+    }
+    const char *found = memchr(HEX_DIGITS, (char)ch, sizeof(HEX_DIGITS) - 1);
+    if (found == NULL) {
+        return -1;
+    }
+    Py_ssize_t offset = found - HEX_DIGITS;
+    return offset < 16 ? (int)offset : (int)(offset - 6); /* 'A'..'F' sit past the lowercase run, so fold back by 6 */
+}
+
+Py_ssize_t th_url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ssize_t start, Py_ssize_t end,
+                              int set_id) {
+    const char *keep = URL_KEEP_SETS[set_id];
+    size_t keep_len = URL_KEEP_LENS[set_id];
+    for (Py_ssize_t index = start; index < end; index++) {
+        unsigned char byte = (unsigned char)bytes[index];
+        if (th_url_in_set(byte, keep, keep_len)) {
+            out[at++] = (char)byte;
+        } else {
+            out[at++] = '%';
+            out[at++] = HEX_UPPER[byte >> 4];
+            out[at++] = HEX_UPPER[byte & 0x0F];
+        }
+    }
+    return at;
+}
+
+/* _url_percent_encode(text, set_id): the shim's per-component encoder, replacing urllib.parse.quote plus a preceding
+   uppercase-escape sweep. It UTF-8 encodes the component (a lone surrogate has no encoding, so this raises), then
+   rewrites an existing %XX to uppercase hex and percent-encodes every byte outside the set. Since '%' stays in every
+   keep set, a valid escape survives; a stray '%' or a truncated %X is a literal byte the set keeps. */
+PyObject *turbohtml_url_percent_encode(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *text;
+    int set_id;
+    if (!PyArg_ParseTuple(args, "Ui", &text, &set_id)) {
+        return NULL;
+    }
+    Py_ssize_t len;
+    /* a lone surrogate has no UTF-8 form; the shim rewraps the UnicodeEncodeError PyUnicode_AsUTF8AndSize sets */
+    const char *bytes = PyUnicode_AsUTF8AndSize(text, &len);
+    if (bytes == NULL) {
+        return NULL;
+    }
+    char *out = PyMem_Malloc((size_t)len * 3 + 1); /* every byte encodes to at most "%HH" */
+    if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    const char *keep = URL_KEEP_SETS[set_id];
+    size_t keep_len = URL_KEEP_LENS[set_id];
+    Py_ssize_t at = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        unsigned char byte = (unsigned char)bytes[index];
+        int high = byte == '%' && index + 2 < len ? hex_value((Py_UCS4)(unsigned char)bytes[index + 1]) : -1;
+        int low = high >= 0 ? hex_value((Py_UCS4)(unsigned char)bytes[index + 2]) : -1;
+        if (low >= 0) {
+            out[at++] = '%';
+            out[at++] = HEX_UPPER[high];
+            out[at++] = HEX_UPPER[low];
+            index += 3;
+        } else if (th_url_in_set(byte, keep, keep_len)) {
+            out[at++] = (char)byte;
+            index++;
+        } else {
+            out[at++] = '%';
+            out[at++] = HEX_UPPER[byte >> 4];
+            out[at++] = HEX_UPPER[byte & 0x0F];
+            index++;
+        }
+    }
+    PyObject *result = PyUnicode_DecodeUTF8(out, at, "strict"); /* out is pure ASCII by construction, so strict holds */
+    PyMem_Free(out);
+    return result; /* NULL only on the excluded decode-failure path */
+}
+
+/* Flush the decoded byte run to the UCS4 output as UTF-8 with U+FFFD replacement (urllib's errors="replace"), so an
+   invalid sequence never fails; returns -1 with an error set only on the excluded allocation-failure path. */
+static int decode_flush(const unsigned char *run, Py_ssize_t run_len, Py_UCS4 *out, Py_ssize_t *out_len) {
+    if (run_len == 0) {
+        return 0;
+    }
+    PyObject *piece = PyUnicode_DecodeUTF8((const char *)run, run_len, "replace");
+    if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: replace never raises on content, only on allocation */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int kind = PyUnicode_KIND(piece);
+    const void *data = PyUnicode_DATA(piece);
+    Py_ssize_t piece_len = PyUnicode_GET_LENGTH(piece);
+    for (Py_ssize_t index = 0; index < piece_len; index++) {
+        out[(*out_len)++] = PyUnicode_READ(kind, data, index);
+    }
+    Py_DECREF(piece);
+    return 0;
+}
+
+/* _url_percent_decode(text): the shim's per-component decoder, replacing urllib.parse.unquote. It walks the string,
+   turning a %XX inside an ASCII run into its byte and keeping any other ASCII char or non-ASCII code point verbatim,
+   then UTF-8 decodes each ASCII byte run with U+FFFD replacement. A non-ASCII input char ends the current run, matching
+   the ascii/non-ascii split unquote makes, so a raw code point (even a lone surrogate) survives unencoded. */
+PyObject *turbohtml_url_percent_decode(PyObject *Py_UNUSED(module), PyObject *arg) {
+    Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
+    int kind = PyUnicode_KIND(arg);
+    const void *data = PyUnicode_DATA(arg);
+    size_t span = (size_t)(len > 0 ? len : 1);
+    Py_UCS4 *out = PyMem_Malloc(span * sizeof(Py_UCS4)); /* decoding never grows the code-point count */
+    unsigned char *run = PyMem_Malloc(span);
+    if (out == NULL || run == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(out);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(run);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t out_len = 0;
+    Py_ssize_t run_len = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        int high = ch == '%' && index + 2 < len ? hex_value(PyUnicode_READ(kind, data, index + 1)) : -1;
+        int low = high >= 0 ? hex_value(PyUnicode_READ(kind, data, index + 2)) : -1;
+        if (low >= 0) {
+            run[run_len++] = (unsigned char)(high * 16 + low);
+            index += 3;
+        } else if (ch <= 0x7F) {
+            run[run_len++] = (unsigned char)ch;
+            index++;
+        } else {
+            if (decode_flush(run, run_len, out, &out_len) < 0) { /* GCOVR_EXCL_BR_LINE: replace only fails on alloc */
+                PyMem_Free(out);                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+                PyMem_Free(run);                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            run_len = 0;
+            out[out_len++] = ch;
+            index++;
+        }
+    }
+    PyObject *result = NULL;
+    if (decode_flush(run, run_len, out, &out_len) == 0) { /* GCOVR_EXCL_BR_LINE: replace only fails on alloc */
+        result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, out, out_len);
+    }
+    PyMem_Free(out);
+    PyMem_Free(run);
+    return result; /* NULL only on the excluded flush- or build-failure path */
+}
+
 /* The bytes the basic parser removes from anywhere in the input (spec 4.4 step 2). Leading C0-or-space is stripped
    separately; these three are also excised mid-URL. An array probe, not a chained ||, keeps the branch gate stable. */
 static int is_removed(Py_UCS4 ch) {

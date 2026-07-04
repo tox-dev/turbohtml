@@ -6,6 +6,7 @@
 #include "encoding/encoding.h"
 #include "encoding/detect.h"
 #include "encoding/language.h"
+#include "url/url.h"
 
 static PyObject *document_get_root(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
@@ -36,39 +37,10 @@ static PyObject *url_join(PyObject *base, PyObject *target) {
     return joined;
 }
 
-/* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
-   byte outside its set is UTF-8 percent-encoded. The three sets share the RFC 3986 unreserved run; the query set drops
-   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. */
-#define URL_ALPHA "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-#define URL_UNRESERVED URL_ALPHA "0123456789-._~"
-static const char URL_ALPHABET[] = URL_ALPHA;
-static const char URL_SCHEME_TAIL[] = URL_ALPHA "0123456789+-.";
-static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
-static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
-static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
-
-/* memchr against a literal set, never a chained range test: clang inlines these into the encode loop, where an
-   ``a || b || c`` of byte ranges fractures the macOS branch gate (a NUL byte or the terminator never matches). */
-static int url_in_set(unsigned char byte, const char *set, size_t set_len) {
-    return memchr(set, byte, set_len) != NULL;
-}
-
-/* Append s[start:end], percent-encoding every byte outside `keep`; returns the new write offset. */
-static Py_ssize_t url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ssize_t start, Py_ssize_t end,
-                                  const char *keep, size_t keep_len) {
-    static const char HEX[] = "0123456789ABCDEF";
-    for (Py_ssize_t index = start; index < end; index++) {
-        unsigned char byte = (unsigned char)bytes[index];
-        if (url_in_set(byte, keep, keep_len)) {
-            out[at++] = (char)byte;
-        } else {
-            out[at++] = '%';
-            out[at++] = HEX[byte >> 4];
-            out[at++] = HEX[byte & 0x0F];
-        }
-    }
-    return at;
-}
+/* The scheme scanner's alphabets, complementing the WHATWG component percent-encode sets that now live in url.c: a
+   scheme leads with a letter (URL_ALPHABET) and continues over letters, digits, and "+-." (URL_SCHEME_TAIL). */
+static const char URL_ALPHABET[] = TH_URL_ALPHA;
+static const char URL_SCHEME_TAIL[] = TH_URL_ALPHA "0123456789+-.";
 
 /* Replace any lone surrogate with U+FFFD, the scalar-value substitution the URL parser's input goes through (Web IDL
    USVString), so the UTF-8 encode below cannot fail. Returns a new reference, the original when it is already scalar.
@@ -116,9 +88,9 @@ static PyObject *url_percent_encode(PyObject *url) {
     }
     Py_ssize_t cursor = 0;
     /* bytes is NUL-terminated, so bytes[0] on an empty URL reads the terminator and matches nothing */
-    if (url_in_set((unsigned char)bytes[0], URL_ALPHABET, sizeof(URL_ALPHABET) - 1)) {
+    if (th_url_in_set((unsigned char)bytes[0], URL_ALPHABET, sizeof(URL_ALPHABET) - 1)) {
         Py_ssize_t scan = 1;
-        while (scan < len && url_in_set((unsigned char)bytes[scan], URL_SCHEME_TAIL, sizeof(URL_SCHEME_TAIL) - 1)) {
+        while (scan < len && th_url_in_set((unsigned char)bytes[scan], URL_SCHEME_TAIL, sizeof(URL_SCHEME_TAIL) - 1)) {
             scan++;
         }
         if (scan < len && bytes[scan] == ':') {
@@ -151,17 +123,14 @@ static PyObject *url_percent_encode(PyObject *url) {
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     memcpy(out, bytes, (size_t)prefix_end); /* the scheme and authority pass through unchanged */
-    Py_ssize_t written =
-        url_encode_span(out, prefix_end, bytes, prefix_end, path_end, URL_PATH_KEEP, sizeof(URL_PATH_KEEP) - 1);
+    Py_ssize_t written = th_url_encode_span(out, prefix_end, bytes, prefix_end, path_end, TH_URL_SET_PATH);
     if (query_start >= 0) {
         out[written++] = '?';
-        written =
-            url_encode_span(out, written, bytes, query_start, query_end, URL_QUERY_KEEP, sizeof(URL_QUERY_KEEP) - 1);
+        written = th_url_encode_span(out, written, bytes, query_start, query_end, TH_URL_SET_QUERY);
     }
     if (fragment_start >= 0) {
         out[written++] = '#';
-        written =
-            url_encode_span(out, written, bytes, fragment_start, len, URL_FRAGMENT_KEEP, sizeof(URL_FRAGMENT_KEEP) - 1);
+        written = th_url_encode_span(out, written, bytes, fragment_start, len, TH_URL_SET_FRAGMENT);
     }
     PyObject *result = PyUnicode_DecodeUTF8(out, written, "strict");
     PyMem_Free(out);
