@@ -2,6 +2,10 @@
  Development
 #############
 
+turbohtml 1.0 was not written by hand. It was built over about a month of continuous background co-work with Anthropic's
+Claude Opus 4.8, with some help from Fable, across close to 300 pull requests and commits and many rounds of iteration.
+See :doc:`/how-this-was-built` for the full acknowledgment and the libraries and specifications turbohtml stands on.
+
 This page covers how we build, test, and maintain turbohtml; the :doc:`performance` page collects the benchmark tables
 the rest of the docs link into.
 
@@ -9,6 +13,14 @@ the rest of the docs link into.
     :hidden:
 
     performance
+
+***************************
+ AI-assisted contributions
+***************************
+
+AI-assisted contributions are welcome. Much of turbohtml itself was written with AI tools, and you are free to use them.
+You are responsible for every line you submit: review it, understand it, and make sure it meets the project's standards
+and passes the tests before opening a pull request. The same bar applies whether a human or a model wrote the code.
 
 ****************
  Getting set up
