@@ -1,0 +1,5 @@
+Add a differential test that rebuilds the html5lib-tests ``#document`` dump from the public Element API and asserts it
+matches the spec tree across the tree-construction corpus, document and fragment. The conformance suite pins turbohtml's
+internal dump to the spec; this locks the public tree a sanitizer walks to that same tree, so a consumer cannot vet one
+structure while the browser resolves another. 1781 of 1782 cases match. The one divergence is a ``Doctype.system_id``
+quote-truncation that never reaches a keep/drop or URL decision. Part of #478.
