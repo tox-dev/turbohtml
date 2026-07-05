@@ -46,6 +46,9 @@ def test_headings(html: str, expected: str) -> None:
         pytest.param("<p>one</p><p>two</p>", "one\n\ntwo", id="two-paragraphs"),
         pytest.param("<div>a</div><div>b</div>", "a\n\nb", id="divs"),
         pytest.param("<p>a\n  b\t c</p>", "a b c", id="collapse-whitespace"),
+        # &#13; injects a real U+000D past the CR->LF preprocessor fold; CR is HTML
+        # whitespace, so it collapses and trims like the rest of the set.
+        pytest.param("<p>a&#13;&#13;b</p>", "a b", id="collapse-carriage-return"),
         pytest.param("<p>  leading trailing  </p>", "leading trailing", id="trim-edges"),
         pytest.param("<section><p>x</p></section>", "x", id="transparent-container"),
         pytest.param("<p>x<svg><style>.c{fill:red}</style></svg>y</p>", "xy", id="svg-style-suppressed"),

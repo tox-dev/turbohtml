@@ -7,6 +7,7 @@
    safety baseline (scripting/framing elements, on* handlers, non-allowlisted URL schemes) is enforced here, not in
    Python, so a policy cannot route around it. */
 
+#include "core/ascii.h"
 #include "core/common.h"
 #include "url/url.h"
 
@@ -133,19 +134,6 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     return s->allow_relative; /* no colon: a relative URL */
 }
 
-/* The ASCII whitespace that separates srcset candidates, minus CR: the WHATWG input preprocessor converts CR to LF, so
-   a parsed attribute value never carries a 0x0D. An array+loop keeps the branch count stable when clang inlines this
-   into srcset_allowed's two call sites. */
-static int is_ascii_ws(Py_UCS4 c) {
-    static const Py_UCS4 whitespace[] = {0x09, 0x0A, 0x0C, 0x20};
-    for (size_t index = 0; index < sizeof(whitespace) / sizeof(whitespace[0]); index++) {
-        if (c == whitespace[index]) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* srcset and imagesrcset hold a comma-separated list of "URL descriptor" candidates. Each candidate's leading URL is
    scheme-checked; the whole attribute is rejected if any candidate carries a disallowed scheme. Splitting on commas
    can over-segment a URL that contains one, but that only adds scheme checks of schemeless tails (read as relative),
@@ -153,11 +141,11 @@ static int is_ascii_ws(Py_UCS4 c) {
 static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t pos = 0;
     while (pos < len) {
-        while (pos < len && (value[pos] == ',' || is_ascii_ws(value[pos]))) {
+        while (pos < len && (value[pos] == ',' || is_space(value[pos]))) {
             pos++; /* skip separators before the candidate URL */
         }
         Py_ssize_t start = pos;
-        while (pos < len && value[pos] != ',' && !is_ascii_ws(value[pos])) {
+        while (pos < len && value[pos] != ',' && !is_space(value[pos])) {
             pos++; /* the URL runs up to a descriptor (whitespace) or the next candidate (comma) */
         }
         if (pos > start) {
@@ -347,7 +335,7 @@ static int host_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     }
     for (Py_ssize_t index = 0; index < host_len; index++) {
         Py_UCS4 c = value[host_start + index];
-        host[index] = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        host[index] = lower_ascii(c);
     }
     PyObject *key = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, host, host_len);
     if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -447,7 +435,7 @@ static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t le
     }
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 c = name[index];
-        lowered[index] = (char)((c >= 'A' && c <= 'Z') ? (c | 0x20) : c);
+        lowered[index] = (char)(lower_ascii(c));
     }
     PyObject *key = PyUnicode_FromStringAndSize(lowered, len);
     if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -481,7 +469,7 @@ static Py_ssize_t css_match_keyword(const Py_UCS4 *value, Py_ssize_t pos, Py_ssi
    spliced in as `url` then comment then `(...)` is not read as a bare identifier. */
 static Py_ssize_t css_skip_ws_comments(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
     while (pos < end) {
-        if (is_ascii_ws(value[pos])) {
+        if (is_space(value[pos])) {
             pos++;
         } else if (value[pos] == '/' && pos + 1 < end && value[pos + 1] == '*') {
             pos += 2;
@@ -506,7 +494,7 @@ static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t
         quote = value[pos++];
     }
     Py_ssize_t url_start = pos;
-    while (pos < end && value[pos] != ')' && (quote ? value[pos] != quote : !is_ascii_ws(value[pos]))) {
+    while (pos < end && value[pos] != ')' && (quote ? value[pos] != quote : !is_space(value[pos]))) {
         pos++;
     }
     return scheme_allowed(s, value + url_start, pos - url_start);
@@ -553,10 +541,10 @@ static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t s
     }
     Py_ssize_t name_start = start;
     Py_ssize_t name_end = colon;
-    while (name_start < name_end && is_ascii_ws(value[name_start])) {
+    while (name_start < name_end && is_space(value[name_start])) {
         name_start++;
     }
-    while (name_end > name_start && is_ascii_ws(value[name_end - 1])) {
+    while (name_end > name_start && is_space(value[name_end - 1])) {
         name_end--;
     }
     int allowed = css_property_allowed(s, value + name_start, name_end - name_start);
@@ -574,7 +562,7 @@ static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t s
         return 0; /* an allowlisted property carrying expression()/url(disallowed-scheme) is still dropped */
     }
     Py_ssize_t decl_end = end;
-    while (decl_end > colon + 1 && is_ascii_ws(value[decl_end - 1])) {
+    while (decl_end > colon + 1 && is_space(value[decl_end - 1])) {
         decl_end--;
     }
     *name_start_out = name_start;
@@ -690,10 +678,10 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr) {
    dangers (expression(), url(disallowed-scheme)) live in declaration values, which css_declaration_kept still vets. */
 static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
                              Py_ssize_t *out_len) {
-    while (start < end && is_ascii_ws(value[start])) {
+    while (start < end && is_space(value[start])) {
         start++;
     }
-    while (end > start && is_ascii_ws(value[end - 1])) {
+    while (end > start && is_space(value[end - 1])) {
         end--;
     }
     for (Py_ssize_t index = start; index < end; index++) {

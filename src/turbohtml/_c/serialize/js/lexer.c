@@ -11,6 +11,7 @@
    is a safe over-approximation for the valid scripts a minifier is handed (all JS
    operators and punctuation are ASCII). */
 
+#include "core/ascii.h"
 #include "serialize/js/internal.h"
 
 #include <string.h>
@@ -63,14 +64,6 @@ static int jm_is_id_part(Py_UCS4 ch) {
         return jm_cc[ch] & (CC_ID | CC_DIGIT);
     }
     return jm_is_id_start(ch); /* for a code point >= 0x80, identifier-part == identifier-start */
-}
-
-static int jm_is_dec(Py_UCS4 ch) {
-    return ch >= '0' && ch <= '9';
-}
-
-static int jm_is_hex(Py_UCS4 ch) {
-    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
 }
 
 void jm_lex_init(jm_lexer *lx, const Py_UCS4 *src, Py_ssize_t len) {
@@ -242,7 +235,7 @@ static Py_ssize_t jm_scan_digits(jm_lexer *lx, int hex) {
     Py_ssize_t digits = 0;
     while (lx->pos < lx->len) {
         Py_UCS4 ch = lx->src[lx->pos];
-        if (hex ? jm_is_hex(ch) : jm_is_dec(ch)) {
+        if (hex ? is_ascii_hexdigit(ch) : is_ascii_digit(ch)) {
             digits++;
             lx->pos++;
         } else if (ch == '_') {
@@ -273,7 +266,7 @@ static void jm_scan_number(jm_lexer *lx) {
     /* a legacy octal (010) or non-octal decimal (08) integer: a leading 0 then a
        decimal digit. These take no fraction or exponent, so a following `.` is a
        member access, not a decimal point. */
-    if (ch == '0' && lx->pos + 1 < lx->len && jm_is_dec(lx->src[lx->start + 1])) {
+    if (ch == '0' && lx->pos + 1 < lx->len && is_ascii_digit(lx->src[lx->start + 1])) {
         jm_scan_digits(lx, 0);
         jm_emit(lx, JT_NUM);
         return;
@@ -429,7 +422,7 @@ static void jm_scan_punct(jm_lexer *lx) {
             lx->kind = JT_NULLISH;
             return;
         }
-        if (next_ch == '.' && !jm_is_dec(next2_ch)) {
+        if (next_ch == '.' && !is_ascii_digit(next2_ch)) {
             lx->pos += 2;
             lx->kind = JT_OPT_CHAIN;
             return;
@@ -653,7 +646,7 @@ void jm_lex_next(jm_lexer *lx) {
     Py_UCS4 ch = lx->src[lx->pos];
     if (jm_is_id_start(ch) || (ch == '\\' && lx->pos + 1 < lx->len && lx->src[lx->pos + 1] == 'u')) {
         jm_scan_ident(lx);
-    } else if (jm_is_dec(ch) || (ch == '.' && lx->pos + 1 < lx->len && jm_is_dec(lx->src[lx->pos + 1]))) {
+    } else if (is_ascii_digit(ch) || (ch == '.' && lx->pos + 1 < lx->len && is_ascii_digit(lx->src[lx->pos + 1]))) {
         jm_scan_number(lx);
     } else if (ch == '"' || ch == '\'') {
         jm_scan_string(lx, ch);

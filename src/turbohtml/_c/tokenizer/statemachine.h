@@ -39,6 +39,21 @@ typedef struct {
     int kind; /* PyUnicode_{1,2,4}BYTE_KIND */
 } th_buf;
 
+/* The storage width a code point needs; matches the PyUnicode kind values. Kept
+   with th_buf (not in the Python-free core/ascii.h) because it reads the CPython
+   PyUnicode kind constants the width-tagged buffers are stored at. */
+static inline int ucs_width(Py_UCS4 ch) {
+    return ch < 0x100 ? PyUnicode_1BYTE_KIND : ch < 0x10000 ? PyUnicode_2BYTE_KIND : PyUnicode_4BYTE_KIND;
+}
+
+static inline Py_UCS4 buf_read(const th_buf *buf, Py_ssize_t index) {
+    return PyUnicode_READ(buf->kind, buf->data, index);
+}
+
+static inline void buf_write(th_buf *buf, Py_ssize_t index, Py_UCS4 ch) {
+    PyUnicode_WRITE(buf->kind, buf->data, index, ch);
+}
+
 typedef struct {
     th_buf name;
     th_buf value;

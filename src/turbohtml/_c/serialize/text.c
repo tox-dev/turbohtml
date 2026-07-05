@@ -3,7 +3,7 @@
    as a column-aligned grid — for search indexing, diffing, or a terminal view.
 
    It shares sbuf, need_text(), the tag atoms, the attribute lookup, and the
-   md_is_ws()/is_md_block()/is_md_skipped() predicates from serialize/internal.h.
+   is_space()/is_md_block()/is_md_skipped() predicates from serialize/internal.h.
    Unlike to_markdown it emits no markup: it keeps the visual structure of the
    page as plain text. */
 
@@ -120,13 +120,13 @@ static void text_emit_word(text_ctx *ctx, const Py_UCS4 *word, Py_ssize_t len) {
 static void text_emit_text(text_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t i = 0;
     while (i < len) {
-        if (md_is_ws(text[i])) {
+        if (is_space(text[i])) {
             ctx->space_pending = 1;
             i++;
             continue;
         }
         Py_ssize_t start = i;
-        while (i < len && !md_is_ws(text[i])) {
+        while (i < len && !is_space(text[i])) {
             i++;
         }
         text_emit_word(ctx, &text[start], i - start);
@@ -199,11 +199,11 @@ static int text_rule_matches(text_ctx *ctx, th_node *node, const text_rule *rule
     Py_ssize_t avlen = node->attrs[idx].value_len;
     Py_ssize_t i = 0;
     while (i < avlen) {
-        while (i < avlen && md_is_ws(av[i])) {
+        while (i < avlen && is_space(av[i])) {
             i++;
         }
         Py_ssize_t start = i;
-        while (i < avlen && !md_is_ws(av[i])) {
+        while (i < avlen && !is_space(av[i])) {
             i++;
         }
         if (i - start == rule->value_len &&
@@ -217,10 +217,10 @@ static int text_rule_matches(text_ctx *ctx, th_node *node, const text_rule *rule
 /* Record a labeled span over [start, end), trimming surrounding whitespace, one
    entry per label the rule carries. */
 static void text_record_span(text_ctx *ctx, Py_ssize_t start, Py_ssize_t end, PyObject *labels) {
-    while (start < end && md_is_ws(ctx->out.data[start])) {
+    while (start < end && is_space(ctx->out.data[start])) {
         start++;
     }
-    while (end > start && md_is_ws(ctx->out.data[end - 1])) {
+    while (end > start && is_space(ctx->out.data[end - 1])) {
         end--;
     }
     if (start >= end) {
@@ -394,7 +394,7 @@ static void text_render_inline(text_ctx *ctx, th_node *node) {
 static void text_emit_text2(text_ctx *ctx, const char *s) {
     for (const char *c = s; *c != '\0'; c++) {
         Py_UCS4 ch = (Py_UCS4)(unsigned char)*c;
-        if (md_is_ws(ch)) {
+        if (is_space(ch)) {
             ctx->space_pending = 1;
         } else {
             text_emit_word(ctx, &ch, 1);
@@ -416,7 +416,7 @@ static int text_leads_with_inline(text_ctx *ctx, th_node *node) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
             for (Py_ssize_t i = 0; i < child->text_len; i++) {
-                if (!md_is_ws(text[i])) {
+                if (!is_space(text[i])) {
                     return 1;
                 }
             }
@@ -461,7 +461,7 @@ static void text_block_children(text_ctx *ctx, th_node *node) {
             if (only_ws) {
                 const Py_UCS4 *text = need_text(ctx->tree, child);
                 for (Py_ssize_t i = 0; i < child->text_len; i++) {
-                    if (!md_is_ws(text[i])) {
+                    if (!is_space(text[i])) {
                         only_ws = 0;
                         break;
                     }

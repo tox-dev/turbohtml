@@ -201,6 +201,9 @@ _SCAN_ALL_CASES = [
     pytest.param("Il 4 luglio 2016 qui.", [(2016, 7, 4)], id="italian-day-first"),
     pytest.param("Posted 4th of July 2016.", [(2016, 7, 4)], id="english-ordinal-of"),
     pytest.param("25th December 2020", [(2020, 12, 25)], id="day-first-ordinal"),
+    # The date grammar's inter-token whitespace is the Perl \s the ported regex used, which keeps the
+    # vertical tab (0x0B) that HTML "ASCII whitespace" drops; a VT between tokens still separates them.
+    pytest.param("25th\x0bDecember\x0b2020", [(2020, 12, 25)], id="vertical-tab-separated"),
     pytest.param("July 4th 2016", [(2016, 7, 4)], id="month-first-ordinal"),
     pytest.param("1st January 2000", [(2000, 1, 1)], id="ordinal-st"),
     pytest.param("22nd March 2020", [(2020, 3, 22)], id="ordinal-nd"),

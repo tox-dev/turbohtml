@@ -362,7 +362,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;
     while (index < len) {
         Py_UCS4 ch = text[index];
-        if (md_is_ws(ch)) {
+        if (is_space(ch)) {
             ctx->space_pending = 1;
             index++;
             continue;
@@ -370,7 +370,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
         /* the upcoming word's code-point count tells md_flush_space whether the
            owed space should become a wrap break before the word is laid down */
         Py_ssize_t word_end = index;
-        while (word_end < len && !md_is_ws(text[word_end])) {
+        while (word_end < len && !is_space(text[word_end])) {
             word_end++;
         }
         ctx->pending_word = (int)(word_end - index);
@@ -385,7 +385,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
         md_put_char(ctx, ch);
         index++;
         Py_ssize_t start = index;
-        while (index < len && !md_is_ws(text[index]) && !md_needs_escape(ctx->opt, text[index]) &&
+        while (index < len && !is_space(text[index]) && !md_needs_escape(ctx->opt, text[index]) &&
                !(translit && text[index] >= 0x80)) {
             index++;
         }
@@ -433,16 +433,16 @@ static int md_css_prop(const Py_UCS4 *style, Py_ssize_t style_len, const char *p
         }
         Py_ssize_t value_end = cursor;
         cursor++; /* past ';' */
-        while (name_start < name_end && md_is_ws(style[name_start])) {
+        while (name_start < name_end && is_space(style[name_start])) {
             name_start++;
         }
-        while (name_end > name_start && md_is_ws(style[name_end - 1])) {
+        while (name_end > name_start && is_space(style[name_end - 1])) {
             name_end--;
         }
-        while (value_start < value_end && md_is_ws(style[value_start])) {
+        while (value_start < value_end && is_space(style[value_start])) {
             value_start++;
         }
-        while (value_end > value_start && md_is_ws(style[value_end - 1])) {
+        while (value_end > value_start && is_space(style[value_end - 1])) {
             value_end--;
         }
         if (name_end - name_start == prop_len && md_ucs4_ieq(&style[name_start], prop_len, prop)) {
@@ -1001,7 +1001,7 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
             for (Py_ssize_t index = 0; index < child->text_len; index++) {
-                if (!md_is_ws(text[index])) {
+                if (!is_space(text[index])) {
                     return 1; /* leading visible text rides on the bullet line */
                 }
             }
@@ -1031,7 +1031,7 @@ static int md_item_is_loose(md_ctx *ctx, th_node *node) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
             for (Py_ssize_t index = 0; index < child->text_len; index++) {
-                if (!md_is_ws(text[index])) {
+                if (!is_space(text[index])) {
                     if (!in_run) {
                         units++;
                         in_run = 1;
@@ -1093,7 +1093,7 @@ static void md_block_children(md_ctx *ctx, th_node *node) {
             if (only_ws) {
                 const Py_UCS4 *text = need_text(ctx->tree, child);
                 for (Py_ssize_t index = 0; index < child->text_len; index++) {
-                    if (!md_is_ws(text[index])) {
+                    if (!is_space(text[index])) {
                         only_ws = 0;
                         break;
                     }
@@ -1141,7 +1141,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     md_block_children(ctx, node);
     Py_UCS4 *data = ctx->out.data;
     Py_ssize_t end = ctx->out.len;
-    while (end > 0 && md_is_ws(data[end - 1])) {
+    while (end > 0 && is_space(data[end - 1])) {
         end--;
     }
     PyObject *content = NULL;
@@ -1658,7 +1658,7 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
                     lang = cls + want_len;
                     lang_len = cls_len - want_len;
                     for (Py_ssize_t index = 0; index < lang_len; index++) {
-                        if (md_is_ws(lang[index])) {
+                        if (is_space(lang[index])) {
                             lang_len = index;
                             break;
                         }

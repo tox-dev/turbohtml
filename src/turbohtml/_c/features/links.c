@@ -7,6 +7,7 @@
    list attributes. URL resolution itself (resolve_links) is stdlib urllib.parse.urljoin, bound through
    functools.partial here, so RFC 3986 is not reinvented. */
 
+#include "core/ascii.h"
 #include "core/common.h"
 
 #include "core/vec.h"
@@ -20,24 +21,10 @@
 typedef int (*link_emit)(void *ctx, Py_ssize_t start, Py_ssize_t end);
 typedef int (*scanner_fn)(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx);
 
-/* The ASCII whitespace that separates URL-list tokens, minus CR: the WHATWG input preprocessor converts CR to LF, so a
-   parsed value never carries a 0x0D. An array+loop (matching sanitize.c) keeps the branch count stable instead of the
-   chained-|| a compiler can leave with unreachable arms. */
-static int is_ws(Py_UCS4 c) {
-    static const Py_UCS4 whitespace[] = {0x09, 0x0A, 0x0C, 0x20};
-    for (size_t index = 0; index < sizeof(whitespace) / sizeof(whitespace[0]); index++) {
-        if (c == whitespace[index]) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* A CSS/identifier byte, used to reject url(/import/url= matches that are only the tail of a longer identifier (e.g.
    "blur(" must not match "url(", "curl" must not match the refresh keyword). */
 static int is_ident(Py_UCS4 c) {
-    Py_UCS4 lower = c | 0x20;
-    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+    return is_ascii_alpha(c) || is_ascii_digit(c) || c == '_' || c == '-';
 }
 
 /* Case-insensitive (ASCII) match of the literal `lit` at offset `pos`; letters compare case-folded, every other byte
@@ -48,7 +35,7 @@ static int imatch(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t pos, const ch
     }
     for (Py_ssize_t index = 0; index < lit_len; index++) {
         Py_UCS4 c = value[pos + index];
-        Py_UCS4 folded = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        Py_UCS4 folded = lower_ascii(c);
         if (folded != (Py_UCS4)(unsigned char)lit[index]) {
             return 0;
         }
@@ -60,10 +47,10 @@ static int imatch(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t pos, const ch
 static int scan_single(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t start = 0;
     Py_ssize_t end = len;
-    while (start < end && is_ws(value[start])) {
+    while (start < end && is_space(value[start])) {
         start++;
     }
-    while (end > start && is_ws(value[end - 1])) {
+    while (end > start && is_space(value[end - 1])) {
         end--;
     }
     if (end > start) {
@@ -76,11 +63,11 @@ static int scan_single(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
 static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
-        while (pos < len && is_ws(value[pos])) {
+        while (pos < len && is_space(value[pos])) {
             pos++;
         }
         Py_ssize_t start = pos;
-        while (pos < len && !is_ws(value[pos])) {
+        while (pos < len && !is_space(value[pos])) {
             pos++;
         }
         if (pos > start) {
@@ -97,11 +84,11 @@ static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit,
 static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
-        while (pos < len && (value[pos] == ',' || is_ws(value[pos]))) {
+        while (pos < len && (value[pos] == ',' || is_space(value[pos]))) {
             pos++;
         }
         Py_ssize_t start = pos;
-        while (pos < len && value[pos] != ',' && !is_ws(value[pos])) {
+        while (pos < len && value[pos] != ',' && !is_space(value[pos])) {
             pos++;
         }
         if (pos > start) {
@@ -121,7 +108,7 @@ static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
 static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, link_emit emit, void *ctx,
                         Py_ssize_t *resume) {
     Py_ssize_t pos = open;
-    while (pos < len && is_ws(value[pos])) {
+    while (pos < len && is_space(value[pos])) {
         pos++;
     }
     Py_UCS4 quote = 0;
@@ -129,7 +116,7 @@ static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, l
         quote = value[pos++];
     }
     Py_ssize_t start = pos;
-    while (pos < len && value[pos] != ')' && (quote ? value[pos] != quote : !is_ws(value[pos]))) {
+    while (pos < len && value[pos] != ')' && (quote ? value[pos] != quote : !is_space(value[pos]))) {
         pos++;
     }
     *resume = pos;
@@ -144,7 +131,7 @@ static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, l
 static int css_import_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t after, link_emit emit, void *ctx,
                            Py_ssize_t *resume) {
     Py_ssize_t pos = after;
-    while (pos < len && is_ws(value[pos])) {
+    while (pos < len && is_space(value[pos])) {
         pos++;
     }
     if (pos < len && (value[pos] == '"' || value[pos] == '\'')) {
@@ -194,14 +181,14 @@ static int scan_meta_refresh(const Py_UCS4 *value, Py_ssize_t len, link_emit emi
             continue;
         }
         Py_ssize_t after = pos + 3;
-        while (after < len && is_ws(value[after])) {
+        while (after < len && is_space(value[after])) {
             after++;
         }
         if (after >= len || value[after] != '=') {
             continue;
         }
         after++;
-        while (after < len && is_ws(value[after])) {
+        while (after < len && is_space(value[after])) {
             after++;
         }
         Py_UCS4 quote = 0;
@@ -210,7 +197,7 @@ static int scan_meta_refresh(const Py_UCS4 *value, Py_ssize_t len, link_emit emi
         }
         Py_ssize_t start = after;
         Py_ssize_t end = len;
-        while (after < len && (quote ? value[after] != quote : !is_ws(value[after]))) {
+        while (after < len && (quote ? value[after] != quote : !is_space(value[after]))) {
             after++;
         }
         end = after;

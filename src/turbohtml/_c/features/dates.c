@@ -25,20 +25,19 @@
    read ASCII [0-9] rather than Unicode \d, and the whitespace between written-out
    date tokens is ASCII [ \t\n\r\f\v] rather than Unicode \s. */
 
+#include "core/ascii.h"
 #include "core/common.h"
 
 #include <stdint.h>
 
 #define CP(index) PyUnicode_READ(kind, data, (index))
 
-static inline int is_digit(Py_UCS4 codepoint) {
-    return codepoint >= '0' && codepoint <= '9';
-}
-
-/* Lowercase for the case-insensitive month vocabulary: ASCII plus the Latin-1
-   uppercase block (0xC0-0xDE minus the 0xD7 multiplication sign), which covers
-   every accent the month names carry (É, Ä, Û). Nothing else needs folding. */
-static inline Py_UCS4 lower_cp(Py_UCS4 codepoint) {
+/* Lowercase for the case-insensitive month vocabulary: the ASCII fold plus the
+   Latin-1 uppercase block (0xC0-0xDE minus the 0xD7 multiplication sign), which
+   covers every accent the month names carry (É, Ä, Û). This is wider than the
+   shared ASCII lower_ascii on purpose; nothing else in the date grammar needs
+   folding. */
+static inline Py_UCS4 lower_month_cp(Py_UCS4 codepoint) {
     if (codepoint >= 'A' && codepoint <= 'Z') {
         return codepoint + ('a' - 'A');
     }
@@ -48,8 +47,12 @@ static inline Py_UCS4 lower_cp(Py_UCS4 codepoint) {
     return codepoint;
 }
 
-/* ASCII whitespace, the \s+ between written-out date tokens. */
-static inline int is_space(Py_UCS4 codepoint) {
+/* The Perl \s class -- SPACE, TAB, LF, VT, FF, CR -- the \s+ between written-out
+   date tokens. This is the whitespace the ported _dates.py regex matched, so it
+   keeps the vertical tab (0x0B) that HTML "ASCII whitespace" (the shared is_space)
+   omits; a date string is arbitrary extracted text, not a tokenizer stream, and a
+   stray VT between tokens still separates them. */
+static inline int is_perl_space(Py_UCS4 codepoint) {
     return codepoint == ' ' || (codepoint >= 0x09 && codepoint <= 0x0D);
 }
 
@@ -59,7 +62,7 @@ static int year_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, i
         return 0;
     }
     Py_UCS4 a = CP(pos), b = CP(pos + 1), c = CP(pos + 2), d = CP(pos + 3);
-    if (!(is_digit(a) && is_digit(b) && is_digit(c) && is_digit(d))) {
+    if (!(is_ascii_digit(a) && is_ascii_digit(b) && is_ascii_digit(c) && is_ascii_digit(d))) {
         return 0;
     }
     if (!((a == '1' && b == '9' && c == '9') || (a == '2' && b == '0'))) {
@@ -177,7 +180,7 @@ static int iso_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
    (?<!\d) boundary. */
 static int compact_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *year, int *month, int *day) {
     Py_ssize_t run = pos;
-    while (run < len && is_digit(CP(run))) {
+    while (run < len && is_ascii_digit(CP(run))) {
         run++;
     }
     Py_ssize_t width = run - pos;
@@ -207,22 +210,22 @@ static int compact_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos
 static int dmy_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *raw_day, int *raw_month,
                   int *raw_year, Py_ssize_t *out_end) {
     Py_ssize_t p = pos;
-    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '3' && is_digit(CP(p + 1)) &&
+    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '3' && is_ascii_digit(CP(p + 1)) &&
         (CP(p + 2) == '-' || CP(p + 2) == '/' || CP(p + 2) == '.')) {
         *raw_day = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
         p += 2;
-    } else if (p + 1 < len && is_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
+    } else if (p + 1 < len && is_ascii_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
         *raw_day = (int)(CP(p) - '0');
         p += 1;
     } else {
         return 0;
     }
     p++;
-    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '1' && is_digit(CP(p + 1)) &&
+    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '1' && is_ascii_digit(CP(p + 1)) &&
         (CP(p + 2) == '-' || CP(p + 2) == '/' || CP(p + 2) == '.')) {
         *raw_month = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
         p += 2;
-    } else if (p + 1 < len && is_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
+    } else if (p + 1 < len && is_ascii_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
         *raw_month = (int)(CP(p) - '0');
         p += 1;
     } else {
@@ -230,7 +233,7 @@ static int dmy_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     }
     p++;
     Py_ssize_t start = p;
-    while (p < len && is_digit(CP(p))) {
+    while (p < len && is_ascii_digit(CP(p))) {
         p++;
     }
     Py_ssize_t run = p - start;
@@ -323,7 +326,7 @@ static int match_month_name(const void *data, int kind, Py_ssize_t len, Py_ssize
         const char *cursor = entry->name;
         int matched = 1;
         for (uint8_t offset = 0; offset < entry->length; offset++) {
-            if (lower_cp(CP(pos + offset)) != name_cp(&cursor)) {
+            if (lower_month_cp(CP(pos + offset)) != name_cp(&cursor)) {
                 matched = 0;
                 break;
             }
@@ -342,7 +345,7 @@ static int match_ordinal(const void *data, int kind, Py_ssize_t len, Py_ssize_t 
     if (pos + 2 > len) {
         return 0;
     }
-    Py_UCS4 a = lower_cp(CP(pos)), b = lower_cp(CP(pos + 1));
+    Py_UCS4 a = lower_month_cp(CP(pos)), b = lower_month_cp(CP(pos + 1));
     if ((a == 's' && b == 't') || (a == 'n' && b == 'd') || (a == 'r' && b == 'd') || (a == 't' && b == 'h')) {
         return 2;
     }
@@ -352,10 +355,10 @@ static int match_ordinal(const void *data, int kind, Py_ssize_t len, Py_ssize_t 
 /* Skip a run of ASCII whitespace, requiring at least one (\s+). Returns the
    position after it, or -1 when none is present. */
 static Py_ssize_t skip_spaces(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos) {
-    if (pos >= len || !is_space(CP(pos))) {
+    if (pos >= len || !is_perl_space(CP(pos))) {
         return -1;
     }
-    while (pos < len && is_space(CP(pos))) {
+    while (pos < len && is_perl_space(CP(pos))) {
         pos++;
     }
     return pos;
@@ -406,12 +409,12 @@ static int text_a(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     if (p < 0) {
         return 0;
     }
-    if (p + 1 < len && CP(p) >= '0' && CP(p) <= '3' && is_digit(CP(p + 1)) &&
+    if (p + 1 < len && CP(p) >= '0' && CP(p) <= '3' && is_ascii_digit(CP(p + 1)) &&
         text_a_tail(data, kind, len, p + 2, year, out_end)) {
         *day = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
         return 1;
     }
-    if (p < len && is_digit(CP(p)) && text_a_tail(data, kind, len, p + 1, year, out_end)) {
+    if (p < len && is_ascii_digit(CP(p)) && text_a_tail(data, kind, len, p + 1, year, out_end)) {
         *day = (int)(CP(p) - '0');
         return 1;
     }
@@ -439,7 +442,8 @@ static int text_b_tail(const void *data, int kind, Py_ssize_t len, Py_ssize_t st
         if (p < 0) {
             continue;
         }
-        if (p + 2 < len && lower_cp(CP(p)) == 'o' && lower_cp(CP(p + 1)) == 'f' && is_space(CP(p + 2))) {
+        if (p + 2 < len && lower_month_cp(CP(p)) == 'o' && lower_month_cp(CP(p + 1)) == 'f' &&
+            is_perl_space(CP(p + 2))) {
             p = skip_spaces(data, kind, len, p + 2);
         }
         int name_length = match_month_name(data, kind, len, p, month);
@@ -472,7 +476,7 @@ static int text_b_tail(const void *data, int kind, Py_ssize_t len, Py_ssize_t st
    Returns 1 with day/month/year and the end position. */
 static int text_b(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *day, int *month, int *year,
                   Py_ssize_t *out_end) {
-    if (pos + 1 < len && CP(pos) <= '3' && is_digit(CP(pos + 1)) &&
+    if (pos + 1 < len && CP(pos) <= '3' && is_ascii_digit(CP(pos + 1)) &&
         text_b_tail(data, kind, len, pos + 2, month, year, out_end)) {
         *day = (int)(CP(pos) - '0') * 10 + (int)(CP(pos + 1) - '0');
         return 1;
@@ -518,7 +522,7 @@ PyObject *turbohtml_date_scan(PyObject *Py_UNUSED(module), PyObject *args) {
         }
     }
     for (Py_ssize_t pos = 0; pos < len; pos++) {
-        if ((pos == 0 || !is_digit(CP(pos - 1))) && compact_at(data, kind, len, pos, &year, &month, &day)) {
+        if ((pos == 0 || !is_ascii_digit(CP(pos - 1))) && compact_at(data, kind, len, pos, &year, &month, &day)) {
             if (ymd_valid(year, month, day)) {
                 return Py_BuildValue("(iii)", year, month, day);
             }
@@ -527,7 +531,7 @@ PyObject *turbohtml_date_scan(PyObject *Py_UNUSED(module), PyObject *args) {
     }
     for (Py_ssize_t pos = 0; pos < len; pos++) {
         int raw_day, raw_month, raw_year;
-        if ((pos == 0 || !is_digit(CP(pos - 1))) &&
+        if ((pos == 0 || !is_ascii_digit(CP(pos - 1))) &&
             dmy_at(data, kind, len, pos, &raw_day, &raw_month, &raw_year, &end)) {
             int resolved_year = correct_year(raw_year, current_year);
             if (dmy_resolve(raw_day, raw_month, resolved_year, &month, &day)) {
@@ -572,7 +576,7 @@ PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
     pos = 0;
     while (pos < len) {
         int raw_day, raw_month, raw_year;
-        if ((pos == 0 || !is_digit(CP(pos - 1))) &&
+        if ((pos == 0 || !is_ascii_digit(CP(pos - 1))) &&
             dmy_at(data, kind, len, pos, &raw_day, &raw_month, &raw_year, &end)) {
             int resolved_year = correct_year(raw_year, current_year);
             if (dmy_resolve(raw_day, raw_month, resolved_year, &month, &day)) {
@@ -590,7 +594,7 @@ PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
         int matched = 0;
         if (CP(pos) >= 'A') { /* a written-out date opens with a month name (letter) */
             matched = text_a(data, kind, len, pos, &month, &day, &year, &end);
-        } else if (is_digit(CP(pos))) { /* or a leading day (digit) */
+        } else if (is_ascii_digit(CP(pos))) { /* or a leading day (digit) */
             matched = text_b(data, kind, len, pos, &day, &month, &year, &end);
         }
         if (!matched) {
@@ -628,10 +632,10 @@ static int url_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
         return 0;
     }
     p++;
-    if (p + 1 < len && day2(CP(p), CP(p + 1), day) && (p + 2 >= len || !is_digit(CP(p + 2)))) {
+    if (p + 1 < len && day2(CP(p), CP(p + 1), day) && (p + 2 >= len || !is_ascii_digit(CP(p + 2)))) {
         return 1;
     }
-    if (p < len && day1(CP(p), day) && (p + 1 >= len || !is_digit(CP(p + 1)))) {
+    if (p < len && day1(CP(p), day) && (p + 1 >= len || !is_ascii_digit(CP(p + 1)))) {
         return 1;
     }
     return 0;
@@ -648,7 +652,7 @@ PyObject *turbohtml_date_url(PyObject *Py_UNUSED(module), PyObject *url) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(url);
     int year, month, day;
     for (Py_ssize_t pos = 0; pos < len; pos++) {
-        if ((pos == 0 || !is_digit(CP(pos - 1))) && url_at(data, kind, len, pos, &year, &month, &day)) {
+        if ((pos == 0 || !is_ascii_digit(CP(pos - 1))) && url_at(data, kind, len, pos, &year, &month, &day)) {
             if (ymd_valid(year, month, day)) {
                 return Py_BuildValue("(iii)", year, month, day);
             }

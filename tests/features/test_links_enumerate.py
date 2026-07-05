@@ -23,6 +23,12 @@ def test_value_is_reported_with_surrounding_whitespace_trimmed() -> None:
     assert _urls('<a href="  a/b.html  ">x</a>') == [("a", "href", "a/b.html")]
 
 
+def test_carriage_return_from_char_ref_is_trimmed() -> None:
+    # &#13; injects a real U+000D past the input preprocessor's CR->LF fold, and CR is
+    # HTML ASCII whitespace, so "strip leading/trailing ASCII whitespace" must drop it.
+    assert _urls('<a href="&#13;a/b.html&#13;">x</a>') == [("a", "href", "a/b.html")]
+
+
 def test_whitespace_only_url_attribute_is_skipped() -> None:
     assert _urls('<a href="   ">x</a>') == []
 

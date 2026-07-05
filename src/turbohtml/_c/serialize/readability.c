@@ -117,7 +117,7 @@ static int read_ci_contains(const Py_UCS4 *hay, Py_ssize_t hay_len, const char *
         Py_ssize_t index = 0;
         while (index < needle_len) {
             Py_UCS4 current = hay[start + index];
-            Py_UCS4 folded = (current >= 'A' && current <= 'Z') ? (current | 0x20) : current;
+            Py_UCS4 folded = lower_ascii(current);
             if (folded != (Py_UCS4)(unsigned char)needle[index]) {
                 break;
             }
@@ -401,12 +401,6 @@ th_node *th_node_main_content(th_tree *tree, th_node *root) {
     return best;
 }
 
-static int read_is_ws(Py_UCS4 character) {
-    /* the tokenizer normalizes CR to LF in the input stream, so tree text and
-       attribute values never hold a carriage return (as md_is_ws also assumes) */
-    return character == ' ' || character == '\t' || character == '\n' || character == '\f';
-}
-
 /* Copy [text, text+len) into a fresh PyMem buffer with each run of HTML whitespace
    folded to a single space and the ends trimmed; *out_len receives the length.
    Returns NULL (with *out_len 0) when the trimmed value is empty, so a present but
@@ -421,7 +415,7 @@ static Py_UCS4 *read_normalize(const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t *
     int seen = 0;
     int pending_space = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (read_is_ws(text[index])) {
+        if (is_space(text[index])) {
             pending_space = seen;
             continue;
         }
@@ -501,11 +495,11 @@ static int read_is_meta(th_tree *tree, th_node *node, const void *ctx) {
 static int read_rel_has_token(const Py_UCS4 *value, Py_ssize_t value_len, const char *token) {
     Py_ssize_t index = 0;
     while (index < value_len) {
-        while (index < value_len && read_is_ws(value[index])) {
+        while (index < value_len && is_space(value[index])) {
             index++;
         }
         Py_ssize_t start = index;
-        while (index < value_len && !read_is_ws(value[index])) {
+        while (index < value_len && !is_space(value[index])) {
             index++;
         }
         if (index > start && ser_value_iequals(value + start, index - start, token)) {

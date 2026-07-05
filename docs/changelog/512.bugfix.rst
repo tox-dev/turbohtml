@@ -1,0 +1,6 @@
+:meth:`~turbohtml.Node.links`, :meth:`~turbohtml.Node.to_text`, :meth:`~turbohtml.Node.to_markdown`, and
+:meth:`~turbohtml.Node.main_text` now treat a carriage return as HTML whitespace. Four internal whitespace scanners had
+dropped U+000D on the assumption that input preprocessing folds every CR to LF, but a ``&#13;`` character reference
+decodes to a real carriage return after that step, so ``links()`` kept a stray CR on a trimmed URL and the text and
+markdown exporters left one uncollapsed. All four now share the full HTML ASCII-whitespace set, carriage return
+included. Part of #478.

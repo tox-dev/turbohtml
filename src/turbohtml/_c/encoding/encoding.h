@@ -282,7 +282,7 @@ static const th_encoding_entry *th_encoding_lookup(const char *label, Py_ssize_t
     }
     for (Py_ssize_t index = 0; index < len; index++) {
         unsigned char ch = (unsigned char)label[index];
-        lowered[index] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+        lowered[index] = (char)lower_ascii(ch);
     }
     lowered[len] = '\0';
     for (size_t index = 0; index < sizeof(th_encoding_table) / sizeof(th_encoding_table[0]); index++) {
@@ -386,7 +386,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
             break;
         }
         if (name_len < name_cap - 1) {
-            name[name_len++] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+            name[name_len++] = (char)lower_ascii(ch);
         }
         at++;
     }
@@ -405,7 +405,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
         while (at < end && buf[at] != quote) {
             unsigned char ch = buf[at++];
             if (value_len < value_cap - 1) {
-                value[value_len++] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+                value[value_len++] = (char)lower_ascii(ch);
             }
         }
         if (at >= end) { /* unterminated quoted value */
@@ -420,7 +420,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
         while (at < end && !is_attr_space(buf[at]) && buf[at] != '>') {
             unsigned char ch = buf[at++];
             if (value_len < value_cap - 1) {
-                value[value_len++] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+                value[value_len++] = (char)lower_ascii(ch);
             }
         }
         if (at >= end) { /* unquoted value ran to the end of input */

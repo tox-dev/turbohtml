@@ -15,11 +15,7 @@ static void sel_fail(sel_parser *parser, const char *reason) {
 }
 
 int sel_is_ident(Py_UCS4 ch) {
-    return is_ascii_alpha(ch) || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch >= 0x80;
-}
-
-static int sel_is_hex(Py_UCS4 ch) {
-    return (ch >= '0' && ch <= '9') || ((ch | 32) >= 'a' && (ch | 32) <= 'f');
+    return is_ascii_alpha(ch) || is_ascii_digit(ch) || ch == '-' || ch == '_' || ch >= 0x80;
 }
 
 /* Skip whitespace and CSS comments (CSS Syntax §4.3.2: a comment is valid anywhere
@@ -61,11 +57,12 @@ static Py_UCS4 sel_consume_escape(sel_parser *parser) {
     if (parser->pos >= parser->len) {
         return 0xFFFD; /* a trailing backslash escapes the replacement character */
     }
-    if (!sel_is_hex(parser->src[parser->pos])) {
+    if (!is_ascii_hexdigit(parser->src[parser->pos])) {
         return parser->src[parser->pos++]; /* the literal escaped character */
     }
     uint32_t value = 0;
-    for (int digit = 0; digit < 6 && parser->pos < parser->len && sel_is_hex(parser->src[parser->pos]); digit++) {
+    for (int digit = 0; digit < 6 && parser->pos < parser->len && is_ascii_hexdigit(parser->src[parser->pos]);
+         digit++) {
         Py_UCS4 hex = parser->src[parser->pos++];
         value = value * 16 + (hex <= '9' ? (uint32_t)(hex - '0') : (uint32_t)((hex | 32) - 'a' + 10));
     }
@@ -1070,7 +1067,7 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx);
 
 Py_UCS4 sel_fold(Py_UCS4 ch, int ci) {
-    return (ci && ch >= 'A' && ch <= 'Z') ? ch + 32 : ch;
+    return ci ? lower_ascii(ch) : ch;
 }
 
 int sel_eq(const Py_UCS4 *left, Py_ssize_t alen, const Py_UCS4 *right, Py_ssize_t blen, int ci) {

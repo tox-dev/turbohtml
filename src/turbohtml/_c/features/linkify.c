@@ -10,6 +10,7 @@
    same rule bleach used. Matches are returned as (start, end, kind) spans into
    the input; the scan never allocates per match. */
 
+#include "core/ascii.h"
 #include "core/common.h"
 #include "url/url.h"
 
@@ -22,19 +23,6 @@ enum th_link_kind {
     TH_LINK_EMAIL = 1,
     TH_LINK_SCHEME = 2,
 };
-
-static inline Py_UCS4 ascii_lower(Py_UCS4 c) {
-    return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
-}
-
-static inline int is_ascii_alpha(Py_UCS4 c) {
-    Py_UCS4 lower = c | 0x20;
-    return lower >= 'a' && lower <= 'z';
-}
-
-static inline int is_ascii_digit(Py_UCS4 c) {
-    return c >= '0' && c <= '9';
-}
 
 /* A non-ASCII Unicode White_Space code point (the ASCII ones are c <= 0x20). UTS46
    domain-to-ASCII forbids these in host labels, and they end a URL in running text,
@@ -124,7 +112,7 @@ static int tuple_has_label(PyObject *names, int kind, const void *data, Py_ssize
         const void *candidate_data = PyUnicode_DATA(candidate);
         int matched = 1;
         for (Py_ssize_t offset = 0; offset < length; offset++) {
-            if (PyUnicode_READ(candidate_kind, candidate_data, offset) != ascii_lower(READ(start + offset))) {
+            if (PyUnicode_READ(candidate_kind, candidate_data, offset) != lower_ascii(READ(start + offset))) {
                 matched = 0;
                 break;
             }
@@ -146,7 +134,7 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
     if (length < 2) {
         return 0;
     }
-    Py_UCS4 first = ascii_lower(READ(start));
+    Py_UCS4 first = lower_ascii(READ(start));
     if (first < 'a' || first > 'z') {
         return tuple_has_label(extra_tlds, kind, data, start, end);
     }
@@ -156,7 +144,7 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
         }
         int matched = 1;
         for (Py_ssize_t offset = 0; offset < length; offset++) {
-            if ((Py_UCS4)(unsigned char)th_tld_table[index].name[offset] != ascii_lower(READ(start + offset))) {
+            if ((Py_UCS4)(unsigned char)th_tld_table[index].name[offset] != lower_ascii(READ(start + offset))) {
                 matched = 0;
                 break;
             }

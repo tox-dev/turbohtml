@@ -29,6 +29,9 @@ def to_text(html: str, opts: PlainText) -> str:
         pytest.param("<p>a <b>bold</b> <i>x</i> c</p>", PlainText(), "a bold x c", id="inline-markup-stripped"),
         pytest.param("<p>one</p><p>two</p>", PlainText(), "one\n\ntwo", id="paragraphs"),
         pytest.param("<div>a\n  b\tc</div>", PlainText(), "a b c", id="collapse-whitespace"),
+        # &#13; injects a real U+000D past the CR->LF preprocessor fold; CR is HTML
+        # whitespace, so a text-node run of it must collapse like any other run.
+        pytest.param("<div>a&#13;&#13;b</div>", PlainText(), "a b", id="collapse-carriage-return"),
         pytest.param("<p>a<br>b</p>", PlainText(), "a\nb", id="line-break"),
         pytest.param("<p>a<wbr>b</p>", PlainText(), "ab", id="wbr"),
         pytest.param("<section><p>x</p></section>", PlainText(), "x", id="transparent-container"),

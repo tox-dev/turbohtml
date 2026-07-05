@@ -13,6 +13,7 @@
    (<meta name="dc.*">) join Microdata and OpenGraph in the same walk; microformats2 remains a documented later phase.
  */
 
+#include "core/ascii.h"
 #include "core/common.h"
 
 #include "core/vec.h"
@@ -40,7 +41,7 @@ static int ucs4_ieq_trimmed(const Py_UCS4 *value, Py_ssize_t len, const char *li
     }
     for (Py_ssize_t index = 0; index < lit_len; index++) {
         Py_UCS4 c = value[start + index];
-        Py_UCS4 folded = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        Py_UCS4 folded = lower_ascii(c);
         if (folded != (Py_UCS4)(unsigned char)lit[index]) {
             return 0;
         }
@@ -1217,7 +1218,7 @@ static int ucs4_has_prefix_ci(const Py_UCS4 *value, Py_ssize_t len, const char *
     }
     for (Py_ssize_t index = 0; index < prefix_len; index++) {
         Py_UCS4 c = value[index];
-        Py_UCS4 folded = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        Py_UCS4 folded = lower_ascii(c);
         if (folded != (Py_UCS4)(unsigned char)prefix[index]) {
             return 0;
         }
@@ -1245,7 +1246,7 @@ static PyObject *ucs4_lower_str(const Py_UCS4 *data, Py_ssize_t len) {
     }
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 c = data[index];
-        buffer[index] = (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+        buffer[index] = lower_ascii(c);
     }
     PyObject *result = ucs4_to_str(buffer, len);
     PyMem_Free(buffer);

@@ -1,7 +1,7 @@
 /* Serialization primitives shared by every output mode (#document, HTML,
    minify, markdown, text, readability). The growable code-point buffer, the
    escape formatters, the start/close-tag writers, the attribute ordering and
-   the markdown block/whitespace predicates live here as `static inline` so each
+   the markdown block predicates live here as `static inline` so each
    serialize translation unit keeps its own inlined copy of the hot append and
    escape loops with no cross-TU call. */
 
@@ -11,6 +11,7 @@
 #include "dom/tree.h"
 #include "dom/tree_internal.h" /* struct th_tree, need_text, is_void_atom */
 
+#include "core/ascii.h"  /* is_space, the shared HTML ASCII-whitespace predicate */
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
 #include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 #include "data/entity_names.h"
@@ -575,12 +576,6 @@ static inline int is_md_skipped(const th_node *node) {
     return node->ns == TH_NS_HTML && node->atom == TH_TAG_HEAD;
 }
 
-static inline int md_is_ws(Py_UCS4 c) {
-    /* the tokenizer has already normalized CR to LF, so a tree text node never
-       holds a carriage return; classifying it here would be a dead branch */
-    return c == ' ' || c == '\t' || c == '\n' || c == '\f';
-}
-
 static inline Py_ssize_t md_put_decimal(sbuf *out, Py_ssize_t n) {
     Py_UCS4 digits[20];
     Py_ssize_t count = 0;
@@ -629,7 +624,7 @@ static inline Py_ssize_t md_trim(sbuf *out, int mode) {
     }
     Py_ssize_t end = out->len;
     if (mode == TH_MD_DOC_STRIP || mode == TH_MD_DOC_RSTRIP) {
-        while (end > start && md_is_ws(out->data[end - 1])) {
+        while (end > start && is_space(out->data[end - 1])) {
             end--;
         }
     }

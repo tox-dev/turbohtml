@@ -86,6 +86,14 @@ def test_main_text_renders_the_winner() -> None:
     assert "Home" not in text
 
 
+def test_main_text_collapses_carriage_return_runs() -> None:
+    # &#13; injects a real U+000D past the CR->LF preprocessor fold; CR is HTML
+    # whitespace, so read_normalize must fold it into a single space, not keep it.
+    text = parse(f"<article class=post><p>{PROSE}&#13;&#13;tail of the article body here.</p></article>").main_text()
+    assert "\r" not in text
+    assert "around it. tail of the article body here." in text
+
+
 @pytest.mark.parametrize(
     "html",
     [

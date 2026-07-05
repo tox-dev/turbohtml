@@ -10,6 +10,7 @@
    buffer, the escape helpers, ser_close_tag, is_rawtext_element,
    ser_needs_leading_newline and doctype_name_len from serialize/internal.h. */
 
+#include "core/ascii.h"
 #include "serialize/internal.h"
 
 #include "dom/tree.h"
@@ -18,11 +19,6 @@
 #include "serialize/js/minify.h"
 
 #include <string.h>
-
-/* HTML ASCII whitespace, the set the tree-construction whitespace rules use. */
-static inline int mini_is_ascii_ws(Py_UCS4 character) {
-    return character == ' ' || character == '\t' || character == '\n' || character == '\f' || character == '\r';
-}
 
 /* pre/textarea/listing keep their text verbatim: a collapse inside them would
    change rendered content. Raw-text elements (script/style/...) are emitted as
@@ -62,7 +58,7 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
     int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
     while (index < len) {
-        if (mini_is_ascii_ws(text[index])) {
+        if (is_space(text[index])) {
             if (!*last_was_space) {
                 /* a stripped comment can leave two whitespace text nodes adjacent; suppressing
                    the second's leading space keeps the fold idempotent, since the reparse merges
@@ -72,7 +68,7 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
             }
             do {
                 index++;
-            } while (index < len && mini_is_ascii_ws(text[index]));
+            } while (index < len && is_space(text[index]));
             continue;
         }
         Py_ssize_t start = index;
@@ -86,14 +82,13 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
                 index += UCS4_LANES;
             }
         }
-        while (index < len && !mini_is_ascii_ws(text[index]) &&
-               !mini_text_special(text[index], formatter, escape_nbsp)) {
+        while (index < len && !is_space(text[index]) && !mini_text_special(text[index], formatter, escape_nbsp)) {
             index++;
         }
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
-        if (index < len && !mini_is_ascii_ws(text[index])) {
+        if (index < len && !is_space(text[index])) {
             sbuf_put_special(out, text[index], formatter);
             index++;
         }
@@ -110,8 +105,8 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
 static int mini_attr_unquotable(const Py_UCS4 *value, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = value[index];
-        if (mini_is_ascii_ws(character) || character == '"' || character == '\'' || character == '`' ||
-            character == '=' || character == '<' || character == '>' || character == '&') {
+        if (is_space(character) || character == '"' || character == '\'' || character == '`' || character == '=' ||
+            character == '<' || character == '>' || character == '&') {
             return 0;
         }
     }
@@ -329,7 +324,7 @@ static int mini_p_parent_excluded(uint16_t atom) {
 /* Whether a following sibling begins with ASCII whitespace (used by the head/
    body/caption "not followed by whitespace" omission tests). */
 static int mini_starts_with_ws(th_tree *tree, th_node *node) {
-    return node->type == TH_NODE_TEXT && node->text_len > 0 && mini_is_ascii_ws(need_text(tree, node)[0]);
+    return node->type == TH_NODE_TEXT && node->text_len > 0 && is_space(need_text(tree, node)[0]);
 }
 
 /* Whether node lies within an html <atom> ancestor the parser would have "in scope",
