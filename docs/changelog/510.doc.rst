@@ -1,0 +1,3 @@
+``tools/generate_idna.py`` pins the SHA-256 of each Unicode source file it downloads, so regenerating the IDNA/NFC table
+aborts on a poisoned or silently changed upstream, the same provenance guard the TLD and Public Suffix List generators
+carry - part of #478.

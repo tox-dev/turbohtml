@@ -92,6 +92,6 @@ To make a regeneration verifiable, each generator pins the SHA-256 of the exact 
 built from, on top of the version or commit it already names: `generate_tlds.py` pins `IANA_VERSION` and `IANA_SHA256`,
 `generate_psl.py` pins `PSL_COMMIT` and `PSL_SHA256`, and `generate_idna.py` pins `UNICODE_VERSION` and a SHA-256 for
 each of the three files it downloads. A rebuild recomputes the digest of the download and aborts when it does not match
-the pin, so a changed or poisoned source cannot land silently. A real upstream bump is deliberate: a
-maintainer reviews the new source, updates the version-or-commit pin and its checksum together, and regenerates, so both
-the changed pin and the table diff show up in code review.
+the pin, so a changed or poisoned source cannot land silently. A real upstream bump is deliberate: a maintainer reviews
+the new source, updates the version-or-commit pin and its checksum together, and regenerates, so both the changed pin
+and the table diff show up in code review.
