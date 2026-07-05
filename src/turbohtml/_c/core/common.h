@@ -66,11 +66,6 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
 PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
 
-/* Implemented in registrable.c. _registrable_domain(host) returns a lowercased
-   host's registrable domain (eTLD+1) from the shipped IANA and Public Suffix List
-   tables, the site boundary behind extract_links(external_only=True). METH_O. */
-PyObject *turbohtml_registrable_domain(PyObject *module, PyObject *arg);
-
 /* Implemented in url/url.c. _url_split(url) breaks a URL into (scheme, netloc,
    path, query, fragment, userinfo, host, port, has_port, host_kind) the way the
    WHATWG basic parser bounds the components, the split step the _urls.py cleaner
@@ -96,6 +91,11 @@ PyObject *turbohtml_url_join(PyObject *module, PyObject *args);
    encode (an unpaired surrogate). METH_O. */
 PyObject *th_url_to_ascii(PyObject *host);
 PyObject *turbohtml_url_to_ascii(PyObject *module, PyObject *arg);
+
+/* Implemented in url/registrable.c. _registrable_domain(host) returns a lowercased
+   host's registrable domain (eTLD+1) from the shipped IANA and Public Suffix List
+   tables, the site boundary behind extract_links(external_only=True). METH_O. */
+PyObject *turbohtml_registrable_domain(PyObject *module, PyObject *arg);
 
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented

@@ -1,0 +1,4 @@
+Move the registrable-domain (Public Suffix List) lookup into the ``url`` C module, next to URL splitting,
+percent-coding, relative-reference joining, and IDNA host encoding, so every URL and host routine lives in one module.
+The eTLD+1 computation behind :func:`~turbohtml.extract.extract_links`'s ``external_only`` boundary is unchanged; only
+its source file moved. Part of #478.
