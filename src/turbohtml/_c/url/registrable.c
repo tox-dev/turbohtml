@@ -21,6 +21,10 @@ enum { PSL_NORMAL = 0, PSL_WILDCARD = 1, PSL_EXCEPTION = 2 };
    case-insensitively; a digit-led label (an IPv4 octet) buckets into an empty range and falls through to 0. */
 static int is_iana_tld(const Py_UCS4 *cand, Py_ssize_t len) {
     Py_UCS4 first = cand[0];
+    /* a non-ASCII first code point starts no IANA TLD (all ASCII / punycode) and would index past th_tld_first[257] */
+    if (first > 255) {
+        return 0;
+    }
     for (int index = th_tld_first[first]; index < th_tld_first[first + 1]; index++) {
         if (th_tld_table[index].name_len != len) {
             continue;
@@ -43,6 +47,10 @@ static int is_iana_tld(const Py_UCS4 *cand, Py_ssize_t len) {
    wildcard rule is stored with its "*." prefix, so a candidate carrying that prefix is how a wildcard is looked up. */
 static int psl_kind(const Py_UCS4 *cand, Py_ssize_t len) {
     Py_UCS4 first = cand[0];
+    /* a non-ASCII first code point matches no PSL rule (all ASCII / punycode) and would index past th_psl_first[257] */
+    if (first > 255) {
+        return -1;
+    }
     for (int index = th_psl_first[first]; index < th_psl_first[first + 1]; index++) {
         if (th_psl_table[index].name_len != len) {
             continue;

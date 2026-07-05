@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from turbohtml._html import _registrable_domain
 from turbohtml.extract import UrlCleaning, extract_links
 
 _BASE = "https://test.com/dir/"
@@ -100,6 +101,20 @@ def test_external_only_keeps_other_sites() -> None:
 def test_external_boundary_is_the_registrable_domain(base: str, href: str, *, external: bool) -> None:
     links = extract_links(f'<a href="{href}">x</a>', base, external_only=True)
     assert links == ({href} if external else set())
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param("россия.рф", "россия.рф", id="cyrillic-unknown-suffix"),
+        pytest.param("例え.jp", "例え.jp", id="cjk-label-ascii-suffix"),
+        pytest.param("рф", "рф", id="bare-cyrillic-label"),
+    ],
+)
+def test_registrable_domain_handles_a_raw_non_ascii_host(host: str, expected: str) -> None:
+    # the internal entrypoint is reachable from Python without _ascii_host punycoding, so a non-ASCII first code
+    # point must not index past the ASCII-sized suffix tables; it has no known suffix and stays its own domain
+    assert _registrable_domain(host) == expected
 
 
 def test_external_boundary_punycodes_a_unicode_base_host() -> None:
