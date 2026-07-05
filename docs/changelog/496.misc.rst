@@ -1,0 +1,7 @@
+Parse the publication dates behind :func:`~turbohtml.extract.dates` in the C extension rather than Python's ``re``
+patterns and ``datetime``. ISO 8601, an 8-digit stamp, the day-month-year spellings, the five-language written-month
+vocabulary, and the ``/YYYY/MM/DD/`` a URL path carries now scan in one C engine the ``_dates`` shim delegates to,
+leaving only the ``<meta>``/JSON-LD/``<time>``/URL/text signal gathering in Python. The parsed result is unchanged for
+every date string of ASCII digits and whitespace; the scanners read ASCII ``[0-9]`` and ASCII whitespace rather than the
+Unicode ``\d`` and ``\s`` the patterns matched, so a date written with non-ASCII digits or an exotic Unicode space no
+longer parses. Part of #478.
