@@ -255,8 +255,8 @@ builtin = "clear,usage,en-GB_to_en-US"
 ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp"
 skip = """\
   */html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h,*/idna_t\
-  able.h,*/IdnaTestV2.txt\
-  """  # generated tables of HTML5 / IANA / CSS / PSL / language names, plus the Unicode IDNA table and its test vectors
+  able.h,*/IdnaTestV2.txt,*/dompurify_expect.mjs\
+  """  # generated tables of HTML5 / IANA / CSS / PSL / language names, the Unicode IDNA table + vectors, and the DOMPurify XSS fixtures
 count = true
 quiet-level = 3
 
