@@ -1716,6 +1716,7 @@ static enum th_drain drain_initial(th_tree *tree, th_token *tok, th_insert *dc) 
         th_node *node = node_new(tree, TH_NODE_DOCTYPE);
         if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
             node->text = build_doctype_text(tree, tok, &node->text_len);
+            node->attr_count = tok->has_public_id ? tok->public_id.len : 0; /* public-id split point */
             node->tag_flags = (uint8_t)((tok->has_public_id ? TH_DOCTYPE_HAS_PUBLIC : 0) |
                                         (tok->has_system_id ? TH_DOCTYPE_HAS_SYSTEM : 0));
             node_append(tree->document, node);

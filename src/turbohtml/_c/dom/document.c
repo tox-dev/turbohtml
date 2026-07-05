@@ -1238,8 +1238,9 @@ static PyObject *reconstruct_doctype(module_state *state, PyObject *data) {
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    ((NodeObject *)node)->node->tag_flags =
-        (uint8_t)((has_public ? TH_DOCTYPE_HAS_PUBLIC : 0) | (has_system ? TH_DOCTYPE_HAS_SYSTEM : 0));
+    th_node *raw = ((NodeObject *)node)->node;
+    raw->attr_count = has_public ? PyUnicode_GET_LENGTH(public_id) : 0; /* public-id split point */
+    raw->tag_flags = (uint8_t)((has_public ? TH_DOCTYPE_HAS_PUBLIC : 0) | (has_system ? TH_DOCTYPE_HAS_SYSTEM : 0));
     return node;
 }
 

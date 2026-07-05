@@ -21,10 +21,10 @@ Two divergence classes are documented rather than silently skipped:
   lexbor and html5lib's own library); the pinned data does not. For these the public tree is
   asserted against turbohtml's spec-validated parse, which the conformance suite pins to the
   corrected tree. See issues #32, #63, #93.
-- One benign public-API bug: ``Doctype.system_id`` drops an embedded quote (``taco"`` -> ``taco``).
-  Doctypes are stripped by the sanitizer's C-enforced baseline and never enter a keep/drop or URL
-  decision, so this is a correctness nit with no security impact; it is asserted explicitly so a
-  fix flips the test.
+- A ``.dat`` text-format limit: the html5lib ``#document`` dump wraps doctype identifiers in unescaped
+  quotes, so it cannot represent a quote embedded in one (``taco"`` reads back as ``taco``). turbohtml
+  keeps the quote, matching html5lib-python and the WHATWG tokenizer, so the public tree is asserted
+  against turbohtml's conformance-validated parse. See issue #478.
 """
 
 from __future__ import annotations
@@ -149,20 +149,20 @@ _SPEC_LAG: frozenset[tuple[str, str, str | None]] = frozenset({
     ("tests_innerHTML_1.dat", "<keygen><option>", "select"),
 })
 
-# Benign, non-security: Doctype.system_id drops the embedded quote of `taco"`. Doctypes are stripped
-# by the sanitizer baseline, so this never affects a keep/drop or URL decision. Asserted so a fix flips.
-_KNOWN_PUBLIC_DIVERGENCE: dict[tuple[str, str, str | None], str] = {
-    ("doctype01.dat", "<!DOCTYPE potato SYSTEM 'taco\"'>Hello", None): (
-        '| <!DOCTYPE potato "" "taco">\n| <html>\n|   <head>\n|   <body>\n|     "Hello"'
-    ),
-}
+# The html5lib `#document` text format wraps each doctype identifier in unescaped quotes, so it cannot
+# represent a quote embedded in one: `taco"` serializes to a .dat that reads back as `taco`. turbohtml
+# keeps the embedded quote (matching html5lib-python and the WHATWG tokenizer), so the public tree is
+# checked against turbohtml's conformance-validated parse, not the lossy .dat text. See issue #478.
+_DAT_UNREPRESENTABLE: frozenset[tuple[str, str, str | None]] = frozenset({
+    ("doctype01.dat", "<!DOCTYPE potato SYSTEM 'taco\"'>Hello", None),
+})
 
 
 def _expected(filename: str, data: str, document: str, context: str | None) -> str:
     key = (filename, data, context)
-    if key in _SPEC_LAG:
+    if key in _SPEC_LAG or key in _DAT_UNREPRESENTABLE:
         return _internal_dump(data, context)
-    return _KNOWN_PUBLIC_DIVERGENCE.get(key, document)
+    return document
 
 
 @pytest.mark.parametrize("filename", sorted({name for name, _, _, _ in _CASES}))

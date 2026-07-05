@@ -41,6 +41,18 @@ def _doctype(markup: str) -> Doctype:
             "",  # a system identifier given as "" is present but empty, distinct from missing
             id="public-and-empty-system",
         ),
+        pytest.param(
+            "<!DOCTYPE html SYSTEM 'taco\"quote'>",
+            None,
+            'taco"quote',  # a quote embedded in the single-quoted identifier survives (part of #478)
+            id="system-embedded-quote",
+        ),
+        pytest.param(
+            "<!DOCTYPE html PUBLIC 'pub\"lic' 'sys\"tem'>",
+            'pub"lic',
+            'sys"tem',  # both identifiers keep their embedded quotes
+            id="public-and-system-embedded-quotes",
+        ),
     ],
 )
 def test_doctype_identifiers(markup: str, public_id: str | None, system_id: str | None) -> None:

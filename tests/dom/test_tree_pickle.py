@@ -91,6 +91,8 @@ def test_document_round_trips() -> None:
         pytest.param('<!DOCTYPE html PUBLIC "p">', "p", None, id="public-only-missing-system"),
         pytest.param('<!DOCTYPE html SYSTEM "s">', None, "s", id="system-only-missing-public"),
         pytest.param('<!DOCTYPE html PUBLIC "p" "">', "p", "", id="public-and-empty-system"),
+        # an embedded quote in a single-quoted identifier must survive the round-trip (part of #478)
+        pytest.param("<!DOCTYPE html PUBLIC 'pub\"lic' 'sys\"tem'>", 'pub"lic', 'sys"tem', id="embedded-quotes"),
     ],
 )
 def test_doctype_round_trips(markup: str, public_id: str | None, system_id: str | None) -> None:

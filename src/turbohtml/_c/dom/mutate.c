@@ -380,8 +380,8 @@ static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int
         node->text = owned;
         node->text_len = src_node->text_len;
     }
-    if (src_node->type == TH_NODE_PI) {
-        node->attr_count = src_node->attr_count; /* the packed target/data split point */
+    if (src_node->type == TH_NODE_PI || src_node->type == TH_NODE_DOCTYPE) {
+        node->attr_count = src_node->attr_count; /* PI target/data or doctype public-id split point */
     }
     if (src_node->type == TH_NODE_ELEMENT && src_node->attr_count > 0) {
         node->attrs = arena_alloc(dest, src_node->attr_count * (Py_ssize_t)sizeof(th_node_attr));

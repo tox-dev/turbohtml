@@ -424,31 +424,29 @@ Py_UCS4 *th_node_data(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return out;
 }
 
-/* The doctype's public and system identifiers, parsed out of the stored
-   "name \"public\" \"system\"" text into slices of the node's own text. Returns 1
-   and sets all four out params when the doctype carries identifiers, 0 when it is
-   just a name. Either identifier may be present but empty (a SYSTEM doctype has no
-   public id, a PUBLIC doctype may omit the system id), and build_doctype_text
-   always writes both quoted strings together, so the closing quotes are
-   guaranteed and no bounds check is needed. */
+/* The doctype's public and system identifiers, sliced out of the stored
+   "name \"public\" \"system\"" text. Returns 1 and sets all four out params when
+   the doctype carries identifiers, 0 when it is just a name. Either identifier may
+   be present but empty (a SYSTEM doctype has no public id, a PUBLIC doctype may
+   omit the system id), and build_doctype_text always writes both quoted strings
+   together, so the closing quotes are guaranteed and no bounds check is needed.
+   node->attr_count records the public id's length so the split holds even when an
+   identifier embeds a quote. */
 int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *public_len, const Py_UCS4 **system_id,
                         Py_ssize_t *system_len) {
     Py_ssize_t name_len = doctype_name_len(node);
     if (name_len >= node->text_len) {
         return 0;
     }
+    /* attr_count holds the public id's length, so the two identifiers split
+       unambiguously even when either one embeds a quote (a scan for the closing
+       `"` would stop early on `SYSTEM 'taco"quote'`). */
     Py_ssize_t pos = name_len + 2; /* skip the space and the opening quote */
     *public_id = &node->text[pos];
-    while (node->text[pos] != '"') {
-        pos++;
-    }
-    *public_len = &node->text[pos] - *public_id;
-    pos += 3; /* skip the closing quote, the separating space, and the next opening quote */
+    *public_len = node->attr_count;
+    pos += node->attr_count + 3; /* skip the closing quote, the separating space, and the next opening quote */
     *system_id = &node->text[pos];
-    while (node->text[pos] != '"') {
-        pos++;
-    }
-    *system_len = &node->text[pos] - *system_id;
+    *system_len = node->text_len - pos - 1; /* drop the trailing closing quote */
     return 1;
 }
 
