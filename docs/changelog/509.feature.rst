@@ -1,0 +1,4 @@
+Evaluate the ``:has()`` relational pseudo-class in a single amortized-linear pass. ``E:has(F)`` used to re-walk each
+candidate anchor's subtree, so nested ``:has()`` cost O(depth\ :sup:`2`); a 400-deep ``div:has(a)`` took about 600 µs. A
+per-query memo now records each node's subtree result once and reuses it across anchors, dropping that case to about 37
+µs, flat per node. Shallow trees and non-``:has()`` selectors run the pre-memo path and measure unchanged. part of #478
