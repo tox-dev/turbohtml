@@ -1061,6 +1061,68 @@ static int escape_element(sanitizer *s, th_node *element) {
     return 0;
 }
 
+/* A MathML text integration point (mi/mo/mn/ms/mtext), where the parser resumes HTML parsing so an HTML child there is
+   no confusion. The caller has already established the node is in the MathML namespace. */
+static int is_mathml_text_point(const th_node *node) {
+    static const uint16_t atoms[] = {TH_TAG_MI, TH_TAG_MO, TH_TAG_MN, TH_TAG_MS, TH_TAG_MTEXT};
+    for (size_t index = 0; index < sizeof(atoms) / sizeof(atoms[0]); index++) {
+        if (node->atom == atoms[index]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* An HTML integration point: an SVG foreignObject/desc/title, or a MathML annotation-xml. annotation-xml counts by
+   name, the way DOMPurify does, not by its encoding attribute: sanitize_attributes runs on a parent before its
+   children are walked, so an encoding-based test would drop a legitimately parsed HTML child the moment a policy
+   strips the parent's encoding. The caller has already established the node is foreign, so a non-SVG parent is MathML.
+ */
+static int is_html_integration_point(const th_node *node) {
+    static const uint16_t svg_atoms[] = {TH_TAG_FOREIGNOBJECT, TH_TAG_DESC, TH_TAG_TITLE};
+    if (node->ns == TH_NS_SVG) {
+        for (size_t index = 0; index < sizeof(svg_atoms) / sizeof(svg_atoms[0]); index++) {
+            if (node->atom == svg_atoms[index]) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    return node->atom == TH_TAG_ANNOTATION_XML;
+}
+
+/* Is the element's namespace reachable from its parent's? The (element, namespace, parent) triples the HTML parser can
+   legitimately produce, per the WHATWG foreign-content and integration-point rules (DOMPurify's _checkValidNamespace
+   equivalent): enter SVG only through <svg>, MathML only through <math>, and return to HTML only through an integration
+   point. A tree the parser built always passes; only a namespace-confused node a later mutation could splice in -- an
+   HTML element reparented under SVG/MathML, or a foreign element escaped into HTML content where its children would
+   reparse as HTML -- fails, and is then dropped like any disallowed node (mXSS defense-in-depth). Returns 1 reachable,
+   0 confused. */
+static int namespace_reachable(const th_node *element) {
+    /* the walk only reaches an element through its parent, so element->parent is never NULL here; a fragment or
+       document root carries the HTML namespace, so reading parent->ns needs no element-type guard */
+    const th_node *parent = element->parent;
+    uint8_t parent_ns = parent->ns;
+    uint8_t ns = element->ns;
+    if (ns == parent_ns) {
+        return 1; /* within one namespace every element stays reachable (HTML<-HTML, SVG<-SVG, MathML<-MathML) */
+    }
+    if (ns == TH_NS_SVG) {
+        /* from HTML only <svg> enters SVG; from MathML only an <svg> under annotation-xml or a text point */
+        return element->atom == TH_TAG_SVG &&
+               (parent_ns == TH_NS_HTML || parent->atom == TH_TAG_ANNOTATION_XML || is_mathml_text_point(parent));
+    }
+    if (ns == TH_NS_MATHML) {
+        /* from HTML only <math> enters MathML; from SVG only a <math> under an HTML integration point */
+        return element->atom == TH_TAG_MATH && (parent_ns == TH_NS_HTML || is_html_integration_point(parent));
+    }
+    /* an HTML element under a foreign parent is reachable only at an integration point */
+    if (parent_ns == TH_NS_SVG) {
+        return is_html_integration_point(parent);
+    }
+    return is_mathml_text_point(parent) || is_html_integration_point(parent);
+}
+
 /* Keep, escape, strip, or remove one element according to the policy. parent_kept is
    1 when the element's parent is itself being kept; an allowlisted foreign (SVG/MathML)
    element is kept only then, so it never outlives its namespace context (e.g. an svg
@@ -1080,6 +1142,11 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     int style_element = element->atom == TH_TAG_STYLE && is_html;
     int allowed = (is_unsafe_tag(element->atom) && !style_element) ? 0 : PySet_Contains(s->tags, tag);
     if (allowed > 0 && !is_html && !parent_kept) {
+        allowed = 0;
+    }
+    /* defense in depth: a node whose namespace is unreachable from its parent's is a namespace-confusion mutation, not
+       anything the parser produced, so drop it like any disallowed node even when the allowlist would admit its name */
+    if (allowed > 0 && !namespace_reachable(element)) {
         allowed = 0;
     }
     /* only disallowed elements consult remove_with_content, so a kept element never pays the set lookup */

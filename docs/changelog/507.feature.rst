@@ -1,0 +1,5 @@
+The sanitizer now checks each kept element's namespace against its parent's and drops any node whose namespace the HTML
+parser could not have produced there. The check adds defense in depth against mutation-XSS namespace confusion, such as
+an HTML element reparented under SVG or MathML, or a foreign element that escapes into HTML content where its children
+reparse as HTML. Valid parsed markup passes through unchanged, because turbohtml's parser already gives every node the
+right namespace; the check guards a tree a later mutation could leave confused. Part of #478.
