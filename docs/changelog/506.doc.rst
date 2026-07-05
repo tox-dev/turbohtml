@@ -1,0 +1,3 @@
+Document that :func:`~turbohtml.clean.sanitize` runs a single parse pass like DOMPurify. Its output is inert, but
+reparsing it can yield a different, still-inert tree, so consumers must trust the first pass rather than reparse the
+sanitized string. part of #478
