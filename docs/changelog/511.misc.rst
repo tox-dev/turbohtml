@@ -1,0 +1,6 @@
+Route every growable buffer in the C core through one overflow-safe growth helper (``core/vec.h``). The tokenizer, tree
+builder, serializers, and the CSS and JavaScript minifier engines each doubled their own capacity and multiplied it by
+the element size with no bound check, so a length crafted to wrap ``size_t`` could underallocate and let a later write
+run past the buffer, the class of libxml2's CVE-2022-29824. The shared helper bounds both the doubling and the byte-size
+multiply, so every site now rejects such a size before it allocates. Ordinary inputs behave as before. Part of
+:issue:`478`.
