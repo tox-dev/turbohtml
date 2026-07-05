@@ -651,10 +651,12 @@ def _nested_divs(depth: int, leaf: str = "<a>x</a>") -> str:
     return f"<body>{'<div>' * depth}{leaf}{'</div>' * depth}</body>"
 
 
-# depth 30 crosses the engage threshold; depth 90 fills enough deep slots to force the
-# memo hash to grow and rehash. Both must return exactly what the direct walk would.
+# depth 30 crosses the engage threshold; depth 200 fills enough deep slots to grow and
+# rehash the memo hash twice and to make node-pointer hash collisions statistically
+# certain, so the linear-probe branch is exercised regardless of allocation layout. Both
+# depths must return exactly what the direct walk would.
 @pytest.mark.parametrize(
-    "depth", [pytest.param(30, id="depth-30-engages-memo"), pytest.param(90, id="depth-90-regrows")]
+    "depth", [pytest.param(30, id="depth-30-engages-memo"), pytest.param(200, id="depth-200-regrows")]
 )
 @pytest.mark.parametrize(
     ("selector", "expected"),

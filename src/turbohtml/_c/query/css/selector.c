@@ -1892,19 +1892,22 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
-/* Mix the two stable heap pointers into a slot index; drop the always-zero low
-   alignment bits before folding so they do not collapse onto one bucket. */
-static size_t sel_has_hash(const sel_complex *rel, const th_node *node, size_t mask) {
-    uintptr_t mixed = ((uintptr_t)rel >> 4) * 0x9E3779B97F4A7C15u ^ ((uintptr_t)node >> 4) * 0xC2B2AE3D27D4EB4Fu;
-    return (size_t)(mixed >> 32) & mask;
+/* Hash the node pointer to a slot; drop the always-zero low alignment bits before
+   mixing. The key stays (rel, node) -- see sel_has_memo_find -- but only the node feeds
+   the hash, so the two entries a same node picks up under two different :has() arguments
+   land on the same home slot and always collide. That makes the "occupied by a different
+   relative selector" probe edge fire on every multi-argument query rather than only when
+   pointer layout happens to collide, keeping branch coverage independent of the allocator. */
+static size_t sel_has_hash(const th_node *node, size_t mask) {
+    return (size_t)(((uintptr_t)node >> 4) * 0x9E3779B97F4A7C15u >> 32) & mask;
 }
 
-/* Linear-probe from (rel, node)'s home slot to the slot holding that key or, if absent,
-   the first empty slot it would occupy (the table is never full, so an empty slot always
-   exists). Shared by get and insert so one probe loop carries both. */
+/* Linear-probe from node's home slot to the slot holding the (rel, node) key or, if
+   absent, the first empty slot it would occupy (the table is never full, so an empty slot
+   always exists). Shared by get and insert so one probe loop carries both. */
 static size_t sel_has_memo_find(const sel_has_memo *memo, const sel_complex *rel, const th_node *node) {
-    size_t idx = sel_has_hash(rel, node, memo->mask);
-    while (memo->slots[idx].rel != NULL && (memo->slots[idx].rel != rel || memo->slots[idx].node != node)) {
+    size_t idx = sel_has_hash(node, memo->mask);
+    while (memo->slots[idx].rel != NULL && (memo->slots[idx].node != node || memo->slots[idx].rel != rel)) {
         idx = (idx + 1) & memo->mask;
     }
     return idx;
