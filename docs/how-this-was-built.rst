@@ -15,4 +15,4 @@ standing on the shoulders of giants applies here in full. My thanks to all of th
 
 Some engines owe a specific debt. The html5lib-tests conformance suite and lexbor shaped the parser and tree builder;
 the encoding and language detectors follow the models chardetng and whatlang published. Where I reused another project's
-code or data, its license requires attribution, which lives in the ``NOTICE`` file at the repository root.
+code or data, its license requires attribution, which lives in the ``LICENSE`` file at the repository root.
