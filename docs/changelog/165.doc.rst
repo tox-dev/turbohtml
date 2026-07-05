@@ -1,2 +1,0 @@
-A new "From pyquery" migration guide maps the jQuery-style chaining idiom onto :class:`turbohtml.query.Query`, so
-pyquery users have a path to the fluent-chaining API - by :user:`gaborbernat`.

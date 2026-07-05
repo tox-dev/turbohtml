@@ -1,7 +1,0 @@
-Export a node to GitHub-Flavored Markdown (:meth:`~turbohtml.Node.to_markdown`), layout-aware plain text
-(:meth:`~turbohtml.Node.to_text`), or annotated text with ``(start, end, label)`` spans
-(:meth:`~turbohtml.Node.to_annotated_text`). The three methods cover the `markdownify
-<https://pypi.org/project/markdownify/>`__, `html2text <https://pypi.org/project/html2text/>`__, and `inscriptis
-<https://github.com/weblyzard/inscriptis>`__ use cases without an extra dependency. ``to_markdown`` accepts the
-markdownify/html2text options (including ``google_doc=True``); the :doc:`migration </migration/index>` guide maps each -
-by :user:`gaborbernat`.

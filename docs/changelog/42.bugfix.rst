@@ -1,2 +1,0 @@
-A ``parse_fragment(context="html")`` fragment now always synthesizes the implicit ``head`` and ``body``, so even an
-empty or head-only fragment yields both elements, matching `html5lib <https://github.com/html5lib/html5lib-python>`__.

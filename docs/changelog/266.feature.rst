@@ -1,6 +1,0 @@
-Dispatch the EXSLT ``set:``, ``str:``, ``math:``, and ``date:`` namespaces inside the XPath engine, alongside the
-existing ``re:`` regexp functions, so :meth:`~turbohtml.Node.xpath` reaches ``set:distinct``, ``set:difference``,
-``set:intersection``, ``set:has-same-node``, ``set:leading``, ``set:trailing``, ``str:replace``, ``str:concat``,
-``str:padding``, ``str:align``, ``math:min``, ``math:max``, ``math:highest``, ``math:lowest``, ``math:abs``,
-``math:power``, ``date:year``, ``date:month-in-year``, ``date:day-in-month``, ``date:day-in-week``, and
-``date:leap-year`` without registering a namespace, matching what ``libexslt`` gives ``lxml``.

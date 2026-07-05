@@ -1,3 +1,0 @@
-An otherwise-whitespace ``<table>`` text run containing a U+0000 now stays inside the table, so ``parse("<table>\x00
-")`` keeps the space as a child of ``<table>`` instead of foster-parenting it out, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__.

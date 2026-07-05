@@ -1,3 +1,0 @@
-The ``gbk`` and ``gb2312`` labels now decode with the ``gb18030`` codec as the WHATWG Encoding Standard requires, so a
-valid four-byte sequence decodes to its code point instead of ``U+FFFD``; the reported
-:attr:`~turbohtml.Document.encoding` name stays ``GBK``.

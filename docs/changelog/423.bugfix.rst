@@ -1,4 +1,0 @@
-Decode the five bytes ``0x81``, ``0x8D``, ``0x8F``, ``0x90``, and ``0x9D`` as the C1 controls
-U+0081/U+008D/U+008F/U+0090/U+009D when parsing windows-1252 bytes, matching the WHATWG Encoding Standard's ``index
-windows-1252``. CPython's ``cp1252`` codec leaves those bytes undefined and its ``replace`` handler mapped them to
-U+FFFD, so byte-exact content on the default decode path was lost.

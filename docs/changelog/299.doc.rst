@@ -1,2 +1,0 @@
-Every benchmark table on the performance page now reports turbohtml's speed-up over each competitor, so the multiplier
-is read off the page instead of computed by hand - by :user:`gaborbernat`.

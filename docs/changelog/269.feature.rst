@@ -1,5 +1,0 @@
-Add :meth:`~turbohtml.Node.remove` and :meth:`~turbohtml.Node.strip_tags`, the bulk inverses of
-:meth:`~turbohtml.Node.prune`. ``remove`` drops every descendant matching a CSS selector together with its subtree,
-while ``strip_tags`` unwraps every match, dropping the tag but keeping its children in place; both edit the tree in one
-C pass and return the node. Together they cover selectolax's ``strip_tags``/``unwrap_tags``, w3lib's ``remove_tags`` and
-``remove_tags_with_content``, and jQuery's ``.remove()``/``.unwrap()`` - by :user:`gaborbernat`.

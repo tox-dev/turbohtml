@@ -1,3 +1,0 @@
-A ``<select>`` whose only ``selected`` option is disabled now submits nothing from :meth:`~turbohtml.Element.form_data`
-instead of falling back to the first enabled option. A disabled option keeps its selectedness, so it still wins the
-default reset, but the spec bars it from submission (WHATWG §4.10.7 / §4.10.22.4).

@@ -1,7 +1,0 @@
-Added structured-data extraction on :class:`~turbohtml.Document`: :meth:`~turbohtml.Document.structured_data` returns
-JSON-LD, Microdata, and OpenGraph/Twitter metadata in one call as a frozen, fully typed
-:class:`~turbohtml.StructuredData` record, with the per-format helpers :meth:`~turbohtml.Document.json_ld`,
-:meth:`~turbohtml.Document.opengraph`, and :meth:`~turbohtml.Document.microdata` beside it; Microdata items come back as
-:class:`~turbohtml.MicrodataItem` records. The tree walk runs in the C core; only the JSON-LD parsing is Python (the
-standard library :mod:`json`). RDFa and microformats2 are a later phase. This unlocks an ``extruct`` migration - by
-:user:`gaborbernat`.

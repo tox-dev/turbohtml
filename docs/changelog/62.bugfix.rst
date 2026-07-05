@@ -1,2 +1,0 @@
-A type selector now matches a custom or unknown element name case-insensitively, so ``select("MY-CARD")`` finds a
-``<my-card>`` just as ``select("DIV")`` finds a ``<div>``.

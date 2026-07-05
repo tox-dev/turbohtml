@@ -1,5 +1,0 @@
-Round out the XPath engine: the core library gains ``id()``, ``namespace-uri()``, and ``lang()``; bind ``$name``
-variables as keyword arguments to :meth:`~turbohtml.Node.xpath` (and its ``_one``/``_iter`` siblings); use the EXSLT
-``re:test``/``re:replace`` functions `parsel <https://parsel.readthedocs.io/>`__ and scrapy enable; opt into `lxml
-<https://lxml.de/>`__-style :class:`~turbohtml.XPathString` smart strings with ``smart_strings=True``; and register
-custom functions with ``extensions={(None, name): callable}``. The ``lxml`` and ``parsel`` expressions port across.

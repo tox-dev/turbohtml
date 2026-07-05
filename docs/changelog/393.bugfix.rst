@@ -1,2 +1,0 @@
-:meth:`~turbohtml.Node.to_markdown` now escapes a ``"`` in a link or image ``title`` as ``\"``, so an internal quote no
-longer terminates the CommonMark title early and misparses the link.

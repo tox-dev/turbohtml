@@ -1,4 +1,0 @@
-``base_url`` and ``meta_refresh`` apply the WHATWG path, query, and fragment percent-encode sets to the resolved URL, so
-a non-ASCII character or a raw space serializes to its escaped form (``£`` becomes ``%C2%A3``) rather than leaving an
-invalid URL string. Relative resolution and dot-segment removal were already correct; only the final percent-encode step
-was missing.

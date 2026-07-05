@@ -1,6 +1,0 @@
-Add the write side of an element's content: :meth:`~turbohtml.Element.set_inner_html` parses an HTML string as a
-fragment in the element's context and replaces its children, :meth:`~turbohtml.Element.set_text` replaces them with one
-verbatim text node, and :meth:`~turbohtml.Element.insert_adjacent_html` splices a parsed fragment at a DOM position
-(``beforebegin``, ``afterbegin``, ``beforeend``, or ``afterend``). These cover the DOM ``innerHTML=`` / ``textContent=``
-/ ``insertAdjacentHTML``, pyquery's ``.html(markup)``, and jQuery's ``.html`` / ``.text`` assignments - by
-:user:`gaborbernat`.

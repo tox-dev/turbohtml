@@ -1,6 +1,0 @@
-Extract RDFa and Dublin Core in :meth:`~turbohtml.Document.structured_data`. The :attr:`~turbohtml.StructuredData.rdfa`
-field now carries :class:`~turbohtml.RdfaItem` records whose ``property`` and ``typeof`` tokens expand against the
-in-scope ``@vocab`` and ``@prefix`` (seeded with the RDFa 1.1 initial context), and a new
-:attr:`~turbohtml.StructuredData.dublin_core` field maps the ``dc.*``/``dcterms.*`` ``<meta>`` names. The per-format
-helpers :meth:`~turbohtml.Document.rdfa` and :meth:`~turbohtml.Document.dublin_core` join
-:meth:`~turbohtml.Document.microdata` and :meth:`~turbohtml.Document.opengraph`. Microformats2 remains a later phase.

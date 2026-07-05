@@ -1,4 +1,0 @@
-Match the CSS tree-structural pseudo-classes in :meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.select_one`:
-``:root``, ``:empty``, ``:first-child``, ``:only-of-type``, and the functional ``:nth-child()``, ``:nth-of-type()`` and
-their last-of family with the full ``An+B`` microsyntax (including ``even`` and ``odd``). These previously raised
-``ValueError``.

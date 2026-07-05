@@ -1,4 +1,0 @@
-Minify HTML by passing ``layout=`` a :class:`~turbohtml.Minify` options object to :meth:`~turbohtml.Node.serialize` and
-:meth:`~turbohtml.Node.encode`, which folds insignificant whitespace, omits optional tags, drops redundant attribute
-quotes, and strips comments. Every transform is round-trip safe: the output reparses to the same tree, so turbohtml
-replaces ``minify-html`` and ``htmlmin``.

@@ -1,7 +1,0 @@
-Speed up two read-path operations without changing their output. The streaming serializer
-(:meth:`~turbohtml.Node.serialize_iter`) now sizes each chunk buffer to a whole chunk up front instead of growing it
-from 256 code points on every chunk, cutting streaming serialization of the read-path corpus by about 9%. A
-:meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.find_all` query that pins a known tag alongside class or attribute
-filters now runs the matcher over that tag's atom-index bucket rather than every descendant, so ``find_all("a",
-attrs={"href": True})`` on the WHATWG spec drops from 33.5 to 4.4 microseconds and a rare tag such as ``meta`` falls to
-a sliver of its former cost. Part of #478.

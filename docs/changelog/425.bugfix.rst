@@ -1,3 +1,0 @@
-:func:`turbohtml.clean.minify_css` now keeps ``currentcolor`` as one component of a multi-value ``border-color``
-(``border-color:currentColor red``) rather than rewriting it to the CSS-wide keyword ``initial``, which is valid only as
-a property's sole value and would otherwise make browsers drop the whole declaration.

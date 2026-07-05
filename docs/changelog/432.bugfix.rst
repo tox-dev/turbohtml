@@ -1,5 +1,0 @@
-The live-state, media, and validity pseudo-classes ``:modal``, ``:fullscreen``, ``:picture-in-picture``, ``:playing``,
-``:paused``, ``:muted``, ``:current``, ``:past``, ``:future``, ``:user-valid``, ``:user-invalid``, ``:autofill``, and
-``:defined`` now parse and match nothing in a static tree, like ``:hover`` and ``:focus`` already did, instead of
-rejecting an otherwise-valid selector. The compound, complex, and selector-list buffers also grow on demand, so a
-selector's own length is the only bound, rather than a fixed cap at the 33rd simple, 33rd compound, or 65th arm.

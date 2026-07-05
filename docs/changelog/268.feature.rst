@@ -1,4 +1,0 @@
-Add the classList edits :meth:`~turbohtml.Element.add_class`, :meth:`~turbohtml.Element.remove_class`,
-:meth:`~turbohtml.Element.toggle_class`, and :meth:`~turbohtml.Element.has_class` to :class:`~turbohtml.Element`, so the
-``class`` token set can be edited in place without a manual read-split-rejoin; the three mutators return the element for
-chaining, matching ``pyquery``, ``lxml.html``'s ``classes`` set, and jQuery - by :user:`gaborbernat`.

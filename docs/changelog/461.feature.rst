@@ -1,6 +1,0 @@
-Give :class:`turbohtml.clean.Policy` three sanitizer knobs that previously needed an ``attribute_filter`` workaround:
-``attribute_prefixes`` keeps any attribute whose name starts with an allowlisted prefix (nh3
-``generic_attribute_prefixes``, the ``data-*`` case), ``attribute_values`` restricts a kept ``(tag, attribute)`` to a
-set of literal values (nh3 ``tag_attribute_values``), and ``media_hosts`` keeps an ``audio``/``video``/``source``/
-``track`` ``src`` only when its URL host is on the allowlist (lxml-html-clean ``host_whitelist``). All three run in the
-C sanitize walk and cost nothing when unset - by :user:`gaborbernat`.

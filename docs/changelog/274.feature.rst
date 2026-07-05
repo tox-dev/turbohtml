@@ -1,6 +1,0 @@
-Add table extraction with no pandas dependency: :meth:`~turbohtml.Element.rows` reads a ``<table>`` as a list of rows
-(``list[list[str]]``) with ``rowspan`` and ``colspan`` resolved by filling every spanned cell,
-:meth:`~turbohtml.Element.records` keys the first row (the header) over the rest as a ``list[dict]``, and
-:meth:`~turbohtml.Node.tables` returns every table in a subtree, each as :meth:`~turbohtml.Element.rows`. The cell-grid
-walk and span expansion run in C; the result is plain lists and dicts, so a ``pandas.read_html`` user writes
-``pandas.DataFrame(table.records())`` while turbohtml keeps no pandas dependency - by :user:`gaborbernat`.

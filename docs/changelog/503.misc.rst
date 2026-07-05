@@ -1,3 +1,0 @@
-Add AddressSanitizer and UndefinedBehaviorSanitizer fuzz harnesses for the untrusted-input entry points (parse,
-serialize, sanitize, the URL parser, the IDNA decoder, and the HTML, CSS, and JS minifiers), with a per-pull-request
-smoke gate over a benign seed corpus and a scheduled deep run. Part of #478.

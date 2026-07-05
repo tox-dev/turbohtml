@@ -1,6 +1,0 @@
-Classify a page paragraph by paragraph with the new :func:`turbohtml.extract.boilerplate`: it segments the document into
-paragraph units and returns one :class:`~turbohtml.extract.Paragraph` (``text``, ``is_boilerplate``, ``is_heading``) per
-unit, the call shape ``justext`` and ``boilerpy3`` expose. The classification is a thin layer over the C main-content
-scoring :meth:`~turbohtml.Node.main_content` runs, refined by the length and link-density thresholds of a frozen
-:class:`~turbohtml.extract.Extraction` config whose ``justext()`` preset mirrors justext's defaults. Ships with a
-justext migration guide and benchmark - by :user:`gaborbernat`.

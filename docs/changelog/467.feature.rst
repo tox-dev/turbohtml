@@ -1,4 +1,0 @@
-Split links in :func:`turbohtml.extract.extract_links` with ``external_only=True`` on the registrable domain (eTLD+1)
-rather than the ``www.``-less host, so ``spam.example.co.uk`` and ``example.co.uk`` count as one site while sibling
-subdomains such as ``a.co.uk`` and ``b.co.uk`` stay distinct. The suffix is read in C from the shipped IANA table and a
-new Public Suffix List table, the boundary ``courlan`` reaches through the ``tld`` package.

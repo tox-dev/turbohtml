@@ -1,3 +1,0 @@
-:meth:`~turbohtml.Node.xpath` no longer crashes when the attribute axis or ``lang()`` reaches a non-element context node
-(a text, comment, or document node); every reader of a node's attribute storage now gates on the element type, so
-``//@id``, ``//@*``, and ``lang()`` return the spec-correct empty result on non-elements instead of faulting.

@@ -1,2 +1,0 @@
-``<meta/charset=utf-8>`` now resolves its declared encoding; the prescan accepts ``/`` as a separator after ``<meta`` as
-WHATWG specifies, not just whitespace, so a slash-separated ``<meta>`` no longer falls through to windows-1252.

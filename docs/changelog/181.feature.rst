@@ -1,4 +1,0 @@
-Migrate a :class:`python:html.parser.HTMLParser` subclass by changing its import and base class to
-:class:`turbohtml.migration.stdlib.HTMLParser`, a drop-in over the streaming tokenizer that keeps the standard
-``handle_*`` callbacks and the ``feed``/``close``/``reset``/``getpos`` methods. Being WHATWG-conformant, it resolves
-character references always and routes processing instructions and CDATA to ``handle_comment``.

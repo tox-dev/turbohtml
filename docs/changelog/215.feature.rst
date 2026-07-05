@@ -1,2 +1,0 @@
-Scheme-check the ``ping`` attribute and the ``srcset``/``imagesrcset`` URL lists in the sanitizer, so a disallowed
-scheme can no longer ride in on ``<a ping>`` or an ``<img srcset>`` candidate - by :user:`gaborbernat`.

@@ -1,4 +1,0 @@
-:meth:`~turbohtml.Node.matches` and :meth:`~turbohtml.Node.select` now resolve ``:dir()`` on a form control from its own
-value. A ``type=tel`` input is always ``ltr`` and never inherits an ancestor ``dir``, and ``dir=auto`` on an input reads
-the first strong-directional character of the control value rather than the child text, matching the HTML directionality
-algorithm.

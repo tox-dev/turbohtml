@@ -1,3 +1,0 @@
-The sanitizer comparison and migration guide now cover ``lxml-html-clean`` and ``html-sanitizer``, explaining why
-turbohtml's allowlist is safer than a blocklist that passes any dangerous construct it does not enumerate - by
-:user:`gaborbernat`.

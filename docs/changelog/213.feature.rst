@@ -1,4 +1,0 @@
-:class:`turbohtml.Tokenizer` and :func:`turbohtml.tokenize` gain two opt-in flags: ``resolve_references=False`` emits
-each character reference as its own ``TokenType.CHARACTER_REFERENCE`` token, and ``capture_source=True`` records each
-token's raw source on ``token.source``. Both default off, so the existing token stream is unchanged - by
-:user:`gaborbernat`.

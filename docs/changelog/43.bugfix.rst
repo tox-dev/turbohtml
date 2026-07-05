@@ -1,3 +1,0 @@
-SVG attribute names such as ``viewbox`` and ``attributename`` are now cased back to ``viewBox`` and ``attributeName`` in
-:attr:`turbohtml.Element.attrs`, :attr:`~turbohtml.Node.inner_html`, and every serialization, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__; lookups on foreign elements stay case-insensitive.

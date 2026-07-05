@@ -1,3 +1,0 @@
-The sanitizer now drops every occurrence of a URL attribute whose value fails the scheme policy, not just the one
-matched by name, so ``<a href='http://ok' href='javascript:alert(1)'>`` no longer survives with a live ``javascript:``
-link, restoring ``sanitize(sanitize(x)) == sanitize(x)``.

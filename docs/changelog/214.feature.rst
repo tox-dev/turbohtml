@@ -1,3 +1,0 @@
-Scrub the inline ``style`` attribute in the sanitizer: when ``style`` is allowed, any CSS declaration whose property is
-not in ``Policy.css_properties`` is dropped, so dangerous inline CSS cannot ride in on a kept ``style`` - by
-:user:`gaborbernat`.

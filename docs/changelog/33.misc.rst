@@ -1,8 +1,0 @@
-Reorganize the test suite so each module sits beside the source it exercises. The 41-file ``tests/features`` catch-all
-splits by public namespace into ``tests/clean`` (sanitizer, linkifier, link detector, minifier), ``tests/extract``
-(dates, microdata, RDFa, Open Graph, Dublin Core, boilerplate, links, URL cleaning), ``tests/url`` (the URL primitives)
-and ``tests/build``; the ``css_to_xpath``, ``vec`` overflow, encoding-detector and table cases move to the ``convert``,
-``core``, ``detect`` and ``dom`` directories that mirror their C subsystems. It folds the duplicated microdata and Open
-Graph suites into one file each, rewrites the encoding-detection coverage drivers to pin the exact label each byte input
-yields rather than checking only that some label came back, and renames the ``first`` fixture to ``first_of_type`` to
-end its clash with the local ``first`` variables. Test behavior is unchanged; this is layout only. Part of #478.

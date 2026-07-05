@@ -1,3 +1,0 @@
-Passing ``bytes`` (or any non-``str``) where a ``str`` is documented now raises a ``TypeError`` naming ``str`` instead
-of silently decoding the bytes into a garbage tag or attribute name. The check covers the ``context`` of
-:func:`~turbohtml.parse_fragment` and the ``name`` of :meth:`turbohtml.Token.attr`.

@@ -1,3 +1,0 @@
-URL-valued Microdata properties -- ``href`` on ``<a>``, ``<area>`` and ``<link>``, ``src`` on the media elements, and
-``<object>`` ``data`` -- now strip surrounding ASCII whitespace the way resolving the value as a URL does, while
-``<data>``, ``<meter>`` and ``<meta>`` values stay verbatim.

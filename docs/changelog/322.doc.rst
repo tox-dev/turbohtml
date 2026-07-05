@@ -1,7 +1,0 @@
-New "From htbuilder", "From simple-html", "From hyperpython", "From markyp", and "From fast-html" migration guides map
-`htbuilder <https://github.com/tvst/htbuilder>`__'s attributes-then-children calls, `simple-html
-<https://github.com/keithasaurus/simple_html>`__'s attribute-dict-first calls, `hyperpython
-<https://github.com/fabiommendes/hyperpython>`__'s subscript-children syntax, `markyp
-<https://github.com/volfpeter/markyp-html>`__'s per-tag element classes, and `fast-html
-<https://github.com/pcarbonn/fast_html>`__'s generator tags onto :data:`turbohtml.build.E`, each benchmarked against the
-builder it replaces - by :user:`gaborbernat`.

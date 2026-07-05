@@ -1,4 +1,0 @@
-Add :class:`turbohtml.clean.LinkDetector`, a plain-text link detector that complements the HTML-aware
-:func:`~turbohtml.clean.linkify`. ``LinkDetector().find(text)`` returns a :class:`~turbohtml.clean.LinkSpan` for every
-URL and email address (with offsets, matched text, and a normalized ``url``), while ``has_link(text)`` answers the
-cheaper presence question; custom ``tlds`` and ``schemes`` extend matching.

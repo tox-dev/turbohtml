@@ -1,4 +1,0 @@
-Match the Selectors Level 4 functional pseudo-classes ``:is()``, ``:where()``, and ``:has()`` in
-:meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
-:meth:`~turbohtml.Node.closest`, including relative selectors with a leading ``>``, ``+``, or ``~`` so ``article:has(>
-img)`` and ``h2:has(+ p)`` work, instead of rejecting them as invalid.

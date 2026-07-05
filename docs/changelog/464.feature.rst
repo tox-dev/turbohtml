@@ -1,7 +1,0 @@
-Report a leading byte-order mark from the standalone :mod:`turbohtml.detect` surface. A UTF-8 mark now comes back as
-``UTF-8-SIG`` (``chardet``'s spelling, decode with the ``utf-8-sig`` codec to strip it), and the UTF-16 and UTF-32 marks
-as ``UTF-16LE`` / ``UTF-16BE`` / ``UTF-32LE`` / ``UTF-32BE``; every marked :class:`~turbohtml.detect.EncodingMatch` also
-sets a new ``bom`` field. A mark identifies the encoding on its own, so it needs no heuristic, and BOM-less UTF-16/32
-stays out. The spec-locked :func:`~turbohtml.parse` sniff stays byte-for-byte the same -- it keeps the plain WHATWG name
-and still reads ``FF FE 00 00`` as UTF-16LE -- so the two paths diverge only on a mark. This closes the BOM-label gap
-the chardet and charset-normalizer migration guides listed - by :user:`gaborbernat`.

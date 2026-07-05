@@ -1,2 +1,0 @@
-A raw-text element (``style``, ``xmp``, ``iframe`` and friends) now serializes its text verbatim after being unpickled
-or built directly with :class:`~turbohtml.Element`, instead of wrongly HTML-escaping its content.

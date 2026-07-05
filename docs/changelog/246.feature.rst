@@ -1,4 +1,0 @@
-Add `parsel <https://parsel.readthedocs.io/>`__-style string extraction: :meth:`~turbohtml.Element.attr` returns an
-attribute as a single raw string (so ``class`` reads back as ``"a b c"``) or a default when absent, and
-:meth:`~turbohtml.Node.re` / :meth:`~turbohtml.Node.re_first` run a regex over a node's text (or an attribute value via
-``attr=``), yielding the lone capturing group or the whole match, like Scrapy's ``parsel`` - by :user:`gaborbernat`.

@@ -1,4 +1,0 @@
-Keep a leading newline in ``<pre>``, ``<listing>``, and ``<textarea>`` when a comment or element comes between the start
-tag and the newline. The tree builder dropped the newline whenever one appeared, but HTML ignores it only when it is the
-token immediately following the start tag, so ``<pre><!--c-->\nX`` now keeps the ``\n`` while ``<pre>\nX`` still drops
-it.

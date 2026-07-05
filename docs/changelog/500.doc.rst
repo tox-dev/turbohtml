@@ -1,4 +1,0 @@
-A written security policy now classifies what counts as a vulnerability (a default-configuration sanitizer bypass, a C
-memory-safety fault on untrusted input, a parser divergence that enables a bypass) and how to report one privately, and
-``tools/generate_tlds.py`` pins the SHA-256 of the IANA source it downloads so a rebuild aborts on a poisoned or
-silently changed table - by :user:`gaborbernat`.

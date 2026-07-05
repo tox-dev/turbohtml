@@ -1,4 +1,0 @@
-Bind namespace prefixes for XPath name tests with a ``namespaces`` keyword on :meth:`~turbohtml.Node.xpath`,
-:meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter`, so a prefixed test like ``//svg:rect``
-resolves against a ``{"svg": "http://www.w3.org/2000/svg"}`` mapping and matches the SVG (or MathML) element by
-namespace and local name, mirroring ``lxml``'s ``namespaces=`` argument.

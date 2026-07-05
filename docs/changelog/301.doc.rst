@@ -1,3 +1,0 @@
-Report monthly PyPI downloads instead of all-time totals across the :doc:`migration guides <migration/index>`: the index
-now lists each library with its monthly-downloads badge, and every per-library page shows the monthly figure - by
-:user:`gaborbernat`.

@@ -1,1 +1,0 @@
-Serialize a parsed document back to HTML up to 1.6 times faster, and parse prose-heavy documents a few percent faster.

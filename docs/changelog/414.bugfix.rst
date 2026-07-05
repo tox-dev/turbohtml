@@ -1,4 +1,0 @@
-:class:`turbohtml.build.ElementMaker` (the ``E`` builder) now raises :exc:`ValueError` when children are passed to a
-void element such as ``br`` or ``img``, instead of storing them for the serializer to silently drop. A void element
-takes no content, so the discarded children vanished with no trace; the error names the void tag and surfaces the
-mistake at construction time.

@@ -1,3 +1,0 @@
-Add ``Policy.set_attributes`` to the sanitizer: a per-tag mapping of attribute values forced onto every kept element
-(added if absent, overwritten if present), covering what ``attribute_filter`` cannot since it only sees attributes
-already present - by :user:`gaborbernat`.

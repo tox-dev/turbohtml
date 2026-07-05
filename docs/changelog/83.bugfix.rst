@@ -1,3 +1,0 @@
-A parsed element whose tag name holds a character the public :class:`~turbohtml.Element` constructor rejects, such as
-the ``<`` kept from ``<a<b>``, now survives :mod:`python:pickle` and :func:`python:copy.deepcopy` round-trips instead of
-failing to reconstruct.

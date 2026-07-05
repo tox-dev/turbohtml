@@ -1,3 +1,0 @@
-A formatting end tag no longer breaks out of a MathML or SVG integration point, so ``parse("<b><math><mi></b>")`` keeps
-``mi`` nested as ``<b><math><mi></mi></math></b>`` and ignores the unmatched ``</b>``, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__ and lexbor.

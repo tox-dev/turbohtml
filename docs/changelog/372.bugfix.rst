@@ -1,3 +1,0 @@
-Decode CSS escapes inside a quoted attribute-value string in a selector, so ``[id="\0 pre"]`` folds the null escape to
-U+FFFD, ``[id="pr\<newline>e"]`` drops the backslash-newline line continuation, and an escaped quote no longer ends the
-string early -- matching the quoted form to the already-correct identifier form - by :user:`gaborbernat`.

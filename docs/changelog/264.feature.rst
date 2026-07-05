@@ -1,5 +1,0 @@
-Bind a node-set to a ``$name`` XPath variable: a keyword argument to :meth:`~turbohtml.Node.xpath`,
-:meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` now accepts an :class:`~turbohtml.Element` or
-an iterable of elements alongside the existing scalars, so a prior result can feed a later expression
-(``doc.xpath("$rows/td", rows=doc.xpath("//tr"))``) and the node-set joins path steps, ``count()``, unions, and
-predicates like any other, matching ``lxml``.

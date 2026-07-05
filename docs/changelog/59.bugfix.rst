@@ -1,3 +1,0 @@
-:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` now compare the WHATWG case-insensitive attribute
-set (``type``, ``rel``, ``lang``, ...) case-insensitively by default, so ``input[type=text]`` matches ``type="TEXT"``;
-an explicit ``s`` flag still forces case-sensitive matching.

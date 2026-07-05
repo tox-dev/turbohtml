@@ -1,7 +1,0 @@
-Run DOMPurify's XSS fixture corpus against the sanitizer. Vendor the 219 ``{payload, expected}`` cases from DOMPurify's
-``test/fixtures/expect.mjs`` verbatim under ``tests/features/data`` at a pinned commit, and replay each through
-:func:`turbohtml.clean.sanitize`. DOMPurify keeps most of HTML while turbohtml's default policy is a small allowlist, so
-the oracle checks security equivalence rather than byte parity, requiring every payload to sanitize to an inert tree
-with no scriptable element, event handler, dangerous URL scheme, or executable CSS surviving a browser reparse, under
-the default and relaxed policies and a max-permissive policy that keeps the SVG, MathML, and style surface. All 219 pass
-with no bypass. Part of #478.

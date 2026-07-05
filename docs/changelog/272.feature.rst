@@ -1,5 +1,0 @@
-:class:`turbohtml.Element` gains :meth:`~turbohtml.Element.css_path` and :meth:`~turbohtml.Element.xpath_path`, the
-unique CSS selector and positional XPath that locate the element from the document root, like browser devtools "copy
-selector" and lxml's ``getpath``. ``css_path`` anchors at the nearest document-unique ``id`` and otherwise uses
-``:nth-of-type()`` steps; ``xpath_path`` is always positional. Both round-trip through :meth:`~turbohtml.Node.select`
-and :meth:`~turbohtml.Node.xpath` - by :user:`gaborbernat`.

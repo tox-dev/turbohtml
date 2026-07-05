@@ -1,6 +1,0 @@
-Gate performance on every pull request with `CodSpeed <https://codspeed.io>`_: a ``👷 benchmark`` workflow runs one
-pytest-codspeed benchmark per operation under instrumentation and reports the per-benchmark delta against the base
-branch. The cases are generated from the same ``bench.core.OPERATIONS`` registry the ``pyperf`` suite in ``tools/bench``
-times, over the same real corpora, so every tracked operation gets a gate and adding one adds a benchmark. The
-benchmarks live in ``tests/benchmarks`` and run only under ``--codspeed`` (the benchmark job passes it; locally they are
-opt-in), so the regular test run skips them. The ``pyperf`` competitor comparison is unchanged.

@@ -1,7 +1,0 @@
-Measure a deterministic link-time-optimized build on CodSpeed rather than a profile-guided one. Profile-guided
-optimization recollects a fresh profile on every build, and that profile is not byte-reproducible: across CodSpeed's mix
-of CPU runners a re-profiled binary lays its hot paths out slightly differently each run, and the gate reported marginal
-operations swinging a few percent build-to-build, which buried real regressions in the noise. Link-time optimization
-alone is deterministic and still re-inlines the selector and tokenizer bodies the 1.0 header split moved out of their
-original units, so the gate now measures a stable binary and every pull request compares against a fixed baseline. The
-published wheels keep profile-guided optimization for maximum speed. part of #478

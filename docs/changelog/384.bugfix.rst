@@ -1,3 +1,0 @@
-:meth:`~turbohtml.Node.to_markdown` now keeps a list nested directly inside a ``<ul>``/``<ol>`` -- a sibling of the
-``<li>`` items rather than wrapped in one -- rendering it as a sublist under the preceding item. It previously dropped
-every item of such a list, a shape the WHATWG parser legitimately produces.

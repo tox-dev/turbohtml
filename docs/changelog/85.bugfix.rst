@@ -1,2 +1,0 @@
-A detached SVG or MathML :class:`~turbohtml.Element` now keeps its ``namespace`` across a :mod:`python:pickle`
-round-trip, instead of being reset to ``Namespace.HTML``.

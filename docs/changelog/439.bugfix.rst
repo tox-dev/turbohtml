@@ -1,4 +1,0 @@
-Treat a carriage return from a character reference (``&#13;`` or ``&#xD;``) as tree-construction whitespace. Input
-preprocessing folds a literal CR to LF, but a CR decoded from a reference reaches tree construction as a real U+000D,
-which is whitespace in every insertion mode. A leading ``&#13;`` is now ignored instead of leaking a stray text node,
-and it no longer flips frameset-ok, so ``&#13;<frameset>`` keeps the frameset.

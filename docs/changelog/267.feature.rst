@@ -1,5 +1,0 @@
-Compile a hot XPath expression once with :class:`turbohtml.XPath` and evaluate it against many context nodes or
-documents: ``selector = turbohtml.XPath("//td[@class=$cls]")`` then ``selector(row, cls="num")``, skipping the per-call
-parse. ``smart_strings`` and ``extensions`` bind at construction; the context node and ``$name`` variables pass at call
-time. The compiled object is immutable and re-entrant, so one instance is shareable across threads, like ``lxml``'s
-``etree.XPath``.

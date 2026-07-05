@@ -1,4 +1,0 @@
-A valueless attribute (``<x a>``) now reports the empty string instead of ``None`` in :attr:`turbohtml.Token.attrs`,
-:meth:`turbohtml.Token.attr`, and :attr:`turbohtml.Element.attrs`, matching the WHATWG tokenizer and the DOM. Code that
-tested ``element.attrs["a"] is None`` to detect a valueless attribute should now test ``element.attrs.get("a") == ""``
-or membership.

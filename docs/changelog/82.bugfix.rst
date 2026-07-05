@@ -1,3 +1,0 @@
-The streaming :class:`~turbohtml.Tokenizer` is now memory-safe when shared across threads on the free-threaded (no-GIL)
-interpreter; concurrent :meth:`~turbohtml.Tokenizer.feed` or iteration on one tokenizer previously corrupted memory and
-segfaulted.

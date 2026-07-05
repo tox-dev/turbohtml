@@ -1,3 +1,0 @@
-The CSS selector parser now rejects a type or universal selector that is not first in its compound (for example
-``[href]p`` or ``p.x*``) and a bare ``-`` that is not a valid identifier, raising :exc:`ValueError` as Selectors-4
-requires, instead of accepting them.

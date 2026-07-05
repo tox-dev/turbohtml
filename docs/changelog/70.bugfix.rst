@@ -1,3 +1,0 @@
-The sanitizer now keeps allowlisted SVG and MathML elements instead of escaping every foreign element to text, matching
-`bleach <https://github.com/mozilla/bleach>`__ and `nh3 <https://nh3.readthedocs.io/>`__; scripting and raw-text
-elements are still escaped in any namespace, and a kept foreign element never outlives its namespace.

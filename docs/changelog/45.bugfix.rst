@@ -1,2 +1,0 @@
-A duplicate attribute name now keeps its first occurrence per the WHATWG specification, so ``<a href=x href=y>`` carries
-a single ``href`` of ``x`` in the token, tree, and serialized output.

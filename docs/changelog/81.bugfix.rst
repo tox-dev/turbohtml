@@ -1,3 +1,0 @@
-Detaching a node with :meth:`~turbohtml.Node.extract` while iterating :attr:`~turbohtml.Node.descendants` (or
-:attr:`~turbohtml.Node.strings`) no longer crashes; the walk now ends safely once the cursor can no longer reach the
-root.

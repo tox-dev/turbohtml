@@ -1,3 +1,0 @@
-:func:`~turbohtml.clean.minify_js` now folds adjacent string literals by their decoded values instead of splicing the
-raw lexemes, so a trailing octal or hex escape in the left operand can no longer absorb the next operand's leading
-character (``"\1"+"2"`` kept the value ``"12"``, not the single escape ``"\12"``).

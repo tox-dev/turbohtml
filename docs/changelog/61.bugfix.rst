@@ -1,3 +1,0 @@
-A trailing ``*`` in a linkified URL is now kept rather than trimmed, matching `bleach
-<https://github.com/mozilla/bleach>`__ and linkify_it, so the ``href`` no longer points at a different resource than the
-visible text.

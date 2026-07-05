@@ -1,3 +1,0 @@
-:attr:`~turbohtml.Doctype.system_id` and :attr:`~turbohtml.Doctype.public_id` now keep a quote embedded in a
-differently-quoted identifier, so ``<!DOCTYPE html SYSTEM 'taco"quote'>`` reads back as ``taco"quote`` instead of
-truncating at the inner quote. part of #478

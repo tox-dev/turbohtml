@@ -1,4 +1,0 @@
-Keep a predicate on a location path that is compiled across an XPath arena growth. The parser stored a step's predicate
-list through a pointer taken before the call that could reallocate the node arena, so a predicate could be silently
-dropped depending on the surrounding expression -- for example the second operand of a union nested in a function call,
-as in ``count(//a[@x] | //b[@y])``.

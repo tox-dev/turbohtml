@@ -1,3 +1,0 @@
-A stray end tag in the "before html" insertion mode is now ignored instead of opening ``<html>``, so
-``parse("</x><!--c-->")`` keeps the following comment as a Document-level child before ``<html>``, matching the WHATWG
-tree-construction rule.

@@ -1,3 +1,0 @@
-Add ``Policy.remove_with_content`` to the sanitizer: disallowed tags named in it (e.g. ``script``/``style``) have their
-whole subtree dropped instead of escaped or stripped, so their text never leaks into the output - by
-:user:`gaborbernat`.

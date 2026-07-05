@@ -1,4 +1,0 @@
-:meth:`~turbohtml.Node.main_content`, :meth:`~turbohtml.Node.main_text`, and :meth:`~turbohtml.Node.article` no longer
-extract to empty when an ``<article>`` or ``<main>`` carries its body in ``<div>``/``<ul>``/``<li>`` with no scoring
-``<p>``. When nothing scores, a fallback surfaces the explicit ``<article>`` (else ``<main>``) that holds substantial
-text, so a list-structured article keeps its content instead of vanishing.

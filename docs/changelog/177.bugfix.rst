@@ -1,2 +1,0 @@
-``:empty`` now matches elements containing only white space, as Selectors-4 §13.2 requires, so ``select("p:empty")``
-finds ``<p> </p>``; it previously used the Level 3 rule that rejected any text child.

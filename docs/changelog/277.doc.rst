@@ -1,4 +1,0 @@
-Add migration sections for html-text (``extract_text`` to :meth:`~turbohtml.Node.to_text` and the
-:attr:`~turbohtml.Node.strings` / :attr:`~turbohtml.Node.stripped_strings` iterators) and MechanicalSoup (form reading
-and filling onto :attr:`~turbohtml.Element.field_value`, :attr:`~turbohtml.Element.checked`, and
-:meth:`~turbohtml.Element.form_data`).

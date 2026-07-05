@@ -1,4 +1,0 @@
-The selector tokenizer now accepts two CSS Syntax §4.3.2/§4.3.5 forms it used to reject: a ``/* ... */`` comment
-anywhere whitespace is allowed (such as ``div /* pick */ span``), and a backslash-newline line continuation inside a
-quoted attribute value (``[id="pr\`` + newline + ``e"]`` meaning ``[id="pre"]``). Attribute-value strings now also
-decode the other CSS escapes.

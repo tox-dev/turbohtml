@@ -1,2 +1,0 @@
-:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` now decode CSS escape sequences in identifiers, so
-spec-valid selectors like ``.foo\:bar`` and ``.\A9`` match instead of raising ``ValueError('invalid CSS selector')``.

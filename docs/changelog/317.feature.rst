@@ -1,7 +1,0 @@
-Add a `soupsieve <https://facelessuser.github.io/soupsieve/>`__-shaped CSS matching surface to :mod:`turbohtml.query`,
-over the native selector engine for porting a BeautifulSoup stack. :func:`turbohtml.query.compile` validates a selector
-and returns a reusable :class:`~turbohtml.query.Matcher` with soupsieve's
-``select``/``select_one``/``iselect``/``match``/``filter``/``closest`` methods, the same names exist as module-level
-helpers taking ``(selector, node, ...)``, :func:`~turbohtml.query.escape_identifier` mirrors ``soupsieve.escape``, a
-malformed selector raises :class:`~turbohtml.SelectorSyntaxError` (a :class:`ValueError`), and soupsieve's
-``namespaces`` and ``flags`` ride on a frozen :class:`~turbohtml.query.Matching` config for API parity.

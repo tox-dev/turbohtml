@@ -1,3 +1,0 @@
-``:scope`` inside ``:has()`` now resolves to the ``:has()`` anchor element rather than the outer query root, so a
-relative selector such as ``div:has(:scope > p)`` is equivalent to ``div:has(> p)`` and matches the expected elements,
-as Selectors-4 requires.

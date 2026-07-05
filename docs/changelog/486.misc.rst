@@ -1,6 +1,0 @@
-Split URLs into their components in the C extension rather than ``urllib.parse.urlsplit``. The scheme, authority, path,
-query, and fragment boundaries the WHATWG basic parser defines, and the host's classification as an IPv6 literal, an
-IPv4 literal, or a registered name, now come from one C routine that :func:`~turbohtml.extract.clean_url`,
-:func:`~turbohtml.extract.normalize_url`, and :func:`~turbohtml.extract.extract_links` share; the scheme-character
-grammar the linkifier and sanitizer scan a scheme with lives beside it, no longer redefined per file. The results are
-unchanged. Part of #478.

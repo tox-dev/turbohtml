@@ -1,3 +1,0 @@
-:func:`turbohtml.clean.sanitize` in escape mode (``OnDisallowed.ESCAPE``) now writes a disallowed element's ``</tag>``
-only where the source actually closed it, so ``sanitize("I love <sarcasm> this", Policy.strict())`` yields ``I love
-&lt;sarcasm&gt; this`` rather than appending a ``&lt;/sarcasm&gt;`` the author never wrote.

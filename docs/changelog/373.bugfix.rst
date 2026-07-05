@@ -1,2 +1,0 @@
-Round exact half values toward positive infinity in the XPath ``round()`` function and ``substring()`` argument
-coercion, so ``round(-2.5)`` is ``-2`` rather than ``-3`` per XPath 1.0 §4.4 - by :user:`gaborbernat`.

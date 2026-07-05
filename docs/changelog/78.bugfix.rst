@@ -1,3 +1,0 @@
-A document declaring a WHATWG "replacement" encoding label (``replacement``, ``iso-2022-kr``, ``iso-2022-cn``,
-``hz-gb-2312`` and friends) now decodes its body to a single ``U+FFFD`` as the standard mandates, instead of literally
-as windows-1252, closing a vector that could smuggle markup past a sanitizer.

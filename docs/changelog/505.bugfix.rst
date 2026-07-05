@@ -1,5 +1,0 @@
-The HTML tree builder now caps element nesting at 512, so a run of unclosed start tags such as ``<div>`` repeated 20000
-times no longer overflows the C stack when a later walk recurses over the tree, and no longer costs O(depth^2) to parse.
-Start tags past the cap attach as siblings of the deepest element, the runaway-nesting bound browsers apply. The
-recursive text, markdown, clone and normalize walks carry a matching backstop for a tree built past the cap through the
-mutation API. part of #478

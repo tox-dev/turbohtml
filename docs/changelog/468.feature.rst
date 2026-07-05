@@ -1,5 +1,0 @@
-Add :meth:`~turbohtml.Node.equals`, a structural tree-equality test: two nodes are equal when they share a node type
-and, for elements, the same tag (namespace-aware), attributes (names and values, order-independent), and children
-compared in order; a leaf compares its character data. ``==`` stays node identity, so nodes remain hashable and usable
-as dict keys, while ``equals()`` gives the BeautifulSoup ``==`` semantics as an explicit method - by
-:user:`gaborbernat`.

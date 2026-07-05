@@ -1,3 +1,0 @@
-A table-family start tag (``table``, ``tr``, ``td``, ``caption`` and friends) inside an open ``<select>`` in the "in
-select in table" context now closes the select and becomes its sibling instead of nesting inside it, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__.

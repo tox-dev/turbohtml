@@ -1,4 +1,0 @@
-Add a thin command line, ``python -m turbohtml`` (installed as the ``turbohtml`` console script), wrapping the public
-API: ``minify``, ``minify-css``, ``minify-js``, ``detect``, ``to-markdown``, ``to-text``, and ``sanitize``. Each
-subcommand reads a file argument or stdin and writes to stdout or ``-o FILE``, giving the toolkit the shell entry point
-``html2text``, ``markdownify``, ``htmlmin``, ``inscriptis``, ``minify-html``, and ``charset-normalizer`` each ship.

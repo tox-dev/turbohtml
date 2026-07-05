@@ -1,2 +1,0 @@
-Free-threaded safety is now validated in CI under ``pytest-run-parallel`` and a ThreadSanitizer job, with a guard that
-fails the run if a C extension silently re-enables the GIL.

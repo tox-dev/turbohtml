@@ -1,3 +1,0 @@
-A kept ``style`` attribute now has its declaration *values* scrubbed, not just their property names: a declaration whose
-value calls ``expression(...)`` or points a ``url(...)`` at a scheme outside the policy's ``url_schemes`` (such as
-``javascript:``) is dropped, closing a gap where dangerous CSS rode in on an allowlisted property.

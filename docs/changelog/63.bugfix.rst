@@ -1,3 +1,0 @@
-A ``</br>`` end tag inside foreign (SVG or MathML) content now places the synthesized ``<br>`` inside the foreign
-element, so ``<svg></br>`` builds ``<svg><br></svg>`` instead of a sibling under ``<body>``, matching lexbor and
-`html5lib <https://github.com/html5lib/html5lib-python>`__.

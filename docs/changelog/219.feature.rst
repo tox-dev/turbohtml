@@ -1,3 +1,0 @@
-Add three output modes to :meth:`~turbohtml.Node.to_markdown`: ``wrap_width`` word-wraps prose at a column,
-``image_mode="html"`` and ``table_mode="html"`` pass an ``<img>`` or ``<table>`` through verbatim, and ``transliterate``
-folds common non-ASCII typography to ASCII - by :user:`gaborbernat`.

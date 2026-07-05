@@ -1,5 +1,0 @@
-Add two bulk-wrap structural edits, the in-place counterpart of pyquery's ``.wrap_all``:
-:meth:`~turbohtml.Element.wrap_children` moves every child of an element into one new wrapper, and
-:meth:`~turbohtml.Node.wrap_siblings` wraps a node and the contiguous run of siblings that follow it, through an
-``until`` node or to the last sibling, in one element. Both return the wrapper, mirroring :meth:`~turbohtml.Node.wrap` -
-by :user:`gaborbernat`.

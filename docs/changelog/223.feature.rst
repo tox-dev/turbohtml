@@ -1,4 +1,0 @@
-Extend :func:`turbohtml.clean.linkify` and :class:`turbohtml.clean.Linker` with three keyword-only hooks:
-``process_existing`` runs the callbacks over ``<a>`` tags already in the input (vetoing one unwraps it to its contents),
-``extra_tlds`` adds top-level domains that make a bare domain a link, and ``schemes`` restricts which explicit-scheme
-URLs autolink.

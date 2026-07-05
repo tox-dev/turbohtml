@@ -1,6 +1,0 @@
-Reject a punycode host label that decodes to no non-ASCII code point. An ``xn--`` label like ``xn--ascii-`` is an
-invalid A-label under UTS #46, and decoding it to its bare-ASCII form let it canonicalize to the same host as a plain
-ASCII label. That forges an IDNA equivalence a raw-versus-normalized host check cannot see (RUSTSEC-2024-0421 /
-CVE-2024-12224), reachable through :func:`~turbohtml.extract.normalize_url` for a mixed host that also carries a real
-IDN label. The decoder keeps such a label verbatim now, the way it already treats a label it cannot decode; a bare
-``xn--`` still resolves to an empty label. part of #478 - by :user:`gaborbernat`.

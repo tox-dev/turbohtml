@@ -1,3 +1,0 @@
-The performance page now benchmarks :class:`turbohtml.migration.stdlib.HTMLParser` against the standard library's
-:class:`python:html.parser.HTMLParser`, recording that the adapter runs three to four times faster on the same
-callback-driven workload.

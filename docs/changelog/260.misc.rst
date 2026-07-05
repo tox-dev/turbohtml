@@ -1,4 +1,0 @@
-Reorganize the C extension and Python package into a subsystem-first layout: native code moves under ``turbohtml._c``
-(``tokenizer``, ``dom``, ``serialize``, ``query/{css,xpath,find}``, ``encoding``, ``features``, ``data``) and the
-drop-in compatibility shims move under ``turbohtml.migration`` (``bleach``, ``markupsafe``, ``stdlib``). The test suite
-mirrors the new source tree.

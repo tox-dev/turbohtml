@@ -1,4 +1,0 @@
-Stabilize the noise-prone CodSpeed benchmarks by re-homing the operations whose inline case was too small to clear
-Valgrind's heap-layout jitter floor. The document and text operations now run on the 235 kB whatwg spec, the markup ones
-on a War-and-Peace slice. Each registers under a new corpus-qualified benchmark id, so the flaky small identity retires
-and the large one is gated in its place. The ``pyperf`` competitor suite and the ``OPERATIONS`` registry are unchanged.

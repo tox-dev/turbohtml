@@ -1,2 +1,0 @@
-The standard-library migration guide now maps the ``html.parser`` SAX callbacks onto turbohtml's token loop, noting that
-character references are always resolved, so ``html.parser`` users have a path across - by :user:`gaborbernat`.

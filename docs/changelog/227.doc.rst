@@ -1,3 +1,0 @@
-Refresh each migration section's "Not yet ported / limitations" note, dropping the stale gaps (`lxml
-<https://lxml.de/>`__/html5-parser XPath, `markdownify <https://pypi.org/project/markdownify/>`__ per-tag converters)
-that recent features now cover.

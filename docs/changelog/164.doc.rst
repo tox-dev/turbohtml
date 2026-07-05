@@ -1,3 +1,0 @@
-A new "From parsel" migration section maps Scrapy `parsel <https://parsel.readthedocs.io/>`__'s ``Selector`` API onto
-turbohtml's node-returning :meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.xpath`, and the performance page
-now reports parsel in the *Querying* comparison.

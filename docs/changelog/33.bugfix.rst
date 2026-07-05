@@ -1,2 +1,0 @@
-Serializing ``frame`` no longer appends a spurious ``</frame>``; it is a void element, so
-``turbohtml.parse('<frameset><frame>').serialize()`` emits only its start tag.

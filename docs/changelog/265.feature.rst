@@ -1,3 +1,0 @@
-A custom XPath extension function registered through ``extensions=`` may now return an :class:`~turbohtml.Element` or an
-iterable of elements, not only a scalar. The result becomes a node-set that feeds later path steps and predicates,
-matching ``lxml`` -- ``doc.xpath("x:first_two(//div)/a", extensions={("x", "first_two"): first_two})``.

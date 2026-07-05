@@ -1,3 +1,0 @@
-:meth:`~turbohtml.Node.serialize` and :meth:`~turbohtml.Node.encode` replace the ``indent`` argument with a single
-``layout`` argument that selects one serialization mode. Pretty-printing now passes ``layout=`` an
-:class:`~turbohtml.Indent`: ``serialize(indent=2)`` becomes ``serialize(layout=Indent(2))``.

@@ -1,3 +1,0 @@
-Consecutive ``<optgroup>`` (or ``<option>``) start tags in a ``select``-context fragment now become siblings instead of
-nesting, so ``parse_fragment("<optgroup>1<optgroup>2", context="select")`` no longer nests one optgroup inside the
-other.

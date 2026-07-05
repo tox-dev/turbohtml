@@ -1,4 +1,0 @@
-Translate CSS selectors to XPath 1.0 with :func:`turbohtml.convert.css_to_xpath`, a C pass over the parsed selector that
-replaces `cssselect <https://github.com/scrapy/cssselect>`__ (with a ``GenericTranslator``/``HTMLTranslator``
-compatibility surface and a migration guide). The emitted expression selects the same nodes as turbohtml's own CSS
-engine, validated differentially over cssselect's test corpus - by :user:`gaborbernat`.

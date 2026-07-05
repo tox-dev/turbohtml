@@ -1,3 +1,0 @@
-The encoding sniffer now recognizes more WHATWG labels (``iso-8859-3/4/6/8/8-i/10/13/14/16``, ``iso-2022-jp``,
-``ibm866``, ``x-mac-cyrillic``, ``x-user-defined`` and their aliases), so a declared charset like ``iso-8859-8`` decodes
-correctly instead of falling back to windows-1252.

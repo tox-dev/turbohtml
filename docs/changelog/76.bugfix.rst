@@ -1,2 +1,0 @@
-Type checkers now resolve the private ``turbohtml._html._reconstruct`` pickle hook, which was the one helper missing
-from the type stub.

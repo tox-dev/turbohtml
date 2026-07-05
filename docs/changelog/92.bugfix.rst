@@ -1,3 +1,0 @@
-A MathML ``annotation-xml`` element is now an HTML integration point only on an exact case-insensitive ``text/html`` or
-``application/xhtml+xml`` ``encoding`` match; a near miss like ``encoding="text-html"`` no longer wrongly keeps HTML
-children nested in the foreign subtree.

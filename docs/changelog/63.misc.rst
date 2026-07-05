@@ -1,2 +1,0 @@
-Add a regression test asserting that ``</p>`` and ``</br>`` end tags in SVG/MathML content stay inside the foreign root,
-locking the spec-correct behavior from issues #32 and #63.

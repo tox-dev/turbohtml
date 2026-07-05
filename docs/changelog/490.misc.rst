@@ -1,5 +1,0 @@
-Resolve a relative URL against a base in the C extension rather than ``urllib.parse.urljoin``. The RFC 3986 section 5.3
-reference transform, which merges paths, removes ``.`` and ``..`` segments, and handles scheme-relative, absolute-path,
-query-only, fragment-only, and empty references, now runs in one C routine that :meth:`~turbohtml.Document.base_url`,
-the structured-data and link extraction methods, and :func:`~turbohtml.extract.extract_links` share, replacing the
-``urllib.parse`` import each reached before. The results are unchanged. Part of #478.

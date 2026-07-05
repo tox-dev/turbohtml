@@ -1,4 +1,0 @@
-The navigable node tree is now memory-safe under the free-threaded build; concurrent reads
-(:meth:`~turbohtml.Node.find`/:meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.serialize`/``.text``/``.html``)
-alongside a structural edit such as :meth:`~turbohtml.Node.extract` on a shared tree previously raced and segfaulted,
-while independent trees still run fully in parallel.

@@ -1,4 +1,0 @@
-An article whose only substantial content sits inside a landmark element -- ``<footer>``, ``<header>``, ``<aside>``,
-``<nav>`` -- is no longer discarded by :meth:`~turbohtml.Node.main_content` and :meth:`~turbohtml.Node.article`.
-Landmark stripping had no fallback, so a landmark-wrapped body extracted to empty; the scorer now retries with landmarks
-kept when the first pass finds nothing.

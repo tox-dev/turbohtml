@@ -1,2 +1,0 @@
-:func:`turbohtml.clean.minify_css` no longer drops a ``row-gap``/``column-gap``/``gap`` declaration next to a ``grid``
-shorthand. The ``grid`` shorthand does not reset the gutter properties, so they are removed from its longhand list.

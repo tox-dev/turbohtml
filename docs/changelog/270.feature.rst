@@ -1,4 +1,0 @@
-Add a ``text`` predicate to :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` that matches an element
-against its collected text -- an exact string, a compiled regex (searched), or a callable -- and composes with the tag,
-``class_``, and attribute filters. This is the search ``bs4`` spelled ``find(string=...)``. A literal ``text`` attribute
-is still filtered through ``attrs={"text": ...}``.

@@ -1,2 +1,0 @@
-Linkifying a URL with an underscore in its host (e.g. ``https://cdn_1.example.org/x``) no longer truncates the host and
-rewrites it to a different one; underscore is valid in a host label, so the whole URL is now linked as written.

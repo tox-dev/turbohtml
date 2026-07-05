@@ -1,7 +1,0 @@
-Group the HTML-scrubbing API under one module: :mod:`turbohtml.clean` now holds the sanitizer and the linkifier that
-previously lived in ``turbohtml.sanitizer`` and ``turbohtml.linkify``. The names are unchanged
-(:func:`~turbohtml.clean.sanitize`, :class:`~turbohtml.clean.Policy`, :func:`~turbohtml.clean.linkify`,
-:class:`~turbohtml.clean.Linker`, :class:`~turbohtml.clean.LinkDetector`, ...) -- only the import path moves, so ``from
-turbohtml.clean import sanitize, linkify`` replaces the two old modules. The extraction record types
-(:class:`~turbohtml.Article`, :class:`~turbohtml.Link`, :class:`~turbohtml.StructuredData`,
-:class:`~turbohtml.MicrodataItem`) are now also reachable from :mod:`turbohtml.extract`.

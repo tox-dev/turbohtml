@@ -1,2 +1,0 @@
-:meth:`~turbohtml.Document.microdata` now follows the ``itemref`` attribute, so an item gains the properties of the
-elements it references by ID and not only those in its own subtree, with the merged properties in document order.

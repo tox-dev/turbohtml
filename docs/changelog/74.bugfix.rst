@@ -1,2 +1,0 @@
-Constructing :class:`~turbohtml.Element` with a non-mapping ``attrs`` such as an ``int`` or ``list`` now raises a clear
-``TypeError`` reporting that ``attrs`` must be a mapping, instead of a cryptic ``AttributeError``.

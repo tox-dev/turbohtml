@@ -1,4 +1,0 @@
-Add :meth:`~turbohtml.Node.prune`, which trims a parsed tree to a CSS selector: it keeps every descendant matching the
-selector together with their ancestors and subtrees, removes everything else in place, and returns the node. This is the
-post-parse equivalent of `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`__'s ``SoupStrainer``: it
-collapses a large document to just the parts of interest - by :user:`gaborbernat`.

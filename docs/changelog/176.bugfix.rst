@@ -1,3 +1,0 @@
-``#id`` and ``.class`` selectors now match ASCII case-insensitively in a quirks-mode document (parsed with no doctype),
-as Selectors-4 requires, so ``select(".foo")`` finds ``<div class=FOO>``; standards-mode documents keep the
-case-sensitive comparison.

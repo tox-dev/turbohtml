@@ -1,3 +1,0 @@
-Passing a non-set to a set-typed :class:`~turbohtml.clean.Policy` field (``tags``, ``url_schemes``,
-``remove_with_content``, ``css_properties``) now raises a :exc:`TypeError` naming the field and the type it got, instead
-of surfacing a bare C ``SystemError`` from deep in the sanitizing walk.

@@ -1,2 +1,0 @@
-The documentation landing page now enumerates the seven design principles that shape turbohtml, from the C hot path to
-the typed API edge - by :user:`gaborbernat`.

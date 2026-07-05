@@ -1,4 +1,0 @@
-A ``<select>`` whose display size is greater than 1 no longer defaults to its first option in
-:meth:`~turbohtml.Element.form_data` or :attr:`~turbohtml.Element.field_value`. The default-selectedness rule applies
-only to a single-line select (display size 1, not ``multiple``, per WHATWG §4.10.7), so with ``size=4`` and nothing
-selected the control now contributes nothing.

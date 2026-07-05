@@ -1,6 +1,0 @@
-Unify the last two 1.0 records on one shape each. :meth:`turbohtml.Document.opengraph` now returns an
-:class:`turbohtml.extract.OpenGraph` mapping, the ``og:``-stripped and ``twitter:``-dropped view
-:func:`turbohtml.extract.opengraph` already returned, in place of the raw ``og:``/``twitter:`` dict, so both entry
-points return one record; the raw map stays on :meth:`~turbohtml.Document.structured_data`. :class:`~turbohtml.Minify`
-takes its ``minify_css`` as a :class:`turbohtml.clean.CSSMinify` or ``None`` rather than a bool, carrying the baseline
-that bounds the CSS syntax the serializer emits for ``<style>`` bodies and ``style`` attributes. part of #478

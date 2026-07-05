@@ -1,4 +1,0 @@
-Pin the two network-sourced C data tables so a rebuild is reproducible and auditable. ``generate_psl.py`` fetches the
-Public Suffix List at a named commit rather than off ``main``, whose moving tip drifted the table with whatever day the
-rebuild ran, and ``generate_tlds.py`` refuses to regenerate unless IANA still serves the version the committed table was
-built from. Each generated header records the exact commit or version. part of #478

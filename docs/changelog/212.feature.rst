@@ -1,5 +1,0 @@
-Read where each element's start tag began in the source through :attr:`~turbohtml.Node.source_line`,
-:attr:`~turbohtml.Node.source_col`, and the :attr:`~turbohtml.Node.position` pair, so error locators, linters, and
-source-mapping tools can point back at the original markup the way `lxml <https://lxml.de/>`__ and `BeautifulSoup
-<https://www.crummy.com/software/BeautifulSoup/>`__ expose ``sourceline``. Tracking is on by default; pass
-``positions=False`` to :func:`turbohtml.parse` to drop it when memory or speed matters more.

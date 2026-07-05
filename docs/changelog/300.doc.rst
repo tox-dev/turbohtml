@@ -1,2 +1,0 @@
-Every migration guide now follows one pattern: a monthly-downloads badge, the performance comparison inside the "Why
-turbohtml" section, and a consistent speed-up multiplier on each table - by :user:`gaborbernat`.

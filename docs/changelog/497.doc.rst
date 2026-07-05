@@ -1,3 +1,0 @@
-A new "How turbohtml was built" page states how the library was built and thanks the libraries and specifications it
-stands on, the development guide opens with the same note, and it now carries an AI-assisted contributions policy - part
-of #478.

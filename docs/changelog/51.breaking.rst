@@ -1,6 +1,0 @@
-Fold the soupsieve-shaped CSS matching surface into :mod:`turbohtml.query`, the one namespace for searching a tree,
-beside the pyquery-style :class:`~turbohtml.query.Query`. It moves off the standalone ``turbohtml.match`` module;
-:func:`turbohtml.query.compile`, :class:`~turbohtml.query.Matcher`, the module-level
-``select``/``select_one``/``iselect``/``match``/``filter``/``closest`` helpers,
-:func:`~turbohtml.query.escape_identifier`, and the :class:`~turbohtml.query.Matching` config keep their names, so a
-port swaps ``from turbohtml import match`` for ``from turbohtml import query``. Part of :issue:`478`.

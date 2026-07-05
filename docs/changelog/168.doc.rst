@@ -1,3 +1,0 @@
-The `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`__ migration guide now documents the
-encoding-detection boundary: turbohtml's WHATWG sniffing replaces ``UnicodeDammit``'s markup reading, but reach for
-``charset-normalizer``, ``chardet``, or ``cchardet`` when a stream carries no BOM and no declaration.

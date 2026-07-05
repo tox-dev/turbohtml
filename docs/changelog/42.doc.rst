@@ -1,4 +1,0 @@
-Present the shipped detectors and minifier as turbohtml's own work: the inspiration prose that framed them as ports of
-other projects now describes what each algorithm does, the acknowledgment for the projects that shaped them lives on the
-:doc:`/how-this-was-built` page, and the license-required attribution for the code and data derived from ``chardetng``
-and ``whatlang`` lives in a third-party section of the top-level ``LICENSE`` file. Part of #478.

@@ -1,2 +1,0 @@
-The ``<meta charset>`` prescan now stops after the first 1024 bytes per the WHATWG algorithm, so a late charset
-declaration is ignored and the document falls back to windows-1252.

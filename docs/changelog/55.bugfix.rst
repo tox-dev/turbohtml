@@ -1,3 +1,0 @@
-A fragment whose context is a table-section element now foster-parents out to the fragment root when no ``table`` is
-open, so ``parse_fragment("<tr><li>x", context="tbody")`` makes the ``<li>`` a sibling after the row, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__.

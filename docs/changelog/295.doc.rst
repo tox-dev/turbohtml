@@ -1,2 +1,0 @@
-Order the :doc:`migration guide <migration/index>` index by adoption, listing each library from most to least monthly
-PyPI downloads so the libraries readers are most likely to port from appear first.

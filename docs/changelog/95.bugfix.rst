@@ -1,2 +1,0 @@
-``parse_fragment(..., context="template")`` now parses in the "in template" insertion mode, so table-section start tags
-(``td``, ``tr``, ``caption``, ``tbody`` and friends) build their elements instead of being dropped to text.

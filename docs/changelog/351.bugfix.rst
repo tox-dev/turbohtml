@@ -1,3 +1,0 @@
-``:scope`` now matches the document element when a query is rooted at the document, mirroring ``:root``, so
-``Document.select(':scope')`` and compounds like ``:scope > body > div`` resolve instead of matching nothing.
-Element-rooted queries still scope ``:scope`` to the element the query ran on.

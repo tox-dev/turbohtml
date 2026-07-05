@@ -1,5 +1,0 @@
-Detect the encoding of a declaration-less byte stream with :func:`turbohtml.parse` and ``detect_encoding=True``, which
-guesses the way Firefox's ``chardetng`` does. It runs only after the WHATWG sniffing steps yield no encoding, so a
-declared, ``<meta>``, or BOM encoding always wins. Detection covers UTF-8, the legacy single-byte families, and the CJK
-multi-byte encodings. It replaces `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`__'s ``UnicodeDammit``
-without a separate install.

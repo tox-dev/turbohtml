@@ -1,5 +1,0 @@
-Percent-encode and percent-decode URL components in the C extension rather than ``urllib.parse.quote`` and ``unquote``.
-The path, query, and fragment percent-encode sets the WHATWG URL Standard defines, the uppercasing of an existing
-``%XX`` escape, and the inverse decode now run in one pair of C routines that :func:`~turbohtml.extract.clean_url`,
-:func:`~turbohtml.extract.normalize_url`, and :func:`~turbohtml.extract.extract_links` reach; the encode sets share a
-single table with the resolver behind :meth:`~turbohtml.Document.base_url`. The results are unchanged. Part of #478.

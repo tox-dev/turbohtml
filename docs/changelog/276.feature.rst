@@ -1,4 +1,0 @@
-Add :meth:`~turbohtml.Node.article`, returning an :class:`~turbohtml.Article` record that pairs the scored content body
-and its plain text with the page metadata harvested beside it - ``title``, ``byline``, ``date``, ``description`` and
-``lang`` - turning :meth:`~turbohtml.Node.main_content` into a one-call replacement for trafilatura and newspaper3k (and
-the htmldate publish-date use case), with migration rows for the content-extraction cluster - by :user:`gaborbernat`.

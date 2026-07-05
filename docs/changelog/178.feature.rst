@@ -1,5 +1,0 @@
-Match the Selectors Level 4 ``:scope``, input/UI, ``:lang()``, and ``:dir()`` pseudo-classes in
-:meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and
-:meth:`~turbohtml.Node.closest`. The attribute- and structure-determinable set (``:checked``, ``:disabled``,
-``:required``, ``:default``, and more) matches as soupsieve and browsers do; live UA-state pseudo-classes (``:hover``,
-``:focus``, ``:target``, ...) parse as valid but match nothing.

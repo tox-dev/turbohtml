@@ -1,3 +1,0 @@
-:attr:`~turbohtml.Document.encoding` now returns the exact-case WHATWG Name for the legacy single-byte and Japanese
-encodings the Encoding Standard capitalizes (``ISO-8859-2`` through ``ISO-8859-16``, ``IBM866``, ``KOI8-R``,
-``ISO-2022-JP``, ``EUC-JP`` and friends), instead of their ASCII-lowercased label.

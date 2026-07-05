@@ -1,4 +1,0 @@
-Add :meth:`~turbohtml.Node.serialize_iter`, which serializes a node and its subtree lazily as a stream of bounded
-``str`` chunks whose concatenation equals :meth:`~turbohtml.Node.serialize`, so a large document reaches a socket or
-file without a full-size output string. Every layout streams except :class:`~turbohtml.Minify`, which needs the whole
-tree at once.

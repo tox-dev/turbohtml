@@ -1,3 +1,0 @@
-``:lang()`` now honors wildcard language ranges. A ``*`` subtag matches by RFC 4647 §3.3.2 extended filtering, so a
-leading ``*`` (as in ``:lang('*')``) matches any element with a determined language and ``:lang('*-US')`` matches any
-region-US tag, where before every wildcard range selected nothing.

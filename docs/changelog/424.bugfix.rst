@@ -1,4 +1,0 @@
-Resolve every label in the WHATWG Encoding Standard's index, so declarations such as ``iso-8859-9`` (Turkish
-windows-1254), ``tis-620`` (windows-874), hyphenated ``shift-jis``, ``windows-31j``, ``x-gbk``, ``windows-949``,
-``koi8``, and ``x-mac-roman`` now decode as their intended encoding instead of silently falling back to windows-1252. A
-``<meta>`` declaring ``x-user-defined`` is also treated as windows-1252, as the prescan step requires.

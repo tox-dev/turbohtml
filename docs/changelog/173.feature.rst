@@ -1,4 +1,0 @@
-Use the Selectors Level 4 ``:not()`` negation pseudo-class in :meth:`~turbohtml.Node.select`,
-:meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`. It takes a
-full complex-selector list, so ``p:not(.a, .b)`` and ``section:not(:has(h1))`` work and nest with the other functional
-pseudo-classes, matching soupsieve and lexbor.

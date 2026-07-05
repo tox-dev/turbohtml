@@ -1,3 +1,0 @@
-A stray ``<html>`` start tag inside a ``<colgroup>`` no longer closes it, so
-``parse("<table><colgroup><col><html><col>")`` keeps one colgroup with both ``<col>`` children, matching `html5lib
-<https://github.com/html5lib/html5lib-python>`__.

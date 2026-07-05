@@ -1,3 +1,0 @@
-``:is()`` and ``:where()`` now parse as Selectors Level 4 forgiving selector lists in :meth:`~turbohtml.Node.select`,
-:meth:`~turbohtml.Node.select_one`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`, so an
-unsupported or malformed arm is dropped and the remaining arms stay usable instead of invalidating the whole selector.

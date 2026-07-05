@@ -1,7 +1,0 @@
-Extract a page's publication date with :func:`turbohtml.extract.dates`, the standalone entry point ``htmldate`` exposes.
-It scores the same signals off the parsed DOM -- publication/modification ``<meta>`` tags, JSON-LD, ``<time>`` elements,
-a date in the canonical URL, and (with ``extensive_search``) visible text -- and returns a
-:class:`~turbohtml.extract.PublicationDate` naming the signal it read, configured by a frozen
-:class:`~turbohtml.extract.DateExtraction` (original-vs-modified, output format, date bounds). Date parsing is
-standard-library only, so no ``dateparser`` or ``lxml`` dependency comes along. turbohtml thereby replaces ``htmldate``,
-with a migration guide and benchmark - by :user:`gaborbernat`.

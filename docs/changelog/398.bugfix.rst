@@ -1,3 +1,0 @@
-:meth:`~turbohtml.Node.xpath` now renders a number as the shortest decimal that round-trips the IEEE-754 double (XPath
-1.0 §4.2), so ``string(1 div 3)`` is ``0.3333333333333333`` and ``number(string(x)) == x``, rather than truncating to 12
-significant digits.

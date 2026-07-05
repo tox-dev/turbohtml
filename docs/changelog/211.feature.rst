@@ -1,4 +1,0 @@
-Inspect the WHATWG parse errors recovery used to swallow: :func:`~turbohtml.parse` records each on
-:attr:`~turbohtml.Document.errors` as a :class:`~turbohtml.ParseError` carrying the spec ``code`` and source position.
-Collection costs nothing on well-formed input, and ``strict=True`` instead raises the first as
-:class:`~turbohtml.HTMLParseError`.

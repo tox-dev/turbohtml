@@ -1,4 +1,0 @@
-``clean_url`` returns ``None`` for a URL carrying a lone surrogate instead of raising ``UnicodeEncodeError``. The
-surrogate has no UTF-8 form, so the URL is not a fetchable web URL, and ``courlan`` decides the same. ``normalize_url``
-raises a ``ValueError`` naming the offending component rather than leaking the encode error, and both functions now
-raise ``TypeError`` for a non-``str`` argument.

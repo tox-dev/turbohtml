@@ -1,2 +1,0 @@
-A new "From html5-parser" migration guide maps ``html5_parser.parse`` onto :func:`turbohtml.parse` and ports the `lxml
-<https://lxml.de/>`__ element accessors, so html5-parser users have a step-by-step path across - by :user:`gaborbernat`.

@@ -1,3 +1,0 @@
-A ``<keygen>`` start tag in the "in select" insertion mode now pops the open ``select`` so the ``keygen`` becomes a
-sibling, matching WHATWG and `html5lib <https://github.com/html5lib/html5lib-python>`__, instead of nesting inside the
-select.

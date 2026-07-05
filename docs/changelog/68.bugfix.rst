@@ -1,3 +1,0 @@
-A missing ``<!DOCTYPE>`` identifier is now reported as ``None`` on the parsed :class:`~turbohtml.Doctype` node rather
-than an empty string, so ``<!DOCTYPE html SYSTEM "s">`` exposes ``public_id`` as ``None`` and the distinction from a
-present-but-empty identifier survives pickling.

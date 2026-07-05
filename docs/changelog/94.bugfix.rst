@@ -1,2 +1,0 @@
-An ``<hr>`` in a ``select``-context fragment now lands at ``select`` level as a sibling of the options instead of
-nesting inside one, applying the WHATWG "in select" ``hr`` rule even when the ``select`` context is implied.

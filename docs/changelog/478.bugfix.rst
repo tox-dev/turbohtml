@@ -1,5 +1,0 @@
-Bounds-check the first code point in the ``_registrable_domain`` suffix lookups. The IANA-TLD and Public-Suffix-List
-tables index the host by its first code point but hold only ASCII entries, so a host whose first code point is non-ASCII
--- reachable when Python calls the entrypoint without the punycode step the ``external_only`` site check applies -- ran
-off the table end and could segfault. A non-ASCII first code point now short-circuits to no known suffix, so the host
-stays its own registrable domain. Part of #478 - by :user:`gaborbernat`.
