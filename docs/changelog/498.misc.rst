@@ -1,0 +1,8 @@
+Route the HTML sanitizer's URL scheme and media-host allowlist checks through the shared ``url`` C primitives, so one
+parser bounds a scheme and a host across the extension rather than the sanitizer carrying its own. The scheme grammar
+(``th_scheme_start`` for the leading letter, ``th_scheme_char`` for the rest) and the authority split
+(``th_url_authority``, which separates userinfo, host, and port and tags the host literal) now back both
+:func:`~turbohtml.extract.normalize_url` and the sanitizer. The sanitizer's allow-or-block decision is unchanged over an
+adversarial corpus of scheme-evasion and host-confusion inputs. It rejects every scheme and host it rejected before, and
+keeps its stricter no-preprocessing scan so a zero-width or control character cannot smuggle a scheme or host past the
+allowlist. Part of #478.

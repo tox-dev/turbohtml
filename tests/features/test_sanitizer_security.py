@@ -122,6 +122,58 @@ def test_oracle_detects_a_dangerous_url() -> None:
     assert _live_danger('<a href="javascript:alert(1)">x</a>') == ["href=javascript:alert(1)"]
 
 
+# Scheme-evasion parity: routing the sanitizer's scheme scan onto the shared grammar predicates keeps the exact
+# allow/block decision. Every obfuscated dangerous scheme stays blocked; the benign counterparts stay allowed (a
+# regression there would be over-blocking, not a hole, but the allowlist is only useful if normal URLs survive).
+_SCHEME_PARITY = [
+    pytest.param("javascript:alert(1)", False, id="javascript"),
+    pytest.param("JaVaScRiPt:alert(1)", False, id="javascript-mixed-case"),
+    pytest.param("DATA:text/html,x", False, id="data-upper"),
+    pytest.param("vbscript:msgbox(1)", False, id="vbscript"),
+    pytest.param("VBScript:msgbox(1)", False, id="vbscript-mixed-case"),
+    pytest.param("about:blank", False, id="about"),
+    pytest.param("blob:https://example.com/u", False, id="blob"),
+    pytest.param("  javascript:alert(1)", False, id="leading-spaces"),
+    pytest.param("\tjavascript:alert(1)", False, id="leading-tab"),
+    pytest.param("\njavascript:alert(1)", False, id="leading-newline"),
+    pytest.param("\rjavascript:alert(1)", False, id="leading-cr"),
+    pytest.param("\x01javascript:alert(1)", False, id="leading-control"),
+    pytest.param("\x1fjavascript:alert(1)", False, id="leading-unit-separator"),
+    pytest.param("java\tscript:alert(1)", False, id="embedded-tab"),
+    pytest.param("java\nscript:alert(1)", False, id="embedded-newline"),
+    pytest.param("java\x7fscript:alert(1)", False, id="embedded-del"),
+    pytest.param("java­script:alert(1)", False, id="embedded-soft-hyphen"),
+    pytest.param("java\u200bscript:alert(1)", False, id="embedded-zero-width-space"),
+    pytest.param("java‌script:alert(1)", False, id="embedded-zero-width-non-joiner"),
+    pytest.param("java‍script:alert(1)", False, id="embedded-zero-width-joiner"),
+    pytest.param("java⁠script:alert(1)", False, id="embedded-word-joiner"),
+    pytest.param("java﻿script:alert(1)", False, id="embedded-bom"),
+    pytest.param("javascript\t:alert(1)", False, id="tab-before-colon"),
+    pytest.param("javascript­:alert(1)", False, id="soft-hyphen-before-colon"),
+    pytest.param("­javascript:alert(1)", False, id="leading-soft-hyphen"),
+    pytest.param("﻿javascript:alert(1)", False, id="leading-bom"),
+    pytest.param("tel:+15551234", False, id="tel-not-allowlisted"),
+    pytest.param("ftp://x.com", False, id="ftp-not-allowlisted"),
+    pytest.param("http://example.com", True, id="http"),
+    pytest.param("https://example.com/a?b#c", True, id="https-with-query-fragment"),
+    pytest.param("HtTp://ok.com", True, id="http-mixed-case"),
+    pytest.param("  https://ok.com", True, id="https-leading-space"),
+    pytest.param("mailto:a@b.com", True, id="mailto"),
+    pytest.param("MAILTO:a@b.com", True, id="mailto-upper"),
+    pytest.param("/relative/path", True, id="rooted-relative"),
+    pytest.param("relative/path", True, id="bare-relative"),
+    pytest.param("#fragment", True, id="fragment-only"),
+    pytest.param(":no-scheme", True, id="leading-colon-relative"),
+    pytest.param("//other.example/x", True, id="protocol-relative"),
+    pytest.param("1javascript:alert(1)", True, id="digit-prefixed-scheme-is-relative"),
+]
+
+
+@pytest.mark.parametrize(("url", "kept"), _SCHEME_PARITY)
+def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # noqa: FBT001
+    assert ("href=" in sanitize(f'<a href="{url}">x</a>', Policy())) is kept
+
+
 @pytest.mark.parametrize(
     "payload",
     [

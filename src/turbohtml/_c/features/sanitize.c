@@ -119,7 +119,7 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
             Py_DECREF(name);
             return allowed;
         }
-        int letter = (c | 0x20) >= 'a' && (c | 0x20) <= 'z';
+        int letter = th_scheme_start(c);
         /* before the colon, every byte must be a scheme byte and the first must be a letter (so 1http:// is relative)
          */
         if (started ? !th_scheme_char(c) : !letter) {
@@ -296,11 +296,13 @@ static int ends_authority(Py_UCS4 c) {
     }
 }
 
-/* Locate the authority host of a URL value: the reg-name after "scheme://" or a protocol-relative "//", after any
-   "userinfo@" and before a ":port" or the path/query/fragment -- the same split urllib.parse.urlsplit makes, without
-   re-parsing the whole URL. Sets *start,*end to the host span and returns 0, or returns -1 when the URL carries no
+/* Locate the authority host of a URL value: the host after "scheme://" or a protocol-relative "//". The authority is
+   bounded here without preprocessing the value (the WHATWG tab/newline stripping a browser applies is intentionally not
+   done, so an obfuscated host never masquerades as an allowlisted one), then th_url_authority -- the same decomposition
+   url_split runs -- splits off any "userinfo@" and ":port" and reports the host span and its literal kind. Sets
+   *start,*end to the host span and *kind to the host literal, returns 0, or returns -1 when the URL carries no
    authority (a relative or opaque src, which has no host to match). */
-static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end) {
+static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end, int *kind) {
     Py_ssize_t authority = -1;
     if (len >= 2 && value[0] == '/' && value[1] == '/') {
         authority = 2; /* protocol-relative //host/path */
@@ -313,20 +315,15 @@ static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start
     if (authority < 0) {
         return -1;
     }
-    Py_ssize_t host_start = authority;
-    Py_ssize_t pos = authority;
-    while (pos < len && !ends_authority(value[pos])) {
-        if (value[pos] == '@') {
-            host_start = pos + 1; /* userinfo precedes the host; the last '@' before the path wins */
-        }
-        pos++;
+    Py_ssize_t authority_end = authority;
+    while (authority_end < len && !ends_authority(value[authority_end])) {
+        authority_end++; /* the authority runs to the path, query, or fragment */
     }
-    Py_ssize_t host_end = host_start;
-    while (host_end < pos && value[host_end] != ':') {
-        host_end++; /* stop at a ":port" */
-    }
-    *start = host_start;
-    *end = host_end;
+    th_authority parts;
+    th_url_authority(value, authority, authority_end, &parts);
+    *start = parts.host_start;
+    *end = parts.host_end;
+    *kind = parts.kind;
     return 0;
 }
 
@@ -335,8 +332,13 @@ static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start
 static int host_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t host_start = 0;
     Py_ssize_t host_end = 0;
-    if (url_host_span(value, len, &host_start, &host_end) < 0) {
+    int host_kind = TH_HOST_REGNAME;
+    if (url_host_span(value, len, &host_start, &host_end, &host_kind) < 0) {
         return 0; /* a relative or opaque src has no host, so no allowlisted host can admit it */
+    }
+    if (host_kind == TH_HOST_IPV6) {
+        return 0; /* an IPv6 literal is never a reg-name allowlist entry, so reject it rather than match its inner
+                     address, keeping the pre-unification behavior that a bracketed host admits no media src */
     }
     Py_UCS4 host[256];
     Py_ssize_t host_len = host_end - host_start;

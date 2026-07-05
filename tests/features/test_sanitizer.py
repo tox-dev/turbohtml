@@ -933,3 +933,36 @@ def test_media_host_default_policy_leaves_src_unrestricted() -> None:
     # with no media_hosts configured, the host check pays nothing and any allowed-scheme src survives
     policy = Policy(tags=frozenset({"video"}), attributes={"*": frozenset({"src"})})
     assert 'src="https://evil.com/x"' in sanitize('<video src="https://evil.com/x">', policy)
+
+
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param("https://evil.com@youtube.com/x", True, id="userinfo-evil-host-allowed"),
+        pytest.param("https://youtube.com@evil.com/x", False, id="userinfo-allowed-host-evil"),
+        pytest.param("https://good.com@evil.com/x", False, id="userinfo-and-host-evil"),
+        pytest.param("https://user@name@youtube.com/x", True, id="double-at-last-wins"),
+        pytest.param("http://youtube.com:80@evil.com/x", False, id="port-shaped-userinfo-host-evil"),
+        pytest.param("https://youtube.com.evil.com/x", False, id="suffix-confusion"),
+        pytest.param("https://youtube.com.evil.com", False, id="suffix-confusion-no-path"),
+        pytest.param("https://youtube.com./x", True, id="trailing-dot-host-listed"),
+        pytest.param("https://youtu\tbe.com/x", False, id="embedded-tab-blocked"),
+        pytest.param("https://\tyoutube.com/x", False, id="leading-tab-blocked"),
+        pytest.param("https://[::1]/x", False, id="ipv6-literal-blocked"),
+        pytest.param("https://[::1]:8080/x", False, id="ipv6-literal-with-port-blocked"),
+        pytest.param("https://user@[dead::beef]/x", False, id="ipv6-with-userinfo-blocked"),
+    ],
+)
+def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # noqa: FBT001
+    # host-confusion parity: userinfo tricks resolve to the real host (the last '@' wins), a suffixed or
+    # whitespace-obfuscated host never masquerades as the listed one, and an IPv6 literal is always rejected
+    policy = _media_policy(frozenset({"youtube.com", "youtube.com."}))
+    out = sanitize(f'<video src="{src}">', policy)
+    assert ("src=" in out) is kept
+
+
+def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
+    # the shared authority parser extracts ::1 from [::1], but the sanitizer still rejects an IPv6 literal so a
+    # bracketed host admits no media src -- the pre-unification behavior, kept so routing never weakens the allowlist
+    policy = _media_policy(frozenset({"youtube.com", "::1"}))
+    assert "src=" not in sanitize('<video src="https://[::1]/x">', policy)

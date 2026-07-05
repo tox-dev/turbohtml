@@ -24,10 +24,17 @@ enum { TH_URL_SET_PATH = 0, TH_URL_SET_QUERY = 1, TH_URL_SET_FRAGMENT = 2 };
 #define TH_URL_ALPHA "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 /* A scheme character after the leading letter (RFC 3986 scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )); the one
-   definition the url split, linkify, and sanitize scheme scanners share. The leading-letter rule is the caller's. */
+   definition the url split, linkify, and sanitize scheme scanners share. The leading-letter rule is th_scheme_start. */
 static inline int th_scheme_char(Py_UCS4 ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '-' ||
            ch == '.';
+}
+
+/* The leading scheme character (RFC 3986 scheme = ALPHA *( ... )): an ASCII letter, so `1http:`/`+x:` scan as
+   relative, not schemed. The url split, ref parse, and sanitize scheme scanners share this first-byte rule, the
+   companion of th_scheme_char for every byte after it. */
+static inline int th_scheme_start(Py_UCS4 ch) {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 }
 
 /* memchr against a literal set, never a chained ||: clang inlines this into the encode loop, where an ``a || b || c``
@@ -41,5 +48,22 @@ static inline int th_url_in_set(unsigned char byte, const char *set, size_t set_
  */
 Py_ssize_t th_url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ssize_t start, Py_ssize_t end,
                               int set_id);
+
+/* An authority split into userinfo (before the last '@'), host, and optional port, each a span into the caller's
+   buffer; `kind` is the TH_HOST_* tag of the host literal. url_split and the sanitizer's media-host allowlist share
+   this one authority decomposition so a host is bounded the same way in both. */
+typedef struct {
+    Py_ssize_t user_start, user_end;
+    Py_ssize_t host_start, host_end;
+    Py_ssize_t port_start, port_end;
+    int has_port;
+    int kind;
+} th_authority;
+
+/* Decompose the authority work[start,end) into userinfo, host, and port, reporting the host kind. A '['-led host is an
+   IPv6 literal reported without its brackets; a host of only ASCII digits and dots is an IPv4 literal; anything else is
+   a registered name. The kind is a literal-shape test, not a full address parse. The caller has already bounded the
+   authority (after "scheme://" or "//", before the path/query/fragment) and owns the buffer. */
+void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_authority *out);
 
 #endif /* TURBOHTML_URL_H */

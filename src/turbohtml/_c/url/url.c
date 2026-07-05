@@ -195,19 +195,11 @@ static Py_UCS4 input_char(int kind, const void *data, Py_ssize_t index) {
     return PyUnicode_READ(kind, data, index);
 }
 
-typedef struct {
-    Py_ssize_t user_start, user_end;
-    Py_ssize_t host_start, host_end;
-    Py_ssize_t port_start, port_end;
-    int has_port;
-    int kind;
-} authority;
-
 /* Decompose the authority work[start,end) into userinfo (before the last '@'), host, and port. A '['-led host is an
    IPv6 literal reported without its brackets; a host of only ASCII digits and dots is an IPv4 literal; anything else is
-   a registered name. The kind only tells the shim which hosts skip IDNA, so this is a literal-shape test, not a full
-   address parse -- IPv4/IPv6 canonicalization is a later step. */
-static void parse_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, authority *out) {
+   a registered name. The kind tells the shim which hosts skip IDNA and the sanitizer which to reject as a literal, so
+   this is a literal-shape test, not a full address parse -- IPv4/IPv6 canonicalization is a later step. */
+void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_authority *out) {
     out->user_start = start;
     Py_ssize_t at = -1;
     for (Py_ssize_t index = start; index < end; index++) {
@@ -287,7 +279,7 @@ PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
         }
     }
     Py_ssize_t scheme_end = -1;
-    if (len > 0 && ((work[0] >= 'a' && work[0] <= 'z') || (work[0] >= 'A' && work[0] <= 'Z'))) {
+    if (len > 0 && th_scheme_start(work[0])) {
         for (Py_ssize_t index = 1; index < len; index++) {
             Py_UCS4 ch = work[index];
             if (ch == ':') {
@@ -350,8 +342,8 @@ PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
     }
     Py_ssize_t path_end = query_at >= 0 ? query_at : url_end;
     Py_ssize_t query_start = query_at >= 0 ? query_at + 1 : url_end;
-    authority auth;
-    parse_authority(work, netloc_start, netloc_end, &auth);
+    th_authority auth;
+    th_url_authority(work, netloc_start, netloc_end, &auth);
     Py_ssize_t spans[8][2] = {
         {0, scheme_end >= 0 ? scheme_end : 0},
         {netloc_start, netloc_end},
@@ -444,7 +436,7 @@ static int parse_ref(PyObject *src, url_ref *out) {
             break;
         }
     }
-    if (colon > 0 && ((buf[0] >= 'a' && buf[0] <= 'z') || (buf[0] >= 'A' && buf[0] <= 'Z'))) {
+    if (colon > 0 && th_scheme_start(buf[0])) {
         int scheme_ok = 1;
         for (Py_ssize_t index = 0; index < colon; index++) {
             if (!th_scheme_char(buf[index])) {
