@@ -8,3 +8,23 @@
 	path = tools/bench-data/war-and-peace
 	url = https://github.com/GITenberg/War-and-Peace_2600
 	shallow = true
+[submodule "tools/bench-data/readability"]
+	path = tools/bench-data/readability
+	url = https://github.com/mozilla/readability
+	shallow = true
+[submodule "tools/bench-data/normalize.css"]
+	path = tools/bench-data/normalize.css
+	url = https://github.com/necolas/normalize.css
+	shallow = true
+[submodule "tools/bench-data/pico"]
+	path = tools/bench-data/pico
+	url = https://github.com/picocss/pico
+	shallow = true
+[submodule "tools/bench-data/underscore"]
+	path = tools/bench-data/underscore
+	url = https://github.com/jashkenas/underscore
+	shallow = true
+[submodule "tools/bench-data/backbone"]
+	path = tools/bench-data/backbone
+	url = https://github.com/jashkenas/backbone
+	shallow = true
