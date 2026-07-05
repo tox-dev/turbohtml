@@ -4,11 +4,11 @@ turbohtml.detect: standalone character-encoding detection over bytes.
 :func:`detect` answers the question ``chardet``, ``charset-normalizer``, and ``cchardet`` exist for -- "what encoding
 are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse`
 uses for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024
-bytes), then the content detector ported from Firefox's `chardetng <https://github.com/hsivonen/chardetng>`__, then
-the spec's windows-1252 fallback. A non-mark input therefore always yields the same encoding whether you detect it
-standalone or parse it with ``detect_encoding=True``; a byte-order mark is the one divergence, reported here with its
-own label (``UTF-8-SIG`` and the UTF-16/UTF-32 marks) so a caller can strip it, where the spec-locked parse path keeps
-the plain WHATWG name.
+bytes), then a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte
+candidates on character-pair frequencies, then the spec's windows-1252 fallback. A non-mark input therefore always
+yields the same encoding whether you detect it standalone or parse it with ``detect_encoding=True``; a byte-order mark
+is the one divergence, reported here with its own label (``UTF-8-SIG`` and the UTF-16/UTF-32 marks) so a caller can
+strip it, where the spec-locked parse path keeps the plain WHATWG name.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
@@ -17,8 +17,8 @@ surviving candidate, :class:`EncodingDetector` accumulates a stream chunk by chu
 encoding/language constraints).
 
 :func:`detect_language` answers the separate question ``whatlang``, ``resiliparse``, and ``trafilatura`` exist for --
-"what natural language is this text?" -- from the visible text rather than an ``<html lang>`` attribute. It runs a C
-port of whatlang's model: find the dominant Unicode script, then rank the languages sharing it by how closely the
+"what natural language is this text?" -- from the visible text rather than an ``<html lang>`` attribute. It runs a
+character-trigram model: find the dominant Unicode script, then rank the languages sharing it by how closely the
 text's most frequent character trigrams match each language's embedded profile. It returns a :class:`LanguageMatch`
 (ISO 639-3 code, confidence, script, English name); a frozen :class:`LanguageDetection` config carries a confidence
 floor and language constraints.
@@ -322,8 +322,8 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     Detect the natural language a string is written in, the ``whatlang`` / ``resiliparse`` content-language successor.
 
     The detector finds the dominant Unicode script, then ranks the languages that share it by the similarity between
-    the text's most frequent character trigrams and each language's embedded profile (the whatlang model, ported to
-    C). It reads the visible text only; it does not consult an ``<html lang>`` attribute.
+    the text's most frequent character trigrams and each language's embedded profile. It reads the visible text only;
+    it does not consult an ``<html lang>`` attribute.
 
     :param text: the text to classify; extract it from a document first (e.g. ``node.text``).
     :param options: the detection options; defaults to :class:`LanguageDetection` (always answer, no constraints).

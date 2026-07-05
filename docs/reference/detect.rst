@@ -6,8 +6,8 @@
 
 Detect the character encoding of bytes without parsing them, a successor to ``chardet.detect``, ``cchardet.detect``, and
 ``charset_normalizer.from_bytes``. The pipeline is the one :func:`turbohtml.parse` runs for ``bytes`` input -- the
-WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), the content detector ported from Firefox's `chardetng
-<https://github.com/hsivonen/chardetng>`_, then the spec's windows-1252 fallback -- so a standalone detection and
+WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), a content detector that scores byte-pair frequencies against
+per-encoding character-class models, then the spec's windows-1252 fallback -- so a standalone detection and
 ``parse(data, detect_encoding=True)`` always agree (:doc:`how it decides </explanation/parsing>`).
 
 .. autofunction:: detect
@@ -27,8 +27,7 @@ WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), the content detector 
 
 Detect the natural language of text, a successor to ``whatlang``, ``resiliparse.parse.lang``, and trafilatura's language
 filter. :func:`detect_language` finds the dominant Unicode script and ranks the languages sharing it by a
-character-trigram model ported from `whatlang <https://github.com/greyblake/whatlang-rs>`_, reading the visible text
-rather than an ``<html lang>`` attribute.
+character-trigram model, reading the visible text rather than an ``<html lang>`` attribute.
 
 .. autofunction:: detect_language
 

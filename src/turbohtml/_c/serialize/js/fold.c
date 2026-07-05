@@ -10,7 +10,7 @@
      true / false -> !0 / !1
      undefined    -> void 0        (only when nothing shadows undefined)
 
-   Constant-driven dead-code elimination, modeled on esbuild/terser/tdewolff. A
+   Constant-driven dead-code elimination, the constant-folding pass every optimizing JS minifier runs. A
    transform only drops an operand when it is a *pure* constant (no side effects) or
    the operand is on the never-taken side of a short circuit; and it only drops a
    *statement* subtree when that subtree declares no hoisted `var` or function (which

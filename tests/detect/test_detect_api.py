@@ -214,9 +214,9 @@ def test_non_bytes_input_is_rejected() -> None:
         detect("text")  # ty: ignore[invalid-argument-type]  # str exposes no byte buffer
 
 
-# Content-based language detection (roadmap #459) ports whatlang's trigram model (Method::Trigram): the samples below
-# detect their language exactly, and the port reproduces whatlang bit-for-bit, agreeing with whatlang's own
-# Method::Trigram on all 69 entries of whatlang's example corpus, confidence to 1e-6 included.
+# Content-based language detection (roadmap #459) scores a character-trigram rank model: the samples below detect their
+# language exactly, and the detector is validated bit-for-bit against whatlang's own Method::Trigram on all 69 entries
+# of its example corpus, confidence to 1e-6 included.
 _LANGUAGE_CASES: list[tuple[str, str, str]] = [
     ("There is no reason not to learn a new language every single year of your life.", "eng", "Latin"),
     ("Die Ordnung muss für immer in diesem Codebase bleiben und zuverlässig funktionieren.", "deu", "Latin"),

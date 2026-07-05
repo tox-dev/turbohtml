@@ -1,9 +1,9 @@
-"""Round-trip safety of serialize(layout=Minify(...)) over a borrowed adversarial corpus.
+"""Round-trip safety of serialize(layout=Minify(...)) over an adversarial corpus.
 
 Minification is only correct if the minified bytes reparse to the same tree. This
 suite enforces that property at scale against the html5lib-tests tree-construction
-suite -- 1.7k adversarial snippets borrowed from the html5lib project and already
-vendored for the conformance harness.
+suite -- 1.7k adversarial snippets from the vendored html5lib-tests corpus, already
+in place for the conformance harness.
 
 The check is idempotence under reparse: ``minify(parse(minify(parse(src))))`` must
 equal ``minify(parse(src))``. A tag omission or whitespace fold that changed the

@@ -1,8 +1,8 @@
 Detect the natural language of text from the :mod:`turbohtml.detect` surface. :func:`~turbohtml.detect.detect_language`
-finds the dominant Unicode script, then ranks the languages that share it by a character-trigram model ported from
-`whatlang <https://github.com/greyblake/whatlang-rs>`_ (its ``Method::Trigram``). It returns a
-:class:`~turbohtml.detect.LanguageMatch` carrying an ISO 639-3 code, a confidence, the script, and the English name, and
-a frozen :class:`~turbohtml.detect.LanguageDetection` adds a confidence floor and allow/deny language constraints. The
-port covers whatlang's 69 languages across nine scripts and reproduces whatlang's own trigram method on every entry of
-its example corpus, matching the language, the confidence, and the script. This closes the content-language-detection
-gap the resiliparse and trafilatura migration guides listed; part of #459 - by :user:`gaborbernat`.
+finds the dominant Unicode script, then ranks the languages that share it by a character-trigram rank model (the
+Cavnar-Trenkle method). It returns a :class:`~turbohtml.detect.LanguageMatch` carrying an ISO 639-3 code, a confidence,
+the script, and the English name, and a frozen :class:`~turbohtml.detect.LanguageDetection` adds a confidence floor and
+allow/deny language constraints. It covers 69 languages across nine scripts and is validated against `whatlang
+<https://github.com/greyblake/whatlang-rs>`_'s ``Method::Trigram`` on every entry of its example corpus, matching the
+language, the confidence, and the script. This closes the content-language-detection gap the resiliparse and trafilatura
+migration guides listed; part of #459 - by :user:`gaborbernat`.

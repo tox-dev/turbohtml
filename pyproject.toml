@@ -18,6 +18,10 @@ keywords = [
   "unescape",
 ]
 license = "MIT"
+license-files = [
+  "LICENSE",
+  "NOTICE",
+]
 maintainers = [
   { name = "Bernát Gábor", email = "gaborjbernat@gmail.com" },
 ]

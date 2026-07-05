@@ -97,7 +97,7 @@ The events map one to one:
 turbohtml differs from ``html.parser`` wherever ``html.parser`` diverges from the WHATWG algorithm browsers implement:
 turbohtml handles the raw-text content models (a ``<b>`` inside ``<script>`` stays text rather than a tag), recovers
 from malformed markup the way a browser would, and never emits ``handle_decl`` for CDATA sections (they only exist in
-foreign content). Code ported from ``html.parser`` sees the same tokens a browser sees, the point of most migrations.
+foreign content). Code migrated from ``html.parser`` sees the same tokens a browser sees, the point of most migrations.
 
 *****************************
  Extract the links of a page
