@@ -1,0 +1,296 @@
+"""Conformance for the date-string parser C hooks (_date_scan/_date_scan_all/_date_url).
+
+These are the pure parsers turbohtml._dates delegates to. Each case pins the exact (year, month, day) tuples
+the pre-C-port Python implementation produced, so the port stays byte-for-byte faithful across ISO 8601,
+the 8-digit stamp, the day-month-year spellings, the five-language written-month vocabulary, and the URL
+path date. A fixed pivot year keeps the two-digit-year expansion deterministic.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+from turbohtml._html import _date_scan, _date_scan_all, _date_url
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_YEAR = 2026
+"""The pivot a two-digit year expands against, fixed so the two-digit-year cases stay stable over time."""
+
+_SCAN_CASES = [
+    pytest.param("2016-12-23", (2016, 12, 23), id="iso-hyphen"),
+    pytest.param("2016/1/2", (2016, 1, 2), id="iso-slash-single"),
+    pytest.param("2016.12.23T09:00", (2016, 12, 23), id="iso-dot-time"),
+    pytest.param("12020-01-02", (2020, 1, 2), id="iso-embedded-after-digit"),
+    pytest.param("2016-01-09", (2016, 1, 9), id="iso-month-two-zero"),
+    pytest.param("2016.5.6", (2016, 5, 6), id="iso-month1-dot-sep"),
+    pytest.param("2016-02-30", None, id="iso-invalid-calendar"),
+    pytest.param("2020-02-29", (2020, 2, 29), id="iso-leap-valid"),
+    pytest.param("2019-02-29", None, id="iso-leap-invalid"),
+    pytest.param("2000-02-29", (2000, 2, 29), id="iso-leap-div-400"),
+    pytest.param("2016-12-31", (2016, 12, 31), id="iso-day-31"),
+    pytest.param("2016-12-39", (2016, 12, 3), id="iso-day-39"),
+    pytest.param("1989-12-31", None, id="iso-year-below-range"),
+    pytest.param("2100-01-01", None, id="iso-year-above-range"),
+    pytest.param("2016-12x-05", None, id="iso-month2-nonsep-falls-to-month1"),
+    pytest.param("2016-0a-05", None, id="iso-month-nondigit"),
+    pytest.param("2016-00-01", None, id="iso-month-double-zero"),
+    pytest.param("2016-01-a", None, id="iso-day-nondigit"),
+    pytest.param("2016-01-0x", None, id="iso-day-zero"),
+    pytest.param("2016-12-0x", None, id="iso-day2-nondigit"),
+    pytest.param("2016-12-2x", (2016, 12, 2), id="iso-day2-second-nondigit"),
+    pytest.param("2016-12-00", None, id="iso-day-double-zero"),
+    pytest.param("2016-12-", None, id="iso-trailing-sep"),
+    pytest.param("20160523", (2016, 5, 23), id="compact-eight"),
+    pytest.param("20169523", None, id="compact-eight-bad-month"),
+    pytest.param("1990123", (1990, 12, 3), id="compact-seven-wide-month"),
+    pytest.param("2016120", (2016, 1, 20), id="compact-seven-wide-month-bad-day"),
+    pytest.param("2016919", (2016, 9, 19), id="compact-seven-narrow-month"),
+    pytest.param("2016003", None, id="compact-seven-zero-month"),
+    pytest.param("199012", (1990, 1, 2), id="compact-six"),
+    pytest.param("199000", None, id="compact-six-zero-month"),
+    pytest.param("201605234", None, id="compact-nine-too-long"),
+    pytest.param("18010101", None, id="compact-bad-year"),
+    pytest.param("20160230", None, id="compact-invalid-calendar"),
+    pytest.param("120160523", None, id="compact-preceded-by-digit"),
+    pytest.param("08.05.2012", (2012, 5, 8), id="dmy-dot"),
+    pytest.param("23/12/2016", (2016, 12, 23), id="dmy-slash"),
+    pytest.param("05.13.2013", (2013, 5, 13), id="dmy-swapped-month"),
+    pytest.param("01.02.13", (2013, 2, 1), id="dmy-two-digit-2000s"),
+    pytest.param("01.02.97", (1997, 2, 1), id="dmy-two-digit-1900s"),
+    pytest.param("1.2.26", (2026, 2, 1), id="dmy-pivot-equal"),
+    pytest.param("1.2.27", (1927, 2, 1), id="dmy-pivot-above"),
+    pytest.param("31.02.2016", None, id="dmy-invalid"),
+    pytest.param("13.15.2020", None, id="dmy-both-impossible"),
+    pytest.param("32.01.2020", None, id="dmy-day-too-big"),
+    pytest.param("05.00.2020", None, id="dmy-month-zero"),
+    pytest.param("5.1x.2020", None, id="dmy-month-nondigit"),
+    pytest.param("1/2/999", (999, 2, 1), id="dmy-three-digit-year"),
+    pytest.param("1/2/20205", None, id="dmy-five-digit-year"),
+    pytest.param("12-05-2020", (2020, 5, 12), id="dmy-hyphen"),
+    pytest.param("1-2-3", None, id="dmy-one-year-digit"),
+    pytest.param("2016-2-30 real 2018-04-05", None, id="iso-then-invalid-first"),
+    pytest.param("", None, id="empty"),
+    pytest.param("   ", None, id="whitespace"),
+    pytest.param("no date here", None, id="no-date"),
+    pytest.param("Published July 4, 2016 today.", None, id="english-month-first"),
+    pytest.param("Am 4. Juli 2016 hier.", None, id="german-day-first"),
+    pytest.param("Le 4 juillet 2016 ici.", None, id="french-day-first"),
+    pytest.param("Il 4 luglio 2016 qui.", None, id="italian-day-first"),
+    pytest.param("Posted 4th of July 2016.", None, id="english-ordinal-of"),
+    pytest.param("25th December 2020", None, id="day-first-ordinal"),
+    pytest.param("July 4th 2016", None, id="month-first-ordinal"),
+    pytest.param("1st January 2000", None, id="ordinal-st"),
+    pytest.param("22nd March 2020", None, id="ordinal-nd"),
+    pytest.param("3rd April 2019", None, id="ordinal-rd"),
+    pytest.param("July 4th", None, id="ordinal-then-end"),
+    pytest.param("5 of", None, id="of-then-end"),
+    pytest.param("December 25, 2020", None, id="month-first-two-digit-day"),
+    pytest.param("Jan. 5, 2019", None, id="month-first-dot"),
+    pytest.param("Février 3, 2015", None, id="accented-french"),
+    pytest.param("AOÛT 15, 2018", None, id="accented-upper-august"),
+    pytest.param("märz 7 2011", None, id="accented-german-lower"),
+    pytest.param("MÄRZ 7 2011", None, id="accented-german-upper"),
+    pytest.param("3 décembre 2011", None, id="accented-december"),
+    pytest.param("enero 1 2020", None, id="spanish"),
+    pytest.param("gennaio 1 2020", None, id="italian-name"),
+    pytest.param("Sept 9, 2021", None, id="unsupported-sept-abbrev"),
+    pytest.param("September 9, 2021", None, id="full-september"),
+    pytest.param("July 39, 2016", None, id="invalid-written-day"),
+    pytest.param("July 0, 2016", None, id="written-day-zero"),
+    pytest.param("July 4, 1899", None, id="written-year-out-of-range"),
+    pytest.param("januaryfoo 5 2020", None, id="longer-name-then-fail"),
+    pytest.param("Seen 2014-01-01 once and 2018-01-01 once.", (2014, 1, 1), id="modal-two-dates"),
+    pytest.param("Impossible 2016-02-30 but real 2018-04-05.", None, id="invalid-iso-then-valid"),
+    pytest.param("European 08.05.2012 date in prose.", (2012, 5, 8), id="dmy-in-prose"),
+    pytest.param("July\t4\t2016", None, id="tab-separated"),
+    pytest.param("July\x01 4 2016", None, id="control-char-in-gap"),
+    pytest.param("\u00d7 July 4 2016", None, id="mult-sign-before-month"),
+    pytest.param("July ! 2016", None, id="month-then-nonday"),
+    pytest.param("July", None, id="month-at-end"),
+    pytest.param("July ", None, id="month-space-at-end"),
+    pytest.param("5 May 2016", None, id="day-first-single"),
+    pytest.param("12 May 2016", None, id="day-first-two-digit"),
+    pytest.param("5 x 2016", None, id="day-first-then-nonmonth"),
+    pytest.param("abc 5", None, id="day-at-end"),
+    pytest.param("3 May 2016", None, id="of-not-consumed"),
+    pytest.param("5 Jan. 2019", None, id="day-first-month-dot"),
+    pytest.param("5 January, 2019", None, id="day-first-month-comma"),
+    pytest.param("5 Jan2019", None, id="day-first-no-space"),
+    pytest.param("5 Jan 1899", None, id="day-first-year-out-of-range"),
+    pytest.param("July 5s 2016", None, id="ordinal-s-not-t"),
+    pytest.param("5 ofx Feb 2019", None, id="of-not-space"),
+    pytest.param("5 Jan", None, id="day-first-month-at-end"),
+]
+
+_SCAN_ALL_CASES = [
+    pytest.param("2016-12-23", [(2016, 12, 23)], id="iso-hyphen"),
+    pytest.param("2016/1/2", [(2016, 1, 2)], id="iso-slash-single"),
+    pytest.param("2016.12.23T09:00", [(2016, 12, 23)], id="iso-dot-time"),
+    pytest.param("12020-01-02", [(2020, 1, 2)], id="iso-embedded-after-digit"),
+    pytest.param("2016-01-09", [(2016, 1, 9)], id="iso-month-two-zero"),
+    pytest.param("2016.5.6", [(2016, 5, 6)], id="iso-month1-dot-sep"),
+    pytest.param("2016-02-30", [], id="iso-invalid-calendar"),
+    pytest.param("2020-02-29", [(2020, 2, 29)], id="iso-leap-valid"),
+    pytest.param("2019-02-29", [], id="iso-leap-invalid"),
+    pytest.param("2000-02-29", [(2000, 2, 29)], id="iso-leap-div-400"),
+    pytest.param("2016-12-31", [(2016, 12, 31)], id="iso-day-31"),
+    pytest.param("2016-12-39", [(2016, 12, 3)], id="iso-day-39"),
+    pytest.param("1989-12-31", [], id="iso-year-below-range"),
+    pytest.param("2100-01-01", [], id="iso-year-above-range"),
+    pytest.param("2016-12x-05", [], id="iso-month2-nonsep-falls-to-month1"),
+    pytest.param("2016-0a-05", [], id="iso-month-nondigit"),
+    pytest.param("2016-00-01", [], id="iso-month-double-zero"),
+    pytest.param("2016-01-a", [], id="iso-day-nondigit"),
+    pytest.param("2016-01-0x", [], id="iso-day-zero"),
+    pytest.param("2016-12-0x", [], id="iso-day2-nondigit"),
+    pytest.param("2016-12-2x", [(2016, 12, 2)], id="iso-day2-second-nondigit"),
+    pytest.param("2016-12-00", [], id="iso-day-double-zero"),
+    pytest.param("2016-12-", [], id="iso-trailing-sep"),
+    pytest.param("20160523", [], id="compact-eight"),
+    pytest.param("20169523", [], id="compact-eight-bad-month"),
+    pytest.param("1990123", [], id="compact-seven-wide-month"),
+    pytest.param("2016120", [], id="compact-seven-wide-month-bad-day"),
+    pytest.param("2016919", [], id="compact-seven-narrow-month"),
+    pytest.param("2016003", [], id="compact-seven-zero-month"),
+    pytest.param("199012", [], id="compact-six"),
+    pytest.param("199000", [], id="compact-six-zero-month"),
+    pytest.param("201605234", [], id="compact-nine-too-long"),
+    pytest.param("18010101", [], id="compact-bad-year"),
+    pytest.param("20160230", [], id="compact-invalid-calendar"),
+    pytest.param("120160523", [], id="compact-preceded-by-digit"),
+    pytest.param("08.05.2012", [(2012, 5, 8)], id="dmy-dot"),
+    pytest.param("23/12/2016", [(2016, 12, 23)], id="dmy-slash"),
+    pytest.param("05.13.2013", [(2013, 5, 13)], id="dmy-swapped-month"),
+    pytest.param("01.02.13", [(2013, 2, 1)], id="dmy-two-digit-2000s"),
+    pytest.param("01.02.97", [(1997, 2, 1)], id="dmy-two-digit-1900s"),
+    pytest.param("1.2.26", [(2026, 2, 1)], id="dmy-pivot-equal"),
+    pytest.param("1.2.27", [(1927, 2, 1)], id="dmy-pivot-above"),
+    pytest.param("31.02.2016", [], id="dmy-invalid"),
+    pytest.param("13.15.2020", [], id="dmy-both-impossible"),
+    pytest.param("32.01.2020", [], id="dmy-day-too-big"),
+    pytest.param("05.00.2020", [], id="dmy-month-zero"),
+    pytest.param("5.1x.2020", [], id="dmy-month-nondigit"),
+    pytest.param("1/2/999", [(999, 2, 1)], id="dmy-three-digit-year"),
+    pytest.param("1/2/20205", [], id="dmy-five-digit-year"),
+    pytest.param("12-05-2020", [(2020, 5, 12)], id="dmy-hyphen"),
+    pytest.param("1-2-3", [], id="dmy-one-year-digit"),
+    pytest.param("2016-2-30 real 2018-04-05", [(2018, 4, 5)], id="iso-then-invalid-first"),
+    pytest.param("", [], id="empty"),
+    pytest.param("   ", [], id="whitespace"),
+    pytest.param("no date here", [], id="no-date"),
+    pytest.param("Published July 4, 2016 today.", [(2016, 7, 4)], id="english-month-first"),
+    pytest.param("Am 4. Juli 2016 hier.", [(2016, 7, 4)], id="german-day-first"),
+    pytest.param("Le 4 juillet 2016 ici.", [(2016, 7, 4)], id="french-day-first"),
+    pytest.param("Il 4 luglio 2016 qui.", [(2016, 7, 4)], id="italian-day-first"),
+    pytest.param("Posted 4th of July 2016.", [(2016, 7, 4)], id="english-ordinal-of"),
+    pytest.param("25th December 2020", [(2020, 12, 25)], id="day-first-ordinal"),
+    pytest.param("July 4th 2016", [(2016, 7, 4)], id="month-first-ordinal"),
+    pytest.param("1st January 2000", [(2000, 1, 1)], id="ordinal-st"),
+    pytest.param("22nd March 2020", [(2020, 3, 22)], id="ordinal-nd"),
+    pytest.param("3rd April 2019", [(2019, 4, 3)], id="ordinal-rd"),
+    pytest.param("July 4th", [], id="ordinal-then-end"),
+    pytest.param("5 of", [], id="of-then-end"),
+    pytest.param("December 25, 2020", [(2020, 12, 25)], id="month-first-two-digit-day"),
+    pytest.param("Jan. 5, 2019", [(2019, 1, 5)], id="month-first-dot"),
+    pytest.param("Février 3, 2015", [(2015, 2, 3)], id="accented-french"),
+    pytest.param("AOÛT 15, 2018", [(2018, 8, 15)], id="accented-upper-august"),
+    pytest.param("märz 7 2011", [(2011, 3, 7)], id="accented-german-lower"),
+    pytest.param("MÄRZ 7 2011", [(2011, 3, 7)], id="accented-german-upper"),
+    pytest.param("3 décembre 2011", [(2011, 12, 3)], id="accented-december"),
+    pytest.param("enero 1 2020", [(2020, 1, 1)], id="spanish"),
+    pytest.param("gennaio 1 2020", [(2020, 1, 1)], id="italian-name"),
+    pytest.param("Sept 9, 2021", [], id="unsupported-sept-abbrev"),
+    pytest.param("September 9, 2021", [(2021, 9, 9)], id="full-september"),
+    pytest.param("July 39, 2016", [], id="invalid-written-day"),
+    pytest.param("July 0, 2016", [], id="written-day-zero"),
+    pytest.param("July 4, 1899", [], id="written-year-out-of-range"),
+    pytest.param("januaryfoo 5 2020", [], id="longer-name-then-fail"),
+    pytest.param("Seen 2014-01-01 once and 2018-01-01 once.", [(2014, 1, 1), (2018, 1, 1)], id="modal-two-dates"),
+    pytest.param("Impossible 2016-02-30 but real 2018-04-05.", [(2018, 4, 5)], id="invalid-iso-then-valid"),
+    pytest.param("European 08.05.2012 date in prose.", [(2012, 5, 8)], id="dmy-in-prose"),
+    pytest.param("July\t4\t2016", [(2016, 7, 4)], id="tab-separated"),
+    pytest.param("July\x01 4 2016", [], id="control-char-in-gap"),
+    pytest.param("\u00d7 July 4 2016", [(2016, 7, 4)], id="mult-sign-before-month"),
+    pytest.param("July ! 2016", [], id="month-then-nonday"),
+    pytest.param("July", [], id="month-at-end"),
+    pytest.param("July ", [], id="month-space-at-end"),
+    pytest.param("5 May 2016", [(2016, 5, 5)], id="day-first-single"),
+    pytest.param("12 May 2016", [(2016, 5, 12)], id="day-first-two-digit"),
+    pytest.param("5 x 2016", [], id="day-first-then-nonmonth"),
+    pytest.param("abc 5", [], id="day-at-end"),
+    pytest.param("3 May 2016", [(2016, 5, 3)], id="of-not-consumed"),
+    pytest.param("5 Jan. 2019", [(2019, 1, 5)], id="day-first-month-dot"),
+    pytest.param("5 January, 2019", [(2019, 1, 5)], id="day-first-month-comma"),
+    pytest.param("5 Jan2019", [], id="day-first-no-space"),
+    pytest.param("5 Jan 1899", [], id="day-first-year-out-of-range"),
+    pytest.param("July 5s 2016", [], id="ordinal-s-not-t"),
+    pytest.param("5 ofx Feb 2019", [], id="of-not-space"),
+    pytest.param("5 Jan", [], id="day-first-month-at-end"),
+]
+
+_URL_CASES = [
+    pytest.param("http://x.com/2016/12/23/post.html", (2016, 12, 23), id="url-slash"),
+    pytest.param("http://x.com/2020_06_07/story", (2020, 6, 7), id="url-underscore"),
+    pytest.param("http://x.com/2020-06-07/story", (2020, 6, 7), id="url-hyphen"),
+    pytest.param("http://x.com/2020/6/7/", (2020, 6, 7), id="url-single-digit"),
+    pytest.param("http://x.com/2020_6_7/", (2020, 6, 7), id="url-underscore-single"),
+    pytest.param("http://x.com/2020-6-7/", (2020, 6, 7), id="url-hyphen-single"),
+    pytest.param("http://x.com/2020/06/23", (2020, 6, 23), id="url-two-digit-at-end"),
+    pytest.param("http://x.com/2020/06/078", None, id="url-two-digit-then-digit"),
+    pytest.param("http://x.com/2020/6/7", (2020, 6, 7), id="url-single-at-end"),
+    pytest.param("http://x.com/2020/06/07", (2020, 6, 7), id="url-two-digit-day-at-end"),
+    pytest.param("http://x.com/2020_06_07", (2020, 6, 7), id="url-no-trailer-underscore"),
+    pytest.param("http://x.com/2020-06-07", (2020, 6, 7), id="url-no-trailer-hyphen"),
+    pytest.param("http://x.com/story", None, id="url-no-date"),
+    pytest.param("http://x.com/12020/06/07/", None, id="url-preceded-by-digit"),
+    pytest.param("http://x.com/2020/13/07/", None, id="url-bad-month"),
+    pytest.param("http://x.com/2020/13/1", None, id="url-bad-month-single"),
+    pytest.param("http://x.com/2020/6-7", (2020, 6, 7), id="url-mixed-sep"),
+    pytest.param("http://x.com/2020/6/78", None, id="url-day-followed-by-digit"),
+    pytest.param("http://x.com/2020/02/30/", None, id="url-invalid-calendar"),
+    pytest.param("http://x.com/2020", None, id="url-year-at-end"),
+    pytest.param("http://x.com/2020/6", None, id="url-month-at-end"),
+    pytest.param("http://x.com/2020/x/07/", None, id="url-month-nondigit"),
+    pytest.param("http://x.com/2020/6x7", None, id="url-month-nonsep"),
+    pytest.param("", None, id="url-empty"),
+    pytest.param("http://x.com/a/2018/04/05/b", (2018, 4, 5), id="url-embedded"),
+    pytest.param("http://x.com/2020xx", None, id="url-year-then-nonsep"),
+    pytest.param("http://x.com/2020/06x07", None, id="url-month-then-nonsep"),
+    pytest.param("http://x.com/2020/06/", None, id="url-trailing-slash-no-day"),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _SCAN_CASES)
+def test_date_scan_reads_the_first_numeric_date(text: str, expected: tuple[int, int, int] | None) -> None:
+    assert _date_scan(text, _YEAR) == expected
+
+
+@pytest.mark.parametrize(("text", "expected"), _SCAN_ALL_CASES)
+def test_date_scan_all_reads_every_date(text: str, expected: list[tuple[int, int, int]]) -> None:
+    assert _date_scan_all(text, _YEAR) == expected
+
+
+@pytest.mark.parametrize(("url", "expected"), _URL_CASES)
+def test_date_url_reads_the_path_date(url: str, expected: tuple[int, int, int] | None) -> None:
+    assert _date_url(url) == expected
+
+
+def test_date_url_rejects_non_str() -> None:
+    with pytest.raises(TypeError):
+        _date_url(123)  # ty: ignore[invalid-argument-type]  # non-str on purpose
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: _date_scan(123, _YEAR), id="date_scan"),  # ty: ignore[invalid-argument-type]  # non-str
+        pytest.param(lambda: _date_scan_all(123, _YEAR), id="date_scan_all"),  # ty: ignore[invalid-argument-type]  # non-str
+    ],
+)
+def test_scan_hooks_reject_non_str(call: Callable[[], object]) -> None:
+    with pytest.raises(TypeError):
+        call()

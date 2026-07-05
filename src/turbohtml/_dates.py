@@ -12,16 +12,16 @@ numeric spellings, an 8-digit stamp, and a compact multilingual month vocabulary
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from itertools import starmap
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
-from ._html import Document, parse
+from ._html import Document, _date_scan, _date_scan_all, _date_url, parse
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
 __all__ = [
     "DateExtraction",
@@ -118,38 +118,6 @@ _DATE_MARKUP: Final = ", ".join((
 _PUBLISHED_MARKERS: Final = ("publish", "posted", "pubdate", "entry-date", "dateline", "created", "byline")
 _MODIFIED_MARKERS: Final = ("updated", "modified", "lastmod", "revised")
 
-_YEAR: Final = r"(?:199[0-9]|20[0-9]{2})"
-_MONTH: Final = r"(?:1[0-2]|0[1-9]|[1-9])"
-_DAY: Final = r"(?:3[01]|[12][0-9]|0[1-9]|[1-9])"
-_ISO_DATE: Final = re.compile(rf"({_YEAR})[-/.]({_MONTH})[-/.]({_DAY})")
-_COMPACT_DATE: Final = re.compile(rf"(?<!\d)({_YEAR})({_MONTH})({_DAY})(?!\d)")
-_DMY_DATE: Final = re.compile(r"(?<!\d)([0-3]?[0-9])[-/.]([0-1]?[0-9])[-/.](\d{2,4})(?!\d)")
-_URL_DATE: Final = re.compile(rf"(?<!\d)({_YEAR})[/_-]({_MONTH})[/_-]({_DAY})(?!\d)")
-
-# A compact month vocabulary (English, German, French, Spanish, Italian) for the visible-text last resort; the
-# structured signals are numeric, so this only feeds the text stage.
-_MONTH_NAMES: Final[tuple[tuple[str, ...], ...]] = (
-    ("jan", "januar", "january", "janvier", "enero", "gennaio"),
-    ("feb", "februar", "february", "février", "febrero", "febbraio"),
-    ("mar", "märz", "march", "mars", "marzo"),
-    ("apr", "april", "avril", "abril", "aprile"),
-    ("may", "mai", "mayo", "maggio"),
-    ("jun", "juni", "june", "juin", "junio", "giugno"),
-    ("jul", "juli", "july", "juillet", "julio", "luglio"),
-    ("aug", "august", "aout", "août", "agosto"),
-    ("sep", "september", "septembre", "septiembre", "settembre"),
-    ("oct", "oktober", "october", "octobre", "octubre", "ottobre"),
-    ("nov", "november", "novembre", "noviembre"),
-    ("dec", "dezember", "december", "décembre", "diciembre", "dicembre"),
-)
-_MONTH_INDEX: Final[dict[str, int]] = {name: index for index, names in enumerate(_MONTH_NAMES, 1) for name in names}
-_MONTH_RE: Final = "|".join(sorted((name for names in _MONTH_NAMES for name in names), key=len, reverse=True))
-_TEXT_DATE: Final = re.compile(
-    rf"(?:({_MONTH_RE})\.?\s+([0-3]?[0-9])(?:st|nd|rd|th)?,?\s+({_YEAR})"
-    rf"|([0-3]?[0-9])(?:st|nd|rd|th)?\.?\s+(?:of\s+)?({_MONTH_RE})\.?,?\s+({_YEAR}))",
-    re.IGNORECASE,
-)
-
 
 def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDate | None:
     """
@@ -218,8 +186,8 @@ def _url_candidates(document: Document) -> list[tuple[_Role, date]]:
 
 def _url_date(url: str) -> date | None:
     """Extract the ``/YYYY/MM/DD/`` date a URL path often carries."""
-    match = _URL_DATE.search(url)
-    return _ymd(*match.groups()) if match else None
+    parts = _date_url(url)
+    return date(*parts) if parts else None
 
 
 def _meta_candidates(document: Document) -> list[tuple[_Role, date]]:
@@ -338,58 +306,19 @@ def _token(value: str | list[str] | None) -> str:
 
 def _first_date(text: str) -> date | None:
     """Return the first date of any spelling in a block of element text, written-out months included."""
-    return next(_scan_all(text), None)
+    parts = _date_scan_all(text, _today().year)
+    return date(*parts[0]) if parts else None
 
 
 def _scan(text: str) -> date | None:
     """Parse the first numeric date in a metadata string: ISO, an 8-digit stamp, or a day-month-year spelling."""
-    if (match := _ISO_DATE.search(text)) and (moment := _ymd(*match.groups())):
-        return moment
-    if (match := _COMPACT_DATE.search(text)) and (moment := _ymd(*match.groups())):
-        return moment
-    if match := _DMY_DATE.search(text):
-        day, month, year = match.groups()
-        return _ymd(_correct_year(int(year)), *_swap(int(day), int(month)))
-    return None
+    parts = _date_scan(text, _today().year)
+    return date(*parts) if parts else None
 
 
-def _scan_all(text: str) -> Iterator[date]:
-    """Yield every ISO, day-month-year, and written-out date in a block of visible text, for frequency scoring."""
-    for match in _ISO_DATE.finditer(text):
-        if moment := _ymd(*match.groups()):
-            yield moment
-    for match in _DMY_DATE.finditer(text):
-        day, month, year = match.groups()
-        if moment := _ymd(_correct_year(int(year)), *_swap(int(day), int(month))):
-            yield moment
-    for match in _TEXT_DATE.finditer(text):
-        month_name, day_after, year_after, day_before, month_after, year_before = match.groups()
-        if month_name is not None:
-            moment = _ymd(year_after, _MONTH_INDEX[month_name.lower()], day_after)
-        else:
-            moment = _ymd(year_before, _MONTH_INDEX[month_after.lower()], day_before)
-        if moment is not None:
-            yield moment
-
-
-def _ymd(year: str | int, month: str | int, day: str | int) -> date | None:
-    """Build a date from year/month/day parts, rejecting an out-of-range combination."""
-    try:
-        return date(int(year), int(month), int(day))
-    except ValueError:
-        return None
-
-
-def _correct_year(year: int) -> int:
-    """Expand a two-digit year to its century, the recent past winning ties (htmldate's ``correct_year``)."""
-    if year < 100:
-        return year + (2000 if year <= _today().year % 100 else 1900)
-    return year
-
-
-def _swap(first: int, second: int) -> tuple[int, int]:
-    """Order a day-first pair into ``(month, day)``, swapping when the second number is an impossible month."""
-    return (first, second) if second > 12 and first <= 12 else (second, first)
+def _scan_all(text: str) -> list[date]:
+    """Every ISO, day-month-year, and written-out date in a block of visible text, for frequency scoring."""
+    return list(starmap(date, _date_scan_all(text, _today().year)))
 
 
 def _today() -> date:

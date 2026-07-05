@@ -170,6 +170,18 @@ PyObject *turbohtml_element_table_rows(PyObject *owner, struct th_tree *tree, st
 PyObject *turbohtml_element_table_records(PyObject *owner, struct th_tree *tree, struct th_node *table);
 PyObject *turbohtml_node_tables(PyObject *owner, struct th_tree *tree, struct th_node *root);
 
+/* Implemented in features/dates.c, the pure date-string parser turbohtml._dates
+   delegates instead of the datetime module and its re patterns. _date_scan(text,
+   year) returns the first numeric date (ISO 8601, an 8-digit stamp, or a
+   day-month-year spelling) as a (year, month, day) tuple or None; _date_scan_all
+   returns every ISO, day-month-year, and written-out date for the text stage's
+   frequency scoring; both match METH_VARARGS and take the current year as the pivot
+   _correct_year expands a two-digit year against. _date_url(url) returns the
+   /YYYY/MM/DD/ date a URL path carries (METH_O). */
+PyObject *turbohtml_date_scan(PyObject *module, PyObject *args);
+PyObject *turbohtml_date_scan_all(PyObject *module, PyObject *args);
+PyObject *turbohtml_date_url(PyObject *module, PyObject *url);
+
 /* Implemented in tokenizer/tokenizer.c. tokenize() matches METH_VARARGS | METH_KEYWORDS;
    the internal conformance hook _tokenize_states matches METH_VARARGS. */
 PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs);

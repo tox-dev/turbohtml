@@ -84,6 +84,15 @@ from ._stubs.dom import (
     parse_fragment as parse_fragment,
 )
 from ._stubs.features import (
+    _date_scan as _date_scan,
+)
+from ._stubs.features import (
+    _date_scan_all as _date_scan_all,
+)
+from ._stubs.features import (
+    _date_url as _date_url,
+)
+from ._stubs.features import (
     _linkify_find as _linkify_find,
 )
 from ._stubs.features import (
