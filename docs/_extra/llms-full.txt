@@ -47,8 +47,7 @@ Every documentation page, grouped by section, with a one-line description. Fetch
 - [Nodes](https://turbohtml.readthedocs.io/en/latest/reference/nodes.html): A parsed tree is made of nodes.
 - [Tokenizer](https://turbohtml.readthedocs.io/en/latest/reference/tokenizer.html): The low-level WHATWG tokenization surface, below tree construction.
 - [Detect](https://turbohtml.readthedocs.io/en/latest/reference/detect.html): Detect the character encoding of bytes without parsing them, a successor to `chardet.detect`, `cchardet.detect`, and `charset_normalizer.from_bytes`.
-- [Query](https://turbohtml.readthedocs.io/en/latest/reference/query.html): Search a tree with the methods on `Node`:
-- [Match](https://turbohtml.readthedocs.io/en/latest/reference/match.html): A soupsieve-shaped CSS matching surface over turbohtml's native selector engine, for code migrating off soupsieve (BeautifulSoup's selector library) or a bs4 `Tag.select` stack.
+- [Query](https://turbohtml.readthedocs.io/en/latest/reference/query.html): Search a tree with the node methods, the pyquery-style `Query`, and a soupsieve-shaped matching surface.
 - [Clean](https://turbohtml.readthedocs.io/en/latest/reference/clean.html): Clean untrusted or raw HTML:
 - [Convert](https://turbohtml.readthedocs.io/en/latest/reference/convert.html): Translate between the query languages turbohtml speaks.
 - [Extract](https://turbohtml.readthedocs.io/en/latest/reference/extract.html): Pull content and data out of HTML.

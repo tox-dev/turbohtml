@@ -1,12 +1,13 @@
 """
-turbohtml.match: a soupsieve-shaped CSS matching surface over the native selector engine.
+The soupsieve-shaped CSS matching surface of :mod:`turbohtml.query`, over the native selector engine.
 
 `soupsieve <https://facelessuser.github.io/soupsieve/>`__ is BeautifulSoup's CSS selector engine. A bs4 stack reaches
 it through ``soupsieve.compile(selector)`` (returning a reusable matcher) and the module-level
 ``select``/``select_one``/``iselect``/``match``/``filter``/``closest`` helpers. turbohtml already matches the same CSS
 through :meth:`~turbohtml.Node.select`/:meth:`~turbohtml.Node.matches`/:meth:`~turbohtml.Node.closest`; this
-module wraps those node methods in the soupsieve call shapes so porting a soupsieve (or bs4 ``Tag.select``) codebase is
-a mechanical import swap rather than a rewrite.
+surface wraps those node methods in the soupsieve call shapes so porting a soupsieve (or bs4 ``Tag.select``) codebase is
+a mechanical import swap rather than a rewrite. It is re-exported from :mod:`turbohtml.query` next to the pyquery-style
+:class:`~turbohtml.query.Query`, the one namespace for searching a tree.
 
 It is a pure-Python facade -- no second engine. :func:`compile` validates the selector once up front (soupsieve
 compiles eagerly), raising :class:`turbohtml.SelectorSyntaxError` for a malformed selector, and the returned

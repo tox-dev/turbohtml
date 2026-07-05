@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml.match import escape_identifier
+from turbohtml.query import escape_identifier
 
 
 @pytest.mark.parametrize(

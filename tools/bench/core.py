@@ -15,7 +15,7 @@ import turbohtml
 from bench.timing import Mutating
 from turbohtml import Markdown as _Markdown
 from turbohtml import clean as _clean
-from turbohtml import match as _match
+from turbohtml import query as _query
 from turbohtml.build import E
 from turbohtml.clean import LinkDetector as _LinkDetector
 from turbohtml.clean import linkify as _linkify
@@ -135,8 +135,8 @@ def select_has(text: str) -> None:
 
 
 def match(text: str) -> None:
-    """Test every anchor against a selector with the soupsieve-shaped turbohtml.match matcher."""
-    matcher = _match.compile(_CSS)
+    """Test every anchor against a selector with the soupsieve-shaped turbohtml.query matcher."""
+    matcher = _query.compile(_CSS)
     for anchor in _parsed(text).find_all("a"):
         matcher.match(anchor)
 

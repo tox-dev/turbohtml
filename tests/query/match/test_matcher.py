@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import Element, parse
-from turbohtml.match import Matching, SelectorSyntaxError, compile, css  # noqa: A004  # the soupsieve entry-point name
+from turbohtml.query import Matching, SelectorSyntaxError, compile, css  # noqa: A004  # the soupsieve entry-point name
 
 _DOC = "<div><a href=x>one</a><span><a href=y>two</a></span><a>bare</a></div>"
 

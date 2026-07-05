@@ -282,7 +282,7 @@ relational lookup keeps the same interned-atom comparison the flat selectors use
     :file: bench/querying-3.json
 
 Per-element matching runs each anchor on the page through a compiled ``div a[href]`` matcher -- the shape a soupsieve
-port hits through :mod:`turbohtml.match` and its :meth:`Matcher.match <turbohtml.match.Matcher.match>` (soupsieve is the
+port hits through :mod:`turbohtml.query` and its :meth:`Matcher.match <turbohtml.query.Matcher.match>` (soupsieve is the
 only competitor with a compiled per-element match). turbohtml answers each test with the same interned-atom comparison
 its ``select`` uses, walking the ancestor chain once per candidate, where soupsieve re-interprets the parsed selector in
 Python per element, so the sweep runs 94 to 155 times faster across these pages.

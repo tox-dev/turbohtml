@@ -1,11 +1,11 @@
 Give the 1.0 public surface one name per concept. A malformed CSS selector now raises a single
 :class:`turbohtml.SelectorSyntaxError` (a :class:`ValueError`) from every parse path -- the native
 :meth:`~turbohtml.Node.select`, :meth:`~turbohtml.Node.matches`, and :meth:`~turbohtml.Node.closest`, the
-:mod:`turbohtml.match` helpers, and :func:`turbohtml.convert.css_to_xpath` -- where the three previously threw
+:mod:`turbohtml.query` helpers, and :func:`turbohtml.convert.css_to_xpath` -- where the three previously threw
 incompatible errors. The two ``Detector`` classes become :class:`turbohtml.detect.EncodingDetector` and
 :class:`turbohtml.clean.LinkDetector`; the linkify callback record becomes :class:`turbohtml.clean.LinkCandidate`,
-leaving the top-level :class:`~turbohtml.Link` record to stand alone; and ``turbohtml.match.escape`` becomes
-:func:`turbohtml.match.escape_identifier`, distinct from the HTML :func:`~turbohtml.escape`. The JavaScript minifier
+leaving the top-level :class:`~turbohtml.Link` record to stand alone; and ``turbohtml.query.escape`` becomes
+:func:`turbohtml.query.escape_identifier`, distinct from the HTML :func:`~turbohtml.escape`. The JavaScript minifier
 joins the other minifiers under :mod:`turbohtml.clean`, so ``minify_js`` and ``JSMinify`` move off the package root to
 :func:`turbohtml.clean.minify_js` and :class:`turbohtml.clean.JSMinify`. The sanitizer and linkifier now take their
 frozen config under the same ``options`` parameter the rest of the surface uses, in place of ``policy`` and ``config``.

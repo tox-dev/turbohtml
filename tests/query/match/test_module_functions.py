@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from turbohtml import Element, parse
-from turbohtml.match import closest, filter, iselect, match, select, select_one  # noqa: A004  # the soupsieve names
+from turbohtml.query import closest, filter, iselect, match, select, select_one  # noqa: A004  # the soupsieve names
 
 _DOC = "<div><a href=x>one</a><span><a href=y>two</a></span></div>"
 

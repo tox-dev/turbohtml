@@ -142,7 +142,7 @@ answer, with the result a browser would pick.
 
 These libraries select nodes with CSS or XPath. turbohtml matches CSS selectors with :meth:`turbohtml.Node.select`,
 evaluates XPath 1.0 with :meth:`turbohtml.Node.xpath`, and exposes a soupsieve-shaped matching surface in
-:doc:`/reference/match`.
+:doc:`/reference/query`.
 
 .. list-table::
     :header-rows: 1

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import turbohtml
-from turbohtml import match
+from turbohtml import query
 from turbohtml.convert import (
     ExpressionError,
     GenericTranslator,
@@ -121,7 +121,7 @@ def test_expression_error(selector: str, match: str) -> None:
 
 
 def test_syntax_error_is_the_one_unified_selector_error() -> None:
-    assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is match.SelectorSyntaxError
+    assert SelectorSyntaxError is turbohtml.SelectorSyntaxError is query.SelectorSyntaxError
     assert issubclass(SelectorSyntaxError, ValueError)
 
 

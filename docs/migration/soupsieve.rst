@@ -13,8 +13,8 @@ adds a few proprietary extensions (``:-soup-contains()``, ``[attr!=value]``, cus
 the default engine that ``bs4`` reaches for, it is installed on essentially every project that scrapes or queries HTML
 in Python.
 
-:mod:`turbohtml.match` covers that same ground with the same call shapes over turbohtml's native selector engine. A port
-swaps ``import soupsieve`` for ``from turbohtml import match`` and keeps its structure: the matcher methods and module
+:mod:`turbohtml.query` covers that same ground with the same call shapes over turbohtml's native selector engine. A port
+swaps ``import soupsieve`` for ``from turbohtml import query`` and keeps its structure: the matcher methods and module
 helpers keep soupsieve's names, and turbohtml parses the HTML itself rather than depending on a separate BeautifulSoup
 tree.
 
@@ -55,14 +55,14 @@ Feature overlap
 
 These port 1:1 -- same names, turbohtml nodes in place of bs4 tags:
 
-- :func:`~turbohtml.match.compile` returning a reusable :class:`~turbohtml.match.Matcher`, the analog of ``SoupSieve``.
-- The module helpers :func:`~turbohtml.match.select`, :func:`~turbohtml.match.select_one`,
-  :func:`~turbohtml.match.iselect`, :func:`~turbohtml.match.match`, :func:`~turbohtml.match.filter`, and
-  :func:`~turbohtml.match.closest`.
-- The same six methods on :class:`~turbohtml.match.Matcher`, plus its ``pattern`` / ``namespaces`` / ``flags``
+- :func:`~turbohtml.query.compile` returning a reusable :class:`~turbohtml.query.Matcher`, the analog of ``SoupSieve``.
+- The module helpers :func:`~turbohtml.query.select`, :func:`~turbohtml.query.select_one`,
+  :func:`~turbohtml.query.iselect`, :func:`~turbohtml.query.match`, :func:`~turbohtml.query.filter`, and
+  :func:`~turbohtml.query.closest`.
+- The same six methods on :class:`~turbohtml.query.Matcher`, plus its ``pattern`` / ``namespaces`` / ``flags``
   properties.
 - ``limit=`` on ``select`` / ``iselect`` to cap the number of matches.
-- :func:`turbohtml.match.escape_identifier` for building a selector around untrusted class or id text.
+- :func:`turbohtml.query.escape_identifier` for building a selector around untrusted class or id text.
 - :class:`turbohtml.SelectorSyntaxError` (a :class:`ValueError`) raised on a malformed selector.
 
 What turbohtml adds
@@ -72,14 +72,14 @@ What turbohtml adds
   Performance).
 - Parsing is built in: :func:`turbohtml.parse` produces the tree the selector runs over, so there is no separate
   BeautifulSoup dependency to install and keep in sync.
-- :func:`~turbohtml.match.css` is a readable alias of :func:`~turbohtml.match.compile` for call sites that read as
+- :func:`~turbohtml.query.css` is a readable alias of :func:`~turbohtml.query.compile` for call sites that read as
   ``css(selector)``.
 - Beyond CSS, the same tree answers :meth:`~turbohtml.Node.find_all` keyword filters (``attrs=``, ``class_=``,
   ``text=``) and :meth:`~turbohtml.Node.xpath` queries.
 - Spec-conformant matching where soupsieve 2.8 diverges: an only child matches a functional ``:nth-child(An+B)``, and
   ``input[type=hidden]`` counts as ``:enabled`` (see Gotchas).
 - No global compile cache to manage, so ``soupsieve.purge()`` has no analog and needs none -- a
-  :class:`~turbohtml.match.Matcher` is the reusable artifact you hold yourself.
+  :class:`~turbohtml.query.Matcher` is the reusable artifact you hold yourself.
 
 What soupsieve has that turbohtml does not
 ==========================================
@@ -127,10 +127,10 @@ Swap the import and parse with turbohtml; the matcher and helper names carry ove
     matcher.select(soup, limit=5)
 
     # turbohtml
-    from turbohtml import match, parse
+    from turbohtml import parse, query
 
     doc = parse(html)
-    matcher = match.compile("li.on a[href]")
+    matcher = query.compile("li.on a[href]")
     matcher.select(doc, limit=5)
 
 Only the trees and the keyword bundle differ; every call name stays.
@@ -140,22 +140,22 @@ Only the trees and the keyword bundle differ; every call name stays.
     :widths: 50 50
 
     - - soupsieve
-      - turbohtml :mod:`~turbohtml.match`
+      - turbohtml :mod:`~turbohtml.query`
     - - ``sv.compile(sel, namespaces, flags)``
-      - :func:`~turbohtml.match.compile` (``namespaces``/``flags`` ride on a frozen :class:`~turbohtml.match.Matching`:
+      - :func:`~turbohtml.query.compile` (``namespaces``/``flags`` ride on a frozen :class:`~turbohtml.query.Matching`:
         ``compile(sel, Matching.soupsieve(namespaces, flags))``)
     - - ``sv.select(sel, tag, limit=n)`` and the other module helpers
-      - the same names taking turbohtml nodes: ``match.select(sel, node, limit=n)``
+      - the same names taking turbohtml nodes: ``query.select(sel, node, limit=n)``
     - - ``SoupSieve.select`` / ``select_one`` / ``iselect`` / ``match`` / ``filter`` / ``closest``
-      - the same methods on :class:`~turbohtml.match.Matcher`
+      - the same methods on :class:`~turbohtml.query.Matcher`
     - - ``SoupSieve.pattern`` / ``.namespaces`` / ``.flags``
-      - the same properties on :class:`~turbohtml.match.Matcher`
+      - the same properties on :class:`~turbohtml.query.Matcher`
     - - ``sv.escape(ident)``
-      - :func:`turbohtml.match.escape_identifier`
+      - :func:`turbohtml.query.escape_identifier`
     - - ``soupsieve.SelectorSyntaxError``
       - :class:`turbohtml.SelectorSyntaxError` (a :class:`ValueError`, matching the native engine)
     - - ``sv.purge()`` (drop the global compile cache)
-      - not needed; there is no global cache, a :class:`~turbohtml.match.Matcher` is the reusable artifact
+      - not needed; there is no global cache, a :class:`~turbohtml.query.Matcher` is the reusable artifact
     - - ``custom={":--name": "..."}`` pseudo-class aliases
       - not supported; inline the aliased selector (``:is(...)`` covers most uses)
 
@@ -163,11 +163,11 @@ A full round-trip, from parse to selection to matching:
 
 .. testcode::
 
-    from turbohtml import match, parse
+    from turbohtml import parse, query
 
     doc = parse('<ul><li class="on"><a href="/a">a</a></li><li><a href="/b">b</a></li></ul>')
-    print([a.attr("href") for a in match.select("li.on a[href]", doc)])
-    print(match.match("li.on", match.compile("li").closest(match.select_one("a", doc))))
+    print([a.attr("href") for a in query.select("li.on a[href]", doc)])
+    print(query.match("li.on", query.compile("li").closest(query.select_one("a", doc))))
 
 .. testoutput::
 

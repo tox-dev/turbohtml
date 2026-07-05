@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml.match import DEBUG, Matching
+from turbohtml.query import DEBUG, Matching
 
 
 def test_default_is_soupsieves_html_mode() -> None:

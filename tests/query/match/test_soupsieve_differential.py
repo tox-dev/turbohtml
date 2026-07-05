@@ -1,4 +1,4 @@
-"""Differential validation of turbohtml.match against soupsieve, BeautifulSoup's CSS engine.
+"""Differential validation of turbohtml.query against soupsieve, BeautifulSoup's CSS engine.
 
 The selector corpus is harvested from soupsieve's own test suite (the ``assert_selector`` calls without ``namespaces``
 or ``custom`` arguments), so it covers the selector shapes soupsieve users actually write: escapes, case flags,
@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import Element, parse
-from turbohtml import match as turbo_match
+from turbohtml import query as turbo_match
 
 soupsieve = pytest.importorskip("soupsieve")
 bs4 = pytest.importorskip("bs4")

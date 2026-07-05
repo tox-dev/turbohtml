@@ -1,13 +1,16 @@
 """
-A pyquery-style fluent, chainable query wrapper over the tree and selector engine.
+turbohtml.query: search a tree, the one namespace for querying nodes.
 
-A thin convenience over the core tree API for code migrating off `pyquery <https://github.com/gawel/pyquery>`_'s
-jQuery-style chaining. A :class:`Query` wraps an ordered, duplicate-free set of elements; the traversal and mutation
-methods each return a :class:`Query`, so calls compose:
-``Query(html)("div").find("a").filter(".x").eq(0).attr("href")``.
+Two facades over the same native CSS and XPath engines sit here. :class:`Query` is a pyquery-style fluent, chainable
+wrapper for code migrating off `pyquery <https://github.com/gawel/pyquery>`_'s jQuery-style chaining: it wraps an
+ordered, duplicate-free set of elements and every traversal and mutation method returns a :class:`Query`, so calls
+compose (``Query(html)("div").find("a").filter(".x").eq(0).attr("href")``). Alongside it, the soupsieve-shaped surface
+(:func:`compile`, :class:`Matcher`, the module-level :func:`select`/:func:`select_one`/:func:`iselect`/:func:`match`/
+:func:`filter`/:func:`closest`, :func:`escape_identifier`, and the :class:`Matching` config) mirrors soupsieve's call
+shapes for a BeautifulSoup port -- see :mod:`turbohtml._match` for the detail.
 
-It is kept out of the core API (which is one-name-per-concept and not chainable) so the chainable surface stays
-optional. The method names are turbohtml's own -- ``add_class`` rather than pyquery's ``addClass`` -- so a migration
+Both are kept out of the core API (which is one-name-per-concept and not chainable) so the extra shapes stay optional.
+The :class:`Query` method names are turbohtml's own -- ``add_class`` rather than pyquery's ``addClass`` -- so a port
 adjusts the spelling but keeps the structure.
 """
 
@@ -16,11 +19,41 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast, overload
 
 from ._html import Document, Element, parse
+from ._match import (
+    DEBUG,
+    Matcher,
+    Matching,
+    SelectorSyntaxError,
+    closest,
+    compile,  # noqa: A004  # the soupsieve entry-point name
+    css,
+    escape_identifier,
+    filter,  # noqa: A004  # the soupsieve entry-point name
+    iselect,
+    match,
+    select,
+    select_one,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-__all__ = ["Query"]
+__all__ = [
+    "DEBUG",
+    "Matcher",
+    "Matching",
+    "Query",
+    "SelectorSyntaxError",
+    "closest",
+    "compile",
+    "css",
+    "escape_identifier",
+    "filter",
+    "iselect",
+    "match",
+    "select",
+    "select_one",
+]
 
 
 def _unique(elements: Iterable[Element]) -> list[Element]:
