@@ -177,6 +177,28 @@ def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # noqa: FBT001
 @pytest.mark.parametrize(
     "payload",
     [
+        # foreign-content start/end asymmetry: </li> synthesizes a sibling on the second parse.
+        pytest.param("<li><math><mtext><li>", id="li-math-mtext-nesting"),
+        # a raw carriage return normalizes to a newline when the sanitized text is reparsed.
+        pytest.param("a&#xd;b", id="cr-normalization"),
+        pytest.param("<div>&#xd;</div>", id="cr-in-element"),
+    ],
+)
+def test_inert_even_when_not_string_idempotent(payload: str) -> None:
+    # These are benign inputs whose sanitized form is *not* byte-identical on a second pass
+    # (foreign-content nesting shifts, CR->LF normalization). Sanitization is single-pass, so the
+    # guarantee is inertness, not string idempotence: no executable construct survives either pass,
+    # even though sanitize(sanitize(x)) != sanitize(x). Consumers must trust the first pass, not reparse.
+    once = sanitize(payload)
+    twice = sanitize(once)
+    assert once != twice, "expected a non-idempotent case; move it to the round-trip corpus if it stabilizes"
+    assert _live_danger(once) == []
+    assert _live_danger(twice) == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
         pytest.param("<select><plaintext></select><img src=x onerror=alert(1)>", id="plaintext-in-select"),
         pytest.param("<plaintext><img src=x onerror=alert(1)>", id="bare-plaintext"),
     ],

@@ -22,3 +22,16 @@ non-overridable baseline drops scripting and ``javascript:`` URLs no matter what
 .. testoutput::
 
     <p>Hi <a>link</a></p>&lt;script&gt;evil()&lt;/script&gt;
+
+**************************************
+ Trust the first pass, do not reparse
+**************************************
+
+Sanitizing is a single parse pass, like DOMPurify. Its output is safe to insert into a DOM as it stands. Do not parse it
+again with a different engine or in a different context and then trust that second tree.
+
+HTML parsing is not a fixpoint: serialize a tree and reparse it, and you can get a different tree. In foreign content a
+``</p>`` or ``</br>`` end tag builds an HTML element *inside* the SVG/MathML root, while the matching start tag on a
+later parse breaks *out* of it; a raw carriage return in text also becomes a newline on reparse. ``sanitize`` resolves
+all of that in its one pass, so the string it returns is inert. Reparsing and reserializing that string can yield a
+different string that is still inert. The guarantee is inertness, not byte-stable output across a round trip.
