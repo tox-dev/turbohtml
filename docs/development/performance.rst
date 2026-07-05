@@ -21,7 +21,10 @@ benchmarks each competitor in its own isolated ``uv`` venv -- turbohtml in a ven
 so one library's dependency pins never perturb another's. Every table below is one harness operation, so each is
 reproducible with ``tox -e bench <command>``, where the command is ``core`` (turbohtml's own baseline for every
 operation), an operation name (the cross-competitor table), a package name (that competitor's own report), or ``all``.
-Most operations are a single call; a few aggregate workloads (``build``, ``build-e``) sweep a size, and the
+By default the turbohtml baseline is a plain wheel, which builds quickly for iterating; pass ``--pgo`` before the
+command (``tox -e bench -- --pgo core``) to build it instead with the shipped profile-guided, link-time-optimized
+release recipe, so the baseline reads as what a release ships rather than a plain build, at the cost of a much slower
+build. Most operations are a single call; a few aggregate workloads (``build``, ``build-e``) sweep a size, and the
 ``construct`` and ``emit`` breakdowns decompose that write path into the constructor and the serializer in isolation.
 Numbers vary with input and hardware.
 

@@ -17,6 +17,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pgo_build
+import tomllib
+
 from bench import operations, report
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +80,24 @@ def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...]) -> Path:
     return python
 
 
+def _core_python(workdir: Path, *, pgo: bool) -> Path:
+    """
+    Provision the turbohtml baseline venv, plain by default or with the shipped PGO+LTO release recipe when ``pgo``.
+
+    The plain path installs the wheel :func:`_build_wheel` builds -- fast, good for iterating. The ``pgo`` path instead
+    reproduces what ships: the venv gets the build backend, then :func:`pgo_build.build` drives the two-phase
+    profile-guided, link-time-optimized editable install (``--no-build-isolation``, so the backend has to live in the
+    venv), leaving the baseline measured against a release-representative binary.
+    """
+    if not pgo:
+        return _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    build_backend = tuple(pyproject["build-system"]["requires"])
+    python = _venv_python(workdir, "core", build_backend)
+    pgo_build.build(str(python), workdir / "core-pgo-build", _REPO_ROOT, "full", system=False)
+    return python
+
+
 def _run_worker(
     python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float]]:
@@ -112,23 +133,22 @@ def _try_competitor(
     return _run_worker(python, competitor, operation, workdir, pyperf_args)
 
 
-def report_operation(operation: str, pyperf_args: tuple[str, ...]) -> None:
+def report_operation(operation: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        wheel = _build_wheel(workdir)
-        stats = _run_worker(_venv_python(workdir, "core", (str(wheel),)), "core", operation, workdir, pyperf_args)
+        stats = _run_worker(_core_python(workdir, pgo=pgo), "core", operation, workdir, pyperf_args)
         for competitor in _packages_for(operation):
             stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
         report.render(operation, stats)
 
 
-def report_package(competitor: str, pyperf_args: tuple[str, ...]) -> None:
+def report_package(competitor: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
     """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
     reqs, operation_names = COMPETITORS[competitor]
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        core_python = _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
+        core_python = _core_python(workdir, pgo=pgo)
         competitor_python = _venv_python(workdir, competitor, reqs)
         for operation in operation_names:
             stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
@@ -136,16 +156,16 @@ def report_package(competitor: str, pyperf_args: tuple[str, ...]) -> None:
             report.render(operation, stats)
 
 
-def report_core(pyperf_args: tuple[str, ...]) -> None:
+def report_core(pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
     """Render turbohtml's own baseline for every operation in a turbohtml-only venv."""
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        python = _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
+        python = _core_python(workdir, pgo=pgo)
         for operation in operations.OPERATIONS:
             report.render(operation, _run_worker(python, "core", operation, workdir, pyperf_args))
 
 
-def run(command: str, pyperf_args: tuple[str, ...] = ()) -> None:
+def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -> None:
     """Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker."""
     print(
         "tip: for low-noise results run `pyperf system tune` first (and `sudo pyperf system reset` after); pass "
@@ -153,14 +173,14 @@ def run(command: str, pyperf_args: tuple[str, ...] = ()) -> None:
         file=sys.stderr,
     )
     if command == "core":
-        report_core(pyperf_args)
+        report_core(pyperf_args, pgo=pgo)
     elif command == "all":
         for operation in operations.OPERATIONS:
-            report_operation(operation, pyperf_args)
+            report_operation(operation, pyperf_args, pgo=pgo)
     elif command in COMPETITORS:
-        report_package(command, pyperf_args)
+        report_package(command, pyperf_args, pgo=pgo)
     elif command in operations.OPERATIONS:
-        report_operation(command, pyperf_args)
+        report_operation(command, pyperf_args, pgo=pgo)
     else:
         choices = ", ".join(["core", "all", *operations.OPERATIONS, *COMPETITORS])
         msg = f"unknown command {command!r}; choose one of: {choices}"
