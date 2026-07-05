@@ -74,5 +74,6 @@ The documentation follows the `Diátaxis <https://diataxis.fr>`_ framework.
     reference
     explanation/index
     development/index
+    how-this-was-built
     changelog
     license
