@@ -253,7 +253,10 @@ builtin = "clear,usage,en-GB_to_en-US"
 # januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary),
 # shttp (a scheme in urllib's uses_relative list the URL join guard mirrors)
 ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp"
-skip = "*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h"  # generated tables of HTML5 / IANA / CSS / PSL / language names
+skip = """\
+  */html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h,*/idna_t\
+  able.h,*/IdnaTestV2.txt\
+  """  # generated tables of HTML5 / IANA / CSS / PSL / language names, plus the Unicode IDNA table and its test vectors
 count = true
 quiet-level = 3
 

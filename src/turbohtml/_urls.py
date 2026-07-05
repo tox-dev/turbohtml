@@ -18,7 +18,15 @@ from functools import lru_cache
 from typing import Final, NamedTuple
 from urllib.parse import urlunsplit
 
-from ._html import _registrable_domain, _url_join, _url_percent_decode, _url_percent_encode, _url_split, parse
+from ._html import (
+    _registrable_domain,
+    _url_join,
+    _url_percent_decode,
+    _url_percent_encode,
+    _url_split,
+    _url_to_ascii,
+    parse,
+)
 
 __all__ = [
     "UrlCleaning",
@@ -375,16 +383,16 @@ def _port_suffix(parts: _Split, scheme: str) -> str:
     return "" if port == _DEFAULT_PORTS.get(scheme) else f":{port}"
 
 
-@lru_cache(maxsize=1024)  # a crawl resolves the same hosts over and over, and the IDNA codec is the pass's hot spot
+@lru_cache(maxsize=1024)  # a crawl resolves the same hosts over and over, and domain-to-ASCII is the pass's hot spot
 def _ascii_host(host: str) -> str:
-    """Lowercase a domain and convert a Unicode one to punycode (domain-to-ASCII, spec 3.5), best effort."""
+    """Convert a Unicode host to its ASCII (punycode) form the way the URL standard's host parser does (spec 3.5)."""
     lowered = host.lower()
     if lowered.isascii():
         return lowered
     try:
-        # Python's idna codec implements IDNA 2003 rather than the spec's UTS #46, close enough for canonical output
-        return lowered.encode("idna").decode("ascii")
-    except UnicodeError:
+        # UTS #46 ToASCII (Transitional_Processing=false) in C, the spec's domain-to-ASCII, not the IDNA-2003 idna codec
+        return _url_to_ascii(lowered)
+    except ValueError:  # a label carries a code point punycode cannot encode (an unpaired surrogate)
         return lowered
 
 

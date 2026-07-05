@@ -22,7 +22,7 @@ from turbohtml.extract import UrlCleaning, clean_url, normalize_url
         pytest.param("http://[::1]:/", "http://[::1]/", id="ipv6-empty-port"),
         pytest.param("http://user:pw@Example.ORG/x", "http://user:pw@example.org/x", id="userinfo-kept-verbatim"),
         pytest.param("http://münchen.de", "http://xn--mnchen-3ya.de/", id="unicode-host-to-punycode"),
-        pytest.param("http://münchen..de/x", "http://münchen..de/x", id="unencodable-host-kept-lowercase"),
+        pytest.param("http://münchen..de/x", "http://xn--mnchen-3ya..de/x", id="empty-label-still-encoded"),
         pytest.param(
             "http://www.example.org:80?p=123", "http://www.example.org/?p=123", id="empty-path-serialized-as-root"
         ),

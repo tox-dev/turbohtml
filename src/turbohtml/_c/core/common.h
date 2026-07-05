@@ -89,6 +89,14 @@ PyObject *turbohtml_url_percent_decode(PyObject *module, PyObject *arg);
 PyObject *th_url_join(PyObject *base, PyObject *target);
 PyObject *turbohtml_url_join(PyObject *module, PyObject *args);
 
+/* Implemented in url/idna.c. th_url_to_ascii runs the WHATWG domain-to-ASCII step (Unicode IDNA ToASCII, UTS #46 with
+   Transitional_Processing=false and UseSTD3ASCIIRules=false): UTS #46 mapping, NFC, and per-label punycode. _urls.py
+   reaches _url_to_ascii(host) for its registered-name hosts instead of the IDNA-2003 str.encode("idna") codec; the host
+   is a borrowed str, the result a new ASCII str, NULL with a ValueError when a label holds a code point punycode cannot
+   encode (an unpaired surrogate). METH_O. */
+PyObject *th_url_to_ascii(PyObject *host);
+PyObject *turbohtml_url_to_ascii(PyObject *module, PyObject *arg);
+
 /* Implemented in sanitize.c. _sanitize filters a parsed fragment in place against
    a policy; signature matches METH_VARARGS. turbohtml_node_borrow is implemented
    in dom/node.c and lends sanitize.c the tree+node a Python element wraps. */

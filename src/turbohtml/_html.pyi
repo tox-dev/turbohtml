@@ -120,6 +120,9 @@ from ._stubs.features import (
     _url_split as _url_split,
 )
 from ._stubs.features import (
+    _url_to_ascii as _url_to_ascii,
+)
+from ._stubs.features import (
     annotation_surface as annotation_surface,
 )
 from ._stubs.features import (

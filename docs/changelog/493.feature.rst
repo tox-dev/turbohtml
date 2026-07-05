@@ -1,0 +1,7 @@
+Convert a Unicode host to its ASCII (punycode) form with Unicode IDNA ``ToASCII`` (UTS #46) in the C extension, the
+domain-to-ASCII step the WHATWG URL Standard's host parser runs, replacing Python's ``str.encode("idna")`` IDNA 2003
+codec behind :func:`~turbohtml.extract.normalize_url`, :func:`~turbohtml.extract.clean_url`, and
+:func:`~turbohtml.extract.extract_links`. RFC 3492 punycode, the UTS #46 mapping step, Normalization Form C, and
+per-label encoding run over tables generated from the pinned Unicode 16.0.0 release. Where UTS #46 is more correct than
+IDNA 2003 the output changes: ``faß.de`` keeps its ess-zett as ``xn--fa-hia.de`` instead of folding to ``fass.de``, a
+Greek final sigma survives, and a host with an empty label still encodes. Part of #478.
