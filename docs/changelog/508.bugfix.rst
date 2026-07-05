@@ -1,0 +1,4 @@
+The HTML tokenizer now detects duplicate attribute names through a per-tag hash index instead of scanning every earlier
+attribute, so a start tag carrying many distinct names costs O(n) rather than O(n^2). A 2 MB tag of distinct attributes
+took tens of seconds to parse before and now takes tens of milliseconds, closing a small-input denial of service.
+Duplicate names still collapse to the first occurrence. part of #478

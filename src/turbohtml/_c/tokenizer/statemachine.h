@@ -42,7 +42,8 @@ typedef struct {
 typedef struct {
     th_buf name;
     th_buf value;
-    int has_value; /* 0 for a valueless attribute (maps to None in Python) */
+    int has_value;      /* 0 for a valueless attribute (maps to None in Python) */
+    uint32_t name_hash; /* FNV-1a of the name, for O(1) duplicate detection */
 } th_attr;
 
 /* One completed token. Buffers are owned and reused across tokens via reset;

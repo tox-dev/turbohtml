@@ -185,6 +185,17 @@ enum state {
     ST_CDATA_END,
 };
 
+/* One open-addressing slot in the per-tag duplicate-attribute index. A slot is
+   occupied only when its epoch matches the tokenizer's current attr_epoch, so a
+   new tag "clears" the whole table by bumping the epoch -- an O(1) reset that a
+   per-tag memset over a table grown to the largest tag ever seen would itself
+   turn quadratic. index points into tok.attrs; the name hash lives on the
+   attribute (th_attr.name_hash). */
+typedef struct {
+    uint64_t epoch;
+    Py_ssize_t index;
+} th_attr_slot;
+
 struct th_tokenizer {
     enum state state;
     int oom;                /* an allocation failed; reported once as TH_STEP_ERROR */
@@ -218,8 +229,13 @@ struct th_tokenizer {
     th_token tok;     /* tag/comment/doctype under construction */
     th_attr *attr;    /* attribute under construction (points into tok.attrs) */
     th_attr oom_attr; /* writable sink for attribute data after an allocation failure */
-    th_buf last_tag;  /* last emitted start tag name, for appropriate end tags */
-    th_buf temp;      /* spec "temporary buffer" for raw-text end tags and script */
+
+    th_attr_slot *attr_seen;  /* per-tag open-addressing set of kept attribute names */
+    Py_ssize_t attr_seen_cap; /* power-of-two slot count, 0 until the first attribute */
+    uint64_t attr_epoch;      /* current tag generation; other epochs mark empty slots */
+
+    th_buf last_tag; /* last emitted start tag name, for appropriate end tags */
+    th_buf temp;     /* spec "temporary buffer" for raw-text end tags and script */
 
     th_token text_record;    /* materialized text run handed to the caller */
     th_token charref_record; /* an unresolved character reference handed out */
@@ -398,6 +414,7 @@ void th_tok_free(th_tokenizer *self) {
     buf_free(&self->oom_attr.value);
     buf_free(&self->last_tag);
     buf_free(&self->temp);
+    PyMem_Free(self->attr_seen);
     PyMem_Free(self);
 }
 
@@ -685,30 +702,98 @@ static void new_attr(th_tokenizer *self) {
     self->attr = attr;
 }
 
-/* Two attribute names are the same when they hold identical code points;
-   minimal-kind storage means equal content always shares a width, so the kind
-   guard both keeps the memcmp well-defined and rejects same-length-different-width
-   names that cannot be equal. */
+/* Two attribute names are the same when they hold identical code points. Reading
+   per code point compares across storage widths without a width guard, so a hash
+   collision between a narrow and a wide name of equal length still resolves
+   correctly. */
 static int attr_name_dup(const th_attr *a, const th_attr *b) {
-    return a->name.len == b->name.len && a->name.kind == b->name.kind &&
-           memcmp(a->name.data, b->name.data, (size_t)(a->name.len * a->name.kind)) == 0;
+    if (a->name.len != b->name.len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < a->name.len; index++) {
+        if (PyUnicode_READ(a->name.kind, a->name.data, index) != PyUnicode_READ(b->name.kind, b->name.data, index)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* FNV-1a over a name's raw storage bytes. Equal names share width and content
+   (buffers reset to the 1-byte kind and promote only on demand), so equal names
+   always hash equal; a hash collision between distinct names is resolved by
+   attr_name_dup. */
+static uint32_t attr_name_hash(const th_buf *name) {
+    const unsigned char *bytes = name->data;
+    Py_ssize_t count = name->len * name->kind;
+    uint32_t hash = 2166136261u;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        hash = (hash ^ bytes[index]) * 16777619u;
+    }
+    return hash;
+}
+
+/* Return 1 when the tag already carries attrs[cur]'s name, else record cur and
+   return 0. Open addressing keyed by the name hash keeps duplicate detection
+   O(1) amortized, so a tag with n distinct attributes costs O(n) rather than the
+   O(n^2) a pairwise scan would pay on adversarial input. When the table crosses
+   half full it doubles and re-seats attrs[0, cur) -- which by construction are
+   exactly the distinct names kept so far, since a dropped duplicate never holds
+   a permanent slot; the fresh table is zeroed to epoch 0, which no tag uses. */
+static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
+    const th_attr *attrs = self->tok.attrs;
+    if (cur * 2 >= self->attr_seen_cap) { /* keep the load factor <= 1/2 */
+        Py_ssize_t cap = self->attr_seen_cap ? self->attr_seen_cap * 2 : 16;
+        th_attr_slot *table = PyMem_New(th_attr_slot, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            self->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memset(table, 0, (size_t)cap * sizeof(*table));
+        PyMem_Free(self->attr_seen);
+        self->attr_seen = table;
+        self->attr_seen_cap = cap;
+        Py_ssize_t rmask = cap - 1;
+        for (Py_ssize_t index = 0; index < cur; index++) {
+            Py_ssize_t rslot = (Py_ssize_t)(attrs[index].name_hash & (uint32_t)rmask);
+            while (table[rslot].epoch == self->attr_epoch) {
+                rslot = (rslot + 1) & rmask;
+            }
+            table[rslot].epoch = self->attr_epoch;
+            table[rslot].index = index;
+        }
+    }
+    Py_ssize_t mask = self->attr_seen_cap - 1;
+    Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
+    while (self->attr_seen[slot].epoch == self->attr_epoch) {
+        if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
+            return 1;
+        }
+        slot = (slot + 1) & mask;
+    }
+    self->attr_seen[slot].epoch = self->attr_epoch;
+    self->attr_seen[slot].index = cur;
+    return 0;
 }
 
 /* Per WHATWG, on leaving the attribute name state: if the token already carries
    an attribute with this exact name it is a duplicate-attribute parse error and
    the new attribute is dropped, so the first occurrence wins. The dropped slot's
    value is routed to the oom sink so the value states keep writing into valid
-   storage. */
+   storage. The first attribute of each tag bumps the epoch, which clears the
+   duplicate index in O(1) without walking the table. */
 static void finish_attr_name(th_tokenizer *self) {
     th_token *tok = &self->tok;
     Py_ssize_t cur = tok->attr_count - 1;
-    for (Py_ssize_t index = 0; index < cur; index++) {
-        if (attr_name_dup(&tok->attrs[index], &tok->attrs[cur])) {
-            tok_error(self, "duplicate-attribute");
-            tok->attr_count = cur;
-            self->attr = &self->oom_attr;
-            return;
-        }
+    if (cur == 0) {
+        /* a tag's first attribute starts a fresh epoch, clearing the duplicate index in
+           O(1); a 64-bit counter bumped once per tag cannot wrap in any real run */
+        self->attr_epoch++;
+    }
+    tok->attrs[cur].name_hash = attr_name_hash(&tok->attrs[cur].name);
+    if (attr_seen_probe(self, cur)) {
+        tok_error(self, "duplicate-attribute");
+        tok->attr_count = cur;
+        self->attr = &self->oom_attr;
     }
 }
 
