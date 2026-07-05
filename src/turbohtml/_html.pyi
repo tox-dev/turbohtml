@@ -210,6 +210,9 @@ from ._stubs.tokenizer import (
     TokenType as TokenType,
 )
 from ._stubs.tokenizer import (
+    _grow_probe as _grow_probe,
+)
+from ._stubs.tokenizer import (
     _tokenize_states as _tokenize_states,
 )
 from ._stubs.tokenizer import (

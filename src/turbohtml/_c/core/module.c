@@ -7,8 +7,27 @@
    APIs, so they build on CPython 3.10 through 3.15. */
 
 #include "core/common.h"
+#include "core/vec.h"
 
 #include "tokenizer/binding.h"
+
+/* Drive th_grow_cap directly so a test covers its size-overflow guards. Every reserve site shares
+   those arms, but none can reach them through a real append, since they need a length no allocation
+   could hold. Returns (grew, capacity, byte_size). */
+static PyObject *turbohtml_grow_probe(PyObject *module, PyObject *args) {
+    (void)module;
+    unsigned long long needed;
+    unsigned long long current;
+    unsigned long long initial;
+    unsigned long long elem_size;
+    if (!PyArg_ParseTuple(args, "KKKK", &needed, &current, &initial, &elem_size)) {
+        return NULL;
+    }
+    size_t cap = 0;
+    size_t bytes = 0;
+    int grew = th_grow_cap((size_t)needed, (size_t)current, (size_t)initial, (size_t)elem_size, &cap, &bytes);
+    return Py_BuildValue("(iKK)", grew, (unsigned long long)cap, (unsigned long long)bytes);
+}
 
 PyDoc_STRVAR(escape_doc, "escape(s, quote=True)\n--\n\n"
                          "Replace special characters \"&\", \"<\" and \">\" with HTML-safe sequences.\n\n"
@@ -148,6 +167,7 @@ static PyMethodDef html_methods[] = {
     {"_url_join", turbohtml_url_join, METH_VARARGS, NULL},
     {"_url_to_ascii", turbohtml_url_to_ascii, METH_O, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
+    {"_grow_probe", turbohtml_grow_probe, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
