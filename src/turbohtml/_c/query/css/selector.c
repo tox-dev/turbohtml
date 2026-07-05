@@ -998,6 +998,39 @@ void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parse
                  parser->err_pos);
 }
 
+/* Whether any compound in the list carries a :has(), recursing through the nested
+   lists of :is()/:where()/:not()/:has() so a :has() buried inside them still counts.
+   The result drives whether a query allocates the :has() subtree memo at all. */
+static int sel_alts_have_has(const sel_complex *alts, int count);
+
+static int sel_compound_has_has(const sel_compound *compound) {
+    for (int index = 0; index < compound->count; index++) {
+        const sel_simple *simple = &compound->simples[index];
+        if (simple->kind != ':') {
+            continue;
+        }
+        if (simple->pseudo == PSEUDO_HAS) {
+            return 1;
+        }
+        if (simple->sub != NULL && sel_alts_have_has(simple->sub, simple->sub_count)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int sel_alts_have_has(const sel_complex *alts, int count) {
+    for (int index = 0; index < count; index++) {
+        const sel_complex *complex = &alts[index];
+        for (int compound = 0; compound < complex->count; compound++) {
+            if (sel_compound_has_has(&complex->compounds[compound])) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 /* Compile a selector string against the tree it will run on. Returns NULL with a
    SelectorSyntaxError set on a syntax error. */
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
@@ -1019,6 +1052,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
         PyMem_Free(compiled);
         return NULL;
     }
+    compiled->has_relational = sel_alts_have_has(compiled->alts, compiled->count);
     return compiled;
 }
 
@@ -1858,6 +1892,161 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
     return 0;
 }
 
+/* Mix the two stable heap pointers into a slot index; drop the always-zero low
+   alignment bits before folding so they do not collapse onto one bucket. */
+static size_t sel_has_hash(const sel_complex *rel, const th_node *node, size_t mask) {
+    uintptr_t mixed = ((uintptr_t)rel >> 4) * 0x9E3779B97F4A7C15u ^ ((uintptr_t)node >> 4) * 0xC2B2AE3D27D4EB4Fu;
+    return (size_t)(mixed >> 32) & mask;
+}
+
+/* Linear-probe from (rel, node)'s home slot to the slot holding that key or, if absent,
+   the first empty slot it would occupy (the table is never full, so an empty slot always
+   exists). Shared by get and insert so one probe loop carries both. */
+static size_t sel_has_memo_find(const sel_has_memo *memo, const sel_complex *rel, const th_node *node) {
+    size_t idx = sel_has_hash(rel, node, memo->mask);
+    while (memo->slots[idx].rel != NULL && (memo->slots[idx].rel != rel || memo->slots[idx].node != node)) {
+        idx = (idx + 1) & memo->mask;
+    }
+    return idx;
+}
+
+/* Look up (rel, node); on a hit store the cached result in *out and return 1. */
+static int sel_has_memo_get(const sel_has_memo *memo, const sel_complex *rel, const th_node *node, int *out) {
+    if (memo->slots == NULL) {
+        return 0;
+    }
+    const sel_has_slot *slot = &memo->slots[sel_has_memo_find(memo, rel, node)];
+    if (slot->rel == NULL) {
+        return 0;
+    }
+    *out = slot->result;
+    return 1;
+}
+
+/* Insert a (rel, node) slot, assuming no matching key is present (the caller only
+   inserts after a get miss), so the found slot is the empty one it belongs in. */
+static void sel_has_memo_insert(sel_has_memo *memo, const sel_complex *rel, const th_node *node, unsigned char result) {
+    memo->slots[sel_has_memo_find(memo, rel, node)] = (sel_has_slot){rel, node, result};
+    memo->count++;
+}
+
+/* Grow (or first-allocate) the table to the next power of two and rehash. On
+   allocation failure sets memo->failed so the matcher falls back to the direct walk. */
+static void sel_has_memo_grow(sel_has_memo *memo) {
+    size_t new_cap = memo->slots == NULL ? 64 : (memo->mask + 1) * 2;
+    sel_has_slot *slots = PyMem_Calloc(new_cap, sizeof(sel_has_slot));
+    if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: a calloc failure cannot be forced from a test */
+        memo->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;           /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    sel_has_slot *old_slots = memo->slots;
+    size_t old_cap = memo->slots == NULL ? 0 : memo->mask + 1;
+    memo->slots = slots;
+    memo->mask = new_cap - 1;
+    memo->count = 0;
+    for (size_t idx = 0; idx < old_cap; idx++) {
+        if (old_slots[idx].rel != NULL) {
+            sel_has_memo_insert(memo, old_slots[idx].rel, old_slots[idx].node, old_slots[idx].result);
+        }
+    }
+    PyMem_Free(old_slots);
+}
+
+/* Cache a (rel, node) subtree-contains-match result, growing past a 0.75 load factor. */
+static void sel_has_memo_put(sel_has_memo *memo, const sel_complex *rel, const th_node *node, int result) {
+    if ((memo->count + 1) * 4 > (memo->mask + 1) * 3) {
+        sel_has_memo_grow(memo);
+        if (memo->failed) { /* GCOVR_EXCL_BR_LINE: growth only fails on unforceable allocation failure */
+            return;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    sel_has_memo_insert(memo, rel, node, (unsigned char)(result != 0));
+}
+
+void sel_has_memo_free(sel_has_memo *memo) {
+    PyMem_Free(memo->slots);
+    memo->slots = NULL;
+    memo->mask = 0;
+    memo->count = 0;
+}
+
+/* Whether the relative selector rel writes :scope anywhere (directly or inside a
+   nested functional pseudo). A written :scope binds to the tested anchor, so its match
+   depends on which anchor is asking and the anchor-independent subtree memo cannot be
+   used; such a rel keeps the direct per-anchor walk. */
+static int sel_rel_uses_scope(const sel_complex *rel);
+
+static int sel_compound_uses_scope(const sel_compound *compound) {
+    for (int index = 0; index < compound->count; index++) {
+        const sel_simple *simple = &compound->simples[index];
+        if (simple->kind != ':') {
+            continue;
+        }
+        if (simple->pseudo == PSEUDO_SCOPE) {
+            return 1;
+        }
+        if (simple->sub != NULL) {
+            for (int alt = 0; alt < simple->sub_count; alt++) {
+                if (sel_rel_uses_scope(&simple->sub[alt])) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int sel_rel_uses_scope(const sel_complex *rel) {
+    for (int index = 0; index < rel->count; index++) {
+        if (sel_compound_uses_scope(&rel->compounds[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The memo only earns its keep where nesting is deep enough that candidate anchors'
+   subtrees overlap heavily -- there the re-walk factor (how many nested anchors re-scan
+   a node) dwarfs a hash probe. Shallower than this the direct walk wins, so a candidate
+   at descent `descent` below the tested anchor consults/populates the memo only past
+   this many levels. Real markup nests ~8-18 deep (the benchmark pages top out at 18), so
+   its :has() subtrees never touch the hash and cost exactly what the pre-memo walk did,
+   while a deep nested chain -- the O(n^2) trigger -- collapses to amortized O(1) per
+   candidate. Each anchor pays at most this many un-memoized levels before it reaches a
+   populated deeper node, bounding its work at O(depth) total. */
+#define SEL_HAS_MEMO_MIN_DESCENT 24
+
+/* Whether node's subtree (its strict descendants) holds an element matching comp, the
+   lone compound of a descendant :has() argument such as :has(a). The result is a pure
+   function of the subtree, so it is memoized per (rel, node): each node's children are
+   scanned once across the whole query, turning the per-anchor O(subtree) re-walk that
+   made nested :has() quadratic into an amortized O(1) memo hit. descent is how far node
+   sits below the anchor; the memo is consulted only past SEL_HAS_MEMO_MIN_DESCENT so a
+   shallow match costs no more than the plain recursion (which this reduces to when there
+   is no memo, the memo can no longer grow, or the descent is still shallow). */
+static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compound *comp, const sel_ctx *ctx,
+                        int descent) {
+    int deep = descent >= SEL_HAS_MEMO_MIN_DESCENT;
+    int cached;
+    if (deep && sel_has_memo_get(ctx->has_memo, rel, node, &cached)) {
+        return cached;
+    }
+    int result = 0;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (sel_match_compound(child, comp, ctx) || sel_has_desc(child, rel, comp, ctx, descent + 1)) {
+            result = 1;
+            break;
+        }
+    }
+    if (deep) {
+        sel_has_memo_put(ctx->has_memo, rel, node, result);
+    }
+    return result;
+}
+
 /* Whether any element in the subtree below node is the subject of rel anchored at
    anchor (the element :has() is testing), checked recursively in document order. */
 static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
@@ -1880,10 +2069,22 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx) {
     /* inside a :has() relative selector the scope element is the anchor, so a written
        :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431) */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks};
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
+        /* the common shape -- a single descendant compound like :has(a) -- reduces to
+           "the anchor's subtree contains an element matching the compound", which is
+           independent of the anchor (no leading sibling reach, no :scope), so the
+           memoized subtree walk collapses the quadratic per-anchor re-scan */
+        char lead_combinator = rel->compounds[0].combinator;
+        if (scoped.has_memo != NULL && rel->count == 1 && lead_combinator != '>' && lead_combinator != '+' &&
+            lead_combinator != '~' && !sel_rel_uses_scope(rel)) {
+            if (sel_has_desc(anchor, rel, &rel->compounds[0], &scoped, 0)) {
+                return 1;
+            }
+            continue;
+        }
         if (sel_has_subtree(anchor, rel, subject, anchor, &scoped)) {
             return 1;
         }
@@ -1913,10 +2114,26 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
     return 0;
 }
 
-/* scope is the element :scope matches: the node the query was rooted at. */
+/* scope is the element :scope matches: the node the query was rooted at. A single
+   test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
+}
+
+/* Match against a caller-owned context, so a driver looping over many candidates can
+   share one :has() subtree memo (ctx->has_memo) across the whole walk. */
+int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ctx *ctx) {
+    return sel_matches_alts(node, compiled->alts, compiled->count, ctx);
+}
+
+/* Whether a query over this compiled selector should build the :has() subtree memo: the
+   selector must contain a :has(), and the tree must nest at least SEL_HAS_MEMO_MIN_DESCENT
+   deep -- only then does a candidate anchor's subtree re-walk (the O(n^2) source) reach far
+   enough to memoize. On shallower trees the direct walk already wins, so the driver leaves
+   ctx->has_memo NULL and the matcher runs the exact pre-memo path with no added per-node cost. */
+int selector_uses_has_memo(const sel_compiled *compiled) {
+    return compiled->has_relational && th_tree_max_depth(compiled->tree) >= SEL_HAS_MEMO_MIN_DESCENT;
 }
 
 /* The lone simple selector of a selector that is one group, one compound, one

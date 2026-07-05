@@ -34,7 +34,9 @@ struct th_tree {
     th_node **open; /* stack of open elements */
     Py_ssize_t open_len;
     Py_ssize_t open_cap;
-    th_node **afe; /* active formatting elements; NULL entry is a scope marker */
+    Py_ssize_t max_depth; /* peak open-element nesting seen while parsing; a cheap O(1)
+                             lower bound on element depth that gates the :has() subtree memo */
+    th_node **afe;        /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;
     Py_ssize_t afe_cap;
     th_node *head;          /* the <head> element once inserted */

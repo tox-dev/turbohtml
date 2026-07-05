@@ -644,6 +644,97 @@ def test_has_skips_non_element_following_sibling() -> None:
     assert [element.tag for element in doc.select("section:has(~ aside b)")] == ["section"]
 
 
+def _nested_divs(depth: int, leaf: str = "<a>x</a>") -> str:
+    # a straight chain of `depth` <div>s wrapping leaf: the shape whose per-anchor :has()
+    # subtree re-walk is O(depth^2) without the memo. At depth >= 24 (the memo's engage
+    # threshold) select() builds the subtree memo, so this drives every memo branch.
+    return f"<body>{'<div>' * depth}{leaf}{'</div>' * depth}</body>"
+
+
+# depth 30 crosses the engage threshold; depth 90 fills enough deep slots to force the
+# memo hash to grow and rehash. Both must return exactly what the direct walk would.
+@pytest.mark.parametrize(
+    "depth", [pytest.param(30, id="depth-30-engages-memo"), pytest.param(90, id="depth-90-regrows")]
+)
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        # every div's subtree holds the leaf <a>: a match at each of the `depth` anchors,
+        # nested anchors reusing the memoized deeper results
+        pytest.param("div:has(a)", "all", id="descendant-all-match"),
+        # a functional-pseudo argument with no :scope stays on the memo path
+        pytest.param("div:has(:is(a))", "all", id="is-argument-uses-memo"),
+        # a subject the tree never holds: every anchor's subtree walk memoizes a miss
+        pytest.param("div:has(b)", "none", id="descendant-no-match"),
+        # a child-combinator argument keeps the direct walk (count stays linear already);
+        # every div but the innermost has a child div
+        pytest.param("div:has(> div)", "all-but-last", id="child-keeps-direct-walk"),
+        # a :scope in the argument binds to the anchor, so the memo (anchor-independent)
+        # is skipped and the direct walk runs even on a deep tree
+        pytest.param("div:has(:scope)", "none", id="scope-argument-skips-memo"),
+        pytest.param("div:has(:is(:scope))", "none", id="nested-scope-skips-memo"),
+        pytest.param("div:has(a:scope)", "none", id="typed-scope-skips-memo"),
+    ],
+)
+def test_has_memo_deep_chain(depth: int, selector: str, expected: str) -> None:
+    counts = {"all": depth, "none": 0, "all-but-last": depth - 1}
+    assert len(parse(_nested_divs(depth)).select(selector)) == counts[expected]
+
+
+def test_has_memo_deep_sibling_chains() -> None:
+    # two sibling deep chains: the first populates the memo, so the second's anchors
+    # probe a non-empty table for keys it does not hold (the get-miss + linear-probe
+    # path) before filling in their own subtree results. Every div still matches.
+    chain = f"{'<div>' * 40}<a>x</a>{'</div>' * 40}"
+    doc = parse(f"<body>{chain}{chain}</body>")
+    assert len(doc.select("div:has(a)")) == 80
+
+
+# a deep tree so the memo is live, carrying elements every relative-selector shape needs:
+# a <p><a> at the chain's foot and a <p> sibling of the outermost div. On this tree the
+# memo-path gate still routes each :has() form to the right evaluator.
+_DEEP_RICH = f"<body>{'<div>' * 40}<p><a>x</a></p>{'</div>' * 40}<p>s</p></body>"
+
+
+@pytest.mark.parametrize(
+    ("selector", "count"),
+    [
+        # a multi-compound argument is not the single-compound memo shape, so the direct
+        # walk runs even on a deep tree
+        pytest.param("div:has(p a)", 40, id="multi-compound-argument"),
+        # leading sibling combinators reach the outermost div's following <p> sibling only
+        pytest.param("div:has(+ p)", 1, id="next-sibling-lead"),
+        pytest.param("div:has(~ p)", 1, id="subsequent-sibling-lead"),
+        # a structural pseudo argument (no nested list) still takes the memo path
+        pytest.param("div:has(:first-child)", 40, id="structural-pseudo-argument"),
+        # two :has() arguments share one memo keyed by the relative selector, so their
+        # entries coexist and cross-key probes resolve to the right result
+        pytest.param("div:has(a):has(:is(a))", 40, id="two-arguments-share-memo"),
+    ],
+)
+def test_has_memo_deep_relative_shapes(selector: str, count: int) -> None:
+    assert len(parse(_DEEP_RICH).select(selector)) == count
+
+
+def test_has_memo_deep_select_one_returns_outermost() -> None:
+    # select_one walks in document order, so the outermost div (the first anchor) wins
+    doc = parse(_nested_divs(40))
+    found = doc.select_one("div:has(a)")
+    parent = found.parent if found is not None else None
+    assert isinstance(parent, Element)
+    assert parent.tag == "body"
+
+
+def test_has_memo_deep_remove_and_prune() -> None:
+    # remove() and prune() drive the memo through their own snapshot walks
+    removed = parse(_nested_divs(40))
+    removed.remove("div:has(a)")
+    assert removed.select("div") == []
+    kept = parse(_nested_divs(40))
+    kept.prune("div:has(a)")
+    assert len(kept.select("div")) == 40
+
+
 @pytest.mark.parametrize(
     "selector",
     [

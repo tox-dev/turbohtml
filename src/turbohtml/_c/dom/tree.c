@@ -290,6 +290,10 @@ int th_tree_quirks(const th_tree *tree) {
     return tree->quirks;
 }
 
+Py_ssize_t th_tree_max_depth(const th_tree *tree) {
+    return tree->max_depth;
+}
+
 const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count) {
     *out_count = tree->errors.len;
     return tree->errors.items;
@@ -378,6 +382,9 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_cap = cap;
     }
     tree->open[tree->open_len++] = node;
+    if (tree->open_len > tree->max_depth) {
+        tree->max_depth = tree->open_len;
+    }
     return 1;
 }
 

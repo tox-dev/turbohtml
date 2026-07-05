@@ -265,6 +265,11 @@ const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count)
    (Selectors-4 §6.1/§6.2); programmatic trees default to no-quirks. */
 int th_tree_quirks(const th_tree *tree);
 
+/* The peak element-nesting depth recorded while parsing (0 for a tree built purely
+   through the mutation API). A cheap O(1) proxy for how deep the tree nests, used to
+   skip the :has() subtree memo on shallow trees where the direct walk is already cheap. */
+Py_ssize_t th_tree_max_depth(const th_tree *tree);
+
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a
    zero-copy span on demand. The :empty selector uses it to ignore the document
    white space Selectors-4 §13.2 permits inside an otherwise empty element. */

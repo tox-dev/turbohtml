@@ -93,17 +93,43 @@ typedef struct {
     Py_UCS4 *source; /* an owned copy of the selector text the slices point into */
     sel_complex *alts;
     int count;
-    int failed;    /* an allocation or a syntax error happened during compile */
-    int quirks;    /* the tree was parsed in quirks mode: class/ID match case-insensitively */
-    th_tree *tree; /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
+    int failed;         /* an allocation or a syntax error happened during compile */
+    int quirks;         /* the tree was parsed in quirks mode: class/ID match case-insensitively */
+    int has_relational; /* the selector contains a :has() somewhere: a match may want the subtree memo */
+    th_tree *tree;      /* the tree the selector runs on; :empty and :dir(auto) read text spans through it */
 } sel_compiled;
 
+/* One memoized :has() result: for a descendant-relative argument alt whose match is a
+   pure "the subtree contains an element matching this compound" test (anchor-independent
+   once :scope is excluded), rel + node identify the query and node is the subtree root.
+   rel == NULL marks an empty slot. */
+typedef struct {
+    const sel_complex *rel;
+    const th_node *node;
+    unsigned char result;
+} sel_has_slot;
+
+/* A per-query open-addressing memo turning the O(n^2) :has() subtree re-walk into a
+   single amortized-linear pass: each (rel, node) subtree-contains-match result is
+   computed once and reused across every candidate anchor. Owned by the driver loop,
+   threaded read/write through sel_ctx; slots == NULL until the first insert, so a
+   query without :has() pays nothing. */
+typedef struct {
+    sel_has_slot *slots;
+    size_t mask; /* capacity - 1 (capacity a power of two); 0 while slots == NULL */
+    size_t count;
+    int failed; /* an allocation failed while growing: fall back to the direct walk */
+} sel_has_memo;
+
 /* The read-only context threaded through the matcher: the quirks-mode flag, the
-   element :scope matches (the query root), and the tree text spans resolve against. */
+   element :scope matches (the query root), and the tree text spans resolve against.
+   has_memo is the per-query :has() subtree memo, or NULL when the selector has no
+   :has() (the common path) so nothing is allocated or probed. */
 typedef struct {
     th_tree *tree;
     th_node *scope;
     int quirks;
+    sel_has_memo *has_memo;
 } sel_ctx;
 
 typedef struct {
@@ -137,6 +163,9 @@ int sel_match_simple(th_node *node, const sel_simple *simple, const sel_ctx *ctx
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str);
 void selector_free(sel_compiled *compiled);
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope);
+int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ctx *ctx);
+int selector_uses_has_memo(const sel_compiled *compiled);
+void sel_has_memo_free(sel_has_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);
 void sel_free_alts(sel_complex *alts, int count);
 int sel_parse_alts(sel_parser *parser, sel_complex **out_alts, int *out_count, int nested, int relative, int forgiving);

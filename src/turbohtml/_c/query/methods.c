@@ -114,6 +114,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int error = 0;
+    sel_has_memo has_memo = {0};       /* shared across the walk so :has() memoizes its subtree scans */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: a concurrent mutate must not rewire mid-walk */
     HandleObject *handle_obj = (HandleObject *)handle;
     sel_compiled *compiled = cached_compile(state_of(self)->selector_error, handle_obj, arg);
@@ -124,7 +125,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
            with sel_match_simple directly, skipping the group/combinator machinery */
         const sel_simple *single = sel_single_simple(compiled);
         uint16_t subject = selector_subject_atom(compiled);
-        sel_ctx ctx = {compiled->tree, origin, compiled->quirks}; /* :scope is the query root */
+        sel_ctx ctx = {compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &has_memo : NULL};
         if (handle_use_index(handle_obj, origin, subject != TH_TAG_UNKNOWN)) {
             /* only the candidate subjects need the matcher, drawn in document order
                from the atom bucket instead of a full pre-order walk */
@@ -132,7 +133,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
             for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
                 th_node *node = handle_obj->index_nodes[pos];
                 int matched =
-                    single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin);
+                    single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx);
                 if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
                     break;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -144,7 +145,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
                     continue;
                 }
                 int matched =
-                    single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin);
+                    single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx);
                 if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     error = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
                     break;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -153,6 +154,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
         }
     }
     Py_END_CRITICAL_SECTION();
+    sel_has_memo_free(&has_memo);
     if (error) {
         Py_DECREF(out);
         return NULL;
@@ -168,6 +170,7 @@ PyObject *node_select_one(PyObject *self, PyObject *arg) {
     th_node *origin = ((NodeObject *)self)->node;
     th_node *found = NULL;
     int error = 0;
+    sel_has_memo has_memo = {0};       /* shared across the walk so :has() memoizes its subtree scans */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock around the walk */
     HandleObject *handle_obj = (HandleObject *)handle;
     sel_compiled *compiled = cached_compile(state_of(self)->selector_error, handle_obj, arg);
@@ -176,12 +179,12 @@ PyObject *node_select_one(PyObject *self, PyObject *arg) {
     } else {
         const sel_simple *single = sel_single_simple(compiled);
         uint16_t subject = selector_subject_atom(compiled);
-        sel_ctx ctx = {compiled->tree, origin, compiled->quirks}; /* :scope is the query root */
+        sel_ctx ctx = {compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &has_memo : NULL};
         if (handle_use_index(handle_obj, origin, subject != TH_TAG_UNKNOWN)) {
             Py_ssize_t end = handle_obj->index_offsets[subject + 1];
             for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
                 th_node *node = handle_obj->index_nodes[pos];
-                if (single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin)) {
+                if (single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx)) {
                     found = node;
                     break;
                 }
@@ -191,7 +194,7 @@ PyObject *node_select_one(PyObject *self, PyObject *arg) {
                 if (node->type != TH_NODE_ELEMENT) {
                     continue;
                 }
-                if (single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin)) {
+                if (single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx)) {
                     found = node;
                     break;
                 }
@@ -199,6 +202,7 @@ PyObject *node_select_one(PyObject *self, PyObject *arg) {
         }
     }
     Py_END_CRITICAL_SECTION();
+    sel_has_memo_free(&has_memo);
     if (error) {
         return NULL;
     }
@@ -1402,6 +1406,7 @@ PyObject *node_prune(PyObject *self, PyObject *arg) {
     Py_ssize_t count = 0;
     Py_ssize_t capacity = 0;
     int error = 0;
+    sel_has_memo has_memo = {0};       /* shared across the walk so :has() memoizes its subtree scans */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: match and edit must see one stable tree */
     sel_compiled *compiled = cached_compile(state_of(self)->selector_error, (HandleObject *)handle, arg);
     if (compiled == NULL) {
@@ -1412,12 +1417,12 @@ PyObject *node_prune(PyObject *self, PyObject *arg) {
            may run here; matching alone never rewires a node, so the snapshot lets
            pass 2 edit in pure C without dereferencing a stale pointer. */
         const sel_simple *single = sel_single_simple(compiled);
-        sel_ctx ctx = {compiled->tree, origin, compiled->quirks};
+        sel_ctx ctx = {compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &has_memo : NULL};
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
             if (node->type != TH_NODE_ELEMENT) {
                 continue;
             }
-            if (!(single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin))) {
+            if (!(single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx))) {
                 continue;
             }
             if (prune_keep_match(&keep, &count, &capacity, node, origin) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
@@ -1459,6 +1464,7 @@ PyObject *node_prune(PyObject *self, PyObject *arg) {
         }
     }
     Py_END_CRITICAL_SECTION();
+    sel_has_memo_free(&has_memo);
     PyMem_Free(keep);
     if (error) {
         return NULL;
@@ -1496,19 +1502,23 @@ static int snapshot_push(node_snapshot *snapshot, th_node *node) {
    failure. */
 static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapshot *snapshot) {
     const sel_simple *single = sel_single_simple(compiled);
-    sel_ctx ctx = {compiled->tree, origin, compiled->quirks};
+    sel_has_memo has_memo = {0}; /* shared across the walk so :has() memoizes its subtree scans */
+    sel_ctx ctx = {compiled->tree, origin, compiled->quirks, selector_uses_has_memo(compiled) ? &has_memo : NULL};
+    int result = 0;
     for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (!(single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches(node, compiled, origin))) {
+        if (!(single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx))) {
             continue;
         }
         if (snapshot_push(snapshot, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
+            result = -1;                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;                               /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    return 0;
+    sel_has_memo_free(&has_memo);
+    return result;
 }
 
 PyObject *node_remove(PyObject *self, PyObject *arg) {
