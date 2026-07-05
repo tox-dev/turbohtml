@@ -25,6 +25,15 @@
 
 #include <string.h>
 
+/* Keep the depth-guard wrappers out of line: inlined into their many call sites,
+   the compiler emits a separate branch counter per copy and the guard-taken edge
+   reads as uncovered in all but the one copy a deep tree exercises. */
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#else
+#define TH_NOINLINE __attribute__((noinline))
+#endif
+
 /* Whether an element's own Markdown markup is dropped under the strip/convert
    filter, leaving its children to render transparently in the surrounding flow.
    A strip set names the tags to drop; a convert set names the only tags to keep,
@@ -121,6 +130,7 @@ typedef struct {
     int list_depth;       /* nesting depth of the current list, for bullet cycling */
     int g_bold;           /* google_doc: a CSS font-weight bold is in force from an ancestor */
     int g_italic;         /* google_doc: a CSS font-style italic is in force from an ancestor */
+    int depth;            /* block/inline recursion depth, bounded by TH_MAX_WALK_DEPTH */
     int failed;           /* a reference buffer allocation failed */
 } md_ctx;
 
@@ -931,7 +941,17 @@ static void md_render_google(md_ctx *ctx, th_node *node) {
 
 /* Render one node encountered in an inline run. A block element nested in inline
    flow (rare, e.g. a <div> inside a <span>) is laid out as its own block. */
-static void md_render_inline(md_ctx *ctx, th_node *node) {
+static void md_render_inline_body(md_ctx *ctx, th_node *node);
+static TH_NOINLINE void md_render_inline(md_ctx *ctx, th_node *node) {
+    if (ctx->depth >= TH_MAX_WALK_DEPTH) {
+        /* backstop for a tree built past the parser's depth cap; see TH_MAX_WALK_DEPTH */
+        return;
+    }
+    ctx->depth++;
+    md_render_inline_body(ctx, node);
+    ctx->depth--;
+}
+static void md_render_inline_body(md_ctx *ctx, th_node *node) {
     if (node->type == TH_NODE_TEXT) {
         md_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
         return;
@@ -1693,7 +1713,17 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
     PyMem_Free(text);
 }
 
-static void md_render_block(md_ctx *ctx, th_node *node) {
+static void md_render_block_body(md_ctx *ctx, th_node *node);
+static TH_NOINLINE void md_render_block(md_ctx *ctx, th_node *node) {
+    if (ctx->depth >= TH_MAX_WALK_DEPTH) {
+        /* backstop for a tree built past the parser's depth cap; see TH_MAX_WALK_DEPTH */
+        return;
+    }
+    ctx->depth++;
+    md_render_block_body(ctx, node);
+    ctx->depth--;
+}
+static void md_render_block_body(md_ctx *ctx, th_node *node) {
     if (md_apply_converter(ctx, node)) {
         return;
     }

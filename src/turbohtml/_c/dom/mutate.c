@@ -362,7 +362,7 @@ int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_no
 /* Deep-copy a node and its subtree from src into dest's arena, materializing
    borrowed text and re-interning per-tree attribute atoms. Used to adopt a node
    from another tree without retaining the source. NULL on allocation failure. */
-th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
+static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth) {
     th_node *node = node_new(dest, src_node->type);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -411,24 +411,36 @@ th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
             }
         }
     }
-    for (th_node *child = src_node->first_child; child != NULL; child = child->next_sibling) {
-        th_node *copy = th_tree_copy_node(dest, src, child);
-        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (depth < TH_MAX_WALK_DEPTH) {
+        /* past the backstop the copy is left shallow rather than recursing into a tree
+           built deeper than the parser ever would; see TH_MAX_WALK_DEPTH */
+        for (th_node *child = src_node->first_child; child != NULL; child = child->next_sibling) {
+            th_node *copy = copy_node_at(dest, src, child, depth + 1);
+            if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            node_append(node, copy);
         }
-        node_append(node, copy);
     }
     return node;
+}
+
+th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
+    return copy_node_at(dest, src, src_node, 0);
 }
 
 /* DOM normalize: merge adjacent Text children into the first of each run and drop
    empty Text nodes, recursing into every element. Merged runs get a fresh arena
    buffer; on allocation failure the merge stops early, leaving a valid tree. */
-void th_node_normalize(th_tree *tree, th_node *root) {
+static void normalize_at(th_tree *tree, th_node *root, int depth) {
+    if (depth >= TH_MAX_WALK_DEPTH) {
+        /* backstop for a tree built past the parser's depth cap; see TH_MAX_WALK_DEPTH */
+        return;
+    }
     for (th_node *child = root->first_child; child != NULL;) {
         th_node *next = child->next_sibling;
         if (child->type == TH_NODE_ELEMENT) {
-            th_node_normalize(tree, child);
+            normalize_at(tree, child, depth + 1);
         } else if (child->type == TH_NODE_TEXT) {
             if (child->text_len == 0) {
                 th_node_remove(child);
@@ -454,6 +466,10 @@ void th_node_normalize(th_tree *tree, th_node *root) {
         }
         child = next;
     }
+}
+
+void th_node_normalize(th_tree *tree, th_node *root) {
+    normalize_at(tree, root, 0);
 }
 
 /* Construct one shell element (html/head/body/meta/title) from its ASCII tag name,

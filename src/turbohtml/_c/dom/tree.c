@@ -359,6 +359,14 @@ static th_node *current_node(th_tree *tree) {
 }
 
 static int stack_push(th_tree *tree, th_node *node) {
+    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+        /* Runaway nesting: leave the element in the DOM (it was already inserted under
+           the deepest open element) but do not descend into it, so subsequent start
+           tags become its siblings. This bounds tree depth the way browsers do, which
+           keeps the recursive tree walks off a deep C stack and caps the O(depth^2)
+           parse cost of a long run of start tags. */
+        return 1;
+    }
     if (tree->open_len == tree->open_cap) {
         Py_ssize_t cap = tree->open_cap ? tree->open_cap * 2 : 16;
         th_node **grown = PyMem_Realloc(tree->open, (size_t)cap * sizeof(th_node *));

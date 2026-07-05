@@ -452,12 +452,18 @@ int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *pu
     return 1;
 }
 
-static void collect_text(sbuf *out, th_tree *tree, th_node *node) {
+static void collect_text(sbuf *out, th_tree *tree, th_node *node, int depth) {
+    if (depth >= TH_MAX_WALK_DEPTH) {
+        /* Backstop against a tree built past the parser's depth cap through the
+           mutation API: stop collecting rather than overflow the C stack. A parsed
+           tree never reaches this depth. */
+        return;
+    }
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
         } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
-            collect_text(out, tree, child);
+            collect_text(out, tree, child, depth + 1);
         }
     }
 }
@@ -467,7 +473,7 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     if (node->type == TH_NODE_TEXT) {
         sbuf_put_ucs4(&out, need_text(tree, node), node->text_len);
     } else {
-        collect_text(&out, tree, node);
+        collect_text(&out, tree, node, 0);
     }
     return sbuf_finish(&out, out_len);
 }

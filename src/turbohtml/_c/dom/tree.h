@@ -21,6 +21,24 @@
 #include "data/tag_atom.h"
 #include "tokenizer/statemachine.h"
 
+/* The deepest element nesting the tree builder will construct. Past it a start tag
+   is inserted as a child of the deepest open element but is not itself pushed onto
+   the stack of open elements, so further start tags become its siblings rather than
+   descending further -- the same runaway-nesting bound browsers apply (Blink and
+   WebKit cap the parser's open-element depth at 512). Capping at construction keeps
+   every parsed tree shallow enough that the recursive sanitize/text/markdown walks
+   cannot exhaust the C stack, and bounds the O(depth^2) cost a linear run of start
+   tags would otherwise pay. */
+#define TH_MAX_TREE_DEPTH 512
+
+/* The recursive tree walks (sanitize, text collection, markdown, clone, normalize)
+   stop descending past this depth. The mutation API can build a tree deeper than the
+   parser ever would -- the parse-time cap above does not gate it -- so the walks need
+   their own backstop against C-stack exhaustion. The 2x headroom over TH_MAX_TREE_DEPTH
+   guarantees a parsed tree never reaches it, so parsed input walks byte-for-byte
+   identically; only a directly-constructed, pathologically deep tree is truncated. */
+#define TH_MAX_WALK_DEPTH (TH_MAX_TREE_DEPTH * 2)
+
 enum th_node_type {
     TH_NODE_DOCUMENT,
     TH_NODE_ELEMENT,
