@@ -298,6 +298,33 @@ def test_date_url_reads_the_path_date(url: str, expected: tuple[int, int, int] |
     assert _date_url(url) == expected
 
 
+_WIDE_STORAGE = [
+    pytest.param("★", id="ucs2"),
+    pytest.param("\U0001f600", id="ucs4"),
+]
+"""A BMP star and an astral emoji force the argument to 2- and 4-byte storage; the plain-ASCII
+cases only exercise the 1-byte code-point read. Re-running them at each width pins that a date
+reads the same whatever storage the surrounding text forces."""
+
+
+@pytest.mark.parametrize("wide", _WIDE_STORAGE)
+@pytest.mark.parametrize(("text", "expected"), _SCAN_CASES)
+def test_date_scan_is_storage_width_agnostic(text: str, expected: tuple[int, int, int] | None, wide: str) -> None:
+    assert _date_scan(text + wide, _YEAR) == expected
+
+
+@pytest.mark.parametrize("wide", _WIDE_STORAGE)
+@pytest.mark.parametrize(("text", "expected"), _SCAN_ALL_CASES)
+def test_date_scan_all_is_storage_width_agnostic(text: str, expected: list[tuple[int, int, int]], wide: str) -> None:
+    assert _date_scan_all(text + wide, _YEAR) == expected
+
+
+@pytest.mark.parametrize("wide", _WIDE_STORAGE)
+@pytest.mark.parametrize(("url", "expected"), _URL_CASES)
+def test_date_url_is_storage_width_agnostic(url: str, expected: tuple[int, int, int] | None, wide: str) -> None:
+    assert _date_url(url + wide) == expected
+
+
 def test_date_url_rejects_non_str() -> None:
     with pytest.raises(TypeError):
         _date_url(123)  # ty: ignore[invalid-argument-type]  # non-str on purpose
