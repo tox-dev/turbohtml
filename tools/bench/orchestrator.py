@@ -25,6 +25,7 @@ from bench import operations, report
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOOLS_DIR = Path(__file__).resolve().parents[1]
 _COMPETITOR_DIR = Path(__file__).resolve().parent / "competitors"
+_COMPETITOR_TIMEOUT = 900.0  # seconds for one competitor's whole operation; past it the library is hanging, not slow
 
 
 def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
@@ -72,10 +73,18 @@ def _build_wheel(workdir: Path) -> Path:
 
 
 def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...]) -> Path:
-    """Provision an isolated venv holding pyperf and the given requirements; return its interpreter."""
+    """
+    Provision an isolated venv holding pyperf and the given requirements; return its interpreter.
+
+    Idempotent within one workdir: a target that already has its venv (a competitor appearing in several operations of
+    an ``all`` sweep, or the core baseline shared across every operation) is provisioned once and reused, so the whole
+    matrix pays each install -- and the one-time profile-guided core build -- exactly once instead of per operation.
+    """
     venv = workdir / f"venv-{name}"
-    _uv("venv", str(venv))
     python = venv / ("Scripts" if os.name == "nt" else "bin") / "python"
+    if python.exists():
+        return python
+    _uv("venv", str(venv))
     _uv("pip", "install", "--python", str(python), "pyperf>=2.10", *reqs)
     return python
 
@@ -101,7 +110,14 @@ def _core_python(workdir: Path, *, pgo: bool) -> Path:
 def _run_worker(
     python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float]]:
-    """Run the worker for one (target, operation) in the given venv and return its per-case stats."""
+    """
+    Run the worker for one (target, operation) in the given venv and return its per-case stats.
+
+    A competitor is bounded by ``_COMPETITOR_TIMEOUT``: past it the worker is killed and
+    :class:`subprocess.TimeoutExpired` propagates, so a library that hangs on one input cannot freeze the sweep. The
+    core baseline runs untimed -- turbohtml is the thing under test, so its slow cases are measured, never dropped.
+    """
+    timeout = None if target == "core" else _COMPETITOR_TIMEOUT
     out = workdir / f"{target}-{operation}.json"
     env = {
         **os.environ,
@@ -110,7 +126,20 @@ def _run_worker(
         "BENCH_OPERATION": operation,
         "BENCH_OUT": str(out),
     }
-    subprocess.run([str(python), "-m", "bench.worker", *pyperf_args], check=True, env=env)
+    # stderr is captured so a failure carries the traceback (the caller reads it to tell an import-time environment
+    # clash from a real measurement crash); stdout stays inherited so pyperf's per-case lines stream live.
+    try:
+        subprocess.run(
+            [str(python), "-m", "bench.worker", *pyperf_args],
+            check=True,
+            env=env,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.CalledProcessError as error:
+        sys.stderr.write(error.stderr or "")
+        raise
     return json.loads(out.read_text(encoding="utf-8"))
 
 
@@ -118,70 +147,87 @@ def _try_competitor(
     workdir: Path, competitor: str, operation: str, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float]]:
     """
-    Provision the competitor's venv then run it; a run failure propagates and fails the benchmark.
+    Provision the competitor's venv then run it; a measurement failure propagates and fails the benchmark.
 
     Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies, html5-parser
     builds against the system libxml2, metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops
-    just that competitor's column with a note. Once installed, a crash or timeout while measuring is a real benchmark
-    error, not an environment quirk, so it is left to propagate rather than silently blanking the column.
+    just that competitor's column with a note. A competitor can also install cleanly yet fail to *import*, when its
+    bundled native library clashes with another wheel's ABI in the shared venv (html5-parser and lxml linking different
+    libxml2 versions is the standing example); that is the same environment quirk one import boundary later, so it drops
+    the column with a note too. Only a crash *after* the library imported -- during measurement, where the fault is the
+    benchmark and not the toolchain -- is left to propagate rather than silently blanking the column. The two are told
+    apart by whether the worker died inside ``importlib.import_module``. A competitor that instead hangs -- runs past
+    the per-operation timeout without finishing -- is killed and its column dropped with a note, so one pathological
+    library or input cannot stall the whole sweep.
     """
     try:
         python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
     except subprocess.CalledProcessError:
         print(f"skipping {competitor}: it did not install in its isolated venv", file=sys.stderr)
         return {}
-    return _run_worker(python, competitor, operation, workdir, pyperf_args)
+    try:
+        return _run_worker(python, competitor, operation, workdir, pyperf_args)
+    except subprocess.TimeoutExpired:
+        print(
+            f"skipping {competitor}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s", file=sys.stderr
+        )
+        return {}
+    except subprocess.CalledProcessError as error:
+        if "importlib.import_module" not in (error.stderr or ""):
+            raise
+        print(f"skipping {competitor}: it installed but failed to import in its isolated venv", file=sys.stderr)
+        return {}
 
 
-def report_operation(operation: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
+def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
-    with tempfile.TemporaryDirectory() as tmp:
-        workdir = Path(tmp)
-        stats = _run_worker(_core_python(workdir, pgo=pgo), "core", operation, workdir, pyperf_args)
-        for competitor in _packages_for(operation):
-            stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
+    stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
+    for competitor in _packages_for(operation):
+        stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
+    report.render(operation, stats)
+
+
+def report_package(competitor: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
+    """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
+    reqs, operation_names = COMPETITORS[competitor]
+    competitor_python = _venv_python(workdir, competitor, reqs)
+    for operation in operation_names:
+        stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
+        stats.update(_run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
         report.render(operation, stats)
 
 
-def report_package(competitor: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
-    """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
-    reqs, operation_names = COMPETITORS[competitor]
-    with tempfile.TemporaryDirectory() as tmp:
-        workdir = Path(tmp)
-        core_python = _core_python(workdir, pgo=pgo)
-        competitor_python = _venv_python(workdir, competitor, reqs)
-        for operation in operation_names:
-            stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
-            stats.update(_run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
-            report.render(operation, stats)
-
-
-def report_core(pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
+def report_core(pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render turbohtml's own baseline for every operation in a turbohtml-only venv."""
-    with tempfile.TemporaryDirectory() as tmp:
-        workdir = Path(tmp)
-        python = _core_python(workdir, pgo=pgo)
-        for operation in operations.OPERATIONS:
-            report.render(operation, _run_worker(python, "core", operation, workdir, pyperf_args))
+    for operation in operations.OPERATIONS:
+        report.render(operation, _run_worker(core_python, "core", operation, workdir, pyperf_args))
 
 
 def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -> None:
-    """Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker."""
+    """
+    Dispatch a CLI command to the matching report, forwarding any extra pyperf options to every worker.
+
+    One workdir spans the whole command, so the (profile-guided, when ``pgo``) core wheel is built once and every venv
+    provisioned once, however many operations reuse them.
+    """
     print(
         "tip: for low-noise results run `pyperf system tune` first (and `sudo pyperf system reset` after); pass "
         "pyperf options like --rigorous or --affinity=<cpu> after the command to control sampling and CPU pinning.",
         file=sys.stderr,
     )
-    if command == "core":
-        report_core(pyperf_args, pgo=pgo)
-    elif command == "all":
-        for operation in operations.OPERATIONS:
-            report_operation(operation, pyperf_args, pgo=pgo)
-    elif command in COMPETITORS:
-        report_package(command, pyperf_args, pgo=pgo)
-    elif command in operations.OPERATIONS:
-        report_operation(command, pyperf_args, pgo=pgo)
-    else:
-        choices = ", ".join(["core", "all", *operations.OPERATIONS, *COMPETITORS])
-        msg = f"unknown command {command!r}; choose one of: {choices}"
-        raise SystemExit(msg)
+    with tempfile.TemporaryDirectory() as tmp:
+        workdir = Path(tmp)
+        if command in COMPETITORS:
+            report_package(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
+        elif command == "core":
+            report_core(pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
+        elif command == "all":
+            core_python = _core_python(workdir, pgo=pgo)
+            for operation in operations.OPERATIONS:
+                report_operation(operation, pyperf_args, workdir=workdir, core_python=core_python)
+        elif command in operations.OPERATIONS:
+            report_operation(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
+        else:
+            choices = ", ".join(["core", "all", *operations.OPERATIONS, *COMPETITORS])
+            msg = f"unknown command {command!r}; choose one of: {choices}"
+            raise SystemExit(msg)
