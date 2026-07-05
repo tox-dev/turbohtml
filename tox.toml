@@ -247,6 +247,63 @@ package = "editable"
 dependency_groups = [ "dev" ]
 commands = [ [ "uv", "pip", "list", "--format=columns" ], [ "python", "-c", 'print(r"{env_python}")' ] ]
 
+[env.fuzz]
+description = "coverage-guided/mutation deep fuzz of every harness under ASan/UBSan (scheduled/manual, not a PR gate)"
+deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage
+dependency_groups = [ "test" ]
+set_env = { CC = "clang" }
+commands_pre = [
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dc_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dc_link_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dbuildtype=debugoptimized",
+  ],
+]
+commands = [
+  [
+    "python",
+    "{tox_root}{/}tools{/}fuzz{/}fuzz.py",
+    "--mode",
+    "deep",
+    { replace = "posargs", default = [ "--minutes", "2" ], extend = true },
+  ],
+]
+
+[env.fuzz-smoke]
+description = "replay the benign fuzz seed corpus through every harness under ASan/UBSan (the fast per-PR gate)"
+deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage
+dependency_groups = [ "test" ]  # carries the meson-python build backend the no-build-isolation install below needs
+set_env = { CC = "clang" }
+commands_pre = [
+  # build the extension with the sanitizers so the in-process harness faults on a C memory error. b_sanitize trips
+  # meson's linker capability check for an extension module on macOS, so pass the flag through c_args/c_link_args, which
+  # the driver's ASan-runtime preload then arms; buildtype matches the tsan env's instrumented build.
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dc_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dc_link_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dbuildtype=debugoptimized",
+  ],
+]
+commands = [ [ "python", "{tox_root}{/}tools{/}fuzz{/}fuzz.py", "--mode", "smoke" ] ]
+
 [env.regen]
 description = "regenerate the generated C tables (entities, tag atoms)"
 skip_install = true

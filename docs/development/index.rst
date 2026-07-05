@@ -67,6 +67,37 @@ codspeed`` or ``pytest tests/benchmarks --codspeed``), so the ordinary test run 
   and a comment explaining why it cannot run.
 - Keep the C output byte for byte identical to the standard library where the two overlap.
 
+*********
+ Fuzzing
+*********
+
+Every untrusted-input entry point has an AddressSanitizer + UndefinedBehaviorSanitizer harness under ``tools/fuzz/``.
+Two mechanisms share one driver (``tools/fuzz/fuzz.py``):
+
+- **Standalone C harnesses** for the surfaces whose core decouples from CPython: the IDNA ``ToASCII`` engine
+  (``idna_harness.c``, compiled with ``TH_IDNA_STANDALONE``) and the JS minifier (``js_minify_harness.c``, compiled with
+  ``JM_STANDALONE``). Both link against the system allocator with no interpreter, so a coverage-guided ``libFuzzer`` run
+  (``-fsanitize=fuzzer``) or an ``AFL++`` target drives them directly.
+- **An in-process driver** (``tools/fuzz/_targets.py``) for the surfaces that reach the live tree -- ``parse``,
+  ``serialize`` (and the parse-serialize round trip), ``sanitize``, the URL parser, and the HTML and CSS minifiers. It
+  runs against an extension built with the sanitizers and calls the public API, so a C fault aborts the interpreter with
+  a stack trace and the harness survives internal C refactors.
+
+The ``fuzz-smoke`` environment replays a benign seed corpus (``tools/fuzz/corpus/``) once per target. It is fast and
+deterministic and gates every pull request in the ``🔒 fuzz`` workflow, so it seeds with valid inputs, never known
+crashers. The ``fuzz`` environment adds a mutation loop and escalating-depth structural probes for a per-target budget;
+it is the continuous hunt, run weekly and on demand, not a merge gate.
+
+.. code-block:: console
+
+    $ tox r -e fuzz-smoke            # the per-PR gate: benign corpus, no crash expected
+    $ tox r -e fuzz -- --minutes 5   # the deep run: mutation + structural probes per target
+
+Add a target by registering a ``bytes``-taking callable in ``TARGETS`` (in-process) and dropping a representative benign
+seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C unit that
+compiles free of the CPython boundary. macOS ships no ``libFuzzer`` runtime with Apple Clang, so the coverage-guided
+mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation modes run under Apple Clang.
+
 ****************
  Project layout
 ****************

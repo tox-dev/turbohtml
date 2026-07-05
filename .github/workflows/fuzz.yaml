@@ -1,0 +1,52 @@
+name: 🔒 fuzz
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    tags-ignore: ["**"]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly deep run, Monday 06:00 UTC
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: 💨 ASan/UBSan smoke (benign corpus)
+    runs-on: ubuntu-24.04
+    # the per-PR gate: build every harness under -fsanitize=address,undefined and replay the benign seed corpus. It is
+    # fast and deterministic, so a red run means a real regression, not a flaky fuzz find. The deep hunt is the job below.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run fuzz-smoke
+        run: uvx --with tox-uv tox run -e fuzz-smoke
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+  deep:
+    name: 🕳️ ASan/UBSan deep (mutation + structural)
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # the continuous hunt: mutation and escalating-depth probes for a wall-clock budget per target. It is not a PR gate
+    # and is allowed to surface a fault (which fails the job by design), so a maintainer triages new finds from the log.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run fuzz (deep)
+        run: uvx --with tox-uv tox run -e fuzz -- --minutes 5
+        env:
+          UV_PYTHON_PREFERENCE: only-managed

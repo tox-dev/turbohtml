@@ -12,7 +12,19 @@
    punycode cannot encode (an unpaired surrogate) fails the whole host, which the shim catches to fall back to the
    lowercased form. */
 
+/* The ToASCII core (map_host, nfc, puny_encode/decode, emit_label) is pure Py_UCS4 buffer arithmetic and touches
+   CPython only through the two boundary functions at the foot of the file. Defining TH_IDNA_STANDALONE swaps the
+   CPython typedefs for stdint ones and drops those boundary functions, so tools/fuzz/idna_harness.c can push arbitrary
+   Unicode through the RFC 3492 accumulator and the punycode output bound under ASan/UBSan with no interpreter -- the
+   jstypes.h / JM_STANDALONE pattern the JS minifier already uses (tox-dev/turbohtml#478). */
+#ifdef TH_IDNA_STANDALONE
+#include <stddef.h>
+#include <stdint.h>
+typedef uint32_t Py_UCS4;
+typedef ptrdiff_t Py_ssize_t;
+#else
 #include "core/common.h"
+#endif
 
 #include "data/idna_table.h"
 
@@ -450,6 +462,7 @@ static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, P
     return emit_encoded(out, at, scratch, decoded, scratch + decoded);
 }
 
+#ifndef TH_IDNA_STANDALONE
 /* th_url_to_ascii(host): the WHATWG domain-to-ASCII engine, a borrowed str host in, a new ASCII str out, or NULL with a
    ValueError set when a label holds a code point punycode cannot encode (an unpaired surrogate). The shim catches that
    to fall back to the lowercased host. */
@@ -524,3 +537,4 @@ PyObject *th_url_to_ascii(PyObject *host) {
 PyObject *turbohtml_url_to_ascii(PyObject *Py_UNUSED(module), PyObject *arg) {
     return th_url_to_ascii(arg);
 }
+#endif /* TH_IDNA_STANDALONE */
