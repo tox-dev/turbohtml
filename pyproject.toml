@@ -189,11 +189,17 @@ linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # selector/tokenizer bodies moved out of their monolith translation units, and LTO is what re-inlines them at link
 # time so the split is perf-neutral. It layers on top of PGO (the profile the use build reads is LTO-consistent
 # because pgo_build.py trains the generate phase with the same flag).
-linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use", "-Db_lto=true" ]
+# -Dstrip arms meson.build's link-time strip of the shipped .so's symbol table (meson-python ignores the
+# install-time strip this option normally drives, so meson.build does it at link instead). Release wheels only;
+# the sdist keeps every source. Visibility is already hidden by extension_module's default, so PyInit__html is
+# the sole dynamic symbol and this only trims the ~65 KB local .symtab that -Db_lto cannot touch.
+linux.config-settings.setup-args = [ "-Dbuildtype=release", "-Db_pgo=use", "-Db_lto=true", "-Dstrip=true" ]
 macos.archs = [ "arm64" ]  # Apple silicon only; x86_64 macOS is end-of-life
+macos.config-settings.setup-args = [ "-Dstrip=true" ]
 windows.archs = [ "AMD64" ]  # 64-bit only; skip the 32-bit x86 build
-# force the MSVC toolchain: meson otherwise picks up MinGW from the runner's PATH
-windows.config-settings.setup-args = "--vsenv"
+# force the MSVC toolchain: meson otherwise picks up MinGW from the runner's PATH (the strip flag is a no-op on
+# MSVC, whose release .pyd carries no symbol table and which exports nothing without dllexport)
+windows.config-settings.setup-args = [ "--vsenv", "-Dstrip=true" ]
 
 [tool.ruff]
 line-length = 120

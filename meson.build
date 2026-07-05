@@ -14,6 +14,24 @@ meson.add_dist_script('tools/prune_dist.py')
 
 py = import('python').find_installation(pure: false)
 
+# Strip the shipped object's local .symtab at link time. The release wheels pass -Dstrip=true, but meson-python
+# packages straight from the build directory and never runs the install-time strip that option drives, so we do
+# it in the link instead. extension_module already defaults to -fvisibility=hidden (only PyInit__html stays
+# dynamic) and -Db_lto has dropped the unreachable internals, so .symtab is the last slack: ~65 KB off the Linux
+# .so, ~46 KB off the macOS bundle. Gating on -Dstrip keeps every local symbol in the coverage, sanitizer, tsan,
+# codspeed, and warnings builds, which never set it, for gdb/gcov/valgrind/CodSpeed. The flag is applied
+# directly, not via get_supported_link_arguments: ld64 warns on -Wl,-x and meson's probe misreads the warning as
+# unsupported. -Dstrip fires only on the cibuildwheel toolchains (GNU ld/lld, ld64, MSVC), so the branch is safe.
+release_link_args = []
+if get_option('strip')
+    strip_system = host_machine.system()
+    if strip_system == 'darwin'
+        release_link_args = ['-Wl,-x']
+    elif strip_system != 'windows'  # MSVC's release .pyd carries no symbol table to strip
+        release_link_args = ['-Wl,--strip-all']
+    endif
+endif
+
 py.extension_module(
     '_html',
     [
@@ -68,6 +86,7 @@ py.extension_module(
         'src/turbohtml/_c/features/dates.c',
     ],
     include_directories: include_directories('src/turbohtml/_c'),
+    link_args: release_link_args,
     install: true,
     subdir: 'turbohtml',
 )

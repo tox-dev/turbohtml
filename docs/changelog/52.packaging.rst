@@ -1,0 +1,3 @@
+Release wheels strip the compiled extension's local symbol table at link time, cutting about 65 KB from the Linux
+``.so`` and 46 KB from the macOS bundle with no behavior change; the source distribution keeps every test, tool, and
+generated table needed to build from source. Part of :issue:`478`.
