@@ -6,14 +6,15 @@ rule bleach used. The canonical list is IANA's, so this downloads it, lowercases
 ``xn--`` punycode TLDs, so a real ``xn--p1ai`` matches while a made-up ``xn--whatever`` does not), and emits a
 generated header shaped like ``tag_atom.h``: a sorted ``{name, len}`` array plus a 256-entry first-byte index, so a
 label is matched by bucketing on its first byte and a case-insensitive ``memcmp``. IANA serves only the current list,
-so the expected ``IANA_VERSION`` is pinned and a rebuild refuses a silent drift; the version is also recorded in the
-header so a deliberate bump shows an auditable diff.
+so the expected ``IANA_VERSION`` and the SHA-256 of its exact bytes are pinned and a rebuild refuses a silent drift or
+a poisoned source; the version is also recorded in the header so a deliberate bump shows an auditable diff.
 
 Usage:  python tools/generate_tlds.py src/turbohtml/_c/data/tld_table.h
 """
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import urllib.request
 from pathlib import Path
@@ -21,18 +22,20 @@ from pathlib import Path
 IANA_TLDS_URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
 
 # IANA publishes only the latest list at a stable URL, so a rebuild can never fetch a past version -- the committed
-# table would drift with whatever IANA serves that day. Pin the expected version and fail a rebuild that sees a
-# different one; bump IANA_VERSION deliberately and review the tld_table.h diff. Matches the committed table.
-IANA_VERSION = "Version 2026061600"
+# table would drift with whatever IANA serves that day. Pin the expected version and the SHA-256 of its exact bytes;
+# a rebuild fails when either differs, so a bumped version or a poisoned/silently rewritten source cannot land without
+# review. Bump both deliberately and review the tld_table.h diff. Both match the committed table.
+IANA_VERSION = "Version 2026062302"
+IANA_SHA256 = "01dd82fed6299013f2e4bc4c5af2469b95497a4e9825801741ffff95b6e55d8f"
 
 
 def fetch_tlds() -> tuple[str, list[str]]:
     """Return the pinned IANA version and the lowercased ASCII TLDs, punycode entries included."""
     with urllib.request.urlopen(IANA_TLDS_URL) as response:
-        text = response.read().decode("ascii")
+        raw = response.read()
     version = ""
     names: list[str] = []
-    for line in text.splitlines():
+    for line in raw.decode("ascii").splitlines():
         if line.startswith("#"):
             if "Version" in line:  # "# Version 2026061600, Last Updated ..."; keep just the version number
                 version = line.lstrip("# ").split(",", 1)[0].strip()
@@ -40,7 +43,10 @@ def fetch_tlds() -> tuple[str, list[str]]:
         if name := line.strip().lower():
             names.append(name)
     if version != IANA_VERSION:
-        msg = f"IANA served {version!r}, expected the pinned {IANA_VERSION!r}; bump IANA_VERSION to regenerate"
+        msg = f"IANA served {version!r}, expected the pinned {IANA_VERSION!r}; bump the pins to regenerate"
+        raise SystemExit(msg)
+    if (digest := hashlib.sha256(raw).hexdigest()) != IANA_SHA256:
+        msg = f"IANA source for {version} has sha256 {digest}, not the pinned {IANA_SHA256}; review, then bump the pin"
         raise SystemExit(msg)
     return version, sorted(names)
 

@@ -20,14 +20,18 @@ Usage:  python tools/generate_psl.py src/turbohtml/_c/data/psl_table.h
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import urllib.request
 from pathlib import Path
 
 # The Public Suffix List ships no releases, so a rebuild off @main would silently drift with whatever the branch
-# points at that day -- a reproducibility and supply-chain gap. Pin a specific commit instead; bump it deliberately
-# and review the psl_table.h diff. Pinned to the publicsuffix/list main tip of 2026-07-01.
+# points at that day -- a reproducibility and supply-chain gap. Pin a specific commit instead, and pin the SHA-256 of
+# the file it serves so a compromised delivery path cannot swap the content under a trusted commit URL; a rebuild
+# fails on either mismatch. Bump both deliberately and review the psl_table.h diff. Pinned to the publicsuffix/list
+# main tip of 2026-07-01.
 PSL_COMMIT = "d67b6cb8e70e9c76b0803809b66e7ffdd09484bd"
+PSL_SHA256 = "da98b262f8fa86b5c19e320ba18cf83ce9a9a0e53f9317193fa84dd9f0fe80a2"
 PSL_URL = f"https://raw.githubusercontent.com/publicsuffix/list/{PSL_COMMIT}/public_suffix_list.dat"
 
 _NORMAL = 0
@@ -45,7 +49,11 @@ def _punycode(rule: str) -> str:
 def fetch_rules() -> tuple[str, list[tuple[str, int]]]:
     """Return the fetched-commit marker and the ``(rule_text, kind)`` pairs for every multi-label PSL rule."""
     with urllib.request.urlopen(PSL_URL) as response:
-        text = response.read().decode("utf-8")
+        raw = response.read()
+    if (digest := hashlib.sha256(raw).hexdigest()) != PSL_SHA256:
+        msg = f"PSL source at {PSL_COMMIT} has sha256 {digest}, not the pinned {PSL_SHA256}; review, then bump the pin"
+        raise SystemExit(msg)
+    text = raw.decode("utf-8")
     rules: dict[str, int] = {}
     for raw in text.splitlines():
         line = raw.strip()
