@@ -1,12 +1,12 @@
-/* WHATWG HTML tree construction — see dom/tree.h.
+/* WHATWG HTML tree construction -- see dom/tree.h.
 
    Implements the linear document path (initial → before html → before head →
    in head → after head → in body → text → after body), generic nesting, void
    elements, implied end tags, the full in-body block/heading/list end-tag
    rules, active formatting elements with reconstruction and the adoption agency
-   algorithm (misnested <b>/<i>/<a>). The remaining structural modes — table
+   algorithm (misnested <b>/<i>/<a>). The remaining structural modes -- table
    foster-parenting, foreign content (SVG/MathML), select, templates and
-   frameset — fall back to generic insertion for now; each is a follow-up gated
+   frameset -- fall back to generic insertion for now; each is a follow-up gated
    by the html5lib tree-construction suite, whose pass rate this engine grows
    toward 100%. */
 
@@ -464,7 +464,7 @@ static int has_in_list_item_scope(th_tree *tree, uint16_t atom) {
             return 0;
         }
     } /* GCOVR_EXCL_BR_LINE: the stack always bottoms out at an html scope boundary, so the loop never falls through */
-    return 0; /* GCOVR_EXCL_LINE: same — has_in_list_item_scope always returns inside the loop */
+    return 0; /* GCOVR_EXCL_LINE: same -- has_in_list_item_scope always returns inside the loop */
 }
 
 static int is_implied_end_atom(uint16_t atom) {
@@ -542,7 +542,7 @@ static int has_in_table_scope(th_tree *tree, uint16_t atom) {
             return 0;
         }
     } /* GCOVR_EXCL_BR_LINE: the stack always bottoms out at an html table-scope boundary */
-    return 0; /* GCOVR_EXCL_LINE: same — has_in_table_scope always returns inside the loop */
+    return 0; /* GCOVR_EXCL_LINE: same -- has_in_table_scope always returns inside the loop */
 }
 
 /* The appropriate place for inserting a node: normally the current node, but
@@ -3390,9 +3390,9 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         if (tok->kind == TH_START_TAG && has_in_scope(tree, TH_TAG_SELECT) &&
             (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
              dc->mode == M_IN_CAPTION)) {
-            uint16_t a = tok_atom(tok);
-            if (a == TH_TAG_CAPTION || a == TH_TAG_TABLE || a == TH_TAG_TBODY || a == TH_TAG_TFOOT ||
-                a == TH_TAG_THEAD || a == TH_TAG_TR || a == TH_TAG_TD || a == TH_TAG_TH) {
+            uint16_t atom = tok_atom(tok);
+            if (atom == TH_TAG_CAPTION || atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
+                atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH) {
                 pop_until_atom(tree, TH_TAG_SELECT);
                 dc->mode = reset_insertion_mode(tree);
                 goto reprocess;

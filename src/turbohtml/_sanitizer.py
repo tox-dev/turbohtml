@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from ._html import _sanitize, parse_fragment
 
@@ -39,17 +39,30 @@ class OnDisallowed(Enum):
 
 
 #: bleach's default allowed tags, the migration baseline.
-DEFAULT_TAGS = frozenset({"a", "abbr", "acronym", "b", "blockquote", "code", "em", "i", "li", "ol", "strong", "ul"})
+DEFAULT_TAGS: Final = frozenset({
+    "a",
+    "abbr",
+    "acronym",
+    "b",
+    "blockquote",
+    "code",
+    "em",
+    "i",
+    "li",
+    "ol",
+    "strong",
+    "ul",
+})
 #: bleach's default allowed attributes, keyed by tag (``"*"`` would match every tag).
-DEFAULT_ATTRIBUTES: Mapping[str, frozenset[str]] = MappingProxyType({
+DEFAULT_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
     "a": frozenset({"href", "title"}),
     "abbr": frozenset({"title"}),
     "acronym": frozenset({"title"}),
 })
 #: bleach's default URL schemes.
-DEFAULT_SCHEMES = frozenset({"http", "https", "mailto"})
+DEFAULT_SCHEMES: Final = frozenset({"http", "https", "mailto"})
 #: bleach's default allowed CSS properties (CSS 2.1 safe set plus SVG paint), for scrubbing a ``style`` attribute.
-DEFAULT_CSS_PROPERTIES = frozenset({
+DEFAULT_CSS_PROPERTIES: Final = frozenset({
     "azimuth", "background-color", "border-bottom-color", "border-collapse", "border-color", "border-left-color",
     "border-right-color", "border-top-color", "clear", "color", "cursor", "direction", "display", "elevation",
     "float", "font", "font-family", "font-size", "font-style", "font-variant", "font-weight", "height",
@@ -61,12 +74,12 @@ DEFAULT_CSS_PROPERTIES = frozenset({
 })  # fmt: skip
 
 # A roomier set for the relaxed preset: typical user-generated content (headings, tables, images, figures).
-_RELAXED_TAGS = DEFAULT_TAGS | {
+_RELAXED_TAGS: Final = DEFAULT_TAGS | {
     "p", "br", "hr", "span", "div", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
     "dl", "dt", "dd", "sub", "sup", "del", "ins", "mark", "small", "u", "s", "q", "cite", "img",
     "figure", "figcaption", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
 }  # fmt: skip
-_RELAXED_ATTRIBUTES: Mapping[str, frozenset[str]] = MappingProxyType({
+_RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
     "*": frozenset({"title", "lang", "dir"}),
     "a": frozenset({"href", "title", "name"}),
     "img": frozenset({"src", "alt", "title", "width", "height"}),

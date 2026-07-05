@@ -51,9 +51,6 @@ def test_data_must_be_a_str(node_type: type[Text | Comment]) -> None:
         node_type(123)  # ty: ignore[invalid-argument-type]  # data must be a str
 
 
-# --- Element ---
-
-
 def test_element_bare() -> None:
     div = Element("div")
     assert div.tag == "div"

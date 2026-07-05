@@ -138,7 +138,7 @@ static PyObject *minify_get_minify_js(PyObject *self, void *Py_UNUSED(closure)) 
         Py_RETURN_NONE;
     }
     module_state *state = PyType_GetModuleState(Py_TYPE(self));
-    /* JSMinify(mangle, fold) — positional order matches the dataclass field order */
+    /* JSMinify(mangle, fold) -- positional order matches the dataclass field order */
     return PyObject_CallFunction(state->js_minify_type, "OO", minify->minify_js_mangle ? Py_True : Py_False,
                                  minify->minify_js_fold ? Py_True : Py_False);
 }

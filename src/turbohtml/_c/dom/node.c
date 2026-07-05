@@ -485,9 +485,9 @@ static int md_resolve_enum(const char *name, PyObject *value, const char *const 
         PyErr_Format(PyExc_TypeError, "%s must be a string", name);
         return -1;
     }
-    for (int i = 0; i < count; i++) {
-        if (strcmp(text, choices[i]) == 0) {
-            *out = i;
+    for (int choice_index = 0; choice_index < count; choice_index++) {
+        if (strcmp(text, choices[choice_index]) == 0) {
+            *out = choice_index;
             return 0;
         }
     }
@@ -914,10 +914,10 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
     if (text_opts_from_spec(&opt, spec) < 0) {
         return NULL;
     }
-    Py_ssize_t n = PyDict_Size(rules_dict);
-    text_rule *rules = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(text_rule));
-    PyObject **labels = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(PyObject *));
-    Py_UCS4 **values = PyMem_Calloc((size_t)(n > 0 ? n : 1), sizeof(Py_UCS4 *));
+    Py_ssize_t rule_count = PyDict_Size(rules_dict);
+    text_rule *rules = PyMem_Calloc((size_t)(rule_count > 0 ? rule_count : 1), sizeof(text_rule));
+    PyObject **labels = PyMem_Calloc((size_t)(rule_count > 0 ? rule_count : 1), sizeof(PyObject *));
+    Py_UCS4 **values = PyMem_Calloc((size_t)(rule_count > 0 ? rule_count : 1), sizeof(Py_UCS4 *));
     if (rules == NULL || labels == NULL || values == NULL) { /* GCOVR_EXCL_BR_LINE: cannot force an alloc failure */
         PyMem_Free(rules);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(labels);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -925,14 +925,14 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
         return PyErr_NoMemory();                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *key, *value;
-    Py_ssize_t pos = 0, r = 0;
+    Py_ssize_t pos = 0, filled_count = 0;
     int failed = 0;
     while (PyDict_Next(rules_dict, &pos, &key, &value)) {
-        if (text_parse_rule(key, value, &rules[r], &labels[r], &values[r]) < 0) {
+        if (text_parse_rule(key, value, &rules[filled_count], &labels[filled_count], &values[filled_count]) < 0) {
             failed = 1;
             break;
         }
-        r++;
+        filled_count++;
     }
     PyObject *result = NULL;
     if (!failed) {
@@ -940,8 +940,8 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
         Py_ssize_t span_count = 0, out_len = 0;
         Py_UCS4 *data;
         Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-        data = th_node_annotated_text(tree_of(self), ((NodeObject *)self)->node, &opt, rules, n, &spans, &span_count,
-                                      &out_len);
+        data = th_node_annotated_text(tree_of(self), ((NodeObject *)self)->node, &opt, rules, rule_count, &spans,
+                                      &span_count, &out_len);
         Py_END_CRITICAL_SECTION();
         if (data == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -950,8 +950,10 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
         PyObject *text = data != NULL ? ucs4_to_str(data, out_len) : NULL;   /* GCOVR_EXCL_BR_LINE */
         PyObject *label_list = data != NULL ? PyList_New(span_count) : NULL; /* GCOVR_EXCL_BR_LINE */
         if (text != NULL && label_list != NULL) { /* GCOVR_EXCL_BR_LINE: only an alloc failure makes either NULL */
-            for (Py_ssize_t i = 0; i < span_count; i++) {
-                PyList_SET_ITEM(label_list, i, Py_BuildValue("nnO", spans[i].start, spans[i].end, spans[i].label));
+            for (Py_ssize_t span_index = 0; span_index < span_count; span_index++) {
+                PyList_SET_ITEM(
+                    label_list, span_index,
+                    Py_BuildValue("nnO", spans[span_index].start, spans[span_index].end, spans[span_index].label));
             }
             result = PyTuple_Pack(2, text, label_list);
         }
@@ -960,9 +962,9 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
         PyMem_Free(data);
         PyMem_Free(spans);
     }
-    for (Py_ssize_t i = 0; i < r; i++) {
-        Py_XDECREF(labels[i]);
-        PyMem_Free(values[i]);
+    for (Py_ssize_t rule_index = 0; rule_index < filled_count; rule_index++) {
+        Py_XDECREF(labels[rule_index]);
+        PyMem_Free(values[rule_index]);
     }
     PyMem_Free(rules);
     PyMem_Free(labels);

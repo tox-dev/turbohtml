@@ -6,8 +6,6 @@ import pytest
 
 from turbohtml import Element, Html, Indent, Markdown, Minify, parse
 
-# ----------------------------------------------------------------- sort_attributes
-
 
 @pytest.mark.parametrize(
     ("markup", "selector", "expected"),
@@ -58,9 +56,6 @@ def test_sort_attributes_composes_with_minify() -> None:
     node = parse("<p z=1 a=2>x").select_one("p")
     assert node is not None
     assert node.serialize(Html(layout=Minify(), sort_attributes=True)) == "<p a=2 z=1>x</p>"
-
-
-# ------------------------------------------------------------------- meta_charset
 
 
 def test_meta_charset_injects_into_empty_head() -> None:
@@ -170,9 +165,6 @@ def test_meta_charset_reparses_to_one_declaration() -> None:
     assert metas[0].attrs["charset"] == "utf-8"
 
 
-# ------------------------------------------------------------- meta_charset layouts
-
-
 def test_meta_charset_with_indent_indents_injected_meta() -> None:
     out = parse("<p>x").serialize(Html(layout=Indent(2), meta_charset=True))
     assert out == (
@@ -215,9 +207,6 @@ def test_meta_charset_with_minify_normalizes_existing_meta() -> None:
     assert len(metas) == 1
     assert metas[0].attrs["charset"] == "utf-8"
     assert 'charset="utf-8"' in out
-
-
-# ------------------------------------------------------------------- encode wiring
 
 
 def test_encode_meta_charset_uses_target_encoding() -> None:

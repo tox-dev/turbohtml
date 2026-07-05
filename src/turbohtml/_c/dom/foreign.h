@@ -430,7 +430,7 @@ static int foreign_step(th_tree *tree, const th_token *token) {
             return 1;
         }
     } /* GCOVR_EXCL_BR_LINE: the walk always reaches the fragment root or an html element first */
-    return 1; /* GCOVR_EXCL_LINE: same — the foreign end-tag walk never falls through */
+    return 1; /* GCOVR_EXCL_LINE: same -- the foreign end-tag walk never falls through */
 }
 
 #endif /* TURBOHTML_DOM_FOREIGN_H */

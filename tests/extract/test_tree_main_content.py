@@ -298,7 +298,6 @@ def test_landmark_only_body_is_rescued_on_retry() -> None:
     assert "A comet is an icy" in found.text
 
 
-# === article(): the content body plus harvested metadata ===================
 #
 # article() reuses the content scoring above and adds the page-metadata record.
 # The per-field precedence cases below share the BODY content fixture so each one

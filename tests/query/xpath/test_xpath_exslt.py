@@ -62,9 +62,6 @@ def texts(result: list[Element | str]) -> list[str]:
     return [node.text for node in result if isinstance(node, Element)]
 
 
-# --- re: regular-expression functions -------------------------------------- #
-
-
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
@@ -106,9 +103,6 @@ def test_re_test_malformed_pattern_propagates_python_error(doc: turbohtml.Node) 
 def test_re_replace_malformed_pattern_propagates_python_error(doc: turbohtml.Node) -> None:
     with pytest.raises(re.error):
         doc.xpath("re:replace('x', '(', '', 'y')")
-
-
-# --- set: node-set functions ----------------------------------------------- #
 
 
 @pytest.mark.parametrize(
@@ -191,9 +185,6 @@ def test_set_distinct_mixed_lengths() -> None:
     assert ids(doc.xpath("set:distinct(//li)")) == ["a", "b"]
 
 
-# --- str: string functions ------------------------------------------------- #
-
-
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
@@ -226,9 +217,6 @@ def test_str_functions(doc: turbohtml.Node, expr: str, expected: str) -> None:
 def test_str_concat_non_nodeset_argument_raises(doc: turbohtml.Node) -> None:
     with pytest.raises(TypeError, match="non-node-set"):
         doc.xpath("str:concat('x')")
-
-
-# --- math: numeric and node-set functions ---------------------------------- #
 
 
 @pytest.mark.parametrize(
@@ -283,9 +271,6 @@ def test_math_select(doc: turbohtml.Node, expr: str, expected: list[str]) -> Non
 def test_math_non_nodeset_argument_raises(doc: turbohtml.Node, expr: str) -> None:
     with pytest.raises(TypeError, match="non-node-set"):
         doc.xpath(expr)
-
-
-# --- date: field-extraction functions -------------------------------------- #
 
 
 @pytest.mark.parametrize(

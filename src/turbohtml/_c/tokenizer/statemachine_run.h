@@ -262,7 +262,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
 #if TH_UCS1
-            /* '\n' is ordinary text in DATA — the only per-newline work is
+            /* '\n' is ordinary text in DATA -- the only per-newline work is
                line/column tracking, so a single SIMD pass runs straight through
                newlines to the next markup (a paragraph between tags becomes one
                sweep, not one per wrapped line) and folds the newline count and

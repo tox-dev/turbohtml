@@ -17,7 +17,7 @@ default handling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from ._html import Formatter, Indent, Minify, _register_render_configs
 
@@ -303,7 +303,7 @@ class Markdown:
         return unpacked
 
 
-_MARKDOWN_DEFAULT = Markdown()
+_MARKDOWN_DEFAULT: Final = Markdown()
 
 
 @dataclass(frozen=True)
@@ -339,7 +339,7 @@ class PlainText:
         }
 
 
-_PLAINTEXT_DEFAULT = PlainText()
+_PLAINTEXT_DEFAULT: Final = PlainText()
 
 
 @dataclass(frozen=True)
@@ -369,7 +369,7 @@ class Html:
         }
 
 
-_HTML_DEFAULT = Html()
+_HTML_DEFAULT: Final = Html()
 
 _register_render_configs(Markdown, PlainText, Html)
 

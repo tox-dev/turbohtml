@@ -1764,7 +1764,7 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
 }
 
 /* On-stack scratch for ASCII-lowercasing a tag before the atom lookup; a tag
-   whose UTF-8 exceeds this is simply treated as an unknown atom. */
+   whose UTF-8 exceeds this is treated as an unknown atom. */
 #define ELEMENT_TAG_LOWER_STACK_BYTES 64
 
 /* Build an Element wrapper for tag with attrs, without the public constructor's
@@ -1814,7 +1814,7 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
         }
         atom = th_tag_lookup(stack, utf8_len);
     } else {
-        PyErr_Clear(); /* a surrogate or very long custom tag is simply not in the table */
+        PyErr_Clear(); /* a surrogate or very long custom tag is not in the table */
     }
     th_node *node = th_tree_make_element(tree, tag_points, tag_len, atom, attr_count);
     PyMem_Free(tag_points);

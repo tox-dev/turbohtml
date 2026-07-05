@@ -74,7 +74,7 @@ def _unique(elements: Iterable[Element]) -> list[Element]:
 
 
 def _class_list(element: Element) -> list[str]:
-    # the tree stores the class attribute tokenized as a list, or omits it (None)
+    """Read the ``class`` attribute, which the tree stores tokenized as a list or omits entirely."""
     value = element.attrs.get("class")
     return list(value) if isinstance(value, list) else []
 

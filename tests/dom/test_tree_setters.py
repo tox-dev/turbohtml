@@ -152,9 +152,6 @@ def test_attrs_round_trips_through_dict() -> None:
     assert dict(_div('<div id="a" class="x">').attrs) == {"id": "a", "class": ["x"]}
 
 
-# --- data setter ---
-
-
 def test_data_setter_replaces_text() -> None:
     text = Text("old")
     text.data = "new & shiny"
@@ -185,9 +182,6 @@ def test_data_cannot_be_deleted() -> None:
         del text.data  # ty: ignore[invalid-assignment]  # data has no deleter
 
 
-# --- text setter ---
-
-
 def test_text_setter_replaces_children() -> None:
     element = parse("<p><b>x</b>y</p>").find("p")
     assert element is not None
@@ -214,9 +208,6 @@ def test_text_cannot_be_deleted() -> None:
     element = _div()
     with pytest.raises(TypeError, match="cannot delete text"):
         del element.text  # ty: ignore[invalid-assignment]  # text has no deleter
-
-
-# --- set_inner_html: parse a fragment in context and replace the children ---
 
 
 @pytest.mark.parametrize(
@@ -299,9 +290,6 @@ def test_set_inner_html_rejects(tag: str, fragment: str, exception: type[Excepti
         Element(tag).set_inner_html(fragment)
 
 
-# --- set_text: replace the children with one verbatim Text node ---
-
-
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -350,9 +338,6 @@ def test_set_text_on_a_constructed_element() -> None:
 def test_set_text_rejects_non_str(value: str) -> None:
     with pytest.raises(TypeError, match="text must be a str"):
         Element("p").set_text(value)
-
-
-# --- insert_adjacent_html: parse a fragment and splice it at a DOM position ---
 
 
 @pytest.mark.parametrize(

@@ -13,7 +13,7 @@ inline-``<script>`` path are configured the same way.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal
 
 from ._html import Minify, _minify_js, parse
 from ._jsminify import JSMinify
@@ -21,7 +21,7 @@ from ._render import Html
 
 __all__ = ["JSMinify", "Minify", "minify", "minify_js"]
 
-_DEFAULT = Minify()
+_DEFAULT: Final = Minify()
 
 
 def minify(html: str, options: Minify | None = None) -> str:

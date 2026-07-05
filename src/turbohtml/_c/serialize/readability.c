@@ -1,5 +1,5 @@
-/* Pulls the real article out of a cluttered page — stripping nav, sidebars, and
-   boilerplate — so a reader view or a clean extract keeps only the main content.
+/* Pulls the real article out of a cluttered page -- stripping nav, sidebars, and
+   boilerplate -- so a reader view or a clean extract keeps only the main content.
 
    It scores the DOM by content density -- text length, comma count, tag weight
    and class/id weight, discounted by link density, the well-known readability

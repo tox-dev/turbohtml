@@ -1,0 +1,5 @@
+Finish the pre-1.0 house-style sweep over the whole tree. Drop the section-divider banners the audit found in eight test
+files, annotate the remaining module-level configuration singletons ``Final`` so every module matches, and rename the
+single-letter loop counters the plain-text renderer, date extractor, and encoding detector had drifted to. Em dashes in
+C comments become ASCII ``--`` to match the rest of the tree, and four documentation sentences lose their filler. Output
+is unchanged; this is style and prose only. Part of #478.

@@ -19,12 +19,12 @@ The division of labor is the same one the rest of the read path follows: the *lo
 Python step stays in Python. A pure-C pass under the per-tree critical section walks the document once per format,
 gathering the ``itemscope``/``itemprop``/``itemtype`` structure into nested :class:`~turbohtml.MicrodataItem` records
 and the OpenGraph and Twitter ``<meta>`` pairs into a flat mapping, all holding no reference back into the tree. JSON-LD
-is the exception that proves the rule: the C walk gathers the verbatim text of each ``<script
-type="application/ld+json">`` block into a list of strings, then the critical section is released and a thin facade
-parses them with the standard library :mod:`json`. The JSON grammar is not reinvented in C, and the parse never touches
-the tree, so it cannot race a concurrent mutation -- the snapshot-then-parse split is what keeps the Python call off the
-live structure. A block that is not valid JSON is skipped rather than raising, the robust default for scraping a page
-whose markup the author did not validate.
+is the one exception: the C walk gathers the verbatim text of each ``<script type="application/ld+json">`` block into a
+list of strings, then the critical section is released and a thin facade parses them with the standard library
+:mod:`json`. The JSON grammar is not reinvented in C, and the parse never touches the tree, so it cannot race a
+concurrent mutation -- the snapshot-then-parse split is what keeps the Python call off the live structure. A block that
+is not valid JSON is skipped rather than raising, the safe default for scraping a page whose markup the author did not
+validate.
 
 *******************************
  Microdata, OpenGraph, Twitter

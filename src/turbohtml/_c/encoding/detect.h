@@ -1007,8 +1007,8 @@ static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u) {
 /* Drive one CPython incremental codec a byte at a time, mirroring chardetng's
    decode-and-classify loop. A decode error disqualifies the candidate. */
 static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
-    for (Py_ssize_t i = 0; i < len; i++) {
-        unsigned char b = buf[i];
+    for (Py_ssize_t byte_index = 0; byte_index < len; byte_index++) {
+        unsigned char b = buf[byte_index];
         PyObject *chunk = PyBytes_FromStringAndSize((const char *)&b, 1);
         if (chunk == NULL) { /* GCOVR_EXCL_START -- single-byte allocation only fails on OOM */
             PyErr_Clear();
@@ -1090,8 +1090,8 @@ static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char 
    no high byte, contains an escape, and decodes cleanly as ISO-2022-JP. */
 static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
     int esc = 0;
-    for (Py_ssize_t i = 0; i < len; i++) {
-        if (buf[i] == 0x1B) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (buf[index] == 0x1B) {
             esc = 1;
             break;
         }

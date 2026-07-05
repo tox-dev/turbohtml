@@ -1,5 +1,5 @@
-/* Turns a scraped page into clean GitHub-Flavored Markdown — headings, lists,
-   tables, links and emphasis — so a `scrape -> markdown` pipeline needs no
+/* Turns a scraped page into clean GitHub-Flavored Markdown -- headings, lists,
+   tables, links and emphasis -- so a `scrape -> markdown` pipeline needs no
    second dependency.
 
    It shares the sbuf buffer, need_text(), the tag atoms, the attribute lookup,
@@ -14,7 +14,7 @@
    eagerly: a run sets space_pending, and the deferred space is flushed (as one
    space) only just before the next real character, and only when the current
    line already holds content. That one rule collapses runs, drops the space at
-   block and line starts, and — because a closing marker does not flush — moves a
+   block and line starts, and -- because a closing marker does not flush -- moves a
    trailing inner space out of `**bold** ` instead of leaving `**bold **`, which
    is invalid markdown. */
 
@@ -355,8 +355,8 @@ static Py_ssize_t md_escape_line_number(md_ctx *ctx, const Py_UCS4 *text, Py_ssi
 
 /* Emit inline text with normal-flow whitespace collapsing and markdown escaping.
    Prose is mostly plain runs, so after the first character of a word is placed
-   (which resolves the deferred space, markers and escapes) the rest of the run —
-   no whitespace, nothing to escape — is bulk-copied in one memcpy. */
+   (which resolves the deferred space, markers and escapes) the rest of the run --
+   no whitespace, nothing to escape -- is bulk-copied in one memcpy. */
 static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
     int translit = ctx->opt->transliterate;
     Py_ssize_t index = 0;

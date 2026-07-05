@@ -10,8 +10,7 @@ module-level ``select`` / ``select_one`` / ``iselect`` / ``match`` / ``filter`` 
 queries over bs4 tags. Its scope is deliberately narrow: it interprets a CSS selector against an already-parsed tree of
 BeautifulSoup ``Tag`` objects, one element at a time, in Python. It covers a broad slice of Selectors Level 3 and 4 and
 adds a few proprietary extensions (``:-soup-contains()``, ``[attr!=value]``, custom pseudo-class aliases). Because it is
-the default engine that ``bs4`` reaches for, it is installed on essentially every project that scrapes or queries HTML
-in Python.
+the default engine that ``bs4`` reaches for, it ships with nearly every project that scrapes or queries HTML in Python.
 
 :mod:`turbohtml.query` covers that same ground with the same call shapes over turbohtml's native selector engine. A port
 swaps ``import soupsieve`` for ``from turbohtml import query`` and keeps its structure: the matcher methods and module

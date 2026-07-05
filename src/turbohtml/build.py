@@ -19,7 +19,7 @@ A call takes its arguments in order: a leading mapping is the element's attribut
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Final, TypeAlias, TypeGuard
 
 from ._html import Element, Text, _build_document
 
@@ -112,7 +112,7 @@ class ElementMaker:
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
-E = ElementMaker()
+E: Final = ElementMaker()
 
 
 def document(

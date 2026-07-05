@@ -441,8 +441,6 @@ def test_kitchen_sink() -> None:
     assert "\n".join(line.rstrip() for line in md(html).splitlines()) == expected
 
 
-# --------------------------------------------------------- round-trip differential
-
 _WORD = re.compile(r"[0-9a-z]+")
 
 

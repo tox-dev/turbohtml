@@ -1,7 +1,7 @@
 /* Tree-builder internals shared between the parser (tree.c) and the standalone
    serialization translation units. The arena, the borrowed-input readers, the
    lazy text-span realization and the void-element predicate live here as
-   `static inline` so every including unit keeps its own inlined copy — the
+   `static inline` so every including unit keeps its own inlined copy -- the
    serialize hot path pays no cross-TU call for need_text() or is_void_atom(). */
 
 #ifndef TURBOHTML_DOM_TREE_INTERNAL_H

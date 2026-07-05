@@ -148,27 +148,29 @@ static int iso_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     if (!year_at(data, kind, len, pos, year)) {
         return 0;
     }
-    Py_ssize_t p = pos + 4;
-    if (p >= len || !(CP(p) == '-' || CP(p) == '/' || CP(p) == '.')) {
+    Py_ssize_t cursor = pos + 4;
+    if (cursor >= len || !(CP(cursor) == '-' || CP(cursor) == '/' || CP(cursor) == '.')) {
         return 0;
     }
-    p++;
-    if (p + 2 < len && month2(CP(p), CP(p + 1), month) && (CP(p + 2) == '-' || CP(p + 2) == '/' || CP(p + 2) == '.')) {
-        p += 2;
-    } else if (p + 1 < len && month1(CP(p), month) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
-        p += 1;
+    cursor++;
+    if (cursor + 2 < len && month2(CP(cursor), CP(cursor + 1), month) &&
+        (CP(cursor + 2) == '-' || CP(cursor + 2) == '/' || CP(cursor + 2) == '.')) {
+        cursor += 2;
+    } else if (cursor + 1 < len && month1(CP(cursor), month) &&
+               (CP(cursor + 1) == '-' || CP(cursor + 1) == '/' || CP(cursor + 1) == '.')) {
+        cursor += 1;
     } else {
         return 0;
     }
-    p++;
-    if (p + 1 < len && day2(CP(p), CP(p + 1), day)) {
-        p += 2;
-    } else if (p < len && day1(CP(p), day)) {
-        p += 1;
+    cursor++;
+    if (cursor + 1 < len && day2(CP(cursor), CP(cursor + 1), day)) {
+        cursor += 2;
+    } else if (cursor < len && day1(CP(cursor), day)) {
+        cursor += 1;
     } else {
         return 0;
     }
-    *out_end = p;
+    *out_end = cursor;
     return 1;
 }
 
@@ -209,43 +211,45 @@ static int compact_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos
    The year run is two to four ASCII digits ended by a non-digit. */
 static int dmy_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, int *raw_day, int *raw_month,
                   int *raw_year, Py_ssize_t *out_end) {
-    Py_ssize_t p = pos;
-    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '3' && is_ascii_digit(CP(p + 1)) &&
-        (CP(p + 2) == '-' || CP(p + 2) == '/' || CP(p + 2) == '.')) {
-        *raw_day = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
-        p += 2;
-    } else if (p + 1 < len && is_ascii_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
-        *raw_day = (int)(CP(p) - '0');
-        p += 1;
+    Py_ssize_t cursor = pos;
+    if (cursor + 2 < len && CP(cursor) >= '0' && CP(cursor) <= '3' && is_ascii_digit(CP(cursor + 1)) &&
+        (CP(cursor + 2) == '-' || CP(cursor + 2) == '/' || CP(cursor + 2) == '.')) {
+        *raw_day = (int)(CP(cursor) - '0') * 10 + (int)(CP(cursor + 1) - '0');
+        cursor += 2;
+    } else if (cursor + 1 < len && is_ascii_digit(CP(cursor)) &&
+               (CP(cursor + 1) == '-' || CP(cursor + 1) == '/' || CP(cursor + 1) == '.')) {
+        *raw_day = (int)(CP(cursor) - '0');
+        cursor += 1;
     } else {
         return 0;
     }
-    p++;
-    if (p + 2 < len && CP(p) >= '0' && CP(p) <= '1' && is_ascii_digit(CP(p + 1)) &&
-        (CP(p + 2) == '-' || CP(p + 2) == '/' || CP(p + 2) == '.')) {
-        *raw_month = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
-        p += 2;
-    } else if (p + 1 < len && is_ascii_digit(CP(p)) && (CP(p + 1) == '-' || CP(p + 1) == '/' || CP(p + 1) == '.')) {
-        *raw_month = (int)(CP(p) - '0');
-        p += 1;
+    cursor++;
+    if (cursor + 2 < len && CP(cursor) >= '0' && CP(cursor) <= '1' && is_ascii_digit(CP(cursor + 1)) &&
+        (CP(cursor + 2) == '-' || CP(cursor + 2) == '/' || CP(cursor + 2) == '.')) {
+        *raw_month = (int)(CP(cursor) - '0') * 10 + (int)(CP(cursor + 1) - '0');
+        cursor += 2;
+    } else if (cursor + 1 < len && is_ascii_digit(CP(cursor)) &&
+               (CP(cursor + 1) == '-' || CP(cursor + 1) == '/' || CP(cursor + 1) == '.')) {
+        *raw_month = (int)(CP(cursor) - '0');
+        cursor += 1;
     } else {
         return 0;
     }
-    p++;
-    Py_ssize_t start = p;
-    while (p < len && is_ascii_digit(CP(p))) {
-        p++;
+    cursor++;
+    Py_ssize_t start = cursor;
+    while (cursor < len && is_ascii_digit(CP(cursor))) {
+        cursor++;
     }
-    Py_ssize_t run = p - start;
+    Py_ssize_t run = cursor - start;
     if (run < 2 || run > 4) {
         return 0;
     }
     int value = 0;
-    for (Py_ssize_t index = start; index < p; index++) {
+    for (Py_ssize_t index = start; index < cursor; index++) {
         value = value * 10 + (int)(CP(index) - '0');
     }
     *raw_year = value;
-    *out_end = p;
+    *out_end = cursor;
     return 1;
 }
 
@@ -369,23 +373,23 @@ static Py_ssize_t skip_spaces(const void *data, int kind, Py_ssize_t len, Py_ssi
    needs. Returns 1 with the year and end position. */
 static int text_a_tail(const void *data, int kind, Py_ssize_t len, Py_ssize_t start, int *year, Py_ssize_t *out_end) {
     for (int with_ordinal = 1; with_ordinal >= 0; with_ordinal--) {
-        Py_ssize_t p = start;
+        Py_ssize_t cursor = start;
         if (with_ordinal) {
-            int ordinal = match_ordinal(data, kind, len, p);
+            int ordinal = match_ordinal(data, kind, len, cursor);
             if (ordinal == 0) {
                 continue;
             }
-            p += ordinal;
+            cursor += ordinal;
         }
-        if (p < len && CP(p) == ',') {
-            p++;
+        if (cursor < len && CP(cursor) == ',') {
+            cursor++;
         }
-        p = skip_spaces(data, kind, len, p);
-        if (p < 0) {
+        cursor = skip_spaces(data, kind, len, cursor);
+        if (cursor < 0) {
             continue;
         }
-        if (year_at(data, kind, len, p, year)) {
-            *out_end = p + 4;
+        if (year_at(data, kind, len, cursor, year)) {
+            *out_end = cursor + 4;
             return 1;
         }
     }
@@ -401,21 +405,21 @@ static int text_a(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     if (name_length == 0) {
         return 0;
     }
-    Py_ssize_t p = pos + name_length;
-    if (p < len && CP(p) == '.') {
-        p++;
+    Py_ssize_t cursor = pos + name_length;
+    if (cursor < len && CP(cursor) == '.') {
+        cursor++;
     }
-    p = skip_spaces(data, kind, len, p);
-    if (p < 0) {
+    cursor = skip_spaces(data, kind, len, cursor);
+    if (cursor < 0) {
         return 0;
     }
-    if (p + 1 < len && CP(p) >= '0' && CP(p) <= '3' && is_ascii_digit(CP(p + 1)) &&
-        text_a_tail(data, kind, len, p + 2, year, out_end)) {
-        *day = (int)(CP(p) - '0') * 10 + (int)(CP(p + 1) - '0');
+    if (cursor + 1 < len && CP(cursor) >= '0' && CP(cursor) <= '3' && is_ascii_digit(CP(cursor + 1)) &&
+        text_a_tail(data, kind, len, cursor + 2, year, out_end)) {
+        *day = (int)(CP(cursor) - '0') * 10 + (int)(CP(cursor + 1) - '0');
         return 1;
     }
-    if (p < len && is_ascii_digit(CP(p)) && text_a_tail(data, kind, len, p + 1, year, out_end)) {
-        *day = (int)(CP(p) - '0');
+    if (cursor < len && is_ascii_digit(CP(cursor)) && text_a_tail(data, kind, len, cursor + 1, year, out_end)) {
+        *day = (int)(CP(cursor) - '0');
         return 1;
     }
     return 0;
@@ -427,42 +431,42 @@ static int text_a(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
 static int text_b_tail(const void *data, int kind, Py_ssize_t len, Py_ssize_t start, int *month, int *year,
                        Py_ssize_t *out_end) {
     for (int with_ordinal = 1; with_ordinal >= 0; with_ordinal--) {
-        Py_ssize_t p = start;
+        Py_ssize_t cursor = start;
         if (with_ordinal) {
-            int ordinal = match_ordinal(data, kind, len, p);
+            int ordinal = match_ordinal(data, kind, len, cursor);
             if (ordinal == 0) {
                 continue;
             }
-            p += ordinal;
+            cursor += ordinal;
         }
-        if (p < len && CP(p) == '.') {
-            p++;
+        if (cursor < len && CP(cursor) == '.') {
+            cursor++;
         }
-        p = skip_spaces(data, kind, len, p);
-        if (p < 0) {
+        cursor = skip_spaces(data, kind, len, cursor);
+        if (cursor < 0) {
             continue;
         }
-        if (p + 2 < len && lower_month_cp(CP(p)) == 'o' && lower_month_cp(CP(p + 1)) == 'f' &&
-            is_perl_space(CP(p + 2))) {
-            p = skip_spaces(data, kind, len, p + 2);
+        if (cursor + 2 < len && lower_month_cp(CP(cursor)) == 'o' && lower_month_cp(CP(cursor + 1)) == 'f' &&
+            is_perl_space(CP(cursor + 2))) {
+            cursor = skip_spaces(data, kind, len, cursor + 2);
         }
-        int name_length = match_month_name(data, kind, len, p, month);
+        int name_length = match_month_name(data, kind, len, cursor, month);
         if (name_length == 0) {
             continue;
         }
-        Py_ssize_t q = p + name_length;
-        if (q < len && CP(q) == '.') {
-            q++;
+        Py_ssize_t scan_end = cursor + name_length;
+        if (scan_end < len && CP(scan_end) == '.') {
+            scan_end++;
         }
-        if (q < len && CP(q) == ',') {
-            q++;
+        if (scan_end < len && CP(scan_end) == ',') {
+            scan_end++;
         }
-        q = skip_spaces(data, kind, len, q);
-        if (q < 0) {
+        scan_end = skip_spaces(data, kind, len, scan_end);
+        if (scan_end < 0) {
             continue;
         }
-        if (year_at(data, kind, len, q, year)) {
-            *out_end = q + 4;
+        if (year_at(data, kind, len, scan_end, year)) {
+            *out_end = scan_end + 4;
             return 1;
         }
     }
@@ -619,23 +623,26 @@ static int url_at(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     if (!year_at(data, kind, len, pos, year)) {
         return 0;
     }
-    Py_ssize_t p = pos + 4;
-    if (p >= len || !(CP(p) == '/' || CP(p) == '_' || CP(p) == '-')) {
+    Py_ssize_t cursor = pos + 4;
+    if (cursor >= len || !(CP(cursor) == '/' || CP(cursor) == '_' || CP(cursor) == '-')) {
         return 0;
     }
-    p++;
-    if (p + 2 < len && month2(CP(p), CP(p + 1), month) && (CP(p + 2) == '/' || CP(p + 2) == '_' || CP(p + 2) == '-')) {
-        p += 2;
-    } else if (p + 1 < len && month1(CP(p), month) && (CP(p + 1) == '/' || CP(p + 1) == '_' || CP(p + 1) == '-')) {
-        p += 1;
+    cursor++;
+    if (cursor + 2 < len && month2(CP(cursor), CP(cursor + 1), month) &&
+        (CP(cursor + 2) == '/' || CP(cursor + 2) == '_' || CP(cursor + 2) == '-')) {
+        cursor += 2;
+    } else if (cursor + 1 < len && month1(CP(cursor), month) &&
+               (CP(cursor + 1) == '/' || CP(cursor + 1) == '_' || CP(cursor + 1) == '-')) {
+        cursor += 1;
     } else {
         return 0;
     }
-    p++;
-    if (p + 1 < len && day2(CP(p), CP(p + 1), day) && (p + 2 >= len || !is_ascii_digit(CP(p + 2)))) {
+    cursor++;
+    if (cursor + 1 < len && day2(CP(cursor), CP(cursor + 1), day) &&
+        (cursor + 2 >= len || !is_ascii_digit(CP(cursor + 2)))) {
         return 1;
     }
-    if (p < len && day1(CP(p), day) && (p + 1 >= len || !is_ascii_digit(CP(p + 1)))) {
+    if (cursor < len && day1(CP(cursor), day) && (cursor + 1 >= len || !is_ascii_digit(CP(cursor + 1)))) {
         return 1;
     }
     return 0;

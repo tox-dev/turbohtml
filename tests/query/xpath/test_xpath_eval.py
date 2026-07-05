@@ -242,8 +242,6 @@ def test_non_string_argument(doc: turbohtml.Node) -> None:
         doc.xpath_one(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
-# --- The precompiled, reusable turbohtml.XPath object (issue #267) ---
-
 TABLE_HTML = (
     '<table><tr><td class="num">1</td><td>2</td></tr><tr><td class="num">3</td><td class="num">4</td></tr></table>'
 )

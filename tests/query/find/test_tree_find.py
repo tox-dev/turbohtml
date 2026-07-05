@@ -34,9 +34,6 @@ def _raise(_value: str | None) -> bool:
     raise ZeroDivisionError
 
 
-# --- tag filter kinds ---
-
-
 @pytest.mark.parametrize(
     ("tag_filter", "tags"),
     [
@@ -84,9 +81,6 @@ def test_tag_with_class_filter_uses_the_general_path(class_filter: Filter) -> No
     assert _tags(parse(_DOC).find_all("p", class_=class_filter)) == ["p", "p"]
 
 
-# --- attribute filter kinds ---
-
-
 @pytest.mark.parametrize(
     "id_filter", [pytest.param("t", id="exact-string"), pytest.param(re.compile(r"^t$"), id="regex")]
 )
@@ -123,9 +117,6 @@ def test_attr_callable_on_absent_value_gets_none() -> None:
     seen: list[str | None] = []
     parse("<div id=x><span></span></div>").find_all(id=lambda value: bool(seen.append(value)))
     assert None in seen  # the <span> has no id, so the callable saw None
-
-
-# --- class_ is member-wise with a whole-value fallback ---
 
 
 @pytest.mark.parametrize("class_filter", [pytest.param("big", id="token"), pytest.param(True, id="true-is-presence")])
@@ -172,9 +163,6 @@ def test_class_token_scan_handles_surrounding_whitespace() -> None:
     assert parse('<p class=" a b ">').find("p", class_="c") is None
 
 
-# --- filters that resolve to no match return None ---
-
-
 @pytest.mark.parametrize(
     ("html", "class_filter"),
     [
@@ -204,9 +192,6 @@ def test_filter_on_valueless_attribute_no_match(disabled_filter: Filter) -> None
 
 def test_filter_on_present_valueless_attribute() -> None:
     assert _el(parse("<input disabled>").find("input", disabled=True)).tag == "input"
-
-
-# --- axes ---
 
 
 def test_axis_children() -> None:
@@ -242,9 +227,6 @@ def test_axis_preceding_excludes_ancestors() -> None:
     assert _el(link.find("h2", axis=Axis.PRECEDING)).tag == "h2"
 
 
-# --- limit ---
-
-
 @pytest.mark.parametrize(
     ("limit", "count"),
     [
@@ -267,9 +249,6 @@ def test_limit_on_the_general_path() -> None:
     assert len(parse(_DOC).find_all(True, limit=1)) == 1  # noqa: FBT003
 
 
-# --- dynamic (non-common) attribute names ---
-
-
 def test_dynamic_attr_name() -> None:
     assert _el(parse('<div data-x="v">').find("div", attrs={"data-x": "v"})).tag == "div"
 
@@ -283,9 +262,6 @@ def test_dynamic_attr_name() -> None:
 )
 def test_attrs_dict_matches_nothing(attrs: dict[str, Filter]) -> None:
     assert parse("<div>").find_all("div", attrs=attrs) == []
-
-
-# --- a list filter propagates an error from a member, as does a direct callable ---
 
 
 @pytest.mark.parametrize(
@@ -306,9 +282,6 @@ def test_callable_error_propagates(id_filter: Filter) -> None:
 def test_indexed_tag_filter_error_propagates(query: Callable[[Document], object]) -> None:
     with pytest.raises(ZeroDivisionError):
         query(parse("<p>x</p>"))
-
-
-# --- argument errors ---
 
 
 @pytest.mark.parametrize(
@@ -333,7 +306,6 @@ def test_type_errors(call: Callable[[], object]) -> None:
         call()
 
 
-# --- text predicate: match an element by its collected text -------------------
 # The text= filter runs against the element's collected subtree text (what .text returns):
 # an exact str, a searched regex, or a callable. It composes with the structural filters,
 # and -- because a regex/callable runs Python mid-walk -- the C side snapshots candidates

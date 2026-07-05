@@ -13,32 +13,32 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from ._html import Element, Text, _linkify_find, _linkify_scan, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-_EMAIL_KIND = 1
+_EMAIL_KIND: Final = 1
 
 # A scheme-less match (``tel:+1-800``, ``bitcoin:1abc``) already carries its scheme, so its url is the matched text
 # verbatim; only a bare domain (kind 0 without a ``scheme://``) is prefixed with ``http://``.
-_SCHEME_KIND = 2
+_SCHEME_KIND: Final = 2
 
 # A leading ``scheme://`` tells a matched URL already carries its scheme; a bare domain (``example.com``, ``www.x.com``)
 # does not and is prefixed with ``http://``. Anchoring at the start avoids treating a ``://`` deeper in a bare domain's
 # path (an embedded redirect URL) as the link's own scheme.
-_SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://")
+_SCHEME: Final = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://")
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
 # a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
-_DEFAULT_URL_SCHEMES = ("ftp", "http", "https")
+_DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
 
 # Text inside these never becomes a link: an existing anchor (no nested links) and the raw-text elements whose content
 # is not markup. A caller's skip_tags is added on top.
-_NEVER_LINKIFY = frozenset({"a", "script", "style"})
+_NEVER_LINKIFY: Final = frozenset({"a", "script", "style"})
 
 
 class LinkCandidate:
@@ -120,7 +120,7 @@ def target_blank(link: LinkCandidate) -> LinkCandidate | None:
 
 
 #: The callbacks linkify applies when a caller passes none, matching bleach's default.
-DEFAULT_CALLBACKS = (nofollow,)
+DEFAULT_CALLBACKS: Final = (nofollow,)
 
 
 @dataclass(frozen=True)

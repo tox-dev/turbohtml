@@ -1354,7 +1354,7 @@ static int inline_single_use(jm_program *prog, int32_t global) {
 
 /* Replace every read of a qualifying symbol with a copy of its literal, counting the copies; a
    `{ x }` shorthand read first gains its explicit key. The declarator still stands while this
-   runs, so if a key allocation fails mid-walk the untouched reads simply keep the binding -- the
+   runs, so if a key allocation fails mid-walk the untouched reads keep the binding -- the
    caller unlinks it only once every read was replaced. */
 /* One planned propagation: every read of `sym` (its declarator target excluded) becomes a copy of
    the literal at `init`; `replaced` counts the copies so the caller unlinks the declarator only

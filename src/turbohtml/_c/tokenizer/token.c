@@ -113,7 +113,7 @@ PyObject *token_from_record(module_state *state, const th_tokenizer *sm, PyObjec
     } else if (record->kind == TH_TEXT && record->text.len >= 512) {
         self->arena = NULL;
         /* move a large text run instead of copying it; the machine's record
-           simply regrows, which costs far less than duplicating the run */
+           regrows, which costs far less than duplicating the run */
         self->record.kind = TH_TEXT;
         self->record.line = record->line;
         self->record.col = record->col;

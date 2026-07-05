@@ -1,4 +1,4 @@
-/* Shrinks a parsed document to the smallest equivalent HTML — dropping the
+/* Shrinks a parsed document to the smallest equivalent HTML -- dropping the
    optional tags, quotes, and whitespace the spec lets us fold without changing
    what the bytes reparse to.
 
@@ -447,7 +447,7 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
    empty, "module", or a WHATWG JavaScript MIME type essence. Any other type
    (application/json, importmap, a text/html template, ...) is data, not script, and must
    pass through untouched, so it is never handed to the JS minifier. A type padded with
-   whitespace is treated conservatively as non-JS — rare, and verbatim is always safe. */
+   whitespace is treated conservatively as non-JS -- rare, and verbatim is always safe. */
 static int script_is_js(th_tree *tree, th_node *node) {
     Py_ssize_t type_index = th_node_attr_find(tree, node, "type", 4);
     if (type_index < 0) {
@@ -485,8 +485,8 @@ static int script_is_js(th_tree *tree, th_node *node) {
     return 0;
 }
 
-/* Emit a <script>'s JavaScript content minified, returning 1 when it did. Returns 0 —
-   leaving the caller to emit the content verbatim — for a non-JS script, an empty one, or
+/* Emit a <script>'s JavaScript content minified, returning 1 when it did. Returns 0 --
+   leaving the caller to emit the content verbatim -- for a non-JS script, an empty one, or
    a script the JS minifier cannot parse, so one bad <script> never breaks serialization. */
 static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th_minify_opts *opts) {
     if (node->atom != TH_TAG_SCRIPT) {
@@ -523,8 +523,8 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
     return 1;
 }
 
-/* Emit a <style>'s CSS content minified, returning 1 when it did. Returns 0 — leaving the
-   caller to emit the content verbatim — for a non-style raw-text element or an empty <style>,
+/* Emit a <style>'s CSS content minified, returning 1 when it did. Returns 0 -- leaving the
+   caller to emit the content verbatim -- for a non-style raw-text element or an empty <style>,
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
    would have ended the element there), and the CSS engine never synthesizes one, so the
    minified stylesheet stays inside the element and reparses to the same raw-text node. */

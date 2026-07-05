@@ -392,7 +392,7 @@ static inline void ser_sort_order(th_tree *tree, const th_node *node, Py_ssize_t
 }
 
 /* The order to emit node's attributes in: NULL means source order (sorting off, or
-   fewer than two attributes), otherwise a filled index array — the caller's stack
+   fewer than two attributes), otherwise a filled index array -- the caller's stack
    buffer for up to MAX_SORTED_ATTRS attributes, else a heap block freed through
    ser_attr_order_free. */
 static inline Py_ssize_t *ser_attr_order(th_tree *tree, const th_node *node, int sort, Py_ssize_t *stack) {
@@ -576,15 +576,15 @@ static inline int is_md_skipped(const th_node *node) {
     return node->ns == TH_NS_HTML && node->atom == TH_TAG_HEAD;
 }
 
-static inline Py_ssize_t md_put_decimal(sbuf *out, Py_ssize_t n) {
+static inline Py_ssize_t md_put_decimal(sbuf *out, Py_ssize_t number) {
     Py_UCS4 digits[20];
     Py_ssize_t count = 0;
     do {
-        digits[count++] = (Py_UCS4)('0' + (int)(n % 10));
-        n /= 10;
-    } while (n > 0);
-    for (Py_ssize_t i = count - 1; i >= 0; i--) {
-        sbuf_putc(out, digits[i]);
+        digits[count++] = (Py_UCS4)('0' + (int)(number % 10));
+        number /= 10;
+    } while (number > 0);
+    for (Py_ssize_t index = count - 1; index >= 0; index--) {
+        sbuf_putc(out, digits[index]);
     }
     return count;
 }

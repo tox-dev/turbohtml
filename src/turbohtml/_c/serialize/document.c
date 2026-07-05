@@ -1,4 +1,4 @@
-/* Renders a parsed tree back to HTML — the round-trippable document/fragment
+/* Renders a parsed tree back to HTML -- the round-trippable document/fragment
    markup, the html5lib "#document" debug dump, and the indented pretty form,
    under the WHATWG, minimal, or named-entity escape policy the caller picks. */
 
@@ -85,7 +85,7 @@ static void serialize_node_line(sbuf *out, th_tree *tree, th_node *node, int dep
         break;
         /* GCOVR_EXCL_STOP */
     case TH_NODE_DOCUMENT: /* GCOVR_EXCL_LINE: the document node is the serialization root, never a line itself */
-        break;             /* GCOVR_EXCL_LINE: same — the document node is never reached as a child */
+        break;             /* GCOVR_EXCL_LINE: same -- the document node is never reached as a child */
     }
     sbuf_putc(out, '\n');
     /* attributes: each on its own deeper line, output in lexicographic name
