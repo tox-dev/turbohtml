@@ -445,7 +445,12 @@ static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, P
         return emit_span(out, at, span, len); /* the decoder rejected it: keep the label verbatim (advisory error) */
     }
     if (span_is_ascii(scratch, decoded)) {
-        return emit_span(out, at, scratch, decoded);
+        /* A punycode label must decode to at least one non-ASCII code point; one that decodes to only ASCII is a UTS
+           #46 step-4 (P4) validity failure -- the RUSTSEC-2024-0421 / CVE-2024-12224 equivalence bypass, where an
+           "xn--" label and its bare-ASCII decoding would canonicalize to the same host. Keep such a label verbatim
+           (the same advisory-error disposition a failed decode gets), except an empty decode, whose empty label the
+           conformance vectors resolve to "". */
+        return decoded == 0 ? at : emit_span(out, at, span, len);
     }
     return emit_encoded(out, at, scratch, decoded, scratch + decoded);
 }
