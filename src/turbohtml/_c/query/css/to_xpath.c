@@ -12,6 +12,7 @@
    pseudo-classes without a type) raise NotImplementedError, which the Python facade
    maps to turbohtml.convert.ExpressionError. */
 
+#include "core/vec.h"
 #include "dom/nodes.h"
 #include "query/css/selector.h"
 
@@ -31,17 +32,20 @@ static void xt_reserve(xt_buf *buf, Py_ssize_t extra) {
     if (buf->len + extra <= buf->cap) {
         return;
     }
-    Py_ssize_t grown = buf->cap ? buf->cap : 256;
-    while (grown < buf->len + extra) {
-        grown *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        buf->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
-    Py_UCS4 *fresh = PyMem_Realloc(buf->data, (size_t)grown * sizeof(Py_UCS4));
+    Py_UCS4 *fresh = PyMem_Realloc(buf->data, bytes);
     if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         buf->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     buf->data = fresh;
-    buf->cap = grown;
+    buf->cap = (Py_ssize_t)cap;
 }
 
 static void xt_char(xt_buf *buf, Py_UCS4 ch) {

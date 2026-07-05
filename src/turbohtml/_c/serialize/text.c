@@ -139,14 +139,21 @@ static const Py_UCS4 *text_attr(th_tree *tree, th_node *node, const char *name, 
 
 static Py_ssize_t text_add_reference(text_ctx *ctx, const Py_UCS4 *url, Py_ssize_t url_len) {
     if (ctx->ref_count == ctx->ref_cap) {
-        Py_ssize_t cap = ctx->ref_cap ? ctx->ref_cap * 2 : 8;
-        text_reference *grown = PyMem_Realloc(ctx->refs, (size_t)cap * sizeof(text_reference));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)(ctx->ref_count + 1), (size_t)ctx->ref_cap, 8, sizeof(text_reference), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            ctx->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return 0;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        text_reference *grown = PyMem_Realloc(ctx->refs, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
             return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         ctx->refs = grown;
-        ctx->ref_cap = cap;
+        ctx->ref_cap = (Py_ssize_t)cap;
     }
     ctx->refs[ctx->ref_count].url = url;
     ctx->refs[ctx->ref_count].url_len = url_len;
@@ -222,14 +229,21 @@ static void text_record_span(text_ctx *ctx, Py_ssize_t start, Py_ssize_t end, Py
     Py_ssize_t n = PyTuple_GET_SIZE(labels);
     for (Py_ssize_t i = 0; i < n; i++) {
         if (ctx->span_count == ctx->span_cap) {
-            Py_ssize_t cap = ctx->span_cap ? ctx->span_cap * 2 : 8;
-            text_span *grown = PyMem_Realloc(ctx->spans, (size_t)cap * sizeof(text_span));
+            size_t cap;
+            size_t bytes;
+            int grew =
+                th_grow_cap((size_t)(ctx->span_count + 1), (size_t)ctx->span_cap, 8, sizeof(text_span), &cap, &bytes);
+            if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                ctx->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            text_span *grown = PyMem_Realloc(ctx->spans, bytes);
             if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
                 return;          /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             ctx->spans = grown;
-            ctx->span_cap = cap;
+            ctx->span_cap = (Py_ssize_t)cap;
         }
         ctx->spans[ctx->span_count].start = start;
         ctx->spans[ctx->span_count].end = end;
@@ -250,14 +264,21 @@ static Py_ssize_t text_open_annotations(text_ctx *ctx, th_node *node) {
             continue;
         }
         if (ctx->active_count == ctx->active_cap) {
-            Py_ssize_t cap = ctx->active_cap ? ctx->active_cap * 2 : 8;
-            text_active *grown = PyMem_Realloc(ctx->active, (size_t)cap * sizeof(text_active));
+            size_t cap;
+            size_t bytes;
+            int grew = th_grow_cap((size_t)(ctx->active_count + 1), (size_t)ctx->active_cap, 8, sizeof(text_active),
+                                   &cap, &bytes);
+            if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                ctx->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                return opened;   /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            text_active *grown = PyMem_Realloc(ctx->active, bytes);
             if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
                 return opened;   /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             ctx->active = grown;
-            ctx->active_cap = cap;
+            ctx->active_cap = (Py_ssize_t)cap;
         }
         ctx->active[ctx->active_count].start = ctx->out.len;
         ctx->active[ctx->active_count].rule = &ctx->rules[r];

@@ -11,13 +11,18 @@ static int jm_grow_nodes(jm_program *prog) {
     if (prog->node_count < prog->node_cap) {
         return 0;
     }
-    int32_t cap = prog->node_cap ? prog->node_cap * 2 : 64;
-    jm_node *grown = jm_realloc(prog->nodes, (size_t)cap * sizeof(jm_node));
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)prog->node_cap + 1, (size_t)prog->node_cap, 64, sizeof(jm_node), &cap, &bytes);
+    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    jm_node *grown = jm_realloc(prog->nodes, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE */
     }
     prog->nodes = grown;
-    prog->node_cap = cap;
+    prog->node_cap = (int32_t)cap;
     return 0;
 }
 
@@ -42,14 +47,21 @@ int32_t jm_node_new(jm_program *prog, jm_kind kind) {
 
 int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
     if (prog->scope_count >= prog->scope_cap) {
-        int32_t cap = prog->scope_cap ? prog->scope_cap * 2 : 16;
-        jm_scope *grown = jm_realloc(prog->scopes, (size_t)cap * sizeof(jm_scope));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)prog->scope_cap + 1, (size_t)prog->scope_cap, 16, sizeof(jm_scope), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        jm_scope *grown = jm_realloc(prog->scopes, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             prog->failed = 1; /* GCOVR_EXCL_LINE */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         prog->scopes = grown;
-        prog->scope_cap = cap;
+        prog->scope_cap = (int32_t)cap;
     }
     int32_t index = prog->scope_count++;
     jm_scope *scope = &prog->scopes[index];
@@ -69,14 +81,20 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
 
 int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, int32_t scope, uint8_t decl) {
     if (prog->sym_count >= prog->sym_cap) {
-        int32_t cap = prog->sym_cap ? prog->sym_cap * 2 : 32;
-        jm_sym *grown = jm_realloc(prog->syms, (size_t)cap * sizeof(jm_sym));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)prog->sym_cap + 1, (size_t)prog->sym_cap, 32, sizeof(jm_sym), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        jm_sym *grown = jm_realloc(prog->syms, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             prog->failed = 1; /* GCOVR_EXCL_LINE */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         prog->syms = grown;
-        prog->sym_cap = cap;
+        prog->sym_cap = (int32_t)cap;
     }
     int32_t index = prog->sym_count++;
     jm_sym *sym = &prog->syms[index];
@@ -102,14 +120,21 @@ int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, i
 
 const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t len) {
     if (prog->owned_count == prog->owned_cap) {
-        int32_t cap = prog->owned_cap ? prog->owned_cap * 2 : 16;
-        Py_UCS4 **grown = jm_realloc(prog->owned, (size_t)cap * sizeof(Py_UCS4 *));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)prog->owned_cap + 1, (size_t)prog->owned_cap, 16, sizeof(Py_UCS4 *), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        Py_UCS4 **grown = jm_realloc(prog->owned, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             prog->failed = 1; /* GCOVR_EXCL_LINE */
             return NULL;      /* GCOVR_EXCL_LINE */
         }
         prog->owned = grown;
-        prog->owned_cap = cap;
+        prog->owned_cap = (int32_t)cap;
     }
     Py_UCS4 *copy = jm_malloc((size_t)len * sizeof(Py_UCS4));
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -350,17 +375,20 @@ static void sb_reserve(jm_sb *out, Py_ssize_t extra) {
     if (out->len + extra <= out->cap) {
         return;
     }
-    Py_ssize_t cap = out->cap ? out->cap : 256;
-    while (cap < out->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(out->len + extra), (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        out->failed = 1; /* GCOVR_EXCL_LINE */
+        return;          /* GCOVR_EXCL_LINE */
     }
-    Py_UCS4 *grown = jm_realloc(out->data, (size_t)cap * sizeof(Py_UCS4));
+    Py_UCS4 *grown = jm_realloc(out->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         out->failed = 1; /* GCOVR_EXCL_LINE */
         return;          /* GCOVR_EXCL_LINE */
     }
     out->data = grown;
-    out->cap = cap;
+    out->cap = (Py_ssize_t)cap;
 }
 
 static void sb_ascii(jm_sb *out, const char *str) {

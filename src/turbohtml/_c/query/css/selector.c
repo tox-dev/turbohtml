@@ -2,6 +2,7 @@
    the matcher and recursive-descent parser live here as one translation unit, and
    selector.h now carries only the shared types plus the entry-point prototypes. */
 
+#include "core/vec.h"
 #include "query/css/selector.h"
 
 /* Record a parse failure with the position and reason for the error message. Set
@@ -736,13 +737,18 @@ static int sel_starts_simple(Py_UCS4 ch) {
    buffers grow this way, so a selector is bounded only by its own length, not a fixed
    compound/simple/arm cap (issue #432). */
 static int sel_grow(void **buffer, int *capacity, size_t elem_size) {
-    int grown = *capacity == 0 ? 8 : *capacity * 2;
-    void *bigger = PyMem_Realloc(*buffer, (size_t)grown * elem_size);
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)*capacity + 1, (size_t)*capacity, 8, elem_size, &cap, &bytes);
+    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    }
+    void *bigger = PyMem_Realloc(*buffer, bytes);
     if (bigger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     *buffer = bigger;
-    *capacity = grown;
+    *capacity = (int)cap;
     return 0;
 }
 

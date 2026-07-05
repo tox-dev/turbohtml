@@ -21,6 +21,7 @@
 #include "tokenizer/statemachine.h"
 
 #include "core/ascii.h"
+#include "core/vec.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -59,17 +60,18 @@ static int buf_ensure(th_buf *buf, Py_ssize_t need) {
     if (need <= buf->cap) {
         return 0;
     }
-    Py_ssize_t cap = buf->cap ? buf->cap : 16;
-    while (cap < need) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)need, (size_t)buf->cap, 16, sizeof(char), &cap, &bytes);
+    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
-    char *grown = buf->data;
-    PyMem_Resize(grown, char, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
-    if (grown == NULL) {                    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    char *grown = PyMem_Realloc(buf->data, bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     buf->data = grown;
-    buf->cap = cap;
+    buf->cap = (Py_ssize_t)cap;
     return 0;
 }
 
@@ -334,14 +336,18 @@ static void push(th_tokenizer *self, th_buf *buf, Py_UCS4 ch) {
 
 int th_error_sink_push(th_error_sink *sink, const char *code, Py_ssize_t line, Py_ssize_t col) {
     if (sink->len == sink->cap) {
-        Py_ssize_t cap = sink->cap ? sink->cap * 2 : 8;
-        th_parse_error *grown =
-            PyMem_Resize(sink->items, th_parse_error, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(sink->cap + 1), (size_t)sink->cap, 8, sizeof(th_parse_error), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_parse_error *grown = PyMem_Realloc(sink->items, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         sink->items = grown;
-        sink->cap = cap;
+        sink->cap = (Py_ssize_t)cap;
     }
     sink->items[sink->len++] = (th_parse_error){code, line, col};
     return 0;
@@ -680,14 +686,21 @@ static void start_tag(th_tokenizer *self, int end_tag, Py_UCS4 first) {
 static void new_attr(th_tokenizer *self) {
     th_token *tok = &self->tok;
     if (tok->attr_count == tok->attr_cap) {
-        Py_ssize_t cap = tok->attr_cap ? tok->attr_cap * 2 : 4;
-        th_attr *grown = PyMem_Resize(tok->attrs, th_attr, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(tok->attr_cap + 1), (size_t)tok->attr_cap, 4, sizeof(th_attr), &cap, &bytes);
+        if (!grew) {       /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            self->oom = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;                       /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_attr *grown = PyMem_Realloc(tok->attrs, bytes);
         if (grown == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             self->oom = 1;                /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
             self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
-            return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
-        for (Py_ssize_t index = tok->attr_cap; index < cap; index++) {
+        for (Py_ssize_t index = tok->attr_cap; index < (Py_ssize_t)cap; index++) {
             buf_init(&grown[index].name);
             buf_init(&grown[index].value);
             grown[index].has_value = 0;

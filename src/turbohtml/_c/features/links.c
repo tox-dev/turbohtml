@@ -9,6 +9,7 @@
 
 #include "core/common.h"
 
+#include "core/vec.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/tree.h"
 
@@ -246,14 +247,20 @@ typedef struct {
 /* Append a node to a growable pointer array (the element snapshot, or a <style>'s text children). */
 static int collect_node(th_node ***array, Py_ssize_t *count, Py_ssize_t *cap, th_node *node) {
     if (*count == *cap) {
-        Py_ssize_t grown_cap = *cap ? *cap * 2 : 16;
-        th_node **grown = PyMem_Realloc(*array, (size_t)grown_cap * sizeof(th_node *));
+        size_t new_cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(*count + 1), (size_t)*cap, 16, sizeof(th_node *), &new_cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        th_node **grown = PyMem_Realloc(*array, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         *array = grown;
-        *cap = grown_cap;
+        *cap = (Py_ssize_t)new_cap;
     }
     (*array)[(*count)++] = node;
     return 0;
@@ -262,14 +269,21 @@ static int collect_node(th_node ***array, Py_ssize_t *count, Py_ssize_t *cap, th
 static int collect_span(void *ctx, Py_ssize_t start, Py_ssize_t end) {
     link_walk *walk = ctx;
     if (walk->span_count == walk->span_cap) {
-        Py_ssize_t cap = walk->span_cap ? walk->span_cap * 2 : 8;
-        link_span *grown = PyMem_Realloc(walk->spans, (size_t)cap * sizeof(link_span));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)(walk->span_count + 1), (size_t)walk->span_cap, 8, sizeof(link_span), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        link_span *grown = PyMem_Realloc(walk->spans, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         walk->spans = grown;
-        walk->span_cap = cap;
+        walk->span_cap = (Py_ssize_t)cap;
     }
     walk->spans[walk->span_count].start = start;
     walk->spans[walk->span_count].end = end;

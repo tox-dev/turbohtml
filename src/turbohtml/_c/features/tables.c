@@ -13,7 +13,8 @@
 
 #include "core/common.h"
 
-#include "core/ascii.h"        /* is_space, for trimming cell text */
+#include "core/ascii.h" /* is_space, for trimming cell text */
+#include "core/vec.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/tree.h"
 
@@ -185,13 +186,18 @@ static int collect_table_rows(th_node *table, th_node ***rows, Py_ssize_t *count
         int nested_table = current->type == TH_NODE_ELEMENT && current->atom == TH_TAG_TABLE;
         if (current->type == TH_NODE_ELEMENT && current->atom == TH_TAG_TR) {
             if (*count == *cap) {
-                Py_ssize_t grown = *cap == 0 ? 8 : *cap * 2;
-                th_node **resized = PyMem_Realloc(*rows, (size_t)grown * sizeof(th_node *));
+                size_t new_cap;
+                size_t bytes;
+                int grew = th_grow_cap((size_t)(*count + 1), (size_t)*cap, 8, sizeof(th_node *), &new_cap, &bytes);
+                if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                    return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                }
+                th_node **resized = PyMem_Realloc(*rows, bytes);
                 if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 *rows = resized;
-                *cap = grown;
+                *cap = (Py_ssize_t)new_cap;
             }
             (*rows)[(*count)++] = current;
         }
@@ -449,14 +455,20 @@ PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
             continue;
         }
         if (grid_count == grid_cap) {
-            Py_ssize_t grown = grid_cap == 0 ? 4 : grid_cap * 2;
-            table_grid *resized = PyMem_Realloc(grids, (size_t)grown * sizeof(table_grid));
+            size_t cap;
+            size_t bytes;
+            int grew = th_grow_cap((size_t)(grid_count + 1), (size_t)grid_cap, 4, sizeof(table_grid), &cap, &bytes);
+            if (!grew) {    /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                break;      /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            table_grid *resized = PyMem_Realloc(grids, bytes);
             if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 failed = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
                 break;             /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             grids = resized;
-            grid_cap = grown;
+            grid_cap = (Py_ssize_t)cap;
         }
         failed = build_grid_locked(tree, current, &grids[grid_count]) < 0;
         grid_count++;

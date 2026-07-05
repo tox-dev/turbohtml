@@ -134,14 +134,21 @@ static void jm_capture_comment(jm_lexer *lx, const Py_UCS4 *text, Py_ssize_t len
     }
     struct jm_program *prog = lx->sink;
     if (lx->comment_count == prog->comment_cap) {
-        int32_t cap = prog->comment_cap ? prog->comment_cap * 2 : 4;
-        jm_comment *grown = jm_realloc(prog->comments, (size_t)cap * sizeof(jm_comment));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)prog->comment_cap + 1, (size_t)prog->comment_cap, 4, sizeof(jm_comment), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            prog->failed = 1; /* GCOVR_EXCL_LINE */
+            return;           /* GCOVR_EXCL_LINE */
+        }
+        jm_comment *grown = jm_realloc(prog->comments, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             prog->failed = 1; /* GCOVR_EXCL_LINE */
             return;           /* GCOVR_EXCL_LINE */
         }
         prog->comments = grown;
-        prog->comment_cap = cap;
+        prog->comment_cap = (int32_t)cap;
     }
     prog->comments[lx->comment_count].text = text;
     prog->comments[lx->comment_count].len = len;

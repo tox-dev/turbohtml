@@ -639,14 +639,21 @@ static int md_href_absolute(const Py_UCS4 *href, Py_ssize_t len) {
 static Py_ssize_t md_add_reference(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t url_len, const Py_UCS4 *title,
                                    Py_ssize_t title_len) {
     if (ctx->ref_count == ctx->ref_cap) {
-        Py_ssize_t cap = ctx->ref_cap ? ctx->ref_cap * 2 : 8;
-        md_reference *grown = PyMem_Realloc(ctx->refs, (size_t)cap * sizeof(md_reference));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)(ctx->ref_count + 1), (size_t)ctx->ref_cap, 8, sizeof(md_reference), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            ctx->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return 0;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        md_reference *grown = PyMem_Realloc(ctx->refs, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
             return 0;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         ctx->refs = grown;
-        ctx->ref_cap = cap;
+        ctx->ref_cap = (Py_ssize_t)cap;
     }
     ctx->refs[ctx->ref_count].url = url;
     ctx->refs[ctx->ref_count].url_len = url_len;

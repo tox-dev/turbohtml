@@ -1,6 +1,8 @@
 #ifndef TURBOHTML_CSS_TOKENIZE_H
 #define TURBOHTML_CSS_TOKENIZE_H
 
+#include "core/vec.h"
+
 /* clang and gcc expose __builtin_{mul,add}_overflow, but MSVC does not on every target (notably arm64), so the calc
    engine routes its checked 64-bit arithmetic through these. The product's high word, from the __mulh intrinsic MSVC
    ships for x64 and arm64, must sign-extend the low word for a 64x64 multiply not to overflow; a signed addition
@@ -125,17 +127,20 @@ static inline void cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
     if (buffer->len + extra <= buffer->cap) {
         return;
     }
-    Py_ssize_t cap = buffer->cap ? buffer->cap : 256;
-    while (cap < buffer->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(buffer->len + extra), (size_t)buffer->cap, 256, sizeof(css_char), &cap, &bytes);
+    if (!grew) {            /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        buffer->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return;             /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
-    css_char *grown = css_realloc(buffer->data, (size_t)cap * sizeof(css_char));
+    css_char *grown = css_realloc(buffer->data, bytes);
     if (grown == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         buffer->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         return;             /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     buffer->data = grown;
-    buffer->cap = cap;
+    buffer->cap = (Py_ssize_t)cap;
 }
 
 static inline void cbuf_putc(css_buf *buffer, css_char character) {
@@ -201,14 +206,20 @@ typedef struct {
 
 static void token_vec_push(token_vec *vec, css_token token) {
     if (vec->len == vec->cap) {
-        Py_ssize_t cap = vec->cap ? vec->cap * 2 : 64;
-        css_token *grown = css_realloc(vec->items, (size_t)cap * sizeof(css_token));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(vec->len + 1), (size_t)vec->cap, 64, sizeof(css_token), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            vec->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        css_token *grown = css_realloc(vec->items, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             vec->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         vec->items = grown;
-        vec->cap = cap;
+        vec->cap = (Py_ssize_t)cap;
     }
     vec->items[vec->len++] = token;
 }

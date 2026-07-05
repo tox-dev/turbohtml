@@ -2,6 +2,7 @@
    S-expression the parser conformance tests diff against. */
 
 #include "core/common.h"
+#include "core/vec.h"
 #include "query/xpath/internal.h"
 #include "query/xpath/xpath.h"
 
@@ -11,13 +12,18 @@
 /* Append a blank node, returning its index or -1 on OOM. */
 int32_t xn_new(xp_program *prog, enum xn_kind kind) {
     if (prog->count == prog->cap) {
-        int32_t cap = prog->cap ? prog->cap * 2 : 16;
-        xn *grown = PyMem_Realloc(prog->nodes, (size_t)cap * sizeof(xn));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)prog->cap + 1, (size_t)prog->cap, 16, sizeof(xn), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        xn *grown = PyMem_Realloc(prog->nodes, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;       /* GCOVR_EXCL_LINE */
         }
         prog->nodes = grown;
-        prog->cap = cap;
+        prog->cap = (int32_t)cap;
     }
     int32_t idx = prog->count++;
     xn *node = &prog->nodes[idx];
@@ -36,14 +42,20 @@ typedef struct {
 
 static void dput(dumper *out, Py_UCS4 ch) {
     if (out->len == out->cap) {
-        Py_ssize_t cap = out->cap ? out->cap * 2 : 64;
-        Py_UCS4 *grown = PyMem_Realloc(out->buf, (size_t)cap * sizeof(Py_UCS4));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)out->cap + 1, (size_t)out->cap, 64, sizeof(Py_UCS4), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            out->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        Py_UCS4 *grown = PyMem_Realloc(out->buf, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
             out->failed = 1; /* GCOVR_EXCL_LINE */
             return;          /* GCOVR_EXCL_LINE */
         }
         out->buf = grown;
-        out->cap = cap;
+        out->cap = (Py_ssize_t)cap;
     }
     out->buf[out->len++] = ch;
 }

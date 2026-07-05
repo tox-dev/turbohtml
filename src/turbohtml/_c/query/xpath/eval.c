@@ -2,6 +2,7 @@
    converts between the four XPath value types, and compares and combines results. */
 
 #include "core/common.h"
+#include "core/vec.h"
 #include "dom/tree.h"
 #include "query/xpath/internal.h"
 #include "query/xpath/xpath.h"
@@ -11,13 +12,18 @@
 
 int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
     if (ns->len == ns->cap) {
-        Py_ssize_t cap = ns->cap ? ns->cap * 2 : 8;
-        xp_item *grown = PyMem_Realloc(ns->items, (size_t)cap * sizeof(xp_item));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)ns->cap + 1, (size_t)ns->cap, 8, sizeof(xp_item), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        xp_item *grown = PyMem_Realloc(ns->items, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
             return -1;       /* GCOVR_EXCL_LINE */
         }
         ns->items = grown;
-        ns->cap = cap;
+        ns->cap = (Py_ssize_t)cap;
     }
     ns->items[ns->len].node = node;
     ns->items[ns->len].attr = attr;

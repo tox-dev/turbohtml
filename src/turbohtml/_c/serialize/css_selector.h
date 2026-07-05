@@ -130,14 +130,20 @@ typedef struct {
 
 static void decl_vec_push(decl_vec *vec, css_decl decl) {
     if (vec->len == vec->cap) {
-        Py_ssize_t cap = vec->cap ? vec->cap * 2 : 16;
-        css_decl *grown = css_realloc(vec->items, (size_t)cap * sizeof(css_decl));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(vec->len + 1), (size_t)vec->cap, 16, sizeof(css_decl), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            vec->failed = 1; /* GCOVR_EXCL_LINE */
+            return;          /* GCOVR_EXCL_LINE */
+        }
+        css_decl *grown = css_realloc(vec->items, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             vec->failed = 1; /* GCOVR_EXCL_LINE */
             return;          /* GCOVR_EXCL_LINE */
         }
         vec->items = grown;
-        vec->cap = cap;
+        vec->cap = (Py_ssize_t)cap;
     }
     vec->items[vec->len++] = decl;
 }

@@ -264,13 +264,19 @@ static void read_add(read_scorer *scorer, th_node *node, double delta) {
         }
     }
     if (scorer->count == scorer->cap) {
-        Py_ssize_t grown = scorer->cap ? scorer->cap * 2 : READ_INITIAL_CANDIDATES;
-        read_candidate *resized = PyMem_Realloc(scorer->candidates, (size_t)grown * sizeof(read_candidate));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(scorer->count + 1), (size_t)scorer->cap, READ_INITIAL_CANDIDATES,
+                               sizeof(read_candidate), &cap, &bytes);
+        if (!grew) { /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return;  /* GCOVR_EXCL_LINE: size-overflow path drops the candidate */
+        }
+        read_candidate *resized = PyMem_Realloc(scorer->candidates, bytes);
         if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;            /* GCOVR_EXCL_LINE: allocation-failure path drops the candidate */
         }
         scorer->candidates = resized;
-        scorer->cap = grown;
+        scorer->cap = (Py_ssize_t)cap;
     }
     scorer->candidates[scorer->count].node = node;
     scorer->candidates[scorer->count].score = read_tag_base(node->atom) + read_class_weight(scorer->tree, node) + delta;
@@ -645,14 +651,20 @@ static int read_tags_append(th_article_tag **items, Py_ssize_t *count, Py_ssize_
         return 0;
     }
     if (*count == *cap) {
-        Py_ssize_t grown_cap = *cap < 4 ? 4 : *cap * 2;
-        th_article_tag *grown = PyMem_Realloc(*items, (size_t)grown_cap * sizeof(th_article_tag));
+        size_t new_cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(*count + 1), (size_t)*cap, 4, sizeof(th_article_tag), &new_cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            PyMem_Free(norm); /* GCOVR_EXCL_LINE: size-overflow path */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        th_article_tag *grown = PyMem_Realloc(*items, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyMem_Free(norm); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         *items = grown;
-        *cap = grown_cap;
+        *cap = (Py_ssize_t)new_cap;
     }
     (*items)[*count].data = norm;
     (*items)[*count].len = norm_len;

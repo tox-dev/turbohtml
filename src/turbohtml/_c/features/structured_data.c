@@ -15,6 +15,7 @@
 
 #include "core/common.h"
 
+#include "core/vec.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
 
@@ -268,13 +269,18 @@ typedef struct {
 /* Append `node`; -1 only on the excluded allocation-failure path. */
 static int node_stack_push(node_stack *stack, th_node *node) {
     if (stack->len == stack->cap) {
-        Py_ssize_t cap = stack->cap < 8 ? 8 : stack->cap * 2;
-        th_node **items = PyMem_Realloc(stack->items, (size_t)cap * sizeof(th_node *));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(stack->len + 1), (size_t)stack->cap, 8, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **items = PyMem_Realloc(stack->items, bytes);
         if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         stack->items = items;
-        stack->cap = cap;
+        stack->cap = (Py_ssize_t)cap;
     }
     stack->items[stack->len++] = node;
     return 0;

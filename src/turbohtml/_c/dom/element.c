@@ -3,6 +3,8 @@
 
 #include "dom/nodes.h"
 
+#include "core/vec.h" /* th_grow_cap overflow-safe buffer growth */
+
 #include "query/css/selector.h"
 
 static int validate_name(PyObject *name, int is_attr);
@@ -1324,17 +1326,20 @@ static void path_reserve(path_buf *buf, Py_ssize_t extra) {
     if (buf->len + extra <= buf->cap) {
         return;
     }
-    Py_ssize_t cap = buf->cap ? buf->cap : 64;
-    while (cap < buf->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 64, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        buf->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
-    Py_UCS4 *grown = PyMem_Realloc(buf->data, (size_t)cap * sizeof(Py_UCS4));
+    Py_UCS4 *grown = PyMem_Realloc(buf->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        buf->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        buf->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     buf->data = grown;
-    buf->cap = cap;
+    buf->cap = (Py_ssize_t)cap;
 }
 
 static void path_put_ucs4(path_buf *buf, const Py_UCS4 *text, Py_ssize_t len) {

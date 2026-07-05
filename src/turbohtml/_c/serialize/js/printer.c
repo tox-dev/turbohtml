@@ -97,17 +97,20 @@ static void grow(St *st, Py_ssize_t extra) {
     if (st->len + extra <= st->cap) {
         return;
     }
-    Py_ssize_t cap = st->cap ? st->cap : 256;
-    while (cap < st->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(st->len + extra), (size_t)st->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {        /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        st->failed = 1; /* GCOVR_EXCL_LINE */
+        return;         /* GCOVR_EXCL_LINE */
     }
-    Py_UCS4 *grown = jm_realloc(st->data, (size_t)cap * sizeof(Py_UCS4));
+    Py_UCS4 *grown = jm_realloc(st->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         st->failed = 1;  /* GCOVR_EXCL_LINE */
         return;          /* GCOVR_EXCL_LINE */
     }
     st->data = grown;
-    st->cap = cap;
+    st->cap = (Py_ssize_t)cap;
 }
 
 /* Append a run of code points, inserting a guard space first when the boundary would

@@ -12,6 +12,7 @@
 #include "dom/tree_internal.h" /* struct th_tree, need_text, is_void_atom */
 
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
+#include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 #include "data/entity_names.h"
 
 #include <string.h>
@@ -29,17 +30,20 @@ static inline void sbuf_reserve(sbuf *out, Py_ssize_t extra) {
     if (out->len + extra <= out->cap) {
         return;
     }
-    Py_ssize_t cap = out->cap ? out->cap : 256;
-    while (cap < out->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(out->len + extra), (size_t)out->cap, 256, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        out->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
-    Py_UCS4 *grown = PyMem_Realloc(out->data, (size_t)cap * sizeof(Py_UCS4));
+    Py_UCS4 *grown = PyMem_Realloc(out->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         out->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     out->data = grown;
-    out->cap = cap;
+    out->cap = (Py_ssize_t)cap;
 }
 
 static inline void sbuf_putc(sbuf *out, Py_UCS4 character) {

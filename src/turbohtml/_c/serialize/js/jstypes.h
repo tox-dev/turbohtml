@@ -9,6 +9,8 @@
 #ifndef TURBOHTML_SERIALIZE_JS_TYPES_H
 #define TURBOHTML_SERIALIZE_JS_TYPES_H
 
+#include "core/vec.h"
+
 #ifdef JM_STANDALONE
 
 #include <stddef.h>

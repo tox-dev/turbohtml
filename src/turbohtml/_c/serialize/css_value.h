@@ -33,14 +33,20 @@ typedef struct {
 
 static void comp_vec_push(comp_vec *vec, css_comp comp) {
     if (vec->len == vec->cap) {
-        Py_ssize_t cap = vec->cap ? vec->cap * 2 : 16;
-        css_comp *grown = css_realloc(vec->items, (size_t)cap * sizeof(css_comp));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(vec->len + 1), (size_t)vec->cap, 16, sizeof(css_comp), &cap, &bytes);
+        if (!grew) {         /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            vec->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;          /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        css_comp *grown = css_realloc(vec->items, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             vec->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         vec->items = grown;
-        vec->cap = cap;
+        vec->cap = (Py_ssize_t)cap;
     }
     vec->items[vec->len++] = comp;
 }

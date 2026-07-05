@@ -588,13 +588,20 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
             return 0;
         }
         if (count == capacity) {
-            capacity *= 2;
-            long long (*grown)[2] = css_realloc(ranges, (size_t)capacity * sizeof(*ranges));
+            size_t cap;
+            size_t bytes;
+            int grew = th_grow_cap((size_t)(capacity + 1), (size_t)capacity, 16, sizeof(*ranges), &cap, &bytes);
+            if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+                css_free(ranges); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            long long (*grown)[2] = css_realloc(ranges, bytes);
             if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 css_free(ranges); /* GCOVR_EXCL_LINE */
                 return 0;         /* GCOVR_EXCL_LINE */
             }
             ranges = grown;
+            capacity = (Py_ssize_t)cap;
         }
         css_parse_unicode_range(token->text, token->text_len, &ranges[count][0], &ranges[count][1]);
         count++;

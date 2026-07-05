@@ -4,6 +4,7 @@
    the query surface lives under query/ beside the engines it drives; the DOM
    element and mutation bindings stay in element.c. */
 
+#include "core/vec.h"
 #include "dom/nodes.h"
 #include "query/css/selector.h"
 
@@ -551,14 +552,20 @@ typedef struct {
 /* Grow `set` by one node (attr -1, the node itself), doubling capacity as needed. */
 static int xpath_nodeset_push(xp_nodeset *set, th_node *node) {
     if (set->len == set->cap) {
-        Py_ssize_t cap = set->cap ? set->cap * 2 : 8;
-        xp_item *grown = PyMem_Realloc(set->items, (size_t)cap * sizeof(xp_item));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)set->cap + 1, (size_t)set->cap, 8, sizeof(xp_item), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return -1;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        xp_item *grown = PyMem_Realloc(set->items, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
             return -1;        /* GCOVR_EXCL_LINE */
         }
         set->items = grown;
-        set->cap = cap;
+        set->cap = (Py_ssize_t)cap;
     }
     set->items[set->len].node = node;
     set->items[set->len].attr = -1;
@@ -1324,13 +1331,18 @@ typedef struct {
    Returns 0, or -1 on allocation failure. */
 static int prune_push(prune_keep **buffer, Py_ssize_t *count, Py_ssize_t *capacity, th_node *node, int full) {
     if (*count == *capacity) {
-        Py_ssize_t grown = *capacity != 0 ? *capacity * 2 : 16;
-        prune_keep *resized = PyMem_Realloc(*buffer, (size_t)grown * sizeof(prune_keep));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)*capacity + 1, (size_t)*capacity, 16, sizeof(prune_keep), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        prune_keep *resized = PyMem_Realloc(*buffer, bytes);
         if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: a realloc failure cannot be forced from a test */
             return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         *buffer = resized;
-        *capacity = grown;
+        *capacity = (Py_ssize_t)cap;
     }
     (*buffer)[*count].node = node;
     (*buffer)[*count].full = full;
@@ -1483,13 +1495,19 @@ typedef struct {
    -1 on allocation failure. */
 static int snapshot_push(node_snapshot *snapshot, th_node *node) {
     if (snapshot->count == snapshot->capacity) {
-        Py_ssize_t grown = snapshot->capacity != 0 ? snapshot->capacity * 2 : 16;
-        th_node **resized = PyMem_Realloc(snapshot->items, (size_t)grown * sizeof(th_node *));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)snapshot->capacity + 1, (size_t)snapshot->capacity, 16, sizeof(th_node *), &cap,
+                               &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **resized = PyMem_Realloc(snapshot->items, bytes);
         if (resized == NULL) { /* GCOVR_EXCL_BR_LINE: a realloc failure cannot be forced from a test */
             return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         snapshot->items = resized;
-        snapshot->capacity = grown;
+        snapshot->capacity = (Py_ssize_t)cap;
     }
     snapshot->items[snapshot->count++] = node;
     return 0;

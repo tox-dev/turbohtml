@@ -15,6 +15,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
+#include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 
 #include <string.h>
 
@@ -118,13 +119,19 @@ static uint32_t fnv1a(const char *bytes, Py_ssize_t len) {
    build or grow the hash slots past a 3/4 load factor (rehashing the records). */
 static int attr_table_reserve(th_tree *tree) {
     if (tree->attr_rec_count == tree->attr_rec_cap) {
-        uint32_t cap = tree->attr_rec_cap ? tree->attr_rec_cap * 2 : 8;
-        th_attr_record *recs = PyMem_Realloc(tree->attr_recs, cap * sizeof(th_attr_record));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)tree->attr_rec_cap + 1, (size_t)tree->attr_rec_cap, 8, sizeof(th_attr_record),
+                               &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_attr_record *recs = PyMem_Realloc(tree->attr_recs, bytes);
         if (recs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         tree->attr_recs = recs;
-        tree->attr_rec_cap = cap;
+        tree->attr_rec_cap = (uint32_t)cap;
     }
     if (tree->attr_slots == NULL || tree->attr_rec_count + 1 > (tree->attr_slot_mask + 1) * 3 / 4) {
         uint32_t new_cap = tree->attr_slots == NULL ? 16 : (tree->attr_slot_mask + 1) * 2;
@@ -372,14 +379,21 @@ static int stack_push(th_tree *tree, th_node *node) {
         return 1;
     }
     if (tree->open_len == tree->open_cap) {
-        Py_ssize_t cap = tree->open_cap ? tree->open_cap * 2 : 16;
-        th_node **grown = PyMem_Realloc(tree->open, (size_t)cap * sizeof(th_node *));
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)(tree->open_cap + 1), (size_t)tree->open_cap, 16, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **grown = PyMem_Realloc(tree->open, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         tree->open = grown;
-        tree->open_cap = cap;
+        tree->open_cap = (Py_ssize_t)cap;
     }
     tree->open[tree->open_len++] = node;
     if (tree->open_len > tree->max_depth) {
@@ -1046,14 +1060,20 @@ static int afe_push(th_tree *tree, th_node *node) {
         afe_remove_at(tree, earliest);
     }
     if (tree->afe_len == tree->afe_cap) {
-        Py_ssize_t cap = tree->afe_cap ? tree->afe_cap * 2 : 16;
-        th_node **grown = PyMem_Realloc(tree->afe, (size_t)cap * sizeof(th_node *));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **grown = PyMem_Realloc(tree->afe, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return 0;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         tree->afe = grown;
-        tree->afe_cap = cap;
+        tree->afe_cap = (Py_ssize_t)cap;
     }
     tree->afe[tree->afe_len++] = node;
     return 1;
@@ -1061,14 +1081,20 @@ static int afe_push(th_tree *tree, th_node *node) {
 
 static void afe_push_marker(th_tree *tree) {
     if (tree->afe_len == tree->afe_cap) {
-        Py_ssize_t cap = tree->afe_cap ? tree->afe_cap * 2 : 16;
-        th_node **grown = PyMem_Realloc(tree->afe, (size_t)cap * sizeof(th_node *));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **grown = PyMem_Realloc(tree->afe, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         tree->afe = grown;
-        tree->afe_cap = cap;
+        tree->afe_cap = (Py_ssize_t)cap;
     }
     tree->afe[tree->afe_len++] = NULL;
 }
@@ -1294,14 +1320,21 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         /* GCOVR_EXCL_START: the list just shrank by one (fmt removed) before this single
            re-insert, so afe_len < afe_cap here and the grow never fires */
         if (tree->afe_len == tree->afe_cap) {
-            Py_ssize_t cap = tree->afe_cap ? tree->afe_cap * 2 : 16;
-            th_node **grown = PyMem_Realloc(tree->afe, (size_t)cap * sizeof(th_node *));
+            size_t cap;
+            size_t bytes;
+            int grew =
+                th_grow_cap((size_t)(tree->afe_cap + 1), (size_t)tree->afe_cap, 16, sizeof(th_node *), &cap, &bytes);
+            if (!grew) {
+                tree->failed = 1;
+                return 1;
+            }
+            th_node **grown = PyMem_Realloc(tree->afe, bytes);
             if (grown == NULL) {
                 tree->failed = 1;
                 return 1;
             }
             tree->afe = grown;
-            tree->afe_cap = cap;
+            tree->afe_cap = (Py_ssize_t)cap;
         }
         /* GCOVR_EXCL_STOP */
         /* GCOVR_EXCL_START: the bookmark is kept within [0, afe_len] by the loop above; these are defensive clamps */
@@ -1505,14 +1538,20 @@ enum mode {
    returns the top so a closing sub-context resumes the template correctly. */
 static void tmpl_push(th_tree *tree, enum mode mode) {
     if (tree->tmpl_len == tree->tmpl_cap) {
-        Py_ssize_t cap = tree->tmpl_cap ? tree->tmpl_cap * 2 : 8;
-        int *grown = PyMem_Realloc(tree->tmpl, (size_t)cap * sizeof(int));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(tree->tmpl_cap + 1), (size_t)tree->tmpl_cap, 8, sizeof(int), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        int *grown = PyMem_Realloc(tree->tmpl, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         tree->tmpl = grown;
-        tree->tmpl_cap = cap;
+        tree->tmpl_cap = (Py_ssize_t)cap;
     }
     tree->tmpl[tree->tmpl_len++] = (int)mode;
 }
