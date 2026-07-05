@@ -1,0 +1,7 @@
+The release wheels now train their profile-guided build on a representative real-world corpus rather than the CodSpeed
+benchmark inputs. The old workload trained on the same documents the gate measured, dominated by one clean UTF-8 spec,
+so the profile never saw the error-recovery paths real tag soup takes; several inputs also came over the network at
+train time, so an offline wheel build fell back to a thin profile trained on two vendored submodules. Training is now
+fully offline and spans clean and malformed HTML, legacy encodings, and structured-data markup, so the shipped wheel is
+tuned to real use. A held-out harness measures the profiled wheel against an LTO-only baseline on pages in neither the
+training corpus nor the bench. part of #478
