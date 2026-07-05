@@ -1,0 +1,3 @@
+Add a ``--pgo`` flag to the local bench harness (``python -m bench --pgo <command>``) that builds the turbohtml ``core``
+baseline with the profile-guided, link-time-optimized recipe the release wheels ship rather than a plain wheel, so the
+reports measure a release-representative binary. The default stays the plain build for fast iteration. part of #478
