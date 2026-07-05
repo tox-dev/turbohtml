@@ -57,10 +57,10 @@ def find() -> Callable[[str, str], Element]:
 
 
 @pytest.fixture
-def first() -> Callable[[str, type[_N]], _N]:
+def first_of_type() -> Callable[[str, type[_N]], _N]:
     """Parse html and return its first descendant of the given node type."""
 
     def _first(html: str, node_type: type[_N]) -> _N:
-        return next(n for n in parse(html).descendants if isinstance(n, node_type))
+        return next(node for node in parse(html).descendants if isinstance(node, node_type))
 
     return _first

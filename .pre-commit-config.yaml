@@ -5,9 +5,9 @@ repos:
     rev: "v6.0.0" # v6.0.0
     hooks:
       - id: end-of-file-fixer
-        exclude: ^tests/features/data/IdnaTestV2\.txt$ # vendored verbatim from unicode.org
+        exclude: ^tests/url/data/IdnaTestV2\.txt$ # vendored verbatim from unicode.org
       - id: trailing-whitespace
-        exclude: ^tests/features/data/IdnaTestV2\.txt$ # vendored verbatim from unicode.org
+        exclude: ^tests/url/data/IdnaTestV2\.txt$ # vendored verbatim from unicode.org
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: "0.37.3" # 0.37.2
     hooks:

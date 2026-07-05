@@ -272,6 +272,9 @@ environment.python-version = "3.15"
 ini_options.testpaths = [
   "tests",
 ]
+# the default set drops "build", which would silently skip tests/build (it mirrors turbohtml.build);
+# testpaths is tests only, so no build artifact dir is ever swept
+ini_options.norecursedirs = [ "*.egg", ".*", "_darcs", "{arch}", "CVS", "dist", "node_modules", "venv" ]
 ini_options.addopts = [
   "--ignore=tests/html5lib-tests", # vendored conformance data, not our test modules
   "--import-mode=importlib",       # tests mirror the source tree in nested dirs without __init__.py
@@ -286,9 +289,9 @@ ini_options.filterwarnings = [
 # module importorskips itself where its oracle is absent; measuring them would make the gate
 # environment-dependent. They still run and validate wherever the oracle installs (the dev env).
 run.omit = [
-  "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
+  "tests/benchmarks/*",                              # run only under --codspeed (the CI benchmark job), never in the coverage run
+  "tests/convert/test_css_to_xpath_differential.py",
   "tests/match/test_soupsieve_differential.py",
-  "tests/query/css/test_css_to_xpath_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
 ]
 run.parallel = true

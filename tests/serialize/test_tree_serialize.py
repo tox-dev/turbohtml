@@ -111,10 +111,13 @@ def test_namespace(find: Callable[[str, str], Element], context: str, selector: 
     ],
 )
 def test_leaf_node_accessors(
-    first: Callable[[str, type[Node]], Node], html: str, node_type: type[Node], expected: tuple[str, str, str]
+    first_of_type: Callable[[str, type[Node]], Node],
+    html: str,
+    node_type: type[Node],
+    expected: tuple[str, str, str],
 ) -> None:
     data, text, serialized = expected
-    node = first(html, node_type)
+    node = first_of_type(html, node_type)
     assert node.data == data  # ty: ignore[unresolved-attribute]  # Text and Comment both expose .data
     assert node.text == text  # .text counts Text descendants only, so a comment contributes nothing
     assert node.html == serialized
@@ -127,8 +130,8 @@ def test_leaf_node_accessors(
         pytest.param('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">', "html", id="with-public-id"),
     ],
 )
-def test_doctype_name(first: Callable[[str, type[Node]], Node], doctype: str, name: str) -> None:
-    node = first(doctype, Doctype)
+def test_doctype_name(first_of_type: Callable[[str, type[Node]], Node], doctype: str, name: str) -> None:
+    node = first_of_type(doctype, Doctype)
     assert node.name == name  # ty: ignore[unresolved-attribute]  # node is a Doctype here
     assert node.html == f"<!DOCTYPE {name}>"
 
