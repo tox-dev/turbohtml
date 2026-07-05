@@ -213,19 +213,28 @@ commands = [ [ "python", "-m", "bench", { replace = "posargs", extend = true } ]
 [env.codspeed]
 description = "run the pytest-codspeed hot-path benchmarks (the CodSpeed CI regression gate)"
 base_python = [ "3.14" ]
-package = "skip"  # pgo_build below reinstalls a profile-guided editable build; a plain editable package would undo it
+package = "skip"  # commands_pre reinstalls a deterministic LTO editable build; a plain editable package would undo it
 deps = []  # drop the gcovr the coverage gate pulls in; the benchmarks never measure coverage
 dependency_groups = [ "test" ]  # carries pytest-codspeed, the benchmark fixture, and the meson build backend
 commands_pre = [
-  # build the extension profile-guided (instrument, train on the real corpora, rebuild against the profile) so the
-  # gate measures the same optimization the release wheels ship; the training corpora ride in as submodules in CI
+  # Build a deterministic LTO-only editable extension, not a profile-guided one. PGO regenerates a fresh profile every
+  # build, and that profile is not byte-reproducible: across CodSpeed's heterogeneous CPU runners a re-profiled binary
+  # flips marginal ops a few percent build-to-build, so the perf gate reports false regressions that mask real ones
+  # (spike #478). LTO alone is deterministic and still re-inlines the selector/tokenizer bodies the 1.0 header split
+  # moved out of their monolith units, so the gate measures a stable binary. buildtype matches the release wheel; only
+  # PGO is dropped. The shipped wheels keep PGO+LTO for max perf -- see tools/pgo_build.py and pyproject's cibuildwheel.
   [
-    "python",
-    "{tox_root}{/}tools{/}pgo_build.py",
-    "--python",
-    "{env_python}",
-    "--build-dir",
-    "{env_dir}{/}cbuild"
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dbuildtype=release",
+    "--config-settings=setup-args=-Db_lto=true",
   ],
 ]
 commands = [

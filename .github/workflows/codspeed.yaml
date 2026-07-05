@@ -27,15 +27,20 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
-      # build the optimized extension and install the benchmark deps outside the runner, so only the pytest process
-      # below is measured under instrumentation, never the uv/meson build. --notest creates the environment and installs
-      # the benchmark deps but skips tox's commands; pgo_build then does the two-phase profile-guided build (instrument,
-      # train on the real corpora, rebuild against the profile) into that environment, so the gate measures the same
-      # optimization the release wheels ship rather than a plain -O3 build.
-      - name: 🏗️ Build the extension profile-guided and install benchmark deps
+      # build the extension and install the benchmark deps outside the runner, so only the pytest process below is
+      # measured under instrumentation, never the uv/meson build. --notest creates the environment and installs the
+      # benchmark deps but skips tox's commands; the uv install then builds a deterministic LTO-only editable extension
+      # into that environment. The gate measures LTO, not PGO, on purpose: PGO regenerates a fresh profile every build,
+      # which is not byte-reproducible, so a re-profiled binary flips marginal ops a few percent across CodSpeed's
+      # heterogeneous CPU runners and reports false regressions that mask real ones (spike #478). LTO is deterministic.
+      # The shipped wheels keep PGO+LTO for max perf (see tools/pgo_build.py and pyproject's cibuildwheel config).
+      - name: 🏗️ Build the deterministic LTO extension and install benchmark deps
         run: |
           uvx --with tox-uv tox run -e codspeed --notest
-          .tox/codspeed/bin/python tools/pgo_build.py --python .tox/codspeed/bin/python --build-dir .tox/codspeed/cbuild
+          uv pip install --python .tox/codspeed/bin/python --reinstall --no-deps --no-build-isolation --editable . \
+            --config-settings=build-dir=.tox/codspeed/cbuild \
+            --config-settings=setup-args=-Dbuildtype=release \
+            --config-settings=setup-args=-Db_lto=true
         env:
           UV_PYTHON_PREFERENCE: only-managed
       - name: 🚀 Run benchmarks
