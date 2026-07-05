@@ -82,13 +82,16 @@ and give us reasonable time to remediate before you disclose publicly.
 ## Supply-chain provenance of generated tables
 
 Some `_c/data/` tables are generated from a pinned upstream source rather than written by hand. `tools/generate_tlds.py`
-fetches the IANA top-level-domain list from `data.iana.org`, and `tools/generate_psl.py` fetches the Public Suffix List
-from GitHub. A poisoned or silently changed upstream table is a vulnerability that no review of the `.c` sources would
-catch, the class the xz-utils backdoor (CVE-2024-3094) exploited by hiding in a generated build artifact.
+fetches the IANA top-level-domain list from `data.iana.org`, `tools/generate_psl.py` fetches the Public Suffix List from
+GitHub, and `tools/generate_idna.py` fetches the UTS #46 mapping table and the Unicode Character Database files its NFC
+step needs from `unicode.org`. A poisoned or silently changed upstream table is a vulnerability that no review of the
+`.c` sources would catch, the class the xz-utils backdoor (CVE-2024-3094) exploited by hiding in a generated build
+artifact.
 
 To make a regeneration verifiable, each generator pins the SHA-256 of the exact upstream bytes the committed table was
 built from, on top of the version or commit it already names: `generate_tlds.py` pins `IANA_VERSION` and `IANA_SHA256`,
-`generate_psl.py` pins `PSL_COMMIT` and `PSL_SHA256`. A rebuild recomputes the digest of the download and aborts when it
-does not match the pin, so a changed or poisoned source cannot land silently. A real upstream bump is deliberate: a
+`generate_psl.py` pins `PSL_COMMIT` and `PSL_SHA256`, and `generate_idna.py` pins `UNICODE_VERSION` and a SHA-256 for
+each of the three files it downloads. A rebuild recomputes the digest of the download and aborts when it does not match
+the pin, so a changed or poisoned source cannot land silently. A real upstream bump is deliberate: a
 maintainer reviews the new source, updates the version-or-commit pin and its checksum together, and regenerates, so both
 the changed pin and the table diff show up in code review.

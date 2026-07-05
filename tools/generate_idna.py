@@ -11,7 +11,9 @@ downloads them at the pinned version and writes one generated header the ``idna.
 The mapping status is collapsed to the three outcomes the mechanical ToASCII output depends on -- keep, map, ignore --
 because ``valid``, ``deviation`` (non-transitional keeps the code point), and ``disallowed`` all leave the code point in
 place: the validity of a disallowed code point is an advisory error the best-effort host cleaner records by producing
-the punycode of the label anyway, exactly as the UTS #46 test vectors' toASCII column does. The pinned mapping file is
+the punycode of the label anyway, exactly as the UTS #46 test vectors' toASCII column does. Each fetched file is also
+pinned to the SHA-256 of its exact bytes, so a rebuild refuses a silently rewritten or poisoned mirror the version
+pin alone would not catch. The pinned mapping file is
 the "Compatible Preprocessing" variant, whose ``valid`` rows already fold in ``UseSTD3ASCIIRules=false`` (ASCII symbols
 such as ``_`` are ``valid`` rather than ``disallowed_STD3_valid``), so no STD3 toggle is needed at run time.
 
@@ -25,6 +27,7 @@ Usage:  python tools/generate_idna.py src/turbohtml/_c/data/idna_table.h
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import unicodedata
 import urllib.request
@@ -41,6 +44,15 @@ UNICODE_VERSION = "16.0.0"
 _IDNA_BASE = f"https://www.unicode.org/Public/idna/{UNICODE_VERSION}"
 _UCD_BASE = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 
+# Pin the SHA-256 of the exact bytes of each fetched file, not just the version: a version pin fixes which release the
+# rebuild targets, but a poisoned or silently rewritten mirror could still serve altered content under that version's
+# stable URL, and no review of idna.c would catch a bad table. A rebuild recomputes each digest and aborts on a
+# mismatch. Bump a digest deliberately alongside UNICODE_VERSION and review the idna_table.h diff. All match the
+# committed table at Unicode 16.0.0.
+_IDNA_MAPPING_SHA256 = "6db2ef4ed35f3b3de74ebc2e00404a9607f76d499f576b8d4043cf14f1ed175c"
+_UNICODE_DATA_SHA256 = "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f"
+_DERIVED_NORM_SHA256 = "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
+
 _KEEP = 0
 _MAPPED = 1
 _IGNORED = 2
@@ -52,10 +64,14 @@ _HANGUL_TCOUNT = 28
 _HANGUL_SCOUNT = _HANGUL_LCOUNT * _HANGUL_VCOUNT * _HANGUL_TCOUNT
 
 
-def _fetch(url: str) -> str:
-    """Return the decoded body of a pinned Unicode data file."""
+def _fetch(url: str, expected_sha256: str) -> str:
+    """Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*."""
     with urllib.request.urlopen(url) as response:  # noqa: S310 -- url is always a pinned https unicode.org constant
-        return response.read().decode("utf-8")
+        raw = response.read()
+    if (digest := hashlib.sha256(raw).hexdigest()) != expected_sha256:
+        msg = f"Unicode source {url} has sha256 {digest}, not the pinned {expected_sha256}; review, then bump the pin"
+        raise SystemExit(msg)
+    return raw.decode("utf-8")
 
 
 def _mapping_ranges(text: str) -> tuple[list[tuple[int, int, int, int, int]], list[int]]:
@@ -314,10 +330,12 @@ def _wrap(items: Iterable[str]) -> str:
 
 def generate(out_path: Path) -> None:
     """Write the generated IDNA/NFC C header to *out_path*."""
-    ranges, pool = _mapping_ranges(_fetch(f"{_IDNA_BASE}/IdnaMappingTable.txt"))
-    combining, raw_decomposition = _combining_and_decomposition(_fetch(f"{_UCD_BASE}/UnicodeData.txt"))
+    ranges, pool = _mapping_ranges(_fetch(f"{_IDNA_BASE}/IdnaMappingTable.txt", _IDNA_MAPPING_SHA256))
+    combining, raw_decomposition = _combining_and_decomposition(
+        _fetch(f"{_UCD_BASE}/UnicodeData.txt", _UNICODE_DATA_SHA256)
+    )
     full = _full_decomposition(raw_decomposition)
-    excluded = _composition_exclusions(_fetch(f"{_UCD_BASE}/DerivedNormalizationProps.txt"))
+    excluded = _composition_exclusions(_fetch(f"{_UCD_BASE}/DerivedNormalizationProps.txt", _DERIVED_NORM_SHA256))
     pairs = _composition_pairs(raw_decomposition, excluded)
     _self_check(combining, full, pairs)
     out_path.write_text(_emit(ranges, pool, combining, full, pairs), encoding="utf-8")

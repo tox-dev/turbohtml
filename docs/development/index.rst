@@ -219,13 +219,14 @@ shared header, so each unit inlines its own copy; the serialize and tree-builder
 the same way.
 
 **Generated tables have one owner.** The ``data/`` headers come from ``tools/generate_*.py``; edit the generator, not
-the output, and they stay out of formatting and clang-tidy. The two network-sourced tables carry a pin so a rebuild
-stays deterministic and auditable, and each pin has a SHA-256 companion so a poisoned or silently rewritten source
-cannot slip a bad table past a ``.c`` review, the class the xz-utils backdoor used. ``generate_psl.py`` fetches the
-Public Suffix List at the ``PSL_COMMIT`` it names rather than off ``main`` and checks the file against ``PSL_SHA256``;
+the output, and they stay out of formatting and clang-tidy. The network-sourced tables carry a pin so a rebuild stays
+deterministic and auditable, and each pin has a SHA-256 companion so a poisoned or silently rewritten source cannot slip
+a bad table past a ``.c`` review, the class the xz-utils backdoor used. ``generate_psl.py`` fetches the Public Suffix
+List at the ``PSL_COMMIT`` it names rather than off ``main`` and checks the file against ``PSL_SHA256``;
 ``generate_tlds.py`` refuses to regenerate unless IANA still serves the ``IANA_VERSION`` it expects and the download
-matches ``IANA_SHA256``. Bump the version or commit and its checksum together, review the table diff, and let the header
-banner record the exact commit or version. The `security policy
+matches ``IANA_SHA256``; ``generate_idna.py`` pins ``UNICODE_VERSION`` and a SHA-256 for each UTS #46 and Unicode
+Character Database file it downloads. Bump the version or commit and its checksum together, review the table diff, and
+let the header banner record the exact commit or version. The `security policy
 <https://github.com/tox-dev/turbohtml/blob/main/.github/SECURITY.md>`_ places this in the wider threat model.
 
 **Coverage gates on two toolchains.** Both the gcc (Linux) and llvm-cov (macOS, Windows) gates require full line and
