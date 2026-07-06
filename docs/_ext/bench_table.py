@@ -101,6 +101,9 @@ _HOMEPAGES: Final = {
     "simple-html": "https://github.com/keithasaurus/simple_html",
     "soupsieve": "https://facelessuser.github.io/soupsieve/",
     "terser": "https://terser.org/",
+    "esbuild": "https://esbuild.github.io/",
+    "tdewolff": "https://github.com/tdewolff/minify",
+    "html-minifier-terser": "https://github.com/terser/html-minifier-terser",
     "standard library": "https://docs.python.org/3/library/html.parser.html",
     "trafilatura": "https://trafilatura.readthedocs.io/",
     "w3lib": "https://w3lib.readthedocs.io/",
@@ -199,7 +202,11 @@ class BenchTable(Directive):
                 msg = f"bench-table row has {len(cells)} cells, expected {ncols}: {cells!r}"
                 raise self.error(msg)
             body += self._body_row(cells, parties, metrics)
-        return [table]
+        if not any(cell is None for row in rows for cell in row[1:]):
+            return [table]
+        note = nodes.paragraph(classes=["bench-empty-note"])  # explain the em dash rather than leave a bare blank
+        note += nodes.Text("— the library has no equivalent for that row, or could not process that input.")
+        return [table, note]
 
     def _head(self, label: str, parties: list[str], metrics: list[str]) -> nodes.thead:
         head = nodes.thead()

@@ -35,7 +35,7 @@ can miss.
       - Full markupsafe surface plus tokenizer-backed ``striptags``/``unescape`` and the rest of turbohtml
       - ``Markup``, ``escape``, ``escape_silent``, ``soft_str``, ``EscapeFormatter``
     - - Performance
-      - C escape 2-3x faster on the small clean strings autoescape interpolates (see below)
+      - C escape roughly 3x faster on the small clean strings autoescape interpolates (see below)
       - C-accelerated ``escape``; regex ``striptags``/``unescape``
     - - Typing
       - Fully annotated, ships type stubs
@@ -90,7 +90,7 @@ Performance
 .. bench-table::
     :file: bench/markupsafe.json
 
-The escape runs two to three times faster than markupsafe's own C escape on the small, mostly-clean strings a template
+The escape runs roughly three times faster than markupsafe's own C escape on the small, mostly-clean strings a template
 engine interpolates under autoescape, and the other ``Markup`` operations stay ahead too -- ``striptags`` and
 ``unescape`` run on turbohtml's tokenizer and HTML5 reference resolution rather than markupsafe's regex scan, and the
 composing operations (``format``, ``join``) escape each untrusted operand through the same C ``escape``.

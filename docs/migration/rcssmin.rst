@@ -34,7 +34,7 @@ provably value-safe, so the result is smaller while still parsing to the same ca
         merging, adjacent equal-body rule merging, optional Baseline-year shorthands
       - Whitespace/comment removal only; values left verbatim
     - - Performance
-      - Native C, linear time; smaller output on every framework in the corpus below
+      - Native C, linear time; smaller output on nearly every framework in the corpus below
       - Native C, linear time; faster because it rewrites nothing
     - - Typing
       - Typed public API (:func:`~turbohtml.clean.minify_css`, :class:`~turbohtml.clean.CSSMinify`)
@@ -94,7 +94,7 @@ What rcssmin has that turbohtml does not
 Performance
 ===========
 
-turbohtml's output is smaller on every framework except the custom-property-heavy ``bulma.css``, where rcssmin ends 0.1%
+turbohtml's output is smaller on every framework except the custom-property-heavy ``bulma.css``, where rcssmin ends 0.2%
 ahead only by rewriting whitespace inside custom-property values. That rewrite is not value-safe: `CSS Variables 1 §2
 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps a custom property's value as its literal token
 stream, ``var()`` splices it verbatim and ``getPropertyValue()`` reads it back byte-exact, so a collapsed space is

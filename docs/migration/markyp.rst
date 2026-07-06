@@ -38,7 +38,7 @@ also a document you can query, edit, re-serialize, or convert -- not a one-way s
         component packages
     - - Performance
       - Builds in a C arena and serializes in C
-      - Pure-Python string assembly (about a third faster on the microbenchmark below)
+      - Pure-Python string assembly (roughly a quarter faster on the microbenchmark below)
     - - Typing
       - Ships ``.pyi`` stubs for the element, query, and serialize surface
       - A concrete class per tag imported from its topic module; attributes stay untyped keywords
@@ -89,9 +89,9 @@ Performance
 .. bench-table::
     :file: bench/markyp.json
 
-markyp renders about a third faster than ``E`` on this microbenchmark -- it concatenates strings as it goes -- but the
-decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call
-that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
+markyp renders roughly a quarter faster than ``E`` on this microbenchmark -- it concatenates strings as it goes -- but
+the decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the
+call that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

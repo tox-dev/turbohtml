@@ -36,7 +36,7 @@ and does the work in a compiled C serializer instead of a Python token loop.
       - Whitespace, comment, empty-attribute, boolean-attribute, and quote folds; incremental ``Minifier``; WSGI
         middleware and framework decorator
     - - Performance
-      - C serializer over an already-built tree; 14-20x faster, parse included (see below)
+      - C serializer over an already-built tree; 16-23x faster, parse included (see below)
       - Pure-Python ``HTMLParser`` token loop
     - - Typing
       - Fully typed, frozen :class:`~turbohtml.Minify` options object
@@ -102,8 +102,8 @@ Performance
     :file: bench/htmlmin.json
 
 On the folds the two share (collapsing insignificant whitespace, dropping comments, and unquoting attributes) turbohtml
-runs fourteen to twenty times faster, parse included. Output sizes stay within one percent of each other on the
-benchmark pages; turbohtml's is the smaller on three of the four.
+runs sixteen to twenty-three times faster, parse included. Output sizes stay within about one percent of each other on
+the benchmark pages; turbohtml's is the smaller on three of the four.
 
 The benchmark installs `htmlmin2 <https://pypi.org/project/htmlmin2/>`__ 0.1.13, the fork that fixes the ``cgi`` import
 and changes nothing else, because htmlmin 0.1.12 itself cannot build on Python 3.13 or later.

@@ -102,17 +102,24 @@ What resiliparse has that turbohtml does not
   guard; wrap calls in your own resource limits.
 - **WARC/archive processing.** resiliparse's ecosystem reads WARC records through the companion FastWARC package.
   turbohtml is a tree library and has no archive support; keep FastWARC for the ingestion stage.
-- **Standalone MIME/encoding utilities.** ``resiliparse.parse.encoding`` exposes byte-to-str conversion and encoding
-  detection as free functions over raw bytes. turbohtml detects the encoding during :func:`~turbohtml.parse`
-  (``detect_encoding=True``) rather than as a standalone codec-inspection API.
+- **Byte-to-str decoding.** ``resiliparse.parse.encoding`` both detects an encoding and decodes raw bytes to ``str``.
+  turbohtml matches the detection half with the standalone :func:`turbohtml.detect.detect` (benched below) and during
+  :func:`~turbohtml.parse` (``detect_encoding=True``), but it returns the encoding label rather than handing back the
+  decoded string.
 
 Performance
 ===========
 
-Parsing is a dead heat: resiliparse runs lexbor and turbohtml runs its own C engine straight into the native tree. On
-text extraction (``extract_plain_text`` against :meth:`~turbohtml.Node.to_text`, and its ``main_content=True`` mode
-against :meth:`~turbohtml.Node.main_text`) turbohtml walks the WHATWG tree once in C where resiliparse renders off the
-lexbor tree in a second pass:
+Parsing is a dead heat: resiliparse runs lexbor and turbohtml runs its own C engine straight into the native tree. Past
+the parse, the table now covers the whole shared surface. CSS selection runs up to ~20x faster, and text extraction
+(``extract_plain_text`` against :meth:`~turbohtml.Node.to_text`, and its ``main_content=True`` mode against
+:meth:`~turbohtml.Node.main_text`) walks the WHATWG tree once in C where resiliparse renders off the lexbor tree in a
+second pass, so layout-aware text runs 5 to 15x faster. The mutable-DOM operations resiliparse exposes bench too:
+rel-tagging, class edits, and subtree removal run up to ~8x faster, and social-card extraction and link rewriting land a
+few times ahead. A handful of cheap passes trade the lead -- raw text concatenation, flat link extraction, and URL
+absolutization sit within a small factor either way -- and standalone encoding detection (``resiliparse.parse.encoding``
+against :func:`turbohtml.detect.detect`) swings with the byte stream, from an order of magnitude slower on a short
+Shift-JIS sample to ~97x faster on a large UTF-8 page:
 
 .. bench-table::
     :file: bench/resiliparse.json

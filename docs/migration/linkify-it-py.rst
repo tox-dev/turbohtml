@@ -37,7 +37,7 @@ they do strictly more work per call.
         skip tags and existing-anchor handling
       - URLs, bare domains, emails, plus fuzzy IP / ``@``-mention / fuzzy-email heuristics and pluggable custom schemes
     - - Performance
-      - C candidate scan; several times faster on rewrite and detection (see below)
+      - C candidate scan; faster on span detection (see below)
       - Pure-Python scanner
     - - Typing
       - Fully annotated, ``py.typed``
@@ -98,10 +98,11 @@ Performance
 .. bench-table::
     :file: bench/linkify-it-py.json
 
-Both the full rewrite and the bare detection primitives (:meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>`
-against ``LinkifyIt().match``, and :meth:`~turbohtml.clean.LinkDetector.has_link` against ``LinkifyIt().test``) outrun
-the Python scanner. The one close row is ``has_link`` on prose, where ``test`` short-circuits on the first link near the
-start.
+linkify-it-py only locates link spans in plain text; it never rewrites HTML, so the comparison is on detection alone.
+The primitives outrun the Python scanner: :meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>` against
+``LinkifyIt().match`` runs 38x to 48x faster, and :meth:`~turbohtml.clean.LinkDetector.has_link` against
+``LinkifyIt().test`` up to 83x. The one close row is ``has_link`` on prose (2x), where ``test`` short-circuits on the
+first link near the start.
 
 ****************
  How to migrate

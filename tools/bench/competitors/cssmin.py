@@ -7,9 +7,9 @@ import cssmin
 REQUIREMENTS = ("cssmin>=0.2",)
 
 
-def minify_css(css: str) -> None:
+def minify_css(css: str) -> str:
     """Minify a stylesheet with cssmin's cssmin."""
-    cssmin.cssmin(css)
+    return cssmin.cssmin(css)
 
 
 OPERATIONS = {"minify-css": (minify_css, "cssmin")}

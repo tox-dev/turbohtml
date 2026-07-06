@@ -14,4 +14,12 @@ def boilerplate(text: str) -> None:
     _EXTRACTOR.get_doc(text)
 
 
-OPERATIONS = {"boilerplate": (boilerplate, "boilerpy3")}
+def text_main(text: str) -> None:
+    """Extract the boilerplate-removed main text with boilerpy3's ArticleExtractor."""
+    _EXTRACTOR.get_content(text)
+
+
+OPERATIONS = {
+    "boilerplate": (boilerplate, "boilerpy3"),
+    "text-main": (text_main, "boilerpy3"),
+}

@@ -14,4 +14,12 @@ def boilerplate(text: str) -> None:
     justext.justext(text, _STOPLIST)
 
 
-OPERATIONS = {"boilerplate": (boilerplate, "justext")}
+def text_main(text: str) -> None:
+    """Join justext's non-boilerplate paragraphs into the main text, over the same classification."""
+    "\n".join(p.text for p in justext.justext(text, _STOPLIST) if not p.is_boilerplate)
+
+
+OPERATIONS = {
+    "boilerplate": (boilerplate, "justext"),
+    "text-main": (text_main, "justext"),
+}

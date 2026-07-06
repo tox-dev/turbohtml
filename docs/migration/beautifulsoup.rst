@@ -97,9 +97,9 @@ Performance
 ===========
 
 turbohtml parses, queries, and serializes one to three orders of magnitude faster than BeautifulSoup over
-``html.parser`` — including text filtering (``find(text=...)`` against ``find_all(string=...)``), walking the tree
-(:attr:`~turbohtml.Node.descendants` against ``soup.descendants``), and reading text (:attr:`~turbohtml.Node.text`
-against ``soup.get_text()``):
+``html.parser``; even the closest-margin operations — text filtering (``find(text=...)`` against
+``find_all(string=...)``), walking the tree (:attr:`~turbohtml.Node.descendants` against ``soup.descendants``), and
+reading text (:attr:`~turbohtml.Node.text` against ``soup.get_text()``) — still run a few times faster:
 
 .. bench-table::
     :file: bench/beautifulsoup.json

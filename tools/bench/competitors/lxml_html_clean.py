@@ -14,4 +14,12 @@ def sanitize(text: str) -> None:
     _CLEANER.clean_html(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "lxml-html-clean")}
+def linkify(text: str) -> None:
+    """Auto-link URLs in HTML with lxml-html-clean's autolink_html, on an lxml tree."""
+    lxml_html_clean.autolink_html(text)
+
+
+OPERATIONS = {
+    "sanitize": (sanitize, "lxml-html-clean"),
+    "linkify": (linkify, "lxml-html-clean"),
+}

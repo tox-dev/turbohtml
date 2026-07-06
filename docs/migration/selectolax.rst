@@ -97,9 +97,10 @@ Performance
 
 turbohtml's lighter native tree parses, selects, and serializes faster than selectolax's heavier object layer over
 lexbor. It drops a set of tags with their subtrees faster (:meth:`~turbohtml.Node.remove` against ``strip_tags``, over a
-92 kB page of 839 ``<code>``/``<a>``/``<q>`` elements), and collects a node's visible text (:attr:`~turbohtml.Node.text`
-against selectolax's ``text()`` method) six to thirteen times faster, concatenating in one C pass where selectolax
-crosses the lexbor boundary per node:
+92 kB page of 839 ``<code>``/``<a>``/``<q>`` elements), tests a compiled selector against every anchor
+(:meth:`~turbohtml.Node.matches` against ``css_matches``) 35 to 43 times faster, and collects a node's visible text
+(:attr:`~turbohtml.Node.text` against selectolax's ``text()`` method) seven to ten times faster, concatenating in one C
+pass where selectolax crosses the lexbor boundary per node:
 
 .. bench-table::
     :file: bench/selectolax.json

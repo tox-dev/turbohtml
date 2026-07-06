@@ -33,7 +33,8 @@ almost no rename and a large speed margin.
       - CSS select/filter/traverse, attr/text/html/class ops, node-level mutation and XPath 1.0
       - CSS and XPath on the wrapper itself, broad jQuery method set, a network-fetching constructor
     - - Performance
-      - Selector and attribute primitives in C over a native tree; several to ~100x faster on the shared surface
+      - Selector and attribute primitives in C over a native tree; several to hundreds of times faster on the shared
+        surface
       - Python wrapper delegating to lxml/cssselect
     - - Typing
       - Fully type annotated with shipped stubs
@@ -90,7 +91,7 @@ Performance
     :file: bench/pyquery.json
 
 The whole shared surface -- chaining a select/filter/read, setting content, bulk-editing tags, and reading a value off
-every match -- runs several to a hundred times faster because the wrapper edits its native tree in C and skips a
+every match -- runs several to hundreds of times faster because the wrapper edits its native tree in C and skips a
 redundant de-duplication when a chain starts from a single node, where pyquery drives lxml under its jQuery-style
 wrapper.
 

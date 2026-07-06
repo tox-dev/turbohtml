@@ -29,7 +29,7 @@ the filtering walk in C.
       - lxml-html-clean
     - - Scope
       - Allowlist HTML sanitizer, plus linkify and HTML/CSS minify in one module
-      - Blocklist ``Cleaner`` extracted from ``lxml.html.clean``; sanitization only
+      - Blocklist ``Cleaner`` extracted from ``lxml.html.clean``; sanitization plus ``autolink_html``
     - - Feature breadth
       - Policy presets (``strict``/``basic``/``relaxed``), per-tag attribute allowlists, attribute-prefix/value
         allowlists, embedded-media ``host_whitelist``, ``style`` scrubbing, link ``rel`` injection, attribute-filter
@@ -37,7 +37,7 @@ the filtering walk in C.
       - ~20 category toggles, ``host_whitelist`` for embedded media, ``safe_attrs``, ``add_nofollow``, in-place tree
         mutation
     - - Performance
-      - C filtering walk; order of magnitude faster (see below)
+      - C filtering walk; sanitizes an order of magnitude faster (see below)
       - Python traversal over a libxml2-parsed lxml tree
     - - Typing
       - Fully type annotated
@@ -95,8 +95,9 @@ What lxml-html-clean has that turbohtml does not
 Performance
 ===========
 
-``turbohtml.clean`` runs the filtering walk in C rather than over an lxml tree, leading the blocklist cleaner by an
-order of magnitude:
+``turbohtml.clean`` runs the filtering walk in C rather than over an lxml tree, sanitizing about 13x faster than the
+blocklist cleaner. lxml-html-clean also ships ``autolink_html``, benchmarked here as the linkify op: turbohtml runs 2.1x
+faster on the comment case and 1.1x on markup, and about half the speed on plain prose (0.5x).
 
 .. bench-table::
     :file: bench/lxml-html-clean.json

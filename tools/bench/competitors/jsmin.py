@@ -7,9 +7,9 @@ from jsmin import jsmin
 REQUIREMENTS = ("jsmin>=3.0",)
 
 
-def minify_js(source: str) -> None:
+def minify_js(source: str) -> str:
     """Minify JavaScript with jsmin's Crockford-style character state machine."""
-    jsmin(source)
+    return jsmin(source)
 
 
 OPERATIONS = {"minify-js": (minify_js, "jsmin")}

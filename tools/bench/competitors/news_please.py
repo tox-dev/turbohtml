@@ -15,4 +15,18 @@ def article(text: str) -> None:
     NewsPlease.from_html(text, url=_URL)
 
 
-OPERATIONS = {"article": (article, "news-please")}
+def text_main(text: str) -> None:
+    """Read the main text off news-please's result, its only path is the full ensemble."""
+    _ = NewsPlease.from_html(text, url=_URL).maintext
+
+
+def date(text: str) -> None:
+    """Read the publish date off news-please's result, its only path is the full ensemble."""
+    _ = NewsPlease.from_html(text, url=_URL).date_publish
+
+
+OPERATIONS = {
+    "article": (article, "news-please"),
+    "text-main": (text_main, "news-please"),
+    "date": (date, "news-please"),
+}

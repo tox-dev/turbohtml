@@ -175,6 +175,33 @@ def links_rewrite(text: str) -> None:
     _parsed(text).rewrite_links(lambda url: url)
 
 
+def links_filter(text: str) -> None:
+    """Collect the links and keep the on-page ones, filtering the hrefs lxml's iterlinks() yields."""
+    _ = [link for _element, _attr, link, _pos in _parsed(text).iterlinks() if not link.startswith(("#", "javascript:"))]
+
+
+def find_text(text: str) -> None:
+    """Collect every element whose collected text contains the marker with lxml's XPath contains()."""
+    _parsed(text).xpath('//*[contains(., "test")]')
+
+
+def socialcard(text: str) -> None:
+    """Read every meta property and content off a freshly parsed tree, lxml's take on card extraction."""
+    for meta in lxml_html.document_fromstring(text).cssselect("meta"):
+        meta.get("property")
+        meta.get("content")
+
+
+def extract_url(case: tuple[str, str]) -> None:
+    """Read a freshly parsed document's own URL hint with lxml's XPath: the base href or the meta refresh."""
+    kind, text = case
+    tree = lxml_html.document_fromstring(text)
+    if kind == "base":
+        tree.xpath("//base/@href")
+    else:
+        tree.xpath("//meta[@http-equiv='refresh']/@content")
+
+
 def getpath(text: str) -> None:
     """Generate the positional XPath for every element with lxml's getroottree().getpath()."""
     tree = _parsed(text)
@@ -293,6 +320,10 @@ OPERATIONS = {
     "links-extract": (links_extract, "lxml"),
     "links-absolutize": (Mutating(lxml_html.document_fromstring, links_absolutize), "lxml"),
     "links-rewrite": (links_rewrite, "lxml"),
+    "links-filter": (links_filter, "lxml"),
+    "find-text": (find_text, "lxml"),
+    "socialcard": (socialcard, "lxml"),
+    "extract-url": (extract_url, "lxml"),
     "path": (getpath, "lxml getpath"),
     "path-xpath": (getpath, "lxml getpath"),
     "xpath": (xpath, "lxml"),

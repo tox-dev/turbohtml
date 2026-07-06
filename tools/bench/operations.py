@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from textwrap import dedent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from bench import corpus
 
@@ -71,6 +71,11 @@ class Operation:
     unit: str
 
 
+# The minify operations shrink their input, so their tables carry an output-size column alongside time. Their
+# functions return the minified text; the worker records its byte length once (deterministic) beside the timing.
+SIZE_OPS: Final[frozenset[str]] = frozenset({"minify", "minify-css", "minify-js"})
+
+
 OPERATIONS: dict[str, Operation] = {
     "build": Operation("build a list (constructors)", "us"),
     "build-e": Operation("build a list (terse builders)", "us"),
@@ -102,6 +107,7 @@ OPERATIONS: dict[str, Operation] = {
     "links-rewrite": Operation("rewrite every link", "us"),
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
+    "microdata": Operation("Microdata item extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
@@ -376,6 +382,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),
     ),
     "structured": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
+    "microdata": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
     "sanitize": lambda: (
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),

@@ -12,9 +12,8 @@ target-driven approach makes it the CSS transform stage in Parcel and a common b
 
 turbohtml covers the same ground with :func:`turbohtml.clean.minify_css`, a value-safe minifier. It applies only
 transforms that hold on any conformant browser, so its default output needs no target list, parses to the same cascade
-everywhere, minifies faster, and recovers from malformed input that lightningcss rejects. The
-:class:`~turbohtml.clean.CSSMinify` ``baseline`` year opts into newer-syntax shorthand merges when you are ready to
-require them.
+everywhere, and recovers from malformed input that lightningcss rejects. The :class:`~turbohtml.clean.CSSMinify`
+``baseline`` year opts into newer-syntax shorthand merges when you are ready to require them.
 
 ***************************
  turbohtml vs lightningcss
@@ -36,7 +35,7 @@ require them.
       - All of that plus cross-sheet dead-declaration removal, target-driven syntax rewriting, vendor prefixing,
         ``@import`` bundling
     - - Performance
-      - 2-3x faster minify on the shared corpus (see Performance)
+      - Faster on some sheets (up to 2.3x), behind the Rust engine on the largest (see Performance)
       - Smaller output on most inputs by trading target configuration for size
     - - Typing
       - Fully typed, frozen ``CSSMinify`` config object
@@ -66,7 +65,8 @@ What turbohtml adds
   target list to configure and no way to emit syntax a target cannot parse.
 - WHATWG error recovery: turbohtml minifies malformed stylesheets that lightningcss's parser rejects, for example a
   media query in ``foundation.css`` that the WHATWG rules accept.
-- Faster runs: 2-3x quicker minify on the shared corpus.
+- Faster on some sheets: up to 2.3x on ``animate.css`` and ahead on ``pico.css``, though the Rust engine leads on the
+  largest inputs.
 - Inline-declaration minify via :func:`turbohtml.clean.minify_css_inline` for bare ``style``-attribute declaration
   lists, without a surrounding selector or braces.
 - Custom-property values and string contents stay byte-exact, as CSS Variables 1 requires.
@@ -84,20 +84,21 @@ What lightningcss has that turbohtml does not
 Performance
 ===========
 
-lightningcss produces the smaller output on most of the corpus -- up to five percent under turbohtml -- because it
-optimizes for a browser-target set: it removes declarations overridden across the sheet and emits syntax those targets
-support. turbohtml applies only transforms that hold on any conformant browser, so its default output needs no target
-list and parses to the same cascade everywhere; the :class:`~turbohtml.clean.CSSMinify` ``baseline`` year opts into the
-newer-syntax shorthand merges when you are ready to require them. turbohtml also minifies two to three times faster,
-comes out ahead on ``normalize.css``, and recovers from malformed CSS that lightningcss rejects: ``foundation.css``
-raises a parse error on a media query the WHATWG rules accept, where turbohtml minifies all six stylesheets. Each ratio
-is against turbohtml:
+lightningcss produces the smaller output on most of the corpus -- up to seven percent under turbohtml on ``animate.css``
+-- because it optimizes for a browser-target set: it removes declarations overridden across the sheet and emits syntax
+those targets support. turbohtml applies only transforms that hold on any conformant browser, so its default output
+needs no target list and parses to the same cascade everywhere; the :class:`~turbohtml.clean.CSSMinify` ``baseline``
+year opts into the newer-syntax shorthand merges when you are ready to require them. On speed the two trade places:
+turbohtml is 2.3x faster on ``animate.css`` and edges ahead on ``pico.css``, while lightningcss's Rust engine leads on
+the larger ``bootstrap.css`` and ``bulma.css``. turbohtml recovers from malformed CSS that lightningcss rejects:
+``foundation.css`` raises a parse error on a media query the WHATWG rules accept, where turbohtml minifies all six
+stylesheets. Each ratio is against turbohtml:
 
 .. bench-table::
     :file: bench/lightningcss.json
 
 Reach for lightningcss when you can pin a browser-target set and want the last few percent of size; reach for turbohtml
-when you want value-safe output with no configuration, faster runs, and tolerance of real-world CSS.
+when you want value-safe output with no configuration and tolerance of real-world CSS.
 
 ****************
  How to migrate

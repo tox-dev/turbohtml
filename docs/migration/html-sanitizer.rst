@@ -95,8 +95,7 @@ What html-sanitizer has that turbohtml does not
 Performance
 ===========
 
-turbohtml leads html-sanitizer by one to two orders of magnitude, the WHATWG tree builder in C standing in for the lxml
-parse:
+turbohtml leads html-sanitizer by 30 to 40 times, the WHATWG tree builder in C standing in for the lxml parse:
 
 .. bench-table::
     :file: bench/html-sanitizer.json

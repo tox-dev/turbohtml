@@ -88,9 +88,9 @@ Performance
 The same text benchmark that backs the :doc:`inscriptis <inscriptis>` comparison also runs html-text's ``extract_text``:
 :meth:`~turbohtml.Node.to_text` walks the tree once in C, where html-text builds an lxml tree and collects its text in
 Python. html-text skips the column-aligned table layout :meth:`~turbohtml.Node.to_text` renders, so its margin behind
-turbohtml narrows on table-heavy input while staying near an order of magnitude. The ``word stream`` row turns layout
-guessing off (``extract_text(guess_layout=False)``) against joining the :attr:`~turbohtml.Node.stripped_strings`
-iterator, the collapsed visible text both return without layout.
+turbohtml narrows on table-heavy input but stays above 25x. The ``word stream`` row turns layout guessing off
+(``extract_text(guess_layout=False)``) against joining the :attr:`~turbohtml.Node.stripped_strings` iterator, the
+collapsed visible text both return without layout.
 
 ****************
  How to migrate

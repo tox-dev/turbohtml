@@ -35,7 +35,7 @@ whitespace-only tool can reach.
         with dead-code elimination
       - Whitespace and comment removal only; no renaming, no folding
     - - Performance
-      - Parse-and-optimize front end in C, an order of magnitude faster than jsmin's Python loop
+      - Parse-and-optimize front end in C, several times faster than jsmin's Python loop
       - Pure-Python character loop, slow on large files
     - - Typing
       - Typed API with bundled stubs; ``JSMinify`` is a frozen dataclass
@@ -82,7 +82,7 @@ What jsmin has that turbohtml does not
 Performance
 ===========
 
-On the library ladder (``python -m bench minify-js``) turbohtml runs about three to five times faster than jsmin and its
+On the library ladder (``python -m bench minify-js``) turbohtml runs about two to six times faster than jsmin and its
 output is up to half the size, because jsmin only deletes whitespace where turbohtml renames every local binding and
 runs the structural folds. Each ratio is against turbohtml:
 

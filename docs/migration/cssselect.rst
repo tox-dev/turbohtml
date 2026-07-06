@@ -37,7 +37,7 @@ than trusted on its own.
         form and ``:empty`` semantics
       - Selectors 3 plus documented approximations; several cases carry ``FIXME`` notes in the source
     - - Performance
-      - C translator; 4x faster on a bare type selector, 36x-45x on realistic selectors (see below)
+      - C translator; 4x faster on a bare type selector, 32x-41x on realistic selectors (see below)
       - Pure-Python tokenizer and parser dominate on anything past a trivial selector
     - - Typing
       - Fully typed, ships ``py.typed``
@@ -95,7 +95,7 @@ What cssselect has that turbohtml does not
 Performance
 ===========
 
-The C translator is 4x faster than cssselect on a bare type selector and 36x to 45x faster on realistic selectors, where
+The C translator is 4x faster than cssselect on a bare type selector and 32x to 41x faster on realistic selectors, where
 cssselect's Python tokenizer dominates. Each ratio is against turbohtml:
 
 .. bench-table::

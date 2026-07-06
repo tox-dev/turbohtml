@@ -34,7 +34,7 @@ owns, so text extraction is one native walk with no lxml dependency.
       - Layout text, annotations, plus Markdown, HTML serialization, CSS/XPath selectors, encoding detection
       - Layout text and annotations, with a fully user-editable CSS profile
     - - Performance
-      - Native C layout walk, roughly 20x faster (see below)
+      - Native C layout walk, roughly 75x to 100x faster (see below)
       - lxml tree plus a Python CSS model
     - - Typing
       - Fully type annotated, ships ``py.typed`` stubs
@@ -93,7 +93,7 @@ What inscriptis has that turbohtml does not
 Performance
 ===========
 
-Doing the whole layout natively makes text extraction roughly twenty times faster:
+Doing the whole layout natively makes text extraction roughly 75x to 100x faster:
 
 .. bench-table::
     :file: bench/inscriptis.json

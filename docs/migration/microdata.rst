@@ -34,7 +34,7 @@ rewrite while the parse-and-walk runs in the C extension rather than in Python o
       - Microdata, JSON-LD, and OpenGraph gathered in one walk; nested ``itemscope`` returns as a nested record
       - ``get_items`` from a URL, file, or string; nested items; a mutable ``Item`` you can also build and edit
     - - Performance
-      - One C walk over the parsed tree; 35 to 42x faster on the benchmark pages
+      - One C walk over the parsed tree; roughly 70x faster on the benchmark pages
       - Python walk over an html5lib tree, built on each ``get_items`` call
     - - Typing
       - Fully typed; :class:`~turbohtml.MicrodataItem` is a frozen, slotted dataclass with shipped stubs
@@ -139,7 +139,7 @@ Performance
 ``microdata`` starts from the raw HTML string, so it parses before it extracts: it builds an html5lib tree and walks the
 ``itemscope`` elements in Python, where :func:`~turbohtml.extract.microdata` parses to the WHATWG tree and gathers the
 items in one C walk. On a product page carrying Microdata alongside JSON-LD and OpenGraph, and on an 8 KiB catalog of
-the same, the walk runs 35 to 42 times faster:
+the same, the walk runs roughly 70 times faster:
 
 .. bench-table::
     :file: bench/microdata.json

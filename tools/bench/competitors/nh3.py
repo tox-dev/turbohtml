@@ -12,4 +12,12 @@ def sanitize(text: str) -> None:
     nh3.clean(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "nh3")}
+def escape(text: str) -> None:
+    """Escape text with nh3's clean_text, its HTML escaper (escapes more chars than turbohtml, same op class)."""
+    nh3.clean_text(text)
+
+
+OPERATIONS = {
+    "sanitize": (sanitize, "nh3"),
+    "escape": (escape, "nh3"),
+}

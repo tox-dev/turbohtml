@@ -80,20 +80,30 @@ def render(operation: str, stats: dict[str, dict[str, float]]) -> None:
         _emit_table_json(operation, stats, TABLE_JSON_DIR)
 
 
+def _cells(stat: dict[str, float] | None, *, size_op: bool) -> list[float | None]:
+    """Return a party's cells for one case: ``[size, time]`` for a minify op, else ``[time]``; blanks when absent."""
+    if stat is None:
+        return [None, None] if size_op else [None]
+    return [stat["size"], stat["mean"]] if size_op else [stat["mean"]]
+
+
 def _emit_table_json(operation: str, stats: dict[str, dict[str, float]], directory: Path) -> None:
-    """Write one operation's raw means as the docs' bench-table feed: DIR/<operation>.json."""
-    meta = operations.OPERATIONS[operation]
+    """Write one operation's raw means (plus size for a minify op) as the docs' bench-table feed DIR/<op>.json."""
     competitors = _labels(operation, stats)[1:]
+    size_op = operation in operations.SIZE_OPS
     rows: list[list[str | float | None]] = []
     for case_name in _case_names(operation, stats):
         if (turbo := stats.get(f"{operation}|{case_name}|turbohtml")) is None:
             continue
-        row: list[str | float | None] = [case_name, turbo["mean"]]
-        row += [
-            other["mean"] if (other := stats.get(f"{operation}|{case_name}|{label}")) is not None else None
-            for label in competitors
-        ]
+        row: list[str | float | None] = [case_name, *_cells(turbo, size_op=size_op)]
+        for label in competitors:
+            row += _cells(stats.get(f"{operation}|{case_name}|{label}"), size_op=size_op)
         rows.append(row)
-    feed = {"label": meta.title, "parties": ["turbohtml", *competitors], "metrics": [], "rows": rows}
+    feed = {
+        "label": operations.OPERATIONS[operation].title,
+        "parties": ["turbohtml", *competitors],
+        "metrics": ["size", "time"] if size_op else [],
+        "rows": rows,
+    }
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{operation}.json").write_text(json.dumps(feed, indent=2, ensure_ascii=False) + "\n", "utf-8")

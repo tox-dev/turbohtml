@@ -11,12 +11,18 @@ REQUIREMENTS = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
 
 _SELECT = soupsieve.compile("div a[href]")
 _HAS = soupsieve.compile("div:has(a)")
+_ANCHOR = soupsieve.compile("a")
 
 
 @functools.cache
 def _parsed(text: str) -> BeautifulSoup:
     """Return a document parsed once, cached so the read-path operations time only the query."""
     return BeautifulSoup(text, "html.parser")
+
+
+def find(text: str) -> None:
+    """Collect every anchor with a compiled soupsieve type selector over the document."""
+    _ANCHOR.select(_parsed(text))
 
 
 def select(text: str) -> None:
@@ -36,6 +42,7 @@ def match(text: str) -> None:
 
 
 OPERATIONS = {
+    "find": (find, "soupsieve"),
     "select": (select, "soupsieve"),
     "select-has": (select_has, "soupsieve"),
     "match": (match, "soupsieve"),

@@ -69,6 +69,8 @@ The allowlist surface ports one-to-one; only the call shape changes.
   :class:`Policy.attribute_prefixes <turbohtml.clean.Policy>`.
 - Restrict an attribute to literal values: ``tag_attribute_values=`` -> :class:`Policy.attribute_values
   <turbohtml.clean.Policy>` (narrows an attribute already admitted by ``attributes``; it cannot admit a new one).
+- Escape plain text for insertion: ``nh3.clean_text(text)`` -> :func:`turbohtml.escape`, the direct HTML-escaper
+  equivalent.
 
 What turbohtml adds
 ===================
@@ -89,8 +91,6 @@ What nh3 has that turbohtml does not
 ====================================
 
 - ``nh3.is_html(text)`` -- a heuristic bool for whether a string contains HTML. No turbohtml equivalent.
-- ``nh3.clean_text(text)`` -- escape a string for safe insertion as text. Workaround: ``sanitize(text,
-  Policy.strict())`` escapes all markup to text.
 
 Performance
 ===========
@@ -98,7 +98,10 @@ Performance
 .. bench-table::
     :file: bench/nh3.json
 
-``turbohtml.clean`` stays in the same native tier as the Rust binding and leads it on the benchmark corpus above.
+The corpus benches nh3's allowlist sanitizer against :func:`turbohtml.clean.sanitize` and nh3's ``clean_text`` HTML
+escaper against :func:`turbohtml.escape`. turbohtml stays in the same native tier as the Rust binding and leads it on
+both: sanitizing runs nearly 4x faster, and escaping runs 2.4x to 65x faster depending on how much of the input needs
+rewriting.
 
 ****************
  How to migrate

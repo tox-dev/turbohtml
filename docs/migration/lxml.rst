@@ -102,7 +102,7 @@ The :doc:`/development/performance` page benchmarks the full serializer, builder
 surface against lxml directly, and sweeps the node-path generators across every page size. Compiling a hot expression
 once with :class:`~turbohtml.XPath` (the parse happens at construction, so the call site only supplies the context node
 and any ``$name`` variables) stays ahead of lxml per evaluation, as the precompiled ``//a[@href]`` row shows. On the
-EXSLT cases, a ``re:test`` predicate runs several times ahead of lxml even though ``re:`` dispatches to Python's
+EXSLT cases, a ``re:test`` predicate runs nearly twenty times ahead of lxml even though ``re:`` dispatches to Python's
 :mod:`re` where lxml uses C ``libexslt``, because it skips the per-call namespace resolution; lxml's streaming
 evaluation narrows the node-set reductions on the multi-megabyte inputs.
 

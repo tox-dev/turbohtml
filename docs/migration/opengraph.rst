@@ -34,7 +34,7 @@ typed :class:`~turbohtml.extract.OpenGraph` mapping with the same prefix-strippe
         (JSON-LD, Microdata) off the same tree
       - ``og:`` tags only, with an optional ``scrape`` fallback to ``<title>`` and body ``<img>``
     - - Performance
-      - One C walk of the parsed tree; 94-133x faster on a social card
+      - One C walk of the parsed tree; 104-171x faster on a social card
       - BeautifulSoup tree over html5lib, scanned in Python
     - - Typing
       - Frozen, fully typed read-only :class:`~turbohtml.extract.OpenGraph` mapping, ``py.typed``
@@ -66,7 +66,7 @@ What turbohtml adds
 - Every other structured-data format on the same tree: :meth:`~turbohtml.Document.json_ld`,
   :meth:`~turbohtml.Document.microdata`, and :meth:`~turbohtml.Document.structured_data` for the whole set at once.
 - A read-only mapping that holds no reference back into the tree, so it outlives the document it came from.
-- One C walk under the per-tree critical section, 94-133x faster than the BeautifulSoup scan.
+- One C walk under the per-tree critical section, 104-171x faster than the BeautifulSoup scan.
 - Zero third-party runtime dependencies: no BeautifulSoup, no html5lib to install or pin.
 - Full type coverage: :class:`~turbohtml.extract.OpenGraph` is annotated and shipped with ``py.typed``.
 
@@ -86,7 +86,7 @@ Performance
 Both libraries start from the raw HTML string, so each parses before it reads the tags: ``opengraph`` builds a
 BeautifulSoup tree over html5lib and scans the head in Python, where :func:`~turbohtml.extract.opengraph` parses to the
 WHATWG tree and gathers the ``og:`` tags in one C walk. On a social-card head, and on an 8 KiB article carrying that
-head, the walk runs 94 to 133 times faster:
+head, the walk runs 104 to 171 times faster:
 
 .. bench-table::
     :file: bench/opengraph.json

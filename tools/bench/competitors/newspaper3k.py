@@ -15,4 +15,24 @@ def article(text: str) -> None:
     parsed.parse()
 
 
-OPERATIONS = {"article": (article, "newspaper3k")}
+def text_main(text: str) -> None:
+    """Read the main text off newspaper3k's article, its only path is the full parse."""
+    parsed = Article(url="")
+    parsed.set_html(text)
+    parsed.parse()
+    _ = parsed.text
+
+
+def date(text: str) -> None:
+    """Read the publish date off newspaper3k's article, its only path is the full parse."""
+    parsed = Article(url="")
+    parsed.set_html(text)
+    parsed.parse()
+    _ = parsed.publish_date
+
+
+OPERATIONS = {
+    "article": (article, "newspaper3k"),
+    "text-main": (text_main, "newspaper3k"),
+    "date": (date, "newspaper3k"),
+}

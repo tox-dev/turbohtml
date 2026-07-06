@@ -7,9 +7,9 @@ import lightningcss
 REQUIREMENTS = ("lightningcss>=0.3",)
 
 
-def minify_css(css: str) -> None:
+def minify_css(css: str) -> str:
     """Minify a stylesheet with lightningcss; its parser raises on input the WHATWG rules would recover."""
-    lightningcss.process_stylesheet(css, minify=True)
+    return lightningcss.process_stylesheet(css, minify=True)
 
 
 OPERATIONS = {"minify-css": (minify_css, "lightningcss")}

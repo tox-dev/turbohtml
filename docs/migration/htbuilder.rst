@@ -36,7 +36,7 @@ C, so the same call that emits the markup also leaves a node you can query, edit
       - Two-call element form, keyword-argument mangling, and ``classes``/``styles``/``fonts``/``params`` plus CSS unit
         helpers for building attribute values
     - - Performance
-      - Native C build and serialize, about 1.5x faster on the corpus below
+      - Native C build and serialize, about twice as fast on the corpus below
       - Pure-Python string assembly
     - - Typing
       - Typed public API (:data:`~turbohtml.build.E`, :class:`~turbohtml.Element`)
@@ -97,9 +97,9 @@ of rows -- a class, a ``data`` attribute, and a text child apiece -- built both 
 .. bench-table::
     :file: bench/htbuilder.json
 
-``E`` is about one and a half times faster than htbuilder, and the decisive difference is the result type: ``E`` hands
-back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can
-query, edit, and re-:meth:`~turbohtml.Node.serialize`.
+``E`` is about twice as fast as htbuilder, and the decisive difference is the result type: ``E`` hands back a real
+:class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can query, edit,
+and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

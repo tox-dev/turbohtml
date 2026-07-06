@@ -86,7 +86,7 @@ What bleach has that turbohtml does not
 Performance
 ===========
 
-The sanitizer leads bleach by an order of magnitude and the linkifier by five to twenty times:
+The sanitizer leads bleach by about fifty times and the linkifier by five to twenty times:
 
 .. bench-table::
     :file: bench/bleach.json

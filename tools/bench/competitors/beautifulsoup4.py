@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, UnicodeDammit
 from bs4.element import AttributeValueList
@@ -16,6 +17,7 @@ _FIND_TEXT_PATTERN = re.compile(r"test")
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
 _STRIP = ("code", "a", "q")
+_LINKS_BASE = "https://example.com/base/"
 
 
 def parse(text: str) -> None:
@@ -166,6 +168,58 @@ def navigate(text: str) -> None:
         pass
 
 
+def match(text: str) -> None:
+    """Test every anchor against a selector with BeautifulSoup's soupsieve-backed css.match."""
+    for anchor in _parsed(text).find_all("a"):
+        anchor.css.match("div a[href]")
+
+
+def links_extract(text: str) -> None:
+    """Collect every anchor's href with BeautifulSoup, the shape a scraper reads links in."""
+    _ = [anchor.get("href") for anchor in _parsed(text).find_all("a")]
+
+
+def links_rewrite(text: str) -> None:
+    """Rewrite every link with an identity map, idempotent so the cached tree stays reusable."""
+    for anchor in _parsed(text).find_all("a"):
+        if (href := anchor.get("href")) is not None:
+            anchor["href"] = href
+
+
+def links_filter(text: str) -> None:
+    """Collect the anchor hrefs and keep the on-page links, mirroring the cleaned-link filter."""
+    _ = [
+        href
+        for anchor in _parsed(text).find_all("a")
+        if (href := anchor.get("href")) and not str(href).startswith(("#", "javascript:"))
+    ]
+
+
+def socialcard(text: str) -> None:
+    """Read every meta property and content off a freshly parsed tree, BeautifulSoup's take on card extraction."""
+    for meta in _fresh(text).find_all("meta"):
+        meta.get("property")
+        meta.get("content")
+
+
+def extract_url(case: tuple[str, str]) -> None:
+    """Read a freshly parsed document's own URL hint with BeautifulSoup: the base href or the meta refresh."""
+    kind, text = case
+    soup = _fresh(text)
+    if kind == "base":
+        if (base := soup.find("base")) is not None:
+            base.get("href")
+    elif (refresh := soup.find("meta", attrs={"http-equiv": "refresh"})) is not None:
+        refresh.get("content")
+
+
+def links_absolutize(soup: BeautifulSoup) -> None:
+    """Resolve every relative link on a freshly parsed tree against a base with BeautifulSoup's item assignment."""
+    for anchor in soup.find_all("a"):
+        if isinstance(href := anchor.get("href"), str):
+            anchor["href"] = urljoin(_LINKS_BASE, href)
+
+
 OPERATIONS = {
     "parse": (parse, "BeautifulSoup"),
     "build": (build, "BeautifulSoup"),
@@ -187,4 +241,11 @@ OPERATIONS = {
     "set-html": (Mutating(_fresh, set_html), "BeautifulSoup"),
     "set-text": (Mutating(_fresh, set_text), "BeautifulSoup"),
     "navigate": (navigate, "BeautifulSoup"),
+    "match": (match, "BeautifulSoup"),
+    "links-extract": (links_extract, "BeautifulSoup"),
+    "links-rewrite": (links_rewrite, "BeautifulSoup"),
+    "links-filter": (links_filter, "BeautifulSoup"),
+    "socialcard": (socialcard, "BeautifulSoup"),
+    "extract-url": (extract_url, "BeautifulSoup"),
+    "links-absolutize": (Mutating(_fresh, links_absolutize), "BeautifulSoup"),
 }

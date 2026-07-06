@@ -46,7 +46,7 @@ narrows on tiny strings, where call overhead dominates.
 :func:`turbohtml.migration.markupsafe.escape` against `markupsafe <https://markupsafe.palletsprojects.com>`_'s own C
 escape, both returning a ``Markup``. The inputs are the small, mostly-clean strings a template engine interpolates under
 autoescape, markupsafe's hottest path. turbohtml builds the safe string in C in a single call, where markupsafe pays a
-Python ``escape`` frame and ``Markup`` construction per call, so it runs roughly two to three times faster.
+Python ``escape`` frame and ``Markup`` construction per call, so it runs roughly two to four times faster.
 
 .. bench-table::
     :file: bench/markup-escaping.json
@@ -66,7 +66,7 @@ escape each untrusted operand through the same C ``escape``.
 linkifier it succeeds, and `linkify-it-py <https://github.com/tsutsu3/linkify-it-py>`_, the pure-Python scanner
 markdown-it-py pulls in. bleach and turbohtml both parse the HTML and rewrite it; linkify-it-py only finds the matches
 and does not rewrite, so it does strictly less work, yet turbohtml is faster than both. The C candidate scan and
-turbohtml's own tree carry it past bleach's html5lib pass by five to twenty times.
+turbohtml's own tree carry it past bleach's html5lib pass by five to eighteen times.
 
 .. bench-table::
     :file: bench/linkify.json
@@ -136,8 +136,8 @@ resolving ``rowspan`` and ``colspan`` into a rectangular grid; ``read_html`` ret
 in NumPy, where turbohtml runs the cell-grid walk in C and hands back plain ``list`` and ``dict`` objects with no added
 dependency. The ``rows`` row times :meth:`~turbohtml.Node.tables` (every table as ``list[list[str]]``) and the
 ``records`` row times :meth:`~turbohtml.Element.records` (the first table keyed by its header), each over a four-column
-table of the given height. The single C pass leads from roughly twelve times on the largest table to nearly ninety on
-the smallest, where pandas pays its fixed per-frame construction cost.
+table of the given height. The single C pass leads from roughly twenty times on the largest table to over a hundred and
+thirty on the smallest, where pandas pays its fixed per-frame construction cost.
 
 .. bench-table::
     :file: bench/tables.json
@@ -179,10 +179,8 @@ navigation and footer each classifier must reject are part of the measured cost.
 
 :func:`turbohtml.extract.dates` against `htmldate <https://htmldate.readthedocs.io>`_, the standalone publication-date
 finder. Both read the same signals -- publication/modification ``<meta>`` tags, JSON-LD, ``<time>`` elements, and a date
-in the URL -- and both are parse-bound; htmldate builds an lxml tree, turbohtml the WHATWG tree. On the clean metadata
-pages below htmldate's header lookup returns first, so it edges ahead. On boilerplate pages with no date metadata the
-gap inverts: htmldate prunes the tree and runs its dateparser-backed text scoring, where turbohtml's early-exit over the
-structured signals runs 2x-4x faster (a 149 kB page: 2.9 ms against 12.2 ms).
+in the URL -- and both are parse-bound; htmldate builds an lxml tree, turbohtml the WHATWG tree. turbohtml's early-exit
+over the structured signals runs two to three times faster on the pages below.
 
 .. bench-table::
     :file: bench/date-extraction.json
@@ -206,7 +204,7 @@ callback per match; turbohtml hops between ``&`` occurrences in C and bulk-copie
 :func:`turbohtml.tokenize` against :class:`python:html.parser.HTMLParser` (driven with no-op handlers) and `html5lib
 <https://html5lib.readthedocs.io>`_'s pure-Python tokenizer. The closest case is a document dominated by a single text
 node, where the standard library's regex performs one C scan; wherever markup appears, the state machine is roughly ten
-times faster.
+to fifteen times faster.
 
 .. bench-table::
     :file: bench/tokenizing.json
@@ -219,7 +217,7 @@ times faster.
 <https://lxml.de>`_, `selectolax <https://github.com/rushter/selectolax>`_ and `resiliparse
 <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_ (both wrapping `lexbor <https://lexbor.com>`_), `BeautifulSoup
 <https://www.crummy.com/software/BeautifulSoup/bs4/doc/>`_ over ``html.parser``, and html5lib. turbohtml runs on par
-with resiliparse, two to four times faster than lxml and selectolax, and 30 to 80 times faster than the pure-Python
+with resiliparse, three to six times faster than lxml and selectolax, and 35 to 85 times faster than the pure-Python
 builders, while building the WHATWG tree that lxml's libxml2 does not.
 
 resiliparse reaches turbohtml's throughput because its ``HTMLTree.parse`` is a thin call straight into lexbor's native
@@ -240,8 +238,8 @@ longer builds on a current toolchain. turbohtml is the maintained, mutable, type
 :func:`turbohtml.parse_fragment` parses an ``innerHTML``-style snippet in a container's context rather than a whole
 document, against lxml's ``lxml.html.fromstring`` and html5lib's ``parseFragment``. The input is a table-row fragment
 parsed in its ``<tbody>`` context, where the WHATWG algorithm's table rules apply. turbohtml runs the same C engine it
-uses for whole documents, so it parses the fragment three times faster than lxml and roughly seventy times faster than
-the pure-Python html5lib.
+uses for whole documents, so it parses the fragment three times faster than lxml and roughly seventy-five times faster
+than the pure-Python html5lib.
 
 .. bench-table::
     :file: bench/fragment-parsing.json
@@ -264,9 +262,9 @@ times ahead of selectolax, parsel (Scrapy's cssselect-over-libxml2 selector libr
 <https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector against the tree once and then
 matches by comparing interned integer atoms, it stays in the low microseconds across these pages. lxml and parsel
 re-translate the selector to XPath through cssselect on every call, which scales with the document and trails by tens of
-times on the small blog up to roughly seven hundred times on the spec; BeautifulSoup's soupsieve is hundreds to more
-than fifteen hundred times behind, while selectolax, the other compiled engine, stays closest at roughly eleven to forty
-times.
+times on the small blog up to roughly seven hundred fifty times on the spec; BeautifulSoup's soupsieve is hundreds to
+more than fifteen hundred times behind, while selectolax, the other compiled engine, stays closest at roughly twelve to
+forty-five times.
 
 .. bench-table::
     :file: bench/querying-2.json
@@ -285,7 +283,7 @@ Per-element matching runs each anchor on the page through a compiled ``div a[hre
 port hits through :mod:`turbohtml.query` and its :meth:`Matcher.match <turbohtml.query.Matcher.match>` (soupsieve is the
 only competitor with a compiled per-element match). turbohtml answers each test with the same interned-atom comparison
 its ``select`` uses, walking the ancestor chain once per candidate, where soupsieve re-interprets the parsed selector in
-Python per element, so the sweep runs 94 to 155 times faster across these pages.
+Python per element, so the sweep runs 78 to 148 times faster across these pages.
 
 .. bench-table::
     :file: bench/matching.json
@@ -331,7 +329,7 @@ ahead per evaluation.
 element from the document root -- a CSS selector and a positional XPath -- against lxml's ``getroottree().getpath()``,
 the libxml2 path builder devtools' "copy selector" mirrors. lxml emits only the positional XPath, so ``getpath`` pairs
 with both turbohtml methods. Each timed call walks every element in a pre-parsed page and serializes its path. Both
-methods lead ``getpath`` by roughly five times across these pages, narrowing to under threefold on the spec.
+methods lead ``getpath`` by roughly five to six times across these pages, narrowing to under threefold on the spec.
 :meth:`~turbohtml.Element.css_path` previously rescanned the whole document to test each element's id uniqueness, an
 O(N\ :sup:`2`) cost over a page that made it slower than ``getpath`` on id-heavy pages; a cached per-tree id-occurrence
 map (dropped with the element index on any mutation) now answers that test in O(1), so ``css_path`` keeps pace with the
@@ -394,8 +392,8 @@ Serializing a parsed document back to HTML: turbohtml's :attr:`~turbohtml.Node.h
 ``html``, and BeautifulSoup's ``decode``. turbohtml scans each text run for the next character that needs escaping (two
 code points at a time with the same SWAR lane probes :func:`~turbohtml.escape` uses) and bulk-copies the clean spans,
 recovering each special's position from the lane mask, and reserves the whole-document buffer up front so the output
-grows in one allocation. It serializes three to six times faster than lxml, over three times faster than selectolax, and
-fifty to sixty times faster than BeautifulSoup.
+grows in one allocation. It serializes four to six times faster than lxml, about four times faster than selectolax, and
+forty-five to sixty times faster than BeautifulSoup.
 
 .. bench-table::
     :file: bench/serializing.json
@@ -407,9 +405,15 @@ fifty to sixty times faster than BeautifulSoup.
 Minifying a document with :func:`turbohtml.clean.minify`: parse, then serialize once with every fold engaged (collapsing
 insignificant whitespace, omitting the WHATWG-optional tags, unquoting attributes, and stripping comments), against
 `minify-html <https://github.com/wilsonzlin/minify-html>`_'s Rust minifier on the same folds (its CSS and JS
-minification left off for a like-for-like comparison) and `htmlmin <https://github.com/mankyd/htmlmin>`_'s pure-Python
-``HTMLParser`` walk. turbohtml parses and emits in C through one preallocated buffer, so with the parse included it runs
-about twice as fast as minify-html and fourteen to twenty times faster than htmlmin.
+minification left off for a like-for-like comparison), the pure-Python `htmlmin <https://github.com/mankyd/htmlmin>`_
+and ``css-html-js-minify``, and the native CLI minifiers `html-minifier-terser
+<https://github.com/terser/html-minifier-terser>`_ and `tdewolff/minify <https://github.com/tdewolff/minify>`_.
+turbohtml parses and emits in C through one preallocated buffer, so with the parse included it runs roughly two to three
+times faster than minify-html and sixteen to seventy times faster than the pure-Python pair. html-minifier-terser and
+tdewolff are invoked through their command line, so their millisecond timings are dominated by process startup; the
+clean comparison against them is output size. turbohtml lands within about two percent of html-minifier-terser on the
+structural folds both apply; minify-html folds more aggressively for roughly three to ten percent smaller, and tdewolff
+goes further still by also minifying the inline CSS and JavaScript turbohtml leaves untouched here.
 
 .. bench-table::
     :file: bench/minifying.json
@@ -429,7 +433,7 @@ objects. selectolax is parse-only, so it has no entry.
 The ``construct`` and ``emit`` commands split that aggregate into its two halves over the same tree: ``construct``
 builds the rows and stops before serialization, and ``emit`` serializes a tree built once outside the timed region. The
 split shows where each library spends the time -- turbohtml's arena keeps construction roughly twice as fast as lxml,
-and its SWAR serializer pulls emit ahead by nearly six times, while BeautifulSoup pays its Python object cost on both
+and its SWAR serializer pulls emit ahead by roughly eight times, while BeautifulSoup pays its Python object cost on both
 halves.
 
 .. bench-table::
@@ -439,11 +443,10 @@ halves.
     :file: bench/building-3.json
 
 The terse :data:`turbohtml.build.E` builder spells the same ``<ul>`` declaratively, raced against the dedicated HTML
-generators `dominate <https://github.com/Knio/dominate>`_ and `yattag <https://www.yattag.org>`_. ``E`` is two to three
-times faster than dominate and on par with yattag -- a touch behind it on the larger sweeps -- and unlike either it
-returns a real, queryable turbohtml tree rather than a string. That tree costs a little over twice the raw
-:class:`~turbohtml.Element` constructor above -- the price of the leading-mapping and per-child dispatch the sugar runs
-in Python.
+generators `dominate <https://github.com/Knio/dominate>`_ and `yattag <https://www.yattag.org>`_. ``E`` is three to four
+times faster than dominate and on par with yattag across the sweep, and unlike either it returns a real, queryable
+turbohtml tree rather than a string. That tree costs a little over twice the raw :class:`~turbohtml.Element` constructor
+above -- the price of the leading-mapping and per-child dispatch the sugar runs in Python.
 
 .. bench-table::
     :file: bench/building-4.json
@@ -484,7 +487,7 @@ with its subtree, and :meth:`~turbohtml.Node.strip_tags` unwraps each match but 
 destructive, so the timed call parses the page afresh -- the string-to-result transform these helpers perform -- and
 races each library's own bulk tag helper. ``remove`` pairs with selectolax's ``strip_tags`` (which drops matches with
 their content) and pyquery's ``.remove()``; ``strip_tags`` pairs with w3lib's regex ``remove_tags`` (which keeps the
-content) and pyquery's unwrap. turbohtml's single C pass leads by roughly two to six times, the margin widest on the
+content) and pyquery's unwrap. turbohtml's single C pass leads by roughly two to seven times, the margin widest on the
 smaller pages where the competitors' per-match Python work has the least bulk text to hide behind.
 
 .. bench-table::
@@ -525,7 +528,7 @@ matched node's ``@href`` and visible text off a pre-parsed page: parsel's ``::at
 ``.items()`` read against turbohtml selecting once and reading :meth:`~turbohtml.Element.attr` and
 :attr:`~turbohtml.Node.text` off each node. turbohtml compiles the selector once and reads interned atoms, where parsel
 re-translates the CSS to XPath on libxml2 per call and pyquery boxes every match in a wrapper object, so it leads by
-twenty-five to nearly a hundred times.
+twenty to nearly ninety times.
 
 .. bench-table::
     :file: bench/extraction.json
@@ -549,7 +552,7 @@ A pyquery-style fluent chain over a pre-parsed tree: select every ``<a>``, keep 
 and read its ``href`` (turbohtml's :class:`turbohtml.query.Query` against `pyquery <https://github.com/gawel/pyquery>`_,
 whose wrapper delegates to lxml). Both wrappers are thin Python over the underlying engine, so the gap is the engine's:
 turbohtml's selector and attribute primitives run in C, and the wrapper avoids a redundant de-duplication when the chain
-starts from one node, so it runs several to twenty times faster, depending on how much the page exercises the selector.
+starts from one node, so it runs two to twenty-four times faster, depending on how much the page exercises the selector.
 
 .. bench-table::
     :file: bench/fluent-chaining.json
@@ -572,29 +575,34 @@ raw tokenization, but turbohtml's C tokenizer feeding the dispatch still runs it
 
 :func:`turbohtml.clean.minify_css` against the CSS minifiers on PyPI, over the unminified source CSS these frameworks
 publish. Each minifier column pairs its output size with the time to produce it; the ratio in each cell is against
-turbohtml. Sizes are deterministic byte counts; times are the minimum of repeated runs.
+turbohtml. Sizes are deterministic byte counts; times are the minimum of repeated runs. `esbuild
+<https://esbuild.github.io/>`_ and `tdewolff/minify <https://github.com/tdewolff/minify>`_ are native minifiers invoked
+through their command line, so their millisecond timings are dominated by process startup; against them the clean
+comparison is output size, where turbohtml stays within a couple percent and comes out smaller on most of the corpus.
 
 .. bench-table::
     :file: bench/css-minification.json
 
 ``csscompressor`` (the YUI port) and ``cssmin`` (its BSD descendant) rewrite values to their shortest form the way
-turbohtml does, but as pure-Python regex passes they turn quadratic on a large stylesheet and trail the C engine by 40x
-to 800x. ``rcssmin`` is a C extension and faster than turbohtml, though it only strips comments and whitespace, so it
-leaves a larger result everywhere except the custom-property-heavy ``bulma.css``. ``css-html-js-minify`` is the slowest
-of the set. The three pure-Python tools and rcssmin also break value safety: each rewrites the internal whitespace of a
-custom-property value, which `CSS Variables 1 §2 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as
-the literal token stream that ``var()`` splices verbatim and ``getPropertyValue()`` reads back byte-exact, and
-``cssmin`` and ``css-html-js-minify`` collapse whitespace inside strings, so their output can change the cascade where
-turbohtml's round-trips. That rewrite is also the only reason ``rcssmin`` and ``cssmin`` end 0.1% ahead on
-``bulma.css``, whose declarations are almost entirely custom properties.
+turbohtml does, but as pure-Python regex passes they turn quadratic on a large stylesheet and trail the C engine by 7x
+to 220x. ``rcssmin`` is a C extension and faster than turbohtml, though it only strips comments and whitespace, so it
+leaves a larger result everywhere except the custom-property-heavy ``bulma.css``. ``css-html-js-minify`` is among the
+slowest of the set. The three pure-Python tools and rcssmin also break value safety: each rewrites the internal
+whitespace of a custom-property value, which `CSS Variables 1 §2
+<https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as the literal token stream that ``var()`` splices
+verbatim and ``getPropertyValue()`` reads back byte-exact, and ``cssmin`` and ``css-html-js-minify`` collapse whitespace
+inside strings, so their output can change the cascade where turbohtml's round-trips. That rewrite is also the only
+reason ``rcssmin`` and ``cssmin`` end 0.2% to 0.3% ahead on ``bulma.css``, whose declarations are almost entirely custom
+properties.
 
 `lightningcss <https://pypi.org/project/lightningcss/>`_, the Rust binding, is a cascade-aware optimizer: it drops
 declarations overridden elsewhere in the sheet and rewrites syntax for a browser-target set, so it reaches a smaller
 size than turbohtml on most of the corpus (turbohtml comes out ahead on ``normalize.css``). That target-dependent
-optimization is the same idea as turbohtml's ``baseline`` option carried further, and it is in scope. The cost shows in
-the time half of each cell: it runs about 3x slower than turbohtml, and it rejects ``foundation.css`` with a parse error
-on a media query the WHATWG recovery rules accept, where turbohtml minifies all six. turbohtml gives the smallest output
-that stays value-safe at the most compatible baseline and recovers from malformed input.
+optimization is the same idea as turbohtml's ``baseline`` option carried further, and it is in scope. Its Rust engine
+keeps pace on time -- faster than turbohtml on the largest sheets, about twice slower on ``animate.css`` where the
+cascade pass does the most work -- but it rejects ``foundation.css`` with a parse error on a media query the WHATWG
+recovery rules accept, where turbohtml minifies all six. turbohtml gives the smallest value-safe output at the most
+compatible baseline and recovers from malformed input.
 
 *************************
  JavaScript minification
@@ -603,13 +611,15 @@ that stays value-safe at the most compatible baseline and recovers from malforme
 :func:`turbohtml.clean.minify_js` against the PyPI JavaScript minifiers it replaces -- `rjsmin
 <https://opensource.perlig.de/rjsmin/>`_ (a regex substitution), `jsmin <https://github.com/tikitu/jsmin>`_ (Crockford's
 character state machine), and `calmjs.parse <https://github.com/calmjs/calmjs.parse>`_ (a full ES5 parser with an
-obfuscating printer) -- plus `terser <https://terser.org/>`_, the JavaScript ecosystem's reference minifier, run
-in-process under Node as the size bar. The inputs are real un-minified libraries, a size ladder every tool parses.
-turbohtml renames every local binding (function and class declarations included) and runs the structural folds, so it
-beats calmjs.parse's heavier global obfuscation on size everywhere while running forty to eighty times faster, and it
-lands within one percent of terser's size at thirteen to twenty-five times less time; it trails only rjsmin on time,
-which buys its speed by doing far less and leaving output roughly twice the size. Each cell pairs a minifier's output
-size with the time to produce it; both ratios are against turbohtml.
+obfuscating printer) -- and the industry's native minifiers as the size bar: `terser <https://terser.org/>`_ (the
+JavaScript ecosystem's reference), `esbuild <https://esbuild.github.io/>`_, and `tdewolff/minify
+<https://github.com/tdewolff/minify>`_, each invoked through its command line. The inputs are real un-minified
+libraries, a size ladder every tool parses. turbohtml renames every local binding (function and class declarations
+included) and runs the structural folds, so it beats calmjs.parse's heavier global obfuscation on size everywhere while
+running fifty to a hundred times faster, and its output lands within one percent of terser, esbuild, and tdewolff -- the
+best minifiers available. It runs in-process, where each native tool pays its runtime's process startup per file, so it
+finishes ahead end to end; only rjsmin is faster, and it does so by leaving output close to twice the size. Each cell
+pairs a minifier's output size with the time to produce it; both ratios are against turbohtml.
 
 .. bench-table::
     :file: bench/js-minification.json
@@ -622,7 +632,7 @@ size with the time to produce it; both ratios are against turbohtml.
 (the pure-Python prober ensemble), `charset-normalizer <https://charset-normalizer.readthedocs.io/>`_ (decode-and-score,
 what ``requests`` uses), and `faust-cchardet <https://github.com/faust-streaming/cChardet>`_ (the maintained C binding
 of uchardet; the original cchardet stops compiling at Python 3.11). turbohtml resolves certain input -- a byte-order
-mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII -- structurally before any scoring, which is where the 90x-2000x
+mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII -- structurally before any scoring, which is where the 40x-1800x
 rows come from, and its chardetng frequency scoring keeps declaration-less single-byte text about 3x ahead of chardet.
 The one workload it loses is CJK-heavy bytes, where each CJK candidate drives a CPython incremental codec and uchardet's
 native tables stay ahead.

@@ -7,9 +7,9 @@ import rjsmin
 REQUIREMENTS = ("rjsmin>=1.2",)
 
 
-def minify_js(source: str) -> None:
+def minify_js(source: str) -> str:
     """Minify JavaScript with rjsmin's single regex-substitution pass."""
-    rjsmin.jsmin(source)
+    return rjsmin.jsmin(source)
 
 
 OPERATIONS = {"minify-js": (minify_js, "rjsmin")}

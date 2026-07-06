@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from simple_html import li, render, ul
+import functools
+
+from simple_html import Node, li, render, ul
 
 REQUIREMENTS = ("simple-html>=3.1.1",)
 
@@ -13,4 +15,25 @@ def build_e(count: int) -> None:
     _ = render(ul(*rows))
 
 
-OPERATIONS = {"build-e": (build_e, "simple-html")}
+def construct(count: int) -> None:
+    """Construct ``count`` simple-html elements with attributes and text, in isolation from rendering."""
+    for index in range(count):
+        li({"class": "item", "data-i": str(index)}, f"item {index}")
+
+
+@functools.cache
+def _tree(count: int) -> Node:
+    """Return a built ``<ul>`` of ``count`` rows, cached so ``render`` times only the emit step."""
+    return ul(*[li({"class": "item", "data-i": str(index)}, f"item {index}") for index in range(count)])
+
+
+def emit(count: int) -> None:
+    """Render a pre-built ``count``-row tree, in isolation from construction."""
+    _ = render(_tree(count))
+
+
+OPERATIONS = {
+    "build-e": (build_e, "simple-html"),
+    "construct": (construct, "simple-html"),
+    "emit": (emit, "simple-html"),
+}

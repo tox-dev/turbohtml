@@ -72,7 +72,10 @@ def main() -> None:
         except Exception:  # noqa: BLE001, S112  # a competitor that cannot handle this input is skipped, not measured
             continue
         if (result := _bench(runner, name, func, arg)) is not None and result.get_nvalue() > 1:
-            stats[name] = {"mean": result.mean(), "stdev": result.stdev()}
+            entry = {"mean": result.mean(), "stdev": result.stdev()}
+            if operation in operations.SIZE_OPS:  # deterministic output length, measured once beside the timing
+                entry["size"] = float(len(func(arg).encode("utf-8")))
+            stats[name] = entry
     if not args.worker:  # the pyperf manager, holding every value -- not a per-value worker
         Path(os.environ["BENCH_OUT"]).write_text(json.dumps(stats), encoding="utf-8")
 

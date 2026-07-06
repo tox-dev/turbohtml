@@ -34,7 +34,7 @@ options into named config dataclasses so each concept has one name.
         text extraction, selectors, and sanitization on the shared tree
       - Broad, mature Markdown-conversion options including ``google_doc`` and CLI flags
     - - Performance
-      - C tree walk, roughly 50x faster on the benchmark below
+      - C tree walk, 55x to 290x faster on the benchmark below
       - Pure-Python ``HTMLParser`` subclass
     - - Typing
       - Fully type annotated, config via frozen dataclasses

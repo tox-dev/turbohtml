@@ -7,9 +7,9 @@ import htmlmin
 REQUIREMENTS = ("htmlmin2>=0.1.13",)
 
 
-def minify(text: str) -> None:
+def minify(text: str) -> str:
     """Minify with the folds htmlmin shares with turbohtml's Minify: collapse whitespace, drop comments and quotes."""
-    htmlmin.minify(text, remove_comments=True, remove_optional_attribute_quotes=True)
+    return htmlmin.minify(text, remove_comments=True, remove_optional_attribute_quotes=True)
 
 
 OPERATIONS = {"minify": (minify, "htmlmin")}

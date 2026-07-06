@@ -40,7 +40,7 @@ call path, and returns a typed :class:`~turbohtml.detect.EncodingMatch` in place
       - ``detect``, ``detect_all``, ``UniversalDetector`` with a ``lang_filter``; no allow/exclude set, no language
         hint.
     - - Performance
-      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 50x to 2000x ahead; legacy
+      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 40x to 2000x ahead; legacy
         single-byte text runs about 3x ahead. See the table below.
       - Prober ensemble runs every model on every input; no fast path for clean UTF-8 or ASCII.
     - - Typing
@@ -98,7 +98,7 @@ Performance
 .. bench-table::
     :file: bench/chardet.json
 
-Certain input short-circuits before any scoring, so ASCII, valid UTF-8, and real web pages resolve 50x to 2000x ahead of
+Certain input short-circuits before any scoring, so ASCII, valid UTF-8, and real web pages resolve 40x to 2000x ahead of
 chardet's prober ensemble; declaration-less legacy single-byte text still runs about 3x ahead. Both libraries decode a
 15-sample multilingual differential correctly, though chardet often names a sibling or superset where turbohtml reports
 the WHATWG encoding a browser would pick. The one exception is CJK-heavy bytes, where ``cchardet``'s uchardet engine

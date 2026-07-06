@@ -12,4 +12,12 @@ def structured(text: str) -> None:
     extruct.extract(text, syntaxes=["json-ld", "microdata", "opengraph"])
 
 
-OPERATIONS = {"structured": (structured, "extruct")}
+def socialcard(text: str) -> None:
+    """Extract the OpenGraph card with extruct, its opengraph-only syntax pass over an lxml tree."""
+    extruct.extract(text, syntaxes=["opengraph"])
+
+
+OPERATIONS = {
+    "structured": (structured, "extruct"),
+    "socialcard": (socialcard, "extruct"),
+}

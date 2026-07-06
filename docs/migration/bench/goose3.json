@@ -7,14 +7,39 @@
   "metrics": [],
   "rows": [
     [
-      "post (4 KiB)",
-      6.875843484503245e-06,
-      0.002292262807410831
+      "social-card extraction — head",
+      1.7949174194361224e-06,
+      0.0006455463855369695
     ],
     [
-      "longform (16 KiB)",
-      2.6181457504511247e-05,
-      0.00833681510509147
+      "social-card extraction — article 8 KiB",
+      2.206487015617616e-05,
+      0.013886668374955965
+    ],
+    [
+      "article extraction — post (4 KiB)",
+      7.070670247818119e-06,
+      0.002151006510151395
+    ],
+    [
+      "article extraction — longform (16 KiB)",
+      2.8474701006568164e-05,
+      0.007751411460048985
+    ],
+    [
+      "publication-date extraction — post (4 KiB)",
+      8.54244572205213e-06,
+      0.002186389536897574
+    ],
+    [
+      "publication-date extraction — longform (16 KiB)",
+      1.2527192846315907e-05,
+      0.007851351564265011
+    ],
+    [
+      "main-content text — main (4 KiB)",
+      3.4586474117285584e-06,
+      0.0016792736563123374
     ]
   ]
 }

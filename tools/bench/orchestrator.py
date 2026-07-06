@@ -28,28 +28,32 @@ _COMPETITOR_DIR = Path(__file__).resolve().parent / "competitors"
 _COMPETITOR_TIMEOUT = 900.0  # seconds for one competitor's whole operation; past it the library is hanging, not slow
 
 
-def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
-    """Read each competitor module's REQUIREMENTS and OPERATIONS keys from source, without importing it."""
-    found: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
+    """Pull the string literals out of a tuple assignment's right-hand side."""
+    return tuple(el.value for el in node.elts if isinstance(el, ast.Constant) and isinstance(el.value, str))
+
+
+def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
+    """Read each competitor's REQUIREMENTS, OPERATIONS keys, and optional PIP_OPTIONS from source, without importing."""
+    found: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
     for path in sorted(_COMPETITOR_DIR.glob("*.py")):
         if path.stem == "__init__":
             continue
         requirements: tuple[str, ...] = ()
         operation_names: tuple[str, ...] = ()
+        pip_options: tuple[str, ...] = ()
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
             if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
                 continue
             if node.targets[0].id == "REQUIREMENTS" and isinstance(node.value, ast.Tuple):
-                requirements = tuple(
-                    element.value
-                    for element in node.value.elts
-                    if isinstance(element, ast.Constant) and isinstance(element.value, str)
-                )
+                requirements = _string_tuple(node.value)
+            elif node.targets[0].id == "PIP_OPTIONS" and isinstance(node.value, ast.Tuple):
+                pip_options = _string_tuple(node.value)
             elif node.targets[0].id == "OPERATIONS" and isinstance(node.value, ast.Dict):
                 operation_names = tuple(
                     key.value for key in node.value.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)
                 )
-        found[path.stem] = (requirements, operation_names)
+        found[path.stem] = (requirements, operation_names, pip_options)
     return found
 
 
@@ -58,7 +62,7 @@ COMPETITORS = _discover()
 
 def _packages_for(operation: str) -> list[str]:
     """Every competitor module that implements the operation, in discovery order."""
-    return [name for name, (_, operation_names) in COMPETITORS.items() if operation in operation_names]
+    return [name for name, (_, operation_names, _pip) in COMPETITORS.items() if operation in operation_names]
 
 
 def _uv(*args: str) -> None:
@@ -72,7 +76,7 @@ def _build_wheel(workdir: Path) -> Path:
     return next(workdir.glob("*.whl"))
 
 
-def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...]) -> Path:
+def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...], pip_options: tuple[str, ...] = ()) -> Path:
     """
     Provision an isolated venv holding pyperf and the given requirements; return its interpreter.
 
@@ -85,7 +89,7 @@ def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...]) -> Path:
     if python.exists():
         return python
     _uv("venv", str(venv))
-    _uv("pip", "install", "--python", str(python), "pyperf>=2.10", *reqs)
+    _uv("pip", "install", "--python", str(python), "pyperf>=2.10", *pip_options, *reqs)
     return python
 
 
@@ -149,19 +153,20 @@ def _try_competitor(
     """
     Provision the competitor's venv then run it; a measurement failure propagates and fails the benchmark.
 
-    Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies, html5-parser
-    builds against the system libxml2, metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops
-    just that competitor's column with a note. A competitor can also install cleanly yet fail to *import*, when its
-    bundled native library clashes with another wheel's ABI in the shared venv (html5-parser and lxml linking different
-    libxml2 versions is the standing example); that is the same environment quirk one import boundary later, so it drops
-    the column with a note too. Only a crash *after* the library imported -- during measurement, where the fault is the
-    benchmark and not the toolchain -- is left to propagate rather than silently blanking the column. The two are told
+    Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
+    metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column with
+    a note. A competitor can also install cleanly yet fail to *import*, when its bundled native library clashes with
+    another wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2, which
+    its ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import boundary
+    later, so it drops the column with a note too. Only a crash *after* the library imported -- during measurement,
+    where the fault is the benchmark and not the toolchain -- is left to propagate rather than silently blanking the
+    column. The two are told
     apart by whether the worker died inside ``importlib.import_module``. A competitor that instead hangs -- runs past
     the per-operation timeout without finishing -- is killed and its column dropped with a note, so one pathological
     library or input cannot stall the whole sweep.
     """
     try:
-        python = _venv_python(workdir, competitor, COMPETITORS[competitor][0])
+        python = _venv_python(workdir, competitor, COMPETITORS[competitor][0], COMPETITORS[competitor][2])
     except subprocess.CalledProcessError:
         print(f"skipping {competitor}: it did not install in its isolated venv", file=sys.stderr)
         return {}
@@ -189,8 +194,8 @@ def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: P
 
 def report_package(competitor: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
-    reqs, operation_names = COMPETITORS[competitor]
-    competitor_python = _venv_python(workdir, competitor, reqs)
+    reqs, operation_names, pip_options = COMPETITORS[competitor]
+    competitor_python = _venv_python(workdir, competitor, reqs, pip_options)
     for operation in operation_names:
         stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
         stats.update(_run_worker(competitor_python, competitor, operation, workdir, pyperf_args))

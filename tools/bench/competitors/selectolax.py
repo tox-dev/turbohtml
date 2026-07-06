@@ -144,6 +144,12 @@ def links_absolutize(tree: LexborHTMLParser) -> None:
             anchor.attrs["href"] = urljoin(_LINKS_BASE, href)
 
 
+def match(text: str) -> None:
+    """Test every anchor against a selector with selectolax's per-node css_matches."""
+    for anchor in _parsed(text).css("a"):
+        anchor.css_matches("div a[href]")
+
+
 OPERATIONS = {
     "parse": (parse, "selectolax"),
     "find": (find, "selectolax"),
@@ -164,4 +170,5 @@ OPERATIONS = {
     "extract-url": (extract_url, "selectolax"),
     "edit": (Mutating(_fresh, edit), "selectolax"),
     "links-absolutize": (Mutating(_fresh, links_absolutize), "selectolax"),
+    "match": (match, "selectolax"),
 }

@@ -9,11 +9,6 @@ REQUIREMENTS = ("linkify-it-py>=2.0.3",)
 _LINKIFY = LinkifyIt()
 
 
-def linkify(text: str) -> None:
-    """Scan text for links with linkify-it-py's match, which finds the spans but does not rewrite."""
-    _LINKIFY.match(text)
-
-
 def detect(case: tuple[str, str]) -> None:
     """Scan plain text for links with linkify-it-py: match for the spans or test for any link."""
     kind, text = case
@@ -23,4 +18,6 @@ def detect(case: tuple[str, str]) -> None:
         _LINKIFY.test(text)
 
 
-OPERATIONS = {"linkify": (linkify, "linkify-it-py"), "detect": (detect, "linkify-it-py")}
+# linkify-it-py only finds link spans in plain text; it never rewrites HTML, so it maps to detect, not the parse-and-
+# rewrite linkify op -- comparing its plain-text scan against turbohtml's full linkify would not be like-for-like.
+OPERATIONS = {"detect": (detect, "linkify-it-py")}

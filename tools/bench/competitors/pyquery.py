@@ -155,6 +155,12 @@ def extract_text(text: str) -> None:
         item.text()
 
 
+def match(text: str) -> None:
+    """Test every anchor against a selector with pyquery's jQuery-style is_()."""
+    for item in _parsed(text)("a").items():
+        item.is_("div a[href]")
+
+
 OPERATIONS = {
     "parse": (parse, "pyquery"),
     "find": (find, "pyquery"),
@@ -178,4 +184,5 @@ OPERATIONS = {
     "extract-text": (extract_text, "pyquery"),
     "extract-url": (extract_url, "pyquery"),
     "links-filter": (links_filter, "pyquery"),
+    "match": (match, "pyquery"),
 }

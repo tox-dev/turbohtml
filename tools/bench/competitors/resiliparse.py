@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import functools
+from urllib.parse import urljoin
 
 from resiliparse.extract.html2text import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
     extract_plain_text,
 )
+from resiliparse.parse.encoding import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
+    detect_encoding,
+)
 from resiliparse.parse.html import HTMLTree  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
 
+from bench.timing import Mutating
+
 REQUIREMENTS = ("resiliparse>=1.0.8",)
+
+_LINKS_BASE = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 
 
 def parse(text: str) -> None:
@@ -68,6 +76,80 @@ def navigate(text: str) -> None:
             pass
 
 
+def encoding(data: bytes) -> None:
+    """Detect a byte stream's encoding with resiliparse's chardet-style detect_encoding."""
+    detect_encoding(data)
+
+
+def extract_attr(text: str) -> None:
+    """Read every anchor's href by selecting once and reading the attribute off each node."""
+    _ = [anchor.getattr("href") for anchor in _parsed(text).document.query_selector_all("a")]
+
+
+def extract_text(text: str) -> None:
+    """Read every anchor's visible text by selecting once and reading text off each node."""
+    _ = [anchor.text for anchor in _parsed(text).document.query_selector_all("a")]
+
+
+def links_extract(text: str) -> None:
+    """Collect every anchor's href with resiliparse, the shape a scraper reads links in."""
+    _ = [anchor.getattr("href") for anchor in _parsed(text).document.query_selector_all("a")]
+
+
+def links_rewrite(text: str) -> None:
+    """Rewrite every link with an identity map, idempotent so the cached tree stays reusable."""
+    for anchor in _parsed(text).document.query_selector_all("a"):
+        if (href := anchor.getattr("href")) is not None:
+            anchor.setattr("href", href)
+
+
+def class_edit(text: str) -> None:
+    """Add then drop a class token on every link, a net no-op so the cached tree stays valid across iterations."""
+    for anchor in _parsed(text).document.query_selector_all("a"):
+        original = anchor.getattr("class") or ""
+        anchor.setattr("class", f"{original} seen".strip())
+        anchor.setattr("class", original)
+
+
+def socialcard(text: str) -> None:
+    """Read every meta property and content off a freshly parsed tree, resiliparse's take on card extraction."""
+    for meta in HTMLTree.parse(text).document.query_selector_all("meta"):
+        meta.getattr("property")
+        meta.getattr("content")
+
+
+def extract_url(case: tuple[str, str]) -> None:
+    """Read a document's own URL hint by parsing the string: the base href or the meta-refresh target."""
+    kind, text = case
+    document = HTMLTree.parse(text).document
+    if kind == "base":
+        if (base := document.query_selector("base")) is not None:
+            base.getattr("href")
+    elif (refresh := document.query_selector("meta[http-equiv=refresh]")) is not None:
+        refresh.getattr("content")
+
+
+def strip_remove(text: str) -> None:
+    """Drop every code/a/q subtree with resiliparse's decompose on a fresh parse, then serialize."""
+    tree = HTMLTree.parse(text)
+    for node in tree.document.query_selector_all("code, a, q"):
+        node.decompose()
+    _ = tree.document.html
+
+
+def edit(tree: HTMLTree) -> None:
+    """Tag every link with rel=nofollow on a freshly parsed tree through resiliparse's setattr."""
+    for anchor in tree.document.query_selector_all("a"):
+        anchor.setattr("rel", "nofollow")
+
+
+def links_absolutize(tree: HTMLTree) -> None:
+    """Resolve every relative link on a freshly parsed tree against the base with resiliparse's setattr."""
+    for anchor in tree.document.query_selector_all("a"):
+        if (href := anchor.getattr("href")) is not None:
+            anchor.setattr("href", urljoin(_LINKS_BASE, href))
+
+
 OPERATIONS = {
     "parse": (parse, "resiliparse"),
     "text-render": (text_render, "resiliparse"),
@@ -78,4 +160,15 @@ OPERATIONS = {
     "text-content": (text_content, "resiliparse"),
     "serialize": (serialize, "resiliparse"),
     "navigate": (navigate, "resiliparse"),
+    "encoding": (encoding, "resiliparse"),
+    "extract-attr": (extract_attr, "resiliparse"),
+    "extract-text": (extract_text, "resiliparse"),
+    "links-extract": (links_extract, "resiliparse"),
+    "links-rewrite": (links_rewrite, "resiliparse"),
+    "class-edit": (class_edit, "resiliparse"),
+    "socialcard": (socialcard, "resiliparse"),
+    "extract-url": (extract_url, "resiliparse"),
+    "strip-remove": (strip_remove, "resiliparse"),
+    "edit": (Mutating(HTMLTree.parse, edit), "resiliparse"),
+    "links-absolutize": (Mutating(HTMLTree.parse, links_absolutize), "resiliparse"),
 }

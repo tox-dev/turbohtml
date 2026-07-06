@@ -7,14 +7,24 @@
   "metrics": [],
   "rows": [
     [
-      "product",
-      6.223799786653217e-06,
-      6.429871956470379e-05
+      "social-card extraction — head",
+      1.7949174194361224e-06,
+      2.031725227880088e-05
     ],
     [
-      "catalog 8 KiB",
-      5.630777294148478e-05,
-      0.000559626408933885
+      "social-card extraction — article 8 KiB",
+      2.206487015617616e-05,
+      8.857819290142288e-05
+    ],
+    [
+      "structured-data extraction — product",
+      5.367084929967329e-06,
+      5.825120719767559e-05
+    ],
+    [
+      "structured-data extraction — catalog 8 KiB",
+      5.395574267671085e-05,
+      0.0005037420235870135
     ]
   ]
 }

@@ -35,7 +35,7 @@ BeautifulSoup tree, and groups markdownify's flat options into named config data
         plus per-tag converters, text extraction, selectors, and sanitization on the shared tree
       - Mature Markdown-conversion options, ``convert_<tag>`` subclass overrides, and a CLI
     - - Performance
-      - C tree walk off the WHATWG parse, roughly two orders of magnitude faster on the benchmark below
+      - C tree walk off the WHATWG parse, hundreds of times faster on the benchmark below
       - Pure-Python walk over a BeautifulSoup tree the parser must build first
     - - Typing
       - Fully type annotated, config via frozen dataclasses

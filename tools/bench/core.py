@@ -156,14 +156,14 @@ def serialize(text: str) -> None:
     _ = _parsed(text).html
 
 
-def minify(text: str) -> None:
+def minify(text: str) -> str:
     """Minify an HTML document with turbohtml, parsing then serializing through the round-trip-safe Minify layout."""
-    _minify(text)
+    return _minify(text)
 
 
-def minify_js(source: str) -> None:
+def minify_js(source: str) -> str:
     """Minify a JavaScript source with turbohtml's native lex-parse-optimize-print minifier."""
-    _ = _clean.minify_js(source)
+    return _clean.minify_js(source)
 
 
 def edit(document: turbohtml.Document) -> None:
@@ -232,6 +232,11 @@ def socialcard(text: str) -> None:
 def structured(text: str) -> None:
     """Extract JSON-LD, Microdata, and OpenGraph with turbohtml in one C walk."""
     turbohtml.parse(text).structured_data()
+
+
+def microdata(text: str) -> None:
+    """Extract only the page's Microdata items with turbohtml, the like-for-like of a Microdata-only reader."""
+    turbohtml.parse(text).microdata()
 
 
 def sanitize(text: str) -> None:
@@ -453,9 +458,9 @@ def xpath(case: tuple[str, str]) -> None:
     _XPATH_CALLS[kind](_parsed(text), text)
 
 
-def minify_css(css: str) -> None:
+def minify_css(css: str) -> str:
     """Minify a stylesheet with turbohtml's value-safe CSS minifier."""
-    _clean.minify_css(css)
+    return _clean.minify_css(css)
 
 
 def encoding(data: bytes) -> None:
@@ -512,6 +517,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "links-rewrite": (links_rewrite, "turbohtml"),
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
+    "microdata": (microdata, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),

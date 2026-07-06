@@ -37,7 +37,7 @@ dependency.
       - Header inference, dtype coercion, ``NaN`` padding, URL fetch, backend flavors, link extraction, then the whole
         analytics API
     - - Performance
-      - C cell-grid walk into plain containers; roughly 12 to 90 times faster than ``read_html`` on tables
+      - C cell-grid walk into plain containers; roughly 20 to 150 times faster than ``read_html`` on tables
       - Builds a NumPy-backed ``DataFrame`` per table, paying a fixed per-frame cost that dominates small tables
     - - Typing
       - Ships ``py.typed``; ``rows``/``records``/``tables`` return precise ``list`` types
@@ -98,9 +98,9 @@ Performance
 
 Reading a table with :meth:`~turbohtml.Element.rows` and :meth:`~turbohtml.Element.records` against
 ``pandas.read_html``, both parsing the markup and resolving spans into a rectangular grid. turbohtml's C cell-grid walk
-returns plain lists and dicts where ``read_html`` builds a ``DataFrame`` (importing NumPy), so it runs roughly twelve to
-ninety times faster: the gap is widest on small tables, where pandas pays a fixed per-frame cost, and narrows as the row
-count grows. See :doc:`/development/performance` for the methodology.
+returns plain lists and dicts where ``read_html`` builds a ``DataFrame`` (importing NumPy), so it runs roughly 20 to 150
+times faster: the gap is widest on small tables, where pandas pays a fixed per-frame cost, and narrows as the row count
+grows. See :doc:`/development/performance` for the methodology.
 
 .. bench-table::
     :file: bench/pandas.json

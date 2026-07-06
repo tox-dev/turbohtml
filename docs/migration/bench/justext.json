@@ -7,14 +7,19 @@
   "metrics": [],
   "rows": [
     [
-      "post (4 KiB)",
-      2.627424788670396e-05,
-      0.0008689510653615192
+      "paragraph boilerplate classification — post (4 KiB)",
+      2.4708028159163103e-05,
+      0.0008025319008690227
     ],
     [
-      "longform (16 KiB)",
-      0.0001003762880600334,
-      0.0035710955004712255
+      "paragraph boilerplate classification — longform (16 KiB)",
+      9.308272982859005e-05,
+      0.0032870972184658362
+    ],
+    [
+      "main-content text — main (4 KiB)",
+      3.4586474117285584e-06,
+      0.0005312970377720679
     ]
   ]
 }

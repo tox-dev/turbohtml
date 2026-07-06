@@ -34,7 +34,7 @@ byte-exact, and runs in linear time where csscompressor's regex passes degrade o
         merging, adjacent equal-body rule merging, optional Baseline-year shorthands
       - Whitespace/comment removal, color and number shortening, line wrapping, output partitioning
     - - Performance
-      - Native C, linear time (40x-155x faster on the corpus below)
+      - Native C, linear time (13x-41x faster on the corpus below)
       - Pure-Python regex passes, degrade on large stylesheets
     - - Typing
       - Typed public API (:func:`~turbohtml.clean.minify_css`, :class:`~turbohtml.clean.CSSMinify`)
@@ -89,11 +89,12 @@ What csscompressor has that turbohtml does not
 Performance
 ===========
 
-turbohtml's output is smaller on every framework, including the custom-property-heavy ``bulma.css``, and its C engine is
-40x to 155x faster -- csscompressor's regex passes turn quadratic on a large stylesheet, where turbohtml stays linear.
-csscompressor also rewrites whitespace inside custom-property values, which `CSS Variables 1 §2
-<https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as the literal token stream that ``var()`` splices
-verbatim, so its output is not guaranteed to parse to the same cascade. Each ratio is against turbohtml:
+turbohtml's output is smaller on every framework except the custom-property-heavy ``bulma.css``, where the two tie
+within 100 bytes, and its C engine is 13x to 41x faster -- csscompressor's regex passes turn quadratic on a large
+stylesheet, where turbohtml stays linear. csscompressor also rewrites whitespace inside custom-property values, which
+`CSS Variables 1 §2 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as the literal token stream that
+``var()`` splices verbatim, so its output is not guaranteed to parse to the same cascade. Each ratio is against
+turbohtml:
 
 .. bench-table::
     :file: bench/csscompressor.json

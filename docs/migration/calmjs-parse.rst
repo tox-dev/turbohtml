@@ -13,7 +13,7 @@ only ES5: modern syntax (arrow functions, ``let``/``const``, classes, template l
 pure-Python parse is slow.
 
 turbohtml covers the minification slice of that surface. :func:`~turbohtml.clean.minify_js` is the same parse-and-rename
-approach implemented in C, matching or beating calmjs.parse's output size while running about two orders of magnitude
+approach implemented in C, matching or beating calmjs.parse's output size while running roughly fifty to a hundred times
 faster and accepting a much larger slice of the language. It does not expose an AST, a pretty-printer, or source maps —
 it is a minifier, not a general JavaScript toolkit.
 
@@ -35,7 +35,7 @@ it is a minifier, not a general JavaScript toolkit.
       - Whitespace/comment/number folding, identifier mangling, constant folding, dead-code elimination
       - AST access and rewriting, beautify and minify printers, identifier obfuscation, source maps
     - - Performance
-      - Native C, single-digit milliseconds on the corpus below
+      - Native C, milliseconds on the corpus below
       - Pure Python, hundreds of milliseconds on the same inputs
     - - Typing
       - Typed public API (:func:`~turbohtml.clean.minify_js`, :class:`~turbohtml.clean.JSMinify`)
@@ -65,7 +65,7 @@ What turbohtml adds
   syntax error.
 - Constant folding and dead-code elimination (:class:`~turbohtml.clean.JSMinify` ``fold=True``), beyond calmjs.parse's
   whitespace-and-rename minification.
-- A native-C pipeline that runs about forty to eighty times faster on the corpus below.
+- A native-C pipeline that runs about fifty to a hundred times faster on the corpus below.
 - Inline-``<script>`` minification inside a full HTML document via ``Minify(minify_js=JSMinify())`` on
   :meth:`~turbohtml.Node.serialize` — no separate JS toolchain step.
 - A typed surface: :func:`~turbohtml.clean.minify_js` and the frozen :class:`~turbohtml.clean.JSMinify` options object.
@@ -85,13 +85,13 @@ Performance
 ===========
 
 On the ES5 library ladder turbohtml reaches the smaller output, and the speed gap is large: on the same machine
-(``python -m bench minify-js``) calmjs.parse takes hundreds of milliseconds where turbohtml takes single-digit
-milliseconds. Each ratio is against turbohtml:
+(``python -m bench minify-js``) calmjs.parse takes hundreds of milliseconds where turbohtml takes milliseconds. Each
+ratio is against turbohtml:
 
 .. bench-table::
     :file: bench/calmjs-parse.json
 
-turbohtml beats calmjs.parse on size everywhere, at forty to eighty times less time and on modern JavaScript that
+turbohtml beats calmjs.parse on size everywhere, at fifty to a hundred times less time and on modern JavaScript that
 calmjs.parse rejects outright, so for any build where minify time or modern syntax is in the loop turbohtml is the
 practical choice.
 
