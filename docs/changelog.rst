@@ -102,6 +102,9 @@ Packaging updates - 1.0.0
 - Pin every network-sourced C data table (IANA TLDs, the Public Suffix List, and the Unicode IDNA and NFC tables) to a
   named source commit and a SHA-256 checksum, so a rebuild is reproducible and aborts on a poisoned upstream.
   (:issue:`478`)
+- Strip the compiled extension's local symbol table from the release wheels at link time, trimming about 65 KB from the
+  Linux ``.so`` and 46 KB from the macOS bundle; the source distribution still carries every test, tool, and generated
+  table needed to build from source. (:issue:`478`)
 
 Miscellaneous internal changes - 1.0.0
 ======================================
