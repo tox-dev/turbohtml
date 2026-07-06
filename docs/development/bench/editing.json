@@ -2,34 +2,29 @@
   "label": "tag every link",
   "parties": [
     "turbohtml",
-    "lxml",
-    "BeautifulSoup"
+    "lxml"
   ],
   "metrics": [],
   "rows": [
     [
       "daring fireball (10 kB)",
-      2.4e-06,
-      1.01e-05,
-      1.49e-05
+      5e-06,
+      1.74e-05
     ],
     [
       "ars technica (56 kB)",
-      5.7e-06,
-      2.55e-05,
-      5.26e-05
+      1.9e-05,
+      3.89e-05
     ],
     [
       "mozilla blog (95 kB)",
-      7.9e-06,
-      3.76e-05,
-      0.0001052
+      3e-05,
+      5.82e-05
     ],
     [
       "whatwg spec (235 kB)",
-      8.7e-06,
-      5.13e-05,
-      0.0003504
+      5.9e-05,
+      8.9e-05
     ]
   ]
 }

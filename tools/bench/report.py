@@ -33,7 +33,7 @@ def _labels(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
     """Return the labels present for an operation, turbohtml first, then competitors in first-seen order."""
     seen: list[str] = []
     for key in stats:
-        operation_name, _, label = key.split("|")
+        operation_name, label = key.split("|", 1)[0], key.rsplit("|", 1)[1]
         if operation_name == operation and label not in seen:
             seen.append(label)
     return ["turbohtml", *(label for label in seen if label != "turbohtml")]
@@ -43,7 +43,8 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
     """Return the operation's case names in run order, recovered from the turbohtml baseline keys."""
     names: list[str] = []
     for key in stats:
-        operation_name, case, label = key.split("|")
+        operation_name, rest = key.split("|", 1)
+        case, label = rest.rsplit("|", 1)
         if operation_name == operation and label == "turbohtml" and case not in names:
             names.append(case)
     return names

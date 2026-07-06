@@ -8,13 +8,13 @@
   "rows": [
     [
       "``base_url`` / ``get_base_url``",
-      2.9e-06,
-      7.4e-06
+      1.7e-06,
+      1.1e-05
     ],
     [
       "``meta_refresh`` / ``get_meta_refresh``",
-      3e-06,
-      6.5e-06
+      2e-06,
+      9.5e-06
     ]
   ]
 }
