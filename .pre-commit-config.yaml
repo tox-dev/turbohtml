@@ -9,7 +9,7 @@ repos:
       - id: trailing-whitespace
         exclude: ^(tests/url/data/IdnaTestV2\.txt|tools/fuzz/corpus/.*)$ # vendored verbatim / byte-exact crash inputs
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: "0.37.3" # 0.37.2
+    rev: "0.37.4" # 0.37.2
     hooks:
       - id: check-github-workflows
         args: ["--verbose"]
