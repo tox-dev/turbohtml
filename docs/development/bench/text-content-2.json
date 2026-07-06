@@ -25,23 +25,23 @@
     [
       "collapsed (2 KiB)",
       2e-06,
-      "--",
+      "no equivalent operation",
       9.5e-05,
-      "--"
+      "no equivalent operation"
     ],
     [
       "main (4 KiB)",
       3e-06,
-      "--",
-      "--",
+      "no equivalent operation",
+      "no equivalent operation",
       2e-05
     ],
     [
       "annotated (4 KiB)",
       3e-06,
       0.000201,
-      "--",
-      "--"
+      "no equivalent operation",
+      "no equivalent operation"
     ]
   ]
 }

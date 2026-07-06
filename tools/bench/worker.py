@@ -64,12 +64,13 @@ def main() -> None:
         "BENCH_OPERATION",
         "BENCH_OUT",
     ]
-    stats: dict[str, dict[str, float]] = {}
+    stats: dict[str, dict[str, float | str]] = {}
     for case_name, arg in operations.INPUTS[operation]():
         name = f"{operation}|{case_name}|{label}"
-        try:  # a stricter competitor parser (lightningcss rejects media queries the WHATWG rules recover) leaves that
-            func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)  # one cell blank, not the whole op
-        except Exception:  # noqa: BLE001, S112  # a competitor that cannot handle this input is skipped, not measured
+        try:  # a stricter competitor parser (lightningcss rejects media queries the WHATWG rules recover) errors on
+            func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)  # that one input, not the whole op
+        except Exception as exc:  # noqa: BLE001  # record the thrown message so the table can name why the cell is empty
+            stats[name] = {"error": " ".join(str(exc).split())[:200] or type(exc).__name__}
             continue
         if (result := _bench(runner, name, func, arg)) is not None and result.get_nvalue() > 1:
             entry = {"mean": result.mean(), "stdev": result.stdev()}

@@ -12,11 +12,13 @@ spanned party headers with metric subcolumns, and a tint on each cell from best-
         :file: bench/escaping.json
 
 A feed is ``{"label", "parties", "metrics", "rows"}``; ``metrics`` is empty for a single time metric, and a row is the
-label followed by one cell per party and metric -- a number, ``null`` for no entry, or a verbatim string such as
-``parse error``. Column order is derived too: turbohtml first, then each competitor by its combined score with every
-metric weighing equally, so the best speed/size combination sits leftmost whatever order the feed carries. The tint
-scale is row-relative per metric -- a row's cells ran the same input, so they compare; a column mixes inputs, so it
-does not -- with turbohtml competing at its defining 1.0x.
+label followed by one cell per party and metric -- a number, or a string naming why the cell is empty (the message a
+competitor threw on this input, or a note like ``no equivalent operation``). Each distinct reason in a table gets a
+superscript, the empty cells show ``--`` with that superscript, and a legend centered under the table spells each one
+out, so one marker never conflates two reasons. Column order is derived too: turbohtml first, then each competitor by
+its combined score with every metric weighing equally, so the best speed/size combination sits leftmost whatever order
+the feed carries. The tint scale is row-relative per metric -- a row's cells ran the same input, so they compare; a
+column mixes inputs, so it does not -- with turbohtml competing at its defining 1.0x.
 """
 
 from __future__ import annotations
@@ -33,6 +35,11 @@ if TYPE_CHECKING:
     from sphinx.application import Sphinx
 
 _LADDER: Final = ("faster", "par", "mild", "slow", "veryslow", "worst")
+
+# an empty cell shows this glyph and a superscript keyed to the reason the legend spells out; a bare ``null`` in a feed
+# predates recorded reasons, so it falls back to this generic note rather than rendering an unexplained blank
+_GAP_MARK: Final = "—"
+_MISSING_REASON: Final = "no measurement recorded"
 
 # The row's best ratio takes the green end and the rest log-interpolate toward red, but the scale never compresses
 # below a minimum span, so a near-parity row reads green throughout instead of stretching a few percent across the
@@ -176,6 +183,44 @@ def _row_buckets(ratios: list[float], metric: str) -> list[str]:
     return [_LADDER[round((math.log(ratio) - low) / span * steps)] for ratio in ratios]
 
 
+def _reason_map(rows: list[list[Any]]) -> dict[str, int]:
+    """Assign each distinct empty-cell reason a number in first-appearance order, scanning rows then cells."""
+    reasons: dict[str, int] = {}
+    for row in rows:
+        for cell in row[1:]:
+            if isinstance(cell, (int, float)):
+                continue
+            reason = cell if isinstance(cell, str) else _MISSING_REASON
+            if reason not in reasons:
+                reasons[reason] = len(reasons) + 1
+    return reasons
+
+
+def _mark_entry(ordinal: int) -> nodes.entry:
+    """Render an empty cell as the gap glyph plus the superscript keying it to the legend."""
+    entry = nodes.entry(classes=["bench-na"])
+    paragraph = nodes.paragraph()
+    paragraph += nodes.Text(_GAP_MARK)
+    superscript = nodes.superscript()
+    superscript += nodes.Text(str(ordinal))
+    paragraph += superscript
+    entry += paragraph
+    return entry
+
+
+def _legend(reasons: dict[str, int]) -> nodes.container:
+    """Spell each numbered reason out under the table; reason text is literal so a message cannot inject markup."""
+    legend = nodes.container(classes=["bench-legend"])
+    for reason, ordinal in reasons.items():
+        line = nodes.paragraph()
+        superscript = nodes.superscript()
+        superscript += nodes.Text(str(ordinal))
+        line += superscript
+        line += nodes.Text(f" {reason}")
+        legend += line
+    return legend
+
+
 class BenchTable(Directive):
     """Render one benchmark table from the JSON feed named by ``:file:``."""
 
@@ -195,18 +240,17 @@ class BenchTable(Directive):
         for _ in range(ncols - 1):
             group += nodes.colspec(colwidth=1)
         group += self._head(feed["label"], parties, feed["metrics"])
+        reasons = _reason_map(rows)
         body = nodes.tbody()
         group += body
         for cells in rows:
             if len(cells) != ncols:
                 msg = f"bench-table row has {len(cells)} cells, expected {ncols}: {cells!r}"
                 raise self.error(msg)
-            body += self._body_row(cells, parties, metrics)
-        if not any(cell is None for row in rows for cell in row[1:]):
+            body += self._body_row(cells, parties, metrics, reasons)
+        if not reasons:
             return [table]
-        note = nodes.paragraph(classes=["bench-empty-note"])  # explain the em dash rather than leave a bare blank
-        note += nodes.Text("— the library has no equivalent for that row, or could not process that input.")
-        return [table, note]
+        return [table, _legend(reasons)]
 
     def _head(self, label: str, parties: list[str], metrics: list[str]) -> nodes.thead:
         head = nodes.thead()
@@ -237,10 +281,11 @@ class BenchTable(Directive):
             head += metric_row
         return head
 
-    def _body_row(self, cells: list[Any], parties: list[str], metrics: list[str]) -> nodes.row:
+    def _body_row(self, cells: list[Any], parties: list[str], metrics: list[str], reasons: dict[str, int]) -> nodes.row:
         row = nodes.row()
         row += self._entry(str(cells[0]))
         rendered: dict[int, tuple[str, str | None]] = {}
+        marks: dict[int, int] = {}
         for metric_index, metric in enumerate(metrics):
             turbo = next(
                 cells[1 + party_index * len(metrics) + metric_index]
@@ -252,12 +297,7 @@ class BenchTable(Directive):
             for party_index, party in enumerate(parties):
                 index = 1 + party_index * len(metrics) + metric_index
                 value = cells[index]
-                if value is None:
-                    rendered[index] = ("—", None)
-                elif isinstance(value, str):
-                    # a verbatim annotation such as ``parse error`` sits past any measured ratio
-                    rendered[index] = (value, _LADDER[-1] if "error" in value else None)
-                else:
+                if isinstance(value, (int, float)):
                     figure = _format_size(value) if metric == "size" else _format_time(value)
                     ratio = value / turbo
                     if "turbohtml" not in party:
@@ -265,11 +305,12 @@ class BenchTable(Directive):
                     positions.append(index)
                     ratios.append(ratio)
                     rendered[index] = (figure, None)
+                else:  # an empty cell points at the reason spelled out in the legend
+                    marks[index] = reasons[value if isinstance(value, str) else _MISSING_REASON]
             for index, bucket in zip(positions, _row_buckets(ratios, metric), strict=True):
                 rendered[index] = (rendered[index][0], bucket)
         for index in range(1, len(cells)):
-            text, bucket = rendered[index]
-            row += self._entry(text, bucket)
+            row += _mark_entry(marks[index]) if index in marks else self._entry(*rendered[index])
         return row
 
     def _entry(self, text: str, bucket: str | None = None) -> nodes.entry:

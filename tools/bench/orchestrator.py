@@ -113,7 +113,7 @@ def _core_python(workdir: Path, *, pgo: bool) -> Path:
 
 def _run_worker(
     python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | str]]:
     """
     Run the worker for one (target, operation) in the given venv and return its per-case stats.
 
@@ -149,7 +149,7 @@ def _run_worker(
 
 def _try_competitor(
     workdir: Path, competitor: str, operation: str, pyperf_args: tuple[str, ...]
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | str]]:
     """
     Provision the competitor's venv then run it; a measurement failure propagates and fails the benchmark.
 

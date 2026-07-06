@@ -62,3 +62,11 @@ body[data-theme="dark"] .bench-table td.bench-mild { background: rgba(250, 178, 
 body[data-theme="dark"] .bench-table td.bench-slow { background: rgba(236, 131, 90, 0.24); }
 body[data-theme="dark"] .bench-table td.bench-veryslow { background: rgba(208, 59, 59, 0.28); }
 body[data-theme="dark"] .bench-table td.bench-worst { background: rgba(208, 59, 59, 0.44); }
+
+/* an empty cell (no measurement) carries the theme's muted ink, so it never reads as a slow-but-measured red cell */
+.bench-table td.bench-na { color: var(--color-foreground-muted); }
+
+/* the legend under a table names each numbered reason; centered and muted so it reads as a caption, not a row */
+.bench-legend { text-align: center; font-size: 0.85em; color: var(--color-foreground-secondary); margin-top: 0.4rem; }
+.bench-legend p { margin: 0.1rem 0; }
+.bench-table sup, .bench-legend sup { font-weight: 600; padding-left: 0.1em; }

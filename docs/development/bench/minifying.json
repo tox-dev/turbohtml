@@ -40,8 +40,8 @@
       0.002692983291732768,
       36953.0,
       0.0003179258899308479,
-      null,
-      null
+      "cannot minify -: unexpected < in expression on line 109 and column 17",
+      "cannot minify -: unexpected < in expression on line 109 and column 17"
     ],
     [
       "mozilla blog (95 kB)",

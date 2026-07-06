@@ -9,7 +9,12 @@ REQUIREMENTS = ()
 
 def _run(kind: str, source: str) -> str:
     """Pipe source through the ``minify`` CLI over stdin for the given ``--type`` and return its stdout."""
-    return subprocess.run(["minify", f"--type={kind}"], input=source, capture_output=True, text=True, check=True).stdout
+    result = subprocess.run(["minify", f"--type={kind}"], input=source, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        # the CLI writes the reason to stderr; raise it so the bench records the real message, not just an exit code
+        reason = next(iter(result.stderr.splitlines()), f"minify exited {result.returncode}")
+        raise RuntimeError(reason.removeprefix("ERROR: "))
+    return result.stdout
 
 
 def minify_js(source: str) -> str:

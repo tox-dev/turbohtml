@@ -7,9 +7,10 @@ the baseline every competitor column divides into. Each cell shows the mean, the
 so a reader can tell a real gap from run-to-run noise, and (for competitors) the slowdown factor against turbohtml.
 
 With ``--table-json DIR`` on the CLI, each rendered operation is also written to ``DIR/<operation>.json`` in the feed
-the docs' ``bench-table`` directive consumes: the label, parties, metrics, and rows of raw mean seconds. The directive
-derives the readable units and the ratios, so refreshing a docs table is copying the emitted feed over the committed
-one.
+the docs' ``bench-table`` directive consumes: the label, parties, metrics, and rows of raw mean seconds. A competitor
+that threw on an input writes its message in place of the number, so the table can name why that cell is empty. The
+directive derives the readable units and the ratios, so refreshing a docs table is copying the emitted feed over the
+committed one.
 """
 
 from __future__ import annotations
@@ -26,10 +27,14 @@ _SCALE: dict[str, float] = {"ns": 1e9, "us": 1e6, "ms": 1e3}
 _TURBO_COL = 18
 _COMPETITOR_COL = 26
 
+# a party's entry for one case: a measurement (``mean``/``stdev``, plus ``size`` for a minify op), or the message a
+# competitor threw on this input under the ``error`` key
+_Stat = dict[str, float | str]
+
 TABLE_JSON_DIR: Path | None = None
 
 
-def _labels(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
+def _labels(operation: str, stats: dict[str, _Stat]) -> list[str]:
     """Return the labels present for an operation, turbohtml first, then competitors in first-seen order."""
     seen: list[str] = []
     for key in stats:
@@ -39,7 +44,7 @@ def _labels(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
     return ["turbohtml", *(label for label in seen if label != "turbohtml")]
 
 
-def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
+def _case_names(operation: str, stats: dict[str, _Stat]) -> list[str]:
     """Return the operation's case names in run order, recovered from the turbohtml baseline keys."""
     names: list[str] = []
     for key in stats:
@@ -50,13 +55,14 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
     return names
 
 
-def _cell(stat: dict[str, float], scale: float, unit: str) -> str:
-    """Format one measurement as ``<mean> <unit> ±<relative stdev>%``."""
-    relative = stat["stdev"] / stat["mean"] * 100 if stat["mean"] else 0.0
-    return f"{stat['mean'] * scale:8.1f} {unit} ±{relative:3.0f}%"
+def _cell(stat: _Stat, scale: float, unit: str) -> str:
+    """Format one measurement as ``<mean> <unit> ±<relative stdev>%``; the caller passes only measured stats."""
+    mean, stdev = float(stat["mean"]), float(stat["stdev"])
+    relative = stdev / mean * 100 if mean else 0.0
+    return f"{mean * scale:8.1f} {unit} ±{relative:3.0f}%"
 
 
-def render(operation: str, stats: dict[str, dict[str, float]]) -> None:
+def render(operation: str, stats: dict[str, _Stat]) -> None:
     """Print the table for one operation: turbohtml against each competitor with its slowdown factor."""
     meta = operations.OPERATIONS[operation]
     scale, competitors = _SCALE[meta.unit], _labels(operation, stats)[1:]
@@ -70,24 +76,34 @@ def render(operation: str, stats: dict[str, dict[str, float]]) -> None:
             continue
         row = f"{case_name:32} {_cell(turbo, scale, meta.unit):>{_TURBO_COL}}"
         for label in competitors:
-            if (other := stats.get(f"{operation}|{case_name}|{label}")) is None:
+            other = stats.get(f"{operation}|{case_name}|{label}")
+            if other is None:
                 row += f"{'-':>{_COMPETITOR_COL}}"
+            elif isinstance(reason := other.get("error"), str):
+                row += f"{reason[:_COMPETITOR_COL]:>{_COMPETITOR_COL}}"
             else:
-                cell = f"{_cell(other, scale, meta.unit)} {other['mean'] / turbo['mean']:5.1f}x"
+                cell = f"{_cell(other, scale, meta.unit)} {float(other['mean']) / float(turbo['mean']):5.1f}x"
                 row += f"{cell:>{_COMPETITOR_COL}}"
         print(row)
     if TABLE_JSON_DIR is not None:
         _emit_table_json(operation, stats, TABLE_JSON_DIR)
 
 
-def _cells(stat: dict[str, float] | None, *, size_op: bool) -> list[float | None]:
-    """Return a party's cells for one case: ``[size, time]`` for a minify op, else ``[time]``; blanks when absent."""
+def _cells(stat: _Stat | None, *, size_op: bool) -> list[float | str | None]:
+    """
+    Return a party's cells for one case: ``[size, time]`` for a minify op, else ``[time]``.
+
+    A missing measurement carries its reason across every metric column: the thrown message when the competitor
+    errored on this input (``{"error": ...}``), else ``None`` for a party the run did not reach at all.
+    """
     if stat is None:
         return [None, None] if size_op else [None]
+    if (reason := stat.get("error")) is not None:
+        return [reason, reason] if size_op else [reason]
     return [stat["size"], stat["mean"]] if size_op else [stat["mean"]]
 
 
-def _emit_table_json(operation: str, stats: dict[str, dict[str, float]], directory: Path) -> None:
+def _emit_table_json(operation: str, stats: dict[str, _Stat], directory: Path) -> None:
     """Write one operation's raw means (plus size for a minify op) as the docs' bench-table feed DIR/<op>.json."""
     competitors = _labels(operation, stats)[1:]
     size_op = operation in operations.SIZE_OPS
