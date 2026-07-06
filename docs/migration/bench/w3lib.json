@@ -7,44 +7,99 @@
   "metrics": [],
   "rows": [
     [
-      "unescape tiny plain (64 B)",
-      2e-08,
-      2.5e-07
+      "unescape — tiny plain (64 B)",
+      3.402820554961513e-08,
+      2.6457847468464024e-07
     ],
     [
-      "unescape medium dense refs (4 KiB)",
-      8.1e-06,
-      0.000116
+      "unescape — medium dense refs (4 KiB)",
+      7.0881890271342245e-06,
+      0.000113827378906232
     ],
     [
-      "unescape book HTML, real refs (4 MiB)",
-      0.00251,
-      0.0135
+      "unescape — numeric refs (4 KiB)",
+      4.973883311739276e-06,
+      9.093205418745735e-05
     ],
     [
-      "strip tags, keep text (92 kB)",
-      0.000607,
-      0.00111
+      "unescape — book HTML, real refs (4 MiB)",
+      0.0033415073861154574,
+      0.01360993058187887
     ],
     [
-      "``base_url`` (vs ``get_base_url``)",
-      2.9e-06,
-      7.4e-06
+      "unescape — escaped book HTML (5 MiB)",
+      0.0017557109373835071,
+      0.0353182153388237
     ],
     [
-      "``meta_refresh`` (vs ``get_meta_refresh``)",
-      3e-06,
-      6.5e-06
+      "unescape — dense refs (4 MiB)",
+      0.009669105915236287,
+      0.12145402798584352
     ],
     [
-      "``clean_url`` 100 URLs (vs ``safe_url_string``)",
-      0.00028342558066469793,
-      0.0006421795927356774
+      "unescape — UCS-2 refs (4 MiB)",
+      0.002747152557276422,
+      0.027792937500635162
     ],
     [
-      "``normalize_url`` 100 URLs (vs ``canonicalize_url``)",
-      0.0002275000961541688,
-      0.0013560455950937466
+      "drop tags with content (remove) — daring fireball (10 kB)",
+      2.533927066868576e-05,
+      2.43056792802084e-05
+    ],
+    [
+      "drop tags with content (remove) — ars technica (56 kB)",
+      0.00012538463018548404,
+      0.00010117982325634027
+    ],
+    [
+      "drop tags with content (remove) — mozilla blog (95 kB)",
+      0.00028306911910173466,
+      0.00015869717056678687
+    ],
+    [
+      "drop tags with content (remove) — whatwg spec (235 kB)",
+      0.0006871895050911311,
+      0.00032684179692902643
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — daring fireball (10 kB)",
+      2.576311914026519e-05,
+      7.069082308438131e-05
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — ars technica (56 kB)",
+      0.0001274022894222071,
+      0.00032189217131417536
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — mozilla blog (95 kB)",
+      0.0002855079485470924,
+      0.0006291928724143266
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — whatwg spec (235 kB)",
+      0.0007421943347859875,
+      0.0017364463959286998
+    ],
+    [
+      "extract URL hints — base_url / get_base_url",
+      1.2456059976055183e-06,
+      7.436179281228306e-06
+    ],
+    [
+      "extract URL hints — meta_refresh / get_meta_refresh",
+      1.3079691975429835e-06,
+      6.536957641856134e-06
+    ],
+    [
+      "clean and normalize 100 URLs — clean 100 URLs",
+      0.0002621699758644051,
+      0.0006276292850391959
+    ],
+    [
+      "clean and normalize 100 URLs — normalize 100 URLs",
+      0.00021632934567605844,
+      0.0012711880417555221
     ]
   ]
 }

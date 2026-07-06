@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 REQUIREMENTS = ("lxml>=6.1.1", "cssselect>=1.2")  # cssselect backs lxml.html.cssselect() for the select/:has ops
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
+_SET_TEXT = "Replacement text, escaped & verbatim."
 _LINKS_BASE = "https://example.com/base/"
 
 
@@ -100,6 +101,30 @@ def serialize(text: str) -> None:
     lxml_html.tostring(_parsed(text))
 
 
+def extract_attr(text: str) -> None:
+    """Read every anchor's href with lxml's XPath attribute selection."""
+    _parsed(text).xpath("//a/@href")
+
+
+def extract_text(text: str) -> None:
+    """Read every anchor's visible text by selecting once and reading text_content off each node."""
+    _ = [anchor.text_content() for anchor in _parsed(text).cssselect("a")]
+
+
+def strip_remove(text: str) -> None:
+    """Drop every code/a/q subtree with lxml's strip_elements on a fresh parse, then serialize."""
+    tree = lxml_html.document_fromstring(text)
+    lxml_html.etree.strip_elements(tree, "code", "a", "q", with_tail=False)
+    _ = lxml_html.tostring(tree)
+
+
+def strip_tags(text: str) -> None:
+    """Unwrap every code/a/q element keeping its content with lxml's strip_tags on a fresh parse, then serialize."""
+    tree = lxml_html.document_fromstring(text)
+    lxml_html.etree.strip_tags(tree, "code", "a", "q")
+    _ = lxml_html.tostring(tree)
+
+
 def edit(tree: HtmlElement) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through lxml's Element.set."""
     for anchor in tree.findall(".//a"):
@@ -119,6 +144,13 @@ def set_html(tree: HtmlElement) -> None:
     body.clear()
     for piece in lxml_html.fragments_fromstring(_SET_HTML):
         body.append(piece)
+
+
+def set_text(tree: HtmlElement) -> None:
+    """Replace a freshly parsed body's children with one verbatim text node through lxml's clear plus .text."""
+    body = tree.findall(".//body")[0]
+    body.clear()
+    body.text = _SET_TEXT
 
 
 def navigate(text: str) -> None:
@@ -207,6 +239,35 @@ def xpath(case: tuple[str, str]) -> None:
     _XPATH_CALLS[kind](_parsed(text), text)
 
 
+class _Counter:
+    """An lxml parser target whose start handler does minimal, identical work to the reference counter."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        self.work = 0
+
+    def start(self, tag: str, attrs: dict[str, str]) -> None:
+        """Tally a start tag and its attribute count."""
+        self.work += len(tag) + len(attrs)
+
+    def end(self, tag: str) -> None:
+        """Ignore end tags."""
+
+    def data(self, data: str) -> None:
+        """Ignore character data."""
+
+    def close(self) -> int:
+        """Return the tally the parser hands back on close."""
+        return self.work
+
+
+def htmlparser(text: str) -> None:
+    """Drive lxml's incremental HTMLParser with the counting target."""
+    parser = lxml_html.etree.HTMLParser(target=_Counter())
+    parser.feed(text)
+    parser.close()
+
+
 OPERATIONS = {
     "parse": (parse, "lxml"),
     "fragment": (fragment, "lxml"),
@@ -219,9 +280,15 @@ OPERATIONS = {
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
+    "extract-attr": (extract_attr, "lxml"),
+    "extract-text": (extract_text, "lxml"),
+    "strip-remove": (strip_remove, "lxml"),
+    "strip-tags": (strip_tags, "lxml"),
     "edit": (Mutating(lxml_html.document_fromstring, edit), "lxml"),
     "class-edit": (class_edit, "lxml"),
     "set-html": (Mutating(lxml_html.document_fromstring, set_html), "lxml"),
+    "set-text": (Mutating(lxml_html.document_fromstring, set_text), "lxml"),
+    "htmlparser": (htmlparser, "lxml"),
     "navigate": (navigate, "lxml"),
     "links-extract": (links_extract, "lxml"),
     "links-absolutize": (Mutating(lxml_html.document_fromstring, links_absolutize), "lxml"),

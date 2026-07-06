@@ -7,54 +7,434 @@
   "metrics": [],
   "rows": [
     [
-      "select, filter, read (4 kB)",
-      9e-07,
-      1.6e-05
+      "parse to a tree — wpt tiny (0.6 kB)",
+      1.2054635162665288e-06,
+      7.1770087070414474e-06
     ],
     [
-      "select, filter, read (9.6 kB)",
-      1e-06,
-      1.65e-05
+      "parse to a tree — wpt small (4 kB)",
+      9.572675923645116e-06,
+      3.149444922693571e-05
     ],
     [
-      "select, filter, read (92 kB)",
-      2.18e-05,
-      0.000278
+      "parse to a tree — wpt medium (9.6 kB)",
+      2.4204705122580588e-05,
+      8.138916016757018e-05
     ],
     [
-      "set inner HTML (9.6 kB)",
-      1.3e-06,
-      7.7e-06
+      "parse to a tree — wpt large (92 kB)",
+      0.00020682538471798276,
+      0.0008742652971704956
     ],
     [
-      "set text (9.6 kB)",
-      1.3e-07,
-      4.6e-06
+      "parse to a tree — wpt CJK (124 kB)",
+      0.00040738677201564616,
+      0.0014275141065809294
     ],
     [
-      "drop subtree (92 kB)",
-      0.000554,
-      0.00206
+      "parse to a tree — whatwg spec (235 kB)",
+      0.00040489729690307286,
+      0.0016935648903502927
     ],
     [
-      "keep content, unwrap (92 kB)",
-      0.000607,
-      0.00235
+      "find every anchor — daring fireball (10 kB)",
+      3.748142993013441e-07,
+      9.966673950145832e-06
     ],
     [
-      "``@href`` per match (9.6 kB)",
-      1e-07,
-      4.8e-06
+      "find every anchor — ars technica (56 kB)",
+      8.279095737862008e-07,
+      1.013346268763371e-05
     ],
     [
-      "``@href`` per match (92 kB)",
-      8.2e-06,
-      0.000542
+      "find every anchor — mozilla blog (95 kB)",
+      1.1774927800208463e-06,
+      3.1763848227228664e-05
     ],
     [
-      "text per match (92 kB)",
-      8e-06,
-      0.000297
+      "find every anchor — whatwg spec (235 kB)",
+      1.3161732355844908e-06,
+      6.189591488237056e-05
+    ],
+    [
+      "select div a[href] — daring fireball (10 kB)",
+      6.393389702097352e-07,
+      2.950654101141481e-05
+    ],
+    [
+      "select div a[href] — ars technica (56 kB)",
+      1.4624099732666689e-06,
+      1.8488530514559898e-05
+    ],
+    [
+      "select div a[href] — mozilla blog (95 kB)",
+      2.068870336084198e-06,
+      0.0008073408201501783
+    ],
+    [
+      "select div a[href] — whatwg spec (235 kB)",
+      1.740050420195871e-06,
+      0.0013668873671122128
+    ],
+    [
+      "find by text content — daring fireball (10 kB)",
+      4.291293327203979e-05,
+      5.129344354296942e-05
+    ],
+    [
+      "find by text content — ars technica (56 kB)",
+      0.0004307208931398539,
+      0.00025584339709894266
+    ],
+    [
+      "find by text content — mozilla blog (95 kB)",
+      0.00032860595698972855,
+      0.00044339740755579743
+    ],
+    [
+      "find by text content — whatwg spec (235 kB)",
+      0.0006380626092929257,
+      0.0013961280392322806
+    ],
+    [
+      "collect visible text — daring fireball (10 kB)",
+      2.692385986454345e-06,
+      0.00012820808922242577
+    ],
+    [
+      "collect visible text — ars technica (56 kB)",
+      1.3358798582885356e-05,
+      1.1072725101257674e-05
+    ],
+    [
+      "collect visible text — mozilla blog (95 kB)",
+      2.3313664707795095e-05,
+      0.0009261621092567415
+    ],
+    [
+      "collect visible text — whatwg spec (235 kB)",
+      7.684802911474738e-05,
+      0.004910586375141672
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      7.136061787112642e-06,
+      1.7063963137312992e-05
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      4.0697519864352216e-05,
+      7.624756542175722e-05
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      7.92304008617369e-05,
+      0.00015603785580727467
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0002086558697556029,
+      0.00038212977415241767
+    ],
+    [
+      "tag every link rel=nofollow — daring fireball (10 kB)",
+      3.3243533496355817e-06,
+      2.0824623139977422e-05
+    ],
+    [
+      "tag every link rel=nofollow — ars technica (56 kB)",
+      1.3196498140170357e-05,
+      6.350963910032685e-05
+    ],
+    [
+      "tag every link rel=nofollow — mozilla blog (95 kB)",
+      2.096624885439269e-05,
+      6.17998236028446e-05
+    ],
+    [
+      "tag every link rel=nofollow — whatwg spec (235 kB)",
+      4.249380538112746e-05,
+      0.0003327551233572497
+    ],
+    [
+      "class add/remove on every link — daring fireball (10 kB)",
+      2.197936167884033e-06,
+      4.289895639431052e-05
+    ],
+    [
+      "class add/remove on every link — ars technica (56 kB)",
+      8.554505252315417e-06,
+      1.0152088603850492e-05
+    ],
+    [
+      "class add/remove on every link — mozilla blog (95 kB)",
+      8.475357058538672e-06,
+      0.00014564893945134827
+    ],
+    [
+      "class add/remove on every link — whatwg spec (235 kB)",
+      8.07847000790692e-06,
+      0.00018376010484644212
+    ],
+    [
+      "drop tags with content (remove) — daring fireball (10 kB)",
+      2.533927066868576e-05,
+      0.00016633527275189408
+    ],
+    [
+      "drop tags with content (remove) — ars technica (56 kB)",
+      0.00012538463018548404,
+      0.00034908173309607565
+    ],
+    [
+      "drop tags with content (remove) — mozilla blog (95 kB)",
+      0.00028306911910173466,
+      0.0012394305573858826
+    ],
+    [
+      "drop tags with content (remove) — whatwg spec (235 kB)",
+      0.0006871895050911311,
+      0.0029702410987132075
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — daring fireball (10 kB)",
+      2.576311914026519e-05,
+      0.00018393580470880502
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — ars technica (56 kB)",
+      0.0001274022894222071,
+      0.00033504253451610566
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — mozilla blog (95 kB)",
+      0.0002855079485470924,
+      0.0012179620265063325
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — whatwg spec (235 kB)",
+      0.0007421943347859875,
+      0.003043105895509749
+    ],
+    [
+      "replace body inner HTML — daring fireball (10 kB)",
+      2.329955708072854e-06,
+      1.7979369857812344e-05
+    ],
+    [
+      "replace body inner HTML — ars technica (56 kB)",
+      9.42719009344728e-06,
+      1.3455654591136105e-05
+    ],
+    [
+      "replace body inner HTML — mozilla blog (95 kB)",
+      1.561759800476163e-05,
+      0.00012065060896778353
+    ],
+    [
+      "replace body inner HTML — whatwg spec (235 kB)",
+      4.5403769405538696e-05,
+      0.00036905363837528665
+    ],
+    [
+      "replace body text — daring fireball (10 kB)",
+      1.1865651513195037e-06,
+      3.2781765573493736e-05
+    ],
+    [
+      "replace body text — ars technica (56 kB)",
+      7.724076006354608e-06,
+      1.2888133307834929e-05
+    ],
+    [
+      "replace body text — mozilla blog (95 kB)",
+      1.2962234668142022e-05,
+      0.0001238046270373161
+    ],
+    [
+      "replace body text — whatwg spec (235 kB)",
+      3.9819711181129e-05,
+      0.0003713891582416788
+    ],
+    [
+      "walk every descendant — daring fireball (10 kB)",
+      3.3398501090668256e-06,
+      7.656704364459681e-05
+    ],
+    [
+      "walk every descendant — ars technica (56 kB)",
+      1.3796969923873803e-05,
+      0.00024312679033755558
+    ],
+    [
+      "walk every descendant — mozilla blog (95 kB)",
+      2.8212066733127965e-05,
+      0.0006089739584543471
+    ],
+    [
+      "walk every descendant — whatwg spec (235 kB)",
+      0.00010082151267927959,
+      0.0021382363283919403
+    ],
+    [
+      "fluent jQuery-style chain — daring fireball (10 kB)",
+      3.6766463331616706e-06,
+      8.382357469827184e-05
+    ],
+    [
+      "fluent jQuery-style chain — ars technica (56 kB)",
+      1.1179962179141967e-05,
+      2.2455781698719573e-05
+    ],
+    [
+      "fluent jQuery-style chain — mozilla blog (95 kB)",
+      1.659938053440631e-05,
+      0.0002421285000006416
+    ],
+    [
+      "fluent jQuery-style chain — whatwg spec (235 kB)",
+      2.8915510341676054e-05,
+      0.00030355775326521933
+    ],
+    [
+      "extract every link — daring fireball (10 kB)",
+      8.65689595504667e-06,
+      0.00016518939874761904
+    ],
+    [
+      "extract every link — ars technica (56 kB)",
+      2.770925219882277e-05,
+      1.0441371479430472e-05
+    ],
+    [
+      "extract every link — mozilla blog (95 kB)",
+      5.147423649987104e-05,
+      0.0005279500325438372
+    ],
+    [
+      "extract every link — whatwg spec (235 kB)",
+      8.478275568298461e-05,
+      0.0006736042748040442
+    ],
+    [
+      "absolutize every link — daring fireball (10 kB)",
+      8.202239136304949e-05,
+      0.00045256395257335197
+    ],
+    [
+      "absolutize every link — ars technica (56 kB)",
+      0.00021992916898246526,
+      1.664114275949184e-05
+    ],
+    [
+      "absolutize every link — mozilla blog (95 kB)",
+      0.0004276633470302234,
+      0.0015067964007660823
+    ],
+    [
+      "absolutize every link — whatwg spec (235 kB)",
+      0.0002823743249488568,
+      0.0018972486510998958
+    ],
+    [
+      "rewrite every link — daring fireball (10 kB)",
+      3.2449768880837837e-06,
+      0.0003258280169120553
+    ],
+    [
+      "rewrite every link — ars technica (56 kB)",
+      1.336268782855162e-05,
+      1.0497900229703797e-05
+    ],
+    [
+      "rewrite every link — mozilla blog (95 kB)",
+      2.3068449266361313e-05,
+      0.0011183309476715901
+    ],
+    [
+      "rewrite every link — whatwg spec (235 kB)",
+      4.193015543781561e-05,
+      0.0012678031665321516
+    ],
+    [
+      "social-card extraction — head",
+      1.9034063569733917e-06,
+      7.670157860199349e-05
+    ],
+    [
+      "social-card extraction — article 8 KiB",
+      2.52801480182067e-05,
+      0.00016947745768902678
+    ],
+    [
+      "extract @href per match — daring fireball (10 kB)",
+      2.584502324154414e-06,
+      0.0002127712672669683
+    ],
+    [
+      "extract @href per match — ars technica (56 kB)",
+      6.647654236265528e-06,
+      1.0841941855706713e-05
+    ],
+    [
+      "extract @href per match — mozilla blog (95 kB)",
+      9.228195191705405e-06,
+      0.0005475684688462934
+    ],
+    [
+      "extract @href per match — whatwg spec (235 kB)",
+      9.811665854897456e-06,
+      0.0006639086915735485
+    ],
+    [
+      "extract text per match — daring fireball (10 kB)",
+      2.6899765881438498e-06,
+      9.737617998932062e-05
+    ],
+    [
+      "extract text per match — ars technica (56 kB)",
+      6.684672892257974e-06,
+      1.03027199500616e-05
+    ],
+    [
+      "extract text per match — mozilla blog (95 kB)",
+      1.020876652072881e-05,
+      0.00035082855924883916
+    ],
+    [
+      "extract text per match — whatwg spec (235 kB)",
+      1.0879937074529758e-05,
+      0.0003796054954818828
+    ],
+    [
+      "extract URL hints — base_url / get_base_url",
+      1.2456059976055183e-06,
+      1.8421649495318586e-05
+    ],
+    [
+      "extract URL hints — meta_refresh / get_meta_refresh",
+      1.3079691975429835e-06,
+      2.6338097503260844e-05
+    ],
+    [
+      "extract filtered page links — daring fireball (10 kB)",
+      0.00011679115103409761,
+      0.00016377560738571142
+    ],
+    [
+      "extract filtered page links — ars technica (56 kB)",
+      0.0002801564667909891,
+      1.0638498108524649e-05
+    ],
+    [
+      "extract filtered page links — mozilla blog (95 kB)",
+      0.000471195963655191,
+      0.0005279656026383842
+    ],
+    [
+      "extract filtered page links — whatwg spec (235 kB)",
+      0.0007857300367201484,
+      0.0006525731875323496
     ]
   ]
 }

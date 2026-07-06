@@ -7,49 +7,49 @@
   "metrics": [],
   "rows": [
     [
-      "escape clean (8 B)",
-      6.1e-08,
-      1.85e-07
+      "markupsafe-compatible escape — clean (8 B)",
+      6.421878591863124e-08,
+      2.0342453321831044e-07
     ],
     [
-      "escape clean (32 B)",
-      6.7e-08,
-      2.03e-07
+      "markupsafe-compatible escape — clean (32 B)",
+      7.062883505826179e-08,
+      2.23254494965038e-07
     ],
     [
-      "escape clean (256 B)",
-      1.15e-07,
-      4.47e-07
+      "markupsafe-compatible escape — clean (256 B)",
+      1.3356082943320283e-07,
+      4.771889037987383e-07
     ],
     [
-      "escape name with ``'`` and ``&``",
-      8.4e-08,
-      2.13e-07
+      "markupsafe-compatible escape — name with ' and &",
+      8.844704755632075e-08,
+      2.2982570846430406e-07
     ],
     [
-      "escape-heavy markup",
-      1.41e-07,
-      3.38e-07
+      "markupsafe-compatible escape — escape-heavy markup",
+      1.5257438024107728e-07,
+      3.654242623311414e-07
     ],
     [
-      "``striptags``",
-      1.368e-06,
-      2.483e-06
+      "Markup operations — striptags",
+      1.2115829264303102e-06,
+      2.370588729760925e-06
     ],
     [
-      "``unescape``",
-      2.73e-07,
-      1.114e-06
+      "Markup operations — unescape",
+      2.2265717699217666e-07,
+      1.0397795560853258e-06
     ],
     [
-      "``format`` (escapes operands)",
-      1.662e-06,
-      1.973e-06
+      "Markup operations — format (escapes operands)",
+      1.8357374411692717e-06,
+      2.0901061142571584e-06
     ],
     [
-      "``join`` (escapes operands)",
-      6.09e-07,
-      1.217e-06
+      "Markup operations — join (escapes operands)",
+      6.708885827618379e-07,
+      1.218301770578023e-06
     ]
   ]
 }

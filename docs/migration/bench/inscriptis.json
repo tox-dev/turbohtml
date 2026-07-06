@@ -7,19 +7,19 @@
   "metrics": [],
   "rows": [
     [
-      "article (2 KiB)",
-      7e-06,
-      0.000163
+      "layout-aware text — article (2 KiB)",
+      1.634763509154406e-06,
+      0.00017594761849674492
     ],
     [
-      "table (4 KiB)",
-      2.8e-05,
-      0.000839
+      "layout-aware text — table (4 KiB)",
+      1.014027911357592e-05,
+      0.0009069900206668535
     ],
     [
-      "annotated (4 KiB)",
-      1e-05,
-      0.000202
+      "annotated layout text — annotated (4 KiB)",
+      2.8639263559189962e-06,
+      0.00022070638086309677
     ]
   ]
 }

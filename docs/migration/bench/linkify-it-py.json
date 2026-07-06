@@ -7,39 +7,39 @@
   "metrics": [],
   "rows": [
     [
-      "linkify comment (1 link, 1 email)",
-      2.9e-06,
-      2.9e-05
+      "linkify HTML — comment (1 link, 1 email)",
+      3.144994516664686e-06,
+      3.07860378541136e-05
     ],
     [
-      "linkify prose (1 KiB)",
-      5.1e-05,
-      0.00031
+      "linkify HTML — prose (1 KiB)",
+      5.230794270498033e-05,
+      0.0003288896484718862
     ],
     [
-      "linkify markup (4 KiB)",
-      0.000127,
-      0.000708
+      "linkify HTML — markup (4 KiB)",
+      0.00013011576371961078,
+      0.0007525637473311993
     ],
     [
-      "``find`` comment (1 link, 1 email)",
-      6e-07,
-      2.92e-05
+      "detect links in text — find comment (1 link, 1 email)",
+      6.728722789321276e-07,
+      3.010430565571672e-05
     ],
     [
-      "``find`` prose (1 KiB)",
-      8.8e-06,
-      0.0003099
+      "detect links in text — find prose (1 KiB)",
+      8.926749349787618e-06,
+      0.0003165353189160669
     ],
     [
-      "``has_link`` comment",
-      3e-07,
-      2.15e-05
+      "detect links in text — has_link comment",
+      2.6953167409082823e-07,
+      2.242301261882555e-05
     ],
     [
-      "``has_link`` prose (1 KiB)",
-      2.7e-06,
-      4.9e-06
+      "detect links in text — has_link prose (1 KiB)",
+      2.5463333136836277e-06,
+      4.838414093673767e-06
     ]
   ]
 }

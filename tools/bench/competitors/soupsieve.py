@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 REQUIREMENTS = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
 
 _SELECT = soupsieve.compile("div a[href]")
+_HAS = soupsieve.compile("div:has(a)")
 
 
 @functools.cache
@@ -23,6 +24,11 @@ def select(text: str) -> None:
     _SELECT.select(_parsed(text))
 
 
+def select_has(text: str) -> None:
+    """Collect every match of a compiled soupsieve :has() relational selector over the document."""
+    _HAS.select(_parsed(text))
+
+
 def match(text: str) -> None:
     """Test every anchor against a compiled soupsieve selector with its per-element match."""
     for anchor in _parsed(text).find_all("a"):
@@ -31,5 +37,6 @@ def match(text: str) -> None:
 
 OPERATIONS = {
     "select": (select, "soupsieve"),
+    "select-has": (select_has, "soupsieve"),
     "match": (match, "soupsieve"),
 }

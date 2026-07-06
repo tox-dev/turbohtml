@@ -7,44 +7,64 @@
   "metrics": [],
   "rows": [
     [
-      "select ``div a[href]`` (Daring Fireball, 10 kB)",
-      7.57e-07,
-      0.000148
+      "select div a[href] — daring fireball (10 kB)",
+      6.393389702097352e-07,
+      0.00013869845899231828
     ],
     [
-      "select ``div a[href]`` (Ars Technica, 56 kB)",
-      1.69e-06,
-      0.000486
+      "select div a[href] — ars technica (56 kB)",
+      1.4624099732666689e-06,
+      0.0005010862085631137
     ],
     [
-      "select ``div a[href]`` (Mozilla Blog, 95 kB)",
-      2.42e-06,
-      0.000899
+      "select div a[href] — mozilla blog (95 kB)",
+      2.068870336084198e-06,
+      0.0008721812027943088
     ],
     [
-      "select ``div a[href]`` (WHATWG spec, 235 kB)",
-      2.07e-06,
-      0.00233
+      "select div a[href] — whatwg spec (235 kB)",
+      1.740050420195871e-06,
+      0.002283953556495059
     ],
     [
-      "match each anchor (Daring Fireball, 10 kB)",
-      1.92e-06,
-      0.00018
+      "select div:has(a) — daring fireball (10 kB)",
+      2.564039759030597e-07,
+      9.288601351424101e-05
     ],
     [
-      "match each anchor (Ars Technica, 56 kB)",
-      4.44e-06,
-      0.000538
+      "select div:has(a) — ars technica (56 kB)",
+      1.2781302132225392e-06,
+      0.0004145916886955092
     ],
     [
-      "match each anchor (Mozilla Blog, 95 kB)",
-      6e-06,
-      0.000663
+      "select div:has(a) — mozilla blog (95 kB)",
+      8.967354652611448e-06,
+      0.0017829197034492001
     ],
     [
-      "match each anchor (WHATWG spec, 235 kB)",
-      6.68e-06,
-      0.00103
+      "select div:has(a) — whatwg spec (235 kB)",
+      6.082834879350685e-06,
+      0.0025815824695503884
+    ],
+    [
+      "match each anchor against div a[href] — daring fireball (10 kB)",
+      1.8913025302917201e-06,
+      0.0001665511744780209
+    ],
+    [
+      "match each anchor against div a[href] — ars technica (56 kB)",
+      4.278116871129593e-06,
+      0.0007823190638494756
+    ],
+    [
+      "match each anchor against div a[href] — mozilla blog (95 kB)",
+      6.052251606547543e-06,
+      0.001080416015611263
+    ],
+    [
+      "match each anchor against div a[href] — whatwg spec (235 kB)",
+      7.295073605935916e-06,
+      0.0012474033201215207
     ]
   ]
 }

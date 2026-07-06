@@ -7,39 +7,389 @@
   "metrics": [],
   "rows": [
     [
-      "select ``div a[href]`` (Daring Fireball, 10 kB)",
-      7e-07,
-      3.4e-05
+      "parse to a tree — wpt tiny (0.6 kB)",
+      1.2054635162665288e-06,
+      6.535072349341438e-06
     ],
     [
-      "select ``div a[href]`` (Ars Technica, 56 kB)",
-      1.6e-06,
-      0.0001488
+      "parse to a tree — wpt small (4 kB)",
+      9.572675923645116e-06,
+      3.065846428285113e-05
     ],
     [
-      "select ``div a[href]`` (Mozilla Blog, 95 kB)",
-      2.4e-06,
-      0.0008978
+      "parse to a tree — wpt medium (9.6 kB)",
+      2.4204705122580588e-05,
+      7.703806558841582e-05
     ],
     [
-      "select ``div a[href]`` (WHATWG spec, 235 kB)",
-      2.1e-06,
-      0.00148
+      "parse to a tree — wpt large (92 kB)",
+      0.00020682538471798276,
+      0.0006320532214279714
     ],
     [
-      "``@href`` per match (9.6 kB)",
-      1e-07,
-      4.3e-06
+      "parse to a tree — wpt CJK (124 kB)",
+      0.00040738677201564616,
+      0.0014905234374964493
     ],
     [
-      "``@href`` per match (92 kB)",
-      8.2e-06,
-      0.000222
+      "parse to a tree — whatwg spec (235 kB)",
+      0.00040489729690307286,
+      0.0013091066615137
     ],
     [
-      "text per match (92 kB)",
-      8e-06,
-      0.000214
+      "find every anchor — daring fireball (10 kB)",
+      3.748142993013441e-07,
+      2.1090911862605328e-05
+    ],
+    [
+      "find every anchor — ars technica (56 kB)",
+      8.279095737862008e-07,
+      4.7893507229446186e-05
+    ],
+    [
+      "find every anchor — mozilla blog (95 kB)",
+      1.1774927800208463e-06,
+      7.159828027170079e-05
+    ],
+    [
+      "find every anchor — whatwg spec (235 kB)",
+      1.3161732355844908e-06,
+      0.00010448852538047504
+    ],
+    [
+      "select div a[href] — daring fireball (10 kB)",
+      6.393389702097352e-07,
+      3.287662760461293e-05
+    ],
+    [
+      "select div a[href] — ars technica (56 kB)",
+      1.4624099732666689e-06,
+      0.00014566049477101237
+    ],
+    [
+      "select div a[href] — mozilla blog (95 kB)",
+      2.068870336084198e-06,
+      0.0008280160573121975
+    ],
+    [
+      "select div a[href] — whatwg spec (235 kB)",
+      1.740050420195871e-06,
+      0.001412765080810156
+    ],
+    [
+      "select div:has(a) — daring fireball (10 kB)",
+      2.564039759030597e-07,
+      1.0957385579028292e-05
+    ],
+    [
+      "select div:has(a) — ars technica (56 kB)",
+      1.2781302132225392e-06,
+      4.087944880855806e-05
+    ],
+    [
+      "select div:has(a) — mozilla blog (95 kB)",
+      8.967354652611448e-06,
+      8.504759371893063e-05
+    ],
+    [
+      "select div:has(a) — whatwg spec (235 kB)",
+      6.082834879350685e-06,
+      0.000142189914034437
+    ],
+    [
+      "find by text content — daring fireball (10 kB)",
+      4.291293327203979e-05,
+      4.78497110899904e-05
+    ],
+    [
+      "find by text content — ars technica (56 kB)",
+      0.0004307208931398539,
+      0.00035307139842188917
+    ],
+    [
+      "find by text content — mozilla blog (95 kB)",
+      0.00032860595698972855,
+      0.0007362718097283505
+    ],
+    [
+      "find by text content — whatwg spec (235 kB)",
+      0.0006380626092929257,
+      0.002000859155790143
+    ],
+    [
+      "collect visible text — daring fireball (10 kB)",
+      2.692385986454345e-06,
+      0.0002925366750332614
+    ],
+    [
+      "collect visible text — ars technica (56 kB)",
+      1.3358798582885356e-05,
+      0.0013444108044495806
+    ],
+    [
+      "collect visible text — mozilla blog (95 kB)",
+      2.3313664707795095e-05,
+      0.00325430164472588
+    ],
+    [
+      "collect visible text — whatwg spec (235 kB)",
+      7.684802911474738e-05,
+      0.012310537332571888
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      7.136061787112642e-06,
+      3.395363695328039e-05
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      4.0697519864352216e-05,
+      0.0001674142659643015
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      7.92304008617369e-05,
+      0.00036827899869725417
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0002086558697556029,
+      0.0007083981119346087
+    ],
+    [
+      "extract every link — daring fireball (10 kB)",
+      8.65689595504667e-06,
+      6.682788754612072e-05
+    ],
+    [
+      "extract every link — ars technica (56 kB)",
+      2.770925219882277e-05,
+      0.00014824355726735425
+    ],
+    [
+      "extract every link — mozilla blog (95 kB)",
+      5.147423649987104e-05,
+      0.00021424365233239465
+    ],
+    [
+      "extract every link — whatwg spec (235 kB)",
+      8.478275568298461e-05,
+      0.00027338791278452845
+    ],
+    [
+      "extract @href per match — daring fireball (10 kB)",
+      2.584502324154414e-06,
+      6.792590331391087e-05
+    ],
+    [
+      "extract @href per match — ars technica (56 kB)",
+      6.647654236265528e-06,
+      0.00014807595475000804
+    ],
+    [
+      "extract @href per match — mozilla blog (95 kB)",
+      9.228195191705405e-06,
+      0.00031320315232126933
+    ],
+    [
+      "extract @href per match — whatwg spec (235 kB)",
+      9.811665854897456e-06,
+      0.00035614548058523116
+    ],
+    [
+      "extract text per match — daring fireball (10 kB)",
+      2.6899765881438498e-06,
+      0.00011741992220019408
+    ],
+    [
+      "extract text per match — ars technica (56 kB)",
+      6.684672892257974e-06,
+      0.0002917854274073761
+    ],
+    [
+      "extract text per match — mozilla blog (95 kB)",
+      1.020876652072881e-05,
+      0.0004705968423574329
+    ],
+    [
+      "extract text per match — whatwg spec (235 kB)",
+      1.0879937074529758e-05,
+      0.00026007036717601295
+    ],
+    [
+      "extract URL hints — base_url / get_base_url",
+      1.2456059976055183e-06,
+      1.2396567484529442e-05
+    ],
+    [
+      "extract URL hints — meta_refresh / get_meta_refresh",
+      1.3079691975429835e-06,
+      1.281793213081528e-05
+    ],
+    [
+      "xpath_path for every element — daring fireball (10 kB)",
+      1.7796525715615037e-05,
+      0.000104507066377361
+    ],
+    [
+      "xpath_path for every element — ars technica (56 kB)",
+      9.253837077949356e-05,
+      0.0005440979818255679
+    ],
+    [
+      "xpath_path for every element — mozilla blog (95 kB)",
+      0.0002615132916616858,
+      0.0014860559867884149
+    ],
+    [
+      "xpath_path for every element — whatwg spec (235 kB)",
+      0.002091870661388384,
+      0.005999568563614351
+    ],
+    [
+      "CSS selector to XPath 1.0 — type",
+      2.640240459594878e-07,
+      9.842135109868384e-07
+    ],
+    [
+      "CSS selector to XPath 1.0 — compound",
+      3.6135755669223596e-07,
+      1.2697892903664373e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — structural",
+      3.2540196855575704e-07,
+      1.188541328881835e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — complex",
+      5.341311034949096e-07,
+      2.2424150268799774e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — group",
+      5.651620250309483e-07,
+      1.5187969604350352e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //div",
+      1.745078613168971e-06,
+      4.351151188567807e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[@href]",
+      3.691021862225104e-07,
+      6.780893964256999e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //div//a[@href]",
+      1.4854132333042003e-06,
+      1.4103278275001685e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — /html/body/div",
+      7.837590099886901e-07,
+      2.2383263470260317e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //div//a[1]",
+      9.514070292482302e-06,
+      1.1651746968747526e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[contains(@href, '/')]",
+      3.834010232258341e-07,
+      5.760050871828071e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //div[position() <= 3]",
+      5.406754812753434e-06,
+      2.8075144532143288e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a/ancestor::div",
+      3.789716562045224e-07,
+      4.054721404855854e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a \\| //span",
+      6.387656541484432e-07,
+      4.7029338373268574e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //\\*[local-name() = 'a']",
+      4.605683644835305e-06,
+      1.6195300612290946e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — count(//a)",
+      3.8665040332415873e-07,
+      4.918126425224045e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[@href=$x] (variable)",
+      4.999458513843535e-07,
+      5.918735504669333e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[re:test(@href, ...)] (EXSLT)",
+      3.6701578591073297e-07,
+      5.749685069389443e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — set:distinct(//a) (EXSLT)",
+      4.1995774339535313e-07,
+      4.213673482430143e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a/@href (smart_strings)",
+      4.728447594951983e-07,
+      4.0531374724632014e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ext(//a) (extensions)",
+      9.035556593299058e-07,
+      5.6260431122723276e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ext(//a)/@href (node-set extension)",
+      9.522191160016291e-07,
+      4.760811708119188e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //svg:rect (namespaces=)",
+      5.67217930994938e-07,
+      4.354642650620614e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — $rows/div (node-set variable)",
+      2.4818636627325454e-06,
+      1.8163372440464325e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[@href] (precompiled, reused)",
+      3.157739378867319e-07,
+      2.787334660562616e-06
+    ],
+    [
+      "extract filtered page links — daring fireball (10 kB)",
+      0.00011679115103409761,
+      6.519032795419359e-05
+    ],
+    [
+      "extract filtered page links — ars technica (56 kB)",
+      0.0002801564667909891,
+      0.00014600523566817478
+    ],
+    [
+      "extract filtered page links — mozilla blog (95 kB)",
+      0.000471195963655191,
+      0.0002125553384454785
+    ],
+    [
+      "extract filtered page links — whatwg spec (235 kB)",
+      0.0007857300367201484,
+      0.0002679996470457506
     ]
   ]
 }

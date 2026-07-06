@@ -7,24 +7,29 @@
   "metrics": [],
   "rows": [
     [
-      "article (2 KiB)",
-      1.3e-05,
-      0.000542
+      "HTML to Markdown — article (2 KiB)",
+      2.8437529652573326e-06,
+      0.0005945563710459586
     ],
     [
-      "list (4 KiB)",
-      2.3e-05,
-      0.001143
+      "HTML to Markdown — list (4 KiB)",
+      4.473652719383381e-06,
+      0.0012528524293884402
     ],
     [
-      "table (4 KiB)",
-      2.6e-05,
-      0.001017
+      "HTML to Markdown — table (4 KiB)",
+      7.252792357803628e-06,
+      0.0010966754531788563
     ],
     [
-      "google_doc (4 KiB)",
-      1.8e-05,
-      0.00056
+      "HTML to Markdown — configured (4 KiB)",
+      1.5332899252484822e-05,
+      0.0012333886719109917
+    ],
+    [
+      "Google Docs export to Markdown — google_doc (4 KiB)",
+      1.0660914957346298e-05,
+      0.0005963722342130495
     ]
   ]
 }

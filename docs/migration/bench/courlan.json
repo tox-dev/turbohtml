@@ -7,14 +7,34 @@
   "metrics": [],
   "rows": [
     [
-      "clean 100 URLs",
-      0.00028342558066469793,
-      0.0005439496146815751
+      "clean and normalize 100 URLs — clean 100 URLs",
+      0.0002621699758644051,
+      0.0005255713435872167
     ],
     [
-      "normalize 100 URLs",
-      0.0002275000961541688,
-      0.00041321260860816743
+      "clean and normalize 100 URLs — normalize 100 URLs",
+      0.00021632934567605844,
+      0.00040415077076734934
+    ],
+    [
+      "extract filtered page links — daring fireball (10 kB)",
+      0.00011679115103409761,
+      0.0003636480312252388
+    ],
+    [
+      "extract filtered page links — ars technica (56 kB)",
+      0.0002801564667909891,
+      0.0007468728839133595
+    ],
+    [
+      "extract filtered page links — mozilla blog (95 kB)",
+      0.000471195963655191,
+      0.0009888284530461533
+    ],
+    [
+      "extract filtered page links — whatwg spec (235 kB)",
+      0.0007857300367201484,
+      0.0014843691409017386
     ]
   ]
 }

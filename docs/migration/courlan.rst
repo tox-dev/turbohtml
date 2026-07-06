@@ -105,17 +105,13 @@ Performance
 
 :func:`~turbohtml.extract.clean_url` and :func:`~turbohtml.extract.normalize_url` produce the WHATWG canonical form (the
 serialization a browser's address bar would show) and layer courlan's crawl canonicalization (query sorting, tracker
-removal, the strict allowlist, the language filter) on top, about 2x faster per URL:
+removal, the strict allowlist, the language filter) on top, about 2x faster per URL.
+:func:`~turbohtml.extract.extract_links` reads anchors from the real WHATWG DOM instead of regex-scanning the markup, so
+links inside comments or scripts never leak in, a ``<base href>`` is honored, and pages whose navigation repeats the
+same targets clean each spelling once, 1.4x-2.4x ahead over real saved pages even with the parse in the loop:
 
 .. bench-table::
     :file: bench/courlan.json
-
-:func:`~turbohtml.extract.extract_links` reads anchors from the real WHATWG DOM instead of regex-scanning the markup, so
-links inside comments or scripts never leak in, a ``<base href>`` is honored, and pages whose navigation repeats the
-same targets clean each spelling once -- 1.4x-2.4x ahead over real saved pages even with the parse in the loop:
-
-.. bench-table::
-    :file: bench/courlan-2.json
 
 Over the 290 URLs in courlan's own test suite the two libraries return identical output for 66% of inputs and agree up
 to the WHATWG root-slash serialization for 90%; every remaining divergence is deliberate and listed under

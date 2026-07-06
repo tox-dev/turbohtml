@@ -8,22 +8,22 @@
   "rows": [
     [
       "``find`` comment (1 link, 1 email)",
-      6e-07,
-      2.9e-05
+      7e-07,
+      3e-05
     ],
     [
       "``find`` prose (1 KiB)",
-      8.4e-06,
-      0.0003072
+      8.9e-06,
+      0.0003165
     ],
     [
       "``has_link`` comment",
       3e-07,
-      2.14e-05
+      2.24e-05
     ],
     [
       "``has_link`` prose (1 KiB)",
-      2.4e-06,
+      2.5e-06,
       4.8e-06
     ]
   ]

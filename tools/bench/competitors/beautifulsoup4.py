@@ -5,7 +5,8 @@ from __future__ import annotations
 import functools
 import re
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, UnicodeDammit
+from bs4.element import AttributeValueList
 
 from bench.timing import Mutating
 
@@ -13,6 +14,8 @@ REQUIREMENTS = ("beautifulsoup4>=4.15",)
 
 _FIND_TEXT_PATTERN = re.compile(r"test")
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
+_SET_TEXT = "Replacement text, escaped & verbatim."
+_STRIP = ("code", "a", "q")
 
 
 def parse(text: str) -> None:
@@ -97,6 +100,47 @@ def serialize(text: str) -> None:
     _parsed(text).decode()
 
 
+def class_edit(text: str) -> None:
+    """Add then drop a class token on every link through BeautifulSoup's multi-valued class list (a net no-op)."""
+    for anchor in _parsed(text).find_all("a"):
+        tokens = anchor.get_attribute_list("class")
+        anchor["class"] = AttributeValueList([*tokens, "seen"])
+        anchor["class"] = tokens
+
+
+def extract_attr(text: str) -> None:
+    """Read every anchor's href by selecting once and reading the attribute off each node."""
+    for anchor in _parsed(text).select("a"):
+        anchor.get("href")
+
+
+def extract_text(text: str) -> None:
+    """Read every anchor's visible text by selecting once and reading get_text off each node."""
+    for anchor in _parsed(text).select("a"):
+        anchor.get_text()
+
+
+def strip_remove(text: str) -> None:
+    """Drop every code/a/q subtree with BeautifulSoup's decompose on a fresh parse, then serialize."""
+    soup = _fresh(text)
+    for tag in list(soup.find_all(_STRIP)):
+        tag.decompose()
+    _ = soup.decode()
+
+
+def strip_tags(text: str) -> None:
+    """Unwrap every code/a/q element keeping its content with BeautifulSoup's unwrap on a fresh parse, then emit."""
+    soup = _fresh(text)
+    for tag in list(soup.find_all(_STRIP)):
+        tag.unwrap()
+    _ = soup.decode()
+
+
+def encoding(data: bytes) -> None:
+    """Detect a byte stream's encoding with BeautifulSoup's UnicodeDammit sniffer."""
+    _ = UnicodeDammit(data).original_encoding
+
+
 def edit(soup: BeautifulSoup) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through BeautifulSoup's item assignment."""
     for anchor in soup.find_all("a"):
@@ -109,6 +153,11 @@ def set_html(soup: BeautifulSoup) -> None:
     body.clear()
     for node in list(BeautifulSoup(_SET_HTML, "html.parser").children):
         body.append(node)
+
+
+def set_text(soup: BeautifulSoup) -> None:
+    """Replace a freshly parsed body's children with one verbatim text node through BeautifulSoup's .string."""
+    soup.find_all("body")[0].string = _SET_TEXT
 
 
 def navigate(text: str) -> None:
@@ -128,7 +177,14 @@ OPERATIONS = {
     "find-text": (find_text, "BeautifulSoup"),
     "text-content": (text_content, "BeautifulSoup"),
     "serialize": (serialize, "BeautifulSoup"),
+    "class-edit": (class_edit, "BeautifulSoup"),
+    "extract-attr": (extract_attr, "BeautifulSoup"),
+    "extract-text": (extract_text, "BeautifulSoup"),
+    "strip-remove": (strip_remove, "BeautifulSoup"),
+    "strip-tags": (strip_tags, "BeautifulSoup"),
+    "encoding": (encoding, "BeautifulSoup"),
     "edit": (Mutating(_fresh, edit), "BeautifulSoup"),
     "set-html": (Mutating(_fresh, set_html), "BeautifulSoup"),
+    "set-text": (Mutating(_fresh, set_text), "BeautifulSoup"),
     "navigate": (navigate, "BeautifulSoup"),
 }

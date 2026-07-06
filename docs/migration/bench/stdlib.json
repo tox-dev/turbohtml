@@ -2,29 +2,179 @@
   "label": "operation",
   "parties": [
     "turbohtml",
-    "standard library"
+    "stdlib"
   ],
   "metrics": [],
   "rows": [
     [
-      "escape medium markup (4 KiB)",
-      2.27e-06,
-      7.19e-06
+      "escape — tiny plain (64 B)",
+      5.623107496299795e-08,
+      1.1727314504679971e-07
     ],
     [
-      "unescape medium dense refs (4 KiB)",
-      8.1e-06,
-      6.93e-05
+      "escape — medium markup (4 KiB)",
+      2.211593628231867e-06,
+      7.310933436125803e-06
     ],
     [
-      "tokenize typical markup",
-      3.49e-05,
-      0.000435
+      "escape — no-op prose (4 MiB)",
+      0.00011572539616129991,
+      0.0025412250415683957
     ],
     [
-      "feed and dispatch wpt page (9.6 kB)",
-      8.21e-05,
-      0.000362
+      "escape — book text (3 MiB)",
+      0.0006737758227851979,
+      0.002648827041412005
+    ],
+    [
+      "escape — book HTML (4 MiB)",
+      0.0012184385859654867,
+      0.004740024311710537
+    ],
+    [
+      "escape — spec HTML, dense (4 MiB)",
+      0.004922924051546336,
+      0.012958730920217931
+    ],
+    [
+      "escape — UCS-2 plain (4 MiB)",
+      0.0008034076587743281,
+      0.0026243576351892748
+    ],
+    [
+      "escape — UCS-2 markup (4 MiB)",
+      0.005700351989313883,
+      0.01117964495885341
+    ],
+    [
+      "escape — UCS-4 plain (4 MiB)",
+      0.0009201176198985195,
+      0.005728968322121848
+    ],
+    [
+      "escape — UCS-4 markup (4 MiB)",
+      0.0066868749806114165,
+      0.020036562496291783
+    ],
+    [
+      "unescape — tiny plain (64 B)",
+      3.402820554961513e-08,
+      3.770831895807033e-08
+    ],
+    [
+      "unescape — medium dense refs (4 KiB)",
+      7.0881890271342245e-06,
+      7.073347980697993e-05
+    ],
+    [
+      "unescape — numeric refs (4 KiB)",
+      4.973883311739276e-06,
+      7.916993520969602e-05
+    ],
+    [
+      "unescape — book HTML, real refs (4 MiB)",
+      0.0033415073861154574,
+      0.008718981768955322
+    ],
+    [
+      "unescape — escaped book HTML (5 MiB)",
+      0.0017557109373835071,
+      0.025258956588610697
+    ],
+    [
+      "unescape — dense refs (4 MiB)",
+      0.009669105915236287,
+      0.08569784031715244
+    ],
+    [
+      "unescape — UCS-2 refs (4 MiB)",
+      0.002747152557276422,
+      0.019140013871947303
+    ],
+    [
+      "tokenize — typical markup",
+      2.850034252332989e-05,
+      0.0004414125428411353
+    ],
+    [
+      "tokenize — text-heavy prose",
+      5.352175495391501e-07,
+      2.7444104109264345e-06
+    ],
+    [
+      "tokenize — attribute-heavy",
+      1.8196972282188046e-05,
+      0.00028636916802800744
+    ],
+    [
+      "tokenize — script-heavy",
+      1.1540122130782038e-05,
+      0.00015157994240174352
+    ],
+    [
+      "tokenize — entity-heavy",
+      1.9770048344488107e-05,
+      0.00019210245742821522
+    ],
+    [
+      "tokenize — wpt tiny (0.6 kB)",
+      1.5225931804252468e-06,
+      1.8361440022355662e-05
+    ],
+    [
+      "tokenize — wpt small (4 kB)",
+      1.1941012900251735e-05,
+      0.00016668942608551637
+    ],
+    [
+      "tokenize — wpt medium (9.6 kB)",
+      2.7283827061334403e-05,
+      0.00038736336258201237
+    ],
+    [
+      "tokenize — wpt large (92 kB)",
+      0.0003137674153398014,
+      0.0039036731783805103
+    ],
+    [
+      "tokenize — wpt CJK (124 kB)",
+      0.0005495737852167318,
+      0.008580494793325974
+    ],
+    [
+      "tokenize — whatwg spec (235 kB)",
+      0.0006236525600797904,
+      0.007421941852953751
+    ],
+    [
+      "tokenize — ecmascript spec (3 MB)",
+      0.006204321175270404,
+      0.053893618169240654
+    ],
+    [
+      "tokenize — whatwg spec source (7.9 MB)",
+      0.036529104167129844,
+      0.3696966113445039
+    ],
+    [
+      "feed and dispatch a page — daring fireball (10 kB)",
+      8.5911492192281e-05,
+      0.0003118835996550236
+    ],
+    [
+      "feed and dispatch a page — ars technica (56 kB)",
+      0.00037181499548448,
+      0.0014061916223605901
+    ],
+    [
+      "feed and dispatch a page — mozilla blog (95 kB)",
+      0.000809468640909472,
+      0.003202896709505391
+    ],
+    [
+      "feed and dispatch a page — whatwg spec (235 kB)",
+      0.002442469186765569,
+      0.007187183167843614
     ]
   ]
 }

@@ -7,19 +7,19 @@
   "metrics": [],
   "rows": [
     [
-      "article (2 KiB)",
-      7e-06,
-      0.000102
+      "layout-aware text — article (2 KiB)",
+      1.634763509154406e-06,
+      0.00010068393324521215
     ],
     [
-      "table (4 KiB)",
-      2.8e-05,
-      0.000258
+      "layout-aware text — table (4 KiB)",
+      1.014027911357592e-05,
+      0.0002679484596228576
     ],
     [
-      "word stream (2 KiB)",
-      7e-06,
-      0.000101
+      "collapsed word stream — collapsed (2 KiB)",
+      2.1583046360499716e-06,
+      0.00010566711421233776
     ]
   ]
 }

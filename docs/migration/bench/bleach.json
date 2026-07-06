@@ -7,24 +7,29 @@
   "metrics": [],
   "rows": [
     [
-      "sanitize comment (1 link, 1 script)",
-      1.5e-06,
-      7.81e-05
+      "sanitize — comment",
+      1.5661981359234762e-06,
+      8.777323406169064e-05
     ],
     [
-      "sanitize post (4 KiB)",
-      4.21e-05,
-      0.001921
+      "sanitize — post 4 KiB",
+      4.253394920776069e-05,
+      0.0021854763484346527
     ],
     [
-      "linkify prose (1 KiB)",
-      5.1e-05,
-      0.000272
+      "linkify HTML — comment (1 link, 1 email)",
+      3.144994516664686e-06,
+      5.7175401366293954e-05
     ],
     [
-      "linkify markup (4 KiB)",
-      0.000127,
-      0.001562
+      "linkify HTML — prose (1 KiB)",
+      5.230794270498033e-05,
+      0.00029346039453533496
+    ],
+    [
+      "linkify HTML — markup (4 KiB)",
+      0.00013011576371961078,
+      0.0016798524272113962
     ]
   ]
 }

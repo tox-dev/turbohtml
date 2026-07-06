@@ -18,6 +18,11 @@ def strip_tags(text: str) -> None:
     w3lib.html.remove_tags(text, which_ones=("code", "a", "q"))
 
 
+def strip_remove(text: str) -> None:
+    """Drop the code/a/q tags and their content with w3lib's regex remove_tags_with_content."""
+    w3lib.html.remove_tags_with_content(text, which_ones=("code", "a", "q"))
+
+
 _URL_HINT_BASE = "http://site.com/"
 
 
@@ -41,6 +46,7 @@ def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
 OPERATIONS = {
     "unescape": (unescape, "w3lib"),
     "strip-tags": (strip_tags, "w3lib"),
+    "strip-remove": (strip_remove, "w3lib"),
     "extract-url": (extract_url, "w3lib"),
     "urls-clean": (urls_clean, "w3lib"),
 }

@@ -7,29 +7,144 @@
   "metrics": [],
   "rows": [
     [
-      "parse wpt page (4 kB)",
-      1.14e-05,
-      0.00062
+      "parse to a tree — wpt tiny (0.6 kB)",
+      1.2054635162665288e-06,
+      0.00010443516729689388
     ],
     [
-      "parse wpt page (92 kB)",
-      0.000272,
-      0.0167
+      "parse to a tree — wpt small (4 kB)",
+      9.572675923645116e-06,
+      0.0006940414505152148
     ],
     [
-      "tokenize typical markup",
-      3.49e-05,
-      0.000836
+      "parse to a tree — wpt medium (9.6 kB)",
+      2.4204705122580588e-05,
+      0.0014664487838066027
     ],
     [
-      "tokenize whatwg spec (235 kB)",
-      0.000708,
-      0.0201
+      "parse to a tree — wpt large (92 kB)",
+      0.00020682538471798276,
+      0.016958293374045752
     ],
     [
-      "parse fragment, table row (2 kB)",
-      1.26e-05,
-      0.000867
+      "parse to a tree — wpt CJK (124 kB)",
+      0.00040738677201564616,
+      0.03048450001127397
+    ],
+    [
+      "parse to a tree — whatwg spec (235 kB)",
+      0.00040489729690307286,
+      0.03311895475295993
+    ],
+    [
+      "parse a fragment — table-row fragment (2 kB)",
+      1.1416774332436338e-05,
+      0.0008482071404311379
+    ],
+    [
+      "tokenize — typical markup",
+      2.850034252332989e-05,
+      0.0008168881277015316
+    ],
+    [
+      "tokenize — text-heavy prose",
+      5.352175495391501e-07,
+      0.00014526276330191953
+    ],
+    [
+      "tokenize — attribute-heavy",
+      1.8196972282188046e-05,
+      0.0008045842032515793
+    ],
+    [
+      "tokenize — script-heavy",
+      1.1540122130782038e-05,
+      0.0004967327472513716
+    ],
+    [
+      "tokenize — entity-heavy",
+      1.9770048344488107e-05,
+      0.0012207906875119079
+    ],
+    [
+      "tokenize — wpt tiny (0.6 kB)",
+      1.5225931804252468e-06,
+      4.760103693494481e-05
+    ],
+    [
+      "tokenize — wpt small (4 kB)",
+      1.1941012900251735e-05,
+      0.00042335036869189935
+    ],
+    [
+      "tokenize — wpt medium (9.6 kB)",
+      2.7283827061334403e-05,
+      0.0011581748021853855
+    ],
+    [
+      "tokenize — wpt large (92 kB)",
+      0.0003137674153398014,
+      0.009032965290922826
+    ],
+    [
+      "tokenize — wpt CJK (124 kB)",
+      0.0005495737852167318,
+      0.0223003281231892
+    ],
+    [
+      "tokenize — whatwg spec (235 kB)",
+      0.0006236525600797904,
+      0.019717899335470673
+    ],
+    [
+      "tokenize — ecmascript spec (3 MB)",
+      0.006204321175270404,
+      0.18003980567057928
+    ],
+    [
+      "tokenize — whatwg spec source (7.9 MB)",
+      0.036529104167129844,
+      0.8499476666329429
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      7.136061787112642e-06,
+      0.0004753809142433359
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      4.0697519864352216e-05,
+      0.00195221982721705
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      7.92304008617369e-05,
+      0.004121536447200924
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0002086558697556029,
+      0.013768559040424103
+    ],
+    [
+      "walk every descendant — daring fireball (10 kB)",
+      3.3398501090668256e-06,
+      0.00028289209050550806
+    ],
+    [
+      "walk every descendant — ars technica (56 kB)",
+      1.3796969923873803e-05,
+      0.0011537115860846825
+    ],
+    [
+      "walk every descendant — mozilla blog (95 kB)",
+      2.8212066733127965e-05,
+      0.0025694158017965187
+    ],
+    [
+      "walk every descendant — whatwg spec (235 kB)",
+      0.00010082151267927959,
+      0.009875106770778075
     ]
   ]
 }
