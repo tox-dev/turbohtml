@@ -57,6 +57,9 @@ static inline void sbuf_putc(sbuf *out, Py_UCS4 character) {
 
 /* Append a run of code points in one bulk copy after a single capacity check. */
 static inline void sbuf_put_run(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    if (len == 0) { /* an empty run carries a NULL text pointer, and memcpy declares its source non-null even for 0 */
+        return;
+    }
     sbuf_reserve(out, len);
     if (out->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */

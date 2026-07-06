@@ -294,3 +294,20 @@ def test_serialize_iter_joins_to_serialize_over_corpus(filename: str, layout: In
     assert not mismatches, f"{filename}: {len(mismatches)} chunked outputs differ\n\n" + "\n\n".join(
         repr(source) for source in mismatches[:5]
     )
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<!---->", "<!----><html><head></head><body></body></html>", id="empty-comment"),
+        pytest.param(
+            "<img sc<a.png alt=pic><br><hr><input>\n<!--",
+            '<html><head></head><body><img sc<a.png="" alt="pic"><br><hr><input>\n<!----></body></html>',
+            id="fuzz-empty-run",
+        ),
+    ],
+)
+def test_serialize_empty_run(html: str, expected: str) -> None:
+    # An empty comment (or an unclosed <!-- the parser closes) serializes a zero-length run whose text pointer is
+    # NULL; the run must be skipped rather than handed to memcpy, whose source is declared non-null even for length 0.
+    assert parse(html).serialize() == expected
