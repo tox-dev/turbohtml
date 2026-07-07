@@ -48,6 +48,7 @@ typedef struct {
     PyObject *node_iterator_type;    /* NodeIterator (the DOM flat filtered traversal object) */
     PyObject *string_walker_type;    /* _StringIterator (strings / stripped_strings) */
     PyObject *serialize_iter_type;   /* _SerializeIterator (serialize_iter chunk stream) */
+    PyObject *sax_events_type;       /* _SaxEvents (the O(depth) event walk behind saxparse) */
     PyObject *namespace_enum;        /* Namespace (enum.Enum) */
     PyObject *namespaces[3];         /* cached Namespace members, indexed by enum th_ns */
     PyObject *axis_enum;             /* Axis (enum.Enum) for find()/find_all() */
@@ -96,6 +97,13 @@ typedef struct {
 int token_register(PyObject *module, module_state *state);
 int tokenizer_register(PyObject *module, module_state *state);
 int tree_register(PyObject *module, module_state *state);
+int sax_register(PyObject *module, module_state *state);
+
+/* Parse markup and return a _SaxEvents iterator that walks the constructed tree in
+   document order, yielding one event tuple at a time without ever handing back a
+   tree. Wired as the private _sax_events() behind turbohtml.saxparse. Matches
+   METH_O. */
+PyObject *turbohtml_sax_events(PyObject *module, PyObject *arg);
 int range_register(PyObject *module, module_state *state);
 
 /* Free every node wrapper parked on the freelist; called from module teardown

@@ -72,6 +72,7 @@ _DOCUMENT_OPS = (
     "extract-attr",
     "extract-text",
     "htmlparser",
+    "sax",
     "path",
     "path-xpath",
     "links-filter",

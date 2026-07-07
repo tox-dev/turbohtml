@@ -108,6 +108,42 @@ self-closes any element, and a CDATA section becomes its own node:
 A mismatched or unclosed tag is a well-formedness error there, not something to recover from -- it raises
 :exc:`~turbohtml.HTMLParseError` instead of building a repaired tree.
 
+Tokens are the raw stream; they know nothing about tree structure. When you want the events a browser's parser would
+fire -- with the implied ``<html>``, ``<head>``, and ``<body>`` filled in and stray table content foster-parented into
+place -- but you do not want to hold a tree, reach for :mod:`turbohtml.saxparse`.
+:func:`~turbohtml.saxparse.iter_events` parses a document and yields typed events in document order, materializing one
+at a time and keeping no tree:
+
+.. testcode::
+
+    from turbohtml.saxparse import iter_events
+
+    for event in iter_events("<table>stray<tr><td>cell"):
+        print(event)
+
+.. testoutput::
+
+    StartElement(tag='html', attrs=())
+    StartElement(tag='head', attrs=())
+    EndElement(tag='head')
+    StartElement(tag='body', attrs=())
+    Characters(data='stray')
+    StartElement(tag='table', attrs=())
+    StartElement(tag='tbody', attrs=())
+    StartElement(tag='tr', attrs=())
+    StartElement(tag='td', attrs=())
+    Characters(data='cell')
+    EndElement(tag='td')
+    EndElement(tag='tr')
+    EndElement(tag='tbody')
+    EndElement(tag='table')
+    EndElement(tag='body')
+    EndElement(tag='html')
+
+The ``<tbody>`` no one wrote is there, and ``stray`` was moved out ahead of the ``<table>`` -- the tree the parser
+builds, delivered as events rather than nodes. If you prefer callbacks over a loop, subclass
+:class:`~turbohtml.saxparse.SaxHandler` and pass it to :func:`~turbohtml.saxparse.sax_parse`.
+
 That is the whole tokenizer API. If you are porting an existing :class:`python:html.parser.HTMLParser` subclass,
 :class:`turbohtml.migration.stdlib.HTMLParser` keeps the same ``handle_*`` callbacks over this tokenizer, so the
 migration is changing the base class. Head to the :doc:`/how-to/index` guides for task-focused recipes or the

@@ -89,6 +89,10 @@ typedef struct {
     Py_ssize_t attr_count;
     Py_ssize_t attr_cap;
     int self_closing;
+    /* a COMMENT token the tokenizer opened from `<?` (an unexpected question mark
+       instead of a tag name): WHATWG makes it a bogus comment, but the SAX walk
+       reports it as a processing instruction, matching html.parser's handle_pi */
+    int is_pi;
     /* DOCTYPE only */
     th_buf public_id;
     th_buf system_id;

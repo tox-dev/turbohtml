@@ -35,6 +35,8 @@ from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
 from turbohtml.query import Query as _Query
+from turbohtml.saxparse import SaxHandler as _SaxHandler
+from turbohtml.saxparse import sax_parse as _sax_parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -542,6 +544,23 @@ def htmlparser(text: str) -> None:
     parser.close()
 
 
+class _SaxCounter(_SaxHandler):
+    """A SAX handler whose start-tag callback does the same minimal work as the html.parser counters."""
+
+    def __init__(self) -> None:
+        """Start the running tally."""
+        self.work = 0
+
+    def start_element(self, tag: str, attrs: tuple[tuple[str, str | None], ...]) -> None:
+        """Tally a start tag and its attribute count."""
+        self.work += len(tag) + len(attrs)
+
+
+def sax(text: str) -> None:
+    """Parse the whole document into SAX events, dispatched to a counting handler, retaining no tree."""
+    _sax_parse(text, _SaxCounter())
+
+
 def css_path(text: str) -> None:
     """Generate the unique CSS selector that re-finds every element with turbohtml's css_path."""
     for node in _parsed(text).descendants:
@@ -719,6 +738,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "extract-text": (extract_text, "turbohtml"),
     "extract-url": (extract_url, "turbohtml"),
     "htmlparser": (htmlparser, "turbohtml"),
+    "sax": (sax, "turbohtml"),
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
     "translate": (translate, "turbohtml"),

@@ -440,6 +440,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (ch == '?') {
                 tok_error(self, "unexpected-question-mark-instead-of-tag-name");
                 init_markup(self, TH_COMMENT);
+                self->tok.is_pi = 1; /* a `<?` bogus comment the SAX walk reports as a processing instruction */
                 self->state = ST_BOGUS_COMMENT;
                 continue;
             }

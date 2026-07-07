@@ -235,6 +235,7 @@ OPERATIONS: dict[str, Operation] = {
     "extract-text": Operation("extract text per match", "us"),
     "extract-url": Operation("extract URL hints", "us"),
     "htmlparser": Operation("feed and dispatch a page", "us"),
+    "sax": Operation("SAX parse a page (no tree)", "us"),
     "path": Operation("css_path for every element", "us"),
     "path-xpath": Operation("xpath_path for every element", "us"),
     "translate": Operation("CSS selector to XPath 1.0", "us"),

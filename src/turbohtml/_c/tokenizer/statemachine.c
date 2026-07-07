@@ -268,6 +268,7 @@ static void token_reset(th_token *tok) {
     }
     tok->attr_count = 0;
     tok->self_closing = 0;
+    tok->is_pi = 0;
     buf_reset(&tok->public_id);
     buf_reset(&tok->system_id);
     tok->has_public_id = 0;

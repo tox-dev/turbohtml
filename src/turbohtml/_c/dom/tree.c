@@ -940,6 +940,9 @@ static void insert_comment(th_tree *tree, const th_token *token, th_node *parent
         return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     node->text = buf_to_ucs4(tree, &token->text, &node->text_len);
+    if (token->is_pi) {
+        node->tag_flags |= TH_COMMENT_IS_PI; /* a `<?` bogus comment the SAX walk reports as a PI */
+    }
     if (parent != NULL) {
         node_append(parent, node);
         return;

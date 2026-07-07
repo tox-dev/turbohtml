@@ -51,4 +51,5 @@ OPERATIONS = {
     "unescape": (unescape, "stdlib"),
     "tokenize": (tokenize, "stdlib"),
     "htmlparser": (htmlparser, "html.parser"),
+    "sax": (htmlparser, "html.parser"),
 }

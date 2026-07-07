@@ -64,6 +64,9 @@ What turbohtml adds
   ``html.parser`` tokenizes but never builds a tree and is documented as not HTML5-conformant.
 - A token stream you drive yourself through :func:`turbohtml.tokenize` and :class:`turbohtml.Tokenizer`, instead of
   inverting control into callbacks.
+- An event-driven parse, :func:`turbohtml.saxparse.sax_parse`, that keeps ``html.parser``'s callback shape but fires on
+  the constructed tree -- implied tags, foster parenting, the adoption agency -- which the standard library never
+  builds.
 - Verbatim source capture per token (``capture_source=True`` → ``token.source``) and unresolved reference tokens
   (``resolve_references=False`` → ``TokenType.CHARACTER_REFERENCE``).
 - SIMD-accelerated escape/unescape scanning.
@@ -163,6 +166,57 @@ inverts the control flow. Each ``handle_*`` override becomes a branch on :attr:`
 .. testoutput::
 
     [('start', 'p', [('class', 'x')]), ('data', 'Hi & bye'), ('end', 'p')]
+
+If you liked ``html.parser``'s callback shape and only want the WHATWG-correct tree behind it,
+:func:`turbohtml.saxparse.sax_parse` keeps that shape: subclass :class:`turbohtml.saxparse.SaxHandler`, override the
+events you need, and the parser fires them on the constructed tree rather than the raw tags. The ``handle_*`` methods
+map onto SAX methods one-to-one:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - ``html.parser`` override
+      - ``SaxHandler`` override
+    - - ``handle_starttag(tag, attrs)``
+      - ``start_element(tag, attrs)``
+    - - ``handle_endtag(tag)``
+      - ``end_element(tag)``
+    - - ``handle_data(data)``
+      - ``characters(data)``
+    - - ``handle_comment(data)``
+      - ``comment(data)``
+    - - ``handle_decl(decl)``
+      - ``doctype(name, public_id, system_id)``
+    - - ``handle_pi(data)``
+      - ``processing_instruction(data)``
+
+.. testcode::
+
+    from turbohtml.saxparse import SaxHandler, sax_parse
+
+
+    class Collector(SaxHandler):
+        def __init__(self):
+            self.starts = []
+
+        def start_element(self, tag, attrs):
+            self.starts.append(tag if not attrs else f"{tag} {dict(attrs)}")
+
+
+    collector = Collector()
+    sax_parse("<table><td>cell", collector)
+    print(collector.starts)
+
+.. testoutput::
+
+    ['html', 'head', 'body', 'table', 'tbody', 'tr', 'td']
+
+``html.parser`` would report just ``table`` and ``td``; the SAX events carry the implied ``html``/``head``/``body`` and
+the foster-parented ``tbody``/``tr`` the tree builder inserts. Unlike ``html.parser``, ``sax_parse`` builds the working
+tree (freed at the end) rather than streaming in constant space, so it is the tool for a spec-correct one-pass
+extraction, not for a document larger than memory. The :doc:`/how-to/sax` guide has more, and :doc:`/explanation/sax`
+covers the memory model.
 
 ***********************
  Unicode normalization

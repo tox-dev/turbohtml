@@ -39,6 +39,7 @@ It is the wrong tool in a few honest cases:
     stdlib-parity
     parsing
     xml
+    sax
     source-locations
     tree-model
     traversal

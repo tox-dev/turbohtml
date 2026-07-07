@@ -76,6 +76,12 @@ enum th_node_type {
 #define TH_SHADOW_ROOT 0x01u
 #define TH_SHADOW_CLOSED 0x02u
 
+/* A comment node the parser built from a `<?` bogus comment (a comment carries no
+   element category bits, so this bit is free on it, disjoint from the content-node
+   shadow bits above). The SAX walk reads it to report the node as a processing
+   instruction rather than a comment. */
+#define TH_COMMENT_IS_PI 0x01u
+
 /* An attribute on an element node. The name is interned to an atom: a static
    compile-time id for common names (attr_atom.h), or a per-tree dynamic id for
    the rest. attr_record() recovers the name bytes for serialization and
