@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,7 +19,7 @@ from turbohtml.clean import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
 
 
 def _style_policy(
@@ -358,6 +359,105 @@ def test_style_double_quoted_url_scheme_is_stripped() -> None:
     assert "style=" not in sanitize("""<p style='color: url("javascript:x")'>y</p>""", _style_policy())
 
 
+_COLOR_ALIGN = {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^right$|^center$"]}
+
+
+def _allowed_styles_policy(
+    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]],
+    *,
+    css_properties: frozenset[str] = frozenset({"color", "text-align", "width"}),
+) -> Policy:
+    """A <p style> / <span style> policy carrying a per-property value allowlist for exercising allowed_styles."""
+    return Policy(
+        tags=frozenset({"p", "span"}),
+        attributes={"*": frozenset({"style"})},
+        css_properties=css_properties,
+        allowed_styles=allowed_styles,
+    )
+
+
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [
+        pytest.param("color: #fff", 'style="color: #fff"', id="value-matches-pattern"),
+        pytest.param("color: red", None, id="value-fails-every-pattern"),
+        pytest.param("text-align: center", 'style="text-align: center"', id="second-property-matches"),
+        pytest.param("width: 5px", None, id="property-not-listed-dropped"),
+        pytest.param("color: #fff; width: 5px", 'style="color: #fff"', id="listed-kept-unlisted-dropped"),
+        pytest.param("color: rgb(1,2,3)", 'style="color: rgb(1,2,3)"', id="second-pattern-of-a-property"),
+        pytest.param("color:", None, id="empty-value-no-pattern-matches"),
+    ],
+)
+def test_allowed_styles_narrows_by_value(style: str, expected: str | None) -> None:
+    out = sanitize(f'<p style="{style}">x</p>', _allowed_styles_policy({"*": _COLOR_ALIGN}))
+    if expected is None:
+        assert "style=" not in out
+    else:
+        assert expected in out
+
+
+def test_allowed_styles_wildcard_applies_to_every_tag() -> None:
+    # the "*" tag key matches any element, so a <span> is narrowed the same as a <p>
+    policy = _allowed_styles_policy({"*": {"color": [r"^blue$"]}})
+    assert sanitize('<span style="color: blue">x</span>', policy) == '<span style="color: blue">x</span>'
+    assert "style=" not in sanitize('<span style="color: green">x</span>', policy)
+
+
+def test_allowed_styles_tag_specific_leaves_other_tags_to_name_allowlist() -> None:
+    # a rule keyed only by "span" narrows <span>; a <p> keeps the css_properties baseline (no value narrowing)
+    policy = _allowed_styles_policy({"span": {"color": [r"^blue$"]}})
+    assert "style=" not in sanitize('<span style="color: red; width: 5px">x</span>', policy)
+    assert sanitize('<p style="color: red; width: 5px">x</p>', policy) == '<p style="color: red; width: 5px">x</p>'
+
+
+def test_allowed_styles_merges_tag_and_wildcard() -> None:
+    # a property listed by the tag and by "*" unions both pattern lists; distinct properties from each both apply
+    policy = _allowed_styles_policy({
+        "p": {"color": [r"^red$"]},
+        "*": {"color": [r"^blue$"], "text-align": [r"^left$"]},
+    })
+    assert sanitize('<p style="color: red">x</p>', policy) == '<p style="color: red">x</p>'
+    assert sanitize('<p style="color: blue">x</p>', policy) == '<p style="color: blue">x</p>'
+    assert sanitize('<p style="text-align: left">x</p>', policy) == '<p style="text-align: left">x</p>'
+    assert "style=" not in sanitize('<p style="color: green">x</p>', policy)
+
+
+def test_allowed_styles_accepts_precompiled_patterns() -> None:
+    policy = _allowed_styles_policy({"*": {"color": [re.compile(r"^teal$")]}})
+    assert sanitize('<p style="color: teal">x</p>', policy) == '<p style="color: teal">x</p>'
+
+
+def test_allowed_styles_patterns_search_unanchored() -> None:
+    # a pattern is applied with re.search, so an unanchored one matches anywhere in the value, like sanitize-html
+    policy = _allowed_styles_policy({"*": {"color": [r"e"]}})
+    assert sanitize('<p style="color: red">x</p>', policy) == '<p style="color: red">x</p>'
+
+
+def test_allowed_styles_still_requires_the_name_allowlist() -> None:
+    # allowed_styles narrows on top of css_properties; a property it lists but css_properties omits stays dropped
+    policy = _allowed_styles_policy({"*": {"color": [r"^red$"]}}, css_properties=frozenset({"width"}))
+    assert "style=" not in sanitize('<p style="color: red">x</p>', policy)
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param("color: expression(alert(1))", id="expression"),
+        pytest.param("color: url(javascript:alert(1))", id="javascript-url"),
+    ],
+)
+def test_allowed_styles_cannot_admit_dangerous_values(style: str) -> None:
+    # the safety baseline runs before the value patterns, so a permissive pattern cannot re-admit dangerous CSS
+    policy = _allowed_styles_policy({"*": {"color": [r".*"]}})
+    assert "style=" not in sanitize(f'<p style="{style}">x</p>', policy)
+
+
+def test_allowed_styles_empty_is_a_noop() -> None:
+    # the default empty mapping leaves css_properties as the only style filter
+    policy = _allowed_styles_policy({})
+    assert sanitize('<p style="color: red; width: 5px">x</p>', policy) == '<p style="color: red; width: 5px">x</p>'
+
+
 def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES) -> Policy:
     """A policy that allowlists the <style> element, so its stylesheet body is scrubbed rather than dropped."""
     return Policy(tags=frozenset({"style"}), attributes={}, css_properties=css_properties)
@@ -398,6 +498,17 @@ def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPER
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
     # an allowlisted <style> keeps its element and structure; each declaration is vetted like a style attribute
     assert sanitize(f"<style>{css}</style>", _style_element_policy()) == f"<style>{expected_body}</style>"
+
+
+def test_allowed_styles_does_not_narrow_style_element_body() -> None:
+    # allowed_styles targets inline style attributes; a <style> body stays governed by css_properties alone
+    policy = Policy(
+        tags=frozenset({"style"}),
+        attributes={},
+        css_properties=frozenset({"color"}),
+        allowed_styles={"*": {"color": [r"^blue$"]}},
+    )
+    assert sanitize("<style>p{color:red}</style>", policy) == "<style>p{color:red;}</style>"
 
 
 @pytest.mark.parametrize("css", ["", "  "], ids=["no-text-child", "whitespace-only"])
@@ -733,10 +844,10 @@ def test_strip_propagates_a_child_filter_error() -> None:
 def test_sanitize_rejects_non_element() -> None:
     from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
 
-    # the sixteen policy arguments after the element; only the non-element first argument matters to this guard
+    # the seventeen policy arguments after the element; only the non-element first argument matters to this guard
     policy_args = (
         frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset(), frozenset(), {},
-        frozenset(), False, None,
+        frozenset(), False, None, {},
     )  # fmt: skip
     with pytest.raises(TypeError):
         _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]

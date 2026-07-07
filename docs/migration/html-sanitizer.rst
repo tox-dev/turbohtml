@@ -69,6 +69,10 @@ What turbohtml adds
 - ``Policy.remove_with_content`` and a fixed safety baseline that drops ``<script>``, ``on*`` event handlers, and
   ``javascript:`` URLs by construction, so no allowlist can re-admit them and script text never leaks into the output.
 - ``Policy.css_properties``: when ``style`` is allowed, its declarations are scrubbed against a safe property set.
+- ``Policy.allowed_styles``: a per-element, per-property value allowlist for the ``style`` attribute, keyed ``{tag:
+  {property: [pattern, ...]}}`` with ``"*"`` matching every tag. It ports sanitize-html's ``allowedStyles`` -- a
+  declaration survives only when its value matches one of the property's patterns -- narrowing ``css_properties`` by
+  value without weakening the dangerous-value baseline.
 - ``Policy.attribute_filter`` to rewrite or drop any surviving attribute value, and ``Policy.set_attributes`` to force
   attribute values onto every kept instance of a tag.
 - ``Policy.add_link_rel`` generalizes ``add_nofollow`` to any ``rel`` token set (for example ``noopener``,

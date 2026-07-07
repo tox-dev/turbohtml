@@ -32,6 +32,10 @@ typedef struct {
     PyObject *css_properties;      /* frozenset[str]: CSS property names kept when scrubbing a `style` attribute */
     PyObject *attribute_prefixes;  /* frozenset[str]: allow any attribute whose name starts with one of these */
     PyObject *attribute_values;    /* dict[str, dict[str, frozenset[str]]]: per (tag, attr) literal value allowlist */
+    PyObject *allowed_styles;      /* dict[str, dict[str, tuple[re.Pattern, ...]]]: per (tag or "*") allowed style
+                                      properties, each mapped to the compiled patterns its value must match, or an empty
+                                      dict when no per-property value allowlist is in force */
+    PyObject *re_search; /* the interned "search" method name, for calling re.Pattern.search from the style scrubber */
     PyObject *media_hosts; /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
     PyObject
         *removed; /* list to append (tag, attr_or_None) records to as the walk drops things, or NULL to not report */
@@ -451,24 +455,84 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     return 0;
 }
 
-/* A CSS property name is ASCII letters, digits, and '-', so an ASCII lowercase is enough to look it up. Returns 1
-   allow, 0 drop, -1 error. */
-static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t len) {
+/* A CSS property name is ASCII letters, digits, and '-', so an ASCII lowercase key is enough to look it up. Callers
+   guarantee 0 < len < 64 (a real property name), so the fixed buffer never overflows. Returns a new str, or NULL on
+   allocation failure. */
+static PyObject *css_property_key(const Py_UCS4 *name, Py_ssize_t len) {
     char lowered[64];
-    if (len == 0 || len >= (Py_ssize_t)sizeof(lowered)) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        lowered[index] = (char)(lower_ascii(name[index]));
+    }
+    return PyUnicode_FromStringAndSize(lowered, len);
+}
+
+/* Is the CSS property `name[0:len]` in the name allowlist? Returns 1 allow, 0 drop, -1 error. */
+static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t len) {
+    if (len == 0 || len >= 64) {
         return 0; /* empty, or longer than any real property name */
     }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 c = name[index];
-        lowered[index] = (char)(lower_ascii(c));
-    }
-    PyObject *key = PyUnicode_FromStringAndSize(lowered, len);
+    PyObject *key = css_property_key(name, len);
     if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int allowed = PySet_Contains(s->css_properties, key);
     Py_DECREF(key);
     return allowed;
+}
+
+/* The per-element resolution of Policy.allowed_styles: the allowlist keyed by the element's own tag and the one keyed
+   by the "*" wildcard, either borrowed or NULL when absent. A NULL styles pointer means allowed_styles imposes nothing
+   on this declaration list (the `<style>` body, and any element no rule applies to), keeping that path branch-free. */
+typedef struct {
+    PyObject *tag_rule;  /* allowed_styles[tag], borrowed, or NULL */
+    PyObject *star_rule; /* allowed_styles["*"], borrowed, or NULL */
+} style_allowlist;
+
+/* Does `value_obj` match one of the patterns `rule` lists for `prop_key`? Following sanitize-html's allowedStyles, a
+   declaration survives only when its property is listed and its value matches a pattern (an unanchored `re.search`,
+   like JavaScript's `RegExp.test`). Returns 1 a pattern matched, 0 the property is absent or no pattern matched, -1
+   error. A NULL rule (the wildcard or tag entry not present) contributes no match. */
+static int css_style_patterns_match(sanitizer *s, PyObject *rule, PyObject *prop_key, PyObject *value_obj) {
+    if (rule == NULL) {
+        return 0;
+    }
+    PyObject *patterns = PyDict_GetItemWithError(rule, prop_key);
+    if (patterns == NULL) {
+        return PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: the str-key lookup cannot itself error */
+    }
+    Py_ssize_t count = PyTuple_GET_SIZE(patterns);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        /* gcc pins the search call's untaken exception edge to this loop-body opening; a compiled re.Pattern.search
+           over a str cannot raise, so that edge is uncoverable */
+        PyObject *pattern = PyTuple_GET_ITEM(patterns, index); /* GCOVR_EXCL_BR_LINE */
+        PyObject *result = PyObject_CallMethodOneArg(pattern, s->re_search, value_obj);
+        if (result == NULL) { /* GCOVR_EXCL_BR_LINE: only a caller-supplied broken pattern could reach here */
+            return -1;        /* GCOVR_EXCL_LINE: allocation/exception-failure path */
+        }
+        int matched = result != Py_None;
+        Py_DECREF(result);
+        if (matched) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Narrow a name-allowlisted declaration through Policy.allowed_styles: the property `name[start:end]` must be listed
+   for the element's own tag or the "*" wildcard (their pattern lists union, so either can admit it) and its value
+   `value_obj` must match one of that property's patterns. Returns 1 keep, 0 drop, -1 error. */
+static int css_style_declaration_allowed(sanitizer *s, const style_allowlist *styles, const Py_UCS4 *name,
+                                         Py_ssize_t name_len, PyObject *value_obj) {
+    PyObject *prop_key = css_property_key(name, name_len);
+    if (prop_key == NULL) { /* GCOVR_EXCL_BR_LINE: the property already passed the name allowlist, so len < 64 */
+        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int matched = css_style_patterns_match(s, styles->tag_rule, prop_key, value_obj);
+    if (matched == 0) {
+        matched = css_style_patterns_match(s, styles->star_rule, prop_key, value_obj);
+    }
+    Py_DECREF(prop_key);
+    return matched;
 }
 
 /* Bytes that continue a CSS identifier, so `expression`/`url` is only recognized as a function name at a token boundary
@@ -555,12 +619,14 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
 }
 
 /* Decide whether the declaration `value[start:end)`, split at `colon` into property and value, survives the policy:
-   its property name must be allowlisted and its value free of expression()/url(disallowed-scheme). On a keep, the
-   trimmed declaration span (property start through the value's last non-whitespace byte) is returned in *name_start
-   and *decl_end. Returns 1 keep, 0 drop, -1 error. Shared by the `style` attribute and `<style>` body scrubbers so the
-   safety rules stay identical across both. */
-static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
-                                Py_ssize_t *name_start_out, Py_ssize_t *decl_end_out) {
+   its property name must be allowlisted and its value free of expression()/url(disallowed-scheme). When `styles` is
+   non-NULL, Policy.allowed_styles narrows further -- the property must be listed and its value match a pattern -- on
+   top of that baseline, never weakening it. On a keep, the trimmed declaration span (property start through the value's
+   last non-whitespace byte) is returned in *name_start and *decl_end. Returns 1 keep, 0 drop, -1 error. Shared by the
+   `style` attribute and `<style>` body scrubbers so the safety rules stay identical across both. */
+static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, const Py_UCS4 *value, Py_ssize_t start,
+                                Py_ssize_t end, Py_ssize_t colon, Py_ssize_t *name_start_out,
+                                Py_ssize_t *decl_end_out) {
     if (colon < start) {
         return 0; /* no property:value split in this declaration, so drop it */
     }
@@ -590,6 +656,25 @@ static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t s
     while (decl_end > colon + 1 && is_space(value[decl_end - 1])) {
         decl_end--;
     }
+    if (styles != NULL) {
+        Py_ssize_t value_start = colon + 1;
+        while (value_start < decl_end && is_space(value[value_start])) {
+            value_start++;
+        }
+        PyObject *value_obj =
+            PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value + value_start, decl_end - value_start);
+        if (value_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int narrowed = css_style_declaration_allowed(s, styles, value + name_start, name_end - name_start, value_obj);
+        Py_DECREF(value_obj);
+        if (narrowed < 0) { /* GCOVR_EXCL_BR_LINE: css_style_declaration_allowed only fails on allocation failure */
+            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (!narrowed) {
+            return 0; /* an unlisted property, or a value no pattern admits, is dropped */
+        }
+    }
     *name_start_out = name_start;
     *decl_end_out = decl_end;
     return 1;
@@ -597,11 +682,11 @@ static int css_declaration_kept(sanitizer *s, const Py_UCS4 *value, Py_ssize_t s
 
 /* Append the declaration `value[start:end)` to `out` if it survives the policy, trimming surrounding whitespace and
    joining kept declarations with "; " (the `style` attribute's declaration-list form). Returns 0, or -1 on error. */
-static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_ssize_t colon,
-                                 Py_UCS4 *out, Py_ssize_t *out_len) {
+static int css_flush_declaration(sanitizer *s, const style_allowlist *styles, const Py_UCS4 *value, Py_ssize_t start,
+                                 Py_ssize_t end, Py_ssize_t colon, Py_UCS4 *out, Py_ssize_t *out_len) {
     Py_ssize_t name_start = 0;
     Py_ssize_t decl_end = 0;
-    int kept = css_declaration_kept(s, value, start, end, colon, &name_start, &decl_end);
+    int kept = css_declaration_kept(s, styles, value, start, end, colon, &name_start, &decl_end);
     if (kept <= 0) { /* GCOVR_EXCL_BR_LINE: the -1 half is css_declaration_kept's allocation-failure path */
         return kept;
     }
@@ -615,11 +700,27 @@ static int css_flush_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssize_t 
     return 0;
 }
 
-/* Scrub a kept `style` attribute: keep only declarations whose property name is allowlisted. The value is a CSS
-   declaration list; split it on top-level ';' and ':' while skipping strings, comments, and parenthesised groups so a
-   separator inside url()/quotes/comments is not mistaken for one. Rewrites the attribute, deleting it if nothing
-   survives. Returns 0 on success, -1 on error. */
-static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr) {
+/* Scrub a kept `style` attribute: keep only declarations whose property name is allowlisted, and, when a
+   Policy.allowed_styles rule applies to `tag` (its own entry or the "*" wildcard), whose value matches one of that
+   property's patterns too. The value is a CSS declaration list; split it on top-level ';' and ':' while skipping
+   strings, comments, and parenthesised groups so a separator inside url()/quotes/comments is not mistaken for one.
+   Rewrites the attribute, deleting it if nothing survives. Returns 0 on success, -1 on error. */
+static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, PyObject *tag) {
+    style_allowlist rules = {NULL, NULL};
+    const style_allowlist *styles = NULL;
+    if (PyDict_GET_SIZE(s->allowed_styles) > 0) {
+        rules.tag_rule = PyDict_GetItemWithError(s->allowed_styles, tag);
+        if (rules.tag_rule == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the tag lookup cannot itself error */
+            return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        rules.star_rule = PyDict_GetItemWithError(s->allowed_styles, s->star);
+        if (rules.star_rule == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the "*" lookup cannot itself error */
+            return -1;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (rules.tag_rule != NULL || rules.star_rule != NULL) {
+            styles = &rules; /* a rule applies to this element, so its declarations are narrowed */
+        }
+    }
     const Py_UCS4 *value = attr->value;
     Py_ssize_t len = attr->value_len;
     Py_UCS4 *out = PyMem_Malloc((size_t)(2 * len + 2) * sizeof(Py_UCS4));
@@ -680,7 +781,7 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr) {
                 continue;
             }
         }
-        int flushed = css_flush_declaration(s, value, decl_start, index, colon, out, &out_len);
+        int flushed = css_flush_declaration(s, styles, value, decl_start, index, colon, out, &out_len);
         if (flushed < 0) {   /* GCOVR_EXCL_BR_LINE: css_flush_declaration only fails on allocation failure */
             PyMem_Free(out); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;       /* GCOVR_EXCL_LINE */
@@ -721,7 +822,7 @@ static int css_emit_block_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssi
                                       Py_ssize_t colon, Py_UCS4 *out, Py_ssize_t *out_len) {
     Py_ssize_t name_start = 0;
     Py_ssize_t decl_end = 0;
-    int kept = css_declaration_kept(s, value, start, end, colon, &name_start, &decl_end);
+    int kept = css_declaration_kept(s, NULL, value, start, end, colon, &name_start, &decl_end);
     if (kept <= 0) { /* GCOVR_EXCL_BR_LINE: the -1 half is css_declaration_kept's allocation-failure path */
         return kept;
     }
@@ -1002,8 +1103,8 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
         }
         if (name_len == 5 && memcmp(name, "style", 5) == 0) {
             Py_ssize_t before = element->attr_count;
-            if (sanitize_style(s, element, attr) < 0) { /* GCOVR_EXCL_BR_LINE: only on allocation failure */
-                return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+            if (sanitize_style(s, element, attr, tag) < 0) { /* GCOVR_EXCL_BR_LINE: only on allocation failure */
+                return -1;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             if (element->attr_count < before) {
                 continue; /* the style scrubbed to empty and was deleted */
@@ -1362,16 +1463,16 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates, removed) -> None. Filters the fragment in place; sanitizer.py serializes it.
-   `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the audit. */
+   media_hosts, strip_templates, removed, allowed_styles) -> None. Filters the fragment in place; sanitizer.py
+   serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the audit. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed)) {
+                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
@@ -1390,12 +1491,19 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     if (s.star == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    s.re_search = PyUnicode_InternFromString("search"); /* interned once; the style scrubber calls Pattern.search */
+    if (s.re_search == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(s.star);     /* GCOVR_EXCL_LINE */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
     s.wildcard_attrs = PyDict_GetItemWithError(s.attributes, s.star);
     if (s.wildcard_attrs == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the "*" lookup cannot itself error */
         Py_DECREF(s.star);                              /* GCOVR_EXCL_LINE */
+        Py_DECREF(s.re_search);                         /* GCOVR_EXCL_LINE */
         return NULL;                                    /* GCOVR_EXCL_LINE */
     }
     int failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
     Py_DECREF(s.star);
+    Py_DECREF(s.re_search);
     return failed ? NULL : Py_NewRef(Py_None);
 }

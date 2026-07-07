@@ -14,6 +14,7 @@ This module is the policy facade only; the walk that keeps, escapes, strips, or 
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import starmap
@@ -23,7 +24,7 @@ from typing import TYPE_CHECKING, Final
 from ._html import _sanitize, parse_fragment
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from ._html import Element
 
@@ -137,6 +138,14 @@ class Policy:
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;
         a surviving attribute whose value is outside its set is dropped. This narrows an attribute ``attributes``
         already admits and cannot admit a new one.
+    :param allowed_styles: a per-property value allowlist for the ``style`` attribute, keyed
+        ``{tag: {property: [pattern, ...]}}`` with ``"*"`` as a tag matching every element (sanitize-html's
+        ``allowedStyles``). A declaration survives only when its property is listed for the element's tag or ``"*"``
+        (their pattern lists union) and its value matches one of the patterns (an unanchored :func:`re.search`).
+        Patterns are strings or precompiled :class:`re.Pattern`. This narrows on top of ``css_properties`` and the
+        non-configurable dangerous-value baseline: a property this admits is still dropped unless ``css_properties``
+        lists it too, and ``expression()`` or a ``url()`` with a disallowed scheme is dropped even if a pattern would
+        match it. Empty (the default) leaves ``css_properties`` as the only ``style`` filter.
     :param media_hosts: allowed hosts for an embedded-media ``src`` (``audio``, ``video``, ``source``, ``track``); a
         ``src`` whose URL host is not one of these lowercase entries is dropped. Empty means no host restriction.
     :param strip_template_markers: collapse template-engine expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text
@@ -160,6 +169,7 @@ class Policy:
     attribute_values: Mapping[str, Mapping[str, frozenset[str]]] = field(default_factory=dict)
     media_hosts: frozenset[str] = frozenset()
     strip_template_markers: bool = False
+    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]] = field(default_factory=dict)
 
     @classmethod
     def strict(cls) -> Policy:
@@ -209,6 +219,13 @@ class Sanitizer:
         self._attribute_values = {
             tag: {attr: frozenset(values) for attr, values in attrs.items()}
             for tag, attrs in self.policy.attribute_values.items()
+        }
+        self._allowed_styles = {
+            tag: {
+                prop.lower(): tuple(p if isinstance(p, re.Pattern) else re.compile(p) for p in patterns)
+                for prop, patterns in props.items()
+            }
+            for tag, props in self.policy.allowed_styles.items()
         }
 
     def sanitize(self, html: str) -> str:
@@ -263,6 +280,7 @@ class Sanitizer:
             policy.media_hosts,
             policy.strip_template_markers,
             removed,
+            self._allowed_styles,
         )
         return root
 

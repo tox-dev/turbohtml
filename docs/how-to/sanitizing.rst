@@ -41,6 +41,33 @@ single space, matching DOMPurify's ``SAFE_FOR_TEMPLATES``.
     print(sanitize("<p title='{{x}}'>Hi {{ user.name }}</p>", policy))
     # <p title=" ">Hi  </p>
 
+*********************************************
+ Restrict inline styles to known-good values
+*********************************************
+
+``css_properties`` allowlists property *names*; ``allowed_styles`` narrows further by *value*, the way sanitize-html's
+``allowedStyles`` does. Key it ``{tag: {property: [pattern, ...]}}``, with ``"*"`` as a tag matching every element. A
+declaration survives only when its property is listed for the element's tag or ``"*"`` and its value matches one of the
+patterns (an unanchored :func:`re.search`). This runs on top of ``css_properties`` and the dangerous-value baseline: a
+property must still be in ``css_properties``, and ``expression()`` or a ``url()`` with a disallowed scheme is dropped
+even if a pattern would admit it.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=frozenset({"color", "text-align"}),
+        allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$"], "text-align": [r"^left$|^center$|^right$"]}},
+    )
+    print(sanitize('<p style="color: #ff0000; text-align: justify; font-size: 40px">Hi</p>', policy))
+
+.. testoutput::
+
+    <p style="color: #ff0000">Hi</p>
+
 **************************************
  Trust the first pass, do not reparse
 **************************************

@@ -1,0 +1,4 @@
+``turbohtml.clean.Policy`` gains ``allowed_styles``, a per-element, per-property value allowlist for the ``style``
+attribute keyed ``{tag: {property: [pattern, ...]}}`` with ``"*"`` matching every tag. A declaration survives only when
+its value matches one of the property's patterns, porting sanitize-html's ``allowedStyles``. It narrows
+``css_properties`` by value and never weakens the baseline that drops ``expression()`` and disallowed-scheme ``url()``.

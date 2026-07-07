@@ -1,4 +1,5 @@
 # Subsystem: features (_c/features) — sanitizing, linkify scanning, annotation, and type registration.
+import re
 from collections.abc import Callable, Iterable, Mapping
 
 from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
@@ -60,6 +61,7 @@ def _sanitize(
     media_hosts: frozenset[str],
     strip_templates: bool,
     removed: list[tuple[str, str | None]] | None,
+    allowed_styles: Mapping[str, Mapping[str, tuple[re.Pattern[str], ...]]],
     /,
 ) -> None: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...
