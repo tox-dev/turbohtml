@@ -88,6 +88,13 @@ struct th_tree {
     th_shadow_link *shadows;
     Py_ssize_t shadow_count;
     Py_ssize_t shadow_cap;
+    /* Live MutationObservers watching this tree, grown lazily on the first observe().
+       Each entry is owned by its MutationObserver Python object (dom/observe.c), which
+       holds a handle reference keeping the tree alive, so the array is empty by the
+       time the tree is freed. NULL for every observer-free tree. */
+    struct th_observer **observers;
+    Py_ssize_t observer_count;
+    Py_ssize_t observer_cap;
     /* WHATWG parse errors collected during the parse, in document order. The
        tokenizer fills it through this sink while the tree builder adds its own
        construction errors; read-only once the parse returns. */

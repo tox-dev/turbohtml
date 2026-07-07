@@ -55,3 +55,29 @@ parser never emits them: a WHATWG-conformant parse folds ``<? ... >`` into a com
 text, and turbohtml keeps that conformance rather than inventing nodes the algorithm does not produce. Pickling carries
 an element's children as an explicit list instead of re-serializing, so those two node types survive a round-trip that
 serialize-and-reparse would fold away.
+
+*************************
+ Observing changes: sync
+*************************
+
+A :class:`~turbohtml.MutationObserver` watches a subtree and records every change made through the mutation API --
+children added or removed, an attribute set or deleted, a character-data node rewritten -- following the DOM "queue a
+mutation record" algorithm: each edit walks the target's ancestor chain and, for every registration that covers the
+target (its own node, or an ancestor watching with ``subtree``), queues one :class:`~turbohtml.MutationRecord` carrying
+the added and removed nodes, the surrounding siblings, and -- when asked -- the attribute name and the value before the
+change. Registration mirrors the DOM options: ``child_list``, ``attributes``, ``character_data``, ``subtree``,
+``attribute_old_value``, ``character_data_old_value``, and an ``attribute_filter`` that limits which attribute names
+record.
+
+Where turbohtml departs from the DOM is *when* the callback runs. The DOM observer is asynchronous: an edit only queues
+a record and schedules a microtask, so the callback fires later, after the current script settles and never in the
+middle of a half-finished edit. That timing needs an event loop to drain the microtask queue, and turbohtml is a library
+with no loop of its own. Rather than invent one, it keeps the record *shape* identical but makes delivery synchronous
+and explicit. Records still queue at mutation time, exactly as the DOM specifies, but they reach Python only when you
+drain the queue: :meth:`~turbohtml.MutationObserver.take_records` returns and clears the pending batch, and
+:meth:`~turbohtml.MutationObserver.deliver` drains it and calls the registered callback with ``(records, observer)``.
+Because a callback runs only at a drain you choose, never re-entrantly from inside an edit, it can freely mutate the
+tree without the reentrancy hazards the microtask indirection exists to avoid -- the same safety the DOM buys with the
+microtask, bought instead by pull-based delivery. The queue, the ancestor walk, and the per-registration filtering all
+live in the C core under the one per-tree lock; the callback is the single Python boundary, invoked only from
+``deliver``.

@@ -264,6 +264,24 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
 void th_node_remove(th_node *child);
 void th_node_append_child(th_node *parent, th_node *child);
 void th_node_insert_before(th_node *parent, th_node *child, th_node *ref);
+
+/* The same three edits, but each queues a childList mutation record for the tree's
+   MutationObservers (dom/observe.c). The binding layer routes user-driven structural
+   edits through these so observation covers the public Node/Element mutation API. */
+void th_node_remove_observed(th_tree *tree, th_node *child);
+void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child);
+void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref);
+
+/* The MutationObserver registry (dom/observe.c) lives in the tree's fields, but that
+   engine cannot include the tree-internal header (its Node bindings clash with the
+   tree-builder's link inlines), so it reaches the registry through these accessors.
+   th_tree_has_observers gates the record-capture work on the mutation hot path. */
+struct th_observer;
+int th_tree_has_observers(const th_tree *tree);
+struct th_observer ***th_tree_observers_ptr(th_tree *tree);
+Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree);
+Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree);
+
 int th_node_contains(th_node *ancestor, th_node *node);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
 

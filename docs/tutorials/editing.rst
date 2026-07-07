@@ -136,4 +136,24 @@ items:
 
     <ul> <li>one</li> <li>two</li> </ul>
 
+To keep a record of the edits you make, register a :class:`~turbohtml.MutationObserver` on a node before changing it,
+then read the changes back with ``take_records``. Delivery is synchronous -- turbohtml has no event loop, so the records
+are ready the moment you ask, not on a later microtask:
+
+.. testcode::
+
+    from turbohtml import Element, MutationObserver
+
+    page = turbohtml.parse("<ul><li>one</li></ul>")
+    listing = page.find("ul")
+    observer = MutationObserver()
+    observer.observe(listing, child_list=True)
+    listing.append(Element("li"))
+    (record,) = observer.take_records()
+    print(record.type, [added.tag for added in record.added_nodes])
+
+.. testoutput::
+
+    childList ['li']
+
 With a tree you can build and reshape, continue to :doc:`exporting` to turn it back into text.

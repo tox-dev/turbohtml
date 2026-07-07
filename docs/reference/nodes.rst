@@ -51,6 +51,18 @@ immutable snapshot. See :doc:`/explanation/ranges` for the boundary-point model 
 .. autoclass:: StaticRange
     :members:
 
+A :class:`MutationObserver` records changes made to a subtree through the mutation API and hands them back as
+:class:`MutationRecord` values. Delivery is synchronous: pull the batch with
+:meth:`~turbohtml.MutationObserver.take_records`, or push it to a callback with
+:meth:`~turbohtml.MutationObserver.deliver`. See :doc:`/explanation/mutation` for the synchronous model and
+:doc:`/how-to/observing-mutations` for recipes.
+
+.. autoclass:: MutationObserver
+    :members:
+
+.. autoclass:: MutationRecord
+    :members:
+
 :meth:`Node.links` yields one :class:`Link` per link it finds.
 
 .. autoclass:: Link

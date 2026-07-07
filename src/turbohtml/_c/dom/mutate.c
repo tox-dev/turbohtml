@@ -10,6 +10,7 @@
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h" /* arena_alloc, need_text, node_new, node_append/remove/insert_before, intern_attr_dynamic */
+#include "dom/observe.h"       /* th_mo_* mutation-record hooks */
 
 #include "core/ascii.h" /* lower_ascii for the foreign case-insensitive attribute scan */
 #include "core/vec.h"   /* th_grow_cap for the shadow-table growth */
@@ -211,6 +212,11 @@ int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     }
     Py_ssize_t existing = th_node_attr_find(tree, node, name, name_len);
     if (existing >= 0) {
+        th_mo_attr_changed(tree, node, atom, node->attrs[existing].value, node->attrs[existing].value_len, 1);
+    } else {
+        th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
+    }
+    if (existing >= 0) {
         node->attrs[existing].value = owned;
         node->attrs[existing].value_len = has_value ? value_len : 0;
         return 0;
@@ -231,6 +237,8 @@ int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
 /* Replace a node's character data with a copy of len code points (an empty buffer
    is stored as none). Returns 0, or -1 on allocation failure. */
 int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
+    const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
+    th_mo_char_data_changed(tree, node, old, node->text_len);
     if (len == 0) {
         node->text = NULL;
         node->text_len = 0;
@@ -284,6 +292,8 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     if (index < 0) {
         return 0;
     }
+    th_mo_attr_changed(tree, node, node->attrs[index].name_atom, node->attrs[index].value, node->attrs[index].value_len,
+                       1);
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {
         node->attrs[shift] = node->attrs[shift + 1];
     }
@@ -301,6 +311,45 @@ void th_node_append_child(th_node *parent, th_node *child) {
 
 void th_node_insert_before(th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
+}
+
+/* The MutationObserver registry accessors dom/observe.c reaches the tree fields through. */
+int th_tree_has_observers(const th_tree *tree) {
+    return tree->observer_count > 0;
+}
+
+struct th_observer ***th_tree_observers_ptr(th_tree *tree) {
+    return &tree->observers;
+}
+
+Py_ssize_t *th_tree_observer_count_ptr(th_tree *tree) {
+    return &tree->observer_count;
+}
+
+Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree) {
+    return &tree->observer_cap;
+}
+
+/* The observing counterparts the binding layer (dom/element.c) routes user mutations
+   through: they relink exactly as above and queue a childList mutation record for the
+   tree's observers. A removal reads the siblings while child is still linked, then
+   detaches; an insertion links first, so child's fresh siblings are the record's. */
+void th_node_remove_observed(th_tree *tree, th_node *child) {
+    th_node *parent = child->parent;
+    if (parent != NULL) {
+        th_mo_child_removed(tree, parent, child, child->prev_sibling, child->next_sibling);
+    }
+    node_remove(child);
+}
+
+void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
+    node_append(parent, child);
+    th_mo_child_inserted(tree, parent, child);
+}
+
+void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
+    node_insert_before(parent, child, ref);
+    th_mo_child_inserted(tree, parent, child);
 }
 
 /* Whether ancestor is node itself or one of its ancestors, the test that rejects

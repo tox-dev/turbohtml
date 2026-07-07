@@ -306,6 +306,15 @@ def set_text(document: turbohtml.Document) -> None:
     document.find_all("body")[0].set_text(_SET_TEXT)
 
 
+def observe(document: turbohtml.Document) -> None:
+    """Watch a whole subtree and drain the records a batch of link edits queues with turbohtml's MutationObserver."""
+    observer = turbohtml.MutationObserver()
+    observer.observe(document, child_list=True, attributes=True, subtree=True)
+    for anchor in document.find_all("a"):
+        anchor.attrs["data-seen"] = "1"
+    observer.take_records()
+
+
 def navigate(text: str) -> None:
     """Walk every descendant node with turbohtml's descendants iterator."""
     for _node in _parsed(text).descendants:
@@ -721,6 +730,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "strip-tags": (strip_tags, "turbohtml"),
     "set-html": (Mutating(turbohtml.parse, set_html), "turbohtml"),
     "set-text": (Mutating(turbohtml.parse, set_text), "turbohtml"),
+    "observe": (Mutating(turbohtml.parse, observe), "turbohtml"),
     "navigate": (navigate, "turbohtml"),
     "treewalk": (treewalk, "turbohtml"),
     "chain": (chain, "turbohtml"),

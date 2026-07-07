@@ -55,6 +55,7 @@ from ._structured_data import (  # registers the JSON-LD parser and record class
 )
 from ._xpath import XPathString  # registers the smart-string type with the C core on import
 from .build import E, ElementMaker
+from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
 from .traverse import NodeFilter, NodeIterator, TreeWalker
 
 __version__ = version("turbohtml")
@@ -82,6 +83,8 @@ __all__ = [
     "Markdown",
     "MicrodataItem",
     "Minify",
+    "MutationObserver",
+    "MutationRecord",
     "Namespace",
     "Node",
     "NodeFilter",

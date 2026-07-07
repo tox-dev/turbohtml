@@ -8,6 +8,7 @@ from turbohtml._article import Article as Article
 from turbohtml._feed import Feed
 from turbohtml._links import Link
 from turbohtml._locations import SourceLocation
+from turbohtml.mutations import MutationRecord
 from turbohtml._render import Canonical, Html, Markdown, PlainText
 from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
@@ -424,6 +425,25 @@ class StaticRange:
     @property
     def collapsed(self) -> bool: ...
 
+class MutationObserver:
+    def __init__(self, callback: Callable[[list[MutationRecord], MutationObserver], object] | None = None) -> None: ...
+    def observe(
+        self,
+        target: Node,
+        *,
+        child_list: bool = False,
+        attributes: bool = False,
+        character_data: bool = False,
+        subtree: bool = False,
+        attribute_old_value: bool = False,
+        character_data_old_value: bool = False,
+        attribute_filter: Sequence[str] | None = None,
+    ) -> None: ...
+    def take_records(self) -> list[MutationRecord]: ...
+    def deliver(self) -> list[MutationRecord]: ...
+    def disconnect(self) -> None: ...
+
+def _register_mutation_record(record_type: type, /) -> None: ...
 def parse(
     markup: str | bytes,
     *,

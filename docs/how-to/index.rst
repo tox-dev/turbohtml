@@ -18,6 +18,7 @@ ending with running the toolkit from a shell.
     forms
     editing
     ranges
+    observing-mutations
     shadow-dom
     encoding
     selecting

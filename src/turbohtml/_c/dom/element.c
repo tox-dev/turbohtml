@@ -625,7 +625,7 @@ static int set_textarea_value(PyObject *self, th_node *node, PyObject *value) {
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
-        th_node_remove(node->first_child);
+        th_node_remove_observed(tree, node->first_child);
     }
     th_node *text = len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, len) : NULL;
     /* GCOVR_EXCL_START: a make_data_node allocation failure cannot be forced from a test */
@@ -634,7 +634,7 @@ static int set_textarea_value(PyObject *self, th_node *node, PyObject *value) {
     }
     /* GCOVR_EXCL_STOP */
     if (text != NULL) {
-        th_node_append_child(node, text);
+        th_node_append_child_observed(tree, node, text);
     }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(points);
@@ -1916,7 +1916,7 @@ th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *child_ob
             PyErr_SetString(PyExc_ValueError, "cannot insert a node into its own subtree");
             return NULL;
         }
-        th_node_remove(child->node);
+        th_node_remove_observed(dest_tree, child->node);
         return child->node;
     }
     th_node *copy = th_tree_copy_node(dest_tree, tree_of(child_obj), child->node);
@@ -1928,7 +1928,7 @@ th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *child_ob
        different tree here) takes the source's lock so it cannot race a source mutation */
     Py_BEGIN_CRITICAL_SECTION(child->handle);
     handle_drop_index(child->handle);
-    th_node_remove(child->node);
+    th_node_remove_observed(tree_of(child_obj), child->node);
     Py_END_CRITICAL_SECTION();
     Py_SETREF(child->handle, Py_NewRef(anchor->handle));
     child->node = copy;
@@ -1960,7 +1960,7 @@ static int append_build_children(PyObject *element, PyObject *tag, PyObject *chi
             error = 1;
             break;
         }
-        th_node_append_child(self->node, node);
+        th_node_append_child_observed(tree_of(element), self->node, node);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(sequence);
@@ -1982,7 +1982,7 @@ static PyObject *element_append(PyObject *self, PyObject *child) {
     th_node *node = adopt_into((NodeObject *)self, parent, child);
     error = node == NULL;
     if (node != NULL) {
-        th_node_append_child(parent, node);
+        th_node_append_child_observed(tree_of(self), parent, node);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -2008,7 +2008,7 @@ static PyObject *element_extend(PyObject *self, PyObject *iterable) {
             error = 1;
             break;
         }
-        th_node_append_child(parent, node);
+        th_node_append_child_observed(tree_of(self), parent, node);
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(iterator);
@@ -2146,7 +2146,7 @@ static PyObject *element_insert(PyObject *self, PyObject *args) {
     th_node *node = adopt_into((NodeObject *)self, parent, child);
     error = node == NULL;
     if (node != NULL) {
-        th_node_insert_before(parent, node, ref != NULL && ref->parent == parent ? ref : NULL);
+        th_node_insert_before_observed(tree_of(self), parent, node, ref != NULL && ref->parent == parent ? ref : NULL);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -2160,7 +2160,7 @@ static PyObject *element_clear(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
     while (parent->first_child != NULL) {
-        th_node_remove(parent->first_child);
+        th_node_remove_observed(tree_of(self), parent->first_child);
     }
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
@@ -2193,10 +2193,10 @@ static PyObject *element_wrap_children(PyObject *self, PyObject *wrapper_obj) {
     } else {
         while (parent->first_child != NULL) {
             th_node *child = parent->first_child;
-            th_node_remove(child);
-            th_node_append_child(wrapper, child);
+            th_node_remove_observed(tree_of(self), child);
+            th_node_append_child_observed(tree_of(self), wrapper, child);
         }
-        th_node_append_child(parent, wrapper);
+        th_node_append_child_observed(tree_of(self), parent, wrapper);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -2238,7 +2238,7 @@ PyObject *node_insert_before(PyObject *self, PyObject *nodes) {
             error = 1;
             break;
         }
-        th_node_insert_before(parent, node, ref);
+        th_node_insert_before_observed(tree_of(self), parent, node, ref);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -2266,7 +2266,7 @@ PyObject *node_insert_after(PyObject *self, PyObject *nodes) {
             error = 1;
             break;
         }
-        th_node_insert_before(parent, node, cursor->next_sibling);
+        th_node_insert_before_observed(tree_of(self), parent, node, cursor->next_sibling);
         cursor = node; /* keep multiple inserts in argument order after this node */
     }
     Py_END_CRITICAL_SECTION();
@@ -2297,10 +2297,10 @@ PyObject *node_replace_with(PyObject *self, PyObject *nodes) {
             error = 1;
             break;
         }
-        th_node_insert_before(parent, node, ref);
+        th_node_insert_before_observed(tree_of(self), parent, node, ref);
     }
     if (!error && !keep_self) {
-        th_node_remove(ref);
+        th_node_remove_observed(tree_of(self), ref);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -2326,9 +2326,9 @@ PyObject *node_wrap_in(PyObject *self, PyObject *wrapper_obj) {
         if (wrapper == NULL) {
             error = 1;
         } else {
-            th_node_insert_before(parent, wrapper, node->node);
-            th_node_remove(node->node);
-            th_node_append_child(wrapper, node->node);
+            th_node_insert_before_observed(tree_of(self), parent, wrapper, node->node);
+            th_node_remove_observed(tree_of(self), node->node);
+            th_node_append_child_observed(tree_of(self), wrapper, node->node);
         }
     } else {
         NodeObject *wrapper = (NodeObject *)wrapper_obj;
@@ -2336,7 +2336,7 @@ PyObject *node_wrap_in(PyObject *self, PyObject *wrapper_obj) {
         if (moved == NULL) {
             error = 1;
         } else {
-            th_node_append_child(wrapper->node, moved);
+            th_node_append_child_observed(tree_of(self), wrapper->node, moved);
         }
     }
     Py_END_CRITICAL_SECTION();
@@ -2417,12 +2417,12 @@ PyObject *node_wrap_siblings(PyObject *self, PyObject *args, PyObject *kwds) {
             if (wrapper == NULL) {
                 error = 1;
             } else {
-                th_node_insert_before(parent, wrapper, first);
+                th_node_insert_before_observed(tree_of(self), parent, wrapper, first);
                 for (th_node *cursor = first;;) {
                     th_node *next = cursor->next_sibling;
                     int is_last = cursor == last;
-                    th_node_remove(cursor);
-                    th_node_append_child(wrapper, cursor);
+                    th_node_remove_observed(tree_of(self), cursor);
+                    th_node_append_child_observed(tree_of(self), wrapper, cursor);
                     if (is_last) {
                         break;
                     }
@@ -2456,10 +2456,10 @@ PyObject *node_unwrap(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     handle_drop_index(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
         th_node *child = node->first_child;
-        th_node_remove(child);
-        th_node_insert_before(parent, child, node);
+        th_node_remove_observed(tree_of(self), child);
+        th_node_insert_before_observed(tree_of(self), parent, child, node);
     }
-    th_node_remove(node);
+    th_node_remove_observed(tree_of(self), node);
     Py_END_CRITICAL_SECTION();
     return Py_NewRef(self);
 }
@@ -2467,7 +2467,7 @@ PyObject *node_unwrap(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *node_extract(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
-    th_node_remove(((NodeObject *)self)->node);
+    th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
     return Py_NewRef(self);
 }
@@ -2475,7 +2475,7 @@ PyObject *node_extract(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *node_decompose(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
-    th_node_remove(((NodeObject *)self)->node);
+    th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
     Py_RETURN_NONE;
 }
@@ -2491,7 +2491,7 @@ static int element_set_text(PyObject *self, PyObject *value, void *Py_UNUSED(clo
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
-        th_node_remove(node->first_child);
+        th_node_remove_observed(tree, node->first_child);
     }
     th_node *text = len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, len) : NULL;
     /* GCOVR_EXCL_START: a make_data_node allocation failure cannot be forced from a test */
@@ -2500,7 +2500,7 @@ static int element_set_text(PyObject *self, PyObject *value, void *Py_UNUSED(clo
     }
     /* GCOVR_EXCL_STOP */
     if (text != NULL) {
-        th_node_append_child(node, text);
+        th_node_append_child_observed(tree, node, text);
     }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(points);
@@ -2603,16 +2603,16 @@ static int splice_fragment(th_tree *dest, th_tree *fragment, th_node *parent, th
         }
         switch (position) { /* GCOVR_EXCL_BR_LINE: the enum is exhaustive; the implicit default is unreachable */
         case TH_ADJ_BEFOREBEGIN:
-            th_node_insert_before(parent, copy, target);
+            th_node_insert_before_observed(dest, parent, copy, target);
             break;
         case TH_ADJ_AFTERBEGIN:
-            th_node_insert_before(target, copy, first_ref);
+            th_node_insert_before_observed(dest, target, copy, first_ref);
             break;
         case TH_ADJ_BEFOREEND:
-            th_node_append_child(target, copy);
+            th_node_append_child_observed(dest, target, copy);
             break;
         case TH_ADJ_AFTEREND:
-            th_node_insert_before(parent, copy, cursor->next_sibling);
+            th_node_insert_before_observed(dest, parent, copy, cursor->next_sibling);
             cursor = copy;
             break;
         }
@@ -2636,7 +2636,7 @@ static PyObject *element_set_inner_html(PyObject *self, PyObject *html) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
-        th_node_remove(node->first_child);
+        th_node_remove_observed(dest, node->first_child);
     }
     error = splice_fragment(dest, fragment, NULL, node, TH_ADJ_BEFOREEND);
     Py_END_CRITICAL_SECTION();

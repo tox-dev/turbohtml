@@ -178,6 +178,7 @@ static PyMethodDef html_methods[] = {
     {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
     {"_register_css_minify", turbohtml_register_css_minify, METH_O, NULL},
     {"_register_render_configs", turbohtml_register_render_configs, METH_VARARGS, NULL},
+    {"_register_mutation_record", turbohtml_register_mutation_record, METH_O, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
     {"parse_xml", (PyCFunction)(void (*)(void))turbohtml_parse_xml, METH_VARARGS | METH_KEYWORDS, parse_xml_doc},
@@ -238,7 +239,10 @@ static int html_exec(PyObject *module) {
     if (tree_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE */
         return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return range_register(module, state);
+    if (range_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return observe_register(module, state);
 }
 
 static int html_traverse(PyObject *module, visitproc visit, void *arg) {
@@ -275,35 +279,37 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->namespaces[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
-    Py_VISIT(state->axis_enum);             /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->formatter_enum);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->minify_type);           /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->indent_type);           /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->pattern_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->re_compile);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->markup_type);           /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->xpath_string_type);     /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->xpath_type);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->selector_error);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->link_type);             /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->json_ld_parser);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->microdata_item_type);   /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->rdfa_item_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->structured_data_type);  /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->opengraph_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->feed_type);             /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->entry_type);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->article_type);          /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->source_location_type);  /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->source_span_type);      /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->js_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->css_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->plaintext_config_type); /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->html_config_type);      /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->canonical_config_type); /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->range_type);            /* GCOVR_EXCL_BR_LINE: same */
-    Py_VISIT(state->static_range_type);     /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->axis_enum);              /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->formatter_enum);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->minify_type);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->indent_type);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->pattern_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->re_compile);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->markup_type);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->xpath_string_type);      /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->xpath_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->selector_error);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->link_type);              /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->json_ld_parser);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->microdata_item_type);    /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->rdfa_item_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->structured_data_type);   /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->opengraph_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->feed_type);              /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->entry_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->article_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->source_location_type);   /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->source_span_type);       /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->js_minify_type);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->css_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->markdown_config_type);   /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->plaintext_config_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->html_config_type);       /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->canonical_config_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->range_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->static_range_type);      /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->mutation_observer_type); /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->mutation_record_type);   /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -376,6 +382,8 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->canonical_config_type);
     Py_CLEAR(state->range_type);
     Py_CLEAR(state->static_range_type);
+    Py_CLEAR(state->mutation_observer_type);
+    Py_CLEAR(state->mutation_record_type);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }

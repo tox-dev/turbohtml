@@ -340,7 +340,76 @@ detach; ask for the assignment and it reflects the tree as it stands. The flatte
 (:attr:`~turbohtml.Node.flattened_children`) rather than something you assemble by hand: it returns the composed
 children with each slot already replaced by what it received, which you walk recursively for the whole subtree.
 
+****************************************
+ Mutation observers: turbohtml vs jsdom
+****************************************
+
+jsdom implements the DOM ``MutationObserver`` faithfully, microtask timing and all: ``observer.observe(target,
+options)`` queues records as the tree changes, and the callback fires later, on a microtask, once the current script
+settles. turbohtml records the same changes with the same record shape but delivers them synchronously, because a
+library has no event loop to drain a microtask queue. Instead of a callback that fires on its own, you pull the batch
+with :meth:`~turbohtml.MutationObserver.take_records`, or push it to the callback yourself with
+:meth:`~turbohtml.MutationObserver.deliver`.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 22 39 39
+
+    - - Dimension
+      - turbohtml
+      - jsdom
+    - - Construct
+      - ``MutationObserver(callback=None)`` (callback optional)
+      - ``new MutationObserver(callback)`` (callback required)
+    - - Register
+      - ``observer.observe(target, child_list=True, subtree=True, ...)`` keyword options
+      - ``observer.observe(target, { childList: true, subtree: true, ... })`` init dict
+    - - Old-value / filter options
+      - ``attribute_old_value`` / ``character_data_old_value`` / ``attribute_filter``
+      - ``attributeOldValue`` / ``characterDataOldValue`` / ``attributeFilter``
+    - - Delivery
+      - Synchronous: :meth:`~turbohtml.MutationObserver.take_records`, or :meth:`~turbohtml.MutationObserver.deliver` to
+        call the callback
+      - Asynchronous: the callback runs on a microtask; ``takeRecords()`` drains early
+    - - Record fields
+      - ``type`` / ``target`` / ``added_nodes`` / ``removed_nodes`` / ``previous_sibling`` / ``next_sibling`` /
+        ``attribute_name`` / ``old_value``
+      - ``type`` / ``target`` / ``addedNodes`` / ``removedNodes`` / ``previousSibling`` / ``nextSibling`` /
+        ``attributeName`` / ``oldValue``
+
+The one behavioral difference to plan around is timing. jsdom's callback fires by itself, after your code returns;
+turbohtml's does not fire until you drain the queue, so there is no window where a half-finished edit is visible to an
+observer. jsdom:
+
+.. code-block:: javascript
+
+    const observer = new MutationObserver(records => {
+      console.log(records[0].type, records[0].addedNodes.length);
+    });
+    observer.observe(list, { childList: true });
+    list.append(document.createElement("li"));
+    // callback runs later, on a microtask
+
+turbohtml:
+
+.. testcode::
+
+    from turbohtml import Element, MutationObserver
+
+    doc = turbohtml.parse("<ul></ul>")
+    listing = doc.find("ul")
+    observer = MutationObserver()
+    observer.observe(listing, child_list=True)
+    listing.append(Element("li"))
+    (record,) = observer.take_records()  # ready now, not on a later microtask
+    print(record.type, len(record.added_nodes))
+
+.. testoutput::
+
+    childList 1
+
 .. seealso::
 
-    :doc:`/how-to/ranges` and :doc:`/how-to/shadow-dom` for task-focused recipes, and :doc:`/explanation/ranges` and
-    :doc:`/explanation/shadow-dom` for the boundary-point and flattened-tree models.
+    :doc:`/how-to/ranges`, :doc:`/how-to/shadow-dom`, and :doc:`/how-to/observing-mutations` for task-focused recipes,
+    and :doc:`/explanation/ranges`, :doc:`/explanation/shadow-dom`, and :doc:`/explanation/mutation` for the
+    boundary-point, flattened-tree, and synchronous-observation models.

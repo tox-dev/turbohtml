@@ -39,6 +39,9 @@ from ._stubs.dom import (
     IncrementalParser as IncrementalParser,
 )
 from ._stubs.dom import (
+    MutationObserver as MutationObserver,
+)
+from ._stubs.dom import (
     Namespace as Namespace,
 )
 from ._stubs.dom import (
@@ -97,6 +100,9 @@ from ._stubs.dom import (
 )
 from ._stubs.dom import (
     _reconstruct as _reconstruct,
+)
+from ._stubs.dom import (
+    _register_mutation_record as _register_mutation_record,
 )
 from ._stubs.dom import (
     parse as parse,

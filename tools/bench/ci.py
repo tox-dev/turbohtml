@@ -62,6 +62,7 @@ _DOCUMENT_OPS = (
     "strip-tags",
     "set-html",
     "set-text",
+    "observe",
     "navigate",
     "treewalk",
     "chain",

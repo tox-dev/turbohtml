@@ -1,0 +1,9 @@
+Added :class:`~turbohtml.MutationObserver`, a synchronous take on the DOM ``MutationObserver`` for recording tree edits.
+Register a node with :meth:`~turbohtml.MutationObserver.observe` and the DOM options (``child_list``, ``attributes``,
+``character_data``, ``subtree``, ``attribute_old_value``, ``character_data_old_value``, ``attribute_filter``); every
+change made through the mutation API queues a :class:`~turbohtml.MutationRecord` carrying the added and removed nodes,
+the surrounding siblings, and the attribute name and old value when asked, following the WHATWG "queue a mutation
+record" algorithm in C under the per-tree critical section. Because turbohtml has no event loop, delivery is synchronous
+rather than microtask-scheduled: :meth:`~turbohtml.MutationObserver.take_records` returns and clears the queued batch,
+and :meth:`~turbohtml.MutationObserver.deliver` drains it and calls the observer's callback.
+:meth:`~turbohtml.MutationObserver.disconnect` stops observing and discards pending records.
