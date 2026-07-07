@@ -60,3 +60,15 @@ binds the xlink prefix on the element that uses it. That is exactly the infoset 
 ``xml=True`` serialization emits, so canonicalizing a tree and canonicalizing a reparse of its XML serialization agree.
 A document built on prefixes turbohtml's HTML model does not represent -- an arbitrary ``xmlns:foo`` binding -- is
 outside this scope; parse it as XML and sign it with a full XML toolchain instead.
+
+***********************
+ Conformance validated
+***********************
+
+The output is checked byte-for-byte against `libxml2's own c14n test corpus
+<https://github.com/GNOME/libxml2/tree/c8eaf2236ff16667970f96f3f01e119c99d38ab2/test/c14n>`_ -- the W3C c14n/c14n11
+example documents and the xmldsig "merlin" interop vectors that libxml2 and lxml gate on -- in
+``tests/conformance/test_c14n_conformance.py``. Of the 73 cases, the 9 that live in the HTML infoset (the c14n 1.0,
+with-comments and 1.1 example documents free of node-set filtering, DTD typing and arbitrary namespaces) match exactly;
+the other 64 exercise the XPath node-set subsetting, arbitrary XML namespaces and DTD attribute typing turbohtml scopes
+out, and are recorded as expected mismatches with a per-case reason.

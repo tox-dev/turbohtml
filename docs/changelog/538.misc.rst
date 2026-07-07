@@ -1,0 +1,4 @@
+Validate :meth:`turbohtml.Node.canonicalize` against libxml2's own Canonical XML test corpus (the W3C c14n/c14n11 and
+xmldsig "merlin" vectors) in ``tests/conformance/test_c14n_conformance.py``: the 9 cases inside turbohtml's HTML infoset
+match byte-for-byte, and the 64 that need XPath node-set subsetting, arbitrary XML namespaces or DTD attribute typing
+are recorded as expected mismatches with a per-case reason.

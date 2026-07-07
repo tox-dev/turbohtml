@@ -31,6 +31,10 @@
 [submodule "tests/conformance/unicodetools"]
 	path = tests/conformance/unicodetools
 	url = https://github.com/unicode-org/unicodetools
+||||||| parent of 4e9afced (🧪 test(c14n): validate against libxml2's c14n corpus)
+[submodule "tests/conformance/libxml2"]
+	path = tests/conformance/libxml2
+	url = https://github.com/GNOME/libxml2
 	shallow = true
 [submodule "tests/conformance/libxslt"]
 	path = tests/conformance/libxslt
