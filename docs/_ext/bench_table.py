@@ -56,6 +56,7 @@ _HOMEPAGES: Final = {
     "csscompressor": "https://github.com/sprymix/csscompressor",
     "cssmin": "https://github.com/zacharyvoase/cssmin",
     "dominate": "https://github.com/Knio/dominate",
+    "DOMPurify": "https://github.com/cure53/DOMPurify",
     "extruct": "https://github.com/scrapinghub/extruct",
     "fast-html": "https://github.com/pcarbonn/fast_html",
     "faust-cchardet": "https://github.com/faust-streaming/cChardet",

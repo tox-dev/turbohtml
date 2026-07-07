@@ -96,6 +96,15 @@ an allowlist, since a blocklist passes anything it did not think to name.
 .. bench-table::
     :file: bench/sanitize.json
 
+Template-safe sanitizing (``Policy.strip_template_markers``, collapsing ``{{ }}``/``${ }``/``<% %>`` so the output
+cannot re-inject through a template engine) has no allowlist-sanitizer analog in Python; the reference is DOMPurify's
+``SAFE_FOR_TEMPLATES``, which runs in JavaScript. Reaching it from Python means shelling out to Node, where each call
+spins up a DOM before it sanitizes, so the figure below is that end-to-end per-document cost, not a pure-algorithm
+comparison. turbohtml folds the same transform into its C walk and pays neither the process nor the DOM.
+
+.. bench-table::
+    :file: bench/sanitize-templates.json
+
 **********
  Markdown
 **********

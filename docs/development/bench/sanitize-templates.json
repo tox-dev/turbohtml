@@ -1,0 +1,15 @@
+{
+  "label": "input",
+  "parties": [
+    "turbohtml",
+    "DOMPurify"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "templated 4 KiB",
+      0.00014190855371351872,
+      0.2589921527703862
+    ]
+  ]
+}

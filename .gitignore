@@ -25,3 +25,6 @@ venv*
 docs_out
 src/turbohtml/_version.py
 tools/.bench_data/
+
+# bench Node competitor deps (regenerated with npm install in tools/bench/node)
+tools/bench/node/node_modules/
