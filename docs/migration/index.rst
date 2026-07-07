@@ -315,6 +315,15 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://static.pepy.tech/badge/lightningcss
             :alt: lightningcss total downloads
             :target: https://pepy.tech/project/lightningcss
+    - - 14
+      - :doc:`sanitize-html <sanitize-html>`
+      - `docs <https://github.com/apostrophecms/sanitize-html>`__
+      - .. image:: https://img.shields.io/npm/dm/sanitize-html
+            :alt: sanitize-html monthly downloads
+            :target: https://www.npmjs.com/package/sanitize-html
+      - .. image:: https://img.shields.io/npm/dt/sanitize-html
+            :alt: sanitize-html total downloads
+            :target: https://www.npmjs.com/package/sanitize-html
 
 *********
  Convert
@@ -694,6 +703,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     linkify-it-py
     bleach
     nh3
+    sanitize-html
     lxml-html-clean
     rcssmin
     rjsmin

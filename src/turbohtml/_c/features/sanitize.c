@@ -36,7 +36,9 @@ typedef struct {
                                       properties, each mapped to the compiled patterns its value must match, or an empty
                                       dict when no per-property value allowlist is in force */
     PyObject *re_search; /* the interned "search" method name, for calling re.Pattern.search from the style scrubber */
-    PyObject *media_hosts; /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
+    PyObject *media_hosts;    /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
+    PyObject *transform_tags; /* dict[str, tuple[str, dict[str, str]]]: source tag -> (target tag, added attributes),
+                                 applied before the allowlist so the renamed element is re-checked, or an empty dict */
     PyObject
         *removed; /* list to append (tag, attr_or_None) records to as the walk drops things, or NULL to not report */
     int allow_relative;
@@ -1315,6 +1317,58 @@ static int namespace_reachable(const th_node *element) {
     return is_mathml_text_point(parent) || is_html_integration_point(parent);
 }
 
+/* Rename an element to a transform's target tag and add its extra attributes when the policy maps the element's current
+   name (sanitize-html's transformTags / simpleTransform). The rename happens before the allowlist and safety checks and
+   re-points *tag at the target, so the renamed element is re-checked as if the author had written the target: the
+   allowlist decides its disposition, is_unsafe_tag still neutralizes a target like `script`, and the added attributes
+   join the element's own to be scrubbed with them, so a transform can smuggle neither a disallowed tag nor an
+   unscrubbed attribute. Only HTML elements transform, matched by serialized name. Returns 1 when a transform applied, 0
+   when none did, -1 on error. */
+static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
+    PyObject *entry = PyDict_GetItemWithError(s->transform_tags, *tag);
+    if (entry == NULL) {
+        return PyErr_Occurred() ? -1 : 0; /* GCOVR_EXCL_BR_LINE: the str-key lookup cannot itself error */
+    }
+    PyObject *target = PyTuple_GET_ITEM(entry, 0);
+    Py_ssize_t target_utf8_len = 0;
+    const char *target_utf8 = PyUnicode_AsUTF8AndSize(target, &target_utf8_len);
+    if (target_utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: the target is a non-empty str validated at setup */
+        return -1;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS4 *points = PyUnicode_AsUCS4Copy(target);
+    if (points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int renamed = th_node_set_data(s->tree, element, points, PyUnicode_GET_LENGTH(target));
+    PyMem_Free(points);
+    if (renamed < 0) { /* GCOVR_EXCL_BR_LINE: th_node_set_data only fails on allocation failure */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    element->atom = th_tag_lookup(target_utf8, target_utf8_len);
+    element->tag_flags = (uint8_t)(th_tag_flags(element->atom) | (element->tag_flags & TH_ELEM_CLOSED_BY_END_TAG));
+    PyObject *added_name, *added_value;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(PyTuple_GET_ITEM(entry, 1), &pos, &added_name, &added_value)) {
+        Py_ssize_t name_len = 0;
+        const char *name_bytes = PyUnicode_AsUTF8AndSize(added_name, &name_len);
+        if (name_bytes == NULL) { /* GCOVR_EXCL_BR_LINE: attribute names are str validated at setup */
+            return -1;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        Py_UCS4 *value_points = PyUnicode_AsUCS4Copy(added_value);
+        if (value_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int status = th_node_attr_set(s->tree, element, name_bytes, name_len, value_points,
+                                      PyUnicode_GET_LENGTH(added_value), 1);
+        PyMem_Free(value_points);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    Py_SETREF(*tag, Py_NewRef(target));
+    return 1;
+}
+
 /* Keep, escape, strip, or remove one element according to the policy. parent_kept is
    1 when the element's parent is itself being kept; an allowlisted foreign (SVG/MathML)
    element is kept only then, so it never outlives its namespace context (e.g. an svg
@@ -1324,6 +1378,12 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, element->text_len);
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (is_html && PyDict_GET_SIZE(s->transform_tags) > 0) {
+        if (apply_transform(s, element, &tag) < 0) { /* GCOVR_EXCL_BR_LINE: apply_transform only fails on allocation */
+            Py_DECREF(tag);                          /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                               /* GCOVR_EXCL_LINE */
+        }
     }
     /* an allowlisted element matches by its serialized name (a foreign element by
        e.g. "svg"/"foreignObject"); the unsafe-tag set still escapes scripting and
@@ -1463,16 +1523,18 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates, removed, allowed_styles) -> None. Filters the fragment in place; sanitizer.py
-   serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the audit. */
+   media_hosts, strip_templates, removed, allowed_styles, transform_tags) -> None. Filters the fragment in place;
+   sanitizer.py serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the
+   audit. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles)) {
+                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles,
+                          &s.transform_tags)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;

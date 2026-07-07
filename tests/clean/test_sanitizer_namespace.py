@@ -43,7 +43,7 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     schemes = frozenset({"http", "https", "mailto"})
     _sanitize(
         root, tags, {}, schemes, allow_relative, OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
-        empty, empty, {}, empty, strip_templates, None, {},
+        empty, empty, {}, empty, strip_templates, None, {}, {},
     )  # fmt: skip
     return root.inner_html
 

@@ -39,6 +39,7 @@ from ._sanitizer import (
     Policy,
     Removed,
     Sanitizer,
+    Transform,
     sanitize,
     sanitize_report,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "Policy",
     "Removed",
     "Sanitizer",
+    "Transform",
     "linkify",
     "minify",
     "minify_css",

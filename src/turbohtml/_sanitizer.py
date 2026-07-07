@@ -42,6 +42,24 @@ class Removed:
     attribute: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Transform:
+    """
+    A rename rule for ``Policy.transform_tags``, sanitize-html's ``simpleTransform``.
+
+    Mapping a source tag to a bare string renames it; mapping it to a ``Transform`` renames it and adds attributes. The
+    added attributes are not trusted: they join the element's own attributes and go through the same allowlist and
+    URL/style scrubbing, so a transform cannot add an attribute the policy would otherwise strip.
+
+    :param tag: the target tag name to rename to.
+    :param attributes: attribute name/value pairs to add to the renamed element (added if absent, overwritten if
+        present).
+    """
+
+    tag: str
+    attributes: Mapping[str, str] = field(default_factory=dict)
+
+
 class OnDisallowed(Enum):
     """
     What to do with an element the policy does not allow.
@@ -138,6 +156,12 @@ class Policy:
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;
         a surviving attribute whose value is outside its set is dropped. This narrows an attribute ``attributes``
         already admits and cannot admit a new one.
+    :param transform_tags: rename rules applied before the allowlist, keyed by source tag (sanitize-html's
+        ``transformTags``). A value that is a plain string renames the element to it; a :class:`Transform` renames it
+        and adds attributes. The rename runs first, then the renamed element is re-checked from scratch, so a transform
+        decides an element's *name* but never its safety: the allowlist still governs the target tag (mapping to
+        ``script`` still drops it), and any added attributes are scrubbed like the element's own. Only HTML elements are
+        transformed, matched by tag name. Empty (the default) renames nothing.
     :param allowed_styles: a per-property value allowlist for the ``style`` attribute, keyed
         ``{tag: {property: [pattern, ...]}}`` with ``"*"`` as a tag matching every element (sanitize-html's
         ``allowedStyles``). A declaration survives only when its property is listed for the element's tag or ``"*"``
@@ -170,6 +194,7 @@ class Policy:
     media_hosts: frozenset[str] = frozenset()
     strip_template_markers: bool = False
     allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]] = field(default_factory=dict)
+    transform_tags: Mapping[str, Transform | str] = field(default_factory=dict)
 
     @classmethod
     def strict(cls) -> Policy:
@@ -227,6 +252,22 @@ class Sanitizer:
             }
             for tag, props in self.policy.allowed_styles.items()
         }
+        self._transform_tags = dict(starmap(self._compile_transform, self.policy.transform_tags.items()))
+
+    @staticmethod
+    def _compile_transform(source: str, target: Transform | str) -> tuple[str, tuple[str, dict[str, str]]]:
+        """Normalize one transform rule into ``(source, (target_tag, added_attributes))`` for the C walk."""
+        if isinstance(target, str):
+            name, attributes = target, {}
+        elif isinstance(target, Transform):
+            name, attributes = target.tag, dict(target.attributes)
+        else:
+            msg = f"transform_tags[{source!r}] must be a str or Transform, got {type(target).__name__}"
+            raise TypeError(msg)
+        if not name:
+            msg = f"transform_tags[{source!r}] target tag must be a non-empty string"
+            raise ValueError(msg)
+        return source, (name, attributes)
 
     def sanitize(self, html: str) -> str:
         """
@@ -281,6 +322,7 @@ class Sanitizer:
             policy.strip_template_markers,
             removed,
             self._allowed_styles,
+            self._transform_tags,
         )
         return root
 
@@ -322,6 +364,7 @@ __all__ = [
     "Policy",
     "Removed",
     "Sanitizer",
+    "Transform",
     "sanitize",
     "sanitize_report",
 ]

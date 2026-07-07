@@ -103,6 +103,7 @@ _HOMEPAGES: Final = {
     "pyquery": "https://pyquery.readthedocs.io/",
     "rcssmin": "https://opensource.perlig.de/rcssmin/",
     "rjsmin": "https://opensource.perlig.de/rjsmin/",
+    "sanitize-html": "https://github.com/apostrophecms/sanitize-html",
     "readability-lxml": "https://github.com/buriy/python-readability",
     "readabilipy": "https://readabilipy.readthedocs.io/",
     "resiliparse": "https://resiliparse.chatnoir.eu/",

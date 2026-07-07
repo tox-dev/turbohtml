@@ -24,3 +24,12 @@ about which benign values to accept; they are never one regex away from re-enabl
 decision was taken out of the policy's hands entirely. The same shape governs the rest of the sanitizer: ``on*`` event
 handlers, ``<script>``, and ``javascript:`` URLs are dropped below the allowlists, so no combination of ``tags``,
 ``attributes``, or ``attribute_filter`` settings can bring them back.
+
+``transform_tags`` is the one step that *adds* rather than removes -- it renames an element and can inject attributes --
+so its placement is what keeps the model intact. The rename runs at the very top, before the allowlist reads the tag,
+and then the walk continues on the renamed element as if the author had written the target: the allowlist decides its
+disposition, the unsafe-tag baseline still escapes a ``script`` or ``iframe`` target, and every injected attribute joins
+the element's own to be scrubbed by the same gates below. A transform therefore chooses an element's *name* while every
+gate underneath still governs its *safety*. Putting the additive step above the subtractive stack, instead of letting it
+write past the allowlist, is why ``{"b": "script"}`` cannot smuggle a live ``<script>`` and an injected ``href`` cannot
+carry a ``javascript:`` URL -- the transform hands its output back to the pipeline rather than around it.

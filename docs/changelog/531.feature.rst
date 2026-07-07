@@ -1,0 +1,5 @@
+:class:`turbohtml.clean.Policy` gains ``transform_tags``: a map that renames elements while sanitizing, sanitize-html's
+``transformTags``. Map a source tag to a string to rename it, or to a :class:`turbohtml.clean.Transform` to rename it and
+add attributes (sanitize-html's ``simpleTransform``). The rename runs before the allowlist in the same C walk, so the
+renamed element is re-checked from scratch -- a transform decides an element's name but never its safety: mapping a tag
+to ``script`` still drops it, and an added attribute is scrubbed like the element's own.

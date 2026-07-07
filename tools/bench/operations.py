@@ -98,6 +98,14 @@ _SANITIZE_POST = dedent("""\
       <ul><li>one</li><li>two</li></ul>
     </div>""")
 
+# dense in the deprecated presentational tags a transform map renames (b/i/center/font/tt/big/strike), so the walk hits
+# the rename + attribute-injection path on most elements rather than passing them through unchanged
+_SANITIZE_LEGACY = dedent("""\
+    <center><font size=4><b>Heading</b></font></center>
+    <p><i>Intro</i> with <tt>inline code</tt>, <strike>struck</strike>, and <big>emphatic</big> text.</p>
+    <blockquote><b>Quote</b> from <i>an author</i> with a <font color=red>colored</font> aside.</blockquote>
+    <ul><li><b>one</b></li><li><i>two</i></li><li><tt>three</tt></li></ul>""")
+
 # rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
 # per-declaration regex work rather than short-circuiting on an empty rule
 _SANITIZE_STYLES = dedent("""\
@@ -159,6 +167,7 @@ OPERATIONS: dict[str, Operation] = {
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
     "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
+    "sanitize-transform": Operation("sanitize (tag transform)", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -465,6 +474,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
+    "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),

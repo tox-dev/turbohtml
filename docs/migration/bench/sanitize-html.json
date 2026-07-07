@@ -1,0 +1,15 @@
+{
+  "label": "input",
+  "parties": [
+    "turbohtml",
+    "sanitize-html"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "legacy 4 KiB",
+      5.40419714525342e-05,
+      0.0564835419645533
+    ]
+  ]
+}

@@ -49,6 +49,29 @@ dropped even when a pattern would admit it:
 
     <p style="color: #0a0">ok</p>
 
+``Policy.transform_tags`` renames elements during the same walk, sanitize-html's ``transformTags``. Key it by source
+tag: map to a bare string to rename, or to a :class:`Transform` to rename and add attributes. The rename runs *before*
+the allowlist, so the renamed element is re-checked from scratch -- a transform decides an element's name but never its
+safety. Mapping a tag to ``script`` still drops it, and an added attribute is scrubbed like the element's own, so it
+must be allowlisted to survive:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy, Transform
+
+    policy = Policy(
+        tags=frozenset({"strong", "div"}),
+        attributes={"div": frozenset({"class"})},
+        transform_tags={"b": "strong", "center": Transform("div", {"class": "center"})},
+    )
+    print(sanitize("<b>bold</b> and <center>middle</center>", policy))
+
+.. testoutput::
+
+    <strong>bold</strong> and <div class="center">middle</div>
+
+.. autoclass:: Transform
+
 .. autoclass:: OnDisallowed
     :members:
 

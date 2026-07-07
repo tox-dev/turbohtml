@@ -64,6 +64,26 @@ edit without touching the original:
 
     False
 
+Reshaping is not limited to trees you built. When you clean untrusted markup, the sanitizer can rename tags in the same
+pass: a :class:`~turbohtml.clean.Policy` with ``transform_tags`` rewrites a source tag to a target (a
+:class:`~turbohtml.clean.Transform` also adds attributes). The rename runs before the allowlist, so the result is
+re-checked -- modernizing legacy tags while the safety baseline still applies:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy, Transform
+
+    policy = Policy(
+        tags=frozenset({"strong", "em", "div"}),
+        attributes={"div": frozenset({"class"})},
+        transform_tags={"b": "strong", "i": "em", "center": Transform("div", {"class": "center"})},
+    )
+    print(sanitize("<center><b>Old</b> <i>markup</i></center>", policy))
+
+.. testoutput::
+
+    <div class="center"><strong>Old</strong> <em>markup</em></div>
+
 When you serialize, set an ``Html`` config's ``layout`` to a :class:`~turbohtml.Minify` to shrink the output without
 changing what it means: it folds insignificant whitespace, omits optional tags, unquotes safe attributes, and strips
 comments, and the result reparses to the same tree. Here the ``</li>`` tags stay because real whitespace separates the

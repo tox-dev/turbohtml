@@ -68,6 +68,32 @@ even if a pattern would admit it.
 
     <p style="color: #ff0000">Hi</p>
 
+******************************
+ Rename tags while sanitizing
+******************************
+
+To rewrite a tag as it is cleaned -- ``<b>`` to ``<strong>``, or the deprecated ``<center>`` to a ``<div>`` -- set
+``transform_tags``, sanitize-html's ``transformTags``. Key it by source tag: a bare string renames, and a
+:class:`~turbohtml.clean.Transform` renames and adds attributes. The rename runs before the allowlist, so the renamed
+element is re-checked from scratch; a transform sets an element's name, never its safety. Mapping a tag to a disallowed
+or unsafe target (``script``) still drops it, and an added attribute is scrubbed with the element's own, so it must be
+allowlisted to survive.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy, Transform
+
+    policy = Policy(
+        tags=frozenset({"strong", "em", "div"}),
+        attributes={"div": frozenset({"class"})},
+        transform_tags={"b": "strong", "i": "em", "center": Transform("div", {"class": "legacy"})},
+    )
+    print(sanitize("<center><b>bold</b> and <i>italic</i></center>", policy))
+
+.. testoutput::
+
+    <div class="legacy"><strong>bold</strong> and <em>italic</em></div>
+
 **************************************
  Trust the first pass, do not reparse
 **************************************

@@ -48,6 +48,24 @@ _SANITIZER_STYLES = _clean.Sanitizer(
         allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^center$|^right$"]}},
     )
 )
+# rename the deprecated presentational tags a real feed still carries to their modern equivalents in the same walk,
+# sanitize-html's transformTags; the added class exercises the attribute-injection path alongside the rename
+_RELAXED = _clean.Policy.relaxed()
+_SANITIZER_TRANSFORM = _clean.Sanitizer(
+    replace(
+        _RELAXED,
+        attributes={**_RELAXED.attributes, "div": frozenset({"class"})},
+        transform_tags={
+            "b": "strong",
+            "i": "em",
+            "big": "span",
+            "tt": "code",
+            "strike": "s",
+            "font": "span",
+            "center": _clean.Transform("div", {"class": "center"}),
+        },
+    )
+)
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -279,6 +297,11 @@ def sanitize_report(text: str) -> None:
 def sanitize_styles(text: str) -> None:
     """Sanitize with a per-property style value allowlist, exercising the allowed_styles scrub path."""
     _SANITIZER_STYLES.sanitize(text)
+
+
+def sanitize_transform(text: str) -> None:
+    """Sanitize with a tag-transform map, renaming deprecated presentational tags in the same C walk."""
+    _SANITIZER_TRANSFORM.sanitize(text)
 
 
 def markup(text: str) -> None:
@@ -576,6 +599,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),
     "sanitize-styles": (sanitize_styles, "turbohtml"),
+    "sanitize-transform": (sanitize_transform, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),

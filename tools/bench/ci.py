@@ -113,6 +113,7 @@ _RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
     "sanitize-templates": ("sanitize-templates-spec", _spec),
     "sanitize-report": ("sanitize-report-spec", _spec),
     "sanitize-styles": ("sanitize-styles-spec", _spec),
+    "sanitize-transform": ("sanitize-transform-spec", _spec),
     "linkify": ("linkify-spec", _spec),
     "markdown-google": ("markdown-google-spec", _spec),
     "article": ("article-spec", _spec),
