@@ -35,6 +35,8 @@ from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
 from turbohtml.query import Query as _Query
+from turbohtml.rewrite import Element as _RewriteElement
+from turbohtml.rewrite import rewrite as _rewrite
 from turbohtml.saxparse import SaxHandler as _SaxHandler
 from turbohtml.saxparse import sax_parse as _sax_parse
 from turbohtml.transform import Transform as _Transform
@@ -589,6 +591,30 @@ def sax(text: str) -> None:
     _sax_parse(text, _SaxCounter())
 
 
+def _rewrite_rel(element: _RewriteElement) -> None:
+    """Mark a link rel=nofollow as the streaming rewriter visits it."""
+    element.set_attribute("rel", "nofollow")
+
+
+def _rewrite_lazy(element: _RewriteElement) -> None:
+    """Defer an image's load as the streaming rewriter visits it."""
+    element.set_attribute("loading", "lazy")
+
+
+def _rewrite_strip_comment(comment: _RewriteElement) -> None:
+    """Drop a comment as the streaming rewriter visits it."""
+    comment.remove()
+
+
+def rewrite(text: str) -> None:
+    """Rewrite the whole document in one streaming pass -- retag links, lazy-load images, drop comments -- no tree."""
+    _rewrite(
+        text,
+        elements=(("a[href]", _rewrite_rel), ("img", _rewrite_lazy)),
+        comments=_rewrite_strip_comment,
+    )
+
+
 def css_path(text: str) -> None:
     """Generate the unique CSS selector that re-finds every element with turbohtml's css_path."""
     for node in _parsed(text).descendants:
@@ -783,6 +809,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "extract-url": (extract_url, "turbohtml"),
     "htmlparser": (htmlparser, "turbohtml"),
     "sax": (sax, "turbohtml"),
+    "rewrite": (rewrite, "turbohtml"),
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
     "translate": (translate, "turbohtml"),

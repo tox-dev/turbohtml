@@ -74,6 +74,7 @@ _DOCUMENT_OPS = (
     "extract-text",
     "htmlparser",
     "sax",
+    "rewrite",
     "path",
     "path-xpath",
     "links-filter",
