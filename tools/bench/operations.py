@@ -94,6 +94,7 @@ OPERATIONS: dict[str, Operation] = {
     "construct": Operation("construct N elements (no serialize)", "us"),
     "emit": Operation("emit a built tree", "us"),
     "parse": Operation("parse to a tree", "us"),
+    "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
     "fragment": Operation("parse a fragment", "us"),
     "escape": Operation("escape", "us"),
     "unescape": Operation("unescape", "us"),
@@ -391,6 +392,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "construct": lambda: _ROWS,
     "emit": lambda: _ROWS,
     "parse": _parse_cases,
+    "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,

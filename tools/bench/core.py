@@ -96,6 +96,11 @@ def parse(text: str) -> None:
     turbohtml.parse(text)
 
 
+def parse_scripting(text: str) -> None:
+    """Parse with the WHATWG scripting flag on, so <noscript> content tokenizes as raw text."""
+    turbohtml.parse(text, scripting=True)
+
+
 def fragment(text: str) -> None:
     """Parse a fragment in its container context with turbohtml.parse_fragment."""
     turbohtml.parse_fragment(text, context="tbody")
@@ -521,6 +526,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "construct": (construct, "turbohtml"),
     "emit": (emit, "turbohtml"),
     "parse": (parse, "turbohtml"),
+    "parse-scripting": (parse_scripting, "turbohtml"),
     "fragment": (fragment, "turbohtml"),
     "escape": (escape, "turbohtml"),
     "unescape": (unescape, "turbohtml"),

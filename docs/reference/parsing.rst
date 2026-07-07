@@ -7,6 +7,11 @@
 Turn markup into a navigable :class:`Document`. :func:`parse` handles a whole document at once; :func:`parse_fragment`
 parses a fragment in a context element; :class:`IncrementalParser` builds a document from chunks fed over a stream.
 
+Both :func:`parse` and :func:`parse_fragment` take keyword options: ``encoding`` and ``detect_encoding`` steer decoding
+of ``bytes`` input, ``strict`` turns the first recovered parse error into an exception, ``positions`` records each
+element's source line and column, and ``scripting`` sets the WHATWG scripting flag so ``<noscript>`` parses as a
+raw-text element. Each is described on the function below.
+
 .. autofunction:: parse
 
 .. autofunction:: parse_fragment

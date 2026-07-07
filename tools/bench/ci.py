@@ -81,6 +81,9 @@ _LOADERS["encoding"] = lambda: corpus.corpus("war-and-peace/2600.txt", _TEXT_BYT
 _LOADERS["normalize"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
 _LOADERS["minify-css"] = partial(corpus.large_text, *corpus.STYLESHEETS[1][1:])  # pico.css (90 kB)
 _LOADERS["minify-js"] = partial(corpus.large_text, *corpus.JS_FILES[0][1:])  # underscore (67 kB)
+_LOADERS["parse-scripting"] = partial(
+    corpus.large_text, *corpus.REAL_PAGES[2][1:]
+)  # mozilla blog (95 kB), carries <noscript>
 
 
 def _spec_case(kind: str) -> tuple[str, str]:

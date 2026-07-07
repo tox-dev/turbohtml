@@ -41,6 +41,18 @@ malformed input fills it (and ``parse(..., strict=True)`` raises :class:`~turboh
     []
     duplicate-attribute
 
+By default turbohtml parses ``<noscript>`` content as markup, so you can walk into it. A scripting browser treats that
+content as raw text instead. Pass ``scripting=True`` to build that tree, where the inner tags become one text run:
+
+.. testcode::
+
+    noscript = turbohtml.parse("<noscript><a href='/no-js'>plain</a></noscript>", scripting=True).find("noscript")
+    print(noscript.text)
+
+.. testoutput::
+
+    <a href='/no-js'>plain</a>
+
 :meth:`~turbohtml.Node.find` returns the first descendant matching a tag (and any attributes you pass), or ``None``:
 
 .. testcode::
