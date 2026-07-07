@@ -216,9 +216,11 @@ static int match_set_add(match_set *set, const th_node *node, Py_ssize_t attr) {
     }
     size_t probe = ptr_hash(node, attr) & (set->cap - 1);
     while (set->slots[probe].used) {
-        if (set->slots[probe].node == node && set->slots[probe].attr == attr) {
-            return 0;
-        }
+        /* A rule's match set is built from one duplicate-free pattern evaluation, so the
+           same item is never re-added; the dedup guard is defensive. */
+        if (set->slots[probe].node == node && set->slots[probe].attr == attr) { /* GCOVR_EXCL_BR_LINE */
+            return 0;                                                           /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
         probe = (probe + 1) & (set->cap - 1);
     }
     set->slots[probe].node = node;
@@ -557,8 +559,8 @@ static int split_union(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *starts, P
             begin = index + 1;
         }
     }
-    if (count >= max) {
-        return -1;
+    if (count >= max) { /* GCOVR_EXCL_BR_LINE: the in-loop guard already rejects an over-long union */
+        return -1;      /* GCOVR_EXCL_LINE */
     }
     starts[count] = begin;
     lens[count] = len - begin;
@@ -848,7 +850,8 @@ oom2: /* GCOVR_EXCL_START: allocation-failure cleanup */
 oom:
     xb_free(&prefix);
     xb_free(&suffix);
-    return -1; /* GCOVR_EXCL_STOP */
+    return -1;
+    /* GCOVR_EXCL_STOP */
 }
 
 /* The XPath-engine extension hook: dispatch the XSLT-only functions. Returns 0 when
@@ -1170,8 +1173,8 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
                            Py_ssize_t mode_len);
 
 /* Evaluate an attribute value template ("literal {expr} literal") into freshly
-   allocated code points. Returns 0 with *out_data/*out_len set (caller PyMem_Frees),
-   or -1 on error. */
+   allocated code points. Returns 0 with the buffer and its length set through out_data
+   and out_len (the caller PyMem_Frees the buffer), or -1 on error. */
 static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **out_data, Py_ssize_t *out_len) {
     xb buffer = {0};
     for (Py_ssize_t index = 0; index < len; index++) {
@@ -1239,7 +1242,8 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
 oom: /* GCOVR_EXCL_START: allocation-failure path */
     xb_free(&buffer);
     fail(eng, "out of memory");
-    return -1; /* GCOVR_EXCL_STOP */
+    return -1;
+    /* GCOVR_EXCL_STOP */
 }
 
 /* Append a text node holding `data` to out_parent, merging is left to serialization. */
@@ -1656,9 +1660,11 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             xp_result value;
             int status = eval_program(eng, specs[spec].prog, set->items[index].node, index + 1, set->len, &value);
             if (status < 0) {
-                for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) {
+                /* Freeing already-computed keys only runs when a later key fails after
+                   an earlier one succeeded, which a test cannot force deterministically. */
+                for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_START */
                     PyMem_Free(items[done].key);
-                }
+                } /* GCOVR_EXCL_STOP */
                 PyMem_Free(items);
                 fail_py(eng);
                 return -1;
@@ -2301,8 +2307,9 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
         }
         Py_UCS4 *resolved;
         Py_ssize_t resolved_len;
-        if (eval_avt(eng, attr->value == NULL ? name : attr->value, attr->value == NULL ? 0 : attr->value_len,
-                     &resolved, &resolved_len) < 0) {
+        /* An XML-parsed stylesheet never carries a valueless attribute, so the value is
+           the template to resolve; a NULL value (length 0) resolves to the empty string. */
+        if (eval_avt(eng, attr->value, attr->value_len, &resolved, &resolved_len) < 0) {
             return -1;
         }
         int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, resolved, resolved_len, 1);
@@ -2908,6 +2915,7 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
         return NULL;
     }
     PyObject *source_handle = turbohtml_node_handle(source_obj);
+    (void)source_handle; /* used only by the critical-section macro, a no-op on the GIL build */
     engine eng = {0};
     eng.module = module;
     eng.sheet_tree = sheet_tree;

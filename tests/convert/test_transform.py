@@ -1223,3 +1223,151 @@ def test_transform_processing_instruction_literal_pattern_priority() -> None:
     )
     # The reused XPath engine matches processing-instruction() regardless of the literal target.
     assert _run("<r><?go x?><?stop y?></r>", body) == "PP"
+
+
+def test_transform_unknown_function_raises() -> None:
+    with pytest.raises(ValueError, match="function"):
+        _run("<r/>", '<xsl:template match="/"><xsl:value-of select="nosuchfunc()"/></xsl:template>')
+
+
+def test_transform_key_with_empty_table_lookup_misses() -> None:
+    body = (
+        '<xsl:key name="k" match="absent" use="@x"/>'
+        "<xsl:template match=\"/\">[<xsl:value-of select=\"count(key('k','v'))\"/>]</xsl:template>"
+    )
+    assert _run("<r><n/></r>", body) == "[0]"
+
+
+def test_transform_id_pattern_with_space_before_paren() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="id (\'never\')" priority="0.5">ID</xsl:template>'
+        '<xsl:template match="*">S</xsl:template>'
+    )
+    assert _run("<r><a/></r>", body) == "S"
+
+
+def test_transform_pattern_with_variable_reference_errors() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/n"/></xsl:template>'
+        '<xsl:template match="n[$undef]">x</xsl:template>'
+        '<xsl:template match="n">n</xsl:template>'
+    )
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r><n/></r>", body)
+
+
+def test_transform_second_sort_key_bad_select_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="//n">'
+        '<xsl:sort select="."/><xsl:sort select="@("/></xsl:for-each></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="sort"):
+        _run("<r><n/><n/></r>", body)
+
+
+def test_transform_sort_numeric_two_non_numeric_values() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="." data-type="number"/>'
+        '<xsl:value-of select="."/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><n>x</n><n>y</n></r>", body) == "x,y,"
+
+
+def test_transform_second_with_param_bad_select_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:call-template name="t">'
+        '<xsl:with-param name="a" select="1"/><xsl:with-param name="b" select="@("/></xsl:call-template></xsl:template>'
+        '<xsl:template name="t"/>'
+    )
+    with pytest.raises(ValueError, match="xslt"):
+        _run("<r/>", body)
+
+
+def test_transform_param_default_bad_expression_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:call-template name="t"/></xsl:template>'
+        '<xsl:template name="t"><xsl:param name="p" select="@("/><xsl:value-of select="$p"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="xslt"):
+        _run("<r/>", body)
+
+
+def test_transform_with_param_node_set_value() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:call-template name="t">'
+        '<xsl:with-param name="p" select="//n"/></xsl:call-template></xsl:template>'
+        '<xsl:template name="t"><xsl:param name="p"/><xsl:value-of select="count($p)"/></xsl:template>'
+    )
+    assert _run("<r><n/><n/></r>", body) == "2"
+
+
+def test_transform_apply_templates_node_set_param() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n">'
+        '<xsl:with-param name="p" select="//n"/></xsl:apply-templates></xsl:template>'
+        '<xsl:template match="n"><xsl:param name="p"/><xsl:value-of select="count($p)"/></xsl:template>'
+    )
+    assert _run("<r><n/><n/></r>", body) == "22"
+
+
+def test_transform_call_template_without_name_raises() -> None:
+    with pytest.raises(ValueError, match="call-template requires"):
+        _run("<r/>", '<xsl:template match="/"><xsl:call-template/></xsl:template>')
+
+
+def test_transform_apply_templates_non_node_set_select_raises() -> None:
+    with pytest.raises(ValueError, match="not a node-set"):
+        _run("<r/>", '<xsl:template match="/"><xsl:apply-templates select="1 + 1"/></xsl:template>')
+
+
+def test_transform_apply_templates_bad_sort_select_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n">'
+        '<xsl:sort select="@("/></xsl:apply-templates></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="sort"):
+        _run("<r><n/></r>", body)
+
+
+def test_transform_variable_without_name_raises() -> None:
+    with pytest.raises(ValueError, match="variable requires"):
+        _run("<r/>", '<xsl:template match="/"><xsl:variable select="1"/></xsl:template>')
+
+
+def test_transform_key_with_bad_match_pattern_raises() -> None:
+    body = '<xsl:key name="k" match="n[" use="@x"/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match="match pattern"):
+        _run("<r/>", body)
+
+
+def test_transform_top_level_param_evaluation_error_raises() -> None:
+    body = '<xsl:param name="p" select="\'d\'"/><xsl:template match="/"><xsl:value-of select="$p"/></xsl:template>'
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r/>", body, p="$undef")
+
+
+def test_transform_missing_arguments_raise() -> None:
+    with pytest.raises(TypeError):
+        _xslt_transform()  # ty: ignore[missing-argument]  # too few args on purpose
+
+
+def test_transform_non_node_source_raises() -> None:
+    sheet = _sheet('<xsl:template match="/">x</xsl:template>')
+    with pytest.raises(TypeError):
+        _xslt_transform(sheet, "not a node")  # ty: ignore[invalid-argument-type]  # wrong type on purpose
+
+
+def test_transform_unknown_xsl_element_instantiates_nothing() -> None:
+    body = '<xsl:template match="/">a<xsl:fallback/>b</xsl:template>'
+    assert _run("<r/>", body) == "ab"
+
+
+def test_transform_second_with_param_missing_name_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:call-template name="t">'
+        '<xsl:with-param name="a" select="1"/><xsl:with-param select="2"/></xsl:call-template></xsl:template>'
+        '<xsl:template name="t"/>'
+    )
+    with pytest.raises(ValueError, match="with-param requires"):
+        _run("<r/>", body)
