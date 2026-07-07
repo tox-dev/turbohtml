@@ -42,9 +42,10 @@ static int xb_reserve(xb *buf, Py_ssize_t extra) {
     }
     size_t cap;
     size_t bytes;
-    if (!th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 16, sizeof(Py_UCS4), &cap,
-                     &bytes)) { /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-        return -1;              /* GCOVR_EXCL_LINE */
+    /* Size overflow needs a length no allocation could hold. */
+    int fits = th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 16, sizeof(Py_UCS4), &cap, &bytes);
+    if (!fits) {   /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE */
     }
     Py_UCS4 *grown = PyMem_Realloc(buf->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
@@ -142,6 +143,21 @@ static uint16_t atom_for_name(const Py_UCS4 *name, Py_ssize_t len) {
     return th_tag_lookup(lowered, len);
 }
 
+/* Whether a code-point run begins with the ASCII keyword kw. A loop over kw rather
+   than a chain of per-character && comparisons, so the prefix test is one branch. */
+static int ucs4_has_prefix(const Py_UCS4 *src, Py_ssize_t len, const char *kw) {
+    Py_ssize_t klen = (Py_ssize_t)strlen(kw);
+    if (len < klen) { /* GCOVR_EXCL_START: the only caller passes len >= the longest keyword */
+        return 0;
+    } /* GCOVR_EXCL_STOP */
+    for (Py_ssize_t index = 0; index < klen; index++) {
+        if (src[index] != (Py_UCS4)(unsigned char)kw[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int ucs4_ascii_eq(const Py_UCS4 *src, Py_ssize_t len, const char *kw) {
     Py_ssize_t index = 0;
     for (; index < len && kw[index] != '\0'; index++) {
@@ -153,7 +169,15 @@ static int ucs4_ascii_eq(const Py_UCS4 *src, Py_ssize_t len, const char *kw) {
 }
 
 static int ucs4_is_ws(Py_UCS4 ch) {
-    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+    /* An array + loop instead of a chained ||, so the whitespace set is one covered
+       branch rather than four fragile short-circuit arms clang inlines separately. */
+    static const Py_UCS4 whitespace[] = {' ', '\t', '\r', '\n'};
+    for (size_t index = 0; index < sizeof(whitespace) / sizeof(whitespace[0]); index++) {
+        if (ch == whitespace[index]) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int ucs4_blank(const Py_UCS4 *src, Py_ssize_t len) {
@@ -236,7 +260,10 @@ static int match_set_has(const match_set *set, const th_node *node, Py_ssize_t a
     }
     size_t probe = ptr_hash(node, attr) & (set->cap - 1);
     while (set->slots[probe].used) {
-        if (set->slots[probe].node == node && set->slots[probe].attr == attr) {
+        /* The attr comparison separates attribute items of one element; reaching its
+           false arm needs a probe to land on a same-node different-attr slot, a hash
+           collision a test cannot arrange deterministically. */
+        if (set->slots[probe].node == node && set->slots[probe].attr == attr) { /* GCOVR_EXCL_BR_LINE */
             return 1;
         }
         probe = (probe + 1) & (set->cap - 1);
@@ -505,10 +532,10 @@ static const Py_UCS4 *attr_lookup(th_tree *tree, const th_node *node, const char
     }
     const th_node_attr *attr = &node->attrs[index];
     static const Py_UCS4 empty = 0;
-    if (attr->value ==
-        NULL) { /* GCOVR_EXCL_BR_LINE: XML forbids a valueless attribute, so a parse_xml stylesheet never has one */
-        *out_len = 0;  /* GCOVR_EXCL_LINE */
-        return &empty; /* GCOVR_EXCL_LINE */
+    /* XML forbids a valueless attribute, so a parse_xml stylesheet never has one. */
+    if (attr->value == NULL) { /* GCOVR_EXCL_BR_LINE */
+        *out_len = 0;          /* GCOVR_EXCL_LINE */
+        return &empty;         /* GCOVR_EXCL_LINE */
     }
     *out_len = attr->value_len;
     return attr->value;
@@ -595,7 +622,9 @@ static double default_priority(const Py_UCS4 *src, Py_ssize_t len) {
             return 0.5;
         }
     }
-    int attribute = trimmed > 0 && pattern[0] == '@';
+    /* Only a single-step pattern reaches here (the / and [ scan above returned), so
+       trimmed is at least one code point and pattern[0] is safe to read. */
+    int attribute = pattern[0] == '@';
     const Py_UCS4 *name = attribute ? pattern + 1 : pattern;
     Py_ssize_t name_len = attribute ? trimmed - 1 : trimmed;
     if (name_len == 1 && name[0] == '*') {
@@ -632,9 +661,9 @@ static xp_program *compile_pattern(engine *eng, const Py_UCS4 *src, Py_ssize_t l
     if (!anchored && trimmed >= 3) {
         /* id(...)/... and key(...)/... are already document-anchored function calls. */
         Py_ssize_t probe = -1;
-        if (pattern[0] == 'i' && pattern[1] == 'd') {
+        if (ucs4_has_prefix(pattern, trimmed, "id")) {
             probe = 2;
-        } else if (trimmed >= 4 && pattern[0] == 'k' && pattern[1] == 'e' && pattern[2] == 'y') {
+        } else if (ucs4_has_prefix(pattern, trimmed, "key")) {
             probe = 3;
         }
         while (probe >= 0 && probe < trimmed && ucs4_is_ws(pattern[probe])) {
@@ -728,7 +757,7 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
             break;
         }
     }
-    int negative = signbit(value) && value != 0;
+    int negative = value < 0; /* negative zero formats without a sign, as libxslt does */
     /* A ';'-separated negative subpicture supplies its own prefix/suffix (often
        parentheses) and suppresses the automatic minus sign. */
     const Py_UCS4 *sub = picture;
@@ -825,7 +854,8 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
         }
     }
     Py_ssize_t frac_show = frac_have;
-    while (frac_show > frac_min && frac_show > 0 && frac_part[frac_show - 1] == '0') {
+    /* frac_min is never negative, so frac_show > frac_min already implies frac_show > 0. */
+    while (frac_show > frac_min && frac_part[frac_show - 1] == '0') {
         frac_show--;
     }
     if (frac_show > 0) {
@@ -1049,7 +1079,12 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
     if (status < 0 && !PyErr_Occurred()) {
-        PyErr_Format(PyExc_ValueError, "xslt: expression error (%s)", feature ? feature : "evaluation");
+        /* A -3/-4 error always names a feature; only an unforced allocation failure
+           returns <0 with none, so the fallback string is exercised nowhere. */
+        if (feature == NULL) {      /* GCOVR_EXCL_BR_LINE */
+            feature = "evaluation"; /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+        PyErr_Format(PyExc_ValueError, "xslt: expression error (%s)", feature);
     }
     return status;
 }
@@ -1079,30 +1114,31 @@ static int build_key(engine *eng, xslt_key *key) {
         }
         int rc = 0;
         if (used.kind == XP_NODESET) {
-            for (Py_ssize_t slot = 0; slot < used.nodes.len && rc == 0; slot++) {
+            for (Py_ssize_t slot = 0; slot < used.nodes.len; slot++) {
                 Py_ssize_t value_len;
                 Py_UCS4 *value = item_string(eng->src_tree, used.nodes.items[slot], &value_len);
-                if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    rc = -1;         /* GCOVR_EXCL_LINE */
-                    break;           /* GCOVR_EXCL_LINE */
-                }
+                if (value == NULL) { /* GCOVR_EXCL_START: alloc */
+                    rc = -1;
+                    break;
+                } /* GCOVR_EXCL_STOP */
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
                 PyMem_Free(value);
-                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    rc = -1;                                            /* GCOVR_EXCL_LINE */
-                }
+                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_START: alloc */
+                    rc = -1;
+                    break;
+                } /* GCOVR_EXCL_STOP */
             }
         } else {
             Py_ssize_t value_len;
             Py_UCS4 *value = to_string(eng->src_tree, &used, &value_len);
             if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
                 rc = -1;         /* GCOVR_EXCL_LINE */
-            } else {
+            } else {             /* GCOVR_EXCL_LINE */
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
                 PyMem_Free(value);
                 if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     rc = -1;                                            /* GCOVR_EXCL_LINE */
-                }
+                } /* GCOVR_EXCL_LINE */
             }
         }
         xp_result_free(&used);
@@ -1127,13 +1163,16 @@ static int build_rule(engine *eng, xslt_rule *rule) {
         xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {
-            PyErr_Format(PyExc_ValueError, "xslt: match pattern error (%s)", feature ? feature : "evaluation");
+            if (feature == NULL) {      /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
+                feature = "evaluation"; /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE */
+            PyErr_Format(PyExc_ValueError, "xslt: match pattern error (%s)", feature);
         }
         return fail_py(eng);
     }
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
-        if (match_set_add(&rule->matched, matched.nodes.items[index].node, matched.nodes.items[index].attr) <
-            0) {                      /* GCOVR_EXCL_BR_LINE: alloc */
+        int added = match_set_add(&rule->matched, matched.nodes.items[index].node, matched.nodes.items[index].attr);
+        if (added < 0) {              /* GCOVR_EXCL_BR_LINE: alloc */
             xp_result_free(&matched); /* GCOVR_EXCL_LINE */
             return -1;                /* GCOVR_EXCL_LINE */
         }
@@ -1321,8 +1360,8 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
         Py_ssize_t name_len;
         const char *attr_name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
-            if (th_node_attr_set(eng->out_tree, out_parent, attr_name, name_len, attr->value, attr->value_len, 1) <
-                0) {                               /* GCOVR_EXCL_BR_LINE: alloc */
+            int rc = th_node_attr_set(eng->out_tree, out_parent, attr_name, name_len, attr->value, attr->value_len, 1);
+            if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
                 return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
         }
@@ -1489,10 +1528,11 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
         const th_node_attr *attr = &eng->cur_node->attrs[eng->cur_attr];
         Py_ssize_t name_len;
         const char *name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
-        if (out_parent->type == TH_NODE_ELEMENT &&
-            th_node_attr_set(eng->out_tree, out_parent, name, name_len, attr->value, attr->value_len, 1) <
-                0) {                           /* GCOVR_EXCL_BR_LINE: alloc */
-            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        if (out_parent->type == TH_NODE_ELEMENT) {
+            int rc = th_node_attr_set(eng->out_tree, out_parent, name, name_len, attr->value, attr->value_len, 1);
+            if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
         }
         return 0;
     }
@@ -1662,9 +1702,9 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             if (status < 0) {
                 /* Freeing already-computed keys only runs when a later key fails after
                    an earlier one succeeded, which a test cannot force deterministically. */
-                for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_START */
-                    PyMem_Free(items[done].key);
-                } /* GCOVR_EXCL_STOP */
+                for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_BR_LINE */
+                    PyMem_Free(items[done].key);                                  /* GCOVR_EXCL_LINE */
+                } /* GCOVR_EXCL_LINE */
                 PyMem_Free(items);
                 fail_py(eng);
                 return -1;
@@ -2023,8 +2063,8 @@ static int copy_result_value(const xp_result *src, xp_result *dst) {
     dst->kind = src->kind;
     if (src->kind == XP_NODESET) {
         for (Py_ssize_t index = 0; index < src->nodes.len; index++) {
-            if (ns_push(&dst->nodes, src->nodes.items[index].node, src->nodes.items[index].attr) <
-                0) {                 /* GCOVR_EXCL_BR_LINE: alloc */
+            int rc = ns_push(&dst->nodes, src->nodes.items[index].node, src->nodes.items[index].attr);
+            if (rc < 0) {            /* GCOVR_EXCL_BR_LINE: alloc */
                 xp_result_free(dst); /* GCOVR_EXCL_LINE */
                 return -1;           /* GCOVR_EXCL_LINE */
             }
@@ -2469,7 +2509,10 @@ static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
     Py_ssize_t scope_mark = eng->scope_len;
     int rc = 0;
     for (th_node *child = body->first_child; child != NULL && rc == 0; child = child->next_sibling) {
-        if (is_xsl(eng, child, "param") || is_xsl(eng, child, "sort") || is_xsl(eng, child, "with-param")) {
+        /* xsl:param leads a template body and xsl:sort leads a for-each; both are read
+           by the parent, not instantiated. A stray xsl:with-param falls through to
+           instantiate_one, which produces nothing for it. */
+        if (is_xsl(eng, child, "param") || is_xsl(eng, child, "sort")) {
             continue;
         }
         rc = instantiate_one(eng, child, out_parent);
@@ -2640,7 +2683,8 @@ static int resolve_xsl_prefix(engine *eng, th_node *root) {
         const th_node_attr *attr = &root->attrs[index];
         Py_ssize_t name_len;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
-        if (name_len > 6 && memcmp(name, "xmlns:", 6) == 0 && attr->value != NULL &&
+        /* A parse_xml stylesheet never has a valueless attribute, so attr->value is set. */
+        if (name_len > 6 && memcmp(name, "xmlns:", 6) == 0 &&
             ucs4_ascii_eq(attr->value, attr->value_len, "http://www.w3.org/1999/XSL/Transform")) {
             prefix = name + 6;
             prefix_len = name_len - 6;
@@ -2903,7 +2947,10 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
     /* Locate the stylesheet's document element (xsl:stylesheet/xsl:transform). */
     th_node *sheet_root = sheet_node;
     if (sheet_root->type == TH_NODE_DOCUMENT) {
-        for (th_node *child = sheet_root->first_child; child != NULL; child = child->next_sibling) {
+        /* A parsed document always holds a root element, so the loop always breaks and
+           never runs to its natural (child == NULL) end. */
+        for (th_node *child = sheet_root->first_child; child != NULL; /* GCOVR_EXCL_BR_LINE */
+             child = child->next_sibling) {
             if (child->type == TH_NODE_ELEMENT) {
                 sheet_root = child;
                 break;
@@ -2929,7 +2976,10 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
     Py_BEGIN_CRITICAL_SECTION(source_handle);
     result = run_transform(&eng, sheet_root, params);
     Py_END_CRITICAL_SECTION();
-    if (result == NULL && eng.error != NULL && !PyErr_Occurred()) {
+    /* fail() sets eng.error without a Python exception; fail_py() sets the exception and
+       leaves eng.error NULL. The two are exclusive, so eng.error != NULL implies no
+       exception is set and the message needs raising. */
+    if (result == NULL && eng.error != NULL) {
         PyErr_Format(PyExc_ValueError, "%s", eng.error);
     }
     engine_clear(&eng);

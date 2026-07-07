@@ -1371,3 +1371,355 @@ def test_transform_second_with_param_missing_name_raises() -> None:
     )
     with pytest.raises(ValueError, match="with-param requires"):
         _run("<r/>", body)
+
+
+def test_transform_element_with_empty_name() -> None:
+    body = '<xsl:template match="/"><out><xsl:element name="{//none}">x</xsl:element></out></xsl:template>'
+    assert "x" in _run("<r/>", body, method="xml")
+
+
+def test_transform_html_source_with_template_content() -> None:
+    source = turbohtml.parse("<html><body><template><p>hi</p></template></body></html>")
+    sheet = _sheet('<xsl:template match="/"><xsl:apply-templates/></xsl:template>')
+    assert transform(sheet, source) == "hi"
+
+
+def test_transform_whitespace_only_match_pattern_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/n"/></xsl:template>'
+        '<xsl:template match="  ">ws</xsl:template><xsl:template match="n">n</xsl:template>'
+    )
+    with pytest.raises(ValueError, match="match pattern"):
+        _run("<r><n/></r>", body)
+
+
+def test_transform_three_char_relative_pattern() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//abc"/></xsl:template>'
+        '<xsl:template match="abc">hit</xsl:template>'
+    )
+    assert _run("<r><abc/></r>", body) == "hit"
+
+
+def test_transform_number_on_text_nodes() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/text()"/></xsl:template>'
+        '<xsl:template match="text()"><xsl:number/>-</xsl:template>'
+    )
+    assert _run("<r>a<!--c-->b</r>", body) == "1-2-"
+
+
+def test_transform_key_node_set_argument_miss() -> None:
+    body = (
+        '<xsl:key name="k" match="i" use="@c"/>'
+        '<xsl:template match="/"><xsl:value-of select="count(key(\'k\', r/want/@c))"/></xsl:template>'
+    )
+    assert _run('<r><want c="none"/><i c="x"/></r>', body) == "0"
+
+
+def test_transform_avt_with_double_quote_expression() -> None:
+    body = '<xsl:template match="/"><a v="{concat(&quot;p&quot;, &quot;q&quot;)}">t</a></xsl:template>'
+    assert _run("<r/>", body, method="xml") == '<a v="pq">t</a>'
+
+
+def test_transform_avt_lone_close_brace_literal() -> None:
+    body = '<xsl:template match="/"><a v="x}">t</a></xsl:template>'
+    assert _run("<r/>", body, method="xml") == '<a v="x}">t</a>'
+
+
+def test_transform_attribute_template_with_non_dot_select() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n/@id"/></xsl:template>'
+        '<xsl:template match="@id"><xsl:value-of select="\'lit\'"/></xsl:template>'
+    )
+    assert _run('<r><n id="A"/></r>', body) == "lit"
+
+
+def test_transform_copy_of_attributes_at_root_are_dropped() -> None:
+    body = '<xsl:template match="/"><xsl:copy-of select="//n/@*"/>done</xsl:template>'
+    assert _run('<r><n a="1"/></r>', body) == "done"
+
+
+def test_transform_copy_of_rtf_variable_with_others_in_scope() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:variable name="a" select="1"/>'
+        '<xsl:variable name="frag"><b>x</b></xsl:variable>'
+        '<out><xsl:copy-of select="$frag"/></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == "<out><b>x</b></out>"
+
+
+def test_transform_copy_of_processing_instruction_identity() -> None:
+    body = '<xsl:template match="/"><out><xsl:copy-of select="//processing-instruction()"/></out></xsl:template>'
+    assert "<?go x>" in _run("<r><?go x?></r>", body, method="xml")
+
+
+def test_transform_sort_equal_length_equal_keys() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="."/>'
+        '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    assert _run('<r><n id="1">aa</n><n id="2">aa</n></r>', body) == "12"
+
+
+def test_transform_number_empty_format_attribute() -> None:
+    body = '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:number format=""/></xsl:for-each></xsl:template>'
+    assert _run("<r><n/><n/></r>", body) == "12"
+
+
+def test_transform_xsl_text_with_comment_child() -> None:
+    body = '<xsl:template match="/"><xsl:text>hi<!--c--></xsl:text></xsl:template>'
+    assert _run("<r/>", body) == "hi"
+
+
+def test_transform_stylesheet_without_output_declaration_defaults_to_xml() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/"><out/></xsl:template></xsl:stylesheet>'
+    )
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == '<?xml version="1.0"?>\n<out/>'
+
+
+def test_transform_omit_xml_declaration_no_keeps_declaration() -> None:
+    sheet = _sheet(
+        '<xsl:output method="xml" omit-xml-declaration="no"/><xsl:template match="/"><out/></xsl:template>',
+        method="",
+    )
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == '<?xml version="1.0"?>\n<out/>'
+
+
+def test_transform_stylesheet_with_leading_comment_before_root() -> None:
+    sheet = turbohtml.parse_xml(
+        '<!--lead--><xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">ok</xsl:template></xsl:stylesheet>'
+    )
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == "ok"
+
+
+def test_transform_more_format_number_fraction_cases() -> None:
+    cases = {
+        "1.0": "1",
+        "1.50": "1.5",
+        "1.234": "1.23",
+        "10": "10",
+    }
+    for value, expected in cases.items():
+        body = f'<xsl:template match="/"><xsl:value-of select="format-number({value}, \'#.##\')"/></xsl:template>'
+        assert _run("<r/>", body) == expected
+
+
+def test_transform_attribute_template_single_char_select() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n/@id"/></xsl:template>'
+        '<xsl:template match="@id">[<xsl:value-of select="p"/>]</xsl:template>'
+    )
+    assert _run('<r><n id="A"/></r>', body) == "[]"
+
+
+def test_transform_copy_of_non_rtf_variable() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:variable name="v" select="//n"/>'
+        '<out><xsl:copy-of select="$v"/></out></xsl:template>'
+    )
+    assert _collapse(_run("<r><n>x</n></r>", body, method="xml")) == "<out><n>x</n></out>"
+
+
+def test_transform_sort_explicit_text_data_type() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="." data-type="text"/>'
+        '<xsl:value-of select="."/></xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><n>b</n><n>a</n></r>", body) == "ab"
+
+
+def test_transform_text_output_of_nested_elements() -> None:
+    body = '<xsl:template match="/"><wrap><inner>hi</inner> there</wrap></xsl:template>'
+    assert _run("<r/>", body) == "hi there"
+
+
+def test_transform_error_during_multi_node_apply_templates() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n"/></xsl:template>'
+        '<xsl:template match="n"><xsl:value-of select="$undef"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r><n/><n/></r>", body)
+
+
+def test_transform_error_during_builtin_recursion() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
+        '<xsl:template match="n"><xsl:value-of select="$undef"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r><n/><n/></r>", body)
+
+
+def test_transform_error_during_multi_node_for_each() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:value-of select="$undef"/></xsl:for-each></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r><n/><n/></r>", body)
+
+
+def test_transform_avt_lone_open_brace_raises() -> None:
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", '<xsl:template match="/"><a v="x{"/></xsl:template>', method="xml")
+
+
+def test_transform_avt_unclosed_expression() -> None:
+    body = '<xsl:template match="/"><a v="{//n"/></xsl:template>'
+    assert _run("<r><n>y</n></r>", body, method="xml") == '<a v="y"/>'
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        pytest.param("key", "hit", id="key-name"),
+        pytest.param("idx", "hit", id="id-prefix-name"),
+    ],
+)
+def test_transform_element_named_like_a_function(tag: str, expected: str) -> None:
+    body = (
+        f'<xsl:template match="/"><xsl:apply-templates select="//{tag}"/></xsl:template>'
+        f'<xsl:template match="{tag}">{expected}</xsl:template>'
+    )
+    assert _run(f"<r><{tag}/></r>", body) == expected
+
+
+def test_transform_matched_template_bad_param_default_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n"/></xsl:template>'
+        '<xsl:template match="n"><xsl:param name="p" select="@("/><xsl:value-of select="$p"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="xslt"):
+        _run("<r><n/></r>", body)
+
+
+def test_transform_choose_with_comment_between_branches() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:choose><xsl:when test="false()">w</xsl:when>'
+        "<!--gap--><xsl:otherwise>o</xsl:otherwise></xsl:choose></xsl:template>"
+    )
+    assert _run("<r/>", body) == "o"
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        pytest.param('name="k" use="."', id="missing-match"),
+        pytest.param('name="k" match="n"', id="missing-use"),
+    ],
+)
+def test_transform_key_missing_required_attribute(attrs: str) -> None:
+    body = f'<xsl:key {attrs}/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match="key requires"):
+        _run("<r><n/></r>", body)
+
+
+def test_transform_avt_literal_close_brace_mid_string() -> None:
+    body = '<xsl:template match="/"><a v="a}b"/></xsl:template>'
+    assert _run("<r/>", body, method="xml") == '<a v="a}b"/>'
+
+
+def test_transform_copy_of_rtf_variable_not_first_in_scope() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:variable name="a"><x>A</x></xsl:variable>'
+        '<xsl:variable name="b"><y>B</y></xsl:variable>'
+        '<out><xsl:copy-of select="$a"/></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == "<out><x>A</x></out>"
+
+
+def test_transform_xsl_copy_of_processing_instruction() -> None:
+    body = (
+        '<xsl:template match="/"><out><xsl:apply-templates select="//processing-instruction()"/></out></xsl:template>'
+        '<xsl:template match="processing-instruction()"><xsl:copy/></xsl:template>'
+    )
+    assert "<?go x>" in _run("<r><?go x?></r>", body, method="xml")
+
+
+def test_transform_sort_mixed_length_keys() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="."/>'
+        '<xsl:value-of select="."/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><n>b</n><n>aa</n><n>a</n><n>ab</n></r>", body) == "a,aa,ab,b,"
+
+
+def test_transform_number_over_different_length_name_siblings() -> None:
+    body = '<xsl:template match="/"><xsl:for-each select="r/ab"><xsl:number/>,</xsl:for-each></xsl:template>'
+    assert _run("<r><a/><ab/><a/><ab/></r>", body) == "1,2,"
+
+
+def test_transform_number_format_digits_then_letter() -> None:
+    body = '<xsl:template match="/"><xsl:number value="5" format="0a"/></xsl:template>'
+    assert _run("<r/>", body) == "5"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<r><n>a</n><n>aa</n></r>", "a,aa,", id="short-first"),
+        pytest.param("<r><n>aa</n><n>a</n></r>", "a,aa,", id="long-first"),
+    ],
+)
+def test_transform_sort_prefix_length_ordering(source: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="."/>'
+        '<xsl:value-of select="."/>,</xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == expected
+
+
+def test_transform_number_format_starting_with_symbol() -> None:
+    body = '<xsl:template match="/"><xsl:number value="7" format="#"/></xsl:template>'
+    assert _run("<r/>", body) == "7"
+
+
+def test_transform_number_format_digit_then_symbol() -> None:
+    body = '<xsl:template match="/"><xsl:number value="7" format="0#"/></xsl:template>'
+    assert _run("<r/>", body) == "7"
+
+
+def test_transform_output_without_method_attribute() -> None:
+    sheet = _sheet('<xsl:output indent="yes"/><xsl:template match="/"><out/></xsl:template>', method="")
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == '<?xml version="1.0"?>\n<out/>'
+
+
+def test_transform_root_with_extra_namespace_and_short_attribute() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" id="s" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+        ' xmlns:ex="urn:example"><xsl:output method="text"/><xsl:template match="/">ok</xsl:template></xsl:stylesheet>'
+    )
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == "ok"
+
+
+def test_transform_partial_parameter_override() -> None:
+    body = (
+        '<xsl:param name="a" select="\'da\'"/><xsl:param name="b" select="\'db\'"/>'
+        '<xsl:template match="/"><xsl:value-of select="$a"/>,<xsl:value-of select="$b"/></xsl:template>'
+    )
+    assert _run("<r/>", body, a="'A'") == "A,db"
+
+
+def test_transform_top_level_strip_space_is_ignored() -> None:
+    body = '<xsl:strip-space elements="*"/><xsl:template match="/">ok</xsl:template>'
+    assert _run("<r/>", body) == "ok"
+
+
+def test_transform_large_template_match_set() -> None:
+    elements = "".join(f"<e>{index}</e>" for index in range(400))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/e"/></xsl:template>'
+        '<xsl:template match="e"><xsl:value-of select="."/>,</xsl:template>'
+    )
+    assert _run(f"<r>{elements}</r>", body) == "".join(f"{index}," for index in range(400))
+
+
+def test_transform_stylesheet_passed_as_root_element() -> None:
+    root = _sheet('<xsl:template match="/">ok</xsl:template>').root
+    assert root is not None
+    assert transform(root, turbohtml.parse_xml("<r/>")) == "ok"
