@@ -907,7 +907,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             PyErr_SetString(PyExc_ValueError, "xslt: key() takes two arguments");
             return -1;
         }
-        Py_ssize_t key_name_len;
+        Py_ssize_t key_name_len = 0;
         Py_UCS4 *key_name = to_string(eng->src_tree, &args[0], &key_name_len);
         if (key_name == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;          /* GCOVR_EXCL_LINE */
@@ -932,7 +932,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
            other type its string. */
         if (args[1].kind == XP_NODESET) {
             for (Py_ssize_t index = 0; index < args[1].nodes.len; index++) {
-                Py_ssize_t value_len;
+                Py_ssize_t value_len = 0;
                 Py_UCS4 *value = item_string(eng->src_tree, args[1].nodes.items[index], &value_len);
                 if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
                     return -1;       /* GCOVR_EXCL_LINE */
@@ -947,7 +947,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             }
             return 0;
         }
-        Py_ssize_t value_len;
+        Py_ssize_t value_len = 0;
         Py_UCS4 *value = to_string(eng->src_tree, &args[1], &value_len);
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;       /* GCOVR_EXCL_LINE */
@@ -976,7 +976,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         }
         char buffer[32];
         int written = snprintf(buffer, sizeof(buffer), "id%zx", (size_t)(uintptr_t)target);
-        Py_ssize_t str_len;
+        Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(buffer, written, &str_len);
         if (str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;     /* GCOVR_EXCL_LINE */
@@ -990,7 +990,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             return -1;
         }
         double value = to_number(eng->src_tree, &args[0]);
-        Py_ssize_t picture_len;
+        Py_ssize_t picture_len = 0;
         Py_UCS4 *picture = to_string(eng->src_tree, &args[1], &picture_len);
         if (picture == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;         /* GCOVR_EXCL_LINE */
@@ -1000,7 +1000,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         return rc; /* GCOVR_EXCL_BR_LINE: rc<0 is an unforced allocation failure */
     }
     if (ucs4_ascii_eq(name, name_len, "system-property")) {
-        Py_ssize_t prop_len;
+        Py_ssize_t prop_len = 0;
         Py_UCS4 *prop = to_string(eng->src_tree, &args[0], &prop_len);
         if (prop == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;      /* GCOVR_EXCL_LINE */
@@ -1017,7 +1017,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             reply = "https://github.com/tox-dev/turbohtml";
         }
         PyMem_Free(prop);
-        Py_ssize_t str_len;
+        Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(reply, (Py_ssize_t)strlen(reply), &str_len);
         if (str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;     /* GCOVR_EXCL_LINE */
@@ -1026,7 +1026,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         return 0;
     }
     if (ucs4_ascii_eq(name, name_len, "function-available") || ucs4_ascii_eq(name, name_len, "element-available")) {
-        Py_ssize_t query_len;
+        Py_ssize_t query_len = 0;
         Py_UCS4 *query = to_string(eng->src_tree, &args[0], &query_len);
         if (query == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;       /* GCOVR_EXCL_LINE */
@@ -1115,7 +1115,7 @@ static int build_key(engine *eng, xslt_key *key) {
         int rc = 0;
         if (used.kind == XP_NODESET) {
             for (Py_ssize_t slot = 0; slot < used.nodes.len; slot++) {
-                Py_ssize_t value_len;
+                Py_ssize_t value_len = 0;
                 Py_UCS4 *value = item_string(eng->src_tree, used.nodes.items[slot], &value_len);
                 if (value == NULL) { /* GCOVR_EXCL_START: alloc */
                     rc = -1;
@@ -1129,7 +1129,7 @@ static int build_key(engine *eng, xslt_key *key) {
                 } /* GCOVR_EXCL_STOP */
             }
         } else {
-            Py_ssize_t value_len;
+            Py_ssize_t value_len = 0;
             Py_UCS4 *value = to_string(eng->src_tree, &used, &value_len);
             if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
                 rc = -1;         /* GCOVR_EXCL_LINE */
@@ -1258,7 +1258,7 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
                 fail_py(eng);
                 return -1;
             }
-            Py_ssize_t value_len;
+            Py_ssize_t value_len = 0;
             Py_UCS4 *text = to_string(eng->src_tree, &value, &value_len);
             xp_result_free(&value);
             if (text == NULL) {   /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1315,13 +1315,13 @@ static Py_UCS4 *current_string(engine *eng, Py_ssize_t *out_len) {
 
 /* Instantiate the string value of a select expression as text (xsl:value-of). */
 static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t select_len;
+    Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", &select_len);
     if (select == NULL) {
         return fail(eng, "xsl:value-of requires a select attribute");
     }
     if (eng->cur_attr >= 0 && is_self_dot(select, select_len)) {
-        Py_ssize_t text_len;
+        Py_ssize_t text_len = 0;
         Py_UCS4 *text = current_string(eng, &text_len);
         if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
@@ -1342,7 +1342,7 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     if (status < 0) {
         return fail_py(eng);
     }
-    Py_ssize_t text_len;
+    Py_ssize_t text_len = 0;
     Py_UCS4 *text = to_string(eng->src_tree, &value, &text_len);
     xp_result_free(&value);
     if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1357,7 +1357,7 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
 static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
     if (item.attr >= 0) {
         const th_node_attr *attr = &item.node->attrs[item.attr];
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const char *attr_name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
             int rc = th_node_attr_set(eng->out_tree, out_parent, attr_name, name_len, attr->value, attr->value_len, 1);
@@ -1376,7 +1376,7 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
 }
 
 static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t select_len;
+    Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", &select_len);
     if (select == NULL) {
         return fail(eng, "xsl:copy-of requires a select attribute");
@@ -1422,7 +1422,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
         xp_result_free(&value);
         return 0;
     }
-    Py_ssize_t text_len;
+    Py_ssize_t text_len = 0;
     Py_UCS4 *text = to_string(eng->src_tree, &value, &text_len);
     xp_result_free(&value);
     if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1445,7 +1445,7 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
     }
     xb buffer = {0};
     for (th_node *child = fragment->first_child; child != NULL; child = child->next_sibling) {
-        Py_ssize_t child_len;
+        Py_ssize_t child_len = 0;
         Py_UCS4 *child_text = th_node_text(eng->out_tree, child, &child_len);
         if (child_text == NULL) {              /* GCOVR_EXCL_BR_LINE: alloc */
             xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
@@ -1465,13 +1465,13 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
 
 /* xsl:element name={avt}: create an element and instantiate its body inside it. */
 static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name_avt = attr_lookup(eng->sheet_tree, instruction, "name", &name_len);
     if (name_avt == NULL) {
         return fail(eng, "xsl:element requires a name attribute");
     }
     Py_UCS4 *name;
-    Py_ssize_t resolved_len;
+    Py_ssize_t resolved_len = 0;
     if (eval_avt(eng, name_avt, name_len, &name, &resolved_len) < 0) {
         return -1;
     }
@@ -1490,23 +1490,23 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
     if (out_parent->type != TH_NODE_ELEMENT) {
         return 0;
     }
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name_avt = attr_lookup(eng->sheet_tree, instruction, "name", &name_len);
     if (name_avt == NULL) {
         return fail(eng, "xsl:attribute requires a name attribute");
     }
     Py_UCS4 *name;
-    Py_ssize_t resolved_len;
+    Py_ssize_t resolved_len = 0;
     if (eval_avt(eng, name_avt, name_len, &name, &resolved_len) < 0) {
         return -1;
     }
     Py_UCS4 *value;
-    Py_ssize_t value_len;
+    Py_ssize_t value_len = 0;
     if (instantiate_string(eng, instruction, &value, &value_len) < 0) {
         PyMem_Free(name);
         return -1;
     }
-    Py_ssize_t utf8_len;
+    Py_ssize_t utf8_len = 0;
     char *utf8 = ucs4_to_utf8(name, resolved_len, &utf8_len);
     PyMem_Free(name);
     if (utf8 == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
@@ -1526,7 +1526,7 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
 static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
     if (eng->cur_attr >= 0) {
         const th_node_attr *attr = &eng->cur_node->attrs[eng->cur_attr];
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
             int rc = th_node_attr_set(eng->out_tree, out_parent, name, name_len, attr->value, attr->value_len, 1);
@@ -1561,7 +1561,7 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
 /* xsl:comment / xsl:processing-instruction. */
 static int do_comment(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_UCS4 *data;
-    Py_ssize_t data_len;
+    Py_ssize_t data_len = 0;
     if (instantiate_string(eng, instruction, &data, &data_len) < 0) {
         return -1;
     }
@@ -1575,18 +1575,18 @@ static int do_comment(engine *eng, th_node *instruction, th_node *out_parent) {
 }
 
 static int do_pi(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name_avt = attr_lookup(eng->sheet_tree, instruction, "name", &name_len);
     if (name_avt == NULL) {
         return fail(eng, "xsl:processing-instruction requires a name attribute");
     }
     Py_UCS4 *target;
-    Py_ssize_t target_len;
+    Py_ssize_t target_len = 0;
     if (eval_avt(eng, name_avt, name_len, &target, &target_len) < 0) {
         return -1;
     }
     Py_UCS4 *data;
-    Py_ssize_t data_len;
+    Py_ssize_t data_len = 0;
     if (instantiate_string(eng, instruction, &data, &data_len) < 0) {
         PyMem_Free(target);
         return -1;
@@ -1603,7 +1603,7 @@ static int do_pi(engine *eng, th_node *instruction, th_node *out_parent) {
 
 /* xsl:if / xsl:choose: evaluate a test to a boolean. */
 static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
-    Py_ssize_t test_len;
+    Py_ssize_t test_len = 0;
     const Py_UCS4 *test = attr_lookup(eng->sheet_tree, instruction, "test", &test_len);
     if (test == NULL) {
         return fail(eng, "xsl:if/xsl:when requires a test attribute");
@@ -1653,7 +1653,7 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
             fail(eng, "xslt: too many sort keys");
             return -1;
         }
-        Py_ssize_t select_len;
+        Py_ssize_t select_len = 0;
         const Py_UCS4 *select = attr_lookup(eng->sheet_tree, child, "select", &select_len);
         static const Py_UCS4 dot = '.';
         if (select == NULL) {
@@ -1670,9 +1670,9 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
             fail_py(eng);
             return -1;
         }
-        Py_ssize_t type_len;
+        Py_ssize_t type_len = 0;
         const Py_UCS4 *type = attr_lookup(eng->sheet_tree, child, "data-type", &type_len);
-        Py_ssize_t order_len;
+        Py_ssize_t order_len = 0;
         const Py_UCS4 *order = attr_lookup(eng->sheet_tree, child, "order", &order_len);
         specs[count].prog = prog;
         specs[count].numeric = type != NULL && ucs4_ascii_eq(type, type_len, "number");
@@ -1858,7 +1858,7 @@ static long number_single(th_node *node) {
 
 static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     long value;
-    Py_ssize_t value_len;
+    Py_ssize_t value_len = 0;
     const Py_UCS4 *value_expr = attr_lookup(eng->sheet_tree, instruction, "value", &value_len);
     if (value_expr != NULL) {
         char errbuf[256];
@@ -1878,7 +1878,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     } else {
         value = eng->cur_attr >= 0 ? 1 : number_single(eng->cur_node);
     }
-    Py_ssize_t format_len;
+    Py_ssize_t format_len = 0;
     const Py_UCS4 *format = attr_lookup(eng->sheet_tree, instruction, "format", &format_len);
     Py_UCS4 style = '1';
     Py_ssize_t pad = 1;
@@ -1923,7 +1923,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
    RTF body, *out_rtf receives the fragment node (else NULL). */
 static int compute_binding(engine *eng, th_node *declaration, xp_result *out_value, th_node **out_rtf) {
     *out_rtf = NULL;
-    Py_ssize_t select_len;
+    Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, declaration, "select", &select_len);
     if (select != NULL) {
         char errbuf[256];
@@ -1950,7 +1950,7 @@ static int compute_binding(engine *eng, th_node *declaration, xp_result *out_val
     if (instantiate_body(eng, declaration, fragment) < 0) {
         return -1;
     }
-    Py_ssize_t text_len;
+    Py_ssize_t text_len = 0;
     Py_UCS4 *text = th_node_text(eng->out_tree, fragment, &text_len);
     if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
@@ -1977,7 +1977,7 @@ static int collect_params(engine *eng, th_node *instruction, param_pass *passes,
         if (!is_xsl(eng, child, "with-param")) {
             continue;
         }
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const Py_UCS4 *name = attr_lookup(eng->sheet_tree, child, "name", &name_len);
         if (name == NULL) {
             for (int index = 0; index < count; index++) {
@@ -2024,7 +2024,7 @@ static int bind_params(engine *eng, th_node *template_body, param_pass *passes, 
         if (!is_xsl(eng, child, "param")) {
             break; /* params must lead the body; the first non-param ends the run */
         }
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const Py_UCS4 *name = attr_lookup(eng->sheet_tree, child, "name", &name_len);
         if (name == NULL) {
             return fail(eng, "xsl:param requires a name attribute");
@@ -2087,7 +2087,7 @@ static int copy_result_value(const xp_result *src, xp_result *dst) {
 /* ---- call-template -------------------------------------------------------- */
 
 static int do_call_template(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name = attr_lookup(eng->sheet_tree, instruction, "name", &name_len);
     if (name == NULL) {
         return fail(eng, "xsl:call-template requires a name attribute");
@@ -2122,7 +2122,7 @@ static int do_call_template(engine *eng, th_node *instruction, th_node *out_pare
 /* ---- for-each ------------------------------------------------------------- */
 
 static int do_for_each(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_ssize_t select_len;
+    Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", &select_len);
     if (select == NULL) {
         return fail(eng, "xsl:for-each requires a select attribute");
@@ -2225,7 +2225,7 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
         return emit_text(eng, out_parent, attribute->value, attribute->value_len);
     }
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len;
+        Py_ssize_t text_len = 0;
         Py_UCS4 *text = th_node_data(eng->src_tree, node, &text_len);
         if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
@@ -2252,13 +2252,13 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
 
 static int apply_templates(engine *eng, th_node *instruction, th_node *out_parent, const Py_UCS4 *outer_mode,
                            Py_ssize_t outer_mode_len) {
-    Py_ssize_t mode_len;
+    Py_ssize_t mode_len = 0;
     const Py_UCS4 *mode = attr_lookup(eng->sheet_tree, instruction, "mode", &mode_len);
     if (mode == NULL) {
         mode = outer_mode;
         mode_len = outer_mode_len;
     }
-    Py_ssize_t select_len;
+    Py_ssize_t select_len = 0;
     const Py_UCS4 *select = attr_lookup(eng->sheet_tree, instruction, "select", &select_len);
     xp_result value;
     if (select != NULL) {
@@ -2336,7 +2336,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
     }
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         const th_node_attr *attr = &element->attrs[index];
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
         /* Drop the stylesheet's own xmlns:xsl declaration; keep other attributes. */
         if (name_len >= 6 && memcmp(name, "xmlns:", 6) == 0) {
@@ -2346,7 +2346,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
             continue;
         }
         Py_UCS4 *resolved;
-        Py_ssize_t resolved_len;
+        Py_ssize_t resolved_len = 0;
         /* An XML-parsed stylesheet never carries a valueless attribute, so the value is
            the template to resolve; a NULL value (length 0) resolves to the empty string. */
         if (eval_avt(eng, attr->value, attr->value_len, &resolved, &resolved_len) < 0) {
@@ -2366,7 +2366,7 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
    node) into out_parent. */
 static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len;
+        Py_ssize_t text_len = 0;
         Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
         if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
@@ -2421,7 +2421,7 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
     }
     if (is_xsl(eng, node, "text")) {
         Py_UCS4 *text;
-        Py_ssize_t text_len;
+        Py_ssize_t text_len = 0;
         int rc = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_TEXT) {
@@ -2451,7 +2451,7 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         return do_copy_of(eng, node, out_parent);
     }
     if (is_xsl(eng, node, "variable")) {
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const Py_UCS4 *name = attr_lookup(eng->sheet_tree, node, "name", &name_len);
         if (name == NULL) {
             return fail(eng, "xsl:variable requires a name attribute");
@@ -2476,11 +2476,11 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         return do_pi(eng, node, out_parent);
     }
     if (is_xsl(eng, node, "message")) {
-        Py_ssize_t terminate_len;
+        Py_ssize_t terminate_len = 0;
         const Py_UCS4 *terminate = attr_lookup(eng->sheet_tree, node, "terminate", &terminate_len);
         if (terminate != NULL && ucs4_ascii_eq(terminate, terminate_len, "yes")) {
             Py_UCS4 *text;
-            Py_ssize_t text_len;
+            Py_ssize_t text_len = 0;
             if (instantiate_string(eng, node, &text, &text_len) < 0) {
                 return -1;
             }
@@ -2539,7 +2539,7 @@ static int push_rule(engine *eng, xslt_rule rule) {
 }
 
 static int parse_template(engine *eng, th_node *element, int *position) {
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name = attr_lookup(eng->sheet_tree, element, "name", &name_len);
     if (name != NULL) {
         if (eng->nnamed == eng->named_cap) {
@@ -2556,14 +2556,14 @@ static int parse_template(engine *eng, th_node *element, int *position) {
         eng->named[eng->nnamed].body = element;
         eng->nnamed++;
     }
-    Py_ssize_t match_len;
+    Py_ssize_t match_len = 0;
     const Py_UCS4 *match = attr_lookup(eng->sheet_tree, element, "match", &match_len);
     if (match == NULL) {
         return 0;
     }
-    Py_ssize_t mode_len;
+    Py_ssize_t mode_len = 0;
     const Py_UCS4 *mode = attr_lookup(eng->sheet_tree, element, "mode", &mode_len);
-    Py_ssize_t priority_len;
+    Py_ssize_t priority_len = 0;
     const Py_UCS4 *priority = attr_lookup(eng->sheet_tree, element, "priority", &priority_len);
     int has_priority = priority != NULL;
     double explicit_priority = has_priority ? parse_number(priority, priority_len) : 0;
@@ -2596,11 +2596,11 @@ static int parse_template(engine *eng, th_node *element, int *position) {
 }
 
 static int parse_key(engine *eng, th_node *element) {
-    Py_ssize_t name_len;
+    Py_ssize_t name_len = 0;
     const Py_UCS4 *name = attr_lookup(eng->sheet_tree, element, "name", &name_len);
-    Py_ssize_t match_len;
+    Py_ssize_t match_len = 0;
     const Py_UCS4 *match = attr_lookup(eng->sheet_tree, element, "match", &match_len);
-    Py_ssize_t use_len;
+    Py_ssize_t use_len = 0;
     const Py_UCS4 *use = attr_lookup(eng->sheet_tree, element, "use", &use_len);
     if (name == NULL || match == NULL || use == NULL) {
         return fail(eng, "xsl:key requires name, match and use attributes");
@@ -2655,7 +2655,7 @@ static int push_global(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, th
 }
 
 static void parse_output(engine *eng, th_node *element) {
-    Py_ssize_t method_len;
+    Py_ssize_t method_len = 0;
     const Py_UCS4 *method = attr_lookup(eng->sheet_tree, element, "method", &method_len);
     if (method != NULL) {
         if (ucs4_ascii_eq(method, method_len, "html")) {
@@ -2666,7 +2666,7 @@ static void parse_output(engine *eng, th_node *element) {
             eng->output_method = OUT_XML;
         }
     }
-    Py_ssize_t omit_len;
+    Py_ssize_t omit_len = 0;
     const Py_UCS4 *omit = attr_lookup(eng->sheet_tree, element, "omit-xml-declaration", &omit_len);
     if (omit != NULL && ucs4_ascii_eq(omit, omit_len, "yes")) {
         eng->omit_xml_decl = 1;
@@ -2681,7 +2681,7 @@ static int resolve_xsl_prefix(engine *eng, th_node *root) {
     Py_ssize_t prefix_len = 3;
     for (Py_ssize_t index = 0; index < root->attr_count; index++) {
         const th_node_attr *attr = &root->attrs[index];
-        Py_ssize_t name_len;
+        Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
         /* A parse_xml stylesheet never has a valueless attribute, so attr->value is set. */
         if (name_len > 6 && memcmp(name, "xmlns:", 6) == 0 &&
@@ -2752,7 +2752,7 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
         }
     }
     for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
-        Py_ssize_t chunk_len;
+        Py_ssize_t chunk_len = 0;
         Py_UCS4 *chunk = th_node_serialize(eng->out_tree, child, &opts, NULL, 0, &chunk_len);
         if (chunk == NULL) {         /* GCOVR_EXCL_BR_LINE: alloc */
             xb_free(&buffer);        /* GCOVR_EXCL_LINE */
@@ -2809,7 +2809,7 @@ static int bind_globals(engine *eng, PyObject *params) {
                 return -1;                              /* GCOVR_EXCL_LINE */
             }
             if (supplied != NULL) {
-                Py_ssize_t expr_len;
+                Py_ssize_t expr_len = 0;
                 Py_UCS4 *expr = PyUnicode_AsUCS4Copy(supplied);
                 if (expr == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
                     return -1;      /* GCOVR_EXCL_LINE */
@@ -2866,7 +2866,7 @@ static int analyze(engine *eng, th_node *sheet_root) {
                 return -1;
             }
         } else if (is_xsl(eng, child, "variable") || is_xsl(eng, child, "param")) {
-            Py_ssize_t name_len;
+            Py_ssize_t name_len = 0;
             const Py_UCS4 *name = attr_lookup(eng->sheet_tree, child, "name", &name_len);
             if (name == NULL) {
                 return fail(eng, "a global xsl:variable/xsl:param requires a name attribute");
