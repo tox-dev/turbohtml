@@ -1,8 +1,9 @@
-Added declarative Shadow DOM to the parser. When the tree builder meets a ``<template>`` carrying a ``shadowrootmode`` of
-``open`` or ``closed`` on a valid shadow host, it attaches a shadow root to the template's parent and parses the
+Added declarative Shadow DOM to the parser. When the tree builder meets a ``<template>`` carrying a ``shadowrootmode``
+of ``open`` or ``closed`` on a valid shadow host, it attaches a shadow root to the template's parent and parses the
 template's content into it, reusing the Shadow DOM tree model -- the template element never joins the light tree.
 ``shadowrootdelegatesfocus`` and ``shadowrootclonable`` set the matching flags, readable as the new
-:attr:`~turbohtml.ShadowRoot.delegates_focus` and :attr:`~turbohtml.ShadowRoot.clonable` properties. Following the WHATWG
-per-document flag, :func:`turbohtml.parse` honors declarative shadow roots by default (a browser navigation) while
-:func:`turbohtml.parse_fragment` does not (an ``innerHTML`` assignment); the new ``allow_declarative_shadow_roots``
-argument flips either default, matching ``setHTMLUnsafe`` when turned on for a fragment.
+:attr:`~turbohtml.ShadowRoot.delegates_focus` and :attr:`~turbohtml.ShadowRoot.clonable` properties. Following the
+WHATWG per-document flag, :func:`turbohtml.parse` honors declarative shadow roots by default (a browser navigation)
+while :func:`turbohtml.parse_fragment` does not (an ``innerHTML`` assignment); the new
+``allow_declarative_shadow_roots`` argument flips either default, matching ``setHTMLUnsafe`` when turned on for a
+fragment.

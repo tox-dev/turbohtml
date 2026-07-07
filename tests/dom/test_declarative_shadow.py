@@ -29,7 +29,7 @@ def test_open_shadowrootmode_attaches_a_shadow_root() -> None:
 def test_declarative_template_is_off_the_light_tree() -> None:
     host = _element(parse("<div id=h><template shadowrootmode=open><p>x</p></template><b>light</b></div>").find(id="h"))
     assert host.find("template") is None
-    assert host.html == "<div id=\"h\"><b>light</b></div>"
+    assert host.html == '<div id="h"><b>light</b></div>'
 
 
 def test_closed_shadowrootmode_hides_the_root_but_keeps_its_content() -> None:
@@ -53,7 +53,9 @@ def test_delegates_focus_and_clonable_flags_are_set() -> None:
 
 
 def test_flags_default_off_without_the_attributes() -> None:
-    root = _shadow(_element(parse("<div id=h><template shadowrootmode=open>x</template></div>").find(id="h")).shadow_root)
+    root = _shadow(
+        _element(parse("<div id=h><template shadowrootmode=open>x</template></div>").find(id="h")).shadow_root
+    )
     assert root.delegates_focus is False
     assert root.clonable is False
 
@@ -110,8 +112,15 @@ def test_foreign_integration_point_is_not_a_shadow_host() -> None:
     assert host.find("template") is not None
 
 
-@pytest.mark.parametrize("markup", ["<template>x</template>", "<template shadowrootmode>x</template>",
-                                    "<template shadowrootmode=off>x</template>", "<template shadowrootmode=ope1>x</template>"])
+@pytest.mark.parametrize(
+    "markup",
+    [
+        "<template>x</template>",
+        "<template shadowrootmode>x</template>",
+        "<template shadowrootmode=off>x</template>",
+        "<template shadowrootmode=ope1>x</template>",
+    ],
+)
 def test_non_declarative_template_makes_a_content_fragment(markup: str) -> None:
     host = _element(parse(f"<div id=h>{markup}</div>").find(id="h"))
     assert host.shadow_root is None
@@ -139,7 +148,9 @@ def test_document_parsing_can_disable_declarative_shadow() -> None:
 
 
 def test_fragment_parsing_defaults_to_no_declarative_shadow() -> None:
-    host = _element(parse_fragment("<section><template shadowrootmode=open>x</template></section>", "body").find("section"))
+    host = _element(
+        parse_fragment("<section><template shadowrootmode=open>x</template></section>", "body").find("section")
+    )
     assert host.shadow_root is None
     assert host.find("template") is not None
 
@@ -159,8 +170,6 @@ def test_fragment_context_element_is_the_shadow_host() -> None:
 
 
 def test_fragment_context_that_is_not_a_valid_host_keeps_a_template() -> None:
-    fragment = parse_fragment(
-        "<template shadowrootmode=open>x</template>", "html", allow_declarative_shadow_roots=True
-    )
+    fragment = parse_fragment("<template shadowrootmode=open>x</template>", "html", allow_declarative_shadow_roots=True)
     assert fragment.shadow_root is None
     assert _element(fragment.find("template")) is not None
