@@ -1,6 +1,0 @@
-Validate the sanitizer against DOMPurify's own test corpus and a live DOMPurify Node build. A new conformance harness,
-``tests/conformance/test_sanitizer_dompurify_conformance.py``, runs DOMPurify's ``test/fixtures/expect.mjs`` (vendored
-as a pinned submodule) through :func:`turbohtml.clean.sanitize` under every config and diffs head-to-head: turbohtml's
-output is inert across the whole corpus and never less safe than DOMPurify, and ``strip_template_markers``,
-``isolate_named_props``, ``custom_element_check``, and the ``allow_html``/``allow_svg``/``allow_mathml`` profiles match
-DOMPurify on curated inputs.

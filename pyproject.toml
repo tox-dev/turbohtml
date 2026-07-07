@@ -301,6 +301,7 @@ ini_options.addopts = [
   "--ignore=tests/conformance/unicodetools",          # vendored Unicode data submodule, not our test modules
   "--ignore=tests/conformance/xml-conformance-suite", # vendored xmlconf data + JS framework, not our test modules
   "--ignore=tests/conformance/qt3tests",              # vendored W3C QT3 XQuery/XPath suite data, not our test modules
+  "--ignore=tests/conformance/DOMPurify",             # vendored DOMPurify repo (JS oracle + fixtures), not our test modules
   "--ignore=tests/html5lib-tests",                    # vendored conformance data, not our test modules
   "--import-mode=importlib",                          # tests mirror the source tree in nested dirs without __init__.py
 ]
