@@ -308,4 +308,38 @@ everything between them, leaving the tree untouched. Span the paragraph's second
 
     <a href="/x">Jerry</a>
 
+***********************************
+ Compose a slot with a shadow root
+***********************************
+
+An element can host a *shadow tree*: a private subtree, kept off to the side, whose ``<slot>`` elements pull in the
+host's own children. :meth:`~turbohtml.Element.attach_shadow` returns the :class:`turbohtml.ShadowRoot`; fill it with
+slots, and each light-DOM child is assigned to the slot whose name matches its ``slot`` attribute, with the unnamed
+default slot taking the rest. :attr:`~turbohtml.Node.flattened_children` then shows the composed result -- the shadow
+tree with every slot replaced by what it received:
+
+.. testcode::
+
+    from turbohtml import Element, Text
+
+    card = Element("article")
+    card.append(Element("h2", {"slot": "title"}, [Text("Shadow DOM")]))
+    card.append(Element("p", None, [Text("Composed at render time.")]))
+
+    root = card.attach_shadow("open")
+    root.set_inner_html('<header><slot name="title"></slot></header><main><slot></slot></main>')
+
+    title = root.select_one('slot[name="title"]')
+    print([node.tag for node in title.assigned_nodes()])
+    print([node.tag for node in card.flattened_children])
+
+.. testoutput::
+
+    ['h2']
+    ['header', 'main']
+
+The shadow tree stays out of the host's own children and serialization; it is reachable only through
+:attr:`~turbohtml.Element.shadow_root` (or the reference :meth:`~turbohtml.Element.attach_shadow` returned). See
+:doc:`/how-to/shadow-dom` for the slot recipes and :doc:`/explanation/shadow-dom` for the flattened-tree model.
+
 Continue to :doc:`editing` to build and change trees of your own.

@@ -57,6 +57,9 @@ from ._stubs.dom import (
     Range as Range,
 )
 from ._stubs.dom import (
+    ShadowRoot as ShadowRoot,
+)
+from ._stubs.dom import (
     StaticRange as StaticRange,
 )
 from ._stubs.dom import (

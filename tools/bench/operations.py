@@ -173,6 +173,7 @@ OPERATIONS: dict[str, Operation] = {
     "build-e": Operation("build a list (terse builders)", "us"),
     "construct": Operation("construct N elements (no serialize)", "us"),
     "emit": Operation("emit a built tree", "us"),
+    "shadow": Operation("attach a shadow tree with slots and flatten", "us"),
     "parse": Operation("parse to a tree", "us"),
     "parse-xml": Operation("parse XML to a tree", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
@@ -513,6 +514,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build-e": lambda: _ROWS,
     "construct": lambda: _ROWS,
     "emit": lambda: _ROWS,
+    "shadow": lambda: _ROWS,
     "parse": _parse_cases,
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs

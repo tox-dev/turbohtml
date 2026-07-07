@@ -3886,6 +3886,7 @@ void th_tree_free(th_tree *tree) {
     PyMem_Free(tree->tmpl);
     PyMem_Free(tree->attr_slots);
     PyMem_Free(tree->attr_recs);
+    PyMem_Free(tree->shadows);
     th_error_sink_free(&tree->errors);
     PyMem_Free(tree);
 }

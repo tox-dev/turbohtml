@@ -28,6 +28,14 @@ typedef struct {
     uint32_t hash;
 } th_attr_record;
 
+/* One host<->shadow-root link recorded by attach_shadow. A shadow root is off the
+   light tree (parent NULL), so the link is the only path between a host and its
+   shadow root and back; the table is grown lazily and freed with the tree. */
+typedef struct {
+    th_node *host;
+    th_node *root;
+} th_shadow_link;
+
 struct th_tree {
     arena_block *arena;
     th_node *document;
@@ -74,6 +82,11 @@ struct th_tree {
     uint32_t attr_rec_cap;
     uint32_t *attr_slots; /* slot -> record index + 1; 0 marks an empty slot */
     uint32_t attr_slot_mask;
+    /* Shadow roots attached through the mutation API, grown lazily by attach_shadow.
+       Empty (NULL) for every parsed or shadow-free tree. */
+    th_shadow_link *shadows;
+    Py_ssize_t shadow_count;
+    Py_ssize_t shadow_cap;
     /* WHATWG parse errors collected during the parse, in document order. The
        tokenizer fills it through this sink while the tree builder adds its own
        construction errors; read-only once the parse returns. */

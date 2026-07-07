@@ -1,0 +1,11 @@
+Added the DOM Living Standard Shadow DOM tree model. :meth:`~turbohtml.Element.attach_shadow` attaches an open or closed
+shadow tree and returns a :class:`~turbohtml.ShadowRoot` -- a document-fragment-like root held off the light tree, so it
+never appears among the host's children or in its serialization -- reachable through
+:attr:`~turbohtml.Element.shadow_root` (``None`` for a closed root) and carrying :attr:`~turbohtml.ShadowRoot.mode`,
+:attr:`~turbohtml.ShadowRoot.host`, :meth:`~turbohtml.ShadowRoot.set_inner_html`, and
+:meth:`~turbohtml.ShadowRoot.append`. ``<slot>`` elements assign the host's children by name (the unnamed default slot
+takes the rest): :meth:`~turbohtml.Element.assigned_nodes` and :meth:`~turbohtml.Element.assigned_elements` read what a
+slot received, with a ``flatten`` option that falls back to a slot's own children and expands nested shadow slots, and
+:attr:`~turbohtml.Node.assigned_slot` gives the slot a child landed in. :attr:`~turbohtml.Node.flattened_children`
+returns the composed tree with every slot replaced by its assigned nodes. The assignment and flattening algorithms run
+in C under the per-tree critical section and are computed on demand, so they always reflect the current tree.

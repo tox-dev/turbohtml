@@ -345,6 +345,8 @@ static PyGetSetDef element_getset[] = {
      "the element's text; assigning replaces all children with a single Text node", NULL},
     {"field_value", element_get_field_value, element_set_field_value, field_value_doc, NULL},
     {"checked", element_get_checked, element_set_checked, checked_doc, NULL},
+    {"shadow_root", element_get_shadow_root, NULL,
+     "this element's open shadow root, or None when it has none or the root is closed", NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -1611,6 +1613,33 @@ static PyObject *element_xpath_path(PyObject *self, PyObject *Py_UNUSED(ignored)
     return result;
 }
 
+PyDoc_STRVAR(attach_shadow_doc, "attach_shadow(mode='open')\n--\n\n"
+                                "Attach a shadow root to this element and return it, the DOM attachShadow.\n\n"
+                                "The shadow root is a document-fragment-like container held off the light\n"
+                                "tree, so it never appears among this element's children or in its\n"
+                                "serialization; build its content with ShadowRoot.set_inner_html or append.\n\n"
+                                ":param mode: 'open' (Element.shadow_root exposes the root) or 'closed' (it\n"
+                                "    reads None, so only this returned reference reaches the shadow tree).\n"
+                                ":returns: the new ShadowRoot.\n"
+                                ":raises ValueError: if mode is not 'open' or 'closed', or the element already\n"
+                                "    has a shadow root.");
+
+PyDoc_STRVAR(assigned_nodes_doc, "assigned_nodes(*, flatten=False)\n--\n\n"
+                                 "The nodes assigned to this <slot>, in tree order (the DOM assignedNodes).\n\n"
+                                 "A slot is assigned the host's direct child nodes whose slot name matches its\n"
+                                 "own name attribute (the default slot has the empty name). With flatten, empty\n"
+                                 "slots fall back to their own children and nested shadow slots are expanded.\n\n"
+                                 ":param flatten: return the flattened assignment instead of the direct one.\n"
+                                 ":returns: the assigned nodes as a list.\n"
+                                 ":raises TypeError: if the element is not a <slot>.");
+
+PyDoc_STRVAR(assigned_elements_doc, "assigned_elements(*, flatten=False)\n--\n\n"
+                                    "The elements assigned to this <slot> (assigned_nodes without the Text\n"
+                                    "nodes), the DOM assignedElements.\n\n"
+                                    ":param flatten: return the flattened assignment instead of the direct one.\n"
+                                    ":returns: the assigned elements as a list.\n"
+                                    ":raises TypeError: if the element is not a <slot>.");
+
 static PyMethodDef element_methods[] = {
     {"append", element_append, METH_O, append_doc},
     {"extend", element_extend, METH_O, extend_doc},
@@ -1631,6 +1660,12 @@ static PyMethodDef element_methods[] = {
     {"add_class", element_add_class, METH_O, add_class_doc},
     {"remove_class", element_remove_class, METH_O, remove_class_doc},
     {"toggle_class", element_toggle_class, METH_O, toggle_class_doc},
+    {"attach_shadow", (PyCFunction)(void (*)(void))element_attach_shadow, METH_VARARGS | METH_KEYWORDS,
+     attach_shadow_doc},
+    {"assigned_nodes", (PyCFunction)(void (*)(void))element_assigned_nodes, METH_VARARGS | METH_KEYWORDS,
+     assigned_nodes_doc},
+    {"assigned_elements", (PyCFunction)(void (*)(void))element_assigned_elements, METH_VARARGS | METH_KEYWORDS,
+     assigned_elements_doc},
     {NULL, NULL, 0, NULL},
 };
 
@@ -1864,7 +1899,7 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
    deep-copied in and its wrapper re-pointed at the copy, so the source tree frees
    on its own. NULL with an exception on a non-node, a Document, a cycle (making a
    node a descendant of itself), or allocation failure. */
-static th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *child_obj) {
+th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *child_obj) {
     module_state *state = state_of((PyObject *)anchor);
     if (!PyObject_TypeCheck(child_obj, (PyTypeObject *)state->node_type)) {
         PyErr_SetString(PyExc_TypeError, "child must be a node");

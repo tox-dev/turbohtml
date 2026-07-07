@@ -12,6 +12,7 @@
 #include "dom/tree_internal.h" /* arena_alloc, need_text, node_new, node_append/remove/insert_before, intern_attr_dynamic */
 
 #include "core/ascii.h" /* lower_ascii for the foreign case-insensitive attribute scan */
+#include "core/vec.h"   /* th_grow_cap for the shadow-table growth */
 
 #include <string.h>
 
@@ -26,6 +27,65 @@ th_tree *th_tree_new(void) {
    Range content operations (dom/range.c) fill and hand back. */
 th_node *th_tree_make_fragment(th_tree *tree) {
     return node_new(tree, TH_NODE_CONTENT);
+}
+
+/* Shadow DOM linkage. A shadow root is a fragment node flagged TH_SHADOW_ROOT and held
+   off the light tree; the per-tree shadow table is the only path from a host to its
+   shadow root and back. The slot-assignment and flattened-tree algorithms that read
+   these live in dom/shadow.c, which reaches the table only through these accessors. */
+int th_node_is_shadow_root(const th_node *node) {
+    return node->type == TH_NODE_CONTENT && (node->tag_flags & TH_SHADOW_ROOT) != 0;
+}
+
+int th_shadow_mode(const th_node *root) {
+    return (root->tag_flags & TH_SHADOW_CLOSED) != 0;
+}
+
+th_node *th_element_attach_shadow(th_tree *tree, th_node *host, int mode) {
+    th_node *root = th_tree_make_fragment(tree);
+    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    root->tag_flags = (uint8_t)(TH_SHADOW_ROOT | (mode ? TH_SHADOW_CLOSED : 0u));
+    if (tree->shadow_count == tree->shadow_cap) {
+        size_t cap, bytes;
+        /* the count cannot overflow size_t, so the grow guard never trips */
+        int fits = th_grow_cap((size_t)tree->shadow_count + 1, (size_t)tree->shadow_cap, 4, sizeof(th_shadow_link),
+                               &cap, &bytes);
+        if (!fits) {     /* GCOVR_EXCL_BR_LINE: overflow-guard path, unreachable from a test */
+            return NULL; /* GCOVR_EXCL_LINE: overflow-guard path */
+        }
+        th_shadow_link *grown = PyMem_Realloc(tree->shadows, bytes);
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        tree->shadows = grown;
+        tree->shadow_cap = (Py_ssize_t)cap;
+    }
+    tree->shadows[tree->shadow_count].host = host;
+    tree->shadows[tree->shadow_count].root = root;
+    tree->shadow_count++;
+    return root;
+}
+
+th_node *th_element_shadow_root(th_tree *tree, th_node *host) {
+    for (Py_ssize_t index = 0; index < tree->shadow_count; index++) {
+        if (tree->shadows[index].host == host) {
+            return tree->shadows[index].root;
+        }
+    }
+    return NULL;
+}
+
+th_node *th_shadow_host(th_tree *tree, th_node *root) {
+    /* only ever called on a shadow root, which is always in the table, so the scan
+       always finds its host and the fall-through below is unreachable */
+    for (Py_ssize_t index = 0; index < tree->shadow_count; index++) { /* GCOVR_EXCL_BR_LINE */
+        if (tree->shadows[index].root == root) {
+            return tree->shadows[index].host;
+        }
+    }
+    return NULL; /* GCOVR_EXCL_LINE: unreachable; every shadow root has a registered host */
 }
 
 /* Materialize a character-data node's text in place (a parsed text node borrows a

@@ -1558,6 +1558,7 @@ int tree_register(PyObject *module, module_state *state) {
     state->pi_type = register_subtype(module, &pi_spec, state->node_type, "ProcessingInstruction", "target", "data");
     state->cdata_type = register_subtype(module, &cdata_spec, state->node_type, "CData", "data", NULL);
     state->document_type = register_subtype(module, &document_spec, state->node_type, "Document", "root", NULL);
+    state->shadow_root_type = register_subtype(module, &shadow_root_spec, state->node_type, "ShadowRoot", "mode", NULL);
     /* allocation failure cannot be forced from a test */
     if (state->element_type == NULL || state->text_type == NULL || /* GCOVR_EXCL_BR_LINE */
         /* allocation failure cannot be forced from a test */
@@ -1565,8 +1566,8 @@ int tree_register(PyObject *module, module_state *state) {
         /* allocation failure cannot be forced from a test */
         state->pi_type == NULL || state->cdata_type == NULL || /* GCOVR_EXCL_BR_LINE */
         /* allocation failure cannot be forced from a test */
-        state->document_type == NULL) { /* GCOVR_EXCL_BR_LINE */
-        return -1;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        state->document_type == NULL || state->shadow_root_type == NULL) { /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     state->parser_type = PyType_FromModuleAndSpec(module, &stream_spec, NULL);
     /* allocation failure cannot be forced from a test */

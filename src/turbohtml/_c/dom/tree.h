@@ -66,6 +66,16 @@ enum th_node_type {
    text without fabricating a `</tag>` the author never wrote. */
 #define TH_ELEM_CLOSED_BY_END_TAG 0x20u
 
+/* A TH_NODE_CONTENT node reuses two otherwise-unused tag_flags bits to record that
+   it is a shadow root (attach_shadow) rather than a template's content fragment.
+   TH_SHADOW_ROOT marks the node so node_wrap types it as ShadowRoot; TH_SHADOW_CLOSED
+   carries the mode (set is closed, clear is open). A content node the parser builds
+   for a template leaves both clear, so it keeps wrapping as the bare Node. The bits
+   are only ever read for a content node, where the element category and doctype flags
+   never apply. */
+#define TH_SHADOW_ROOT 0x01u
+#define TH_SHADOW_CLOSED 0x02u
+
 /* An attribute on an element node. The name is interned to an atom: a static
    compile-time id for common names (attr_atom.h), or a per-tree dynamic id for
    the rest. attr_record() recovers the name bytes for serialization and
@@ -639,5 +649,26 @@ uint8_t th_tag_flags(uint16_t atom);
    children. The serializer uses the static-inline is_void_atom on its hot path;
    this is the cold cross-TU entry the element constructor validates against. */
 int th_tag_is_void(uint16_t atom);
+
+/* Shadow DOM tree model (dom/shadow.c). A shadow root is a document-fragment-like
+   TH_NODE_CONTENT node held off the light tree (it is never a child of any node) and
+   linked to its host element through the per-tree shadow table. */
+
+/* Attach a shadow root to host and record the host<->root link; mode 0 is open, 1 is
+   closed. Returns the new shadow root, or NULL on allocation failure. The caller must
+   have checked host has no shadow root yet. */
+th_node *th_element_attach_shadow(th_tree *tree, th_node *host, int mode);
+
+/* host's attached shadow root, or NULL when it has none. */
+th_node *th_element_shadow_root(th_tree *tree, th_node *host);
+
+/* The host element a shadow root is attached to; NULL when root is not a shadow root
+   of this tree. */
+th_node *th_shadow_host(th_tree *tree, th_node *root);
+
+/* Whether node is a shadow root (a flagged content node), and its mode (0 open, 1
+   closed; only meaningful for a shadow root). */
+int th_node_is_shadow_root(const th_node *node);
+int th_shadow_mode(const th_node *root);
 
 #endif /* TURBOHTML_TREEBUILDER_H */

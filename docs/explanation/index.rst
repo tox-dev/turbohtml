@@ -43,6 +43,7 @@ It is the wrong tool in a few honest cases:
     tree-model
     traversal
     ranges
+    shadow-dom
     queries
     cssom
     structured-data

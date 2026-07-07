@@ -46,6 +46,7 @@ py.extension_module(
         'src/turbohtml/_c/dom/binding.c',
         'src/turbohtml/_c/dom/node.c',
         'src/turbohtml/_c/dom/element.c',
+        'src/turbohtml/_c/dom/shadow.c',
         'src/turbohtml/_c/dom/leaf.c',
         'src/turbohtml/_c/dom/traversal.c',
         'src/turbohtml/_c/dom/range.c',

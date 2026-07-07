@@ -17,6 +17,7 @@ ending with running the toolkit from a shell.
     forms
     editing
     ranges
+    shadow-dom
     encoding
     selecting
     computed-style

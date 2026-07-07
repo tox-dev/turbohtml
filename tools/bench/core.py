@@ -138,6 +138,23 @@ def emit(count: int) -> None:
     _ = _tree(count).html
 
 
+def shadow(count: int) -> None:
+    """
+    Attach an open shadow root with a named and a default slot to a host of ``count`` light children, then flatten.
+
+    Exercises the whole shadow-DOM tree model: element construction, attach_shadow, the fragment parse that installs
+    the slots, and the flattened-tree walk that resolves every child's assigned slot (the O(count) slot-assignment
+    algorithm) into the composed child list.
+    """
+    host = turbohtml.Element("div")
+    for index in range(count):
+        attrs = {"slot": "header"} if index % 4 == 0 else None
+        host.append(turbohtml.Element("span", attrs, [turbohtml.Text(f"item {index}")]))
+    root = host.attach_shadow("open")
+    root.set_inner_html('<slot name="header">title</slot><slot>body</slot>')
+    _ = list(host.flattened_children)
+
+
 def parse(text: str) -> None:
     """Parse a whole document into a navigable tree through turbohtml.parse()."""
     turbohtml.parse(text)
@@ -634,6 +651,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "build-e": (build_e, "turbohtml"),
     "construct": (construct, "turbohtml"),
     "emit": (emit, "turbohtml"),
+    "shadow": (shadow, "turbohtml"),
     "parse": (parse, "turbohtml"),
     "parse-xml": (parse_xml, "turbohtml"),
     "parse-scripting": (parse_scripting, "turbohtml"),

@@ -1261,6 +1261,14 @@ static PyGetSetDef node_getset[] = {
      "the 0-based source column of this element's start tag, or None if unavailable", NULL},
     {"position", node_get_position, NULL,
      "the (source_line, source_col) of this element's start tag, or None if unavailable", NULL},
+    {"assigned_slot", node_get_assigned_slot, NULL,
+     "the <slot> element this node is assigned to in its shadow host, or None when it is unassigned or the host's "
+     "shadow root is closed",
+     NULL},
+    {"flattened_children", node_get_flattened_children, NULL,
+     "the flattened-tree children as a list: a shadow host yields its shadow tree with each <slot> replaced by its "
+     "assigned nodes (or fallback content)",
+     NULL},
     {"source_location", node_get_source_location, NULL,
      "the SourceLocation (start-/end-tag and per-attribute spans) of this element, or None when the tree was not "
      "parsed "

@@ -211,6 +211,9 @@ static inline PyObject *type_for_node(module_state *state, const th_node *node) 
     case TH_NODE_CDATA:
         return state->cdata_type;
     case TH_NODE_CONTENT:
+        if ((node->tag_flags & TH_SHADOW_ROOT) != 0) {
+            return state->shadow_root_type; /* a shadow root, not a template's content fragment */
+        }
         break; /* a template's content fragment wraps as the bare Node */
     }
     return state->node_type;
@@ -527,6 +530,21 @@ PyObject *doctype_get_system_id(PyObject *self, void *Py_UNUSED(closure));
 PyObject *parse_error_new(module_state *state, const th_parse_error *error);
 PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding);
 PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored));
+
+/* Prepare child_obj to become a child of dest_parent in anchor's tree, returning the
+   th_node to link. Defined in element.c; shadow.c reuses it for ShadowRoot.append. */
+th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *child_obj);
+
+/* Shadow DOM bindings (dom/shadow.c): attach_shadow / shadow_root / slot assignment /
+   flattened traversal, plus the ShadowRoot type. */
+PyObject *element_attach_shadow(PyObject *self, PyObject *args, PyObject *kwds);
+PyObject *element_get_shadow_root(PyObject *self, void *closure);
+PyObject *element_assigned_nodes(PyObject *self, PyObject *args, PyObject *kwds);
+PyObject *element_assigned_elements(PyObject *self, PyObject *args, PyObject *kwds);
+PyObject *node_get_assigned_slot(PyObject *self, void *closure);
+PyObject *node_get_flattened_children(PyObject *self, void *closure);
+extern PyType_Spec shadow_root_spec;
+
 extern PyType_Spec walker_spec;
 extern PyType_Spec tree_walker_spec;
 extern PyType_Spec node_iterator_spec;

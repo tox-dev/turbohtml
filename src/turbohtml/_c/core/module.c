@@ -245,6 +245,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->pi_type);             /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->cdata_type);          /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->document_type);       /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->shadow_root_type);    /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parser_type);         /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parse_error_type);    /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parse_error_exc);     /* GCOVR_EXCL_BR_LINE: same */
@@ -314,6 +315,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->pi_type);
     Py_CLEAR(state->cdata_type);
     Py_CLEAR(state->document_type);
+    Py_CLEAR(state->shadow_root_type);
     Py_CLEAR(state->parser_type);
     Py_CLEAR(state->parse_error_type);
     Py_CLEAR(state->parse_error_exc);

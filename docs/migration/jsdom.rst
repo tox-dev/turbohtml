@@ -13,8 +13,8 @@ keeps its traversal logic. The surface is the DOM's, respelled to turbohtml's co
 the filter is a plain callable returning a :class:`turbohtml.NodeFilter` verdict. The state machine and the
 ``whatToShow`` test run in turbohtml's C core; the filter callback is the one step that calls back into Python.
 
-This guide covers the traversal and range APIs. The rest of the DOM turbohtml exposes -- parsing, the node model,
-queries, mutation, serialization -- is in :doc:`/reference/nodes` and the :doc:`beautifulsoup` guide.
+This guide covers the traversal, range, and Shadow DOM APIs. The rest of the DOM turbohtml exposes -- parsing, the node
+model, queries, mutation, serialization -- is in :doc:`/reference/nodes` and the :doc:`beautifulsoup` guide.
 
 ********************
  turbohtml vs jsdom
@@ -275,6 +275,72 @@ arguments; the immutable snapshot and its :attr:`~turbohtml.StaticRange.collapse
 
     0 3 False
 
+********************************
+ Shadow DOM: turbohtml vs jsdom
+********************************
+
+jsdom implements the DOM shadow-tree model -- ``element.attachShadow({ mode })``, ``ShadowRoot``, ``<slot>`` assignment,
+and ``assignedNodes`` / ``assignedElements`` / ``assignedSlot``. turbohtml ships the same model for Python, respelled to
+its conventions: ``attachShadow`` takes the mode as a plain string, the accessors are snake_case, and the assignment
+runs in the C core on demand rather than through the browser's microtask bookkeeping.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 20 40 40
+
+    - - Dimension
+      - turbohtml
+      - jsdom
+    - - Attach
+      - ``element.attach_shadow("open")``
+      - ``element.attachShadow({ mode: "open" })``
+    - - Open root accessor
+      - :attr:`~turbohtml.Element.shadow_root` (``None`` when closed)
+      - ``element.shadowRoot`` (``null`` when closed)
+    - - Root properties
+      - :attr:`~turbohtml.ShadowRoot.mode` / :attr:`~turbohtml.ShadowRoot.host`
+      - ``root.mode`` / ``root.host``
+    - - Fill the shadow tree
+      - :meth:`~turbohtml.ShadowRoot.set_inner_html` / :meth:`~turbohtml.ShadowRoot.append`
+      - ``root.innerHTML = ...`` / ``root.append(...)``
+    - - A slot's assignment
+      - :meth:`~turbohtml.Element.assigned_nodes` / :meth:`~turbohtml.Element.assigned_elements`
+      - ``slot.assignedNodes()`` / ``slot.assignedElements()``
+    - - A child's slot
+      - :attr:`~turbohtml.Node.assigned_slot`
+      - ``node.assignedSlot``
+    - - Flattened tree
+      - :attr:`~turbohtml.Node.flattened_children`
+      - (no direct property; assemble from ``assignedNodes({ flatten: true })``)
+
+The one call that reshapes is ``attachShadow``: jsdom takes an init dictionary, turbohtml takes the mode string
+directly. Everything else maps name-for-name.
+
+.. testcode::
+
+    from turbohtml import Element, Text
+
+    host = Element("my-card")
+    host.append(Element("h2", {"slot": "title"}, [Text("Hi")]))
+    host.append(Element("p", None, [Text("body")]))
+
+    root = host.attach_shadow("open")
+    root.set_inner_html('<slot name="title"></slot><slot></slot>')
+
+    print([node.tag for node in root.select_one('slot[name="title"]').assigned_nodes()])
+    print([node.tag for node in host.flattened_children])
+
+.. testoutput::
+
+    ['h2']
+    ['h2', 'p']
+
+turbohtml computes ``assignedNodes`` lazily, so there is no ``slotchange`` event to listen for and no observer to
+detach; ask for the assignment and it reflects the tree as it stands. The flattened tree is a property
+(:attr:`~turbohtml.Node.flattened_children`) rather than something you assemble by hand: it returns the composed
+children with each slot already replaced by what it received, which you walk recursively for the whole subtree.
+
 .. seealso::
 
-    :doc:`/how-to/ranges` for task-focused recipes and :doc:`/explanation/ranges` for the boundary-point model.
+    :doc:`/how-to/ranges` and :doc:`/how-to/shadow-dom` for task-focused recipes, and :doc:`/explanation/ranges` and
+    :doc:`/explanation/shadow-dom` for the boundary-point and flattened-tree models.
