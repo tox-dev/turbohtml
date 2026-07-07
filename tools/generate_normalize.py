@@ -26,9 +26,10 @@ from __future__ import annotations
 import hashlib
 import sys
 import unicodedata
-import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+from httpfetch import fetch_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -56,8 +57,7 @@ _QC_MAYBE = 2
 
 def _fetch(url: str, expected_sha256: str) -> str:
     """Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*."""
-    with urllib.request.urlopen(url) as response:  # noqa: S310 -- url is always a pinned https unicode.org constant
-        raw = response.read()
+    raw = fetch_bytes(url)
     if (digest := hashlib.sha256(raw).hexdigest()) != expected_sha256:
         msg = f"Unicode source {url} has sha256 {digest}, not the pinned {expected_sha256}; review, then bump the pin"
         raise SystemExit(msg)

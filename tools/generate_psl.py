@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import urllib.request
 from pathlib import Path
+
+from httpfetch import fetch_bytes
 
 # The Public Suffix List ships no releases, so a rebuild off @main would silently drift with whatever the branch
 # points at that day -- a reproducibility and supply-chain gap. Pin a specific commit instead, and pin the SHA-256 of
@@ -48,8 +49,7 @@ def _punycode(rule: str) -> str:
 
 def fetch_rules() -> tuple[str, list[tuple[str, int]]]:
     """Return the fetched-commit marker and the ``(rule_text, kind)`` pairs for every multi-label PSL rule."""
-    with urllib.request.urlopen(PSL_URL) as response:
-        raw = response.read()
+    raw = fetch_bytes(PSL_URL)
     if (digest := hashlib.sha256(raw).hexdigest()) != PSL_SHA256:
         msg = f"PSL source at {PSL_COMMIT} has sha256 {digest}, not the pinned {PSL_SHA256}; review, then bump the pin"
         raise SystemExit(msg)

@@ -65,6 +65,7 @@ dev = [
 test = [
   "covdefaults>=2.3",
   "elementpath>=5",             # the XPath 2.0 oracle the string-function differential test cross-checks against
+  "httpx2>=2.5",                # the benchmark corpora and the tools/generate_* scripts fetch pinned data over it
   "jinja2>=3.1.6",              # the markup migration test renders templates with markupsafe swapped for turbohtml.markup
   "markdown-it-py>=4.2",        # a pure-Python GFM reference to round-trip to_markdown() output back to HTML and check it
   "meson>=1.11.1",
@@ -75,6 +76,7 @@ test = [
   "pytest-cov>=7.1",
   "pytest-mock>=3.15.1",
   "pytest-run-parallel>=0.9.1", # runs each test in many threads to surface free-threaded data races
+  "tenacity>=9",                # the retry policy wrapping every tools/ HTTP fetch (httpfetch.py)
 ]
 type = [
   "ty>=0.0.52",
@@ -183,8 +185,9 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
-  rm -rf /tmp/turbohtml-pgo && pip install uv meson-python meson ninja && python {project}/tools/pgo_build.py --python \
-  python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
+  rm -rf /tmp/turbohtml-pgo && pip install uv meson-python meson ninja httpx2 tenacity && python \
+  {project}/tools/pgo_build.py --python python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase \
+  profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot

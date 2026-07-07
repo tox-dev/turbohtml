@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import urllib.request
 from pathlib import Path
+
+from httpfetch import fetch_bytes
 
 IANA_TLDS_URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
 
@@ -31,8 +32,7 @@ IANA_SHA256 = "01dd82fed6299013f2e4bc4c5af2469b95497a4e9825801741ffff95b6e55d8f"
 
 def fetch_tlds() -> tuple[str, list[str]]:
     """Return the pinned IANA version and the lowercased ASCII TLDs, punycode entries included."""
-    with urllib.request.urlopen(IANA_TLDS_URL) as response:
-        raw = response.read()
+    raw = fetch_bytes(IANA_TLDS_URL)
     version = ""
     names: list[str] = []
     for line in raw.decode("ascii").splitlines():

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import html
 import random
-import urllib.request
 from pathlib import Path
+
+from httpfetch import fetch_bytes
 
 _TOOLS = Path(__file__).resolve().parent.parent
 
@@ -96,8 +97,7 @@ def large_text(filename: str, url: str) -> str:
     target = _LARGE_DIR / filename
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(url) as response:  # noqa: S310  # pinned https URL
-            target.write_bytes(response.read())
+        target.write_bytes(fetch_bytes(url))
     return target.read_text(encoding="utf-8")
 
 
