@@ -48,10 +48,9 @@ DOM clobbering
 
 An attacker-controlled ``id`` or ``name`` whose value matches a built-in ``document`` or form property shadows that
 property through *named access*. ``<input name="attributes">`` inside a form makes ``form.attributes`` resolve to the
-input rather than the real attribute map; ``<img name="body">`` hides ``document.body``; ``<a id="location">`` can
-stand in for ``document.location`` in code that reads it by name. Sanitizing against an allowlist keeps the element --
-``id`` and ``name`` are ordinary attributes -- so the collision survives the allowlist and only a dedicated defense
-removes it.
+input rather than the real attribute map; ``<img name="body">`` hides ``document.body``; ``<a id="location">`` can stand
+in for ``document.location`` in code that reads it by name. Sanitizing against an allowlist keeps the element -- ``id``
+and ``name`` are ordinary attributes -- so the collision survives the allowlist and only a dedicated defense removes it.
 
 DOMPurify's ``SANITIZE_NAMED_PROPS`` moves the value out of the property namespace by prefixing every kept ``id`` and
 ``name`` with the constant string ``user-content-``; a value already carrying the prefix is left alone, so re-running
@@ -83,9 +82,8 @@ The prefix is unconditional on ``id`` and ``name`` -- turbohtml namespaces every
 DOM for a real collision, so it needs no browser and cannot miss a property the running engine happens to expose.
 DOMPurify's other mode, ``SANITIZE_DOM``, instead *drops* a colliding attribute after testing ``value in document`` at
 sanitize time; that check needs the DOM turbohtml does without, so ``isolate_named_props`` follows the static
-``SANITIZE_NAMED_PROPS`` design. The safety baseline is unaffected either way: ``on*`` handlers, scripting
-elements, and ``javascript:`` URLs are removed regardless of the policy, so isolation is one more layer, never the only
-one.
+``SANITIZE_NAMED_PROPS`` design. The safety baseline is unaffected either way: ``on*`` handlers, scripting elements, and
+``javascript:`` URLs are removed regardless of the policy, so isolation is one more layer, never the only one.
 
 Template safety
 ===============
@@ -98,8 +96,8 @@ Performance
 ===========
 
 turbohtml isolates and collapses markers in the same C walk that enforces the allowlist, so neither option adds a pass.
-The table times both libraries end-to-end; the DOMPurify figure is its Node runner over stdin on ``isomorphic-dompurify``,
-the cost a Python service pays to reach it as a subprocess, DOM startup included.
+The table times both libraries end-to-end; the DOMPurify figure is its Node runner over stdin on
+``isomorphic-dompurify``, the cost a Python service pays to reach it as a subprocess, DOM startup included.
 
 .. bench-table::
     :file: bench/dompurify.json

@@ -1,5 +1,5 @@
 :class:`~turbohtml.clean.Policy` gained ``isolate_named_props``: with it on, sanitizing prefixes every kept ``id`` and
 ``name`` value with ``user-content-``, moving it out of the property namespace so it cannot shadow a built-in
 ``document`` or form property through named access (DOM clobbering, where ``<input name="attributes">`` makes
-``form.attributes`` resolve to the input and ``<img name="body">`` hides ``document.body``). An already-prefixed value is
-left alone, so re-sanitizing is a fixpoint. This matches DOMPurify's ``SANITIZE_NAMED_PROPS``.
+``form.attributes`` resolve to the input and ``<img name="body">`` hides ``document.body``). An already-prefixed value
+is left alone, so re-sanitizing is a fixpoint. This matches DOMPurify's ``SANITIZE_NAMED_PROPS``.

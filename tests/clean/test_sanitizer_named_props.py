@@ -41,7 +41,9 @@ _OFF = Policy(tags=_TAGS, attributes=_ALLOW)
             '<img name="user-content-body" src="http://x/i.png">',
             id="name-prefixed-url-kept",
         ),
-        pytest.param('<a id="user-content-foo">y</a>', '<a id="user-content-foo">y</a>', id="already-prefixed-untouched"),
+        pytest.param(
+            '<a id="user-content-foo">y</a>', '<a id="user-content-foo">y</a>', id="already-prefixed-untouched"
+        ),
         pytest.param(
             '<a id="user-shortmismatch">y</a>',
             '<a id="user-content-user-shortmismatch">y</a>',
@@ -49,7 +51,7 @@ _OFF = Policy(tags=_TAGS, attributes=_ALLOW)
         ),
         pytest.param('<a id="x">y</a>', '<a id="user-content-x">y</a>', id="short-value-prefixed"),
         pytest.param('<a id="">y</a>', '<a id="user-content-">y</a>', id="empty-value-prefixed"),
-        pytest.param('<a id>y</a>', '<a id="user-content-">y</a>', id="bare-attribute-prefixed"),
+        pytest.param("<a id>y</a>", '<a id="user-content-">y</a>', id="bare-attribute-prefixed"),
         pytest.param('<a href="http://x/">y</a>', '<a href="http://x/">y</a>', id="href-not-a-named-prop"),
         pytest.param('<a hx="q">y</a>', '<a hx="q">y</a>', id="two-char-non-id-untouched"),
         pytest.param(
