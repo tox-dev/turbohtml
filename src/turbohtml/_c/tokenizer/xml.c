@@ -52,11 +52,29 @@ static int in_ranges(Py_UCS4 ch, const cp_range *ranges, Py_ssize_t count) {
     return 0;
 }
 
+/* ASCII (U+0000..U+007F) fast path: real XML names are almost all ASCII, so a table lookup skips the
+   range scan on the hot per-character path. Bit 0 marks a NameStartChar, bit 1 a NameChar (every
+   NameStartChar is also a NameChar); the values are the ASCII subset of the ranges above. */
+#define XML_NAME_START_FLAG 0x1
+#define XML_NAME_CHAR_FLAG 0x2
+static const unsigned char ASCII_NAME_FLAGS[128] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 0,
+    0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 3,
+    0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0,
+};
+
 static int is_name_start(Py_UCS4 ch) {
+    if (ch < 0x80) {
+        return (ASCII_NAME_FLAGS[ch] & XML_NAME_START_FLAG) != 0;
+    }
     return in_ranges(ch, NAME_START_RANGES, (Py_ssize_t)(sizeof(NAME_START_RANGES) / sizeof(cp_range)));
 }
 
 static int is_name_char(Py_UCS4 ch) {
+    if (ch < 0x80) {
+        return (ASCII_NAME_FLAGS[ch] & XML_NAME_CHAR_FLAG) != 0;
+    }
     return in_ranges(ch, NAME_CHAR_RANGES, (Py_ssize_t)(sizeof(NAME_CHAR_RANGES) / sizeof(cp_range)));
 }
 
