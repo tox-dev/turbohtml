@@ -2665,3 +2665,10 @@ def test_transform_literal_element_other_xsl_attr_same_length_as_use_attribute_s
         '<xsl:template match="/"><out xsl:aaaaaaaaaaaaaaaaaa="x" xsl:use-attribute-sets="s"/></xsl:template>'
     )
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1"/>'
+
+
+def test_transform_stylesheet_without_xsl_prefix_binding_defaults_to_xsl() -> None:
+    # the document element declares no xmlns:<prefix>=XSLT-namespace, so the shim falls back to "xsl"
+    # and, finding no xsl:import, treats the whole document as a simplified literal-result stylesheet
+    result = transform(turbohtml.parse_xml("<greeting>hi</greeting>"), turbohtml.parse_xml("<r/>"))
+    assert _canon(result) == "<greeting>hi</greeting>"

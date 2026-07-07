@@ -30,7 +30,7 @@ base): pass it when the stylesheet imports. Validated against libxslt's XSLT 1.0
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ._html import Element, _xslt_transform, parse_xml
 
@@ -68,9 +68,8 @@ def _load_imports(root: Element, base: Path) -> list[Node]:
             raise ValueError(msg)
         path = base / str(href)
         imported = parse_xml(path.read_text(encoding="utf-8"))
-        imported_root = imported.root
-        if imported_root is not None:
-            imports.extend(_load_imports(imported_root, path.parent))
+        # parse_xml raises HTMLParseError on a document with no root element, so imported.root is set here.
+        imports.extend(_load_imports(cast("Element", imported.root), path.parent))
         imports.append(imported)
     return imports
 
