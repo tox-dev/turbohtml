@@ -967,9 +967,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             th_node_attr_del(s->tree, element, name, name_len);
             continue; /* the next attribute shifted into this slot */
         }
-        if (s->strip_templates &&
-            strip_attr_templates(s, element, attr) < 0) { /* GCOVR_EXCL_BR_LINE: only alloc fail */
-            return -1;                                    /* GCOVR_EXCL_LINE: alloc-failure path */
+        /* strip_attr_templates only fails on allocation, which no test can force */
+        if (s->strip_templates && strip_attr_templates(s, element, attr) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                          /* GCOVR_EXCL_LINE */
         }
         if (name_len == 5 && memcmp(name, "style", 5) == 0) {
             Py_ssize_t before = element->attr_count;
@@ -1275,8 +1275,9 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 th_node_remove(child);
             }
         } else if (child->type == TH_NODE_TEXT) {
-            if (s->strip_templates && strip_text_templates(s, child) < 0) { /* GCOVR_EXCL_BR_LINE: only alloc failure */
-                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            /* strip_text_templates only fails on allocation, which no test can force */
+            if (s->strip_templates && strip_text_templates(s, child) < 0) { /* GCOVR_EXCL_BR_LINE */
+                return -1;                                                  /* GCOVR_EXCL_LINE */
             }
         } else {
             th_node_remove(child); /* doctype, processing instruction, CDATA: never valid in a sanitized fragment */
