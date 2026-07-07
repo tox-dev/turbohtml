@@ -101,6 +101,28 @@ attribute values follow the XML escaping rules, so the output parses with any XM
 
     <p>a &amp; b<br/><svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg></p>
 
+******************************
+ Canonicalize for a signature
+******************************
+
+When a document has to hash to the same bytes on both sides of a signature, serialize it to Canonical XML with
+:meth:`~turbohtml.Node.canonicalize` and a :class:`~turbohtml.Canonical` config. Attributes are reordered, redundant
+namespace declarations are dropped, empty elements become start-end pairs, and character references are normalized, so
+two trees with the same content produce identical bytes:
+
+.. testcode::
+
+    from turbohtml import Canonical
+
+    doc = turbohtml.parse("<p z='1' a='2'>hi &amp; bye<br></p>")
+    print(doc.find("p").canonicalize())
+    print(doc.find("p").canonicalize(Canonical(exclusive=True)))
+
+.. testoutput::
+
+    b'<p a="2" z="1">hi &amp; bye<br></br></p>'
+    b'<p a="2" z="1">hi &amp; bye<br></br></p>'
+
 That is the whole tree API. Head to the :doc:`/how-to/index` guides for task-focused recipes, the
 :doc:`/migration/index` guide if you are coming from another HTML library, or the :doc:`/reference` for the exact
 signatures.

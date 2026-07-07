@@ -410,6 +410,26 @@ typedef struct {
 Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *minify, const th_serialize_opts *opts,
                         Py_ssize_t *out_len);
 
+/* Canonical XML (c14n) options. version selects the algorithm (0 = c14n 1.0,
+   1 = c14n 1.1), coinciding for the complete-subtree canonicalization this performs
+   bar the apex's inherited xml: attributes (1.1 excludes xml:id). exclusive selects
+   Exclusive XML Canonicalization, which renders only the namespaces a subtree
+   visibly uses; with_comments keeps comment nodes; inclusive is the exclusive-mode
+   InclusiveNamespaces prefix list (NULL / 0 count when unused). */
+typedef struct {
+    int version;
+    int exclusive;
+    int with_comments;
+    const char *const *inclusive;
+    Py_ssize_t inclusive_count;
+} th_c14n_opts;
+
+/* Canonicalize node and its complete subtree to Canonical XML under opts, as a
+   UTF-8 infoset the caller encodes to bytes. A document node canonicalizes its
+   element child plus any comment/PI siblings; any other node is the subtree apex.
+   PyMem-allocated; *out_len receives the length. NULL on failure. */
+Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len);
+
 /* The Markdown export configuration, a union of the markdownify and html2text
    knobs with one name per concept. The Python binding fills it from keyword
    arguments starting from th_markdown_default_opts(). String markers are

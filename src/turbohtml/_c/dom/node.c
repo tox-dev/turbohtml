@@ -1139,15 +1139,16 @@ PyObject *turbohtml_register_locations(PyObject *module, PyObject *args) {
 /* Store the Markdown/PlainText/Html config types so to_markdown()/to_text()/serialize()
    reject the wrong config with a type check; turbohtml._render registers them on import. */
 PyObject *turbohtml_register_render_configs(PyObject *module, PyObject *args) {
-    PyObject *markdown, *plaintext, *html;
-    if (!PyArg_ParseTuple(args, "OOO", &markdown, &plaintext, &html)) { /* GCOVR_EXCL_BR_LINE: the facade
-                                          always registers with the three config classes */
-        return NULL;                                                    /* GCOVR_EXCL_LINE: argument-error path */
+    PyObject *markdown, *plaintext, *html, *canonical;
+    if (!PyArg_ParseTuple(args, "OOOO", &markdown, &plaintext, &html, &canonical)) { /* GCOVR_EXCL_BR_LINE: the facade
+                                          always registers with the four config classes */
+        return NULL; /* GCOVR_EXCL_LINE: argument-error path */
     }
     module_state *state = PyModule_GetState(module);
     Py_XSETREF(state->markdown_config_type, Py_NewRef(markdown));
     Py_XSETREF(state->plaintext_config_type, Py_NewRef(plaintext));
     Py_XSETREF(state->html_config_type, Py_NewRef(html));
+    Py_XSETREF(state->canonical_config_type, Py_NewRef(canonical));
     Py_RETURN_NONE;
 }
 
@@ -1489,6 +1490,21 @@ static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds);
 
 static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *kwds);
 
+static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwds);
+
+PyDoc_STRVAR(canonicalize_doc, "canonicalize(options=None)\n--\n\n"
+                               "Serialize this node and its subtree to Canonical XML (c14n), the byte-exact\n"
+                               "form an XML signature signs, returned as UTF-8 bytes.\n\n"
+                               "Attributes are reordered (namespace declarations first, then each attribute\n"
+                               "by namespace URI and local name), redundant namespace declarations are\n"
+                               "dropped, empty elements are written as start-end pairs, and the c14n\n"
+                               "character-reference rules apply. The whole subtree is canonicalized, so\n"
+                               "c14n 1.0 and 1.1 coincide here bar the apex's inherited xml: attributes.\n\n"
+                               ":param options: a Canonical configuration object (version, exclusive,\n"
+                               "    with_comments, inclusive_ns_prefixes), or None for the defaults.\n"
+                               ":returns: the canonical XML, encoded as UTF-8 bytes.\n"
+                               ":raises TypeError: if options is not a Canonical configuration object.");
+
 PyDoc_STRVAR(serialize_doc, "serialize(options=None)\n--\n\n"
                             "Serialize this node and its subtree to a str.\n\n"
                             ":param options: an Html configuration object (formatter, layout, attribute\n"
@@ -1628,6 +1644,7 @@ static PyMethodDef node_methods[] = {
     {"serialize_iter", (PyCFunction)(void (*)(void))node_serialize_iter, METH_VARARGS | METH_KEYWORDS,
      serialize_iter_doc},
     {"encode", (PyCFunction)(void (*)(void))node_encode, METH_VARARGS | METH_KEYWORDS, encode_doc},
+    {"canonicalize", (PyCFunction)(void (*)(void))node_canonicalize, METH_VARARGS | METH_KEYWORDS, canonicalize_doc},
     {"to_markdown", (PyCFunction)(void (*)(void))node_to_markdown, METH_VARARGS | METH_KEYWORDS, to_markdown_doc},
     {"to_text", (PyCFunction)(void (*)(void))node_to_text, METH_VARARGS | METH_KEYWORDS, to_text_doc},
     {"to_annotated_text", (PyCFunction)(void (*)(void))node_to_annotated_text, METH_VARARGS | METH_KEYWORDS,
@@ -1839,6 +1856,108 @@ static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds) {
     PyObject *encoded = PyUnicode_AsEncodedString(text, encoding, NULL);
     Py_DECREF(text);
     return encoded;
+}
+
+/* Parse a Canonical config's non-default values (spec) into the c14n options, mapping
+   the version label to 0 (1.0) / 1 (1.1) and resolving the exclusive-mode inclusive
+   prefix tuple to a C array. On success 0 is returned and *inclusive_utf8 owns a
+   PyMem block the caller frees; on error -1 with an exception set. The prefix strings
+   the array points at stay valid while inclusive (a member of spec) is alive. */
+static int parse_canonical_spec(PyObject *spec, th_c14n_opts *opts, const char ***inclusive_utf8) {
+    static char *keywords[] = {"version", "exclusive", "with_comments", "inclusive_ns_prefixes", NULL};
+    PyObject *version_obj = NULL;
+    PyObject *inclusive = NULL;
+    opts->exclusive = 0;
+    opts->with_comments = 0;
+    PyObject *empty = PyTuple_New(0);
+    if (empty == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int parsed = PyArg_ParseTupleAndKeywords(empty, spec, "|$OppO", keywords, &version_obj, &opts->exclusive,
+                                             &opts->with_comments, &inclusive);
+    Py_DECREF(empty);
+    if (!parsed) { /* GCOVR_EXCL_BR_LINE: _unpack only ever emits the known keys */
+        return -1; /* GCOVR_EXCL_LINE: argument-error path */
+    }
+    /* _unpack emits version only when it differs from the "1.0" default, i.e. is "1.1",
+       so its mere presence selects c14n 1.1 */
+    opts->version = version_obj != NULL;
+    opts->inclusive = NULL;
+    opts->inclusive_count = 0;
+    *inclusive_utf8 = NULL;
+    if (inclusive == NULL) {
+        /* _unpack omits an empty prefix tuple (it equals the default), so a present
+           inclusive is always non-empty and the malloc below is never zero-sized */
+        return 0;
+    }
+    Py_ssize_t count = PyTuple_GET_SIZE(inclusive);
+    const char **names = PyMem_Malloc((size_t)count * sizeof(const char *));
+    if (names == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        names[index] = PyUnicode_AsUTF8(PyTuple_GET_ITEM(inclusive, index));
+        if (names[index] == NULL) { /* GCOVR_EXCL_BR_LINE: the config validates str members */
+            PyMem_Free(names);      /* GCOVR_EXCL_LINE: encode-failure path */
+            return -1;              /* GCOVR_EXCL_LINE: encode-failure path */
+        }
+    }
+    opts->inclusive = names;
+    opts->inclusive_count = count;
+    *inclusive_utf8 = names;
+    return 0;
+}
+
+static PyObject *node_canonicalize_from_spec(PyObject *self, PyObject *spec) {
+    th_c14n_opts opts = {0, 0, 0, NULL, 0};
+    const char **inclusive_utf8;
+    /* parse_canonical_spec fails only on the excluded allocation/encode paths */
+    if (parse_canonical_spec(spec, &opts, &inclusive_utf8) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return NULL;                                              /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t out_len;
+    Py_UCS4 *data;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    data = th_node_canonicalize(tree_of(self), ((NodeObject *)self)->node, &opts, &out_len);
+    Py_END_CRITICAL_SECTION();
+    PyMem_Free(inclusive_utf8);
+    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *text = ucs4_to_str(data, out_len);
+    PyMem_Free(data);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *encoded = PyUnicode_AsUTF8String(text);
+    Py_DECREF(text);
+    return encoded;
+}
+
+static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {"options", NULL};
+    PyObject *options = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O", keywords, &options)) {
+        return NULL;
+    }
+    if (options == NULL || options == Py_None) {
+        PyObject *spec = PyDict_New();
+        if (spec == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *result = node_canonicalize_from_spec(self, spec);
+        Py_DECREF(spec);
+        return result;
+    }
+    PyObject *spec = config_unpack(options, state_of(self)->canonical_config_type, "Canonical");
+    if (spec == NULL) {
+        return NULL;
+    }
+    PyObject *result = node_canonicalize_from_spec(self, spec);
+    Py_DECREF(spec);
+    return result;
 }
 
 /* Build the serialize_iter iterator from the resolved output options. The stream is

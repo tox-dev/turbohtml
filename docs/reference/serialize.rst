@@ -9,10 +9,11 @@ Turn a tree back into markup or text. Each renderer takes one configuration obje
 :class:`Indent` or :class:`Minify` picks the whitespace, and ``xml=True`` switches to XML/XHTML syntax), and
 :meth:`Node.serialize_iter` streams the same HTML in bounded ``str`` chunks for a large page (every layout but
 :class:`Minify`, which needs the whole tree); :meth:`Node.to_markdown` takes a :class:`Markdown` config; and
-:meth:`Node.to_text` and :meth:`Node.to_annotated_text` take a :class:`PlainText` config. :func:`escape` and
-:func:`unescape` are the standalone string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-process
-the annotated-text result. A :class:`~turbohtml.clean.JSMinify` passed to :class:`Minify` extends HTML minification into
-inline ``<script>`` content; the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in
+:meth:`Node.to_text` and :meth:`Node.to_annotated_text` take a :class:`PlainText` config; and :meth:`Node.canonicalize`
+produces Canonical XML (c14n) bytes under a :class:`Canonical` config. :func:`escape` and :func:`unescape` are the
+standalone string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-process the annotated-text
+result. A :class:`~turbohtml.clean.JSMinify` passed to :class:`Minify` extends HTML minification into inline
+``<script>`` content; the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in
 :mod:`turbohtml.clean`.
 
 .. autofunction:: escape
@@ -35,6 +36,9 @@ inline ``<script>`` content; the standalone :func:`~turbohtml.clean.minify_js` l
     :members:
 
 .. autoclass:: PlainText
+    :members:
+
+.. autoclass:: Canonical
     :members:
 
 .. autofunction:: annotation_surface

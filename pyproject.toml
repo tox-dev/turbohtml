@@ -305,6 +305,7 @@ run.omit = [
   "tests/dom/test_parse_xml_differential.py",
   "tests/query/match/test_soupsieve_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
+  "tests/serialize/test_c14n_differential.py",
 ]
 run.parallel = true
 run.plugins = [

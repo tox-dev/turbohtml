@@ -181,6 +181,7 @@ OPERATIONS: dict[str, Operation] = {
     "text-content": Operation("collect visible text", "us"),
     "serialize": Operation("serialize a parsed tree", "us"),
     "serialize-xml": Operation("serialize a parsed tree to XML", "us"),
+    "canonicalize": Operation("canonicalize a parsed tree (c14n)", "us"),
     "minify": Operation("minify a document", "us"),
     "edit": Operation("tag every link rel=nofollow", "us"),
     "class-edit": Operation("class add/remove on every link", "us"),
@@ -533,6 +534,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "text-content": _readpath_cases,
     "serialize": _readpath_cases,
     "serialize-xml": _readpath_cases,
+    "canonicalize": _readpath_cases,
     "minify": _readpath_cases,
     "socialcard": lambda: (
         ("head", _SOCIAL_HEAD),

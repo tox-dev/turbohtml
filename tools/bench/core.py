@@ -225,6 +225,11 @@ def serialize_xml(text: str) -> None:
     _ = _parsed(text).serialize(_XML)
 
 
+def canonicalize(text: str) -> None:
+    """Canonicalize a parsed document to Canonical XML (c14n) with turbohtml's canonicalize method."""
+    _ = _parsed(text).canonicalize()
+
+
 def minify(text: str) -> str:
     """Minify an HTML document with turbohtml, parsing then serializing through the round-trip-safe Minify layout."""
     return _minify(text)
@@ -637,6 +642,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
     "serialize-xml": (serialize_xml, "turbohtml"),
+    "canonicalize": (canonicalize, "turbohtml"),
     "minify": (minify, "turbohtml"),
     "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
     "class-edit": (class_edit, "turbohtml"),

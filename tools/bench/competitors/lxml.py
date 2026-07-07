@@ -111,6 +111,11 @@ def serialize_xml(text: str) -> None:
     lxml_html.tostring(_parsed(text), method="xml")
 
 
+def canonicalize(text: str) -> None:
+    """Canonicalize a parsed document to Canonical XML with lxml's tostring(method='c14n')."""
+    lxml_html.tostring(_parsed(text), method="c14n")
+
+
 def extract_attr(text: str) -> None:
     """Read every anchor's href with lxml's XPath attribute selection."""
     _parsed(text).xpath("//a/@href")
@@ -319,6 +324,7 @@ OPERATIONS = {
     "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
     "serialize-xml": (serialize_xml, "lxml method=xml"),
+    "canonicalize": (canonicalize, "lxml method=c14n"),
     "extract-attr": (extract_attr, "lxml"),
     "extract-text": (extract_text, "lxml"),
     "strip-remove": (strip_remove, "lxml"),

@@ -87,10 +87,11 @@ The wider libxml2 toolchain is a deliberate clean-break scope cut:
 
 - XSLT (``lxml.etree.XSLT``): no equivalent.
 - Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
-- C14N canonicalization: no equivalent.
 - DTD-declared entities and the wider infoset: :func:`turbohtml.parse_xml` (below) handles well-formed XML but resolves
   only the five predefined entities and numeric references; a document that relies on ``<!ENTITY>`` definitions, or that
-  needs validation or canonicalization, stays with lxml.
+  needs schema validation, stays with lxml.
+- C14N 2.0: :meth:`~turbohtml.Node.canonicalize` implements the Canonical XML 1.0/1.1 and Exclusive family that XML
+  signatures sign (see below); the later, separately specified C14N 2.0 (``etree.canonicalize``) is out of scope.
 - XPath is at parity, not a gap. Both are XPath 1.0 with EXSLT, and turbohtml adds the XPath 2.0 string convenience
   functions on top. The only pieces out of scope are the node-synthesizing ``str:tokenize``/``str:split``, the implicit
   current-date ``date:`` forms, and full XPath 2.0 (sequences, types, FLWOR).
@@ -219,6 +220,8 @@ so you iterate :attr:`~turbohtml.Node.children` instead of reading two string fi
       - :attr:`~turbohtml.Node.html`
     - - ``lxml.etree.tostring(el, method="xml")``, ``tostring(el, method="xhtml")``
       - :meth:`el.serialize(Html(xml=True)) <turbohtml.Node.serialize>`
+    - - ``etree.tostring(el, method="c14n", exclusive=, with_comments=)``, ``ElementTree.write_c14n``
+      - :meth:`el.canonicalize(Canonical(...)) <turbohtml.Node.canonicalize>`
 
 A query-and-select flow ports directly:
 
@@ -276,6 +279,25 @@ raw-text special casing does not apply:
 .. testoutput::
 
     <p>a &amp; b<br/><svg xmlns="http://www.w3.org/2000/svg"><rect/></svg></p>
+
+Where lxml signs a document with ``etree.tostring(el, method="c14n")`` or ``ElementTree.write_c14n``, pass
+:class:`~turbohtml.Canonical` to :meth:`~turbohtml.Node.canonicalize`. It emits the same Canonical XML infoset -- sorted
+attributes, minimized namespaces, empty elements as start-end pairs, normalized character references -- as UTF-8 bytes,
+and takes the same ``exclusive``, ``with_comments``, and ``inclusive_ns_prefixes`` knobs (plus a ``version`` for c14n
+1.0 vs 1.1):
+
+.. testcode::
+
+    from turbohtml import Canonical
+
+    doc = parse("<p z='1' a='2'>x &amp; y</p>")
+    print(doc.select_one("p").canonicalize())
+    print(doc.select_one("p").canonicalize(Canonical(exclusive=True, with_comments=True)))
+
+.. testoutput::
+
+    b'<p a="2" z="1">x &amp; y</p>'
+    b'<p a="2" z="1">x &amp; y</p>'
 
 **********************
  Gotchas and pitfalls

@@ -285,6 +285,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->plaintext_config_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->html_config_type);      /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->canonical_config_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->range_type);            /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->static_range_type);     /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
@@ -354,6 +355,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->markdown_config_type);
     Py_CLEAR(state->plaintext_config_type);
     Py_CLEAR(state->html_config_type);
+    Py_CLEAR(state->canonical_config_type);
     Py_CLEAR(state->range_type);
     Py_CLEAR(state->static_range_type);
     for (int index = 0; index < 7; index++) {

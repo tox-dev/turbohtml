@@ -47,6 +47,7 @@ It is the wrong tool in a few honest cases:
     cssom
     structured-data
     serialization
+    canonicalization
     main-content
     mutation
     sanitizing

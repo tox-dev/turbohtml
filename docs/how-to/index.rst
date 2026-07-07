@@ -37,6 +37,7 @@ ending with running the toolkit from a shell.
     structured-data
     building
     serializing
+    canonicalizing
     markdown
     plain-text
     escaping

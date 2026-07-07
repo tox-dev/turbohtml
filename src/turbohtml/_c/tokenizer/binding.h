@@ -77,6 +77,7 @@ typedef struct {
     PyObject *markdown_config_type;  /* turbohtml._render.Markdown, the to_markdown() options type */
     PyObject *plaintext_config_type; /* turbohtml._render.PlainText, the to_text()/to_annotated_text() options type */
     PyObject *html_config_type;      /* turbohtml._render.Html, the serialize()/encode() options type */
+    PyObject *canonical_config_type; /* turbohtml._render.Canonical, the canonicalize() options type */
     PyObject *range_type;            /* Range, the live DOM Range (dom/range.c) */
     PyObject *static_range_type;     /* StaticRange, the immutable boundary-point snapshot */
     /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one

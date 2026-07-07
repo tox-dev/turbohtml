@@ -1,0 +1,6 @@
+:meth:`turbohtml.Node.canonicalize` serializes a subtree to Canonical XML (c14n), the byte-exact form an XML signature
+signs. A :class:`turbohtml.Canonical` config selects the algorithm: Canonical XML 1.0 or 1.1, the exclusive variant that
+renders only the namespaces a subtree visibly uses, the with-comments variant, and an ``inclusive_ns_prefixes`` prefix
+list for exclusive mode. Attributes are reordered (namespace declarations first, then by namespace URI and local name),
+redundant namespace declarations are dropped, empty elements are written as start-end pairs, and character references
+are normalized, matching ``lxml``'s ``tostring(method="c14n")`` byte-for-byte over the same infoset.

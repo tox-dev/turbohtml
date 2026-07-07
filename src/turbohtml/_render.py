@@ -376,10 +376,59 @@ class Html:
 
 _HTML_DEFAULT: Final = Html()
 
-_register_render_configs(Markdown, PlainText, Html)
+
+@dataclass(frozen=True)
+class Canonical:
+    """
+    How :meth:`Node.canonicalize` renders a subtree as Canonical XML (c14n).
+
+    Canonical XML is the byte-exact serialization an XML signature signs: attributes are reordered, redundant
+    namespace declarations are dropped, empty elements are written as start-end pairs, and character references are
+    normalized. turbohtml canonicalizes a complete subtree, so ``1.0`` and ``1.1`` produce identical bytes here bar the
+    apex's inherited ``xml:`` attributes (``1.1`` keeps ``xml:id`` local).
+
+    :param version: ``1.0`` (`Canonical XML 1.0 <https://www.w3.org/TR/xml-c14n>`_) or ``1.1``
+        (`Canonical XML 1.1 <https://www.w3.org/TR/xml-c14n11/>`_).
+    :param exclusive: use `Exclusive XML Canonicalization <https://www.w3.org/TR/xml-exc-c14n>`_, which renders only
+        the namespaces a subtree visibly uses rather than inheriting every in-scope ancestor declaration.
+    :param with_comments: keep comment nodes, the with-comments variant of each algorithm.
+    :param inclusive_ns_prefixes: in exclusive mode, namespace prefixes promoted to the apex even when unused, so a
+        detached subtree keeps them; only meaningful with ``exclusive``.
+    :raises ValueError: if ``exclusive`` is combined with ``version="1.1"`` (exclusive c14n builds on 1.0 only), or if
+        ``inclusive_ns_prefixes`` is given without ``exclusive``.
+    """
+
+    version: Literal["1.0", "1.1"] = "1.0"
+    exclusive: bool = False
+    with_comments: bool = False
+    inclusive_ns_prefixes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Reject the option pairs the c14n algorithms leave undefined, so the renderer never has to."""
+        if self.exclusive and self.version == "1.1":
+            msg = "exclusive canonicalization is defined only over version 1.0"
+            raise ValueError(msg)
+        if self.inclusive_ns_prefixes and not self.exclusive:
+            msg = "inclusive_ns_prefixes applies only in exclusive mode"
+            raise ValueError(msg)
+
+    def _unpack(self) -> dict[str, object]:
+        """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""
+        default = _CANONICAL_DEFAULT
+        return {
+            field_.name: value
+            for field_ in fields(self)
+            if (value := getattr(self, field_.name)) != getattr(default, field_.name)
+        }
+
+
+_CANONICAL_DEFAULT: Final = Canonical()
+
+_register_render_configs(Markdown, PlainText, Html, Canonical)
 
 
 __all__ = [
+    "Canonical",
     "Html",
     "Markdown",
     "PlainText",
