@@ -77,6 +77,15 @@ _SANITIZER_NAMED_PROPS = _clean.Sanitizer(
         isolate_named_props=True,
     )
 )
+# keep an app's own x-* custom elements and their data-* attributes by predicate, DOMPurify's CUSTOM_ELEMENT_HANDLING,
+# so the walk runs the tag and attribute matchers on most elements rather than escaping every unlisted one
+_SANITIZER_CUSTOM = _clean.Sanitizer(
+    replace(
+        _RELAXED,
+        custom_element_check=re.compile(r"^x-").search,
+        custom_attribute_check=lambda _tag, name: name.startswith("data-"),
+    )
+)
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -356,6 +365,11 @@ def sanitize_styles(text: str) -> None:
 def sanitize_transform(text: str) -> None:
     """Sanitize with a tag-transform map, renaming deprecated presentational tags in the same C walk."""
     _SANITIZER_TRANSFORM.sanitize(text)
+
+
+def sanitize_custom_elements(text: str) -> None:
+    """Sanitize keeping an app's x-* custom elements and their data-* attributes through the predicate path."""
+    _SANITIZER_CUSTOM.sanitize(text)
 
 
 def markup(text: str) -> None:
@@ -661,6 +675,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "sanitize-report": (sanitize_report, "turbohtml"),
     "sanitize-styles": (sanitize_styles, "turbohtml"),
     "sanitize-transform": (sanitize_transform, "turbohtml"),
+    "sanitize-custom-elements": (sanitize_custom_elements, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),

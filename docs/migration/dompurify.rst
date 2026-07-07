@@ -4,14 +4,18 @@
 
 `DOMPurify <https://github.com/cure53/DOMPurify>`_ is the reference client-side HTML sanitizer: it parses untrusted
 markup, walks it against a hardened allowlist, and hands back a string safe to assign to ``innerHTML``. It runs in a
-browser or, server-side, on ``jsdom`` through ``isomorphic-dompurify``. Two of its options harden against attacks the
-allowlist alone does not stop: ``SAFE_FOR_TEMPLATES`` neutralizes template-engine expressions left in the output, and
-``SANITIZE_NAMED_PROPS`` defuses DOM clobbering by namespacing ``id`` and ``name`` values.
+browser or, server-side, on ``jsdom`` through ``isomorphic-dompurify``. Several of its options harden against attacks
+the allowlist alone does not stop, and others tune what it keeps: ``SAFE_FOR_TEMPLATES`` neutralizes template-engine
+expressions left in the output, ``SANITIZE_NAMED_PROPS`` defuses DOM clobbering by namespacing ``id`` and ``name``
+values, ``CUSTOM_ELEMENT_HANDLING`` keeps an app's own custom elements by predicate, and ``USE_PROFILES`` selects which
+of HTML, SVG, and MathML to admit.
 
 turbohtml's :mod:`turbohtml.clean` sanitizer covers the same ground behind a frozen, thread-safe
 :class:`~turbohtml.clean.Policy`, without a JavaScript runtime. ``Policy.strip_template_markers`` is the port of
-``SAFE_FOR_TEMPLATES``, and ``Policy.isolate_named_props`` the port of ``SANITIZE_NAMED_PROPS``. Both run inside the
-single C sanitize walk, so a Python service sanitizes in-process instead of shelling out to Node.
+``SAFE_FOR_TEMPLATES``, ``Policy.isolate_named_props`` of ``SANITIZE_NAMED_PROPS``, ``custom_element_check`` and
+``custom_attribute_check`` of ``CUSTOM_ELEMENT_HANDLING``, and ``allow_html``/``allow_svg``/``allow_mathml`` of
+``USE_PROFILES``. Every one runs inside the single C sanitize walk, so a Python service sanitizes in-process instead of
+shelling out to Node.
 
 ************************
  turbohtml vs DOMPurify
@@ -36,6 +40,12 @@ single C sanitize walk, so a Python service sanitizes in-process instead of shel
     - - Clobbering defense
       - ``Policy.isolate_named_props`` (static ``user-content-`` prefix)
       - ``SANITIZE_NAMED_PROPS`` (static prefix) or ``SANITIZE_DOM`` (live-DOM probe)
+    - - Custom elements
+      - ``Policy.custom_element_check`` / ``custom_attribute_check`` predicates
+      - ``CUSTOM_ELEMENT_HANDLING.tagNameCheck`` / ``attributeNameCheck``
+    - - Content profiles
+      - ``Policy.allow_html`` / ``allow_svg`` / ``allow_mathml``
+      - ``USE_PROFILES: {html, svg, mathMl}``
     - - Typing
       - Fully annotated, ``py.typed``
       - TypeScript definitions
@@ -91,6 +101,64 @@ Template safety
 ``SAFE_FOR_TEMPLATES`` collapses ``{{ }}``, ``${ }``, and ``<% %>`` runs so a sanitized value cannot re-inject once a
 template engine renders it. ``Policy.strip_template_markers`` is the direct port; see :doc:`the how-to
 </how-to/sanitizing>` for a worked example. Both options can be on at once, and both run in the same walk.
+
+Custom elements
+===============
+
+DOMPurify's ``CUSTOM_ELEMENT_HANDLING`` keeps an app's own custom elements without adding each to ``ADD_TAGS``: a
+``tagNameCheck`` regex or predicate decides whether an unlisted hyphenated element survives, and ``attributeNameCheck``
+which of its attributes do. turbohtml takes predicates directly -- ``Policy.custom_element_check`` and
+``custom_attribute_check`` -- so a regex is just ``re.compile(...).search``:
+
+.. code-block:: javascript
+
+    DOMPurify.sanitize(dirty, {
+      CUSTOM_ELEMENT_HANDLING: {
+        tagNameCheck: /^x-/,
+        attributeNameCheck: /^data-/,
+      },
+    });
+
+ports to:
+
+.. testcode::
+
+    import re
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        custom_element_check=re.compile(r"^x-").search,
+        custom_attribute_check=lambda _tag, name: name.startswith("data-"),
+    )
+    print(sanitize('<p><x-card data-id="7" onclick="steal()">c</x-card></p>', policy))
+
+.. testoutput::
+
+    <p><x-card data-id="7">c</x-card></p>
+
+The one deliberate difference is safety, not shape. DOMPurify's ``attributeNameCheck`` can readmit an ``on*`` handler
+when the caller's pattern happens to match it; turbohtml keeps the event-handler, URL-scheme, and ``style`` baseline
+unconditional, so the ``onclick`` above is dropped even though ``attributeNameCheck`` is wide open. Set
+``allow_customized_builtins`` for DOMPurify's ``allowCustomizedBuiltInElements``, which keeps an ``is`` attribute whose
+value names a custom element.
+
+Content profiles
+================
+
+``USE_PROFILES`` swaps DOMPurify's default allowlist for whole tag sets per content language. turbohtml keeps the
+allowlist as the source of truth and adds three orthogonal namespace gates -- ``allow_html``, ``allow_svg``,
+``allow_mathml`` -- so ``{ USE_PROFILES: { svg: true } }`` becomes an allowlist of the SVG tags you want plus
+``allow_mathml=False`` to keep the MathML namespace out:
+
+.. testcode::
+
+    policy = Policy(tags=frozenset({"svg", "circle", "math", "mi"}), allow_mathml=False)
+    print(sanitize("<svg><circle></circle></svg><math><mi>x</mi></math>", policy))
+
+.. testoutput::
+
+    <svg><circle></circle></svg>&lt;math&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;/math&gt;
 
 Performance
 ===========

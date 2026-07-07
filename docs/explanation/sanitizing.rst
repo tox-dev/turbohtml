@@ -48,3 +48,22 @@ hand-maintained name list that silently misses whatever property a future engine
 value the isolation then fails to namespace; like the dangerous-value baseline, the guarantee sits below the caller's
 reach. Idempotence closes the loop: a value already carrying the prefix is left untouched, so sanitizing sanitized
 output is a fixpoint rather than a growing stack of ``user-content-user-content-`` markers.
+
+``custom_element_check`` extends the allowlist without weakening the model. An allowlist answers "is this name known
+good?"; a matcher answers the same question for a family of names the caller cannot enumerate ahead of time -- their own
+``x-*`` or ``my-*`` elements. It is still a membership test, only computed rather than looked up, so it can only *admit*
+names, never bypass what sits below: the unsafe-tag baseline escapes a scriptable target before the matcher is ever
+consulted, and ``custom_attribute_check`` widens which attribute *names* survive on a kept custom element while the
+``on*``, URL-scheme, and ``style`` gates still scrub their *values*. This is a deliberate divergence from DOMPurify,
+whose ``attributeNameCheck`` can readmit an ``on*`` handler if the caller's pattern matches it: turbohtml keeps the
+event-handler and URL baseline unconditional, so a custom-element policy is safe by construction the same way a
+``style`` policy is. Only basic custom-element names reach the matcher -- a hyphenated name clear of the reserved
+``annotation-xml``/``font-face`` set -- so a matcher cannot be tricked into keeping a real foreign element by its name.
+
+The ``allow_html``/``allow_svg``/``allow_mathml`` profiles are the coarsest subtractive layer of all: each drops a whole
+content language above the allowlist, so a namespace a policy disables is gone no matter which of its tags appear in
+``tags``. They compose with the per-node namespace-reachability check rather than replacing it -- the reachability check
+is a structural defense against a namespace-*confused* node the parser never produced, while the profiles are a policy
+choice about which content languages an application accepts at all. Keeping the two separate means enabling MathML is a
+statement about intent, not a relaxation of the mutation-XSS defense that still governs how a MathML node may be
+reached.

@@ -67,6 +67,12 @@ def _sanitize(
     allowed_styles: Mapping[str, Mapping[str, tuple[re.Pattern[str], ...]]],
     transform_tags: Mapping[str, tuple[str, Mapping[str, str]]],
     isolate_named_props: bool,
+    custom_element_check: Callable[[str], bool] | None,
+    custom_attribute_check: Callable[[str, str], bool] | None,
+    allow_customized_builtins: bool,
+    allow_html: bool,
+    allow_svg: bool,
+    allow_mathml: bool,
     /,
 ) -> None: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...

@@ -91,6 +91,39 @@ already-prefixed value is left alone, so re-sanitizing is a fixpoint. The isolat
 
     <input name="user-content-attributes">
 
+``Policy.custom_element_check`` keeps an unlisted hyphenated custom element when its matcher admits the tag name,
+DOMPurify's ``CUSTOM_ELEMENT_HANDLING.tagNameCheck``; ``custom_attribute_check`` does the same for that element's
+attributes (``attributeNameCheck``), and ``allow_customized_builtins`` keeps an ``is`` attribute naming a custom
+element. The safety baseline still runs on whatever the matcher keeps, so an ``on*`` handler is dropped even here:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        custom_element_check=lambda tag: tag.startswith("x-"),
+        custom_attribute_check=lambda _tag, name: name.startswith("data-"),
+    )
+    print(sanitize('<p><x-card data-id="7" onclick="x">c</x-card></p>', policy))
+
+.. testoutput::
+
+    <p><x-card data-id="7">c</x-card></p>
+
+``Policy.allow_html``, ``Policy.allow_svg``, and ``Policy.allow_mathml`` gate each namespace independently, DOMPurify's
+``USE_PROFILES``. All default on; turning one off drops that whole namespace even when its tags are allowlisted, so a
+policy can keep SVG but not MathML:
+
+.. testcode::
+
+    policy = Policy(tags=frozenset({"svg", "circle", "math", "mi"}), allow_svg=False)
+    print(sanitize("<svg><circle></circle></svg><math><mi>x</mi></math>", policy))
+
+.. testoutput::
+
+    &lt;svg&gt;&lt;circle&gt;&lt;/circle&gt;&lt;/svg&gt;<math><mi>x</mi></math>
+
 .. autoclass:: Transform
 
 .. autoclass:: OnDisallowed

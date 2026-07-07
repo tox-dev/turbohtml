@@ -120,6 +120,53 @@ allowlisted to survive.
 
     <div class="legacy"><strong>bold</strong> and <em>italic</em></div>
 
+************************************
+ Allow an app's own custom elements
+************************************
+
+To keep your own custom elements (``<my-widget>``, ``<x-card>``) without enumerating every one in ``tags``, give the
+policy a matcher, DOMPurify's ``CUSTOM_ELEMENT_HANDLING``. ``custom_element_check`` receives an unlisted element's
+lowercased tag name and returns true to keep it; ``custom_attribute_check`` receives ``(tag, attribute_name)`` and
+decides which of a kept custom element's attributes survive. Only basic custom-element names (hyphenated, not a reserved
+name like ``annotation-xml``) reach the matcher, and the safety baseline still runs on whatever it keeps -- ``on*``
+handlers, ``javascript:`` URLs, and dangerous styles are dropped regardless.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        custom_element_check=lambda tag: tag.startswith("x-"),
+        custom_attribute_check=lambda _tag, name: name.startswith("data-"),
+    )
+    print(sanitize('<p><x-rating data-stars="5" onclick="x">stars</x-rating><y-ad>no</y-ad></p>', policy))
+
+.. testoutput::
+
+    <p><x-rating data-stars="5">stars</x-rating>&lt;y-ad&gt;no&lt;/y-ad&gt;</p>
+
+Pass ``re.compile(r"^x-").search`` as the matcher to drive it from a regular expression, and set
+``allow_customized_builtins`` to also keep an ``is`` attribute whose value names a custom element (``<button
+is="x-fancy">``).
+
+***************************************
+ Allow SVG or MathML but not the other
+***************************************
+
+``allow_html``, ``allow_svg``, and ``allow_mathml`` gate each content language independently, DOMPurify's
+``USE_PROFILES``. They default on, so an allowlist governs each namespace as before; turn one off to drop that whole
+namespace even when its tags are in ``tags``. Here SVG is kept and MathML dropped:
+
+.. testcode::
+
+    policy = Policy(tags=frozenset({"svg", "circle", "math", "mi"}), allow_mathml=False)
+    print(sanitize("<svg><circle></circle></svg><math><mi>x</mi></math>", policy))
+
+.. testoutput::
+
+    <svg><circle></circle></svg>&lt;math&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;/math&gt;
+
 **************************************
  Trust the first pass, do not reparse
 **************************************

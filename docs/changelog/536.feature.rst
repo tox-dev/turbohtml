@@ -1,0 +1,8 @@
+:class:`~turbohtml.clean.Policy` gained a predicate-based custom-element allowance and split content profiles, porting
+DOMPurify's ``CUSTOM_ELEMENT_HANDLING`` and ``USE_PROFILES``. ``custom_element_check`` keeps an unlisted hyphenated
+custom element (``my-widget``, ``x-card``) when a caller-supplied matcher admits its name, ``custom_attribute_check``
+extends the same idea to that element's attributes, and ``allow_customized_builtins`` keeps an ``is`` attribute whose
+value names a custom element. ``allow_html``, ``allow_svg``, and ``allow_mathml`` gate each namespace independently, so
+a policy can keep SVG but drop MathML, or the reverse. All of it runs in the one C sanitize walk, and the
+non-configurable safety baseline -- ``on*`` handlers, ``javascript:`` URLs, unsafe tags -- still applies to whatever a
+matcher keeps.

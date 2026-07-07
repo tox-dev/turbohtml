@@ -48,6 +48,14 @@ typedef struct {
                                 template-safe */
     int isolate_named_props; /* SANITIZE_NAMED_PROPS: prefix kept id/name values with "user-content-" so they cannot
                                 shadow a document/form named property (DOM clobbering) */
+    PyObject *custom_element_check;   /* callable(tag) -> bool: keep an unlisted HTML custom element, or None (off) */
+    PyObject *custom_attribute_check; /* callable(tag, name) -> bool: keep an unlisted attr on a kept custom element,
+                                         or None (only allowlisted attrs survive) */
+    int allow_customized_builtins;    /* allowCustomizedBuiltInElements: keep an `is` attribute whose value passes
+                                         custom_element_check, so a customized built-in survives */
+    int allow_html;   /* USE_PROFILES.html: keep HTML-namespace elements (off drops the whole HTML namespace) */
+    int allow_svg;    /* USE_PROFILES.svg: keep SVG-namespace elements */
+    int allow_mathml; /* USE_PROFILES.mathMl: keep MathML-namespace elements */
 } sanitizer;
 
 /* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
@@ -1076,7 +1084,78 @@ static int prefix_named_prop(sanitizer *s, th_node *element, const th_node_attr 
     return status;
 }
 
-static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
+/* Call one boolean policy predicate on `arg`, returning 1 keep, 0 drop, -1 when the predicate raised. */
+static int predicate_true(PyObject *callable, PyObject *arg) {
+    PyObject *result = PyObject_CallOneArg(callable, arg);
+    if (result == NULL) {
+        return -1;
+    }
+    int truth = PyObject_IsTrue(result);
+    Py_DECREF(result);
+    return truth;
+}
+
+/* Call one boolean policy predicate on two arguments, returning 1 keep, 0 drop, -1 when the predicate raised. */
+static int predicate_true2(PyObject *callable, PyObject *first, PyObject *second) {
+    PyObject *result = PyObject_CallFunctionObjArgs(callable, first, second, NULL);
+    if (result == NULL) {
+        return -1;
+    }
+    int truth = PyObject_IsTrue(result);
+    Py_DECREF(result);
+    return truth;
+}
+
+/* The hyphenated names the HTML spec reserves from valid-custom-element-name, so a permissive custom_element_check
+   cannot treat a real SVG/MathML element (annotation-xml, font-face, ...) as a custom element. `name` is the NUL-
+   terminated UTF-8 the tag interns to. */
+static int is_reserved_custom_name(const char *name) {
+    static const char *const reserved[] = {"annotation-xml", "color-profile", "font-face",     "font-face-format",
+                                           "font-face-name", "font-face-src", "font-face-uri", "missing-glyph"};
+    for (size_t index = 0; index < sizeof(reserved) / sizeof(reserved[0]); index++) {
+        if (strcmp(name, reserved[index]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* DOMPurify's _isBasicCustomElement: does `name` (a parsed element's lowercased tag) meet the basic custom-element
+   grammar `^[a-z][.\w]*(-[.\w]+)+$` and stay clear of the reserved names? The tokenizer starts a tag name only on an
+   ASCII letter, so the leading-letter clause already holds; what remains is at least one '-', each followed by a name
+   character, over the [.\w-] set. Returns 1 a basic custom element, 0 not. */
+static int is_custom_element_name(const char *name, Py_ssize_t len) {
+    int has_dash = 0;
+    for (Py_ssize_t index = 1; index < len; index++) {
+        unsigned char c = (unsigned char)name[index];
+        if (c == '-') {
+            if (name[index - 1] == '-' || index + 1 == len) {
+                return 0; /* a '-' must be followed by a name character: no trailing or doubled dash */
+            }
+            has_dash = 1;
+        } else if (!is_ascii_alpha(c) && !is_ascii_digit(c) && c != '_' && c != '.') {
+            return 0; /* only [.\w-] continue a custom-element name */
+        }
+    }
+    return has_dash && !is_reserved_custom_name(name);
+}
+
+/* Is `tag` a basic HTML custom element the caller's custom_element_check admits? Only consulted when a check is set;
+   the tag's UTF-8 is already interned, so the name test is a byte scan. Returns 1 keep as a custom element, 0 not, -1
+   when the predicate raised. */
+static int custom_element_kept(sanitizer *s, PyObject *tag) {
+    Py_ssize_t name_len = 0;
+    const char *name = PyUnicode_AsUTF8AndSize(tag, &name_len);
+    if (name == NULL) { /* GCOVR_EXCL_BR_LINE: the tag is a freshly built str, so encoding it cannot fail */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (!is_custom_element_name(name, name_len)) {
+        return 0;
+    }
+    return predicate_true(s->custom_element_check, tag);
+}
+
+static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
     Py_ssize_t index = 0;
     while (index < element->attr_count) {
         th_node_attr *attr = &element->attrs[index];
@@ -1088,7 +1167,37 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: attr_allowed only fails on allocation failure */
                 return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            drop = !allowed;
+            if (!allowed) {
+                /* an unlisted attribute survives on a kept custom element only when custom_attribute_check admits it,
+                   and an `is` on any element only when allow_customized_builtins is on and its value names a custom
+                   element -- both an allowlist substitute, never a bypass: the on*, URL, and style baseline below still
+                   runs on whatever they keep */
+                int keep = 0;
+                if (custom && s->custom_attribute_check != Py_None) {
+                    PyObject *attr = PyUnicode_FromStringAndSize(name, name_len);
+                    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+                    }
+                    keep = predicate_true2(s->custom_attribute_check, tag, attr);
+                    Py_DECREF(attr);
+                    if (keep < 0) {
+                        return -1;
+                    }
+                }
+                if (!keep && s->allow_customized_builtins && s->custom_element_check != Py_None && name_len == 2 &&
+                    name[0] == 'i' && name[1] == 's' && attr->value != NULL) {
+                    PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+                    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+                    }
+                    keep = predicate_true(s->custom_element_check, value);
+                    Py_DECREF(value);
+                    if (keep < 0) {
+                        return -1;
+                    }
+                }
+                drop = !keep;
+            }
         }
         if (!drop && PyDict_GET_SIZE(s->attribute_values) > 0) {
             int keep = value_allowed(s, tag, name, name_len, attr->value, attr->value_len);
@@ -1443,6 +1552,28 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
        against css_properties (like a `style` attribute), rather than dropping its CSS. */
     int style_element = element->atom == TH_TAG_STYLE && is_html;
     int allowed = (is_unsafe_tag(element->atom) && !style_element) ? 0 : PySet_Contains(s->tags, tag);
+    /* USE_PROFILES: a policy enables the HTML, SVG, and MathML namespaces independently, so a whole namespace can be
+       dropped regardless of the tag allowlist (an SVG-only policy keeps <svg> and drops <math>, or the reverse) */
+    int ns_allowed = element->ns == TH_NS_HTML  ? s->allow_html
+                     : element->ns == TH_NS_SVG ? s->allow_svg
+                                                : s->allow_mathml;
+    if (allowed > 0 && !ns_allowed) {
+        allowed = 0;
+    }
+    /* CUSTOM_ELEMENT_HANDLING: a basic HTML custom element the caller's matcher admits is kept even when unlisted, and
+       marked so sanitize_attributes vets its unlisted attributes with custom_attribute_check; the safety baseline still
+       escapes an unsafe tag and drops event-handler and URL attributes, so the matcher decides names, never safety */
+    int custom = 0;
+    if (is_html && ns_allowed && !is_unsafe_tag(element->atom) && s->custom_element_check != Py_None) {
+        custom = custom_element_kept(s, tag);
+        if (custom < 0) { /* the matcher raised */
+            Py_DECREF(tag);
+            return -1;
+        }
+    }
+    if (allowed == 0 && custom) {
+        allowed = 1;
+    }
     if (allowed > 0 && !is_html && !parent_kept) {
         allowed = 0;
     }
@@ -1463,9 +1594,9 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
         status = -1;                         /* GCOVR_EXCL_LINE */
     } else if (allowed && style_element) {
         /* a kept <style> holds raw CSS, not child elements, so scrub its stylesheet body instead of walking children */
-        status = sanitize_attributes(s, element, tag) < 0 ? -1 : sanitize_style_body(s, element);
+        status = sanitize_attributes(s, element, tag, custom) < 0 ? -1 : sanitize_style_body(s, element);
     } else if (allowed) {
-        status = sanitize_attributes(s, element, tag) < 0 ? -1 : sanitize_children(s, element, 1);
+        status = sanitize_attributes(s, element, tag, custom) < 0 ? -1 : sanitize_children(s, element, 1);
     } else if (remove_content || s->on_disallowed == ON_REMOVE || (s->on_disallowed == ON_STRIP && !is_html)) {
         /* drop the whole subtree: a content-removal tag (e.g. script/style, so its text never leaks), REMOVE mode, or
            foreign content under STRIP (unwrapping it would invite namespace confusion) */
@@ -1573,18 +1704,21 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates, removed, allowed_styles, transform_tags, isolate_named_props) -> None. Filters the
-   fragment in place; sanitizer.py serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to,
-   or None to skip the audit. */
+   media_hosts, strip_templates, removed, allowed_styles, transform_tags, isolate_named_props, custom_element_check,
+   custom_attribute_check, allow_customized_builtins, allow_html, allow_svg, allow_mathml) -> None. Filters the fragment
+   in place; sanitizer.py serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to, or None to
+   skip the audit. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOp:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
-                          &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
-                          &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles,
-                          &s.transform_tags, &s.isolate_named_props)) {
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOpOOpppp:_sanitize", &element, &s.tags, &s.attributes,
+                          &s.url_schemes, &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel,
+                          &s.attribute_filter, &s.set_attributes, &s.remove_with_content, &s.css_properties,
+                          &s.attribute_prefixes, &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed,
+                          &s.allowed_styles, &s.transform_tags, &s.isolate_named_props, &s.custom_element_check,
+                          &s.custom_attribute_check, &s.allow_customized_builtins, &s.allow_html, &s.allow_svg,
+                          &s.allow_mathml)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;

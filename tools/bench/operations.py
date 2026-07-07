@@ -136,6 +136,15 @@ _SANITIZE_NAMED = dedent("""\
       <a id="anchors" name="scripts" href="http://example.com/y">scripts</a>
     </form>""")
 
+# dense in an app's own x-* custom elements and data-* attributes, so the custom-element matcher and attribute matcher
+# run on most elements rather than short-circuiting on a policy that keeps only the standard allowlist
+_SANITIZE_CUSTOM = dedent("""\
+    <x-shell data-theme="dark">
+      <x-card data-id="1" onclick="steal()"><b>Title</b> and <x-badge data-kind="new">new</x-badge></x-card>
+      <x-card data-id="2"><a href="javascript:evil()">bad</a> then <x-rating data-stars="4">****</x-rating> ok.</x-card>
+      <x-list><x-item data-i="1">one</x-item><x-item data-i="2">two</x-item><x-item data-i="3">three</x-item></x-list>
+    </x-shell>""")
+
 # rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
 # per-declaration regex work rather than short-circuiting on an empty rule
 _SANITIZE_STYLES = dedent("""\
@@ -205,6 +214,7 @@ OPERATIONS: dict[str, Operation] = {
     "sanitize-report": Operation("sanitize with audit trail", "us"),
     "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
     "sanitize-transform": Operation("sanitize (tag transform)", "us"),
+    "sanitize-custom-elements": Operation("sanitize (custom elements)", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -550,6 +560,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),
+    "sanitize-custom-elements": lambda: (("custom 4 KiB", _SANITIZE_CUSTOM * 11),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),

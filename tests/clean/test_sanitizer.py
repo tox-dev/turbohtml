@@ -844,10 +844,10 @@ def test_strip_propagates_a_child_filter_error() -> None:
 def test_sanitize_rejects_non_element() -> None:
     from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
 
-    # the nineteen policy arguments after the element; only the non-element first argument matters to this guard
+    # the policy arguments after the element; only the non-element first argument matters to this guard
     policy_args = (
         frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset(), frozenset(), {},
-        frozenset(), False, None, {}, {}, False,
+        frozenset(), False, None, {}, {}, False, None, None, False, True, True, True,
     )  # fmt: skip
     with pytest.raises(TypeError):
         _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]

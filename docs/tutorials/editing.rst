@@ -102,6 +102,24 @@ because it is otherwise ordinary. Turn on ``isolate_named_props`` to prefix ever
 
     <form id="user-content-settings"><input name="user-content-attributes"></form>
 
+To keep an app's own custom elements without listing every one, hand the policy a matcher instead of a name set:
+``custom_element_check`` decides whether an unlisted hyphenated element survives, and ``custom_attribute_check`` which
+of its attributes do. The safety baseline is unchanged, so the ``onclick`` here is dropped even though the matcher keeps
+the element:
+
+.. testcode::
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        custom_element_check=lambda tag: tag.startswith("x-"),
+        custom_attribute_check=lambda _tag, name: name.startswith("data-"),
+    )
+    print(sanitize('<p>see <x-rating data-stars="5" onclick="steal()">stars</x-rating></p>', policy))
+
+.. testoutput::
+
+    <p>see <x-rating data-stars="5">stars</x-rating></p>
+
 When you serialize, set an ``Html`` config's ``layout`` to a :class:`~turbohtml.Minify` to shrink the output without
 changing what it means: it folds insignificant whitespace, omits optional tags, unquotes safe attributes, and strips
 comments, and the result reparses to the same tree. Here the ``</li>`` tags stay because real whitespace separates the

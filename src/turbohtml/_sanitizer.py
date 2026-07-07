@@ -180,6 +180,27 @@ class Policy:
         makes ``form.attributes`` resolve to the input, ``<img name="body">`` hides ``document.body``). The prefix is
         left alone when already present, so re-sanitizing is a fixpoint. DOMPurify's ``SANITIZE_NAMED_PROPS``; off by
         default.
+    :param custom_element_check: a predicate that keeps an unlisted custom element (a hyphenated HTML tag such as
+        ``my-widget`` or ``x-card``) without naming it in ``tags``, DOMPurify's
+        ``CUSTOM_ELEMENT_HANDLING.tagNameCheck``. Given the element's lowercased tag name, return true to keep it (pass
+        ``re.compile(r"x-.*").search`` to drive it from a regex). Only basic custom-element names reach it (the reserved
+        ``annotation-xml``/``font-face`` family never does), and the safety baseline still escapes unsafe tags and
+        scrubs ``on*``/URL/style attributes on whatever it keeps. ``None`` (the default) escapes every unlisted tag as
+        before.
+    :param custom_attribute_check: a predicate that keeps an unlisted attribute on a kept custom element, DOMPurify's
+        ``CUSTOM_ELEMENT_HANDLING.attributeNameCheck``. Given ``(tag, attribute_name)`` return true to keep it; the
+        ``on*``, URL-scheme, and ``style`` scrubbing still apply, so this widens the name allowlist, never the safety
+        baseline. ``None`` (the default) keeps only the attributes ``attributes`` already admits.
+    :param allow_customized_builtins: keep an ``is`` attribute whose value passes ``custom_element_check``, so a
+        customized built-in element (``<button is="my-button">``) survives, DOMPurify's
+        ``allowCustomizedBuiltInElements``. Off by default, and inert without ``custom_element_check``.
+    :param allow_html: keep HTML-namespace elements; turning it off drops the whole HTML namespace, DOMPurify's
+        ``USE_PROFILES.html``. Independent of the tag allowlist, so it composes with ``allow_svg``/``allow_mathml`` to
+        select which content languages a policy admits.
+    :param allow_svg: keep SVG-namespace elements, DOMPurify's ``USE_PROFILES.svg``. Off drops every SVG element even
+        when its tag is in ``tags``.
+    :param allow_mathml: keep MathML-namespace elements, DOMPurify's ``USE_PROFILES.mathMl``. Off drops every MathML
+        element even when its tag is in ``tags``.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -201,6 +222,12 @@ class Policy:
     allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]] = field(default_factory=dict)
     transform_tags: Mapping[str, Transform | str] = field(default_factory=dict)
     isolate_named_props: bool = False
+    custom_element_check: Callable[[str], bool] | None = None
+    custom_attribute_check: Callable[[str, str], bool] | None = None
+    allow_customized_builtins: bool = False
+    allow_html: bool = True
+    allow_svg: bool = True
+    allow_mathml: bool = True
 
     @classmethod
     def strict(cls) -> Policy:
@@ -330,6 +357,12 @@ class Sanitizer:
             self._allowed_styles,
             self._transform_tags,
             policy.isolate_named_props,
+            policy.custom_element_check,
+            policy.custom_attribute_check,
+            policy.allow_customized_builtins,
+            policy.allow_html,
+            policy.allow_svg,
+            policy.allow_mathml,
         )
         return root
 

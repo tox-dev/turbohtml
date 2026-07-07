@@ -33,7 +33,13 @@ def sanitize_named_props(text: str) -> str:
     return _run("named-props", text)
 
 
+def sanitize_custom_elements(text: str) -> str:
+    """Sanitize with DOMPurify's CUSTOM_ELEMENT_HANDLING keeping x-* elements and their data-* attributes."""
+    return _run("custom-elements", text)
+
+
 OPERATIONS = {
     "sanitize-templates": (sanitize_templates, "DOMPurify"),
     "sanitize-named-props": (sanitize_named_props, "DOMPurify"),
+    "sanitize-custom-elements": (sanitize_custom_elements, "DOMPurify"),
 }
