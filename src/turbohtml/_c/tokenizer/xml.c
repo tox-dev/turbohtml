@@ -20,16 +20,44 @@ static int xml_is_space(Py_UCS4 ch) {
     return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
 }
 
-/* XML NameStartChar, approximated: a letter, '_' or ':' (the qualified-name
-   separator), or any code point past ASCII. The exact spec ranges exclude a few
-   punctuation blocks; a name that starts with a digit, '-' or '.' -- the cases
-   real input mistakes -- is still rejected. */
+typedef struct {
+    Py_UCS4 lo;
+    Py_UCS4 hi;
+} cp_range;
+
+/* NameStartChar (XML 1.0 [4]) as inclusive code-point ranges, common ASCII first for the
+   early exit; the exact list -- not the "any code point >= U+0080" approximation -- so a
+   combining mark, a middle dot or the other punctuation the spec omits is rejected. */
+static const cp_range NAME_START_RANGES[] = {
+    {'a', 'z'},       {'A', 'Z'},       {'_', '_'},       {':', ':'},         {0xC0, 0xD6},     {0xD8, 0xF6},
+    {0xF8, 0x2FF},    {0x370, 0x37D},   {0x37F, 0x1FFF},  {0x200C, 0x200D},   {0x2070, 0x218F}, {0x2C00, 0x2FEF},
+    {0x3001, 0xD7FF}, {0xF900, 0xFDCF}, {0xFDF0, 0xFFFD}, {0x10000, 0xEFFFF},
+};
+
+/* NameChar (XML 1.0 [4a]): every NameStartChar plus the digits, '-', '.' and the
+   combining/extender ranges the production adds. */
+static const cp_range NAME_CHAR_RANGES[] = {
+    {'a', 'z'},       {'A', 'Z'},       {'0', '9'},         {'_', '_'},       {':', ':'},       {'-', '-'},
+    {'.', '.'},       {0xB7, 0xB7},     {0xC0, 0xD6},       {0xD8, 0xF6},     {0xF8, 0x2FF},    {0x300, 0x37D},
+    {0x37F, 0x1FFF},  {0x200C, 0x200D}, {0x203F, 0x2040},   {0x2070, 0x218F}, {0x2C00, 0x2FEF}, {0x3001, 0xD7FF},
+    {0xF900, 0xFDCF}, {0xFDF0, 0xFFFD}, {0x10000, 0xEFFFF},
+};
+
+static int in_ranges(Py_UCS4 ch, const cp_range *ranges, Py_ssize_t count) {
+    for (Py_ssize_t index = 0; index < count; index++) {
+        if (ch >= ranges[index].lo && ch <= ranges[index].hi) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int is_name_start(Py_UCS4 ch) {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == ':' || ch >= 0x80;
+    return in_ranges(ch, NAME_START_RANGES, (Py_ssize_t)(sizeof(NAME_START_RANGES) / sizeof(cp_range)));
 }
 
 static int is_name_char(Py_UCS4 ch) {
-    return is_name_start(ch) || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.';
+    return in_ranges(ch, NAME_CHAR_RANGES, (Py_ssize_t)(sizeof(NAME_CHAR_RANGES) / sizeof(cp_range)));
 }
 
 /* The Char production [2]: TAB/LF/CR or a scalar value outside the surrogate range
@@ -45,6 +73,8 @@ static int is_xml_char(long ch) {
 typedef struct {
     Py_UCS4 *prefix;
     Py_ssize_t prefix_len;
+    Py_UCS4 *uri; /* the namespace name the prefix binds, for expanded-name comparison */
+    Py_ssize_t uri_len;
     Py_ssize_t depth;
 } xml_nsdecl;
 
@@ -201,6 +231,24 @@ static int name_equals(const xml_parser *parser, Py_ssize_t start, Py_ssize_t en
     return 1;
 }
 
+/* The reserved namespace names Namespaces in XML 1.0 binds by definition to the xml and
+   xmlns prefixes; neither may be re-bound and the xmlns name may not be bound at all. */
+static const char XML_NS_URI[] = "http://www.w3.org/XML/1998/namespace";
+static const char XMLNS_NS_URI[] = "http://www.w3.org/2000/xmlns/";
+
+/* Whether the scratch buffer (a parsed, entity-normalized attribute value) equals `text`. */
+static int scratch_equals(const xml_parser *parser, const char *text, Py_ssize_t text_len) {
+    if (parser->scratch_len != text_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < text_len; index++) {
+        if (parser->scratch[index] != (Py_UCS4)text[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Read a Name starting at `pos`, leaving `pos` just past it and returning its end
    offset; records xml-invalid-name and returns -1 on a bad start character. */
 static Py_ssize_t read_name(xml_parser *parser) {
@@ -309,7 +357,19 @@ static int push_open(xml_parser *parser, th_node *element) {
 }
 
 /* Declare a namespace prefix (arena-owned copy) in scope at `depth`. */
-static int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, Py_ssize_t depth) {
+/* Copy a code-point run (an entity-normalized attribute value) into the arena. */
+static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
+    Py_UCS4 *out = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
+    return out;
+}
+
+/* Declare a namespace prefix bound to `uri` (arena-owned copies) in scope at `depth`. */
+static int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, const Py_UCS4 *uri, Py_ssize_t uri_len,
+                          Py_ssize_t depth) {
     if (parser->ns_len == parser->ns_cap) {
         Py_ssize_t cap = parser->ns_cap ? parser->ns_cap * 2 : 8;
         xml_nsdecl *grown = PyMem_Realloc(parser->ns, (size_t)cap * sizeof(xml_nsdecl));
@@ -324,8 +384,14 @@ static int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, 
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    Py_UCS4 *owned_uri = arena_copy(parser->tree, uri, uri_len);
+    if (owned_uri == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     parser->ns[parser->ns_len].prefix = owned;
     parser->ns[parser->ns_len].prefix_len = len;
+    parser->ns[parser->ns_len].uri = owned_uri;
+    parser->ns[parser->ns_len].uri_len = uri_len;
     parser->ns[parser->ns_len].depth = depth;
     parser->ns_len++;
     return 0;
@@ -337,13 +403,8 @@ static void pop_prefixes(xml_parser *parser, Py_ssize_t depth) {
     }
 }
 
-/* Whether the prefix range [start, end) is the reserved "xml" or an in-scope
-   declaration; the source position `at` locates an undeclared-prefix error. */
-static int prefix_in_scope(xml_parser *parser, Py_ssize_t start, Py_ssize_t end, Py_ssize_t at) {
-    if (name_equals(parser, start, end, "xml")) {
-        return 1;
-    }
-    Py_ssize_t len = end - start;
+/* The index of the innermost in-scope declaration of prefix [start, start+len), or -1. */
+static Py_ssize_t find_prefix(const xml_parser *parser, Py_ssize_t start, Py_ssize_t len) {
     for (Py_ssize_t index = parser->ns_len - 1; index >= 0; index--) {
         if (parser->ns[index].prefix_len != len) {
             continue;
@@ -356,8 +417,17 @@ static int prefix_in_scope(xml_parser *parser, Py_ssize_t start, Py_ssize_t end,
             }
         }
         if (same) {
-            return 1;
+            return index;
         }
+    }
+    return -1;
+}
+
+/* Whether the prefix range [start, end) is the reserved "xml" or an in-scope
+   declaration; the source position `at` locates an undeclared-prefix error. */
+static int prefix_in_scope(xml_parser *parser, Py_ssize_t start, Py_ssize_t end, Py_ssize_t at) {
+    if (name_equals(parser, start, end, "xml") || find_prefix(parser, start, end - start) >= 0) {
+        return 1;
     }
     record(parser, "xml-undeclared-namespace", at);
     return 0;
@@ -669,6 +739,12 @@ static int consume_pi(xml_parser *parser) {
         record(parser, "xml-reserved-pi-target", target_start);
         return -1;
     }
+    for (Py_ssize_t index = target_start; index < target_end; index++) { /* a PI target is an NCName: no ':' */
+        if (cp(parser, index) == ':') {
+            record(parser, "xml-invalid-pi-target", target_start);
+            return -1;
+        }
+    }
     if (parser->pos < parser->length && !starts_with(parser, parser->pos, "?>") &&
         !xml_is_space(cp(parser, parser->pos))) { /* [16]: target and data are S-separated */
         record(parser, "xml-malformed-pi", parser->pos);
@@ -797,6 +873,53 @@ static int consume_end_tag(xml_parser *parser) {
     return 0;
 }
 
+/* Enforce Namespaces in XML 1.0 on an xmlns / xmlns:prefix attribute whose value is in the
+   scratch buffer, declaring a well-formed prefix binding. Returns 0 for an ordinary attribute
+   or a valid declaration, -1 with an error recorded for a reserved-binding violation. */
+static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_ssize_t name_end, Py_ssize_t depth) {
+    int is_default = name_equals(parser, name_start, name_end, "xmlns");
+    if (!is_default && !starts_with(parser, name_start, "xmlns:")) {
+        return 0;
+    }
+    int binds_xml_uri = scratch_equals(parser, XML_NS_URI, (Py_ssize_t)(sizeof(XML_NS_URI) - 1));
+    int binds_xmlns_uri = scratch_equals(parser, XMLNS_NS_URI, (Py_ssize_t)(sizeof(XMLNS_NS_URI) - 1));
+    if (is_default) { /* a reserved name may not be bound as the default namespace */
+        if (binds_xml_uri || binds_xmlns_uri) {
+            record(parser, "xml-reserved-namespace", name_start);
+            return -1;
+        }
+        return 0;
+    }
+    Py_ssize_t prefix_start = name_start + 6;
+    Py_ssize_t prefix_len = name_end - prefix_start;
+    if (prefix_len == 0) { /* xmlns:="..." -- an empty prefix is not an NCName */
+        record(parser, "xml-invalid-namespace-decl", name_start);
+        return -1;
+    }
+    if (name_equals(parser, prefix_start, name_end, "xmlns")) { /* the xmlns prefix is never declarable */
+        record(parser, "xml-reserved-prefix", prefix_start);
+        return -1;
+    }
+    if (name_equals(parser, prefix_start, name_end, "xml")) { /* xml binds only to the xml namespace */
+        if (!binds_xml_uri) {
+            record(parser, "xml-reserved-prefix", prefix_start);
+            return -1;
+        }
+    } else if (binds_xml_uri) { /* no other prefix may bind the xml namespace */
+        record(parser, "xml-reserved-namespace", prefix_start);
+        return -1;
+    }
+    if (binds_xmlns_uri) { /* the xmlns namespace may not be bound to any prefix */
+        record(parser, "xml-reserved-namespace", prefix_start);
+        return -1;
+    }
+    int declared = declare_prefix(parser, prefix_start, prefix_len, parser->scratch, parser->scratch_len, depth);
+    if (declared < 0) { /* GCOVR_EXCL_BR_LINE: declare_prefix only fails on allocation */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return 0;
+}
+
 /* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
    Advances past the attribute; returns 0, or -1 with an error recorded. */
 static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t depth) {
@@ -877,13 +1000,33 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
     }
     parser->attr_spans[parser->attr_spans_len++] = name_start;
     parser->attr_spans[parser->attr_spans_len++] = name_end;
-    if (starts_with(parser, name_start, "xmlns:") && name_end - name_start > 6) {
-        /* declare_prefix only fails on allocation */
-        if (declare_prefix(parser, name_start + 6, name_end - (name_start + 6), depth) < 0) { /* GCOVR_EXCL_BR_LINE */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    return consume_namespace_decl(parser, name_start, name_end, depth);
+}
+
+/* The in-scope declaration index for the prefix of attribute [start, end), with *colon set to
+   the ':' offset; -1 when no namespace applies (unprefixed, the xml prefix, or an xmlns decl).
+   A declared prefix is guaranteed in scope: check_qname_prefix has already validated it. */
+static Py_ssize_t attr_ns_index(const xml_parser *parser, Py_ssize_t start, Py_ssize_t end, Py_ssize_t *colon) {
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (cp(parser, index) == ':') {
+            *colon = index;
+            if (name_equals(parser, start, index, "xml") || name_equals(parser, start, index, "xmlns")) {
+                return -1;
+            }
+            return find_prefix(parser, start, index - start);
         }
     }
-    return 0;
+    return -1;
+}
+
+/* Whether the local names [a, a+len) and [b, b+len) are equal code point for code point. */
+static int local_names_equal(const xml_parser *parser, Py_ssize_t a, Py_ssize_t b, Py_ssize_t len) {
+    for (Py_ssize_t offset = 0; offset < len; offset++) {
+        if (cp(parser, a + offset) != cp(parser, b + offset)) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static int consume_start_tag(xml_parser *parser) {
@@ -954,6 +1097,35 @@ static int consume_start_tag(xml_parser *parser) {
         }
         if (check_qname_prefix(parser, attr_start, attr_end) < 0) {
             return -1;
+        }
+    }
+    /* expanded-name uniqueness: no two attributes may share a local name and namespace URI,
+       even through different prefixes bound to the same URI (Namespaces in XML 1.0 5.3) */
+    for (Py_ssize_t index = 0; index < parser->attr_spans_len; index += 2) {
+        Py_ssize_t colon = 0;
+        Py_ssize_t decl = attr_ns_index(parser, parser->attr_spans[index], parser->attr_spans[index + 1], &colon);
+        if (decl < 0) {
+            continue;
+        }
+        Py_ssize_t local_start = colon + 1;
+        Py_ssize_t local_len = parser->attr_spans[index + 1] - local_start;
+        const xml_nsdecl *decl_ns = &parser->ns[decl];
+        for (Py_ssize_t other = 0; other < index; other += 2) {
+            Py_ssize_t other_colon = 0;
+            Py_ssize_t other_decl =
+                attr_ns_index(parser, parser->attr_spans[other], parser->attr_spans[other + 1], &other_colon);
+            if (other_decl < 0) {
+                continue;
+            }
+            Py_ssize_t other_local_len = parser->attr_spans[other + 1] - (other_colon + 1);
+            const xml_nsdecl *other_ns = &parser->ns[other_decl];
+            int same_uri = decl_ns->uri_len == other_ns->uri_len &&
+                           memcmp(decl_ns->uri, other_ns->uri, (size_t)decl_ns->uri_len * sizeof(Py_UCS4)) == 0;
+            if (same_uri && local_len == other_local_len &&
+                local_names_equal(parser, local_start, other_colon + 1, local_len)) {
+                record(parser, "xml-duplicate-attribute", parser->attr_spans[index]);
+                return -1;
+            }
         }
     }
     node_append(current(parser), element);

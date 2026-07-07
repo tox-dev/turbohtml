@@ -36,10 +36,13 @@ The two modes differ wherever the HTML tree builder makes an assumption XML does
 
 XML namespaces are a well-formedness concern here, not a rewrite. The parser tracks the ``xmlns:prefix`` declarations in
 scope on the open-element stack, pushes each element's declarations before validating it, and reports an undeclared
-prefix as an error; the reserved ``xml`` prefix is always in scope. What it does **not** do is resolve a prefix to a
-URI. ``lxml`` stores a namespaced tag in Clark notation (``{urn:h}a``) and exposes an ``nsmap``; turbohtml keeps the
-qualified name exactly as written (``h:a``) and leaves every ``xmlns``/``xmlns:prefix`` declaration as an ordinary
-attribute on the element.
+prefix as an error; the reserved ``xml`` prefix is always in scope. It enforces the Namespaces in XML 1.0 constraints in
+full: the ``xml`` prefix binds only to its own namespace and no other prefix may take that URI, the ``xmlns`` prefix is
+never declarable, a prefix declaration is never empty (``xmlns:=``), a processing-instruction target is an NCName and
+carries no colon, and two attributes may not resolve to one expanded name -- the same local name reached through two
+prefixes bound to a single URI is a duplicate. What it does **not** do is resolve a prefix to a URI. ``lxml`` stores a
+namespaced tag in Clark notation (``{urn:h}a``) and exposes an ``nsmap``; turbohtml keeps the qualified name exactly as
+written (``h:a``) and leaves every ``xmlns``/``xmlns:prefix`` declaration as an ordinary attribute on the element.
 
 This is a deliberate fit to turbohtml's node model, whose element namespace is the fixed HTML/SVG/MathML enumeration the
 HTML parser needs, not an open set of URIs. Keeping qualified names verbatim means an XML document round-trips through

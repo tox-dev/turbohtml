@@ -86,4 +86,5 @@ pipeline can report exactly what and where:
     xml-mismatched-tag 1 8
 
 The same exception surfaces an unclosed tag, an undeclared namespace prefix, an undefined entity, a duplicate attribute,
-or content outside the root element.
+content outside the root element, or a Namespaces in XML 1.0 violation -- rebinding the reserved ``xml`` or ``xmlns``
+prefix, a colon in a processing-instruction target, or two attributes that resolve to the same expanded name.

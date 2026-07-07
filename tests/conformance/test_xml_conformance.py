@@ -68,22 +68,10 @@ _ENCODING = (
     "parse_xml takes already-decoded text; byte-level encoding errors and declared-versus-actual encoding "
     "mismatches belong to the decoding layer, not to well-formedness"
 )
-_NAME_CHAR = (
-    "parse_xml approximates the Name productions as ':', '_', a letter or any code point >= U+0080; a few "
-    "combining/punctuation code points the spec excludes from a name start are accepted"
-)
 _NS_COLON = (
-    "parse_xml is namespace-aware, so a ':' is the prefix separator; a colon used as an ordinary XML 1.0 Name "
-    "character reads as an undeclared prefix"
-)
-_NS_XMLNS_EMPTY = "parse_xml leniently accepts an empty namespace-prefix declaration (xmlns:=...)"
-_NS_CONSTRAINTS = (
-    "parse_xml checks that a prefix is declared but does not enforce the reserved-prefix / reserved-namespace "
-    "binding rules or expanded-name attribute uniqueness from Namespaces in XML"
-)
-_NS_PI = (
-    "parse_xml allows a ':' in a processing-instruction target; the Namespaces NCName constraint on PI targets "
-    "is not enforced"
+    "parse_xml is namespace-aware, so a ':' is the prefix separator, not an ordinary XML 1.0 Name character; a "
+    "name that uses it as one reads as an undeclared prefix, and a processing-instruction target that does reads "
+    "as a non-NCName -- both rejected where plain XML 1.0 accepts them"
 )
 _NS_11 = "namespace prefix undeclaration is a Namespaces 1.1 feature; parse_xml targets XML 1.0"
 
@@ -94,23 +82,14 @@ _DEVIATIONS = {
     "rmt-e2e-61": _ENCODING,
     "hst-lhs-007": _ENCODING,
     "hst-lhs-008": _ENCODING,
-    "o-p05fail4": _NAME_CHAR,
-    "o-p05fail5": _NAME_CHAR,
     "o-p04pass1": _NS_COLON,
     "o-p05pass1": _NS_COLON,
     "x-ibm-1-0.5-valid-P04-ibm04v01.xml": _NS_COLON,
     "x-ibm-1-0.5-valid-P05-ibm05v01.xml": _NS_COLON,
+    "x-ibm-1-0.5-valid-P05-ibm05v02.xml": _NS_COLON,
     "x-ibm-1-0.5-valid-P05-ibm05v03.xml": _NS_COLON,
     "valid-sa-012": "the namespace declaration is supplied by a DTD ATTLIST default, which parse_xml does not apply",
-    "rmt-ns10-016": _NS_XMLNS_EMPTY,
     "rmt-ns10-023": _NS_11,
-    "rmt-ns10-029": _NS_CONSTRAINTS,
-    "rmt-ns10-030": _NS_CONSTRAINTS,
-    "rmt-ns10-031": _NS_CONSTRAINTS,
-    "rmt-ns10-032": _NS_CONSTRAINTS,
-    "rmt-ns10-033": _NS_CONSTRAINTS,
-    "rmt-ns10-036": _NS_CONSTRAINTS,
-    "rmt-ns10-042": _NS_PI,
 }
 
 

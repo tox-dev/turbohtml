@@ -2,7 +2,10 @@
 returning the same navigable :class:`~turbohtml.Document`. Names stay case-sensitive, ``<x/>`` self-closes any element,
 CDATA sections and processing instructions become :class:`~turbohtml.CData` and
 :class:`~turbohtml.ProcessingInstruction` nodes, only the five predefined entities and numeric references resolve, and a
-namespace prefix must be declared with ``xmlns``. There is no HTML recovery: the first well-formedness violation -- a
-mismatched or unclosed tag, an undeclared prefix, an undefined entity, a duplicate attribute -- raises
-:exc:`~turbohtml.HTMLParseError`. This is the equivalent of ``lxml.etree.fromstring`` / ``etree.XMLParser`` over
-turbohtml's dependency-free, fully typed node API.
+namespace prefix must be declared with ``xmlns``. Names follow the exact XML 1.0 ``NameStartChar`` /``NameChar``
+productions, and the Namespaces in XML 1.0 well-formedness constraints hold in full: the reserved ``xml`` and ``xmlns``
+prefixes and their namespace names cannot be rebound, a prefix declaration cannot be empty, a processing-instruction
+target carries no colon, and no two attributes share an expanded name. There is no HTML recovery: the first
+well-formedness violation -- a mismatched or unclosed tag, an undeclared prefix, an undefined entity, a duplicate
+attribute -- raises :exc:`~turbohtml.HTMLParseError`. This is the equivalent of ``lxml.etree.fromstring`` /
+``etree.XMLParser`` over turbohtml's dependency-free, fully typed node API.

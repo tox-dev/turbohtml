@@ -382,6 +382,27 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<a:r/>", "xml-undeclared-namespace", id="undeclared-element-prefix"),
         pytest.param('<r xmlns:pp="u" p:x="1"/>', "xml-undeclared-namespace", id="undeclared-attr-prefix-len"),
         pytest.param('<r xmlns:px="u" py:x="1"/>', "xml-undeclared-namespace", id="undeclared-attr-prefix-char"),
+        pytest.param("<̀a/>", "xml-invalid-name", id="combining-mark-name-start"),
+        pytest.param("<·a/>", "xml-invalid-name", id="middle-dot-name-start"),
+        pytest.param('<r xmlns:="u"/>', "xml-invalid-namespace-decl", id="empty-prefix-declaration"),
+        pytest.param('<r xmlns:xml="urn:x"/>', "xml-reserved-prefix", id="xml-prefix-rebound"),
+        pytest.param(
+            '<r xmlns:xmlns="http://www.w3.org/2000/xmlns/"/>', "xml-reserved-prefix", id="xmlns-prefix-declared"
+        ),
+        pytest.param(
+            '<r xmlns:p="http://www.w3.org/XML/1998/namespace"/>', "xml-reserved-namespace", id="xml-uri-other-prefix"
+        ),
+        pytest.param('<r xmlns:p="http://www.w3.org/2000/xmlns/"/>', "xml-reserved-namespace", id="xmlns-uri-bound"),
+        pytest.param(
+            '<r xmlns="http://www.w3.org/XML/1998/namespace"/>', "xml-reserved-namespace", id="xml-uri-as-default"
+        ),
+        pytest.param('<r xmlns="http://www.w3.org/2000/xmlns/"/>', "xml-reserved-namespace", id="xmlns-uri-as-default"),
+        pytest.param(
+            '<r xmlns:a="u" xmlns:b="u"><q a:k="1" b:k="2"/></r>',
+            "xml-duplicate-attribute",
+            id="expanded-name-collision",
+        ),
+        pytest.param("<?a:b d?><r/>", "xml-invalid-pi-target", id="colon-in-pi-target"),
     ],
 )
 def test_well_formedness_error(markup: str, code: str) -> None:
@@ -399,8 +420,32 @@ def test_error_carries_line_and_column() -> None:
     assert error.col == 2
 
 
-def test_lenient_empty_namespace_prefix_declaration() -> None:
-    assert dict(root_of(parse_xml('<r xmlns:="u"/>')).attrs) == {"xmlns:": "u"}
+def test_combining_mark_is_a_name_char_but_not_a_name_start() -> None:
+    tag = "a\u00e9\u0300"  # a start letter, a non-ASCII NameStartChar, then a combining grave (NameChar only)
+    assert root_of(parse_xml(f"<{tag}/>")).tag == tag
+
+
+def test_xml_prefix_may_bind_its_own_namespace() -> None:
+    doc = parse_xml('<r xmlns:xml="http://www.w3.org/XML/1998/namespace" xml:lang="en"/>')
+    assert dict(root_of(doc).attrs)["xml:lang"] == "en"
+
+
+def test_default_declaration_of_a_plain_2000_length_uri_parses() -> None:
+    doc = parse_xml('<r xmlns="http://www.w3.org/2000/abcde/"/>')  # same length as the reserved xmlns name, not it
+    assert dict(root_of(doc).attrs) == {"xmlns": "http://www.w3.org/2000/abcde/"}
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<r xmlns:a="urn:a" xmlns:b="urn:b" a:k="1" b:k="2"/>', id="same-local-different-uri"),
+        pytest.param('<r xmlns:a="u" xmlns:b="vv" a:k="1" b:k="2"/>', id="same-local-different-uri-length"),
+        pytest.param('<r xmlns:a="urn:a" a:k="1" a:m="2"/>', id="same-uri-different-local"),
+        pytest.param('<r xmlns:a="urn:a" a:k="1" a:kk="2"/>', id="same-uri-different-local-length"),
+    ],
+)
+def test_attributes_with_distinct_expanded_names_are_allowed(markup: str) -> None:
+    parse_xml(markup)  # a shared prefix, URI, or local name alone is not a collision
 
 
 def test_non_str_raises_type_error() -> None:
