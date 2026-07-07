@@ -503,6 +503,15 @@ records, and :meth:`turbohtml.Document.structured_data` collects JSON-LD, Microd
       - .. image:: https://static.pepy.tech/badge/htmldate
             :alt: htmldate total downloads
             :target: https://pepy.tech/project/htmldate
+    - - 17
+      - :doc:`feedparser <feedparser>`
+      - `docs <https://feedparser.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/feedparser/month
+            :alt: feedparser monthly downloads
+            :target: https://pepy.tech/project/feedparser
+      - .. image:: https://static.pepy.tech/badge/feedparser
+            :alt: feedparser total downloads
+            :target: https://pepy.tech/project/feedparser
 
 *******
  Build
@@ -712,6 +721,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     news-please
     opengraph
     htmldate
+    feedparser
     dominate
     yattag
     htbuilder

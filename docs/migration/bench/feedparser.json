@@ -1,0 +1,15 @@
+{
+  "label": "RSS/Atom feed parsing",
+  "parties": [
+    "turbohtml",
+    "feedparser"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "rss 30 items",
+      0.0002571031932408611,
+      0.00321349540958181
+    ]
+  ]
+}

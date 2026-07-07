@@ -1,0 +1,5 @@
+:func:`turbohtml.extract.feed` normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one frozen, typed
+:class:`~turbohtml.extract.Feed` of :class:`~turbohtml.extract.Entry` records, the ``feedparser.parse`` entry point over
+:meth:`turbohtml.Document.feed`. It detects the format from the root element and maps each dialect's spelling of a
+field -- the entry ``title``, ``link``, ``id``, ``updated``/``published``, ``summary``/``content``, and ``author`` --
+onto one shape in a single C walk of the parsed tree, over 12x faster than feedparser on a 30-item feed.

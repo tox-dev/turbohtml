@@ -242,6 +242,11 @@ def microdata(text: str) -> None:
     turbohtml.parse(text).microdata()
 
 
+def syndication(text: str) -> None:
+    """Normalize an RSS/Atom feed into a Feed of Entry records with turbohtml (parse plus one C walk)."""
+    turbohtml.parse(text).feed()
+
+
 def sanitize(text: str) -> None:
     """Sanitize with turbohtml's relaxed policy, reusing a prebuilt sanitizer."""
     _SANITIZER.sanitize(text)
@@ -536,6 +541,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "socialcard": (socialcard, "turbohtml"),
     "structured": (structured, "turbohtml"),
     "microdata": (microdata, "turbohtml"),
+    "syndication": (syndication, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),

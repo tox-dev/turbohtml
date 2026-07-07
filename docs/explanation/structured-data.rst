@@ -53,3 +53,25 @@ nested item, else the ``resource``/``href``/``src`` IRI, else a ``<time>`` ``dat
 not expand CURIEs embedded in arbitrary IRIs or surface the ``datatype`` type IRI, so typed literals come back as their
 lexical string. Dublin Core is a flat mapping like OpenGraph: the ``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased
 so ``DC.Title`` and ``dc.title`` key alike, last occurrence winning. Microformats2 remains a later phase.
+
+*******************
+ Syndication feeds
+*******************
+
+:func:`turbohtml.extract.feed` answers the sibling question ``feedparser`` exists for: an RSS 2.0, Atom 1.0, or
+RDF/RSS-1.0 document normalized into one :class:`~turbohtml.extract.Feed` of :class:`~turbohtml.extract.Entry` records,
+so calling code never branches on the format. The format is detected from the root element (``<feed>``, ``<rss>``,
+``<rdf:RDF>``), and each normalized field is the first present value across that format's spellings: a link is an Atom
+``<link rel="alternate">`` href, an RSS/RDF ``<link>`` URL, or a permalink ``<guid>``; an id is a ``<guid>``, an Atom
+``<id>``, or an RDF ``rdf:about``; content prefers ``<content:encoded>`` and Atom ``<content>`` over the ``<summary>``
+/``<description>`` a ``summary`` reads; an author is an Atom ``<author><name>``, an RSS ``<author>``, or a
+``<dc:creator>``. Timestamps come back verbatim -- feedparser's date-format zoo is out of scope. The precedence rules
+are feedparser's, kept to the minimal, typed shape ``htmlparser2``'s ``parseFeed`` models.
+
+A feed is XML, but turbohtml parses it with the HTML tree builder rather than a second parser, because RSS and Atom
+element names are lowercase ASCII the builder keeps verbatim (namespaced names like ``dc:creator`` included). Two HTML
+rules are worked with rather than around: ``<link>`` is void, so an RSS ``<link>URL</link>`` leaves the URL as the void
+element's next text sibling (Atom's ``<link href=...>`` keeps it in the attribute, which survives), and ``<title>`` is
+RCDATA, which is the plain-text value a feed title wants. The walk runs in C under the per-tree critical section and
+hands the gathered fields to the frozen :class:`~turbohtml.extract.Feed`/:class:`~turbohtml.extract.Entry` records, so,
+like the structured-data records, they hold no reference back into the tree.

@@ -469,6 +469,13 @@ PyDoc_STRVAR(dublin_core_doc, "dublin_core()\n--\n\n"
                               "Return a dict mapping each <meta name=\"dc.*\"> or <meta name=\"dcterms.*\"> name\n"
                               "(lower-cased) to its content value. When a name repeats, the last occurrence wins.");
 
+PyDoc_STRVAR(feed_doc, "feed()\n--\n\n"
+                       "Normalize an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record, or\n"
+                       "None when the document carries no feed root. Feed has .type (\"rss\", \"atom\", or\n"
+                       "\"rdf\"), .title, .link, .description, .updated, and .entries (a tuple of Entry). Each\n"
+                       "Entry has .title, .link, .id, .updated, .published, .summary, .content, and .author,\n"
+                       "each the first present value across the RSS/Atom/RDF spellings of the field.");
+
 static PyMethodDef document_methods[] = {
     {"base_url", (PyCFunction)(void (*)(void))document_base_url, METH_VARARGS | METH_KEYWORDS, base_url_doc},
     {"meta_refresh", (PyCFunction)(void (*)(void))document_meta_refresh, METH_VARARGS | METH_KEYWORDS,
@@ -482,6 +489,7 @@ static PyMethodDef document_methods[] = {
      microdata_doc},
     {"rdfa", (PyCFunction)(void (*)(void))turbohtml_document_rdfa, METH_VARARGS | METH_KEYWORDS, rdfa_doc},
     {"dublin_core", turbohtml_document_dublin_core, METH_NOARGS, dublin_core_doc},
+    {"feed", turbohtml_document_feed, METH_NOARGS, feed_doc},
     {NULL, NULL, 0, NULL},
 };
 

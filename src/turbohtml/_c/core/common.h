@@ -155,6 +155,13 @@ PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwar
 PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *unused);
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args);
 
+/* Implemented in features/feed.c, the engine behind Document.feed() (wired into the document method table in
+   dom/document.c). Normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record in a pure-C tree walk
+   under the per-tree critical section, handing the gathered fields to the Feed / Entry NamedTuple classes the facade
+   defines. _register_feed (METH_VARARGS) stores those two classes. */
+PyObject *turbohtml_document_feed(PyObject *self, PyObject *unused);
+PyObject *turbohtml_register_feed(PyObject *module, PyObject *args);
+
 /* Implemented in dom/document.c, the URL-resolution routine base_url() runs, shared with the extraction methods so
    their base_url reuses it rather than reinventing RFC 3986 resolution. th_url_resolve joins a (possibly relative)
    target onto a base and percent-encodes the result; th_document_base_url resolves the document's <base href> against a

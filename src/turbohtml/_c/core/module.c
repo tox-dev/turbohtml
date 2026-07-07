@@ -132,6 +132,7 @@ static PyMethodDef html_methods[] = {
     {"_register_links", turbohtml_register_links, METH_O, NULL},
     {"_register_selector_error", turbohtml_register_selector_error, METH_O, NULL},
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
+    {"_register_feed", turbohtml_register_feed, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},
     {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
     {"_register_css_minify", turbohtml_register_css_minify, METH_O, NULL},
@@ -230,6 +231,8 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->rdfa_item_type);        /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->structured_data_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->opengraph_type);        /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->feed_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->entry_type);            /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->article_type);          /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->js_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->css_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
@@ -291,6 +294,8 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->rdfa_item_type);
     Py_CLEAR(state->structured_data_type);
     Py_CLEAR(state->opengraph_type);
+    Py_CLEAR(state->feed_type);
+    Py_CLEAR(state->entry_type);
     Py_CLEAR(state->article_type);
     Py_CLEAR(state->js_minify_type);
     Py_CLEAR(state->css_minify_type);

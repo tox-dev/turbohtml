@@ -106,6 +106,7 @@ bench = [
   "extruct>=0.18",
   "fast-html>=1.0.12",
   "faust-cchardet>=2.1.19",
+  "feedparser>=6",
   "goose3>=3.1.19",
   "htbuilder>=0.9",
   "html-sanitizer>=2.6",

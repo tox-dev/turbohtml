@@ -57,3 +57,13 @@ The URL helpers are successors to ``courlan`` and the ``w3lib.url`` canonicaliza
 
 .. autoclass:: OpenGraph
     :members: is_valid
+
+:func:`feed` normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one :class:`Feed` of :class:`Entry` records,
+the ``feedparser.parse`` call shape (:doc:`feedparser guide </migration/feedparser>`). It detects the format from the
+root element and maps each format's spelling of a field onto one shape.
+
+.. autofunction:: feed
+
+.. autoclass:: Feed
+
+.. autoclass:: Entry

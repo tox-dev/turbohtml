@@ -65,6 +65,8 @@ typedef struct {
     PyObject *rdfa_item_type;        /* turbohtml._structured_data.RdfaItem, one RDFa resource record */
     PyObject *structured_data_type;  /* turbohtml._structured_data.StructuredData, the combined-format record */
     PyObject *opengraph_type;        /* turbohtml._structured_data.OpenGraph, the record Document.opengraph() yields */
+    PyObject *feed_type;             /* turbohtml._feed.Feed, the record Document.feed() yields */
+    PyObject *entry_type;            /* turbohtml._feed.Entry, one feed item/entry record */
     PyObject *article_type;          /* turbohtml._article.Article, the record Node.article() yields */
     PyObject *js_minify_type;        /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
     PyObject *css_minify_type;       /* turbohtml._cssmin.CSSMinify, the Minify(minify_css=...) style-pass config */

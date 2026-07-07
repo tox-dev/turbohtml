@@ -9,6 +9,7 @@ from . import (
     _jsminify,  # noqa: F401  # registers the JSMinify record type with the C core on import
 )
 from ._article import Article  # registers the Article record type with the C core on import
+from ._feed import Entry, Feed  # registers the Feed/Entry record types with the C core on import
 from ._html import (
     Axis,
     CData,
@@ -63,6 +64,8 @@ __all__ = [
     "E",
     "Element",
     "ElementMaker",
+    "Entry",
+    "Feed",
     "Formatter",
     "HTMLParseError",
     "Html",

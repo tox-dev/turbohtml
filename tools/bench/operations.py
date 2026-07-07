@@ -54,6 +54,30 @@ _STRUCTURED_PAGE = dedent("""\
       </div>
     </body>""")
 
+_FEED_ITEM = dedent("""\
+    <item>
+      <title>Release {index}: what changed</title>
+      <link>https://blog.example/posts/{index}</link>
+      <guid isPermaLink="false">tag:blog.example,2026:{index}</guid>
+      <pubDate>Tue, 07 Jul 2026 09:00:00 GMT</pubDate>
+      <dc:creator>A. Writer</dc:creator>
+      <description>Short summary of release {index}.</description>
+      <content:encoded>&lt;p&gt;The full body of release {index}, with details.&lt;/p&gt;</content:encoded>
+    </item>
+""")
+
+_FEED_XML = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"'
+    ' xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n'
+    "<title>Example Engineering Blog</title>\n"
+    "<link>https://blog.example/</link>\n"
+    "<description>Notes from the Example engineering team.</description>\n"
+    "<lastBuildDate>Tue, 07 Jul 2026 09:00:00 GMT</lastBuildDate>\n"
+    + "".join(_FEED_ITEM.format(index=index) for index in range(30))
+    + "</channel></rss>"
+)
+
 _SANITIZE_TEMPLATES = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
@@ -119,6 +143,7 @@ OPERATIONS: dict[str, Operation] = {
     "socialcard": Operation("social-card extraction", "us"),
     "structured": Operation("structured-data extraction", "us"),
     "microdata": Operation("Microdata item extraction", "us"),
+    "syndication": Operation("RSS/Atom feed parsing", "us"),
     "sanitize": Operation("sanitize", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
@@ -397,6 +422,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     ),
     "structured": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
     "microdata": lambda: (("product", _STRUCTURED_PAGE), ("catalog 8 KiB", _STRUCTURED_PAGE * 12)),
+    "syndication": lambda: (("rss 30 items", _FEED_XML),),
     "sanitize": lambda: (
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),

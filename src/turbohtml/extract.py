@@ -24,6 +24,9 @@ by a frozen :class:`UrlCleaning`, replace ``courlan`` and the ``w3lib.url`` cano
 :func:`dates` recovers a page's publication or modification date from its ``<meta>`` tags, JSON-LD, ``<time>``
 elements, and URL, the standalone entry point ``htmldate`` exposes; a frozen :class:`DateExtraction` carries its
 knobs and it returns a :class:`PublicationDate` naming the signal the date came from.
+
+:func:`feed` normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one :class:`Feed` of :class:`Entry`
+records, the ``feedparser.parse`` entry point over :meth:`turbohtml.Document.feed`.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from typing import Final, NamedTuple
 
 from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates
+from ._feed import Entry, Feed
 from ._html import Element, parse
 from ._links import Link
 from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
@@ -41,7 +45,9 @@ from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 __all__ = [
     "Article",
     "DateExtraction",
+    "Entry",
     "Extraction",
+    "Feed",
     "Link",
     "MicrodataItem",
     "OpenGraph",
@@ -54,6 +60,7 @@ __all__ = [
     "clean_url",
     "dates",
     "extract_links",
+    "feed",
     "microdata",
     "normalize_url",
     "opengraph",
@@ -151,6 +158,23 @@ def opengraph(html: str, base_url: str | None = None, /) -> OpenGraph:
     :raises ValueError: if ``base_url`` is given and is not a valid absolute URL.
     """
     return parse(html).opengraph(base_url)
+
+
+def feed(xml: str, /) -> Feed | None:
+    """
+    Parse an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into a :class:`Feed`, the ``feedparser.parse`` successor.
+
+    Detects the format from the root element and maps each format's spelling of a field onto one shape: the feed's
+    :attr:`~Feed.title`/:attr:`~Feed.link`/:attr:`~Feed.description`/:attr:`~Feed.updated` and its
+    :attr:`~Feed.entries`, each :class:`Entry` carrying :attr:`~Entry.title`, :attr:`~Entry.link`, :attr:`~Entry.id`,
+    :attr:`~Entry.updated`/:attr:`~Entry.published`, :attr:`~Entry.summary`/:attr:`~Entry.content`, and
+    :attr:`~Entry.author`. Timestamps are returned verbatim, not parsed. Shorthand for
+    :meth:`turbohtml.Document.feed`.
+
+    :param xml: the feed document.
+    :returns: the parsed :class:`Feed`, or ``None`` when ``xml`` has no ``<rss>``, ``<feed>``, or ``<rdf:RDF>`` root.
+    """
+    return parse(xml).feed()
 
 
 def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragraph]:

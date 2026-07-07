@@ -102,6 +102,9 @@ from ._stubs.features import (
     _register_article as _register_article,
 )
 from ._stubs.features import (
+    _register_feed as _register_feed,
+)
+from ._stubs.features import (
     _register_links as _register_links,
 )
 from ._stubs.features import (
