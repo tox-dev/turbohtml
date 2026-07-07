@@ -207,14 +207,15 @@ static PyObject *sax_iter_next(PyObject *self) {
 }
 
 static int sax_traverse(PyObject *self, visitproc visit, void *arg) {
-    Py_VISIT(Py_TYPE(self)); /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
-    Py_VISIT(((SaxEventsObject *)self)->source); /* GCOVR_EXCL_BR_LINE: set at creation, dropped only in dealloc */
+    SaxEventsObject *iterator = (SaxEventsObject *)self;
+    Py_VISIT(Py_TYPE(self));    /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
+    Py_VISIT(iterator->source); /* GCOVR_EXCL_BR_LINE: set at creation, dropped only in dealloc */
     return 0;
 }
 
 static int sax_clear(PyObject *self) {
-    Py_CLEAR(
-        ((SaxEventsObject *)self)->source); /* GCOVR_EXCL_BR_LINE: the source is non-NULL until this single clear */
+    SaxEventsObject *iterator = (SaxEventsObject *)self;
+    Py_CLEAR(iterator->source); /* GCOVR_EXCL_BR_LINE: the source is non-NULL until this single clear */
     return 0;
 }
 
