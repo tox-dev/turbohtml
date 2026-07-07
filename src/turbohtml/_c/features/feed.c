@@ -75,8 +75,8 @@ static PyObject *ucs4_trimmed(const Py_UCS4 *value, Py_ssize_t len) {
     return ucs4_to_str(value + start, end - start);
 }
 
-/* The whitespace-trimmed text content of an element as a new str (empty when it holds only whitespace). NULL only on the
-   excluded allocation-failure path. */
+/* The whitespace-trimmed text content of an element as a new str (empty when it holds only whitespace). NULL only on
+   the excluded allocation-failure path. */
 static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *buffer = th_node_text(tree, node, &len);
@@ -88,9 +88,9 @@ static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
     return result;
 }
 
-/* The first non-empty trimmed text among `parent`'s direct children named by the precedence-ordered `tags`, or None when
-   none is present with a non-empty value (or when `parent` is NULL, a feed whose channel the parser dropped). NULL only
-   on the excluded allocation-failure path. */
+/* The first non-empty trimmed text among `parent`'s direct children named by the precedence-ordered `tags`, or None
+   when none is present with a non-empty value (or when `parent` is NULL, a feed whose channel the parser dropped). NULL
+   only on the excluded allocation-failure path. */
 static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags, size_t count) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
@@ -141,8 +141,8 @@ static int link_is_alternate(th_tree *tree, th_node *link) {
 }
 
 /* The permalink URL of `parent`: the first Atom <link rel="alternate"> href, else the first RSS/RDF void <link>'s text
-   sibling, else the first non-alternate Atom href as a fallback, else None. NULL only on the excluded allocation-failure
-   path. */
+   sibling, else the first non-alternate Atom href as a fallback, else None. NULL only on the excluded
+   allocation-failure path. */
 static PyObject *extract_link(th_tree *tree, th_node *parent) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
@@ -185,8 +185,8 @@ static PyObject *extract_link(th_tree *tree, th_node *parent) {
     return Py_NewRef(Py_None);
 }
 
-/* The author display name of `parent`: an <author>'s nested <name> (the Atom form), else the <author>'s own text (an RSS
-   email), else a <dc:creator>, else None. NULL only on the excluded allocation-failure path. */
+/* The author display name of `parent`: an <author>'s nested <name> (the Atom form), else the <author>'s own text (an
+   RSS email), else a <dc:creator>, else None. NULL only on the excluded allocation-failure path. */
 static PyObject *extract_author(th_tree *tree, th_node *parent) {
     static const feed_tag AUTHOR_TAGS[] = {{"author", 6}, {"dc:creator", 10}};
     for (size_t index = 0; index < sizeof(AUTHOR_TAGS) / sizeof(AUTHOR_TAGS[0]); index++) {
@@ -207,8 +207,8 @@ static PyObject *extract_author(th_tree *tree, th_node *parent) {
     return Py_NewRef(Py_None);
 }
 
-/* The entry identifier: an RSS <guid> / Atom <id> element text, else the RDF item's rdf:about attribute, else None. NULL
-   only on the excluded allocation-failure path. */
+/* The entry identifier: an RSS <guid> / Atom <id> element text, else the RDF item's rdf:about attribute, else None.
+   NULL only on the excluded allocation-failure path. */
 static PyObject *extract_id(th_tree *tree, th_node *entry) {
     static const feed_tag ID_TAGS[] = {{"guid", 4}, {"id", 2}};
     PyObject *value = field_text(tree, entry, ID_TAGS, sizeof(ID_TAGS) / sizeof(ID_TAGS[0]));
@@ -254,8 +254,8 @@ static int apply_guid_permalink(th_tree *tree, th_node *entry, PyObject **link) 
     return 0;
 }
 
-/* Steal `value` into slot `index` of `record`, returning -1 only on the excluded allocation-failure path (a NULL value a
-   field builder could not allocate). */
+/* Steal `value` into slot `index` of `record`, returning -1 only on the excluded allocation-failure path (a NULL value
+   a field builder could not allocate). */
 static int record_set(PyObject *record, Py_ssize_t index, PyObject *value) {
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: every field builder fails only on unforceable allocation */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -278,9 +278,9 @@ static PyObject *entry_link(th_tree *tree, th_node *item) {
     return link;
 }
 
-/* Build one Entry(title, link, id, updated, published, summary, content, author) from an RSS <item>, an Atom <entry>, or
-   an RDF item, each field the first present value in its precedence order. NULL only on the excluded allocation-failure
-   path. */
+/* Build one Entry(title, link, id, updated, published, summary, content, author) from an RSS <item>, an Atom <entry>,
+   or an RDF item, each field the first present value in its precedence order. NULL only on the excluded
+   allocation-failure path. */
 static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item) {
     static const feed_tag TITLE[] = {{"title", 5}};
     static const feed_tag UPDATED[] = {{"updated", 7}, {"lastbuilddate", 13}};
@@ -340,9 +340,9 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
 }
 
 /* Build the Feed(type, title, link, description, updated, entries) record rooted at `root`. RSS and RDF read their feed
-   metadata from the <channel> element (absent in a malformed feed, leaving the fields None); Atom reads it from the feed
-   root itself. RSS nests its <item>s in the channel, RDF makes them siblings of the channel, Atom nests its <entry>s in
-   the root. NULL only on the excluded allocation-failure path. */
+   metadata from the <channel> element (absent in a malformed feed, leaving the fields None); Atom reads it from the
+   feed root itself. RSS nests its <item>s in the channel, RDF makes them siblings of the channel, Atom nests its
+   <entry>s in the root. NULL only on the excluded allocation-failure path. */
 static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, const char *type) {
     static const feed_tag TITLE[] = {{"title", 5}};
     static const feed_tag DESCRIPTION[] = {{"description", 11}, {"subtitle", 8}, {"tagline", 7}};
@@ -395,8 +395,8 @@ static th_node *find_feed_root(th_node *document, const char **type_out) {
     return NULL;
 }
 
-/* Document.feed() -> Feed | None. Normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record, or None
-   when the document carries no feed root. */
+/* Document.feed() -> Feed | None. Normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record, or
+   None when the document carries no feed root. */
 PyObject *turbohtml_document_feed(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     th_tree *tree = tree_of(self);
     module_state *state = state_of(self);

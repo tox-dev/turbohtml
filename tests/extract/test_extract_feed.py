@@ -77,8 +77,16 @@ def test_feed_rss_shape() -> None:
     assert (result.title, result.link, result.description) == ("RSS Title", "http://example.com/", "RSS description")
     assert result.updated == "Mon, 06 Jul 2026 00:00:00 GMT"
     assert result.entries == (
-        Entry("Item One", "http://example.com/1", "urn:1", None, "Sun, 05 Jul 2026 00:00:00 GMT", "Item summary",
-              "<p>full body</p>", "writer@example.com"),
+        Entry(
+            "Item One",
+            "http://example.com/1",
+            "urn:1",
+            None,
+            "Sun, 05 Jul 2026 00:00:00 GMT",
+            "Item summary",
+            "<p>full body</p>",
+            "writer@example.com",
+        ),
         Entry("Item Two", "http://example.com/2", None, None, None, None, None, None),
     )
 
@@ -89,8 +97,16 @@ def test_feed_atom_shape() -> None:
     assert (result.title, result.link, result.description) == ("Atom Title", "http://example.com/", "Atom subtitle")
     assert result.updated == "2026-07-06T00:00:00Z"
     assert result.entries == (
-        Entry("Entry One", "http://example.com/e1", "urn:e1", "2026-07-06T01:00:00Z", "2026-07-05T01:00:00Z",
-              "Entry summary", "<p>body</p>", "Jane Roe"),
+        Entry(
+            "Entry One",
+            "http://example.com/e1",
+            "urn:e1",
+            "2026-07-06T01:00:00Z",
+            "2026-07-05T01:00:00Z",
+            "Entry summary",
+            "<p>body</p>",
+            "Jane Roe",
+        ),
     )
 
 
@@ -100,8 +116,16 @@ def test_feed_rdf_shape() -> None:
     assert (result.title, result.link, result.description) == ("RDF Title", "http://example.com/", "RDF description")
     assert result.updated == "2026-07-06"
     assert result.entries == (
-        Entry("RDF Item", "http://example.com/1", "http://example.com/1", None, "2026-07-06", "RDF item summary",
-              None, "Bob Loblaw"),
+        Entry(
+            "RDF Item",
+            "http://example.com/1",
+            "http://example.com/1",
+            None,
+            "2026-07-06",
+            "RDF item summary",
+            None,
+            "Bob Loblaw",
+        ),
     )
 
 
@@ -132,9 +156,11 @@ def test_feed_atom_self_link_only_falls_back() -> None:
 
 
 def test_feed_atom_two_secondary_links_no_alternate() -> None:
-    xml = ('<feed><title>t</title>'
-           '<link href="http://example.com/a" rel="self"/>'
-           '<link href="http://example.com/b" rel="edit"/></feed>')
+    xml = (
+        "<feed><title>t</title>"
+        '<link href="http://example.com/a" rel="self"/>'
+        '<link href="http://example.com/b" rel="edit"/></feed>'
+    )
     assert parse_feed(xml).link == "http://example.com/a"
 
 
@@ -172,7 +198,9 @@ def test_feed_link_is_last_child() -> None:
     ("guid_markup", "expected"),
     [
         pytest.param("<guid>http://example.com/g</guid>", "http://example.com/g", id="bare-guid-is-permalink"),
-        pytest.param('<guid isPermaLink="true">http://example.com/g</guid>', "http://example.com/g", id="permalink-true"),
+        pytest.param(
+            '<guid isPermaLink="true">http://example.com/g</guid>', "http://example.com/g", id="permalink-true"
+        ),
         pytest.param("<guid isPermaLink>http://example.com/g</guid>", "http://example.com/g", id="permalink-valueless"),
         pytest.param('<guid isPermaLink="false">urn:x</guid>', None, id="permalink-false-not-a-link"),
         pytest.param("<guid></guid>", None, id="empty-guid-not-a-link"),
@@ -184,15 +212,19 @@ def test_feed_guid_permalink_link_fallback(guid_markup: str, expected: str | Non
 
 
 def test_feed_explicit_link_beats_guid_permalink() -> None:
-    xml = ("<rss><channel><item><title>t</title>"
-           "<link>http://example.com/real</link>"
-           "<guid>http://example.com/g</guid></item></channel></rss>")
+    xml = (
+        "<rss><channel><item><title>t</title>"
+        "<link>http://example.com/real</link>"
+        "<guid>http://example.com/g</guid></item></channel></rss>"
+    )
     assert parse_feed(xml).entries[0].link == "http://example.com/real"
 
 
 def test_feed_empty_field_falls_through_to_next_source() -> None:
-    xml = ("<rss><channel><item><title>t</title>"
-           "<summary></summary><description>real summary</description></item></channel></rss>")
+    xml = (
+        "<rss><channel><item><title>t</title>"
+        "<summary></summary><description>real summary</description></item></channel></rss>"
+    )
     assert parse_feed(xml).entries[0].summary == "real summary"
 
 
@@ -200,13 +232,20 @@ def test_feed_missing_field_is_none() -> None:
     result = parse_feed("<rss><channel><item><title>only title</title></item></channel></rss>")
     entry = result.entries[0]
     assert (entry.summary, entry.content, entry.published, entry.updated, entry.author, entry.id) == (
-        None, None, None, None, None, None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
 
 
 def test_feed_author_empty_falls_back_to_dc_creator() -> None:
-    xml = ("<rss><channel><item><title>t</title>"
-           "<author></author><dc:creator>Fallback Author</dc:creator></item></channel></rss>")
+    xml = (
+        "<rss><channel><item><title>t</title>"
+        "<author></author><dc:creator>Fallback Author</dc:creator></item></channel></rss>"
+    )
     assert parse_feed(xml).entries[0].author == "Fallback Author"
 
 
@@ -226,8 +265,10 @@ def test_feed_entry_without_any_id_is_none() -> None:
 
 
 def test_feed_rdf_item_with_valueless_about_has_no_id() -> None:
-    xml = ('<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
-           "<item rdf:about><title>t</title></item></rdf:RDF>")
+    xml = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        "<item rdf:about><title>t</title></item></rdf:RDF>"
+    )
     assert parse_feed(xml).entries[0].id is None
 
 
