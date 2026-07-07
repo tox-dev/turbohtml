@@ -1,8 +1,0 @@
-Validating :mod:`turbohtml.transform` against libxslt's XSLT 1.0 Recommendation test corpus surfaced and fixed four
-conformance gaps. A literal result element now copies its in-scope stylesheet namespace declarations to the output
-(`section 7.1.1 <https://www.w3.org/TR/xslt-10/#literal-result-element>`_), de-duplicated against the ancestors already
-in scope and filtered by ``exclude-result-prefixes``, so a prefixed or default-namespaced result element is well-formed
-rather than losing its declaration. ``xsl:number`` honors the separators around a format token, so ``format="1. "``
-yields ``1. `` and ``format="(1)"`` yields ``(1)``, and a value that has no alphabetic or roman form (zero, negative, or
-a roman numeral past 4999) falls back to decimal instead of emitting nothing or an unbounded run. A processing
-instruction serializes with the ``?>`` terminator under the ``xml`` output method.
