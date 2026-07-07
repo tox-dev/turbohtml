@@ -748,3 +748,71 @@ def test_rewrite_handler_exception_frees_open_ancestors() -> None:
     # the enclosing <div> is open on the spine when the <p> handler raises
     with pytest.raises(ValueError, match="nested-boom"):
         rewrite("<div><p>x</p></div>", elements=[("p", boom)])
+
+
+def test_rewrite_remove_after_replace_drops_the_replacement() -> None:
+    def handler(element: Element) -> None:
+        element.replace("X", html=True)
+        element.remove()
+
+    assert rewrite("<p>a</p>b", elements=[("p", handler)]) == "b"
+
+
+def test_rewrite_set_content_after_append_replaces_it() -> None:
+    def handler(element: Element) -> None:
+        element.append("X", html=True)
+        element.set_content("Y", html=True)
+
+    assert rewrite("<p>a</p>", elements=[("p", handler)]) == "<p>Y</p>"
+
+
+def test_rewrite_set_empty_attribute_value() -> None:
+    def handler(element: Element) -> None:
+        element.set_attribute("data-x", "")
+
+    assert rewrite("<p>a</p>", elements=[("p", handler)]) == '<p data-x="">a</p>'
+
+
+def test_rewrite_matched_element_keeps_empty_source_attribute() -> None:
+    def handler(element: Element) -> None:
+        element.set_attribute("id", "z")
+
+    assert rewrite('<p class="">a</p>', elements=[("p", handler)]) == '<p class="" id="z">a</p>'
+
+
+def test_rewrite_remove_known_attribute() -> None:
+    def handler(element: Element) -> None:
+        element.remove_attribute("class")
+
+    assert rewrite('<p class="c" id=k>a</p>', elements=[("p", handler)]) == '<p id="k">a</p>'
+
+
+def test_rewrite_non_ascii_tag_name() -> None:
+    assert rewrite("<café>x</café>") == "<café>x</café>"
+
+
+def test_rewrite_void_element_inside_dropped_content() -> None:
+    def handler(element: Element) -> None:
+        element.set_content("Z")
+
+    # the <br> falls inside the <div> whose content the handler drops, so it is suppressed
+    assert rewrite("<div><br>x</div>", elements=[("div", handler)]) == "<div>Z</div>"
+
+
+def test_rewrite_overlong_attribute_name_is_truncated() -> None:
+    def handler(element: Element) -> None:
+        element.set_attribute("id", "k")
+
+    # a name past the 256-byte encode buffer exercises the truncation guard without a crash
+    html = f'<p data-{"z" * 300}="v">t</p>'
+    assert rewrite(html, elements=[("p", handler)]).endswith('id="k">t</p>')
+
+
+def test_rewrite_second_rule_skipped_after_first_raises() -> None:
+    def boom(_: Element) -> None:
+        msg = "two-rule-boom"
+        raise ValueError(msg)
+
+    # the <p> matches both rules; the first raising exits the match loop before the second runs
+    with pytest.raises(ValueError, match="two-rule-boom"):
+        rewrite("<p class=x>t</p>", elements=[("p", boom), (".x", boom)])

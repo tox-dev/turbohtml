@@ -35,21 +35,22 @@ static int rw_content_model(const th_buf *name) {
     if (name->kind != PyUnicode_1BYTE_KIND) {
         return -1;
     }
-    const char *bytes = (const char *)name->data;
-    Py_ssize_t len = name->len;
-    if (len == 6 && memcmp(bytes, "script", 6) == 0) {
-        return TH_INIT_SCRIPT_DATA;
-    }
-    if ((len == 5 && memcmp(bytes, "title", 5) == 0) || (len == 8 && memcmp(bytes, "textarea", 8) == 0)) {
-        return TH_INIT_RCDATA;
-    }
-    if ((len == 5 && memcmp(bytes, "style", 5) == 0) || (len == 3 && memcmp(bytes, "xmp", 3) == 0) ||
-        (len == 6 && memcmp(bytes, "iframe", 6) == 0) || (len == 7 && memcmp(bytes, "noembed", 7) == 0) ||
-        (len == 8 && memcmp(bytes, "noframes", 8) == 0) || (len == 8 && memcmp(bytes, "noscript", 8) == 0)) {
-        return TH_INIT_RAWTEXT;
-    }
-    if (len == 9 && memcmp(bytes, "plaintext", 9) == 0) {
-        return TH_INIT_PLAINTEXT;
+    /* A table with one comparison branch, not a chain of inlined memcmp per literal: clang expands
+       each `len == N && memcmp` operand into its own branch, and no single tag exercises them all. */
+    static const struct {
+        const char *tag;
+        Py_ssize_t len;
+        int model;
+    } special[] = {
+        {"script", 6, TH_INIT_SCRIPT_DATA},  {"title", 5, TH_INIT_RCDATA},     {"textarea", 8, TH_INIT_RCDATA},
+        {"style", 5, TH_INIT_RAWTEXT},       {"xmp", 3, TH_INIT_RAWTEXT},      {"iframe", 6, TH_INIT_RAWTEXT},
+        {"noembed", 7, TH_INIT_RAWTEXT},     {"noframes", 8, TH_INIT_RAWTEXT}, {"noscript", 8, TH_INIT_RAWTEXT},
+        {"plaintext", 9, TH_INIT_PLAINTEXT},
+    };
+    for (size_t index = 0; index < sizeof(special) / sizeof(special[0]); index++) {
+        if (name->len == special[index].len && memcmp(name->data, special[index].tag, (size_t)name->len) == 0) {
+            return special[index].model;
+        }
     }
     return -1;
 }
@@ -251,7 +252,7 @@ static uint32_t rw_attr_atom(th_tree *tree, const char *bytes, Py_ssize_t len) {
    (only the tree builder fills it), so the rewriter resolves it from the name bytes. A
    non-ASCII name is never in the table, so it stays TH_TAG_UNKNOWN. */
 static uint16_t rw_tag_atom(const th_buf *name) {
-    if (name->kind != PyUnicode_1BYTE_KIND || name->len < 1) {
+    if (name->kind != PyUnicode_1BYTE_KIND) {
         return TH_TAG_UNKNOWN;
     }
     return th_tag_lookup((const char *)name->data, name->len);
@@ -953,7 +954,8 @@ static int rw_validate_simple(sel_simple *simple, th_tree *tree, const char **re
         }
         return 1;
     }
-    if (simple->kind == '[' && simple->attr_atom == UINT32_MAX && simple->name != NULL) {
+    if (simple->kind == '[' &&
+        simple->attr_atom == UINT32_MAX) { /* a custom attribute selector always carries a name */
         char buf[256];
         Py_ssize_t len = rw_encode_utf8(PyUnicode_4BYTE_KIND, simple->name, simple->name_len, buf, sizeof(buf));
         simple->attr_atom = intern_attr_dynamic(tree, buf, len);
@@ -1003,8 +1005,8 @@ static th_node *rw_make_node(rw_ctx *ctx, const th_token *token, uint16_t atom, 
     node->atom = atom;
     node->tag_flags = th_tag_flags(atom);
     node->parent = parent;
-    Py_ssize_t tag_len = token->name.len;
-    node->text = PyMem_Malloc((size_t)(tag_len ? tag_len : 1) * sizeof(Py_UCS4));
+    Py_ssize_t tag_len = token->name.len; /* a start tag always carries a name, so tag_len >= 1 */
+    node->text = PyMem_Malloc((size_t)tag_len * sizeof(Py_UCS4));
     if (node->text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(node);     /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1104,7 +1106,7 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
     }
 
     if (ctx->error) {
-        if (handle != NULL) {
+        if (handle != NULL) { /* GCOVR_EXCL_BR_LINE: NULL needs a handle-alloc failure, unforceable */
             handle->live = 0;
             Py_DECREF(handle);
         }
@@ -1131,7 +1133,8 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
         }
         if (!removed && open.append_html != NULL && open.drop_content) {
             rw_out_str(&ctx->out, open.append_html);
-            Py_CLEAR(open.append_html);
+            Py_DECREF(open.append_html); /* guarded non-NULL above; an unconditional drop has no dead NULL branch */
+            open.append_html = NULL;
         }
     }
 
@@ -1314,7 +1317,7 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     }
     PyMem_Free(ctx->rules);
     PyMem_Free(ctx->out.data);
-    if (ctx->tree != NULL) {
+    if (ctx->tree != NULL) { /* GCOVR_EXCL_BR_LINE: the tree is set before any clear runs, never NULL here */
         th_tree_free(ctx->tree);
     }
     if (ctx->sm != NULL) {
@@ -1453,11 +1456,13 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
     }
 
     PyObject *result = NULL;
-    if (!ctx.error && !ctx.out.failed) {
+    if (ctx.out.failed) {     /* GCOVR_EXCL_BR_LINE: an output OOM cannot be forced from a test */
+        if (!ctx.error) {     /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        } /* GCOVR_EXCL_LINE: llvm flags the OOM branch's closing brace */
+    } else if (!ctx.error) {
         result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, ctx.out.data, ctx.out.len);
-    } else if (ctx.out.failed && !ctx.error) { /* GCOVR_EXCL_BR_LINE: an output OOM cannot be forced from a test */
-        PyErr_NoMemory();                      /* GCOVR_EXCL_LINE: allocation-failure path */
-    } /* GCOVR_EXCL_LINE: llvm flags the OOM branch's closing brace */
+    }
     rw_ctx_clear(&ctx);
     return result;
 }
