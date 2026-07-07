@@ -36,6 +36,8 @@ typedef struct {
     int allow_relative;
     int on_disallowed;
     int strip_comments;
+    int strip_templates; /* SAFE_FOR_TEMPLATES: collapse {{ }}, ${ }, <% %> runs so kept text/attrs stay template-safe
+                          */
 } sanitizer;
 
 /* Elements removed regardless of the allowlist: scripting, plugin, and raw-text containers. (frame and frameset need
@@ -837,6 +839,74 @@ static int sanitize_style_body(sanitizer *s, th_node *element) {
     return status;
 }
 
+/* SAFE_FOR_TEMPLATES. A template engine (Angular, Vue, Mustache, EJS, ERB) evaluates {{ }}, ${ }, and <% %> in the
+   strings it later renders, so a sanitized value that still carries one can re-inject once the output is fed through
+   that engine. Copy `in` to `out` -- caller-sized to `len`, since a run only ever shrinks -- replacing every such run,
+   its opening delimiter through the nearest matching close (or through the end when the run is left unclosed), with a
+   single space, matching DOMPurify's SAFE_FOR_TEMPLATES. Returns the written length and sets *changed when a run was
+   collapsed, so a caller rewrites the node only when the value held a marker. */
+static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_UCS4 *out, int *changed) {
+    Py_ssize_t write = 0;
+    *changed = 0;
+    Py_ssize_t read = 0;
+    while (read < len) {
+        Py_UCS4 opener = in[read];
+        Py_UCS4 next = read + 1 < len ? in[read + 1] : 0;
+        Py_UCS4 close_lead;
+        Py_UCS4 close_tail;
+        if (opener == '{' && next == '{') {
+            close_lead = '}';
+            close_tail = '}';
+        } else if (opener == '$' && next == '{') {
+            close_lead = '}';
+            close_tail = 0;
+        } else if (opener == '<' && next == '%') {
+            close_lead = '%';
+            close_tail = '>';
+        } else {
+            out[write++] = opener;
+            read++;
+            continue;
+        }
+        Py_ssize_t scan = read + 2;
+        int closed = 0;
+        while (scan < len && !closed) {
+            if (in[scan] == close_lead && close_tail == 0) {
+                scan++; /* ${ ... } closes on the single } */
+                closed = 1;
+            } else if (in[scan] == close_lead && scan + 1 < len && in[scan + 1] == close_tail) {
+                scan += 2; /* {{ ... }} and <% ... %> close on the two-char delimiter */
+                closed = 1;
+            } else {
+                scan++; /* an ordinary character, or a lead byte that is not the full close */
+            }
+        }
+        out[write++] = ' ';
+        *changed = 1;
+        read = scan;
+    }
+    return write;
+}
+
+/* Collapse the template markers in one kept attribute's value, rewriting it in place when SAFE_FOR_TEMPLATES is on and
+   the value held a marker. Returns 0, or -1 on allocation failure. */
+static int strip_attr_templates(sanitizer *s, th_node *element, th_node_attr *attr) {
+    Py_UCS4 *out = PyMem_New(Py_UCS4, attr->value_len > 0 ? attr->value_len : 1);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int changed = 0;
+    Py_ssize_t out_len = strip_template_markers(attr->value, attr->value_len, out, &changed);
+    int status = 0;
+    if (changed) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
+        status = th_node_attr_set(s->tree, element, name, name_len, out, out_len, 1);
+    }
+    PyMem_Free(out);
+    return status;
+}
+
 static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     Py_ssize_t index = 0;
     while (index < element->attr_count) {
@@ -896,6 +966,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
         if (drop) {
             th_node_attr_del(s->tree, element, name, name_len);
             continue; /* the next attribute shifted into this slot */
+        }
+        if (s->strip_templates && strip_attr_templates(s, element, attr) < 0) {
+            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (name_len == 5 && memcmp(name, "style", 5) == 0) {
             Py_ssize_t before = element->attr_count;
@@ -1163,6 +1236,30 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     return status;
 }
 
+/* Rewrite one text node in place with its template markers collapsed, when SAFE_FOR_TEMPLATES is on and the node held a
+   marker. Returns 0, or -1 on allocation failure. */
+static int strip_text_templates(sanitizer *s, th_node *node) {
+    Py_ssize_t len = 0;
+    Py_UCS4 *data = th_node_data(s->tree, node, &len);
+    if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS4 *out = PyMem_New(Py_UCS4, len); /* a text node always carries at least one code point, so len >= 1 */
+    if (out == NULL) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(data);                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                          /* GCOVR_EXCL_LINE */
+    }
+    int changed = 0;
+    Py_ssize_t out_len = strip_template_markers(data, len, out, &changed);
+    int status = 0;
+    if (changed) {
+        status = th_node_set_data(s->tree, node, out, out_len);
+    }
+    PyMem_Free(out);
+    PyMem_Free(data);
+    return status;
+}
+
 /* Walk an element's children, applying the policy; capturing the next sibling keeps the loop safe across edits. */
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
     th_node *child = parent->first_child;
@@ -1176,7 +1273,11 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
             if (s->strip_comments) {
                 th_node_remove(child);
             }
-        } else if (child->type != TH_NODE_TEXT) {
+        } else if (child->type == TH_NODE_TEXT) {
+            if (s->strip_templates && strip_text_templates(s, child) < 0) {
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        } else {
             th_node_remove(child); /* doctype, processing instruction, CDATA: never valid in a sanitized fragment */
         }
         child = next;
@@ -1225,14 +1326,14 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts) -> None. Filters the fragment in place; sanitizer.py serializes it. */
+   media_hosts, strip_templates) -> None. Filters the fragment in place; sanitizer.py serializes it. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOp:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts)) {
+                          &s.attribute_values, &s.media_hosts, &s.strip_templates)) {
         return NULL;
     }
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||

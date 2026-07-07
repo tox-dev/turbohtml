@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 import turbohtml
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
+_SANITIZER_TEMPLATES = _clean.Sanitizer(replace(_clean.Policy.relaxed(), strip_template_markers=True))
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -242,6 +244,11 @@ def microdata(text: str) -> None:
 def sanitize(text: str) -> None:
     """Sanitize with turbohtml's relaxed policy, reusing a prebuilt sanitizer."""
     _SANITIZER.sanitize(text)
+
+
+def sanitize_templates(text: str) -> None:
+    """Sanitize with SAFE_FOR_TEMPLATES on, collapsing template markers as the C walk keeps each node."""
+    _SANITIZER_TEMPLATES.sanitize(text)
 
 
 def markup(text: str) -> None:
@@ -519,6 +526,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "structured": (structured, "turbohtml"),
     "microdata": (microdata, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
+    "sanitize-templates": (sanitize_templates, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),

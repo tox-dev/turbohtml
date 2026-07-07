@@ -1,0 +1,3 @@
+:class:`~turbohtml.clean.Policy` gained ``strip_template_markers``: with it on, sanitizing collapses template-engine
+expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text and attribute values to a single space, so the output cannot
+re-inject when a template engine renders it. This matches DOMPurify's ``SAFE_FOR_TEMPLATES``.

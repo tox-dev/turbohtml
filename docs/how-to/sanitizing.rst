@@ -23,6 +23,24 @@ non-overridable baseline drops scripting and ``javascript:`` URLs no matter what
 
     <p>Hi <a>link</a></p>&lt;script&gt;evil()&lt;/script&gt;
 
+*************************************
+ Keep the output safe for a template
+*************************************
+
+When sanitized HTML is later rendered through a client-side template engine (Angular, Vue, Mustache, EJS, ERB), a
+surviving ``{{ ... }}``, ``${ ... }``, or ``<% ... %>`` is a second injection point: the engine evaluates it after the
+sanitizer has passed. Set ``strip_template_markers`` to collapse every such run, in kept text and attribute values, to a
+single space, matching DOMPurify's ``SAFE_FOR_TEMPLATES``.
+
+.. code-block:: python
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy.relaxed()
+    policy = Policy(tags=policy.tags, attributes=policy.attributes, strip_template_markers=True)
+    print(sanitize("<p title='{{x}}'>Hi {{ user.name }}</p>", policy))
+    # <p title=" ">Hi  </p>
+
 **************************************
  Trust the first pass, do not reparse
 **************************************

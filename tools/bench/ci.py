@@ -106,6 +106,7 @@ _RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
     "socialcard": ("socialcard-spec", _spec),
     "structured": ("structured-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
+    "sanitize-templates": ("sanitize-templates-spec", _spec),
     "linkify": ("linkify-spec", _spec),
     "markdown-google": ("markdown-google-spec", _spec),
     "article": ("article-spec", _spec),

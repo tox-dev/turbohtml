@@ -123,6 +123,9 @@ class Policy:
         already admits and cannot admit a new one.
     :param media_hosts: allowed hosts for an embedded-media ``src`` (``audio``, ``video``, ``source``, ``track``); a
         ``src`` whose URL host is not one of these lowercase entries is dropped. Empty means no host restriction.
+    :param strip_template_markers: collapse template-engine expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text
+        and attribute values to a single space, so sanitized output cannot re-inject when a template engine (Angular,
+        Vue, Mustache, EJS, ERB) later renders it. DOMPurify's ``SAFE_FOR_TEMPLATES``; off by default.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -140,6 +143,7 @@ class Policy:
     attribute_prefixes: frozenset[str] = frozenset()
     attribute_values: Mapping[str, Mapping[str, frozenset[str]]] = field(default_factory=dict)
     media_hosts: frozenset[str] = frozenset()
+    strip_template_markers: bool = False
 
     @classmethod
     def strict(cls) -> Policy:
@@ -220,6 +224,7 @@ class Sanitizer:
             policy.attribute_prefixes,
             self._attribute_values,
             policy.media_hosts,
+            policy.strip_template_markers,
         )
         return root.inner_html
 

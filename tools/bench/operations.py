@@ -54,6 +54,17 @@ _STRUCTURED_PAGE = dedent("""\
       </div>
     </body>""")
 
+_SANITIZE_TEMPLATES = dedent("""\
+    <article class=card>
+      <h1>{{ post.title }}</h1>
+      <p data-id="${post.id}">By {{ author.name }} on <% post.date %> in {{ post.section }}.</p>
+      <ul>
+        <li>{{ item.label }}: ${item.value}</li>
+        <li>Rating <% stars %> out of {{ max }}</li>
+      </ul>
+    </article>
+""")
+
 _SANITIZE_POST = dedent("""\
     <div class=post>
       <h1>Title</h1>
@@ -109,6 +120,7 @@ OPERATIONS: dict[str, Operation] = {
     "structured": Operation("structured-data extraction", "us"),
     "microdata": Operation("Microdata item extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
+    "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -387,6 +399,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
+    "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),
