@@ -1,0 +1,10 @@
+:func:`turbohtml.rewrite.rewrite` transforms HTML in a single streaming pass without building a tree, the model
+Cloudflare's lol-html popularized. It runs the WHATWG tokenizer over the input while tracking only the open-element
+stack, hands each element a CSS selector matches -- and, on request, each run of text, each comment, and the doctype --
+to a Python handler that edits it in place (set or remove an attribute, insert markup before, after, or around it,
+replace its inner content, unwrap it, or drop it), and emits the result incrementally. Working memory stays proportional
+to the open-element depth, not the document size, so a multi-megabyte page rewrites in a fixed footprint, and an
+untouched construct is reproduced verbatim. Because the pass never looks ahead, the matchable selector subset is the one
+decidable from an element and its ancestors -- type, universal, id, class, and attribute selectors, the descendant and
+child combinators, ``:root``, and ``:is()``/``:where()``/``:not()`` over that subset; a sibling combinator, a positional
+or structural pseudo-class, or ``:has()`` raises :class:`~turbohtml.SelectorSyntaxError`.

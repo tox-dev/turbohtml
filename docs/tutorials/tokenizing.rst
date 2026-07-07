@@ -144,6 +144,33 @@ The ``<tbody>`` no one wrote is there, and ``stray`` was moved out ahead of the 
 builds, delivered as events rather than nodes. If you prefer callbacks over a loop, subclass
 :class:`~turbohtml.saxparse.SaxHandler` and pass it to :func:`~turbohtml.saxparse.sax_parse`.
 
+When you want to *change* the markup as it streams rather than just observe it, :func:`turbohtml.rewrite.rewrite`
+transforms a document in one pass without building a tree. You register a CSS selector and a handler; the handler edits
+each matching element in place, and everything you do not touch is copied through verbatim. Here every external link
+gains ``rel="noopener"`` while the local one is left exactly as written:
+
+.. testcode::
+
+    from turbohtml.rewrite import rewrite
+
+
+    def external(link):
+        if link.get("href", "").startswith("http"):
+            link.set_attribute("rel", "noopener")
+
+
+    html = '<p>See <a href="https://x.test">x</a> and <a href="/local">home</a>.</p>'
+    print(rewrite(html, elements=[("a[href]", external)]))
+
+.. testoutput::
+
+    <p>See <a href="https://x.test" rel="noopener">x</a> and <a href="/local">home</a>.</p>
+
+The handler can also insert markup around an element, replace its inner content, unwrap it, or drop it, and separate
+handlers can rewrite text, comments, and the doctype. Because the pass never looks ahead, only selectors decidable from
+an element and its ancestors stream -- see :doc:`/how-to/rewriting` for the recipes and :doc:`/explanation/streaming`
+for why a sibling combinator or ``:nth-child`` cannot.
+
 The tree builder does more than fill in implied elements while it consumes the token stream. When it meets a
 ``<template>`` carrying a ``shadowrootmode``, it attaches a *declarative shadow root* to the template's parent and
 parses the template's content into that shadow tree instead of a template content fragment -- the same markup a browser

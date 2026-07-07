@@ -41,6 +41,7 @@ It is the wrong tool in a few honest cases:
     xml
     validation
     sax
+    streaming
     source-locations
     tree-model
     traversal

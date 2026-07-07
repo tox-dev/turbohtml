@@ -109,11 +109,17 @@ input recovers the WHATWG way, and every node shares the navigation, query, and 
       - `docs <https://github.com/jsdom/jsdom>`__
       - JavaScript (npm)
       - --
+    - - 11
+      - :doc:`lol-html <lol-html>`
+      - `docs <https://github.com/cloudflare/lol-html>`__
+      - Rust / WASM
+      - --
 
 parse5 is the reference JavaScript WHATWG parser rather than a Python library; its guide is a cross-language reference
 for porting a parse5 pipeline -- and its ``sourceCodeLocationInfo`` model in particular -- onto turbohtml. jsdom is the
 reference JavaScript DOM built on parse5; its guide maps the DOM traversal (``TreeWalker``, ``NodeIterator``) and range
-(``Range``, ``StaticRange``) APIs onto turbohtml's.
+(``Range``, ``StaticRange``) APIs onto turbohtml's. lol-html is Cloudflare's Rust streaming HTML rewriter; its guide
+maps its DOM-less ``HTMLRewriter`` and ``Element`` edit API onto :func:`turbohtml.rewrite.rewrite`.
 
 ********
  Detect
@@ -731,6 +737,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     stdlib
     parse5
     jsdom
+    lol-html
     charset-normalizer
     chardet
     soupsieve

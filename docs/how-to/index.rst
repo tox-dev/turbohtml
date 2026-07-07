@@ -16,6 +16,7 @@ ending with running the toolkit from a shell.
     validating
     tokenizing
     sax
+    rewriting
     forms
     editing
     ranges
