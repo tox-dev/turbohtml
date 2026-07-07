@@ -442,6 +442,21 @@ static void stack_pop(th_tree *tree) {
     }
 }
 
+/* Stamp an element's end-tag span from the end-tag token the source closed it
+   with. stack_pop already does this for elements it pops by name; body, html,
+   and form are closed by insertion-mode switches or an out-of-order removal that
+   never reach that path, so their handlers call this directly. */
+static void record_end_tag_location(th_tree *tree, th_node *node, const th_token *end) {
+    if (!tree->track_locations) {
+        return;
+    }
+    th_src_loc *loc = *node_loc(node); /* NULL for a synthetic element the source never opened */
+    if (loc != NULL) {
+        loc->end_tag = (th_src_span){end->line, end->col, end->src_off, end->end_line, end->end_col, end->end_off};
+        loc->has_end_tag = 1;
+    }
+}
+
 /* Is an element with this atom on the stack, stopping at a scope boundary? */
 /* The default-scope boundary: HTML scoping elements plus the MathML/SVG
    integration-point and scoping elements (a foreign subtree is its own scope). */
@@ -2890,9 +2905,15 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         uint8_t flags = tok->tag_flags;
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_BODY || atom == TH_TAG_HTML) {
+            if (atom == TH_TAG_BODY) {
+                Py_ssize_t body_index = stack_index_of_atom(tree, TH_TAG_BODY);
+                if (body_index >= 0) { /* a body-context fragment closes </body> with no body on the stack */
+                    record_end_tag_location(tree, tree->open[body_index], tok);
+                }
+            }
             dc->mode = M_AFTER_BODY;
             if (atom == TH_TAG_HTML) {
-                return TH_DRAIN_REPROCESS;
+                return TH_DRAIN_REPROCESS; /* drain_after_body stamps html's end tag */
             }
             return TH_DRAIN_NEXT;
         }
@@ -2957,6 +2978,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                     return TH_DRAIN_NEXT; /* parse error, ignored */
                 }
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                record_end_tag_location(tree, node, tok); /* stamped here: the removal below skips stack_pop */
                 /* the form is removed from wherever it sits on the stack */
                 /* the form element is on the stack when this runs, so it */
                 for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
@@ -3459,6 +3481,9 @@ static enum th_drain drain_after_body(th_tree *tree, th_token *tok, th_insert *d
         }
     }
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        if (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: html sits at open[0] throughout this mode */
+            record_end_tag_location(tree, tree->open[0], tok);
+        }
         dc->mode = M_AFTER_AFTER_BODY;
         return TH_DRAIN_NEXT;
     }

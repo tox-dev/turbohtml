@@ -1,0 +1,5 @@
+With ``source_locations=True``, :attr:`~turbohtml.Node.source_location` now records the end-tag span of a ``body``,
+``html``, or ``form`` element that the source closes with its own tag. These three close by an insertion-mode switch or
+an out-of-order stack removal, not the normal pop that stamped the span, so their ``end_tag`` stayed ``None`` even when
+the source held a ``</body>``, ``</html>``, or ``</form>``. Found by differential-testing against parse5's own
+location-info corpus.

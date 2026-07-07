@@ -181,6 +181,48 @@ def test_explicit_end_tag_on_a_synthetic_element_is_ignored() -> None:
 
 
 @pytest.mark.parametrize(
+    ("html", "tag", "close"),
+    [
+        # </body> and </html> switch insertion mode instead of popping their element, and </form> is
+        # removed out of stack order; each stamps the end tag through its own path, not the pop path
+        pytest.param("<html><body>x</body></html>", "body", "</body>", id="body"),
+        pytest.param("<html><body>x</body></html>", "html", "</html>", id="html"),
+        pytest.param("<form><input></form>", "form", "</form>", id="form"),
+        pytest.param("<form><div>x</form>", "form", "</form>", id="form-closed-with-open-child"),
+    ],
+)
+def test_specially_closed_element_records_its_end_tag(html: str, tag: str, close: str) -> None:
+    loc = location(html, tag)
+    assert loc.end_tag is not None
+    assert html[loc.end_tag.start_offset : loc.end_tag.end_offset] == close
+
+
+@pytest.mark.parametrize(
+    ("html", "tag"),
+    [
+        # the element the end tag names was never opened in the source, so there is no span to stamp
+        pytest.param("<div>x</html>", "html", id="implicit-html"),
+        pytest.param("<p>x</body>", "body", id="implicit-body"),
+    ],
+)
+def test_explicit_end_tag_on_a_synthetic_body_or_html_is_ignored(html: str, tag: str) -> None:
+    element = parse(html, source_locations=True).find(tag)
+    assert element is not None
+    assert element.source_location is None
+
+
+@pytest.mark.parametrize(
+    ("html", "tag"),
+    [
+        pytest.param("<html><body>x", "body", id="body-at-eof"),
+        pytest.param("<form><input>", "form", id="form-at-eof"),
+    ],
+)
+def test_specially_closed_element_left_open_has_no_end_tag(html: str, tag: str) -> None:
+    assert location(html, tag).end_tag is None
+
+
+@pytest.mark.parametrize(
     ("html", "node_type"),
     [
         pytest.param("<p>text</p>", Text, id="text-node"),
