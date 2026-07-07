@@ -50,6 +50,11 @@ but return the pre-layout value. If you need pixel geometry, you need a browser 
 WeasyPrint; if you need to know which rule wins and what value it carries, that is exactly what
 :func:`~turbohtml.cssom.computed_style` gives you.
 
+The cascade is validated differentially against jsdom's ``getComputedStyle`` -- 39 fixtures over every axis above, all
+agreeing once color serialization and the boundaries here are accounted for (``tests/conformance``). The one place the
+two diverge on a supported property is the ``overflow`` shorthand, which turbohtml expands to
+``overflow-x``/``overflow-y`` per CSS Overflow 3 and jsdom leaves at its initial value.
+
 ******************
  The property set
 ******************

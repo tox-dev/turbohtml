@@ -300,7 +300,8 @@ ini_options.filterwarnings = [
 # module importorskips itself where its oracle is absent; measuring them would make the gate
 # environment-dependent. They still run and validate wherever the oracle installs (the dev env).
 run.omit = [
-  "tests/benchmarks/*",                               # run only under --codspeed (the CI benchmark job), never in the coverage run
+  "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
+  "tests/conformance/test_cssom_jsdom_conformance.py", # differential oracle: skips when the node/jsdom toolchain is absent
   "tests/convert/test_css_to_xpath_differential.py",
   "tests/convert/test_transform_differential.py",
   "tests/dom/test_parse_xml_differential.py",
