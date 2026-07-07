@@ -33,12 +33,35 @@ typedef struct {
     PyObject *attribute_prefixes;  /* frozenset[str]: allow any attribute whose name starts with one of these */
     PyObject *attribute_values;    /* dict[str, dict[str, frozenset[str]]]: per (tag, attr) literal value allowlist */
     PyObject *media_hosts; /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
+    PyObject
+        *removed; /* list to append (tag, attr_or_None) records to as the walk drops things, or NULL to not report */
     int allow_relative;
     int on_disallowed;
     int strip_comments;
     int strip_templates; /* SAFE_FOR_TEMPLATES: collapse {{ }}, ${ }, <% %> runs so kept text/attrs stay template-safe
                           */
 } sanitizer;
+
+/* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
+   attribute_name) for a stripped attribute. A no-op when s->removed is NULL, the common non-reporting path. Returns 0,
+   or -1 on error. */
+static int record_removed(sanitizer *s, PyObject *tag, const char *attr, Py_ssize_t attr_len) {
+    if (s->removed == NULL) {
+        return 0;
+    }
+    PyObject *name = attr == NULL ? Py_NewRef(Py_None) : PyUnicode_FromStringAndSize(attr, attr_len);
+    if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *record = PyTuple_Pack(2, tag, name);
+    Py_DECREF(name);
+    if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int status = PyList_Append(s->removed, record);
+    Py_DECREF(record);
+    return status;
+}
 
 /* Elements removed regardless of the allowlist: scripting, plugin, and raw-text containers. (frame and frameset need
    no entry: the parser drops them outside a frameset document, so a fragment can never contain one to neutralize.) */
@@ -952,6 +975,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             url_disallowed = !ok; /* a disallowed host drops every src occurrence, like a disallowed scheme */
         }
         if (url_disallowed) {
+            if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
+                return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
             /* A duplicate URL attribute desyncs the per-value scheme check from the
                single value a re-parsing browser keeps (WHATWG keeps the first): dropping
                only this occurrence deletes the first match by name, which may be a benign
@@ -964,6 +990,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             continue;
         }
         if (drop) {
+            if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
+                return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
             th_node_attr_del(s->tree, element, name, name_len);
             continue; /* the next attribute shifted into this slot */
         }
@@ -1213,6 +1242,11 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
     }
     /* only disallowed elements consult remove_with_content, so a kept element never pays the set lookup */
     int remove_content = allowed > 0 ? 0 : PySet_Contains(s->remove_with_content, tag);
+    /* a disallowed element is about to be removed, stripped, or escaped; note it before the disposition splits */
+    if (allowed == 0 && record_removed(s, tag, NULL, 0) < 0) { /* GCOVR_EXCL_BR_LINE: record only fails on alloc */
+        Py_DECREF(tag);                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     int status = 0;
     if (allowed < 0 || remove_content < 0) { /* GCOVR_EXCL_BR_LINE: PySet_Contains never fails on a str key */
         status = -1;                         /* GCOVR_EXCL_LINE */
@@ -1328,16 +1362,19 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates) -> None. Filters the fragment in place; sanitizer.py serializes it. */
+   media_hosts, strip_templates, removed) -> None. Filters the fragment in place; sanitizer.py serializes it.
+   `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the audit. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
+    PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOp:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts, &s.strip_templates)) {
+                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed)) {
         return NULL;
     }
+    s.removed = removed == Py_None ? NULL : removed;
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
         require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
         require_anyset(s.css_properties, "css_properties") < 0 ||

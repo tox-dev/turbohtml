@@ -37,8 +37,10 @@ from ._sanitizer import (
     DEFAULT_TAGS,
     OnDisallowed,
     Policy,
+    Removed,
     Sanitizer,
     sanitize,
+    sanitize_report,
 )
 
 __all__ = [
@@ -58,6 +60,7 @@ __all__ = [
     "Minify",
     "OnDisallowed",
     "Policy",
+    "Removed",
     "Sanitizer",
     "linkify",
     "minify",
@@ -66,5 +69,6 @@ __all__ = [
     "minify_js",
     "nofollow",
     "sanitize",
+    "sanitize_report",
     "target_blank",
 ]

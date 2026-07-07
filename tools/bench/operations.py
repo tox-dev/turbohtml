@@ -121,6 +121,7 @@ OPERATIONS: dict[str, Operation] = {
     "microdata": Operation("Microdata item extraction", "us"),
     "sanitize": Operation("sanitize", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
+    "sanitize-report": Operation("sanitize with audit trail", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -401,6 +402,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
     "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
+    "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),

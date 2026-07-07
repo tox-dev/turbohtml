@@ -53,3 +53,22 @@ HTML parsing is not a fixpoint: serialize a tree and reparse it, and you can get
 later parse breaks *out* of it; a raw carriage return in text also becomes a newline on reparse. ``sanitize`` resolves
 all of that in its one pass, so the string it returns is inert. Reparsing and reserializing that string can yield a
 different string that is still inert. The guarantee is inertness, not byte-stable output across a round trip.
+
+*****************************
+ See what the policy dropped
+*****************************
+
+:func:`turbohtml.clean.sanitize_report` sanitizes and also hands back what it removed, the way DOMPurify populates
+``DOMPurify.removed``. Each dropped element or stripped attribute becomes one :class:`~turbohtml.clean.Removed` record,
+in the order the walk reached it, so a policy can be tuned against evidence instead of guesswork.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize_report, Policy
+
+    html, removed = sanitize_report('<p onmouseover="x">Hi <b onclick="y">there</b></p>', Policy.relaxed())
+    print(removed)
+
+.. testoutput::
+
+    [Removed(tag='p', attribute='onmouseover'), Removed(tag='b', attribute='onclick')]

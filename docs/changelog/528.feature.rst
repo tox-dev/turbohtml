@@ -1,0 +1,3 @@
+:func:`turbohtml.clean.sanitize_report` (and :meth:`turbohtml.clean.Sanitizer.sanitize_report`) sanitize a fragment and
+return what the policy dropped alongside the cleaned HTML: one :class:`turbohtml.clean.Removed` record per removed
+element or stripped attribute, in walk order. This matches DOMPurify's ``DOMPurify.removed``.

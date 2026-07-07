@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
@@ -23,6 +24,21 @@ from ._html import _sanitize, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+
+    from ._html import Element
+
+
+@dataclass(frozen=True, slots=True)
+class Removed:
+    """
+    One item a policy dropped, the shape :meth:`Sanitizer.sanitize_report` returns.
+
+    :param tag: the tag name of the dropped element, or of the element a dropped attribute was on.
+    :param attribute: the dropped attribute's name, or ``None`` when the element itself was dropped.
+    """
+
+    tag: str
+    attribute: str | None = None
 
 
 class OnDisallowed(Enum):
@@ -206,6 +222,27 @@ class Sanitizer:
             or ``attribute_prefixes`` contains a non-string.
         :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
         """
+        return self._filter(html, None).inner_html
+
+    def sanitize_report(self, html: str) -> tuple[str, list[Removed]]:
+        """
+        Sanitize a fragment and report what the policy dropped, the way DOMPurify populates ``DOMPurify.removed``.
+
+        Every disallowed element (removed, stripped, or escaped) and every stripped attribute becomes one
+        :class:`Removed` record, in the order the walk reached it, so a caller can log or tune a policy against
+        evidence instead of guessing.
+
+        :param html: the untrusted HTML fragment.
+        :returns: the sanitized HTML paired with the list of dropped items.
+        :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        removed: list[tuple[str, str | None]] = []
+        html_out = self._filter(html, removed).inner_html
+        return html_out, list(starmap(Removed, removed))
+
+    def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Element:
+        """Run the C walk over a freshly parsed fragment, appending drops to ``removed`` when it is not None."""
         policy = self.policy
         root = parse_fragment(html)
         _sanitize(
@@ -225,8 +262,9 @@ class Sanitizer:
             self._attribute_values,
             policy.media_hosts,
             policy.strip_template_markers,
+            removed,
         )
-        return root.inner_html
+        return root
 
 
 def sanitize(html: str, options: Policy | None = None) -> str:
@@ -244,6 +282,19 @@ def sanitize(html: str, options: Policy | None = None) -> str:
     return Sanitizer(options).sanitize(html)
 
 
+def sanitize_report(html: str, options: Policy | None = None) -> tuple[str, list[Removed]]:
+    """
+    Sanitize a fragment and report what the policy dropped, like DOMPurify's ``DOMPurify.removed``.
+
+    :param html: the untrusted HTML fragment.
+    :param options: the policy to enforce; None uses bleach's default allowlist.
+    :returns: the sanitized HTML paired with one :class:`Removed` record per dropped element or attribute.
+    :raises TypeError: like :func:`sanitize`, on a mistyped set-valued policy field.
+    :raises ValueError: like :func:`sanitize`, on an empty ``attribute_prefixes`` entry.
+    """
+    return Sanitizer(options).sanitize_report(html)
+
+
 __all__ = [
     "DEFAULT_ATTRIBUTES",
     "DEFAULT_CSS_PROPERTIES",
@@ -251,6 +302,8 @@ __all__ = [
     "DEFAULT_TAGS",
     "OnDisallowed",
     "Policy",
+    "Removed",
     "Sanitizer",
     "sanitize",
+    "sanitize_report",
 ]

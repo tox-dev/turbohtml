@@ -13,8 +13,15 @@ in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw
 
 .. autofunction:: sanitize
 
+:func:`sanitize_report` sanitizes and also returns what the policy dropped, one :class:`Removed` record per removed
+element or stripped attribute, the way DOMPurify populates ``DOMPurify.removed``.
+
+.. autofunction:: sanitize_report
+
+.. autoclass:: Removed
+
 .. autoclass:: Sanitizer
-    :members: sanitize
+    :members: sanitize, sanitize_report
 
 .. autoclass:: Policy
     :members: strict, basic, relaxed

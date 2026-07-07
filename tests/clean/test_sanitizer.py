@@ -11,8 +11,10 @@ from turbohtml.clean import (
     DEFAULT_TAGS,
     OnDisallowed,
     Policy,
+    Removed,
     Sanitizer,
     sanitize,
+    sanitize_report,
 )
 
 if TYPE_CHECKING:
@@ -731,10 +733,10 @@ def test_strip_propagates_a_child_filter_error() -> None:
 def test_sanitize_rejects_non_element() -> None:
     from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
 
-    # the fifteen policy arguments after the element; only the non-element first argument matters to this guard
+    # the sixteen policy arguments after the element; only the non-element first argument matters to this guard
     policy_args = (
         frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset(), frozenset(), {},
-        frozenset(), False,
+        frozenset(), False, None,
     )  # fmt: skip
     with pytest.raises(TypeError):
         _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]
@@ -966,3 +968,35 @@ def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
     # bracketed host admits no media src -- the pre-unification behavior, kept so routing never weakens the allowlist
     policy = _media_policy(frozenset({"youtube.com", "::1"}))
     assert "src=" not in sanitize('<video src="https://[::1]/x">', policy)
+
+
+def test_report_records_a_removed_element() -> None:
+    out, removed = sanitize_report("<p>ok <script>evil()</script> done</p>")
+    assert Removed("script", None) in removed
+    assert "evil" in out
+    assert "<script>" not in out
+
+
+def test_report_records_a_dropped_attribute() -> None:
+    _, removed = sanitize_report('<a href="http://x" onclick="bad()">k</a>')
+    assert removed == [Removed("a", "onclick")]
+
+
+def test_report_records_a_disallowed_url_attribute() -> None:
+    _, removed = sanitize_report('<a href="javascript:alert(1)">x</a>')
+    assert removed == [Removed("a", "href")]
+
+
+def test_report_orders_records_as_the_walk_reaches_them() -> None:
+    _, removed = sanitize_report('<a class="c" title="t" href="ftp://x">k</a>')
+    assert removed == [Removed("a", "class"), Removed("a", "href")]
+
+
+def test_report_is_empty_when_nothing_is_dropped() -> None:
+    out, removed = sanitize_report('<a href="http://x" title="t">ok</a>')
+    assert removed == []
+    assert out == '<a href="http://x" title="t">ok</a>'
+
+
+def test_report_default_attribute_is_none() -> None:
+    assert Removed("div") == Removed("div", None)

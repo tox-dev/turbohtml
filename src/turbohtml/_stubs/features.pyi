@@ -59,6 +59,7 @@ def _sanitize(
     attribute_values: Mapping[str, Mapping[str, frozenset[str]]],
     media_hosts: frozenset[str],
     strip_templates: bool,
+    removed: list[tuple[str, str | None]] | None,
     /,
 ) -> None: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...

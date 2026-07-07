@@ -252,6 +252,11 @@ def sanitize_templates(text: str) -> None:
     _SANITIZER_TEMPLATES.sanitize(text)
 
 
+def sanitize_report(text: str) -> None:
+    """Sanitize with the audit trail on, exercising the removed-node collection."""
+    _SANITIZER.sanitize_report(text)
+
+
 def markup(text: str) -> None:
     """Escape a string into a Markup with turbohtml's markupsafe-compatible escape."""
     _markup_escape(text)
@@ -533,6 +538,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "microdata": (microdata, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
+    "sanitize-report": (sanitize_report, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),
