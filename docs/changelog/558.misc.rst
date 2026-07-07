@@ -1,3 +1,0 @@
-Validate the XPath engine's ``fn:*`` functions against the W3C QT3 (XQuery/XPath 3.1) conformance suite, vendored as a
-pinned submodule. The harness runs every case turbohtml's engine can express (281 pass) and records the schema-aware,
-sequence, XPath 3.x, XSD-regex, and typed-error-code families it omits by design with a per-case skip or xfail reason.
