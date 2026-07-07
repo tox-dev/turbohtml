@@ -194,6 +194,9 @@ from ._stubs.query import (
 from ._stubs.query import (
     _xpath_parse as _xpath_parse,
 )
+from ._stubs.query import (
+    _xslt_transform as _xslt_transform,
+)
 from ._stubs.serialize import (
     Formatter as Formatter,
 )

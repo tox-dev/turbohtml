@@ -14,8 +14,9 @@ XML pipelines because it wraps a fast, battle-tested C library and exposes the f
 turbohtml covers the HTML side of that ground with a native C core of its own. :func:`turbohtml.parse` builds the WHATWG
 document tree libxml2's HTML parser does not, returns a fully type annotated :class:`~turbohtml.Document`, and folds
 XPath 1.0 (with EXSLT), CSS selection, and the ``find``/``find_all`` grammar into one node API instead of separate
-``findall``/``xpath``/``cssselect`` entry points. It does not attempt XSLT, schema validation, or generic XML; it
-targets browser-accurate HTML parsing and the query/edit/serialize surface around it.
+``findall``/``xpath``/``cssselect`` entry points, and adds an XSLT 1.0 processor (:mod:`turbohtml.transform`). It does
+not attempt schema validation or generic XML; it targets browser-accurate HTML parsing and the query/edit/transform/
+serialize surface around it.
 
 *******************
  turbohtml vs lxml
@@ -29,10 +30,10 @@ targets browser-accurate HTML parsing and the query/edit/serialize surface aroun
       - turbohtml
       - lxml
     - - Scope
-      - WHATWG HTML5 parse, serialize, edit, CSS, XPath 1.0 + EXSLT, link helpers
+      - WHATWG HTML5 parse, serialize, edit, CSS, XPath 1.0 + EXSLT, XSLT 1.0, link helpers
       - Generic XML and HTML via libxml2, plus XSLT, schema validation, C14N
     - - Feature breadth
-      - Browser-accurate HTML tree, one node API for XPath/CSS/find, streaming parse, builder
+      - Browser-accurate HTML tree, one node API for XPath/CSS/find, XSLT 1.0, streaming parse, builder
       - Full ElementTree API, XPath 1.0, XSLT 1.0, DTD/RelaxNG/XML-Schema, iterparse
     - - Performance
       - Parses two to four times faster than lxml; stays ahead across the operational surface
@@ -85,7 +86,9 @@ What lxml has that turbohtml does not
 
 The wider libxml2 toolchain is a deliberate clean-break scope cut:
 
-- XSLT (``lxml.etree.XSLT``): no equivalent.
+- XSLT is at parity for the 1.0 core (see :ref:`the transform section <migration-lxml>` below): ``lxml.etree.XSLT``
+  ports to :class:`turbohtml.transform.Transform`. Out of scope are external-document loading (``xsl:include``,
+  ``xsl:import``, ``document()``) and the libxslt/EXSLT extension-element surface.
 - Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
 - DTD-declared entities and the wider infoset: :func:`turbohtml.parse_xml` (below) handles well-formed XML but resolves
   only the five predefined entities and numeric references; a document that relies on ``<!ENTITY>`` definitions, or that
@@ -152,6 +155,53 @@ with lxml.
 libxml2 leads on raw XML throughput -- it is a decade-tuned C parser, and the ``parse XML to a tree`` row shows it ahead
 on the catalog document. turbohtml's XML mode trades that for the same native, fully typed, dependency-free node API its
 HTML path uses, so an XML feed and an HTML page navigate, query, and serialize through one surface.
+
+************************
+ Transforming with XSLT
+************************
+
+``lxml.etree.XSLT`` compiles a parsed stylesheet into a callable; :class:`turbohtml.transform.Transform` does the same.
+Both read the stylesheet as XML, hold the compiled form, and apply it to a source tree, so the port is mechanical:
+``etree.XSLT(etree.parse(sheet))`` becomes ``Transform(parse_xml(sheet))``, and calling the result on a document returns
+the transformed markup as a ``str``.
+
+.. testcode::
+
+    from turbohtml import parse_xml
+    from turbohtml.transform import Transform
+
+    style = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="html"/>'
+        '<xsl:template match="/"><ul>'
+        '<xsl:apply-templates select="catalog/book"><xsl:sort select="title"/></xsl:apply-templates>'
+        "</ul></xsl:template>"
+        '<xsl:template match="book"><li class="{@cat}"><xsl:value-of select="title"/></li></xsl:template>'
+        "</xsl:stylesheet>"
+    )
+    convert = Transform(style)
+    source = parse_xml(
+        '<catalog><book cat="sci"><title>Cosmos</title></book><book cat="fic"><title>1984</title></book></catalog>'
+    )
+    print(convert(source))
+
+.. testoutput::
+
+    <ul><li class="fic">1984</li><li class="sci">Cosmos</li></ul>
+
+A top-level ``xsl:param`` is a keyword argument whose value is an XPath expression, exactly as in ``transform(doc,
+param="'text'")``. The engine reuses turbohtml's XPath 1.0 evaluator for every match pattern and select expression and
+implements the XSLT 1.0 core -- templates with modes and priorities, ``apply-templates`` with ``sort``,
+``call-template``, ``for-each``, ``if``, ``choose``, ``value-of``, ``copy``/``copy-of``, ``element``/``attribute``,
+``variable``/``param``, ``number``, ``key`` and ``key()``, the conflict-resolution rules, and the
+``xml``/``html``/``text`` output methods.
+
+Two limits to plan for. lxml resolves ``xsl:include``, ``xsl:import``, and ``document()`` against the filesystem;
+turbohtml loads no external resources, so a multi-file stylesheet must be flattened first, and ``document()`` returns an
+empty node-set. And libxslt leads on transform throughput -- it is a decade-tuned C engine, and the ``XSLT transform``
+row reflects that; turbohtml trades the raw speed for a stylesheet processor that ships in the same pure,
+dependency-free wheel as the parser, over one typed node API. A pipeline that lives inside libxslt's wider XSLT/EXSLT
+surface stays with lxml.
 
 ****************
  How to migrate

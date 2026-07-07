@@ -37,6 +37,7 @@ from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
 from turbohtml.query import Query as _Query
 from turbohtml.saxparse import SaxHandler as _SaxHandler
 from turbohtml.saxparse import sax_parse as _sax_parse
+from turbohtml.transform import Transform as _Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -575,6 +576,19 @@ def xpath_path(text: str) -> None:
             node.xpath_path()
 
 
+@functools.cache
+def _xslt_compiled(sheet: str, source: str) -> tuple[_Transform, turbohtml.Document]:
+    """Compile the stylesheet and parse the source once, so the op times only the transformation."""
+    return _Transform(turbohtml.parse_xml(sheet)), turbohtml.parse_xml(source)
+
+
+def transform(case: tuple[str, str]) -> None:
+    """Apply a compiled XSLT 1.0 stylesheet to a parsed source document with turbohtml.transform."""
+    sheet, source = case
+    compiled, document = _xslt_compiled(sheet, source)
+    compiled(document)
+
+
 def _count_ext(_context: object, nodes: list[object]) -> float:
     """Count the node-set; a trivial extension registered for the engine."""
     return float(len(nodes))
@@ -744,6 +758,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "translate": (translate, "turbohtml"),
     "specificity": (specificity, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
+    "transform": (transform, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
     "encoding": (encoding, "turbohtml"),

@@ -30,6 +30,7 @@ ending with running the toolkit from a shell.
     pruning
     chaining
     matching
+    xslt
     sanitizing
     links
     minifying

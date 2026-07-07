@@ -118,4 +118,11 @@ int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *contex
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature);
 
+/* Like xp_eval, but seeds the context position and size instead of the default 1/1.
+   The XSLT engine reuses this so position()/last() at the top of a select or test
+   expression report the node's place in the current node list (xslt.c). */
+int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos, Py_ssize_t size,
+               const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
+               xp_result *out, const char **feature);
+
 #endif /* TURBOHTML_XPATH_H */

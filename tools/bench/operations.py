@@ -241,6 +241,7 @@ OPERATIONS: dict[str, Operation] = {
     "translate": Operation("CSS selector to XPath 1.0", "us"),
     "specificity": Operation("CSS selector specificity", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
+    "transform": Operation("XSLT transform a catalog (120 rows)", "us"),
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
@@ -443,6 +444,35 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     return structural + parity
 
 
+_XSLT_SHEET = (
+    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+    '<xsl:output method="html"/>'
+    '<xsl:key name="by-cat" match="book" use="@cat"/>'
+    '<xsl:template match="/"><table>'
+    '<xsl:apply-templates select="catalog/book">'
+    '<xsl:sort select="price" data-type="number" order="descending"/></xsl:apply-templates>'
+    "</table></xsl:template>"
+    '<xsl:template match="book"><tr class="{@cat}"><td><xsl:number format="1"/></td>'
+    '<td><xsl:value-of select="title"/></td>'
+    "<td><xsl:value-of select=\"format-number(price, '#,##0.00')\"/></td>"
+    "<td><xsl:value-of select=\"count(key('by-cat', @cat))\"/></td></tr></xsl:template>"
+    "</xsl:stylesheet>"
+)
+_XSLT_SOURCE = (
+    "<catalog>"
+    + "".join(
+        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+        for index in range(120)
+    )
+    + "</catalog>"
+)
+
+
+def _transform_cases() -> tuple[tuple[str, object], ...]:
+    """Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog."""
+    return (("catalog (120 rows)", (_XSLT_SHEET, _XSLT_SOURCE)),)
+
+
 def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     """Return synthetic and corpus documents for the tokenization table."""
     corpus_cases = tuple(
@@ -614,6 +644,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "translate": lambda: _TRANSLATE_CASES,
     "specificity": lambda: _TRANSLATE_CASES,
     "xpath": _xpath_cases,
+    "transform": _transform_cases,
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
     "encoding": _encoding_cases,

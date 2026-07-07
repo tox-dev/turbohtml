@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING
 
+import lxml.etree as lxml_etree  # ty: ignore[unresolved-import]  # C extension, ships no type stubs
 from lxml import html as lxml_html
 from lxml.builder import E
 
@@ -281,6 +282,20 @@ def xpath(case: tuple[str, str]) -> None:
     _XPATH_CALLS[kind](_parsed(text), text)
 
 
+@functools.cache
+def _xslt_compiled(sheet: str, source: str):  # noqa: ANN202  # lxml.etree is untyped, so the compiled types are inferred
+    """Compile the stylesheet and parse the source once, so the op times only the transformation."""
+    transform = lxml_etree.XSLT(lxml_etree.fromstring(sheet.encode()))
+    return transform, lxml_etree.fromstring(source.encode())
+
+
+def transform(case: tuple[str, str]) -> None:
+    """Apply a compiled XSLT 1.0 stylesheet to a parsed source with lxml's libxslt engine."""
+    sheet, source = case
+    compiled, document = _xslt_compiled(sheet, source)
+    compiled(document)
+
+
 class _Counter:
     """An lxml parser target whose start handler does minimal, identical work to the reference counter."""
 
@@ -345,4 +360,5 @@ OPERATIONS = {
     "path": (getpath, "lxml getpath"),
     "path-xpath": (getpath, "lxml getpath"),
     "xpath": (xpath, "lxml"),
+    "transform": (transform, "lxml.etree"),
 }

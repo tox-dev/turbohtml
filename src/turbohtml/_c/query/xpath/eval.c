@@ -95,7 +95,14 @@ static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *a
 
 static int element_name_matches(struct th_node *node, const step_match *match) {
     if (match->atom != TH_TAG_UNKNOWN) {
-        if (node->atom != match->atom) {
+        /* An XML-parsed tree interns every element as TH_TAG_UNKNOWN, keeping the literal
+           spelling, so a name test whose query resolves to a static HTML atom must fall
+           back to a spelling compare to match a same-named element on such a tree. An HTML
+           tree never stores a known-tag spelling under TH_TAG_UNKNOWN, so this changes no
+           HTML-tree match. */
+        if (node->atom != match->atom &&
+            (node->atom != TH_TAG_UNKNOWN || node->text_len != match->local_len ||
+             memcmp(node->text, match->local, (size_t)match->local_len * sizeof(Py_UCS4)) != 0)) {
             return 0;
         }
     } else if (node->atom != TH_TAG_UNKNOWN || node->text_len != match->local_len ||
@@ -1090,9 +1097,15 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
     return rc;
 }
 
+int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos, Py_ssize_t size,
+               const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
+               xp_result *out, const char **feature) {
+    xp_ctx ctx = {tree, context, pos, size, feature, vars, namespaces, extension, extension_ctx, 0};
+    return eval_expr(prog, prog->root, &ctx, out);
+}
+
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature) {
-    xp_ctx ctx = {tree, context, 1, 1, feature, vars, namespaces, extension, extension_ctx, 0};
-    return eval_expr(prog, prog->root, &ctx, out);
+    return xp_eval_at(prog, tree, context, 1, 1, vars, namespaces, extension, extension_ctx, out, feature);
 }

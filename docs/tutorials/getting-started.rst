@@ -147,4 +147,34 @@ inherits that color:
 The value is the *computed* value, not the *used* value: turbohtml runs no layout, so lengths and percentages come back
 as written -- see :doc:`/explanation/cssom`.
 
+*********************
+ Transform with XSLT
+*********************
+
+turbohtml can also reshape one document into another with an XSLT 1.0 stylesheet, the job lxml's ``etree.XSLT`` does. A
+stylesheet is XML, so parse it with :func:`turbohtml.parse_xml`, wrap it in :class:`turbohtml.transform.Transform`, and
+call it on a source document:
+
+.. testcode::
+
+    from turbohtml import parse_xml
+    from turbohtml.transform import Transform
+
+    style = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="html"/>'
+        '<xsl:template match="/"><ul>'
+        '<xsl:apply-templates select="list/item"/></ul></xsl:template>'
+        '<xsl:template match="item"><li><xsl:value-of select="."/></li></xsl:template>'
+        "</xsl:stylesheet>"
+    )
+    print(Transform(style)(parse_xml("<list><item>one</item><item>two</item></list>")))
+
+.. testoutput::
+
+    <ul><li>one</li><li>two</li></ul>
+
+The transform reuses the XPath engine for every match pattern and select expression; see :doc:`/how-to/xslt` for
+parameters and output methods, and :doc:`/explanation/xslt` for how it works.
+
 With the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.
