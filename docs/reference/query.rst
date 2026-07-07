@@ -10,6 +10,18 @@ with attribute filters, :meth:`~Node.select` and :meth:`~Node.select_one` take C
 comes back as an :class:`XPathString` that remembers the element it was selected from. :class:`XPath` compiles an
 expression once and evaluates it against many context nodes or documents, skipping the per-call parse.
 
+The engine ships the XPath 1.0 core function library and the EXSLT ``re:``, ``set:``, ``str:``, ``math:``, and ``date:``
+namespaces (see :doc:`/how-to/xpath`). On top of the 1.0 core it answers the string subset of XPath 2.0, dispatched in
+the same C function table with no registration:
+
+- ``ends-with(string, suffix)`` -- ``true`` when ``string`` ends with ``suffix``.
+- ``string-join(node-set, sep)`` -- the string-values of the node-set joined by ``sep``.
+- ``lower-case(string)`` / ``upper-case(string)`` -- Unicode case mapping.
+- ``matches(input, pattern[, flags])`` -- ``true`` when the regex matches anywhere in ``input``.
+- ``replace(input, pattern, repl[, flags])`` -- every match rewritten, with ``$N`` group references in ``repl``.
+
+The full XPath 2.0 sequence, type, and FLWOR machinery is out of scope.
+
 .. autoclass:: Axis
     :members:
     :undoc-members:

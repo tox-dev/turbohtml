@@ -163,6 +163,24 @@ field:
     text 'Tom & '
     element a
 
+******************
+ Query with XPath
+******************
+
+When you are porting a scraper written against ``lxml`` or ``elementpath``, :meth:`~turbohtml.Node.xpath` runs the
+expression as-is. Beyond the XPath 1.0 core it also answers the string subset of XPath 2.0, so ``upper-case`` folds a
+result's case and ``ends-with`` filters inside a predicate:
+
+.. testcode::
+
+    print(doc.xpath("upper-case(//a)"))
+    print([a.attrs["href"] for a in doc.xpath("//a[ends-with(@href, '/x')]")])
+
+.. testoutput::
+
+    JERRY
+    ['/x']
+
 *******************
  Scrape every link
 *******************
