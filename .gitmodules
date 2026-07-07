@@ -44,3 +44,7 @@
 	path = tests/conformance/xml-conformance-suite
 	url = https://github.com/lddubeau/xml-conformance-suite.git
 	shallow = true
+[submodule "tests/conformance/qt3tests"]
+	path = tests/conformance/qt3tests
+	url = https://github.com/w3c/qt3tests
+	shallow = true

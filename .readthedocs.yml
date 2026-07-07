@@ -1,4 +1,8 @@
 version: 2
+# the docs build needs no submodules; excluding them keeps Read the Docs from fetching the large
+# conformance/bench corpora (e.g. the qt3tests XPath suite) on every build
+submodules:
+  exclude: all
 build:
   os: ubuntu-lts-latest
   tools:
