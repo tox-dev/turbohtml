@@ -391,6 +391,4 @@ def test_string_functions_agree_with_elementpath(expr: str) -> None:
     markup = "<div><p>One</p><p>Two</p><p>Three</p></div>"
     root = ET.fromstring(markup)  # noqa: S314
     want = elementpath.select(root, expr, parser=elementpath.XPath2Parser)
-    if isinstance(want, list) and len(want) == 1:
-        want = want[0]
     assert turbohtml.parse(markup).xpath(expr) == want
