@@ -852,8 +852,8 @@ static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_U
     while (read < len) {
         Py_UCS4 opener = in[read];
         Py_UCS4 next = read + 1 < len ? in[read + 1] : 0;
-        Py_UCS4 close_lead;
-        Py_UCS4 close_tail;
+        Py_UCS4 close_lead = 0;
+        Py_UCS4 close_tail = 0;
         if (opener == '{' && next == '{') {
             close_lead = '}';
             close_tail = '}';
@@ -891,7 +891,7 @@ static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_U
 /* Collapse the template markers in one kept attribute's value, rewriting it in place when SAFE_FOR_TEMPLATES is on and
    the value held a marker. Returns 0, or -1 on allocation failure. */
 static int strip_attr_templates(sanitizer *s, th_node *element, th_node_attr *attr) {
-    Py_UCS4 *out = PyMem_New(Py_UCS4, attr->value_len > 0 ? attr->value_len : 1);
+    Py_UCS4 *out = PyMem_Malloc((size_t)(attr->value_len > 0 ? attr->value_len : 1) * sizeof(Py_UCS4));
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1244,10 +1244,10 @@ static int strip_text_templates(sanitizer *s, th_node *node) {
     if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_UCS4 *out = PyMem_New(Py_UCS4, len); /* a text node always carries at least one code point, so len >= 1 */
-    if (out == NULL) {                      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(data);                   /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;                          /* GCOVR_EXCL_LINE */
+    Py_UCS4 *out = PyMem_Malloc((size_t)len * sizeof(Py_UCS4)); /* a text node carries >= 1 point, so len >= 1 */
+    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(data); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
     }
     int changed = 0;
     Py_ssize_t out_len = strip_template_markers(data, len, out, &changed);
