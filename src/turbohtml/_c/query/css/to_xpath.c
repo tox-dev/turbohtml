@@ -923,3 +923,109 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     PyMem_Free(ctx.out.data);
     return result;
 }
+
+/* Specificity (CSS Selectors Level 4 §17): a counts #id, b counts .class, [attr], and pseudo-classes, c counts type
+   and pseudo-element selectors; the universal * adds nothing. :is()/:not()/:has() take the specificity of their most
+   specific argument, and :where() always contributes zero. Accumulated into the three out-parameters. */
+static void spec_of_complex(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
+
+static void spec_of_simple(const sel_simple *simple, int *spec_a, int *spec_b, int *spec_c) {
+    if (simple->kind == '#') {
+        (*spec_a)++;
+        return;
+    }
+    if (simple->kind == 'e') {
+        (*spec_c)++;
+        return;
+    }
+    if (simple->kind == '.' || simple->kind == '[') {
+        (*spec_b)++;
+        return;
+    }
+    if (simple->kind == '*') {
+        return; /* the universal selector adds nothing */
+    }
+    /* only pseudo-classes reach here: :where() is zero, :is()/:not()/:has() take their most specific argument, and
+       every other pseudo-class is one b-level component */
+    if (simple->pseudo == PSEUDO_WHERE) {
+        return;
+    }
+    if (simple->pseudo != PSEUDO_IS && simple->pseudo != PSEUDO_NOT && simple->pseudo != PSEUDO_HAS) {
+        (*spec_b)++;
+        return;
+    }
+    int best_a = 0;
+    int best_b = 0;
+    int best_c = 0;
+    for (int index = 0; index < simple->sub_count; index++) {
+        int sub_a = 0;
+        int sub_b = 0;
+        int sub_c = 0;
+        spec_of_complex(&simple->sub[index], &sub_a, &sub_b, &sub_c);
+        /* pack each non-negative count into a 20-bit field so the lexicographic max is one comparison, not a chain of
+           them; a selector never carries a million of any one component, so no field overflows */
+        unsigned long long sub_key = (unsigned long long)sub_a << 40 | (unsigned long long)sub_b << 20 | sub_c;
+        unsigned long long best_key = (unsigned long long)best_a << 40 | (unsigned long long)best_b << 20 | best_c;
+        if (sub_key > best_key) {
+            best_a = sub_a;
+            best_b = sub_b;
+            best_c = sub_c;
+        }
+    }
+    *spec_a += best_a;
+    *spec_b += best_b;
+    *spec_c += best_c;
+}
+
+static void spec_of_complex(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c) {
+    for (int compound = 0; compound < complex->count; compound++) {
+        const sel_compound *piece = &complex->compounds[compound];
+        for (int simple = 0; simple < piece->count; simple++) {
+            spec_of_simple(&piece->simples[simple], spec_a, spec_b, spec_c);
+        }
+    }
+}
+
+/* _css_specificity(selector) -> list[tuple[int, int, int]]: one (a, b, c) triple per comma-separated selector, the
+   shape cssselect's Selector.specificity() returns. Parses the selector tree-lessly, the way _css_to_xpath does. */
+PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args) {
+    PyObject *selector = NULL;
+    if (!PyArg_ParseTuple(args, "U:_css_specificity", &selector)) {
+        return NULL;
+    }
+    Py_UCS4 *source = PyUnicode_AsUCS4Copy(selector);
+    if (source == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    sel_parser parser = {source, 0, PyUnicode_GET_LENGTH(selector), NULL, 0, 0, 0, "unexpected token"};
+    sel_complex *alts = NULL;
+    int count = 0;
+    if (sel_parse_alts(&parser, &alts, &count, 0, 0, 0) < 0) {
+        sel_raise(((module_state *)PyModule_GetState(module))->selector_error, selector, &parser);
+        PyMem_Free(source);
+        return NULL;
+    }
+    PyObject *result = PyList_New(count);
+    if (result == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        sel_free_alts(alts, count); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(source);         /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (int index = 0; index < count; index++) {
+        int spec_a = 0;
+        int spec_b = 0;
+        int spec_c = 0;
+        spec_of_complex(&alts[index], &spec_a, &spec_b, &spec_c);
+        PyObject *triple = Py_BuildValue("(iii)", spec_a, spec_b, spec_c);
+        if (triple == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(result);          /* GCOVR_EXCL_LINE: allocation-failure path */
+            sel_free_alts(alts, count); /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(source);         /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyList_SET_ITEM(result, index, triple);
+    }
+    sel_free_alts(alts, count);
+    PyMem_Free(source);
+    return result;
+}

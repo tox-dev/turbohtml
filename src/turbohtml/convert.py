@@ -15,7 +15,7 @@ delegate to the same engine, which always applies the HTML rules (element and at
 
 from __future__ import annotations
 
-from ._html import _css_to_xpath
+from ._html import _css_specificity, _css_to_xpath
 from ._selectors import SelectorSyntaxError
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "HTMLTranslator",
     "SelectorError",
     "SelectorSyntaxError",
+    "css_specificity",
     "css_to_xpath",
 ]
 
@@ -54,6 +55,23 @@ def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
         return _css_to_xpath(selector, prefix)
     except NotImplementedError as error:
         raise ExpressionError(str(error)) from None
+
+
+def css_specificity(selector: str) -> list[tuple[int, int, int]]:
+    """
+    Return the specificity of each selector in a comma-separated list.
+
+    Each triple is ``(a, b, c)`` per `CSS Selectors Level 4 §17
+    <https://www.w3.org/TR/selectors-4/#specificity-rules>`_: ``a`` counts id selectors, ``b`` counts class, attribute,
+    and pseudo-class selectors, and ``c`` counts type and pseudo-element selectors. ``:is()``, ``:not()``, and
+    ``:has()`` take the specificity of their most specific argument; ``:where()`` contributes zero. The list is one
+    triple per comma-separated selector, the shape ``cssselect``'s ``Selector.specificity()`` returns per parsed arm.
+
+    :param selector: the CSS selector list to weigh.
+    :raises SelectorSyntaxError: the selector does not parse.
+    :returns: one ``(a, b, c)`` triple per selector in the list, in source order.
+    """
+    return _css_specificity(selector)
 
 
 class GenericTranslator:

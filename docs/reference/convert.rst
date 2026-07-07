@@ -13,6 +13,12 @@ is context-free (no bare ``position()`` tests), so the expression stays valid in
 
 .. autofunction:: css_to_xpath
 
+:func:`css_specificity` weighs the same parsed selector instead of translating it, returning the ``(a, b, c)`` triple
+`CSS Selectors Level 4 §17 <https://www.w3.org/TR/selectors-4/#specificity-rules>`_ defines, one per comma-separated
+selector, the value cssselect exposes as ``Selector.specificity()``.
+
+.. autofunction:: css_specificity
+
 .. autoclass:: GenericTranslator
     :members: css_to_xpath
 

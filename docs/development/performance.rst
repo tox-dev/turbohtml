@@ -299,6 +299,14 @@ or otherwise non-literal pattern keeps the per-element Python path.
 .. bench-table::
     :file: bench/querying-4.json
 
+:func:`turbohtml.convert.css_specificity` weighs a selector list's ``(a, b, c)`` specificity, raced against `cssselect
+<https://github.com/scrapy/cssselect>`_'s ``Selector.specificity()``, the computation lxml, parsel, and pyquery inherit.
+turbohtml parses the selector and sums the weights in one C pass, so it leads across the type, compound, structural,
+complex, and grouped selectors below; cssselect parses in Python and builds a tree of selector objects first.
+
+.. bench-table::
+    :file: bench/css-specificity.json
+
 XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against lxml's libxml2 engine, the XPath that
 parsel, pyquery, and html5-parser all wrap (selectolax and BeautifulSoup have none). One expression per feature class
 (name tests, the ``//`` abbreviation, attribute, positional, and arithmetic predicates, string and aggregate functions,

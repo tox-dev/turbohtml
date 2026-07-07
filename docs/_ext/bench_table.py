@@ -55,6 +55,7 @@ _HOMEPAGES: Final = {
     "css-html-js-minify": "https://pypi.org/project/css-html-js-minify/",
     "csscompressor": "https://github.com/sprymix/csscompressor",
     "cssmin": "https://github.com/zacharyvoase/cssmin",
+    "cssselect": "https://github.com/scrapy/cssselect",
     "dominate": "https://github.com/Knio/dominate",
     "extruct": "https://github.com/scrapinghub/extruct",
     "fast-html": "https://github.com/pcarbonn/fast_html",

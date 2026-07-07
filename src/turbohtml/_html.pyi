@@ -141,6 +141,9 @@ from ._stubs.query import (
     XPath as XPath,
 )
 from ._stubs.query import (
+    _css_specificity as _css_specificity,
+)
+from ._stubs.query import (
     _css_to_xpath as _css_to_xpath,
 )
 from ._stubs.query import (

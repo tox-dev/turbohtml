@@ -61,6 +61,8 @@ Portable 1:1 without behavior change:
 - A comma-separated selector list translating to an XPath ``|`` union, one arm per selector.
 - The two failure modes as typed errors: :class:`turbohtml.SelectorSyntaxError` for a selector the grammar rejects and
   ``ExpressionError`` for a valid selector with no XPath 1.0 form.
+- ``Selector.specificity()`` — :func:`turbohtml.convert.css_specificity` returns the same ``(a, b, c)`` triple, one per
+  comma-separated selector rather than one per parsed ``Selector`` object.
 
 What turbohtml adds
 ===================

@@ -48,3 +48,23 @@ pseudo-class without a type) raises :class:`~turbohtml.convert.ExpressionError`:
 
     //h1 | //h2
     the of-type pseudo-classes need a type selector
+
+********************************
+ Weigh a selector's specificity
+********************************
+
+:func:`turbohtml.convert.css_specificity` returns the ``(a, b, c)`` triple `CSS Selectors Level 4 §17
+<https://www.w3.org/TR/selectors-4/#specificity-rules>`_ defines -- ``a`` for id selectors, ``b`` for class, attribute,
+and pseudo-class selectors, ``c`` for type and pseudo-element selectors -- one per comma-separated selector, matching
+``cssselect``'s ``Selector.specificity()``. ``:is()``, ``:not()``, and ``:has()`` take their most specific argument;
+``:where()`` contributes zero.
+
+.. testcode::
+
+    from turbohtml.convert import css_specificity
+
+    print(css_specificity("#nav a.link, :where(#x) p"))
+
+.. testoutput::
+
+    [(1, 1, 1), (0, 0, 1)]

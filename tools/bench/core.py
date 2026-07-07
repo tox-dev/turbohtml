@@ -20,6 +20,7 @@ from turbohtml.build import E
 from turbohtml.clean import LinkDetector as _LinkDetector
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
+from turbohtml.convert import css_specificity as _css_specificity
 from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
 from turbohtml.extract import boilerplate as _extract_boilerplate
@@ -473,6 +474,11 @@ def translate(selector: str) -> None:
     _css_to_xpath(selector)
 
 
+def specificity(selector: str) -> None:
+    """Weigh a CSS selector list's specificity with turbohtml's C selector parser."""
+    _css_specificity(selector)
+
+
 def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
     """Run turbohtml's URL scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind."""
     kind, batch = case
@@ -540,6 +546,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
     "translate": (translate, "turbohtml"),
+    "specificity": (specificity, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),

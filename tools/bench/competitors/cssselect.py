@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cssselect import HTMLTranslator
+from cssselect import HTMLTranslator, parse
 
 REQUIREMENTS = ("cssselect>=1.4",)
 
@@ -14,4 +14,9 @@ def translate(selector: str) -> None:
     _TRANSLATOR.css_to_xpath(selector)
 
 
-OPERATIONS = {"translate": (translate, "cssselect")}
+def specificity(selector: str) -> None:
+    """Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm."""
+    [parsed.specificity() for parsed in parse(selector)]
+
+
+OPERATIONS = {"translate": (translate, "cssselect"), "specificity": (specificity, "cssselect")}

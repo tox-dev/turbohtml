@@ -1,0 +1,4 @@
+:func:`turbohtml.convert.css_specificity` returns the ``(a, b, c)`` specificity of each selector in a comma-separated
+list, per CSS Selectors Level 4 §17, the value ``cssselect`` exposes as ``Selector.specificity()``. It weighs the parsed
+selector in one C pass, with ``:is()``/``:not()``/``:has()`` taking their most specific argument and ``:where()``
+contributing zero.
