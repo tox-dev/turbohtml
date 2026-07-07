@@ -1,8 +1,9 @@
 """``Policy.transform_tags`` (sanitize-html's ``transformTags``/``simpleTransform``): rename a tag mid-sanitize.
 
 A transform rewrites an element's name -- and, with a :class:`Transform`, adds attributes -- before the allowlist runs,
-so the renamed element is re-checked as if the author had written the target. The rename decides an element's name, never
-its safety: the allowlist still governs the target tag, and any added attributes are scrubbed like the element's own.
+so the renamed element is re-checked as if the author had written the target. The rename decides an element's name,
+never its safety: the allowlist still governs the target tag, and any added attributes are scrubbed like the element's
+own.
 """
 
 from __future__ import annotations
