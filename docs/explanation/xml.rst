@@ -57,3 +57,15 @@ WHATWG state machine would have meant a branch at every step for no shared logic
 that emits the same C node tree is smaller, keeps the HTML fast path untouched, and still reuses the arena allocator,
 the interned tag and attribute atoms, and the zero-copy text spans -- an XML text run with no entities or line-ending
 fixups points straight into the source buffer, exactly as the HTML parser's does.
+
+*************
+ Conformance
+*************
+
+The mode is validated against the W3C XML Conformance Test Suite (the OASIS/NIST/Sun/IBM/James-Clark ``xmlconf``
+collection, 2585 cases), vendored as the ``tests/conformance/xml-conformance-suite`` submodule and driven by
+``tests/conformance/test_xml_conformance.py``. Because ``parse_xml`` is a non-validating well-formedness checker, the
+oracle is the well-formedness verdict: every ``not-wf`` case in the document instance or prolog must raise, and every
+well-formed case (including DTD-*invalid*-but-well-formed ones) must parse. Cases that rely on a deliberately omitted
+feature -- DTD internal-subset grammar, DTD-declared or external entities, XML 1.1, or the byte-level encoding layer --
+are recorded as expected deviations with a spec-grounded reason rather than asserted.

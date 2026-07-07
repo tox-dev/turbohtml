@@ -82,6 +82,38 @@ def test_xml_declaration_is_not_a_node() -> None:
     assert [type(child) for child in doc.children] == [Element]
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<?xml version='1.0'?><r/>", id="version-only-single-quote"),
+        pytest.param('<?xml version = "1.0"?><r/>', id="spaces-around-equals"),
+        pytest.param('<?xml version="1.11"?><r/>', id="multi-digit-minor"),
+        pytest.param('<?xml version="1.0" ?><r/>', id="trailing-space"),
+        pytest.param('<?xml version="1.0" encoding="a.b_c-1"?><r/>', id="encoding-all-name-chars"),
+        pytest.param('<?xml version="1.0" standalone="no"?><r/>', id="standalone-no"),
+        pytest.param('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><r/>', id="encoding-then-standalone"),
+    ],
+)
+def test_well_formed_xml_declaration_parses(markup: str) -> None:
+    assert root_of(parse_xml(markup)).tag == "r"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("target", id="unrelated"),
+        pytest.param("foo", id="non-x-length-three"),
+        pytest.param("xyz", id="x-then-non-m"),
+        pytest.param("xmz", id="xm-then-non-l"),
+        pytest.param("xml-stylesheet", id="xml-prefixed-name"),
+    ],
+)
+def test_non_reserved_pi_targets_parse(target: str) -> None:
+    pi = root_of(parse_xml(f"<r><?{target} data?></r>")).children[0]
+    assert isinstance(pi, ProcessingInstruction)
+    assert pi.target == target
+
+
 def test_comment_and_processing_instruction() -> None:
     doc = parse_xml("<root><!-- note --><?target the data?></root>")
     root = doc.children[0]
@@ -121,7 +153,7 @@ def test_doctype_with_internal_subset() -> None:
     ("markup", "text"),
     [
         pytest.param("<r>&lt;&gt;&amp;&quot;&apos;</r>", "<>&\"'", id="predefined"),
-        pytest.param("<r>&#65;&#x42;&#X43;</r>", "ABC", id="numeric"),
+        pytest.param("<r>&#65;&#x42;&#x43;</r>", "ABC", id="numeric"),
         pytest.param("<r>&#9;&#10;&#13;</r>", "\t\n\r", id="numeric-whitespace"),
         pytest.param("<r>&#xE000;</r>", "", id="numeric-private-use"),
         pytest.param("<r>&#x1F600;</r>", "\U0001f600", id="numeric-supplementary"),
@@ -262,6 +294,7 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<a><!-- a--b --></a>", "xml-double-hyphen-in-comment", id="double-hyphen"),
         pytest.param("<a><![CDATA[x</a>", "xml-unterminated-cdata", id="unterminated-cdata"),
         pytest.param("<a><?pi go</a>", "xml-unterminated-pi", id="unterminated-pi"),
+        pytest.param("<?pi", "xml-unterminated-pi", id="pi-eof-after-target"),
         pytest.param("<a><?xml v?></a>", "xml-reserved-pi-target", id="reserved-pi-target"),
         pytest.param("<!DOCTYPE root", "xml-unterminated-doctype", id="unterminated-doctype"),
         pytest.param("<a><!DOCTYPE x></a>", "xml-doctype-outside-prolog", id="doctype-nested"),
@@ -284,6 +317,63 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<r>&#xD800;</r>", "xml-invalid-char-ref", id="surrogate-char-ref"),
         pytest.param("<r>&#xFFFF;</r>", "xml-invalid-char-ref", id="noncharacter-ref"),
         pytest.param("<r>&#99999999999;</r>", "xml-invalid-char-ref", id="overflow-char-ref"),
+        pytest.param("<r>&#X43;</r>", "xml-invalid-char-ref", id="uppercase-hex-marker"),
+        pytest.param("<r>￿</r>", "xml-invalid-char", id="noncharacter-in-content"),
+        pytest.param("<r>￾</r>", "xml-invalid-char", id="noncharacter-fffe-in-content"),
+        pytest.param('<r a="￿"/>', "xml-invalid-char", id="noncharacter-in-attribute"),
+        pytest.param("<r><!-- ￿ --></r>", "xml-invalid-char", id="noncharacter-in-comment"),
+        pytest.param("<r><![CDATA[￿]]></r>", "xml-invalid-char", id="noncharacter-in-cdata"),
+        pytest.param("<r><?pi ￿?></r>", "xml-invalid-char", id="noncharacter-in-pi"),
+        pytest.param("<r>\x0c</r>", "xml-invalid-char", id="form-feed-in-content"),
+        pytest.param("<r><?pi a\x0cb?></r>", "xml-invalid-char", id="form-feed-in-pi"),
+        pytest.param("<r><?pitarget+data?></r>", "xml-malformed-pi", id="pi-target-data-no-space"),
+        pytest.param("<?XML version='1.0'?><r/>", "xml-reserved-pi-target", id="uppercase-xml-decl-target"),
+        pytest.param("<r><?xmL go?></r>", "xml-reserved-pi-target", id="mixed-case-reserved-target"),
+        pytest.param("<?xml?><r/>", "xml-malformed-declaration", id="decl-no-version"),
+        pytest.param("<?xml ?><r/>", "xml-malformed-declaration", id="decl-space-no-version"),
+        pytest.param("<?xml encoding='UTF-8'?><r/>", "xml-malformed-declaration", id="decl-encoding-first"),
+        pytest.param("<?xml version?><r/>", "xml-malformed-declaration", id="decl-version-no-equals"),
+        pytest.param("<?xml version", "xml-malformed-declaration", id="decl-version-eof-before-equals"),
+        pytest.param("<?xml version=?><r/>", "xml-malformed-declaration", id="decl-version-no-quote"),
+        pytest.param("<?xml version=", "xml-malformed-declaration", id="decl-version-eof-before-quote"),
+        pytest.param('<?xml version="1.0?><r/>', "xml-malformed-declaration", id="decl-version-unterminated"),
+        pytest.param('<?xml version="2.0"?><r/>', "xml-malformed-declaration", id="decl-version-not-one"),
+        pytest.param('<?xml version="1x"?><r/>', "xml-malformed-declaration", id="decl-version-too-short"),
+        pytest.param('<?xml version="1_0"?><r/>', "xml-malformed-declaration", id="decl-version-no-dot"),
+        pytest.param('<?xml version="1.0z"?><r/>', "xml-malformed-declaration", id="decl-version-bad-digit"),
+        pytest.param('<?xml version="1./"?><r/>', "xml-malformed-declaration", id="decl-version-below-zero"),
+        pytest.param('<?xml version="1.0"x?><r/>', "xml-malformed-declaration", id="decl-attr-no-space"),
+        pytest.param('<?xml version="1.0" bad="x"?><r/>', "xml-malformed-declaration", id="decl-unknown-attr"),
+        pytest.param('<?xml version="1.0" encoding=""?><r/>', "xml-malformed-declaration", id="decl-encoding-empty"),
+        pytest.param('<?xml version="1.0" encoding?><r/>', "xml-malformed-declaration", id="decl-encoding-no-value"),
+        pytest.param(
+            '<?xml version="1.0" standalone?><r/>', "xml-malformed-declaration", id="decl-standalone-no-value"
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="8"?><r/>', "xml-malformed-declaration", id="decl-encoding-bad-start"
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="{"?><r/>', "xml-malformed-declaration", id="decl-encoding-start-above-z"
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="a{"?><r/>', "xml-malformed-declaration", id="decl-encoding-char-above-z"
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="a b"?><r/>', "xml-malformed-declaration", id="decl-encoding-bad-char"
+        ),
+        pytest.param(
+            '<?xml version="1.0" standalone="maybe"?><r/>', "xml-malformed-declaration", id="decl-standalone-bad"
+        ),
+        pytest.param(
+            '<?xml version="1.0" standalone="yes" encoding="UTF-8"?><r/>',
+            "xml-malformed-declaration",
+            id="decl-encoding-after-standalone",
+        ),
+        pytest.param(
+            '<?xml version="1.0" standalone="yes" standalone="no"?><r/>',
+            "xml-malformed-declaration",
+            id="decl-duplicate-standalone",
+        ),
         pytest.param("<r>x\r", "xml-premature-eof", id="trailing-cr"),
         pytest.param("<", "xml-invalid-name", id="bare-lt"),
         pytest.param("</", "xml-invalid-name", id="bare-end"),

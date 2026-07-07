@@ -36,3 +36,7 @@
 	path = tests/conformance/libxslt
 	url = https://github.com/GNOME/libxslt
 	shallow = true
+[submodule "tests/conformance/xml-conformance-suite"]
+	path = tests/conformance/xml-conformance-suite
+	url = https://github.com/lddubeau/xml-conformance-suite.git
+	shallow = true

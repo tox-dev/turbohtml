@@ -32,8 +32,9 @@ static int is_name_char(Py_UCS4 ch) {
     return is_name_start(ch) || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.';
 }
 
-/* A code point is an XML Char when it is TAB/LF/CR or a non-control scalar value
-   outside the surrogate range; the numeric-reference guard rejects everything else. */
+/* The Char production [2]: TAB/LF/CR or a scalar value outside the surrogate range
+   and the U+FFFE/U+FFFF noncharacters. Every literal text, attribute, comment, CDATA
+   and PI code point is held to it, as is a resolved numeric character reference. */
 static int is_xml_char(long ch) {
     return ch == 0x9 || ch == 0xA || ch == 0xD || (ch >= 0x20 && ch <= 0xD7FF) || (ch >= 0xE000 && ch <= 0xFFFD) ||
            (ch >= 0x10000 && ch <= 0x10FFFF);
@@ -222,7 +223,7 @@ static Py_UCS4 read_reference(xml_parser *parser) {
     parser->pos++; /* past '&' */
     if (parser->pos < parser->length && cp(parser, parser->pos) == '#') {
         parser->pos++;
-        int hex = parser->pos < parser->length && (cp(parser, parser->pos) == 'x' || cp(parser, parser->pos) == 'X');
+        int hex = parser->pos < parser->length && cp(parser, parser->pos) == 'x'; /* [66]: the marker is lowercase */
         if (hex) {
             parser->pos++;
         }
@@ -384,7 +385,7 @@ static int consume_text(xml_parser *parser) {
     int needs_build = 0;
     while (scan < parser->length && cp(parser, scan) != '<') {
         Py_UCS4 ch = cp(parser, scan);
-        if (ch < 0x20 && ch != '\t' && ch != '\n' && ch != '\r') {
+        if (!is_xml_char(ch)) {
             record(parser, "xml-invalid-char", scan);
             return -1;
         }
@@ -472,6 +473,10 @@ static int consume_comment(xml_parser *parser) {
             parser->pos += 3; /* past "-->" */
             return 0;
         }
+        if (!is_xml_char(cp(parser, parser->pos))) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
+        }
         parser->pos++;
     }
     record(parser, "xml-unterminated-comment", open);
@@ -500,10 +505,153 @@ static int consume_cdata(xml_parser *parser) {
             parser->pos += 3; /* past "]]>" */
             return 0;
         }
+        if (!is_xml_char(cp(parser, parser->pos))) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
+        }
         parser->pos++;
     }
     record(parser, "xml-unterminated-cdata", open);
     return -1;
+}
+
+/* Whether the name range [start, end) is "xml" in any case: the reserved PITarget
+   ([17]) that only the leading XML declaration, spelled in lowercase, may take. */
+static int name_is_xml_ci(const xml_parser *parser, Py_ssize_t start, Py_ssize_t end) {
+    static const char lower[] = "xml";
+    if (end - start != 3) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < 3; index++) { /* per char, accept either case */
+        Py_UCS4 ch = cp(parser, start + index);
+        if (ch != (Py_UCS4)lower[index] && ch != (Py_UCS4)(lower[index] - 'a' + 'A')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A VersionNum ([26]) is '1.' followed by one or more digits. */
+static int is_version_num(const xml_parser *parser, Py_ssize_t start, Py_ssize_t end) {
+    if (end - start < 3 || cp(parser, start) != '1' || cp(parser, start + 1) != '.') {
+        return 0;
+    }
+    for (Py_ssize_t index = start + 2; index < end; index++) {
+        Py_UCS4 ch = cp(parser, index);
+        if (ch < '0' || ch > '9') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* An EncName ([81]) is a letter followed by letters, digits, '.', '_' or '-'. */
+static int is_enc_name(const xml_parser *parser, Py_ssize_t start, Py_ssize_t end) {
+    Py_UCS4 first = start < end ? cp(parser, start) : 0;
+    if (!((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z'))) {
+        return 0;
+    }
+    for (Py_ssize_t index = start + 1; index < end; index++) {
+        Py_UCS4 ch = cp(parser, index);
+        int allowed = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' ||
+                      ch == '_' || ch == '-';
+        if (!allowed) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Read a pseudo-attribute value: Eq ([25], S? '=' S?) then a quoted run, leaving
+   [*value_start, *value_end) on the literal and pos past the close quote. */
+static int xml_decl_value(xml_parser *parser, Py_ssize_t *value_start, Py_ssize_t *value_end) {
+    skip_space(parser);
+    if (parser->pos >= parser->length || cp(parser, parser->pos) != '=') {
+        record(parser, "xml-malformed-declaration", parser->pos);
+        return -1;
+    }
+    parser->pos++; /* past '=' */
+    skip_space(parser);
+    if (parser->pos >= parser->length || (cp(parser, parser->pos) != '"' && cp(parser, parser->pos) != '\'')) {
+        record(parser, "xml-malformed-declaration", parser->pos);
+        return -1;
+    }
+    Py_UCS4 quote = cp(parser, parser->pos);
+    parser->pos++; /* past the opening quote */
+    *value_start = parser->pos;
+    while (parser->pos < parser->length && cp(parser, parser->pos) != quote) {
+        parser->pos++;
+    }
+    if (parser->pos >= parser->length) {
+        record(parser, "xml-malformed-declaration", *value_start);
+        return -1;
+    }
+    *value_end = parser->pos;
+    parser->pos++; /* past the closing quote */
+    return 0;
+}
+
+/* Validate the XML declaration ([23]) after its 'xml' target: VersionInfo, then an
+   optional EncodingDecl and SDDecl in that order, then '?>'. It configures the
+   parse and is not a tree node. Position is just past "xml"; returns 0 or -1. */
+static int consume_xml_decl(xml_parser *parser) {
+    Py_ssize_t before_version = parser->pos;
+    skip_space(parser);
+    if (parser->pos == before_version || !starts_with(parser, parser->pos, "version")) {
+        record(parser, "xml-malformed-declaration", parser->pos);
+        return -1;
+    }
+    parser->pos += 7; /* past "version" */
+    Py_ssize_t version_start;
+    Py_ssize_t version_end;
+    if (xml_decl_value(parser, &version_start, &version_end) < 0) {
+        return -1;
+    }
+    if (!is_version_num(parser, version_start, version_end)) {
+        record(parser, "xml-malformed-declaration", version_start);
+        return -1;
+    }
+    int seen_encoding = 0;
+    int seen_standalone = 0;
+    for (;;) {
+        Py_ssize_t before_attr = parser->pos;
+        skip_space(parser);
+        if (starts_with(parser, parser->pos, "?>")) {
+            parser->pos += 2; /* past "?>" */
+            return 0;
+        }
+        if (parser->pos == before_attr) { /* pseudo-attributes are separated by S */
+            record(parser, "xml-malformed-declaration", parser->pos);
+            return -1;
+        }
+        Py_ssize_t value_start;
+        Py_ssize_t value_end;
+        if (!seen_encoding && !seen_standalone && starts_with(parser, parser->pos, "encoding")) {
+            parser->pos += 8; /* past "encoding" */
+            if (xml_decl_value(parser, &value_start, &value_end) < 0) {
+                return -1;
+            }
+            if (!is_enc_name(parser, value_start, value_end)) {
+                record(parser, "xml-malformed-declaration", value_start);
+                return -1;
+            }
+            seen_encoding = 1;
+        } else if (!seen_standalone && starts_with(parser, parser->pos, "standalone")) {
+            parser->pos += 10; /* past "standalone" */
+            if (xml_decl_value(parser, &value_start, &value_end) < 0) {
+                return -1;
+            }
+            if (!name_equals(parser, value_start, value_end, "yes") &&
+                !name_equals(parser, value_start, value_end, "no")) {
+                record(parser, "xml-malformed-declaration", value_start);
+                return -1;
+            }
+            seen_standalone = 1;
+        } else {
+            record(parser, "xml-malformed-declaration", parser->pos);
+            return -1;
+        }
+    }
 }
 
 static int consume_pi(xml_parser *parser) {
@@ -514,13 +662,24 @@ static int consume_pi(xml_parser *parser) {
     if (target_end < 0) {
         return -1;
     }
-    int is_xml_decl = name_equals(parser, target_start, target_end, "xml");
-    if (is_xml_decl && open != 0) { /* the XML declaration is only the very first construct */
+    if (name_is_xml_ci(parser, target_start, target_end)) {
+        if (open == 0 && name_equals(parser, target_start, target_end, "xml")) {
+            return consume_xml_decl(parser); /* the leading, lowercase declaration */
+        }
         record(parser, "xml-reserved-pi-target", target_start);
+        return -1;
+    }
+    if (parser->pos < parser->length && !starts_with(parser, parser->pos, "?>") &&
+        !xml_is_space(cp(parser, parser->pos))) { /* [16]: target and data are S-separated */
+        record(parser, "xml-malformed-pi", parser->pos);
         return -1;
     }
     Py_ssize_t data_start = parser->pos;
     while (parser->pos < parser->length && !starts_with(parser, parser->pos, "?>")) {
+        if (!is_xml_char(cp(parser, parser->pos))) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
+        }
         parser->pos++;
     }
     if (parser->pos >= parser->length) {
@@ -529,9 +688,6 @@ static int consume_pi(xml_parser *parser) {
     }
     Py_ssize_t data_end = parser->pos;
     parser->pos += 2; /* past "?>" */
-    if (is_xml_decl) {
-        return 0; /* the declaration configures the parse; it is not a tree node */
-    }
     while (data_start < data_end && xml_is_space(cp(parser, data_start))) {
         data_start++; /* the target/data separator is not part of the data */
     }
@@ -678,6 +834,10 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
                 return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             continue;
+        }
+        if (!is_xml_char(ch)) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
         }
         if (ch == '\t' || ch == '\n' || ch == '\r') {
             ch = ' '; /* attribute-value normalization folds literal whitespace to space */

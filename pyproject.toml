@@ -295,9 +295,10 @@ ini_options.testpaths = [
 # testpaths is tests only, so no build artifact dir is ever swept
 ini_options.norecursedirs = [ "*.egg", ".*", "_darcs", "{arch}", "CVS", "dist", "node_modules", "venv" ]
 ini_options.addopts = [
-  "--ignore=tests/conformance/unicodetools", # vendored Unicode data submodule, not our test modules
-  "--ignore=tests/html5lib-tests",           # vendored conformance data, not our test modules
-  "--import-mode=importlib",                 # tests mirror the source tree in nested dirs without __init__.py
+  "--ignore=tests/conformance/unicodetools",          # vendored Unicode data submodule, not our test modules
+  "--ignore=tests/conformance/xml-conformance-suite", # vendored xmlconf data + JS framework, not our test modules
+  "--ignore=tests/html5lib-tests",                    # vendored conformance data, not our test modules
+  "--import-mode=importlib",                          # tests mirror the source tree in nested dirs without __init__.py
 ]
 ini_options.filterwarnings = [
   "error",
@@ -312,6 +313,7 @@ run.omit = [
   "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
   "tests/conformance/test_cssom_jsdom_conformance.py", # differential oracle: skips when the node/jsdom toolchain is absent
   "tests/conformance/test_dom_jsdom_differential.py",
+  "tests/conformance/test_xml_conformance.py",
   "tests/convert/test_css_to_xpath_differential.py",
   "tests/convert/test_transform_differential.py",
   "tests/dom/test_parse_xml_differential.py",
