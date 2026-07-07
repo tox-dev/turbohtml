@@ -1,6 +1,0 @@
-Validated :func:`turbohtml.cssom.computed_style` differentially against jsdom's ``getComputedStyle``: a Node runner
-resolves the cascade through jsdom while turbohtml resolves the same 39 fixtures, covering specificity, source order,
-``!important``, the style attribute, inheritance, ``inherit``/``initial``/``unset``/``revert``, initial values, and
-distributive shorthand expansion. The suite records the documented boundaries -- colors kept unserialized, no user-agent
-stylesheet, the curated shorthand set -- and confirmed turbohtml expands the ``overflow`` shorthand where jsdom does
-not.
