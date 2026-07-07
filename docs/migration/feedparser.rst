@@ -54,13 +54,12 @@ Feature overlap
 The shared surface you can port one-to-one:
 
 - ``feedparser.parse(xml)`` -> :func:`turbohtml.extract.feed`, one call returning the normalized feed.
-- ``result.feed.title`` / ``.link`` / ``.description`` -> :attr:`Feed.title <turbohtml.extract.Feed>`, ``.link``,
-  ``.description``; ``result.feed.updated`` -> :attr:`Feed.updated <turbohtml.extract.Feed>`.
-- ``result.entries`` -> :attr:`Feed.entries <turbohtml.extract.Feed>`, one :class:`~turbohtml.extract.Entry` per item.
+- ``result.feed.title`` / ``.link`` / ``.description`` -> :class:`~turbohtml.extract.Feed` ``.title``, ``.link``,
+  ``.description``; ``result.feed.updated`` -> ``Feed.updated``.
+- ``result.entries`` -> ``Feed.entries``, one :class:`~turbohtml.extract.Entry` per item.
 - ``entry.title`` / ``.link`` / ``.id`` / ``.summary`` / ``.author`` -> the same names on
-  :class:`~turbohtml.extract.Entry`; ``entry.published`` / ``.updated`` -> :attr:`Entry.published
-  <turbohtml.extract.Entry>` / :attr:`~turbohtml.extract.Entry.updated`; ``entry.content`` (feedparser's list) ->
-  :attr:`Entry.content <turbohtml.extract.Entry>` (the resolved body string).
+  :class:`~turbohtml.extract.Entry`; ``entry.published`` / ``.updated`` -> ``Entry.published`` / ``Entry.updated``;
+  ``entry.content`` (feedparser's list) -> ``Entry.content`` (the resolved body string).
 
 What turbohtml adds
 ===================
@@ -114,11 +113,11 @@ Swap the import and the call; read attributes off the typed records instead of a
     - - ``feedparser.parse(url)``
       - :func:`~turbohtml.extract.feed` on the body you fetch yourself
     - - ``result.feed.title`` / ``.link``
-      - :attr:`Feed.title <turbohtml.extract.Feed>` / :attr:`~turbohtml.extract.Feed.link`
+      - ``Feed.title`` / ``Feed.link``
     - - ``entry.published`` / ``entry.published_parsed``
-      - :attr:`Entry.published <turbohtml.extract.Entry>` (string); parse it yourself for a ``datetime``
+      - ``Entry.published`` (string); parse it yourself for a ``datetime``
     - - ``entry.get("summary")``
-      - :attr:`Entry.summary <turbohtml.extract.Entry>`
+      - ``Entry.summary``
 
 Before, with ``feedparser``, the parse returns a ``FeedParserDict`` you read by key or attribute:
 
@@ -191,6 +190,6 @@ on the response body. A document with no feed root reads back as ``None`` rather
 - **A non-feed document returns ``None``**, where feedparser returns a ``FeedParserDict`` with ``bozo`` set and empty
   ``entries``. Guard the ``None`` before reading ``.entries``.
 - **``content`` is one string**, the resolved body (``content:encoded`` or Atom ``<content>``), not feedparser's list of
-  content dicts with ``type``/``value``. Read :attr:`Entry.summary <turbohtml.extract.Entry>` for the short form.
+  content dicts with ``type``/``value``. Read ``Entry.summary`` for the short form.
 - **Link values are verbatim**, not resolved against the feed's base. Absolutize relative links yourself with
   :func:`turbohtml.extract.normalize_url` when you hold a base URL.

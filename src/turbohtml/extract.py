@@ -165,11 +165,9 @@ def feed(xml: str, /) -> Feed | None:
     Parse an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into a :class:`Feed`, the ``feedparser.parse`` successor.
 
     Detects the format from the root element and maps each format's spelling of a field onto one shape: the feed's
-    :attr:`~Feed.title`/:attr:`~Feed.link`/:attr:`~Feed.description`/:attr:`~Feed.updated` and its
-    :attr:`~Feed.entries`, each :class:`Entry` carrying :attr:`~Entry.title`, :attr:`~Entry.link`, :attr:`~Entry.id`,
-    :attr:`~Entry.updated`/:attr:`~Entry.published`, :attr:`~Entry.summary`/:attr:`~Entry.content`, and
-    :attr:`~Entry.author`. Timestamps are returned verbatim, not parsed. Shorthand for
-    :meth:`turbohtml.Document.feed`.
+    ``title``, ``link``, ``description``, and ``updated``, and its ``entries``, each :class:`Entry` carrying ``title``,
+    ``link``, ``id``, ``updated``/``published``, ``summary``/``content``, and ``author``. Timestamps are returned
+    verbatim, not parsed. Shorthand for :meth:`turbohtml.Document.feed`.
 
     :param xml: the feed document.
     :returns: the parsed :class:`Feed`, or ``None`` when ``xml`` has no ``<rss>``, ``<feed>``, or ``<rdf:RDF>`` root.
