@@ -11,8 +11,8 @@ successors historically had no equivalent rename step.
 
 turbohtml's :mod:`turbohtml.clean` sanitizer covers the same allowlist surface behind a frozen, thread-safe
 :class:`~turbohtml.clean.Policy`, and ``Policy.transform_tags`` is the direct port of ``transformTags``: it renames HTML
-elements during the same single C walk, with :class:`~turbohtml.clean.Transform` playing the role of ``simpleTransform``.
-Moving the sanitize step into Python drops the Node subprocess, and the second language with it.
+elements during the same single C walk, with :class:`~turbohtml.clean.Transform` playing the role of
+``simpleTransform``. Moving the sanitize step into Python drops the Node subprocess, and the second language with it.
 
 ****************************
  turbohtml vs sanitize-html

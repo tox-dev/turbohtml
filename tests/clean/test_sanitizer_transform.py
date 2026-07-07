@@ -17,7 +17,9 @@ from turbohtml.clean import Policy, Sanitizer, Transform, sanitize, sanitize_rep
     [
         pytest.param("<b>hi</b>", {"b": "strong"}, {"strong"}, "<strong>hi</strong>", id="string-rename"),
         pytest.param("<i>hi</i>", {"i": Transform("em")}, {"em"}, "<em>hi</em>", id="transform-rename-only"),
-        pytest.param("<b>a</b><i>b</i>", {"b": "strong"}, {"strong", "i"}, "<strong>a</strong><i>b</i>", id="one-of-two"),
+        pytest.param(
+            "<b>a</b><i>b</i>", {"b": "strong"}, {"strong", "i"}, "<strong>a</strong><i>b</i>", id="one-of-two"
+        ),
         pytest.param("<b>x</b>", {"b": "strong"}, {"em"}, "&lt;strong&gt;x&lt;/strong&gt;", id="target-not-allowed"),
         pytest.param("<p>x</p>", {"b": "strong"}, {"p"}, "<p>x</p>", id="no-rule-untouched"),
     ],
