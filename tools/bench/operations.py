@@ -99,6 +99,26 @@ _XML_DOC = (
     + "</catalog>"
 )
 
+_SHADOW_CARD = (
+    '<article class="card">'
+    '<template shadowrootmode="open" shadowrootclonable shadowrootdelegatesfocus>'
+    '<style>:host{{display:block}}</style><header><slot name="title">Untitled {index}</slot></header>'
+    '<section><slot>No description</slot></section><footer><slot name="meta"></slot></footer>'
+    "</template>"
+    '<span slot="title">Card {index}</span>'
+    '<p>Body copy for card number {index} with some inline <a href="/item/{index}">detail</a> text.</p>'
+    '<span slot="meta">tag-{index}</span>'
+    "</article>"
+)
+
+# A document of declarative shadow hosts: 200 web-component cards whose <template shadowrootmode> attaches an open
+# shadow root (with slots and the delegatesfocus/clonable flags) to each host, sized to clear the CodSpeed jitter floor.
+_SHADOW_DOC = (
+    "<!doctype html><html><head><title>Component gallery</title></head><body><main>"
+    + "".join(_SHADOW_CARD.format(index=index) for index in range(200))
+    + "</main></body></html>"
+)
+
 _SANITIZE_TEMPLATES = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
@@ -178,6 +198,7 @@ OPERATIONS: dict[str, Operation] = {
     "parse-xml": Operation("parse XML to a tree", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
     "parse-locations": Operation("parse to a tree (source locations)", "us"),
+    "parse-shadow": Operation("parse declarative shadow roots", "us"),
     "fragment": Operation("parse a fragment", "us"),
     "escape": Operation("escape", "us"),
     "unescape": Operation("unescape", "us"),
@@ -521,6 +542,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
+    "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,

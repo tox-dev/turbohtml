@@ -177,6 +177,11 @@ def parse_locations(text: str) -> None:
     turbohtml.parse(text, source_locations=True)
 
 
+def parse_shadow(text: str) -> None:
+    """Parse a document whose <template shadowrootmode> elements attach declarative shadow roots to their parents."""
+    turbohtml.parse(text)
+
+
 def fragment(text: str) -> None:
     """Parse a fragment in its container context with turbohtml.parse_fragment."""
     turbohtml.parse_fragment(text, context="tbody")
@@ -680,6 +685,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "parse-xml": (parse_xml, "turbohtml"),
     "parse-scripting": (parse_scripting, "turbohtml"),
     "parse-locations": (parse_locations, "turbohtml"),
+    "parse-shadow": (parse_shadow, "turbohtml"),
     "fragment": (fragment, "turbohtml"),
     "escape": (escape, "turbohtml"),
     "unescape": (unescape, "turbohtml"),
