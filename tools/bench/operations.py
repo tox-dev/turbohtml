@@ -106,6 +106,16 @@ _SANITIZE_LEGACY = dedent("""\
     <blockquote><b>Quote</b> from <i>an author</i> with a <font color=red>colored</font> aside.</blockquote>
     <ul><li><b>one</b></li><li><i>two</i></li><li><tt>three</tt></li></ul>""")
 
+# dense in id/name attributes whose values collide with document/form properties (DOM clobbering), so the named-prop
+# isolation prefixes most attributes rather than skipping past a value it never touches
+_SANITIZE_NAMED = dedent("""\
+    <form name="config" id="settings">
+      <input name="attributes" id="body"><input name="method" id="location">
+      <input name="submit" id="cookie"><input name="nodeName" id="documentElement">
+      <a id="forms" name="images" href="http://example.com/x">links</a>
+      <a id="anchors" name="scripts" href="http://example.com/y">scripts</a>
+    </form>""")
+
 # rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
 # per-declaration regex work rather than short-circuiting on an empty rule
 _SANITIZE_STYLES = dedent("""\
@@ -167,6 +177,7 @@ OPERATIONS: dict[str, Operation] = {
     "syndication": Operation("RSS/Atom feed parsing", "us"),
     "sanitize": Operation("sanitize", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
+    "sanitize-named-props": Operation("sanitize (named-prop isolation)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
     "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
     "sanitize-transform": Operation("sanitize (tag transform)", "us"),
@@ -476,6 +487,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
     "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
+    "sanitize-named-props": lambda: (("clobbering 4 KiB", _SANITIZE_NAMED * 11),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),

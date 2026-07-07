@@ -332,6 +332,15 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://img.shields.io/npm/dt/sanitize-html
             :alt: sanitize-html total downloads
             :target: https://www.npmjs.com/package/sanitize-html
+    - - 15
+      - :doc:`DOMPurify <dompurify>`
+      - `docs <https://github.com/cure53/DOMPurify>`__
+      - .. image:: https://img.shields.io/npm/dm/dompurify
+            :alt: DOMPurify monthly downloads
+            :target: https://www.npmjs.com/package/dompurify
+      - .. image:: https://img.shields.io/npm/dt/dompurify
+            :alt: DOMPurify total downloads
+            :target: https://www.npmjs.com/package/dompurify
 
 *********
  Convert
@@ -713,6 +722,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     bleach
     nh3
     sanitize-html
+    dompurify
     lxml-html-clean
     rcssmin
     rjsmin

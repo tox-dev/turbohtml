@@ -44,8 +44,10 @@ typedef struct {
     int allow_relative;
     int on_disallowed;
     int strip_comments;
-    int strip_templates; /* SAFE_FOR_TEMPLATES: collapse {{ }}, ${ }, <% %> runs so kept text/attrs stay template-safe
-                          */
+    int strip_templates;     /* SAFE_FOR_TEMPLATES: collapse {{ }}, ${ }, <% %> runs so kept text/attrs stay
+                                template-safe */
+    int isolate_named_props; /* SANITIZE_NAMED_PROPS: prefix kept id/name values with "user-content-" so they cannot
+                                shadow a document/form named property (DOM clobbering) */
 } sanitizer;
 
 /* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
@@ -1033,6 +1035,47 @@ static int strip_attr_templates(sanitizer *s, th_node *element, th_node_attr *at
     return status;
 }
 
+/* DOMPurify's SANITIZE_NAMED_PROPS. An attacker-controlled id or name whose value matches a built-in document or form
+   property name shadows that property through named access -- DOM clobbering, where `<input name="attributes">` makes
+   `form.attributes` resolve to the input and `<img name="body">` hides `document.body`. Prefixing every kept id/name
+   value with "user-content-" moves it out of the property namespace, so no value can collide with a real property
+   name; the prefix is left in place when already present, so re-sanitizing is a fixpoint. A bare id/name carries no
+   value to shadow with, but is prefixed all the same so the isolation is unconditional on the two attributes.
+   Returns 0, or -1 on allocation failure. */
+static int prefix_named_prop(sanitizer *s, th_node *element, const th_node_attr *attr) {
+    Py_ssize_t name_len = 0;
+    const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
+    if (!((name_len == 2 && memcmp(name, "id", 2) == 0) || (name_len == 4 && memcmp(name, "name", 4) == 0))) {
+        return 0; /* only id and name expose named-property access, so no other attribute is isolated */
+    }
+    static const char prefix[] = "user-content-";
+    Py_ssize_t prefix_len = (Py_ssize_t)(sizeof(prefix) - 1);
+    const Py_UCS4 *value = attr->value;
+    Py_ssize_t len = value == NULL ? 0 : attr->value_len;
+    if (len >= prefix_len) {
+        int already = 1;
+        for (Py_ssize_t index = 0; already && index < prefix_len; index++) {
+            already = value[index] == (Py_UCS4)prefix[index];
+        }
+        if (already) {
+            return 0; /* already isolated, so re-prefixing would double the marker and corrupt the value */
+        }
+    }
+    Py_UCS4 *out = PyMem_Malloc((size_t)(prefix_len + len) * sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < prefix_len; index++) {
+        out[index] = (Py_UCS4)prefix[index];
+    }
+    if (len > 0) { /* a bare id/name has no value to copy; the prefix alone becomes its value */
+        memcpy(out + prefix_len, value, (size_t)len * sizeof(Py_UCS4));
+    }
+    int status = th_node_attr_set(s->tree, element, name, name_len, out, prefix_len + len, 1);
+    PyMem_Free(out);
+    return status;
+}
+
 static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     Py_ssize_t index = 0;
     while (index < element->attr_count) {
@@ -1120,6 +1163,13 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag) {
             if (element->attr_count < before) {
                 continue; /* the filter deleted it */
             }
+        }
+        /* Isolate last, after the filter has had its say, so the value it returns is what gets namespaced and no
+           attribute_filter can leave a clobbering value un-prefixed. Re-fetch the slot: a set above may have
+           reallocated the attribute array. prefix_named_prop only fails on allocation, which no test can force. */
+        th_node_attr *slot = &element->attrs[index];
+        if (s->isolate_named_props && prefix_named_prop(s, element, slot) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                           /* GCOVR_EXCL_LINE */
         }
         index++;
     }
@@ -1523,18 +1573,18 @@ static int require_prefixes(PyObject *prefixes) {
 
 /* _sanitize(element, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
    attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates, removed, allowed_styles, transform_tags) -> None. Filters the fragment in place;
-   sanitizer.py serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to, or None to skip the
-   audit. */
+   media_hosts, strip_templates, removed, allowed_styles, transform_tags, isolate_named_props) -> None. Filters the
+   fragment in place; sanitizer.py serializes it. `removed` is a list the walk appends (tag, attr_or_None) records to,
+   or None to skip the audit. */
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *element;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOO:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOp:_sanitize", &element, &s.tags, &s.attributes, &s.url_schemes,
                           &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
                           &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
                           &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles,
-                          &s.transform_tags)) {
+                          &s.transform_tags, &s.isolate_named_props)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;

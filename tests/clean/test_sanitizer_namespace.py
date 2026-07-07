@@ -38,12 +38,12 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     """Run the C sanitizer in place over a pre-built tree, removing every disallowed node's subtree."""
     # named to keep the boolean positional arguments off the FBT003 lint, not to document them
     allow_relative = strip_comments = True
-    strip_templates = False
+    strip_templates = isolate_named_props = False
     empty: frozenset[str] = frozenset()
     schemes = frozenset({"http", "https", "mailto"})
     _sanitize(
         root, tags, {}, schemes, allow_relative, OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
-        empty, empty, {}, empty, strip_templates, None, {}, {},
+        empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props,
     )  # fmt: skip
     return root.inner_html
 

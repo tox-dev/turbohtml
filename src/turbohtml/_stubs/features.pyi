@@ -66,6 +66,7 @@ def _sanitize(
     removed: list[tuple[str, str | None]] | None,
     allowed_styles: Mapping[str, Mapping[str, tuple[re.Pattern[str], ...]]],
     transform_tags: Mapping[str, tuple[str, Mapping[str, str]]],
+    isolate_named_props: bool,
     /,
 ) -> None: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...

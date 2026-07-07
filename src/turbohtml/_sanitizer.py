@@ -175,6 +175,11 @@ class Policy:
     :param strip_template_markers: collapse template-engine expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text
         and attribute values to a single space, so sanitized output cannot re-inject when a template engine (Angular,
         Vue, Mustache, EJS, ERB) later renders it. DOMPurify's ``SAFE_FOR_TEMPLATES``; off by default.
+    :param isolate_named_props: prefix every kept ``id`` and ``name`` value with ``user-content-`` so it cannot shadow
+        a built-in ``document`` or form property through named access (DOM clobbering: ``<input name="attributes">``
+        makes ``form.attributes`` resolve to the input, ``<img name="body">`` hides ``document.body``). The prefix is
+        left alone when already present, so re-sanitizing is a fixpoint. DOMPurify's ``SANITIZE_NAMED_PROPS``; off by
+        default.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -195,6 +200,7 @@ class Policy:
     strip_template_markers: bool = False
     allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]] = field(default_factory=dict)
     transform_tags: Mapping[str, Transform | str] = field(default_factory=dict)
+    isolate_named_props: bool = False
 
     @classmethod
     def strict(cls) -> Policy:
@@ -323,6 +329,7 @@ class Sanitizer:
             removed,
             self._allowed_styles,
             self._transform_tags,
+            policy.isolate_named_props,
         )
         return root
 

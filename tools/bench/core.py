@@ -66,6 +66,16 @@ _SANITIZER_TRANSFORM = _clean.Sanitizer(
         },
     )
 )
+# allow id/name broadly and keep the form controls that carry the clobbering-prone values, so isolation prefixes most
+# attributes rather than skipping a value it never touches
+_SANITIZER_NAMED_PROPS = _clean.Sanitizer(
+    replace(
+        _RELAXED,
+        attributes={**_RELAXED.attributes, "*": frozenset({"id", "name", "title", "lang", "dir"})},
+        tags=_RELAXED.tags | {"form", "input"},
+        isolate_named_props=True,
+    )
+)
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -298,6 +308,11 @@ def sanitize(text: str) -> None:
 def sanitize_templates(text: str) -> None:
     """Sanitize with SAFE_FOR_TEMPLATES on, collapsing template markers as the C walk keeps each node."""
     _SANITIZER_TEMPLATES.sanitize(text)
+
+
+def sanitize_named_props(text: str) -> None:
+    """Sanitize with SANITIZE_NAMED_PROPS on, prefixing each kept id/name value in the same C walk."""
+    _SANITIZER_NAMED_PROPS.sanitize(text)
 
 
 def sanitize_report(text: str) -> None:
@@ -610,6 +625,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "syndication": (syndication, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
+    "sanitize-named-props": (sanitize_named_props, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),
     "sanitize-styles": (sanitize_styles, "turbohtml"),
     "sanitize-transform": (sanitize_transform, "turbohtml"),

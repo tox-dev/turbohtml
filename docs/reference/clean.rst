@@ -70,6 +70,27 @@ must be allowlisted to survive:
 
     <strong>bold</strong> and <div class="center">middle</div>
 
+``Policy.isolate_named_props`` prefixes every kept ``id`` and ``name`` value with ``user-content-``, DOMPurify's
+``SANITIZE_NAMED_PROPS``. It stops DOM clobbering -- an ``id`` or ``name`` whose value matches a built-in ``document``
+or form property shadows that property through named access -- by moving the value out of the property namespace. An
+already-prefixed value is left alone, so re-sanitizing is a fixpoint. The isolation is applied after
+``attribute_filter``, so the value a filter returns is the one that gets namespaced:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"input"}),
+        attributes={"input": frozenset({"name"})},
+        isolate_named_props=True,
+    )
+    print(sanitize('<input name="attributes">', policy))
+
+.. testoutput::
+
+    <input name="user-content-attributes">
+
 .. autoclass:: Transform
 
 .. autoclass:: OnDisallowed

@@ -1,0 +1,20 @@
+{
+  "label": "operation",
+  "parties": [
+    "turbohtml",
+    "DOMPurify"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "sanitize (template-safe) — templated 4 KiB",
+      3.4542055800557137e-05,
+      0.2417227909900248
+    ],
+    [
+      "sanitize (named-prop isolation) — clobbering 4 KiB",
+      3.062502946704626e-05,
+      0.24151520803570747
+    ]
+  ]
+}

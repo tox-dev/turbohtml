@@ -41,6 +41,32 @@ single space, matching DOMPurify's ``SAFE_FOR_TEMPLATES``.
     print(sanitize("<p title='{{x}}'>Hi {{ user.name }}</p>", policy))
     # <p title=" ">Hi  </p>
 
+***************************
+ Neutralize DOM clobbering
+***************************
+
+When you allow ``id`` or ``name`` on kept elements, an attacker can set a value that collides with a built-in
+``document`` or form property and shadow it through named access -- ``<input name="attributes">`` makes
+``form.attributes`` resolve to the input, ``<img name="body">`` hides ``document.body``. The allowlist keeps the
+attribute because it is otherwise ordinary. Set ``isolate_named_props`` to prefix every kept ``id`` and ``name`` value
+with ``user-content-``, moving it out of the property namespace so no value can collide, matching DOMPurify's
+``SANITIZE_NAMED_PROPS``. An already-prefixed value is left alone, so re-sanitizing is a fixpoint.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"a", "input"}),
+        attributes={"a": frozenset({"id", "href"}), "input": frozenset({"name"})},
+        isolate_named_props=True,
+    )
+    print(sanitize('<a id="location" href="http://x/">x</a><input name="attributes">', policy))
+
+.. testoutput::
+
+    <a id="user-content-location" href="http://x/">x</a><input name="user-content-attributes">
+
 *********************************************
  Restrict inline styles to known-good values
 *********************************************

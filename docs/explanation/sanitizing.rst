@@ -33,3 +33,18 @@ the element's own to be scrubbed by the same gates below. A transform therefore 
 gate underneath still governs its *safety*. Putting the additive step above the subtractive stack, instead of letting it
 write past the allowlist, is why ``{"b": "script"}`` cannot smuggle a live ``<script>`` and an injected ``href`` cannot
 carry a ``javascript:`` URL -- the transform hands its output back to the pipeline rather than around it.
+
+``isolate_named_props`` is the other rewriting step, and its design turns on a constraint the layered model does not:
+turbohtml has no live DOM. DOM clobbering exploits *named access* -- an ``id`` or ``name`` whose value matches a
+built-in property makes that property resolve to the attacker's element (``<input name="attributes">`` shadows
+``form.attributes``, ``<img name="body">`` shadows ``document.body``). Nothing about such an attribute is malformed, so
+the allowlist keeps it; only a defense aimed at the collision itself removes it. DOMPurify offers two: ``SANITIZE_DOM``
+tests ``value in document`` and drops a real collision, and ``SANITIZE_NAMED_PROPS`` prefixes every ``id``/``name``
+value with ``user-content-``. The first needs the running engine's property set, which only a live DOM can enumerate;
+the second is a pure string transform. turbohtml sanitizes a parsed tree with no DOM to probe, so it takes the second
+design: prefixing is unconditional and complete, where a static reimplementation of the ``in document`` check would be a
+hand-maintained name list that silently misses whatever property a future engine adds. Applying the prefix *after*
+``attribute_filter`` -- the last configurable gate -- rather than before, means no filter can hand back a clobbering
+value the isolation then fails to namespace; like the dangerous-value baseline, the guarantee sits below the caller's
+reach. Idempotence closes the loop: a value already carrying the prefix is left untouched, so sanitizing sanitized
+output is a fixpoint rather than a growing stack of ``user-content-user-content-`` markers.

@@ -84,6 +84,24 @@ re-checked -- modernizing legacy tags while the safety baseline still applies:
 
     <div class="center"><strong>Old</strong> <em>markup</em></div>
 
+The same pass can defuse DOM clobbering. An ``id`` or ``name`` whose value matches a built-in property
+(``form.attributes``, ``document.body``) shadows it through named access, and the allowlist keeps such an attribute
+because it is otherwise ordinary. Turn on ``isolate_named_props`` to prefix every kept ``id`` and ``name`` value with
+``user-content-``, moving it out of the property namespace:
+
+.. testcode::
+
+    policy = Policy(
+        tags=frozenset({"form", "input"}),
+        attributes={"form": frozenset({"id"}), "input": frozenset({"name"})},
+        isolate_named_props=True,
+    )
+    print(sanitize('<form id="settings"><input name="attributes"></form>', policy))
+
+.. testoutput::
+
+    <form id="user-content-settings"><input name="user-content-attributes"></form>
+
 When you serialize, set an ``Html`` config's ``layout`` to a :class:`~turbohtml.Minify` to shrink the output without
 changing what it means: it folds insignificant whitespace, omits optional tags, unquotes safe attributes, and strips
 comments, and the result reparses to the same tree. Here the ``</li>`` tags stay because real whitespace separates the
