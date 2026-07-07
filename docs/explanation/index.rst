@@ -41,6 +41,7 @@ It is the wrong tool in a few honest cases:
     source-locations
     tree-model
     traversal
+    ranges
     queries
     structured-data
     serialization

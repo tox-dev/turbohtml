@@ -77,6 +77,8 @@ typedef struct {
     PyObject *markdown_config_type;  /* turbohtml._render.Markdown, the to_markdown() options type */
     PyObject *plaintext_config_type; /* turbohtml._render.PlainText, the to_text()/to_annotated_text() options type */
     PyObject *html_config_type;      /* turbohtml._render.Html, the serialize()/encode() options type */
+    PyObject *range_type;            /* Range, the live DOM Range (dom/range.c) */
+    PyObject *static_range_type;     /* StaticRange, the immutable boundary-point snapshot */
     /* A freelist of node wrappers: find_all()/select()/iteration mint and drop one
        NodeObject per visited node, and every node subtype shares sizeof(NodeObject)
        (the payload lives in the C th_node), so one pool re-stamps ob_type on reuse.
@@ -92,6 +94,7 @@ typedef struct {
 int token_register(PyObject *module, module_state *state);
 int tokenizer_register(PyObject *module, module_state *state);
 int tree_register(PyObject *module, module_state *state);
+int range_register(PyObject *module, module_state *state);
 
 /* Free every node wrapper parked on the freelist; called from module teardown
    before the node types are cleared. A no-op on the free-threaded build. */

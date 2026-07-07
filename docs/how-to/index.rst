@@ -15,6 +15,7 @@ ending with running the toolkit from a shell.
     tokenizing
     forms
     editing
+    ranges
     encoding
     selecting
     finding

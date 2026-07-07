@@ -199,7 +199,11 @@ static int html_exec(PyObject *module) {
     if (tokenizer_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE */
         return -1;                               /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return tree_register(module, state);
+    /* allocation failure cannot be forced from a test */
+    if (tree_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return range_register(module, state);
 }
 
 static int html_traverse(PyObject *module, visitproc visit, void *arg) {
@@ -260,6 +264,8 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->plaintext_config_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->html_config_type);      /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->range_type);            /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->static_range_type);     /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 7; index++) {
         Py_VISIT(state->axes[index]); /* GCOVR_EXCL_BR_LINE: same */
     }
@@ -327,6 +333,8 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->markdown_config_type);
     Py_CLEAR(state->plaintext_config_type);
     Py_CLEAR(state->html_config_type);
+    Py_CLEAR(state->range_type);
+    Py_CLEAR(state->static_range_type);
     for (int index = 0; index < 7; index++) {
         Py_CLEAR(state->axes[index]);
     }

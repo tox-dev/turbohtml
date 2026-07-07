@@ -111,7 +111,9 @@ input recovers the WHATWG way, and every node shares the navigation, query, and 
       - --
 
 parse5 is the reference JavaScript WHATWG parser rather than a Python library; its guide is a cross-language reference
-for porting a parse5 pipeline -- and its ``sourceCodeLocationInfo`` model in particular -- onto turbohtml.
+for porting a parse5 pipeline -- and its ``sourceCodeLocationInfo`` model in particular -- onto turbohtml. jsdom is the
+reference JavaScript DOM built on parse5; its guide maps the DOM traversal (``TreeWalker``, ``NodeIterator``) and range
+(``Range``, ``StaticRange``) APIs onto turbohtml's.
 
 ********
  Detect

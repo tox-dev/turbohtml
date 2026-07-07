@@ -32,6 +32,16 @@ shape), so there is no text/tail split.
 .. autoclass:: Doctype
     :members:
 
+A :class:`Range` marks a run of the tree between two boundary points (a ``(container, offset)`` pair each) and copies,
+moves, deletes, or wraps everything between them, following the DOM Living Standard. :class:`StaticRange` is its
+immutable snapshot. See :doc:`/explanation/ranges` for the boundary-point model and :doc:`/how-to/ranges` for recipes.
+
+.. autoclass:: Range
+    :members:
+
+.. autoclass:: StaticRange
+    :members:
+
 :meth:`Node.links` yields one :class:`Link` per link it finds.
 
 .. autoclass:: Link

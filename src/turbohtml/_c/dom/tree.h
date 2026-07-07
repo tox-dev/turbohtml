@@ -155,6 +155,15 @@ th_tree *th_tree_new(void);
    of the data code points in the tree's arena. NULL on allocation failure. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len);
 
+/* Construct an empty document-fragment node (a TH_NODE_CONTENT) in the tree's
+   arena: the container the Range content operations fill. NULL on allocation
+   failure. */
+th_node *th_tree_make_fragment(th_tree *tree);
+
+/* Materialize a character-data node's borrowed source span into an owned buffer in
+   place and return node->text, so a caller can slice the code points directly. */
+Py_UCS4 *th_node_realize_text(th_tree *tree, th_node *node);
+
 /* Construct a processing-instruction node owning target and data (packed with the
    split point in attr_count). NULL on allocation failure. */
 th_node *th_tree_make_pi(th_tree *tree, const Py_UCS4 *target, Py_ssize_t target_len, const Py_UCS4 *data,

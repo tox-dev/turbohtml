@@ -47,6 +47,7 @@ py.extension_module(
         'src/turbohtml/_c/dom/element.c',
         'src/turbohtml/_c/dom/leaf.c',
         'src/turbohtml/_c/dom/traversal.c',
+        'src/turbohtml/_c/dom/range.c',
         'src/turbohtml/_c/dom/formatters.c',
         'src/turbohtml/_c/dom/document.c',
         'src/turbohtml/_c/serialize/escape.c',

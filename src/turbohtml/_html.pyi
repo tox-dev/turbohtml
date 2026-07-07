@@ -54,6 +54,12 @@ from ._stubs.dom import (
     ProcessingInstruction as ProcessingInstruction,
 )
 from ._stubs.dom import (
+    Range as Range,
+)
+from ._stubs.dom import (
+    StaticRange as StaticRange,
+)
+from ._stubs.dom import (
     Text as Text,
 )
 from ._stubs.dom import (

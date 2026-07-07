@@ -64,6 +64,7 @@ _DOCUMENT_OPS = (
     "navigate",
     "treewalk",
     "chain",
+    "range-clone",
     "links-extract",
     "links-absolutize",
     "links-rewrite",

@@ -287,4 +287,25 @@ For a flat, front-to-back view of the same filtered nodes, :class:`turbohtml.Nod
 subtree to prune, so it treats reject and skip alike. See :doc:`/how-to/traversing` for the full cursor and
 :doc:`/explanation/traversal` for why the reject/skip split matters.
 
+***************************
+ Copy a slice with a Range
+***************************
+
+To grab a run of siblings rather than a single node, mark it with a :class:`turbohtml.Range`. A range holds two boundary
+points -- each a ``(container, offset)`` pair -- and :meth:`~turbohtml.Range.clone_contents` returns a fragment copying
+everything between them, leaving the tree untouched. Span the paragraph's second child (the link) and copy it:
+
+.. testcode::
+
+    from turbohtml import Range
+
+    para = doc.find("p")
+    span = Range(para, 1)
+    span.set_end(para, 2)
+    print(span.clone_contents().html)
+
+.. testoutput::
+
+    <a href="/x">Jerry</a>
+
 Continue to :doc:`editing` to build and change trees of your own.

@@ -22,6 +22,19 @@ th_tree *th_tree_new(void) {
     return PyMem_Calloc(1, sizeof(th_tree));
 }
 
+/* Construct an empty document-fragment node in tree's arena: the container the
+   Range content operations (dom/range.c) fill and hand back. */
+th_node *th_tree_make_fragment(th_tree *tree) {
+    return node_new(tree, TH_NODE_CONTENT);
+}
+
+/* Materialize a character-data node's text in place (a parsed text node borrows a
+   source span until realized) and return the owned code-point buffer, so the Range
+   operations can slice node->text directly. */
+Py_UCS4 *th_node_realize_text(th_tree *tree, th_node *node) {
+    return need_text(tree, node);
+}
+
 /* Construct a text/comment/doctype node owning a copy of data in tree's arena. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len) {
     th_node *node = node_new(tree, (enum th_node_type)type);

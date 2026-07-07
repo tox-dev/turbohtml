@@ -1,0 +1,13 @@
+Added the DOM Living Standard :class:`~turbohtml.Range` and :class:`~turbohtml.StaticRange` types. A ``Range`` holds two
+boundary points -- each a ``(container, offset)`` pair -- and carries the full boundary API
+(:meth:`~turbohtml.Range.set_start`/:meth:`~turbohtml.Range.set_end` and their ``_before``/``_after`` variants,
+:meth:`~turbohtml.Range.select_node`, :meth:`~turbohtml.Range.select_node_contents`, :meth:`~turbohtml.Range.collapse`),
+the derived :attr:`~turbohtml.Range.collapsed` and :attr:`~turbohtml.Range.common_ancestor_container` properties, the
+comparisons (:meth:`~turbohtml.Range.compare_boundary_points`, :meth:`~turbohtml.Range.compare_point`,
+:meth:`~turbohtml.Range.is_point_in_range`, :meth:`~turbohtml.Range.intersects_node`), and the content operations
+(:meth:`~turbohtml.Range.clone_contents`, :meth:`~turbohtml.Range.extract_contents`,
+:meth:`~turbohtml.Range.delete_contents`, :meth:`~turbohtml.Range.insert_node`,
+:meth:`~turbohtml.Range.surround_contents`, :meth:`~turbohtml.Range.clone_range`), each following the WHATWG
+boundary-point ordering and extract/clone/delete algorithms in C under the per-tree critical section. ``StaticRange`` is
+the immutable four-value snapshot. Offsets index code points in character data and children elsewhere, so a Python
+string's own indexing lines up with a text-node offset.

@@ -272,6 +272,14 @@ def chain(text: str) -> None:
     _Query(_parsed(text))("a").filter("[href]").eq(0).add_class("seen").attr("href")
 
 
+def range_clone(text: str) -> None:
+    """Clone a DOM Range spanning the whole <body> subtree with turbohtml's Range.clone_contents."""
+    body = _parsed(text).find_all("body")[0]
+    span = turbohtml.Range(body, 0)
+    span.set_end(body, len(body.children))
+    span.clone_contents()
+
+
 def links_extract(text: str) -> None:
     """Collect every link with turbohtml's links()."""
     _parsed(text).links()
@@ -624,6 +632,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "navigate": (navigate, "turbohtml"),
     "treewalk": (treewalk, "turbohtml"),
     "chain": (chain, "turbohtml"),
+    "range-clone": (range_clone, "turbohtml"),
     "links-extract": (links_extract, "turbohtml"),
     "links-absolutize": (Mutating(turbohtml.parse, links_absolutize), "turbohtml"),
     "links-rewrite": (links_rewrite, "turbohtml"),
