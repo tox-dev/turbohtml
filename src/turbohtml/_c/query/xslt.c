@@ -1650,9 +1650,8 @@ static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name
     if (prefix == NULL) {
         int made = snprintf(generated, sizeof(generated), "ns_%d", ++eng->ns_counter);
         char decl[40];
-        memcpy(decl, "xmlns:", 6);
-        memcpy(decl + 6, generated, (size_t)made);
-        int rc = th_node_attr_set(eng->out_tree, out_parent, decl, 6 + made, nsuri, nsuri_len, 1);
+        int decl_len = snprintf(decl, sizeof(decl), "xmlns:%s", generated);
+        int rc = th_node_attr_set(eng->out_tree, out_parent, decl, decl_len, nsuri, nsuri_len, 1);
         if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
