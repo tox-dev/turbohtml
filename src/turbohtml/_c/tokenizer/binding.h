@@ -49,6 +49,7 @@ typedef struct {
     PyObject *string_walker_type;     /* _StringIterator (strings / stripped_strings) */
     PyObject *serialize_iter_type;    /* _SerializeIterator (serialize_iter chunk stream) */
     PyObject *sax_events_type;        /* _SaxEvents (the O(depth) event walk behind saxparse) */
+    PyObject *rewrite_handle_type;    /* _RewriteHandle (the node handle a streaming rewrite handler edits) */
     PyObject *namespace_enum;         /* Namespace (enum.Enum) */
     PyObject *namespaces[3];          /* cached Namespace members, indexed by enum th_ns */
     PyObject *axis_enum;              /* Axis (enum.Enum) for find()/find_all() */
@@ -100,6 +101,14 @@ int token_register(PyObject *module, module_state *state);
 int tokenizer_register(PyObject *module, module_state *state);
 int tree_register(PyObject *module, module_state *state);
 int sax_register(PyObject *module, module_state *state);
+int rewrite_register(PyObject *module, module_state *state);
+
+/* Stream a DOM-less rewrite over source: match the compiled element handlers against the
+   open-element spine and drive the text/comment/doctype handlers, applying each handler's
+   edits to the incrementally emitted output. Wired as the private _rewrite() behind
+   turbohtml.rewrite.rewrite(). Matches METH_VARARGS:
+   (source, element_handlers, text_handler, comment_handler, doctype_handler). */
+PyObject *turbohtml_rewrite(PyObject *module, PyObject *args);
 
 /* Parse markup and return a _SaxEvents iterator that walks the constructed tree in
    document order, yielding one event tuple at a time without ever handing back a

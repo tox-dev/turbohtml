@@ -190,6 +190,7 @@ static PyMethodDef html_methods[] = {
     {"_build_document", (PyCFunction)(void (*)(void))turbohtml_build_document, METH_VARARGS | METH_KEYWORDS, NULL},
     {"_tokenize_states", turbohtml_tokenize_states, METH_VARARGS, NULL},
     {"_sax_events", turbohtml_sax_events, METH_O, NULL},
+    {"_rewrite", turbohtml_rewrite, METH_VARARGS, NULL},
     {"_parse_tree", turbohtml_parse_tree, METH_VARARGS, NULL},
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
@@ -237,6 +238,9 @@ static int html_exec(PyObject *module) {
     if (sax_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    if (rewrite_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     /* allocation failure cannot be forced from a test */
     if (tree_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE */
         return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -277,6 +281,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->string_walker_type);  /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->serialize_iter_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->sax_events_type);     /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->rewrite_handle_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->namespace_enum);      /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->namespaces[index]); /* GCOVR_EXCL_BR_LINE: same */
@@ -351,6 +356,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->string_walker_type);
     Py_CLEAR(state->serialize_iter_type);
     Py_CLEAR(state->sax_events_type);
+    Py_CLEAR(state->rewrite_handle_type);
     Py_CLEAR(state->namespace_enum);
     for (int index = 0; index < 3; index++) {
         Py_CLEAR(state->namespaces[index]);

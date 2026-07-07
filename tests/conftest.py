@@ -4,6 +4,7 @@ width, so width-sensitive tests run under all three kinds.
 
 from __future__ import annotations
 
+import gc
 import sys
 import sysconfig
 from typing import TYPE_CHECKING, TypeVar
@@ -30,6 +31,15 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     # untestable without building a deliberately GIL-re-enabling extension to import mid-run
     if _FREE_THREADED and not _gil_enabled_at_start and sys._is_gil_enabled():  # pragma: no cover
         session.exitstatus = 1
+    # Park a batch of node wrappers on the recycling freelist so the module-teardown clear
+    # (turbohtml._html's th_node_freelist_clear) runs against a non-empty pool at interpreter
+    # shutdown -- otherwise that path is covered only when the last node op of a run happens to
+    # leave the pool populated, which the random test order makes fragile. These lines run after
+    # coverage stops measuring (sessionfinish), so they execute -- covering the C teardown -- but
+    # are not recorded by the Python gate.
+    pooled = parse("<ul>" + "<li></li>" * 64 + "</ul>").find_all("li")  # pragma: no cover
+    del pooled  # pragma: no cover
+    gc.collect()  # pragma: no cover
 
 
 @pytest.fixture(params=[1, 2, 4], ids=["ucs1", "ucs2", "ucs4"])

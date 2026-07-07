@@ -264,6 +264,12 @@ from ._stubs.tokenizer import (
     _grow_probe as _grow_probe,
 )
 from ._stubs.tokenizer import (
+    _rewrite as _rewrite,
+)
+from ._stubs.tokenizer import (
+    _RewriteHandle as _RewriteHandle,
+)
+from ._stubs.tokenizer import (
     _sax_events as _sax_events,
 )
 from ._stubs.tokenizer import (
