@@ -67,3 +67,13 @@ is a structural defense against a namespace-*confused* node the parser never pro
 choice about which content languages an application accepts at all. Keeping the two separate means enabling MathML is a
 statement about intent, not a relaxation of the mutation-XSS defense that still governs how a MathML node may be
 reached.
+
+**Validated against DOMPurify.** ``tests/conformance/test_sanitizer_dompurify_conformance.py`` runs DOMPurify's own
+corpus (its ``test/fixtures/expect.mjs``, ~219 XSS vectors, vendored as a pinned submodule) through the sanitizer under
+every config, and diffs against a live DOMPurify Node build. The absolute result holds across the whole corpus and every
+config: turbohtml's output is inert, and never keeps an executable construct DOMPurify strips. On curated inputs the two
+allowlists share, ``strip_template_markers``, ``isolate_named_props``, ``custom_element_check``, and the namespace
+profiles match DOMPurify's output exactly. Two divergences are on record, both cases where turbohtml is *stricter*: its
+template stripper collapses only marker runs that can *open* a template evaluation, leaving a bare unmatched close
+delimiter as inert text; and stripping a disallowed HTML wrapper drops a nested foreign (SVG/MathML) subtree rather than
+hoisting it.

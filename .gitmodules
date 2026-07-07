@@ -31,6 +31,10 @@
 [submodule "tests/conformance/unicodetools"]
 	path = tests/conformance/unicodetools
 	url = https://github.com/unicode-org/unicodetools
+||||||| parent of ec939e92 (✅ test(clean): validate sanitizer vs DOMPurify suite)
+[submodule "tests/conformance/DOMPurify"]
+	path = tests/conformance/DOMPurify
+	url = https://github.com/cure53/DOMPurify
 	shallow = true
 [submodule "tests/conformance/libxml2"]
 	path = tests/conformance/libxml2
