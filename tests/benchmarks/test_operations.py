@@ -5,7 +5,7 @@ times over the same real corpora, so every operation the project tracks gets an 
 and adding an operation adds a benchmark. The benchmarks run only under ``--codspeed`` (see ``conftest.py``): the CI
 benchmark job passes it, and locally it is opt-in. Mutating operations rebuild their tree through the pedantic ``setup``
 hook, which runs untimed before each measured call, so the number is the mutation and not the parse. A case whose corpus
-is not checked out (or cannot be fetched) skips rather than fails.
+is not checked out fails loudly rather than skipping, so a benchmark run can never silently measure nothing.
 """
 
 from __future__ import annotations
@@ -29,8 +29,10 @@ if TYPE_CHECKING:
 def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], object]) -> None:
     try:
         case = load()
-    except OSError as exc:  # corpus submodule not checked out, or the pinned upstream file could not be fetched
-        pytest.skip(f"corpus unavailable: {exc}")
+    except OSError as exc:
+        # this body runs only under --codspeed (conftest skips it otherwise), so a missing corpus is a hard error
+        msg = f"bench corpus submodule not checked out: {exc}; run: git submodule update --init tools/bench-data"
+        raise RuntimeError(msg) from exc
     if isinstance(operation, Mutating):
         benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))
     else:

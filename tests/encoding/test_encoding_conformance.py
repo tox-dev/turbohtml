@@ -10,6 +10,11 @@ from turbohtml import parse
 
 _SUITE = Path(__file__).parents[1] / "html5lib-tests" / "encoding"
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _SUITE.is_dir() or not any(_SUITE.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 # A few tests1.dat cases place the only <meta charset> well past byte 1024 (the
 # "N characters" boundary fixtures and the multi-script test, meta at 2026..8323)
 # and expect it honored. The WHATWG "prescan a byte stream to determine its

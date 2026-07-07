@@ -23,6 +23,12 @@ from turbohtml import Html, Minify, parse
 from turbohtml.clean import CSSMinify
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
+
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TREE_DIR.is_dir() or not any(_TREE_DIR.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 _MINIFY = Minify()
 # the CSS pass rewrites every <style> body and style="" value the corpus carries; the
 # value-safe engine is itself idempotent, so enabling it must keep the reparse a fixpoint

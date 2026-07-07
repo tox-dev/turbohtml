@@ -18,6 +18,13 @@ from markdown_it import MarkdownIt
 
 from turbohtml import parse
 
+_TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
+
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TREE_DIR.is_dir() or not any(_TREE_DIR.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 
 def md(html: str) -> str:
     return parse(html).to_markdown()
@@ -483,9 +490,8 @@ def test_roundtrip_preserves_text(html: str) -> None:
 def _corpus_inputs() -> list[str]:
     """HTML fragments pulled from the vendored html5lib-tests tree-construction
     .dat files: small, deliberately malformed markup that stresses the walker."""
-    root = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
     inputs: list[str] = []
-    for dat in sorted(root.glob("*.dat")):
+    for dat in sorted(_TREE_DIR.glob("*.dat")):
         for block in dat.read_text(encoding="utf-8").split("#data\n")[1:]:
             data = block.split("\n#errors", 1)[0]
             if "�" not in data and len(data) < 200:

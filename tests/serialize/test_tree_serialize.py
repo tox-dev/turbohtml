@@ -270,6 +270,11 @@ def test_serialize_iter_propagates_a_raising_truthiness() -> None:
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TREE_DIR.is_dir() or not any(_TREE_DIR.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 
 def _corpus_sources(path: Path) -> list[str]:
     sources: list[str] = []

@@ -25,6 +25,11 @@ from turbohtml import _html
 
 TOKENIZER_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tokenizer"
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not TOKENIZER_DIR.is_dir() or not any(TOKENIZER_DIR.glob("*.test")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 _DOUBLE_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
 
 

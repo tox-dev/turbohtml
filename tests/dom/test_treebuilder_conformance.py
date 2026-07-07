@@ -19,6 +19,11 @@ from turbohtml import _html
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TREE_DIR.is_dir() or not any(_TREE_DIR.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 
 def _parse_dat(path: Path) -> list[tuple[str, str, bool, str | None]]:
     """Return (input, expected-document, script-on, fragment-context) per block."""

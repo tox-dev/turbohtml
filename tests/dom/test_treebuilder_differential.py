@@ -39,6 +39,11 @@ from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, Text
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TREE_DIR.is_dir() or not any(_TREE_DIR.glob("*.dat")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 # "adjust foreign attributes" (WHATWG 13.2.6.5): only these prefixed names on an SVG/MathML
 # element serialize with a namespace-separating space; any other xml:/xlink: name keeps its colon.
 # Bare ``xmlns`` is in the spec table but never appears on a foreign element in the pinned corpus.

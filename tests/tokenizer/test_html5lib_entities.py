@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 _TOKENIZER = Path(__file__).parents[1] / "html5lib-tests" / "tokenizer"
 _FILES = ["entities.test", "namedEntities.test", "numericEntities.test"]
 
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TOKENIZER.is_dir() or not any(_TOKENIZER.glob("*.test")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Generate one test per html5lib character-reference case."""
