@@ -1310,6 +1310,7 @@ static void rw_ctx_clear(rw_ctx *ctx) {
     PyMem_Free(ctx->stack);
     for (Py_ssize_t index = 0; index < ctx->rule_count; index++) {
         selector_free(ctx->rules[index].compiled);
+        Py_DECREF(ctx->rules[index].handler);
     }
     PyMem_Free(ctx->rules);
     PyMem_Free(ctx->out.data);
