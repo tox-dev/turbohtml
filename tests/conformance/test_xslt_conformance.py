@@ -42,29 +42,11 @@ if not _CORPUS.exists():  # pragma: no cover
 
 # Features outside turbohtml's XSLT 1.0 subset, each keyed by "<dir>/<stem>" with the spec reason.
 _XFAIL: dict[str, str] = {
-    "REC/stand-2.7-1": "xsl:strip-space/preserve-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-3.4-1": "xsl:strip-space/preserve-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-3.4-2": "xsl:strip-space/preserve-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-3.4-3": "xsl:strip-space/preserve-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-9.1-1": "xsl:strip-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-9.1-2": "xsl:strip-space whitespace stripping (section 3.4) is not modeled",
-    "REC/test-2.3-1": "simplified (literal-result-element) stylesheets (section 2.3) are not modeled",
-    "REC/test-2.6.2-1": "xsl:import of external stylesheets (section 2.6.2) is not modeled",
-    "REC/test-7.1.1": "xsl:namespace-alias (section 7.1.1) is not modeled",
-    "REC/test-7.1.3": "xsl:namespace-alias (section 7.1.1) is not modeled",
-    "REC/test-7.1.4": "use-attribute-sets / xsl:attribute-set (section 7.1.4) is not modeled",
-    "REC/test-7.7-3": "multi-level xsl:number (level='multiple', count/from) is not modeled",
-    "REC/test-7.7-5": "multi-level xsl:number (level='multiple', count/from) is not modeled",
-    "REC/test-7.7-6": "xsl:number grouping-separator/grouping-size and lang are not modeled",
-    "REC/test-10-3": "locale-aware xsl:sort collation (lang='de') is not modeled",
-    "REC/test-12.4-1": "generate-id over the namespace:: axis is not modeled",
-    "REC/test-5.2-10": "id() patterns need DTD-declared ID attributes, which the parser does not track",
-    "REC/test-15-1": "extension elements (extension-element-prefixes) and xsl:fallback are not modeled",
-    "REC/test-16.1-1": "the cdata-section-elements output option (section 16.1) is not modeled",
-    "REC/test-16.1-2": "the cdata-section-elements output option (section 16.1) is not modeled",
-    "REC/test-2.5-1": "html output method auto-selection and meta content-type injection are not modeled",
-    "REC/test-8-1": "html output method auto-selection and meta content-type injection are not modeled",
-    "REC2/html": "html output method auto-selection and meta content-type injection are not modeled",
+    "REC/test-10-3": "not yet supported: locale-aware xsl:sort collation (lang='de') needs an ICU/locale layer "
+    "turbohtml does not carry; the default is Unicode-codepoint collation",
+    "REC/test-12.4-1": "not yet supported: generate-id over the namespace:: axis needs the XPath namespace axis",
+    "REC/test-5.2-10": "not yet supported: id() over DTD-declared ID attributes needs a DTD layer the parser "
+    "does not have",
 }
 
 
@@ -100,6 +82,7 @@ def test_xslt_conformance(case_id: str, xsl: Path, request: pytest.FixtureReques
     result = transform(
         turbohtml.parse_xml(stylesheet),
         turbohtml.parse_xml(source),
+        base_url=str(xsl),
         test="'passed_value'",
         test2="'passed_value2'",
     )

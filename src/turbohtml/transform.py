@@ -13,30 +13,79 @@ apply-many shape::
     result = convert(parse_xml(document_source))
 
 The whole transform runs in the C extension, reusing turbohtml's XPath 1.0 engine for every match pattern and select
-expression. It covers the XSLT 1.0 instruction set -- ``xsl:template`` (match, name, mode, priority),
-``xsl:apply-templates``, ``xsl:call-template``, ``xsl:for-each``, ``xsl:if``, ``xsl:choose``, ``xsl:value-of``,
-``xsl:copy``/``xsl:copy-of``,
-``xsl:element``/``xsl:attribute``/``xsl:text``, ``xsl:variable``/``xsl:param``, ``xsl:sort``, ``xsl:number``,
-``xsl:key`` and the ``key()`` function, the built-in template rules, the section 5.5 conflict resolution,
-``exclude-result-prefixes`` with the section 7.1.1 namespace-node copying, and the ``xml``/``html``/``text`` output
-methods. External-document loading (``xsl:include``, ``xsl:import``, ``document()``) is not modeled.
+expression. It covers XSLT 1.0: ``xsl:template`` (match, name, mode, priority), ``xsl:apply-templates``,
+``xsl:call-template``, ``xsl:for-each``, ``xsl:if``, ``xsl:choose``, ``xsl:value-of``, ``xsl:copy``/``xsl:copy-of``,
+``xsl:element``/``xsl:attribute``/``xsl:text``, ``xsl:variable``/``xsl:param``, ``xsl:sort``, multi-level ``xsl:number``,
+``xsl:key`` and the ``key()`` function, ``xsl:strip-space``/``xsl:preserve-space``, ``xsl:attribute-set``,
+``xsl:namespace-alias``, ``xsl:import`` with import precedence, ``xsl:fallback``, simplified (literal-result-element)
+stylesheets, ``cdata-section-elements`` and the ``xml``/``html``/``text`` output methods (html is auto-selected for a
+null-namespace ``html`` document element). The documented boundaries are locale-aware ``xsl:sort`` collation (a locale
+layer turbohtml does not carry) and ``id()`` over DTD-declared IDs (no DTD layer).
 
-Validated against libxslt's XSLT 1.0 Recommendation test corpus (the ``REC`` and ``REC2`` example triples it ships):
-56 of the 79 cases pass exactly, and the remainder exercise features turbohtml does not model (whitespace stripping,
-namespace-alias, attribute sets, multi-level numbering, cdata-section-elements, extension elements, and the html
-output method's meta injection); see ``tests/conformance/test_xslt_conformance.py``.
+An ``xsl:import`` is resolved relative to ``base_url`` (the stylesheet's own path or URL, as lxml uses ``etree.parse``'s
+base): pass it when the stylesheet imports. Validated against libxslt's XSLT 1.0 Recommendation test corpus (see
+``tests/conformance/test_xslt_conformance.py``).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._html import _xslt_transform
+from ._html import Element, _xslt_transform, parse_xml
 
 if TYPE_CHECKING:
     from ._html import Node
 
 __all__ = ["Transform", "transform"]
+
+_XSLT_NS = "http://www.w3.org/1999/XSL/Transform"
+
+
+def _xsl_prefix(root: Element) -> str:
+    """The prefix bound to the XSLT namespace on a stylesheet root, defaulting to ``xsl``."""
+    for name, value in root.attrs.items():
+        if name.startswith("xmlns:") and value == _XSLT_NS:
+            return name[6:]
+    return "xsl"
+
+
+def _load_imports(root: Element, base: Path) -> list[Node]:
+    """Resolve the ``xsl:import`` chain under ``root`` into parsed stylesheets, lowest import precedence first.
+
+    Each import's own imports precede it (lower precedence) and, within a stylesheet, a later import outranks an earlier
+    one, exactly the section 2.6.2 precedence order the C engine's conflict resolution then applies.
+    """
+    prefix = _xsl_prefix(root)
+    imports: list[Node] = []
+    for child in root.children:
+        if not isinstance(child, Element) or child.tag != f"{prefix}:import":
+            continue
+        href = child.attrs.get("href")
+        if not isinstance(href, str):
+            msg = "xsl:import requires an href attribute"
+            raise ValueError(msg)
+        path = base / href
+        imported = parse_xml(path.read_text(encoding="utf-8"))
+        imported_root = imported.root
+        if imported_root is not None:
+            imports.extend(_load_imports(imported_root, path.parent))
+        imports.append(imported)
+    return imports
+
+
+def _resolve(stylesheet: Node, base_url: str | None) -> list[Node] | None:
+    """The imported stylesheets a transform must merge, or None when the stylesheet imports nothing."""
+    root = stylesheet if isinstance(stylesheet, Element) else getattr(stylesheet, "root", None)
+    if not isinstance(root, Element):
+        return None
+    prefix = _xsl_prefix(root)
+    if not any(isinstance(child, Element) and child.tag == f"{prefix}:import" for child in root.children):
+        return None
+    if base_url is None:
+        msg = "xsl:import needs a base_url to resolve the imported stylesheet's href against"
+        raise ValueError(msg)
+    return _load_imports(root, Path(base_url).parent)
 
 
 class Transform:
@@ -44,13 +93,16 @@ class Transform:
     A compiled XSLT 1.0 stylesheet, callable over source documents (lxml's ``etree.XSLT``).
 
     :param stylesheet: the stylesheet, a tree parsed with :func:`turbohtml.parse_xml`.
+    :param base_url: the stylesheet's path or URL, against which ``xsl:import`` hrefs resolve; required only when the
+        stylesheet imports.
     """
 
-    __slots__ = ("_stylesheet",)
+    __slots__ = ("_imports", "_stylesheet")
 
-    def __init__(self, stylesheet: Node) -> None:
-        """Hold the parsed stylesheet the transform applies."""
+    def __init__(self, stylesheet: Node, *, base_url: str | None = None) -> None:
+        """Hold the parsed stylesheet and pre-resolve its imported stylesheets once."""
         self._stylesheet = stylesheet
+        self._imports = _resolve(stylesheet, base_url)
 
     def __call__(self, source: Node, /, **params: str) -> str:
         """
@@ -64,19 +116,21 @@ class Transform:
         :raises RuntimeError: on an ``xsl:message`` with ``terminate="yes"``.
         :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
         """
-        return _xslt_transform(self._stylesheet, source, params or None)
+        return _xslt_transform(self._stylesheet, source, params or None, self._imports)
 
 
-def transform(stylesheet: Node, source: Node, /, **params: str) -> str:
+def transform(stylesheet: Node, source: Node, /, *, base_url: str | None = None, **params: str) -> str:
     """
     Apply an XSLT 1.0 stylesheet to a source document in one call.
 
-    Equivalent to ``Transform(stylesheet)(source, **params)``; use :class:`Transform` to apply one stylesheet to many
-    documents without re-reading it each time.
+    Equivalent to ``Transform(stylesheet, base_url=base_url)(source, **params)``; use :class:`Transform` to apply one
+    stylesheet to many documents without re-reading it each time.
 
     :param stylesheet: the stylesheet, a tree parsed with :func:`turbohtml.parse_xml`.
     :param source: the document to transform, a parsed tree.
+    :param base_url: the stylesheet's path or URL, against which ``xsl:import`` hrefs resolve; required only when the
+        stylesheet imports.
     :param params: top-level ``xsl:param`` values, each an XPath expression string.
     :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
     """
-    return _xslt_transform(stylesheet, source, params or None)
+    return _xslt_transform(stylesheet, source, params or None, _resolve(stylesheet, base_url))

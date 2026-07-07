@@ -189,6 +189,25 @@ static int ucs4_blank(const Py_UCS4 *src, Py_ssize_t len) {
     return 1;
 }
 
+/* Whether `name` appears in a whitespace-separated token list (the form of
+   cdata-section-elements, extension-element-prefixes and the *-space element sets). */
+static int name_in_token_list(const Py_UCS4 *list, Py_ssize_t list_len, const Py_UCS4 *name, Py_ssize_t name_len) {
+    Py_ssize_t index = 0;
+    while (index < list_len) {
+        while (index < list_len && ucs4_is_ws(list[index])) {
+            index++;
+        }
+        Py_ssize_t start = index;
+        while (index < list_len && !ucs4_is_ws(list[index])) {
+            index++;
+        }
+        if (index - start == name_len && memcmp(list + start, name, (size_t)name_len * sizeof(Py_UCS4)) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ---- match set: a set of (node, attr) items ------------------------------- */
 
 typedef struct {
@@ -415,6 +434,7 @@ typedef struct {
     int built;
     double priority;
     int position;
+    int precedence;
     th_node *body;
     Py_UCS4 *mode;
     Py_ssize_t mode_len;
@@ -449,6 +469,46 @@ typedef struct {
     th_node *rtf;
 } var_bind;
 
+/* A named xsl:attribute-set (section 7.1.4). Its body holds xsl:attribute children; the
+   precedence orders redefinitions across import boundaries (higher importer wins). */
+typedef struct {
+    const Py_UCS4 *name;
+    Py_ssize_t name_len;
+    th_node *body;
+    int precedence;
+} xslt_attrset;
+
+/* One xsl:strip-space / xsl:preserve-space element-name token (section 3.4). strip marks
+   the default action; specificity and precedence resolve a name that both sets cover, with
+   higher import precedence, then higher specificity, winning. */
+typedef struct {
+    const Py_UCS4 *name;
+    Py_ssize_t name_len;
+    int strip;
+    double specificity;
+    int precedence;
+} xslt_space;
+
+/* An xsl:namespace-alias mapping (section 7.1.1): a literal result element or attribute in
+   the stylesheet-prefix namespace is emitted in the result-prefix namespace instead. */
+typedef struct {
+    const Py_UCS4 *style_prefix;
+    Py_ssize_t style_prefix_len;
+    const Py_UCS4 *result_prefix;
+    Py_ssize_t result_prefix_len;
+    const Py_UCS4 *result_uri;
+    Py_ssize_t result_uri_len;
+    int precedence;
+} xslt_nsalias;
+
+/* A source text node detached by whitespace stripping (section 3.4), kept so the caller's
+   tree is restored to its original shape after the transform returns. */
+struct strip_entry {
+    th_node *node;
+    th_node *parent;
+    th_node *next; /* the sibling that followed node, or NULL when node was the last child */
+};
+
 enum output_method { OUT_XML, OUT_HTML, OUT_TEXT };
 
 typedef struct engine {
@@ -456,6 +516,7 @@ typedef struct engine {
     th_tree *src_tree;
     th_tree *sheet_tree;
     th_tree *out_tree;
+    th_tree *merged_tree; /* holds copies of the principal + imported stylesheets when importing */
     th_node *src_root;
 
     xslt_rule *rules;
@@ -470,13 +531,34 @@ typedef struct engine {
     xslt_key *keys;
     Py_ssize_t nkeys;
     Py_ssize_t keys_cap;
+    xslt_attrset *attrsets;
+    Py_ssize_t nattrsets;
+    Py_ssize_t attrsets_cap;
+    xslt_space *spaces;
+    Py_ssize_t nspaces;
+    Py_ssize_t spaces_cap;
+    xslt_nsalias *aliases;
+    Py_ssize_t naliases;
+    Py_ssize_t aliases_cap;
 
     Py_UCS4 *xsl_prefix;
     Py_ssize_t xsl_prefix_len;
     const Py_UCS4 *exclude_prefixes; /* aliases the stylesheet root's exclude-result-prefixes value */
     Py_ssize_t exclude_prefixes_len;
+    const Py_UCS4 *cdata_elements; /* aliases xsl:output cdata-section-elements (space-separated QNames) */
+    Py_ssize_t cdata_elements_len;
+    const Py_UCS4 *ext_prefixes; /* aliases the root extension-element-prefixes value */
+    Py_ssize_t ext_prefixes_len;
     int output_method;
+    int method_seen; /* whether xsl:output named a method, so html auto-selection is suppressed */
     int omit_xml_decl;
+    int simplified; /* the document element is a literal result element (section 2.3) */
+    int ns_counter; /* serial for the generated ns_N prefixes xsl:attribute namespace fixup mints */
+    int precedence; /* import precedence being assigned as declarations are walked */
+
+    struct strip_entry *stripped; /* text nodes detached from the source by whitespace stripping */
+    Py_ssize_t nstripped;
+    Py_ssize_t stripped_cap;
 
     var_bind *scope;
     Py_ssize_t scope_len;
@@ -1470,6 +1552,41 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
     return 0;
 }
 
+/* Apply the named attribute sets (section 7.1.4) to out_element: each named set's own
+   use-attribute-sets are applied first, then its xsl:attribute children set attributes on the
+   element, so a later source wins over the sets and a set's own attributes win over the ones it
+   chains to. `names` is the whitespace-separated use-attribute-sets value. */
+static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, th_node *out_element) {
+    Py_ssize_t index = 0;
+    while (index < names_len) {
+        while (index < names_len && ucs4_is_ws(names[index])) {
+            index++;
+        }
+        Py_ssize_t start = index;
+        while (index < names_len && !ucs4_is_ws(names[index])) {
+            index++;
+        }
+        if (index == start) {
+            break;
+        }
+        for (Py_ssize_t slot = 0; slot < eng->nattrsets; slot++) {
+            xslt_attrset *set = &eng->attrsets[slot];
+            if (!str_eq(set->name, set->name_len, names + start, index - start)) {
+                continue;
+            }
+            Py_ssize_t chain_len = 0;
+            const Py_UCS4 *chain = attr_lookup(eng->sheet_tree, set->body, "use-attribute-sets", &chain_len);
+            if (chain != NULL && apply_attribute_sets(eng, chain, chain_len, out_element) < 0) {
+                return -1;
+            }
+            if (instantiate_body(eng, set->body, out_element) < 0) {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 /* xsl:element name={avt}: create an element and instantiate its body inside it. */
 static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t name_len = 0;
@@ -1489,10 +1606,77 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node_append_child(out_parent, element);
+    Py_ssize_t use_len = 0;
+    const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", &use_len);
+    if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
+        return -1;
+    }
     return instantiate_body(eng, instruction, element);
 }
 
 /* xsl:attribute name={avt}: set an attribute on the containing result element. */
+/* Place a namespaced attribute (xsl:attribute with a namespace) on out_parent under section
+   7.1.3: reuse a prefix the element already binds to that URI, else declare a fresh generated
+   ns_N prefix, then set the "prefix:local" attribute. */
+static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name, Py_ssize_t name_len,
+                           const Py_UCS4 *nsuri, Py_ssize_t nsuri_len, const Py_UCS4 *value, Py_ssize_t value_len) {
+    Py_ssize_t local_start = 0;
+    for (Py_ssize_t index = 0; index < name_len; index++) {
+        if (name[index] == ':') {
+            local_start = index + 1;
+        }
+    }
+    const char *prefix = NULL;
+    Py_ssize_t prefix_len = 0;
+    for (Py_ssize_t index = 0; index < out_parent->attr_count; index++) {
+        Py_ssize_t decl_len = 0;
+        const char *decl = th_attr_name(eng->out_tree, out_parent->attrs[index].name_atom, &decl_len);
+        if (decl_len > 6 && memcmp(decl, "xmlns:", 6) == 0 && out_parent->attrs[index].value_len == nsuri_len &&
+            memcmp(out_parent->attrs[index].value, nsuri, (size_t)nsuri_len * sizeof(Py_UCS4)) == 0) {
+            prefix = decl + 6;
+            prefix_len = decl_len - 6;
+            break;
+        }
+    }
+    char generated[32];
+    if (prefix == NULL) {
+        int made = snprintf(generated, sizeof(generated), "ns_%d", ++eng->ns_counter);
+        char decl[40];
+        memcpy(decl, "xmlns:", 6);
+        memcpy(decl + 6, generated, (size_t)made);
+        int rc = th_node_attr_set(eng->out_tree, out_parent, decl, 6 + made, nsuri, nsuri_len, 1);
+        if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        prefix = generated;
+        prefix_len = made;
+    }
+    xb qname = {0};
+    for (Py_ssize_t index = 0; index < prefix_len; index++) {
+        if (xb_add_char(&qname, (Py_UCS4)(unsigned char)prefix[index]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&qname);                                                  /* GCOVR_EXCL_LINE */
+            return fail(eng, "out of memory");                               /* GCOVR_EXCL_LINE */
+        }
+    }
+    int built = xb_add_char(&qname, ':') < 0 || xb_add(&qname, name + local_start, name_len - local_start) < 0;
+    if (built) {                           /* GCOVR_EXCL_BR_LINE: alloc */
+        xb_free(&qname);                   /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t utf8_len = 0;
+    char *utf8 = ucs4_to_utf8(qname.data, qname.len, &utf8_len);
+    xb_free(&qname);
+    if (utf8 == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    int rc = th_node_attr_set(eng->out_tree, out_parent, utf8, utf8_len, value, value_len, 1);
+    PyMem_Free(utf8);
+    if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
 static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) {
     if (out_parent->type != TH_NODE_ELEMENT) {
         return 0;
@@ -1513,6 +1697,23 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
         PyMem_Free(name);
         return -1;
     }
+    Py_ssize_t ns_avt_len = 0;
+    const Py_UCS4 *ns_avt = attr_lookup(eng->sheet_tree, instruction, "namespace", &ns_avt_len);
+    Py_UCS4 *nsuri = NULL;
+    Py_ssize_t nsuri_len = 0;
+    if (ns_avt != NULL && eval_avt(eng, ns_avt, ns_avt_len, &nsuri, &nsuri_len) < 0) {
+        PyMem_Free(name);
+        PyMem_Free(value);
+        return -1;
+    }
+    if (nsuri != NULL && nsuri_len > 0) {
+        int rc = do_attribute_ns(eng, out_parent, name, resolved_len, nsuri, nsuri_len, value, value_len);
+        PyMem_Free(name);
+        PyMem_Free(value);
+        PyMem_Free(nsuri);
+        return rc;
+    }
+    PyMem_Free(nsuri);
     Py_ssize_t utf8_len = 0;
     char *utf8 = ucs4_to_utf8(name, resolved_len, &utf8_len);
     PyMem_Free(name);
@@ -1551,6 +1752,11 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
         th_node_append_child(out_parent, element);
+        Py_ssize_t use_len = 0;
+        const Py_UCS4 *use = attr_lookup(eng->sheet_tree, instruction, "use-attribute-sets", &use_len);
+        if (use != NULL && apply_attribute_sets(eng, use, use_len, element) < 0) {
+            return -1;
+        }
         return instantiate_body(eng, instruction, element);
     }
     if (node->type == TH_NODE_TEXT || node->type == TH_NODE_COMMENT || node->type == TH_NODE_PI) {
@@ -1858,25 +2064,207 @@ static int format_number_token(xb *out, long value, Py_UCS4 style) {
     return xb_add_ascii(out, buffer);
 }
 
-/* Count preceding siblings (plus self) matching the same name as node, section 7.7
-   single-level numbering with no count/from patterns. */
-static long number_single(th_node *node) {
+/* Emit value as decimal digits, left-padded to min_width and, when a grouping separator and a
+   positive grouping size are given (section 7.7.1), split into groups from the right. */
+static int emit_decimal(xb *out, long value, Py_ssize_t min_width, const Py_UCS4 *gsep, Py_ssize_t gsep_len,
+                        long gsize) {
+    char raw[32];
+    int raw_len = snprintf(raw, sizeof(raw), "%ld", value);
+    Py_ssize_t pad = min_width > raw_len ? min_width - raw_len : 0;
+    Py_ssize_t total = raw_len + pad;
+    int grouped = gsize >= 1 && gsep_len > 0;
+    for (Py_ssize_t index = 0; index < total; index++) {
+        if (grouped && index > 0 && (total - index) % gsize == 0) {
+            if (xb_add(out, gsep, gsep_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                         /* GCOVR_EXCL_LINE */
+            }
+        }
+        char digit = index < pad ? '0' : raw[index - pad];
+        if (xb_add_char(out, (Py_UCS4)(unsigned char)digit) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                             /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+/* Format one number with a format token: a token beginning with a digit is decimal (its leading
+   digit run is the minimum width, with grouping), otherwise its trailing letter selects the
+   alphabetic/roman style. */
+static int format_one_number(xb *out, const Py_UCS4 *token, Py_ssize_t token_len, long value, const Py_UCS4 *gsep,
+                             Py_ssize_t gsep_len, long gsize) {
+    if (token_len > 0 && token[0] >= '0' && token[0] <= '9') {
+        Py_ssize_t min_width = 0;
+        while (min_width < token_len && token[min_width] >= '0' && token[min_width] <= '9') {
+            min_width++;
+        }
+        return emit_decimal(out, value, min_width, gsep, gsep_len, gsize);
+    }
+    Py_UCS4 style = token_len > 0 ? token[token_len - 1] : '1';
+    return format_number_token(out, value, style);
+}
+
+/* Format a list of numbers under a format string (section 7.7.1): a leading separator (prefix),
+   then alternating format tokens and separators, then a trailing separator (suffix). A number
+   past the last token reuses the last token and the separator before it; an empty format uses a
+   single decimal token. */
+static int format_multi(xb *out, const Py_UCS4 *format, Py_ssize_t format_len, const long *values,
+                        Py_ssize_t nvalues, const Py_UCS4 *gsep, Py_ssize_t gsep_len, long gsize) {
+    Py_ssize_t tok_start[32];
+    Py_ssize_t tok_len[32];
+    Py_ssize_t sep_start[33];
+    Py_ssize_t sep_len[33];
+    Py_ssize_t pos = 0;
+    Py_ssize_t run = pos;
+    while (pos < format_len && !alnum_cp(format[pos])) {
+        pos++;
+    }
+    sep_start[0] = run;
+    sep_len[0] = pos - run;
+    Py_ssize_t ntok = 0;
+    while (pos < format_len && ntok < 32) {
+        Py_ssize_t token = pos;
+        while (pos < format_len && alnum_cp(format[pos])) {
+            pos++;
+        }
+        tok_start[ntok] = token;
+        tok_len[ntok] = pos - token;
+        run = pos;
+        while (pos < format_len && !alnum_cp(format[pos])) {
+            pos++;
+        }
+        sep_start[ntok + 1] = run;
+        sep_len[ntok + 1] = pos - run;
+        ntok++;
+    }
+    static const Py_UCS4 one = '1';
+    if (xb_add(out, format + sep_start[0], sep_len[0]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                            /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < nvalues; index++) {
+        Py_ssize_t pick = index < ntok ? index : ntok - 1;
+        if (index > 0 && ntok > 0 && xb_add(out, format + sep_start[pick], sep_len[pick]) < 0) { /* GCOVR_EXCL_BR */
+            return -1;                                                                            /* GCOVR_EXCL_LINE */
+        }
+        const Py_UCS4 *tok = ntok > 0 ? format + tok_start[pick] : &one;
+        Py_ssize_t tok_length = ntok > 0 ? tok_len[pick] : 1;
+        if (format_one_number(out, tok, tok_length, values[index], gsep, gsep_len, gsize) < 0) { /* GCOVR_EXCL_BR */
+            return -1;                                                                           /* GCOVR_EXCL_LINE */
+        }
+    }
+    /* The trailing separator is the one after the last token; an all-punctuation format (no
+       token) is entirely the prefix and has no suffix. */
+    if (ntok > 0 && xb_add(out, format + sep_start[ntok], sep_len[ntok]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                              /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
+/* Parse the grouping-size attribute as a base-10 integer; a value that is not a well-formed
+   integer (or is non-positive) disables grouping, so 0 is returned. */
+static long parse_grouping_size(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+    int negative = 0;
+    if (index < len && (text[index] == '-' || text[index] == '+')) {
+        negative = text[index] == '-';
+        index++;
+    }
+    if (index == len) {
+        return 0;
+    }
+    long value = 0;
+    for (; index < len; index++) {
+        if (text[index] < '0' || text[index] > '9') {
+            return 0;
+        }
+        value = value * 10 + (text[index] - '0');
+    }
+    return negative ? -value : value;
+}
+
+/* Build a node set matching one of a pattern's union alternatives (the count/from patterns of
+   xsl:number). Returns 0 with set filled, or -1 on error. */
+static int build_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t len, match_set *set) {
+    Py_ssize_t starts[64];
+    Py_ssize_t lens[64];
+    int alternatives = split_union(pattern, len, starts, lens, 64);
+    if (alternatives < 0) {
+        return fail(eng, "xslt: xsl:number pattern has too many alternatives");
+    }
+    for (int index = 0; index < alternatives; index++) {
+        xp_program *prog = compile_pattern(eng, pattern + starts[index], lens[index]);
+        if (prog == NULL) {
+            return -1;
+        }
+        xp_result matched;
+        const char *feature = NULL;
+        int status = xp_eval_at(prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched,
+                                &feature);
+        xp_free(prog);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: the pattern compiled, so it evaluates */
+            PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error"); /* GCOVR_EXCL_LINE */
+            return fail_py(eng);                                              /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t slot = 0; slot < matched.nodes.len; slot++) {
+            if (match_set_add(set, matched.nodes.items[slot].node, matched.nodes.items[slot].attr) < 0) { /* EXCL_BR */
+                xp_result_free(&matched);                                                                 /* EXCL */
+                return -1;                                                                                /* EXCL */
+            }
+        }
+        xp_result_free(&matched);
+    }
+    return 0;
+}
+
+/* Whether node counts under xsl:number: membership of the compiled count set when count was
+   given, else the default -- same node type and, for elements, the same name as the current
+   node (section 7.7). */
+static int number_counts(const engine *eng, const match_set *count_set, int have_count, const th_node *node) {
+    if (have_count) {
+        return match_set_has(count_set, node, -1);
+    }
+    if (node->type != eng->cur_node->type) {
+        return 0;
+    }
+    return node->type != TH_NODE_ELEMENT ||
+           (node->text_len == eng->cur_node->text_len &&
+            memcmp(node->text, eng->cur_node->text, (size_t)node->text_len * sizeof(Py_UCS4)) == 0);
+}
+
+/* The count of node plus its preceding siblings that match the count criteria (one level's
+   number). */
+static long level_number(const engine *eng, const match_set *count_set, int have_count, th_node *node) {
     long count = 1;
     for (th_node *prev = node->prev_sibling; prev != NULL; prev = prev->prev_sibling) {
-        if (prev->type == node->type &&
-            (node->type != TH_NODE_ELEMENT ||
-             (prev->text_len == node->text_len &&
-              memcmp(prev->text, node->text, (size_t)node->text_len * sizeof(Py_UCS4)) == 0))) {
+        if (number_counts(eng, count_set, have_count, prev)) {
             count++;
         }
     }
     return count;
 }
 
+/* The next node in document order after node (pre-order), or NULL at the end. */
+static th_node *doc_next(th_node *node) {
+    if (node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != NULL) {
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+    }
+    return NULL;
+}
+
 static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
-    long value;
+    long values[64];
+    Py_ssize_t nvalues = 0;
     Py_ssize_t value_len = 0;
     const Py_UCS4 *value_expr = attr_lookup(eng->sheet_tree, instruction, "value", &value_len);
+    match_set count_set = {0};
+    match_set from_set = {0};
+    int have_count = 0;
+    int have_from = 0;
     if (value_expr != NULL) {
         char errbuf[256];
         xp_program *prog = xp_compile(value_expr, value_len, errbuf, sizeof(errbuf));
@@ -1890,65 +2278,91 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         if (status < 0) {
             return fail_py(eng);
         }
-        value = (long)floor(to_number(eng->src_tree, &result) + 0.5);
+        values[nvalues++] = (long)floor(to_number(eng->src_tree, &result) + 0.5);
         xp_result_free(&result);
+    } else if (eng->cur_attr >= 0) {
+        values[nvalues++] = 1;
     } else {
-        value = eng->cur_attr >= 0 ? 1 : number_single(eng->cur_node);
-    }
-    /* A format token string (XSLT 1.0 section 7.7.1) is a leading separator, an alphanumeric
-       format token, then a trailing separator; for single-level numbering the leading and
-       trailing separators surround the one formatted number as a prefix and suffix. */
-    Py_ssize_t format_len = 0;
-    const Py_UCS4 *format = attr_lookup(eng->sheet_tree, instruction, "format", &format_len);
-    Py_ssize_t prefix_end = 0;
-    while (prefix_end < format_len && !alnum_cp(format[prefix_end])) {
-        prefix_end++;
-    }
-    Py_ssize_t token_end = prefix_end;
-    while (token_end < format_len && alnum_cp(format[token_end])) {
-        token_end++;
-    }
-    Py_UCS4 style = '1';
-    Py_ssize_t pad = 1;
-    if (token_end > prefix_end) {
-        /* The token is alphanumeric, so a code point at or below '9' is a digit. */
-        if (format[prefix_end] <= '9') {
-            /* A decimal token's leading digits are its minimum width: "01" pads to two digits,
-               and only the leading run counts ("0a" is width one). */
-            style = '1';
-            pad = 0;
-            while (prefix_end + pad < token_end && format[prefix_end + pad] <= '9') {
-                pad++;
+        Py_ssize_t count_len = 0;
+        const Py_UCS4 *count = attr_lookup(eng->sheet_tree, instruction, "count", &count_len);
+        Py_ssize_t from_len = 0;
+        const Py_UCS4 *from = attr_lookup(eng->sheet_tree, instruction, "from", &from_len);
+        if (count != NULL) {
+            have_count = 1;
+            if (build_matcher(eng, count, count_len, &count_set) < 0) {
+                match_set_free(&count_set);
+                return -1;
+            }
+        }
+        if (from != NULL) {
+            have_from = 1;
+            if (build_matcher(eng, from, from_len, &from_set) < 0) {
+                match_set_free(&count_set);
+                match_set_free(&from_set);
+                return -1;
+            }
+        }
+        Py_ssize_t level_len = 0;
+        const Py_UCS4 *level = attr_lookup(eng->sheet_tree, instruction, "level", &level_len);
+        if (level != NULL && ucs4_ascii_eq(level, level_len, "any")) {
+            long counter = 0;
+            for (th_node *node = eng->src_root; node != NULL; node = doc_next(node)) {
+                if (have_from && match_set_has(&from_set, node, -1)) {
+                    counter = 0;
+                }
+                if (number_counts(eng, &count_set, have_count, node)) {
+                    counter++;
+                }
+                if (node == eng->cur_node) {
+                    break;
+                }
+            }
+            values[nvalues++] = counter;
+        } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
+            th_node *chain[64];
+            Py_ssize_t depth = 0;
+            for (th_node *node = eng->cur_node; node != NULL && depth < 64; node = node->parent) {
+                if (have_from && match_set_has(&from_set, node, -1)) {
+                    break;
+                }
+                if (number_counts(eng, &count_set, have_count, node)) {
+                    chain[depth++] = node;
+                }
+            }
+            for (Py_ssize_t index = depth - 1; index >= 0; index--) {
+                values[nvalues++] = level_number(eng, &count_set, have_count, chain[index]);
             }
         } else {
-            style = format[token_end - 1];
-        }
-    }
-    xb buffer = {0};
-    if (xb_add(&buffer, format, prefix_end) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&buffer);                          /* GCOVR_EXCL_LINE */
-        return fail(eng, "out of memory");         /* GCOVR_EXCL_LINE */
-    }
-    if (style == '1' && pad > 1) {
-        char raw[32];
-        int raw_len = snprintf(raw, sizeof(raw), "%ld", value);
-        for (Py_ssize_t index = raw_len; index < pad; index++) {
-            if (xb_add_char(&buffer, '0') < 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
-                xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
-                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            /* single (the default): the nearest ancestor-or-self that matches count, bounded by
+               the nearest from ancestor. */
+            th_node *target = NULL;
+            for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+                if (have_from && match_set_has(&from_set, node, -1)) {
+                    break;
+                }
+                if (number_counts(eng, &count_set, have_count, node)) {
+                    target = node;
+                    break;
+                }
+            }
+            if (target != NULL) {
+                values[nvalues++] = level_number(eng, &count_set, have_count, target);
             }
         }
-        if (xb_add_ascii(&buffer, raw) < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
-            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
-        }
-    } else if (format_number_token(&buffer, value, style) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&buffer);                                        /* GCOVR_EXCL_LINE */
-        return fail(eng, "out of memory");                       /* GCOVR_EXCL_LINE */
     }
-    if (xb_add(&buffer, format + token_end, format_len - token_end) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&buffer);                                                  /* GCOVR_EXCL_LINE */
-        return fail(eng, "out of memory");                                 /* GCOVR_EXCL_LINE */
+    match_set_free(&count_set);
+    match_set_free(&from_set);
+    Py_ssize_t format_len = 0;
+    const Py_UCS4 *format = attr_lookup(eng->sheet_tree, instruction, "format", &format_len);
+    Py_ssize_t gsep_len = 0;
+    const Py_UCS4 *gsep = attr_lookup(eng->sheet_tree, instruction, "grouping-separator", &gsep_len);
+    Py_ssize_t gsize_len = 0;
+    const Py_UCS4 *gsize_text = attr_lookup(eng->sheet_tree, instruction, "grouping-size", &gsize_len);
+    long gsize = gsize_text != NULL ? parse_grouping_size(gsize_text, gsize_len) : 0;
+    xb buffer = {0};
+    if (format_multi(&buffer, format, format_len, values, nvalues, gsep, gsep_len, gsize) < 0) { /* GCOVR_EXCL_BR */
+        xb_free(&buffer);                                                                        /* GCOVR_EXCL */
+        return fail(eng, "out of memory");                                                       /* GCOVR_EXCL */
     }
     int rc = emit_text(eng, out_parent, buffer.data, buffer.len);
     xb_free(&buffer);
@@ -2383,6 +2797,9 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
 
 static const char XSLT_NS[] = "http://www.w3.org/1999/XSL/Transform";
 
+static const Py_UCS4 *alias_result_uri(const engine *eng, const char *prefix, Py_ssize_t prefix_len,
+                                       Py_ssize_t *out_len);
+
 /* Whether an output ancestor of `start` already binds namespace `name` (an "xmlns" or
    "xmlns:prefix" spelling) to the identical URI. The nearest binding wins, so a rebinding
    to a different URI reports out-of-scope and the caller redeclares. */
@@ -2432,51 +2849,95 @@ static int prefix_excluded(const engine *eng, const char *prefix, Py_ssize_t pre
     return 0;
 }
 
+/* Whether the xmlns declaration named `name` binds the literal result element's own prefix,
+   which libxslt emits ahead of the other in-scope namespaces on the copied element. */
+static int ns_decl_is_self_prefix(const th_node *lre, const char *name, Py_ssize_t name_len) {
+    Py_ssize_t colon = -1;
+    for (Py_ssize_t index = 0; index < lre->text_len; index++) {
+        if (lre->text[index] == ':') {
+            colon = index;
+            break;
+        }
+    }
+    if (colon < 0 || name_len - 6 != colon || memcmp(name, "xmlns:", 6) != 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < colon; index++) {
+        if ((Py_UCS4)(unsigned char)name[6 + index] != lre->text[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Copy one in-scope namespace declaration `attr` onto the output copy, honoring
+   exclude-result-prefixes, an inner override, namespace-alias remapping and the XSLT-namespace
+   drop, and de-duplicating against the output parent's in-scope declarations. */
+static int copy_one_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_node_attr *attr, const char *name,
+                            Py_ssize_t name_len, int prefixed, th_node *copy, th_node *out_parent) {
+    if (prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8)) {
+        return 0;
+    }
+    int overridden = 0;
+    for (th_node *nearer = lre; nearer != anc; nearer = nearer->parent) {
+        for (Py_ssize_t probe = 0; probe < nearer->attr_count; probe++) {
+            if (nearer->attrs[probe].name_atom == attr->name_atom) {
+                overridden = 1;
+                break;
+            }
+        }
+        if (overridden) {
+            break;
+        }
+    }
+    /* A namespace-alias (section 7.1.1) rebinds a stylesheet prefix to its result URI; the
+       aliased declaration is emitted even when that URI is the XSLT namespace, which the
+       unaliased path drops. */
+    Py_ssize_t alias_len = 0;
+    const Py_UCS4 *aliased =
+        alias_result_uri(eng, prefixed ? name + 6 : "#default", prefixed ? name_len - 6 : 8, &alias_len);
+    const Py_UCS4 *value = aliased != NULL ? aliased : attr->value;
+    Py_ssize_t value_len = aliased != NULL ? alias_len : attr->value_len;
+    if (overridden || (aliased == NULL && ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS)) ||
+        output_ns_in_scope(eng, out_parent, name, name_len, value, value_len)) {
+        return 0;
+    }
+    int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, value, value_len, 1);
+    if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    return 0;
+}
+
 /* Copy the stylesheet namespace declarations in scope at literal result element `lre` onto
    its output copy (XSLT 1.0 section 7.1.1): every in-scope namespace node except the XSLT
    namespace itself and any exclude-result-prefixes namespace, de-duplicated against the
    declarations already in scope on the output parent so a prefix is redeclared only where it
-   is not already bound to that URI. The html and text output methods have no namespace
-   syntax, so they carry no namespace nodes (matching libxslt). */
+   is not already bound to that URI. The element's own prefix declaration is emitted first (as
+   libxslt does). The html and text output methods carry no namespace nodes (matching libxslt). */
 static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_node *out_parent) {
     if (eng->output_method != OUT_XML) {
         return 0;
     }
-    /* The walk stops at the document node above the stylesheet root, which has no attributes. */
-    for (th_node *anc = lre; anc != NULL; anc = anc->parent) {
-        for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
-            const th_node_attr *attr = &anc->attrs[index];
-            Py_ssize_t name_len = 0;
-            const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
-            int prefixed = name_len > 6 && memcmp(name, "xmlns:", 6) == 0;
-            int is_default = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
-            if (!prefixed && !is_default) {
-                continue;
-            }
-            int excluded =
-                prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8);
-            if (excluded) {
-                continue;
-            }
-            int overridden = 0;
-            for (th_node *nearer = lre; nearer != anc; nearer = nearer->parent) {
-                for (Py_ssize_t probe = 0; probe < nearer->attr_count; probe++) {
-                    if (nearer->attrs[probe].name_atom == attr->name_atom) {
-                        overridden = 1;
-                        break;
-                    }
+    /* Two passes over the in-scope declarations (the walk stops at the attribute-less document
+       node): the element's own-prefix binding first, then the rest in document order. */
+    for (int self_pass = 1; self_pass >= 0; self_pass--) {
+        for (th_node *anc = lre; anc != NULL; anc = anc->parent) {
+            for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
+                const th_node_attr *attr = &anc->attrs[index];
+                Py_ssize_t name_len = 0;
+                const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
+                int prefixed = name_len > 6 && memcmp(name, "xmlns:", 6) == 0;
+                int is_default = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
+                if (!prefixed && !is_default) {
+                    continue;
                 }
-                if (overridden) {
-                    break;
+                if (ns_decl_is_self_prefix(lre, name, name_len) != self_pass) {
+                    continue;
                 }
-            }
-            if (overridden || ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS) ||
-                output_ns_in_scope(eng, out_parent, name, name_len, attr->value, attr->value_len)) {
-                continue;
-            }
-            int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, attr->value, attr->value_len, 1);
-            if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
-                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+                if (copy_one_ns_decl(eng, lre, anc, attr, name, name_len, prefixed, copy, out_parent) < 0) { /* EXCL_BR */
+                    return -1;                                                                               /* EXCL */
+                }
             }
         }
     }
@@ -2499,6 +2960,26 @@ static int is_xsl_attr(const engine *eng, const char *name, Py_ssize_t name_len)
     return 1;
 }
 
+/* The value of the XSLT-prefixed attribute `local` on a literal result element (e.g.
+   xsl:use-attribute-sets), or NULL when absent. Matches the stylesheet's actual XSLT prefix. */
+static const Py_UCS4 *xsl_prefixed_attr(const engine *eng, const th_node *node, const char *local,
+                                        Py_ssize_t *out_len) {
+    Py_ssize_t local_len = (Py_ssize_t)strlen(local);
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(eng->sheet_tree, node->attrs[index].name_atom, &name_len);
+        if (!is_xsl_attr(eng, name, name_len)) {
+            continue;
+        }
+        Py_ssize_t offset = eng->xsl_prefix_len + 1;
+        if (name_len - offset == local_len && memcmp(name + offset, local, (size_t)local_len) == 0) {
+            *out_len = node->attrs[index].value_len;
+            return node->attrs[index].value;
+        }
+    }
+    return NULL;
+}
+
 /* Copy a literal result element into the output, resolving attribute value
    templates, then instantiate its children inside it. */
 static int instantiate_literal(engine *eng, th_node *element, th_node *out_parent) {
@@ -2509,6 +2990,11 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
     }
     if (copy_namespace_decls(eng, element, copy, out_parent) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t use_len = 0;
+    const Py_UCS4 *use = xsl_prefixed_attr(eng, element, "use-attribute-sets", &use_len);
+    if (use != NULL && apply_attribute_sets(eng, use, use_len, copy) < 0) {
+        return -1;
     }
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         const th_node_attr *attr = &element->attrs[index];
@@ -2541,6 +3027,39 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
     return instantiate_body(eng, element, copy);
 }
 
+/* Whether an element is an extension element: its name carries a prefix declared in the
+   stylesheet's extension-element-prefixes. Such an element is not a literal result element;
+   an unsupported one runs its xsl:fallback children instead (section 14.1, 15). */
+static int is_extension_element(const engine *eng, const th_node *node) {
+    if (eng->ext_prefixes == NULL) {
+        return 0;
+    }
+    Py_ssize_t colon = -1;
+    for (Py_ssize_t index = 0; index < node->text_len; index++) {
+        if (node->text[index] == ':') {
+            colon = index;
+            break;
+        }
+    }
+    if (colon < 0) {
+        return 0;
+    }
+    return name_in_token_list(eng->ext_prefixes, eng->ext_prefixes_len, node->text, colon);
+}
+
+/* Run an unknown extension element's xsl:fallback children (section 15): turbohtml does not
+   dispatch extension elements, so their declared fallback is the instantiated result. */
+static int instantiate_fallback(engine *eng, th_node *node, th_node *out_parent) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (is_xsl(eng, child, "fallback")) {
+            if (instantiate_body(eng, child, out_parent) < 0) {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 /* Instantiate one instruction (an xsl:* element, a literal result element, or a text
    node) into out_parent. */
 static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
@@ -2557,10 +3076,25 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         PyMem_Free(text);
         return rc;
     }
+    if (node->type == TH_NODE_CDATA) {
+        /* A CDATA section in the stylesheet is significant character data (never stripped as
+           whitespace); it emits as text, which cdata-section-elements may later re-wrap. */
+        Py_ssize_t text_len = 0;
+        Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
+        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        int rc = emit_text(eng, out_parent, text, text_len);
+        PyMem_Free(text);
+        return rc;
+    }
     if (node->type != TH_NODE_ELEMENT) {
         return 0; /* comments / PIs in the stylesheet are ignored */
     }
     if (!is_any_xsl(eng, node)) {
+        if (is_extension_element(eng, node)) {
+            return instantiate_fallback(eng, node, out_parent);
+        }
         return instantiate_literal(eng, node, out_parent);
     }
     if (is_xsl(eng, node, "value-of")) {
@@ -2764,6 +3298,7 @@ static int parse_template(engine *eng, th_node *element, int *position) {
         rule.prog = prog;
         rule.priority = has_priority ? explicit_priority : default_priority(match + starts[index], lens[index]);
         rule.position = (*position)++;
+        rule.precedence = eng->precedence;
         rule.body = element;
         rule.mode = (Py_UCS4 *)mode;
         rule.mode_len = mode_len;
@@ -2816,6 +3351,112 @@ static int parse_key(engine *eng, th_node *element) {
     return 0;
 }
 
+static int parse_attrset(engine *eng, th_node *element) {
+    Py_ssize_t name_len = 0;
+    const Py_UCS4 *name = attr_lookup(eng->sheet_tree, element, "name", &name_len);
+    if (name == NULL) {
+        return fail(eng, "xsl:attribute-set requires a name attribute");
+    }
+    if (eng->nattrsets == eng->attrsets_cap) {
+        Py_ssize_t cap = eng->attrsets_cap == 0 ? 8 : eng->attrsets_cap * 2;
+        xslt_attrset *grown = PyMem_Realloc(eng->attrsets, (size_t)cap * sizeof(xslt_attrset));
+        if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        eng->attrsets = grown;
+        eng->attrsets_cap = cap;
+    }
+    xslt_attrset *set = &eng->attrsets[eng->nattrsets++];
+    set->name = name;
+    set->name_len = name_len;
+    set->body = element;
+    set->precedence = eng->precedence;
+    return 0;
+}
+
+/* The namespace URI bound to prefix on the stylesheet root ("#default" resolves the default
+   namespace), or NULL when the prefix is not declared. */
+static const Py_UCS4 *resolve_prefix_uri(engine *eng, th_node *root, const Py_UCS4 *prefix, Py_ssize_t prefix_len,
+                                         Py_ssize_t *out_len) {
+    int is_default = prefix_len == 8 && ucs4_ascii_eq(prefix, prefix_len, "#default");
+    for (Py_ssize_t index = 0; index < root->attr_count; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(eng->sheet_tree, root->attrs[index].name_atom, &name_len);
+        if (is_default) {
+            if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
+                *out_len = root->attrs[index].value_len;
+                return root->attrs[index].value;
+            }
+            continue;
+        }
+        if (name_len == prefix_len + 6 && memcmp(name, "xmlns:", 6) == 0) {
+            Py_ssize_t offset = 0;
+            while (offset < prefix_len && (Py_UCS4)(unsigned char)name[6 + offset] == prefix[offset]) {
+                offset++;
+            }
+            if (offset == prefix_len) {
+                *out_len = root->attrs[index].value_len;
+                return root->attrs[index].value;
+            }
+        }
+    }
+    return NULL;
+}
+
+static int parse_namespace_alias(engine *eng, th_node *root, th_node *element) {
+    Py_ssize_t style_len = 0;
+    const Py_UCS4 *style = attr_lookup(eng->sheet_tree, element, "stylesheet-prefix", &style_len);
+    Py_ssize_t result_len = 0;
+    const Py_UCS4 *result = attr_lookup(eng->sheet_tree, element, "result-prefix", &result_len);
+    if (style == NULL || result == NULL) {
+        return fail(eng, "xsl:namespace-alias requires stylesheet-prefix and result-prefix");
+    }
+    Py_ssize_t uri_len = 0;
+    const Py_UCS4 *uri = resolve_prefix_uri(eng, root, result, result_len, &uri_len);
+    if (uri == NULL) {
+        return fail(eng, "xsl:namespace-alias result-prefix is not a declared namespace");
+    }
+    if (eng->naliases == eng->aliases_cap) {
+        Py_ssize_t cap = eng->aliases_cap == 0 ? 4 : eng->aliases_cap * 2;
+        xslt_nsalias *grown = PyMem_Realloc(eng->aliases, (size_t)cap * sizeof(xslt_nsalias));
+        if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        eng->aliases = grown;
+        eng->aliases_cap = cap;
+    }
+    xslt_nsalias *alias = &eng->aliases[eng->naliases++];
+    alias->style_prefix = style;
+    alias->style_prefix_len = style_len;
+    alias->result_prefix = result;
+    alias->result_prefix_len = result_len;
+    alias->result_uri = uri;
+    alias->result_uri_len = uri_len;
+    alias->precedence = eng->precedence;
+    return 0;
+}
+
+/* The result namespace URI a namespace-alias remaps a stylesheet prefix to, or NULL when the
+   prefix is not aliased. "#default" names the default-namespace alias; prefix is an ASCII run. */
+static const Py_UCS4 *alias_result_uri(const engine *eng, const char *prefix, Py_ssize_t prefix_len,
+                                       Py_ssize_t *out_len) {
+    for (Py_ssize_t index = 0; index < eng->naliases; index++) {
+        const xslt_nsalias *alias = &eng->aliases[index];
+        if (alias->style_prefix_len != prefix_len) {
+            continue;
+        }
+        Py_ssize_t offset = 0;
+        while (offset < prefix_len && alias->style_prefix[offset] == (Py_UCS4)(unsigned char)prefix[offset]) {
+            offset++;
+        }
+        if (offset == prefix_len) {
+            *out_len = alias->result_uri_len;
+            return alias->result_uri;
+        }
+    }
+    return NULL;
+}
+
 static int push_global(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, th_node *node, int is_param) {
     if (eng->nglobals == eng->globals_cap) {
         Py_ssize_t cap = eng->globals_cap == 0 ? 8 : eng->globals_cap * 2;
@@ -2834,10 +3475,63 @@ static int push_global(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, th
     return 0;
 }
 
+/* The section 3.4 specificity of a strip/preserve element name test, matching the default
+   template priority of that NameTest: -0.5 for "*", -0.25 for a prefixed wildcard "ns:*",
+   0 for a QName. */
+static double space_specificity(const Py_UCS4 *name, Py_ssize_t name_len) {
+    if (name_len == 1 && name[0] == '*') {
+        return -0.5;
+    }
+    if (name_len >= 2 && name[name_len - 1] == '*' && name[name_len - 2] == ':') {
+        return -0.25;
+    }
+    return 0;
+}
+
+/* Record every NameTest of an xsl:strip-space (strip=1) or xsl:preserve-space (strip=0)
+   element as a space entry with its specificity and the current import precedence. */
+static int parse_space(engine *eng, th_node *element, int strip) {
+    Py_ssize_t list_len = 0;
+    const Py_UCS4 *list = attr_lookup(eng->sheet_tree, element, "elements", &list_len);
+    if (list == NULL) {
+        return fail(eng, "xsl:strip-space/xsl:preserve-space requires an elements attribute");
+    }
+    Py_ssize_t index = 0;
+    while (index < list_len) {
+        while (index < list_len && ucs4_is_ws(list[index])) {
+            index++;
+        }
+        Py_ssize_t start = index;
+        while (index < list_len && !ucs4_is_ws(list[index])) {
+            index++;
+        }
+        if (index == start) {
+            break;
+        }
+        if (eng->nspaces == eng->spaces_cap) {
+            Py_ssize_t cap = eng->spaces_cap == 0 ? 8 : eng->spaces_cap * 2;
+            xslt_space *grown = PyMem_Realloc(eng->spaces, (size_t)cap * sizeof(xslt_space));
+            if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+            eng->spaces = grown;
+            eng->spaces_cap = cap;
+        }
+        xslt_space *entry = &eng->spaces[eng->nspaces++];
+        entry->name = list + start;
+        entry->name_len = index - start;
+        entry->strip = strip;
+        entry->specificity = space_specificity(entry->name, entry->name_len);
+        entry->precedence = eng->precedence;
+    }
+    return 0;
+}
+
 static void parse_output(engine *eng, th_node *element) {
     Py_ssize_t method_len = 0;
     const Py_UCS4 *method = attr_lookup(eng->sheet_tree, element, "method", &method_len);
     if (method != NULL) {
+        eng->method_seen = 1;
         if (ucs4_ascii_eq(method, method_len, "html")) {
             eng->output_method = OUT_HTML;
         } else if (ucs4_ascii_eq(method, method_len, "text")) {
@@ -2850,6 +3544,12 @@ static void parse_output(engine *eng, th_node *element) {
     const Py_UCS4 *omit = attr_lookup(eng->sheet_tree, element, "omit-xml-declaration", &omit_len);
     if (omit != NULL && ucs4_ascii_eq(omit, omit_len, "yes")) {
         eng->omit_xml_decl = 1;
+    }
+    Py_ssize_t cdata_len = 0;
+    const Py_UCS4 *cdata = attr_lookup(eng->sheet_tree, element, "cdata-section-elements", &cdata_len);
+    if (cdata != NULL) {
+        eng->cdata_elements = cdata;
+        eng->cdata_elements_len = cdata_len;
     }
 }
 
@@ -2883,11 +3583,14 @@ static int resolve_xsl_prefix(engine *eng, th_node *root) {
 static int rule_order(const void *left_ptr, const void *right_ptr) {
     const xslt_rule *left = left_ptr;
     const xslt_rule *right = right_ptr;
-    /* Import precedence is not modeled (no xsl:import), so a single stylesheet's rules
-       order by priority then document position. Positions are unique small sequential
-       integers, so their signed difference orders them branchlessly (later position
-       sorts first) -- a ternary here leaves one arm that only some qsort implementations
-       ever call, which diverges across C libraries. */
+    /* Conflict resolution (section 5.5): higher import precedence wins, then higher priority,
+       then later document position. Positions are unique small sequential integers, so their
+       signed difference orders them branchlessly (later position sorts first) -- a ternary here
+       leaves one arm that only some qsort implementations ever call, which diverges across C
+       libraries. */
+    if (left->precedence != right->precedence) {
+        return left->precedence < right->precedence ? 1 : -1;
+    }
     if (left->priority != right->priority) {
         return left->priority < right->priority ? 1 : -1;
     }
@@ -2910,6 +3613,60 @@ static int collect_output_text(th_node *node, xb *buffer) {
     return 0;
 }
 
+/* Retype every direct text-node child of a cdata-section-elements element to a CDATA node so
+   the serializer wraps it in <![CDATA[...]]> (section 16.1). Recurses the output tree. */
+static void apply_cdata_sections(engine *eng, th_node *node) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (name_in_token_list(eng->cdata_elements, eng->cdata_elements_len, child->text, child->text_len)) {
+            for (th_node *text = child->first_child; text != NULL; text = text->next_sibling) {
+                if (text->type == TH_NODE_TEXT) {
+                    text->type = TH_NODE_CDATA;
+                }
+            }
+        }
+        apply_cdata_sections(eng, child);
+    }
+}
+
+/* Whether an element carries a non-empty default-namespace declaration (xmlns=""), which puts
+   it in a non-null namespace and so suppresses the html output method's auto-selection. */
+static int has_default_namespace(engine *eng, th_node *element) {
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        Py_ssize_t name_len = 0;
+        const char *name = th_attr_name(eng->out_tree, element->attrs[index].name_atom, &name_len);
+        if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
+            return element->attrs[index].value_len > 0;
+        }
+    }
+    return 0;
+}
+
+/* Select the html output method when no xsl:output method was given and the result's document
+   element is a null-namespace element named "html" (section 16, matching libxslt). */
+static void auto_select_method(engine *eng, th_node *out_root) {
+    if (eng->method_seen) {
+        return;
+    }
+    for (th_node *child = out_root->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_TEXT) {
+            if (ucs4_blank(child->text, child->text_len)) {
+                continue;
+            }
+            return; /* significant text before the first element keeps the xml method */
+        }
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (child->atom == TH_TAG_HTML && !has_default_namespace(eng, child)) {
+            eng->output_method = OUT_HTML;
+        }
+        return;
+    }
+}
+
 /* Concatenate the text descendants of the output root (xsl:output method="text"). */
 static PyObject *serialize_text(engine *eng, th_node *root) {
     (void)eng;
@@ -2927,6 +3684,11 @@ static PyObject *serialize_text(engine *eng, th_node *root) {
 static PyObject *serialize_markup(engine *eng, th_node *root) {
     th_serialize_opts opts = {0};
     opts.xml = eng->output_method == OUT_XML;
+    if (eng->output_method == OUT_HTML) {
+        opts.inject_meta = 1;
+        opts.charset = "UTF-8";
+        opts.charset_len = 5;
+    }
     xb buffer = {0};
     if (eng->output_method == OUT_XML && !eng->omit_xml_decl) {
         if (xb_add_ascii(&buffer, "<?xml version=\"1.0\"?>\n") < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -2969,11 +3731,18 @@ static void engine_clear(engine *eng) {
         strmap_free(&eng->keys[index].table);
     }
     PyMem_Free(eng->keys);
+    PyMem_Free(eng->attrsets);
+    PyMem_Free(eng->spaces);
+    PyMem_Free(eng->aliases);
+    PyMem_Free(eng->stripped);
     scope_drop(eng, 0);
     PyMem_Free(eng->scope);
     PyMem_Free(eng->xsl_prefix);
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
+    }
+    if (eng->merged_tree != NULL) {
+        th_tree_free(eng->merged_tree);
     }
 }
 
@@ -3033,22 +3802,14 @@ static int bind_globals(engine *eng, PyObject *params) {
     return 0;
 }
 
-/* Analyze the stylesheet: resolve the XSLT prefix and walk the top-level
-   declarations. Returns 0, or -1 with eng->error / eng->py_error set. */
-static int analyze(engine *eng, th_node *sheet_root) {
-    if (resolve_xsl_prefix(eng, sheet_root) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        return -1;                                 /* GCOVR_EXCL_LINE */
-    }
-    eng->exclude_prefixes_len = 0;
-    eng->exclude_prefixes =
-        attr_lookup(eng->sheet_tree, sheet_root, "exclude-result-prefixes", &eng->exclude_prefixes_len);
-    int position = 0;
+/* Walk one stylesheet root's top-level declarations at the current import precedence. */
+static int analyze_root(engine *eng, th_node *sheet_root, int *position) {
     for (th_node *child = sheet_root->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
         if (is_xsl(eng, child, "template")) {
-            if (parse_template(eng, child, &position) < 0) {
+            if (parse_template(eng, child, position) < 0) {
                 return -1;
             }
         } else if (is_xsl(eng, child, "variable") || is_xsl(eng, child, "param")) {
@@ -3066,9 +3827,57 @@ static int analyze(engine *eng, th_node *sheet_root) {
             if (parse_key(eng, child) < 0) {
                 return -1;
             }
+        } else if (is_xsl(eng, child, "strip-space")) {
+            if (parse_space(eng, child, 1) < 0) {
+                return -1;
+            }
+        } else if (is_xsl(eng, child, "preserve-space")) {
+            if (parse_space(eng, child, 0) < 0) {
+                return -1;
+            }
+        } else if (is_xsl(eng, child, "attribute-set")) {
+            if (parse_attrset(eng, child) < 0) {
+                return -1;
+            }
+        } else if (is_xsl(eng, child, "namespace-alias")) {
+            if (parse_namespace_alias(eng, sheet_root, child) < 0) {
+                return -1;
+            }
         }
-        /* strip-space/preserve-space/decimal-format/attribute-set/import/include are
-           not modeled; they parse without effect. */
+        /* decimal-format is not modeled; it parses without effect. */
+    }
+    return 0;
+}
+
+/* Analyze the stylesheet: resolve the XSLT prefix and walk the top-level declarations of every
+   imported stylesheet (lowest precedence first) then the principal stylesheet (highest). Returns
+   0, or -1 with eng->error / eng->py_error set. */
+static int analyze(engine *eng, th_node *sheet_root, th_node **imports, Py_ssize_t nimports) {
+    if (resolve_xsl_prefix(eng, sheet_root) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                 /* GCOVR_EXCL_LINE */
+    }
+    /* A document element that is not xsl:stylesheet/xsl:transform is a simplified stylesheet
+       (section 2.3): a literal result element carrying xsl:version whose whole content is the
+       body of an implicit template matching the document root. */
+    if (!is_xsl(eng, sheet_root, "stylesheet") && !is_xsl(eng, sheet_root, "transform")) {
+        eng->simplified = 1;
+        return 0;
+    }
+    eng->exclude_prefixes_len = 0;
+    eng->exclude_prefixes =
+        attr_lookup(eng->sheet_tree, sheet_root, "exclude-result-prefixes", &eng->exclude_prefixes_len);
+    eng->ext_prefixes_len = 0;
+    eng->ext_prefixes = attr_lookup(eng->sheet_tree, sheet_root, "extension-element-prefixes", &eng->ext_prefixes_len);
+    int position = 0;
+    for (Py_ssize_t index = 0; index < nimports; index++) {
+        eng->precedence = (int)index;
+        if (analyze_root(eng, imports[index], &position) < 0) {
+            return -1;
+        }
+    }
+    eng->precedence = (int)nimports;
+    if (analyze_root(eng, sheet_root, &position) < 0) {
+        return -1;
     }
     if (eng->nrules > 1) {
         qsort(eng->rules, (size_t)eng->nrules, sizeof(xslt_rule), rule_order);
@@ -3076,10 +3885,103 @@ static int analyze(engine *eng, th_node *sheet_root) {
     return 0;
 }
 
+/* ---- whitespace stripping (section 3.4) ----------------------------------- */
+
+/* Whether whitespace-only text children of element E are stripped: the highest-precedence,
+   then highest-specificity, strip/preserve entry matching E's name decides, with a strip
+   entry stripping and no match preserving (elements default to preserve). */
+static int element_strips_space(const engine *eng, const th_node *element) {
+    int best_strip = 0;
+    int have = 0;
+    int best_precedence = 0;
+    double best_specificity = 0;
+    for (Py_ssize_t index = 0; index < eng->nspaces; index++) {
+        const xslt_space *entry = &eng->spaces[index];
+        /* A prefixed wildcard "ns:*" matches any element whose QName carries that prefix. */
+        int prefixed_wildcard = entry->name_len >= 2 && entry->name[entry->name_len - 1] == '*' &&
+                                entry->name[entry->name_len - 2] == ':';
+        int matches = (entry->name_len == 1 && entry->name[0] == '*') ||
+                      (prefixed_wildcard && element->text_len >= entry->name_len - 1 &&
+                       memcmp(entry->name, element->text, (size_t)(entry->name_len - 1) * sizeof(Py_UCS4)) == 0) ||
+                      (!prefixed_wildcard && entry->name_len == element->text_len &&
+                       memcmp(entry->name, element->text, (size_t)element->text_len * sizeof(Py_UCS4)) == 0);
+        if (!matches) {
+            continue;
+        }
+        if (!have || entry->precedence > best_precedence ||
+            (entry->precedence == best_precedence && entry->specificity >= best_specificity)) {
+            best_precedence = entry->precedence;
+            best_specificity = entry->specificity;
+            best_strip = entry->strip;
+            have = 1;
+        }
+    }
+    return best_strip;
+}
+
+static int strip_record(engine *eng, th_node *node, th_node *parent, th_node *next) {
+    if (eng->nstripped == eng->stripped_cap) {
+        Py_ssize_t cap = eng->stripped_cap == 0 ? 16 : eng->stripped_cap * 2;
+        struct strip_entry *grown = PyMem_Realloc(eng->stripped, (size_t)cap * sizeof(struct strip_entry));
+        if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        eng->stripped = grown;
+        eng->stripped_cap = cap;
+    }
+    eng->stripped[eng->nstripped].node = node;
+    eng->stripped[eng->nstripped].parent = parent;
+    eng->stripped[eng->nstripped].next = next;
+    eng->nstripped++;
+    return 0;
+}
+
+/* Detach every strippable whitespace-only text node under element in document order, honoring
+   an inherited xml:space="preserve" (nearest xml:space ancestor wins). Recurses into children. */
+static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
+    int preserve = inherited_preserve;
+    Py_ssize_t xmlspace_len = 0;
+    const Py_UCS4 *xmlspace = attr_lookup(eng->src_tree, element, "xml:space", &xmlspace_len);
+    if (xmlspace != NULL) {
+        preserve = ucs4_ascii_eq(xmlspace, xmlspace_len, "preserve");
+    }
+    int strips = !preserve && element_strips_space(eng, element);
+    th_node *child = element->first_child;
+    while (child != NULL) {
+        th_node *next = child->next_sibling;
+        if (child->type == TH_NODE_TEXT) {
+            if (strips && th_node_text_is_blank(eng->src_tree, child)) {
+                if (strip_record(eng, child, element, next) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                                     /* GCOVR_EXCL_LINE */
+                }
+                th_node_remove(child);
+            }
+        } else if (child->type == TH_NODE_ELEMENT && strip_walk(eng, child, preserve) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                                        /* GCOVR_EXCL_LINE */
+        }
+        child = next;
+    }
+    return 0;
+}
+
+/* Re-attach the stripped text nodes in reverse order, so each node's saved successor is
+   already back in place, restoring the caller's source tree exactly. */
+static void strip_restore(engine *eng) {
+    for (Py_ssize_t index = eng->nstripped - 1; index >= 0; index--) {
+        struct strip_entry *entry = &eng->stripped[index];
+        if (entry->next != NULL) {
+            th_node_insert_before(entry->parent, entry->node, entry->next);
+        } else {
+            th_node_append_child(entry->parent, entry->node);
+        }
+    }
+}
+
 /* ---- the module entry point ----------------------------------------------- */
 
-static PyObject *run_transform(engine *eng, th_node *sheet_root, PyObject *params) {
-    if (analyze(eng, sheet_root) < 0) {
+static PyObject *run_transform(engine *eng, th_node *sheet_root, PyObject *params, th_node **imports,
+                               Py_ssize_t nimports) {
+    if (analyze(eng, sheet_root, imports, nimports) < 0) {
         return NULL;
     }
     eng->out_tree = th_tree_new();
@@ -3094,23 +3996,52 @@ static PyObject *run_transform(engine *eng, th_node *sheet_root, PyObject *param
     eng->cur_attr = -1;
     eng->ctx_pos = 1;
     eng->ctx_size = 1;
-    if (bind_globals(eng, params) < 0) {
-        return NULL;
+    /* Whitespace stripping runs on the source tree before any query sees it; the detached
+       nodes are restored below so the caller's tree survives the transform unchanged. */
+    if (eng->nspaces > 0 && strip_walk(eng, eng->src_root, 0) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        strip_restore(eng);                                          /* GCOVR_EXCL_LINE */
+        return NULL;                                                 /* GCOVR_EXCL_LINE */
     }
-    if (apply_to_item(eng, (xp_item){eng->src_root, -1}, 1, 1, NULL, 0, NULL, 0, out_root) < 0) {
-        return NULL;
+    PyObject *result = NULL;
+    int rc = bind_globals(eng, params);
+    if (rc == 0) {
+        rc = eng->simplified
+                 ? instantiate_one(eng, sheet_root, out_root)
+                 : apply_to_item(eng, (xp_item){eng->src_root, -1}, 1, 1, NULL, 0, NULL, 0, out_root);
     }
-    if (eng->output_method == OUT_TEXT) {
-        return serialize_text(eng, out_root);
+    if (rc == 0) {
+        auto_select_method(eng, out_root);
+        if (eng->cdata_elements != NULL) {
+            apply_cdata_sections(eng, out_root);
+        }
+        result = eng->output_method == OUT_TEXT ? serialize_text(eng, out_root) : serialize_markup(eng, out_root);
     }
-    return serialize_markup(eng, out_root);
+    strip_restore(eng);
+    return result;
+}
+
+/* The stylesheet's document element (xsl:stylesheet/xsl:transform, or a literal result element
+   for a simplified stylesheet), or NULL when the tree holds no root element. */
+static th_node *stylesheet_root(th_node *node) {
+    if (node->type != TH_NODE_DOCUMENT) {
+        return node->type == TH_NODE_ELEMENT ? node : NULL;
+    }
+    /* A parsed document always holds a root element, so the loop always breaks. */
+    for (th_node *child = node->first_child; child != NULL; /* GCOVR_EXCL_BR_LINE */
+         child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            return child;
+        }
+    }
+    return NULL; /* GCOVR_EXCL_LINE: an XML document always has a root element */
 }
 
 PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
     PyObject *stylesheet_obj;
     PyObject *source_obj;
     PyObject *params = Py_None;
-    if (!PyArg_ParseTuple(args, "OO|O", &stylesheet_obj, &source_obj, &params)) {
+    PyObject *imports_obj = Py_None;
+    if (!PyArg_ParseTuple(args, "OO|OO", &stylesheet_obj, &source_obj, &params, &imports_obj)) {
         return NULL;
     }
     if (params == Py_None) {
@@ -3130,25 +4061,11 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
         return NULL;
     }
     (void)src_node; /* the transform roots at the source tree's document node */
-    /* Locate the stylesheet's document element (xsl:stylesheet/xsl:transform). */
-    th_node *sheet_root = sheet_node;
-    if (sheet_root->type == TH_NODE_DOCUMENT) {
-        /* A parsed document always holds a root element, so the loop always breaks and
-           never runs to its natural (child == NULL) end. */
-        for (th_node *child = sheet_root->first_child; child != NULL; /* GCOVR_EXCL_BR_LINE */
-             child = child->next_sibling) {
-            if (child->type == TH_NODE_ELEMENT) {
-                sheet_root = child;
-                break;
-            }
-        }
-    }
-    if (sheet_root->type != TH_NODE_ELEMENT) {
+    th_node *sheet_root = stylesheet_root(sheet_node);
+    if (sheet_root == NULL) {
         PyErr_SetString(PyExc_ValueError, "xslt: the stylesheet has no root element");
         return NULL;
     }
-    PyObject *source_handle = turbohtml_node_handle(source_obj);
-    (void)source_handle; /* used only by the critical-section macro, a no-op on the GIL build */
     engine eng = {0};
     eng.module = module;
     eng.sheet_tree = sheet_tree;
@@ -3156,12 +4073,64 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
     eng.src_root = th_tree_document(src_tree);
     eng.output_method = OUT_XML;
     eng.cur_attr = -1;
+    /* Imported stylesheets (section 2.6.2): the Python shim resolves each xsl:import's href and
+       passes the parsed sheets, lowest import precedence first. To keep every declaration in one
+       atom table, the principal and imported sheets are deep-copied into a private merged tree. */
+    th_node **imports = NULL;
+    Py_ssize_t nimports = 0;
+    if (imports_obj != Py_None) {
+        nimports = PySequence_Size(imports_obj);
+        if (nimports < 0) { /* GCOVR_EXCL_BR_LINE: the shim always passes a sequence or None */
+            return NULL;    /* GCOVR_EXCL_LINE */
+        }
+        eng.merged_tree = th_tree_new();
+        if (eng.merged_tree == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
+        }
+        imports = PyMem_Malloc((size_t)nimports * sizeof(th_node *));
+        if (imports == NULL) {       /* GCOVR_EXCL_BR_LINE: alloc */
+            engine_clear(&eng);      /* GCOVR_EXCL_LINE */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < nimports; index++) {
+            PyObject *item = PySequence_GetItem(imports_obj, index);
+            th_tree *import_tree;
+            th_node *import_node;
+            int ok = item != NULL && turbohtml_node_borrow(module, item, &import_tree, &import_node) == 0;
+            th_node *import_root = ok ? stylesheet_root(import_node) : NULL;
+            Py_XDECREF(item);
+            if (import_root == NULL) {
+                PyMem_Free(imports);
+                engine_clear(&eng);
+                if (ok) { /* borrow succeeded but the import has no root element */
+                    PyErr_SetString(PyExc_ValueError, "xslt: an imported stylesheet has no root element");
+                }
+                return NULL;
+            }
+            imports[index] = th_tree_copy_node(eng.merged_tree, import_tree, import_root);
+            if (imports[index] == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+                PyMem_Free(imports);      /* GCOVR_EXCL_LINE */
+                engine_clear(&eng);       /* GCOVR_EXCL_LINE */
+                return PyErr_NoMemory();  /* GCOVR_EXCL_LINE */
+            }
+        }
+        sheet_root = th_tree_copy_node(eng.merged_tree, sheet_tree, sheet_root);
+        if (sheet_root == NULL) {    /* GCOVR_EXCL_BR_LINE: alloc */
+            PyMem_Free(imports);     /* GCOVR_EXCL_LINE */
+            engine_clear(&eng);      /* GCOVR_EXCL_LINE */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        }
+        eng.sheet_tree = eng.merged_tree;
+    }
+    PyObject *source_handle = turbohtml_node_handle(source_obj);
+    (void)source_handle; /* used only by the critical-section macro, a no-op on the GIL build */
     PyObject *result = NULL;
     /* The source tree drives every query; lock its handle for the free-threaded build.
        Both trees are read-only through the transform, and the output tree is private. */
     Py_BEGIN_CRITICAL_SECTION(source_handle);
-    result = run_transform(&eng, sheet_root, params);
+    result = run_transform(&eng, sheet_root, params, imports, nimports);
     Py_END_CRITICAL_SECTION();
+    PyMem_Free(imports);
     /* fail() sets eng.error without a Python exception; fail_py() sets the exception and
        leaves eng.error NULL. The two are exclusive, so eng.error != NULL implies no
        exception is set and the message needs raising. */
