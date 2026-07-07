@@ -158,3 +158,35 @@ after which every accessor reads ``None``:
 
     None
     None
+
+*********************************************
+ Slice the source of every tag and attribute
+*********************************************
+
+For a linter, a formatter, or a source-mapping tool, the start-tag line and column are not enough: you need the exact
+span of the tag, of its closing tag, and of each attribute. Pass ``source_locations=True`` to :func:`turbohtml.parse`
+and read :attr:`~turbohtml.Node.source_location`, the :class:`~turbohtml.SourceLocation` record parse5 exposes as
+``sourceCodeLocationInfo``. Every span is a :class:`~turbohtml.SourceSpan` of start/end line, column, and code-point
+offset, and the half-open ``[start_offset, end_offset)`` slices the construct straight out of the source:
+
+.. testcode::
+
+    source = '<a href="/x" title="home">go</a>'
+    link = turbohtml.parse(source, source_locations=True).find("a")
+    location = link.source_location
+    start, end = location.start_tag, location.end_tag
+    print(source[start.start_offset : start.end_offset])
+    print(source[end.start_offset : end.end_offset])
+    for name, span in location.attrs.items():
+        print(name, "->", source[span.start_offset : span.end_offset])
+
+.. testoutput::
+
+    <a href="/x" title="home">
+    </a>
+    href -> href="/x"
+    title -> title="home"
+
+An element the source never closed -- a void element, a self-closed one, or one closed implicitly or at end of input --
+has ``end_tag`` ``None``. Tracking is off by default; ``source_locations=True`` implies ``positions=True``, so
+``source_line`` and ``position`` stay available beside the spans.

@@ -367,6 +367,47 @@ static PyObject *node_get_position(PyObject *self, void *Py_UNUSED(closure)) {
     Py_RETURN_NONE;
 }
 
+static PyObject *make_source_span(module_state *state, const th_src_span *span) {
+    return PyObject_CallFunction(state->source_span_type, "nnnnnn", span->start_line, span->start_col,
+                                 span->start_offset, span->end_line, span->end_col, span->end_offset);
+}
+
+static PyObject *node_get_source_location(PyObject *self, void *Py_UNUSED(closure)) {
+    th_tree *tree = tree_of(self);
+    const th_src_loc *loc = th_node_source_location(tree, ((NodeObject *)self)->node);
+    if (loc == NULL) {
+        Py_RETURN_NONE;
+    }
+    module_state *state = state_of(self);
+    PyObject *start_tag = make_source_span(state, &loc->start_tag);
+    PyObject *end_tag = loc->has_end_tag ? make_source_span(state, &loc->end_tag) : Py_NewRef(Py_None);
+    PyObject *attrs = PyDict_New();
+    if (start_tag == NULL || end_tag == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: alloc failure */
+        Py_XDECREF(start_tag);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(end_tag);                                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(attrs);                                       /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < loc->attr_count; index++) {
+        Py_ssize_t name_len;
+        const char *bytes = th_attr_name(tree, loc->attrs[index].name_atom, &name_len);
+        PyObject *name = PyUnicode_DecodeUTF8(bytes, name_len, "strict");
+        PyObject *span = make_source_span(state, &loc->attrs[index].span);
+        /* every branch here is an unreachable allocation failure */
+        if (name == NULL || span == NULL || PyDict_SetItem(attrs, name, span) < 0) { /* GCOVR_EXCL_BR_LINE */
+            Py_XDECREF(name);     /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(span);     /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(start_tag); /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(end_tag);   /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(attrs);     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        Py_DECREF(name);
+        Py_DECREF(span);
+    }
+    return PyObject_CallFunction(state->source_location_type, "NNN", start_tag, end_tag, attrs);
+}
+
 static PyObject *node_children_tuple(PyObject *self) {
     NodeObject *node = (NodeObject *)self;
     module_state *state = state_of(self);
@@ -1082,6 +1123,19 @@ PyObject *turbohtml_register_article(PyObject *module, PyObject *type) {
     Py_RETURN_NONE;
 }
 
+/* Store the SourceLocation and SourceSpan record types Element.source_location
+   builds; turbohtml._locations registers them on import. */
+PyObject *turbohtml_register_locations(PyObject *module, PyObject *args) {
+    PyObject *location, *span;
+    if (!PyArg_ParseTuple(args, "OO", &location, &span)) { /* GCOVR_EXCL_BR_LINE: the facade always passes both types */
+        return NULL;                                       /* GCOVR_EXCL_LINE: argument-error path */
+    }
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->source_location_type, Py_NewRef(location));
+    Py_XSETREF(state->source_span_type, Py_NewRef(span));
+    Py_RETURN_NONE;
+}
+
 /* Store the Markdown/PlainText/Html config types so to_markdown()/to_text()/serialize()
    reject the wrong config with a type check; turbohtml._render registers them on import. */
 PyObject *turbohtml_register_render_configs(PyObject *module, PyObject *args) {
@@ -1207,6 +1261,11 @@ static PyGetSetDef node_getset[] = {
      "the 0-based source column of this element's start tag, or None if unavailable", NULL},
     {"position", node_get_position, NULL,
      "the (source_line, source_col) of this element's start tag, or None if unavailable", NULL},
+    {"source_location", node_get_source_location, NULL,
+     "the SourceLocation (start-/end-tag and per-attribute spans) of this element, or None when the tree was not "
+     "parsed "
+     "with source_locations or the element has no source start tag",
+     NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 

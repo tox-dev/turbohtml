@@ -114,6 +114,9 @@ from ._stubs.features import (
     _register_links as _register_links,
 )
 from ._stubs.features import (
+    _register_locations as _register_locations,
+)
+from ._stubs.features import (
     _register_markup as _register_markup,
 )
 from ._stubs.features import (

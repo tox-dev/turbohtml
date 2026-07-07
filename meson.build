@@ -105,6 +105,7 @@ py.install_sources(
         'src/turbohtml/_jsminify.py',
         'src/turbohtml/_linkify.py',
         'src/turbohtml/_links.py',
+        'src/turbohtml/_locations.py',
         'src/turbohtml/_match.py',
         'src/turbohtml/_minify.py',
         'src/turbohtml/_render.py',

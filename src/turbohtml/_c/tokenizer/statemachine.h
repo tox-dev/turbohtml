@@ -59,6 +59,12 @@ typedef struct {
     th_buf value;
     int has_value;      /* 0 for a valueless attribute (maps to None in Python) */
     uint32_t name_hash; /* FNV-1a of the name, for O(1) duplicate detection */
+    /* Source span of the whole attribute -- the first name code point through the
+       last value code point (the name's end for a valueless one) -- filled only
+       while capture_locations is on. Line is 1-based, col 0-based, and off a
+       code-point index into the newline-normalized input, matching th_token.line/col. */
+    Py_ssize_t name_line, name_col, name_off;
+    Py_ssize_t end_line, end_col, end_off;
 } th_attr;
 
 /* One completed token. Buffers are owned and reused across tokens via reset;
@@ -99,6 +105,10 @@ typedef struct {
     /* 1-based source position where the token began */
     Py_ssize_t line;
     Py_ssize_t col;
+    /* Source position just past the tag's closing '>' (its end span), filled only
+       for start/end tags while capture_locations is on; the tag's start span is
+       line/col and src_off. */
+    Py_ssize_t end_line, end_col, end_off;
 } th_token;
 
 /* One reported WHATWG parse error: a static error-code string (so reporting
@@ -156,6 +166,13 @@ void th_tok_reset(th_tokenizer *self);
    (resolve on, capture off) and survive th_tok_reset, since they are
    configuration rather than input state. */
 void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source);
+
+/* Record the granular source spans parse5's sourceCodeLocationInfo exposes: each
+   tag's end position (past its '>') and each attribute's name/value span. Off by
+   default and, like the other options, survives th_tok_reset. When off the state
+   machine takes no extra work; the tree builder turns it on only when a parse
+   requests source locations, so the common path pays nothing. */
+void th_tok_capture_locations(th_tokenizer *self, int on);
 
 /* Configure the starting content model and the last start tag name used for
    appropriate-end-tag checks. Call before the first feed; used by the harness. */

@@ -1013,6 +1013,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             if (ch == '"') {
                 CONSUME();
+                attr_end_here(self); /* the closing quote is part of the attribute span */
                 self->state = ST_AFTER_ATTR_VALUE_QUOTED;
                 continue;
             }
@@ -1042,6 +1043,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             if (ch == '\'') {
                 CONSUME();
+                attr_end_here(self); /* the closing quote is part of the attribute span */
                 self->state = ST_AFTER_ATTR_VALUE_QUOTED;
                 continue;
             }
@@ -1063,6 +1065,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EOF_FLUSH();
             }
             if (is_space(ch)) {
+                attr_end_here(self); /* the value ends at the delimiting whitespace */
                 CONSUME();
                 self->state = ST_BEFORE_ATTR_NAME;
                 continue;
@@ -1077,6 +1080,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                attr_end_here(self); /* the value ends at the closing '>' */
                 CONSUME();
                 finish_tag(self);
                 return RUN_EMITTED;

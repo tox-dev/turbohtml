@@ -60,6 +60,7 @@ struct th_tree {
     int can_span;        /* input is borrowed and outlives the tree: text nodes may be
                             zero-copy spans into it instead of materialized copies */
     int track_positions; /* record each element's source line/col in trailing node slots */
+    int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */
     const void *data;
     Py_ssize_t length;
@@ -171,9 +172,19 @@ static inline uint32_t *node_pos(th_node *node) {
     return (uint32_t *)((char *)node + sizeof(th_node));
 }
 
+/* A location-tracking element reserves one more trailing slot past the two
+   position words: a th_src_loc pointer holding its granular spans (NULL until
+   insert_element fills it, or for a synthetic element with no source tag). Only
+   valid for an element of a location-tracking tree, where node_new reserved it. */
+static inline th_src_loc **node_loc(th_node *node) {
+    return (th_src_loc **)((char *)node + sizeof(th_node) + 2 * sizeof(uint32_t));
+}
+
 static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     int positioned = tree->track_positions && type == TH_NODE_ELEMENT;
-    Py_ssize_t size = (Py_ssize_t)sizeof(th_node) + (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0);
+    int located = tree->track_locations && type == TH_NODE_ELEMENT;
+    Py_ssize_t size = (Py_ssize_t)sizeof(th_node) + (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0) +
+                      (located ? (Py_ssize_t)sizeof(th_src_loc *) : 0);
     th_node *node = arena_alloc(tree, size);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -182,6 +193,9 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     if (positioned) {
         node_pos(node)[0] = 0; /* line; 0 = no source until insert_element sets it */
         node_pos(node)[1] = 0; /* col */
+    }
+    if (located) {
+        *node_loc(node) = NULL; /* filled by insert_element when the element has a source tag */
     }
     node->type = type;
     node->atom = TH_TAG_UNKNOWN;

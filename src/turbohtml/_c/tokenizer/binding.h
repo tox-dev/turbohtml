@@ -68,6 +68,8 @@ typedef struct {
     PyObject *feed_type;             /* turbohtml._feed.Feed, the record Document.feed() yields */
     PyObject *entry_type;            /* turbohtml._feed.Entry, one feed item/entry record */
     PyObject *article_type;          /* turbohtml._article.Article, the record Node.article() yields */
+    PyObject *source_location_type;  /* turbohtml._locations.SourceLocation, Element.source_location's record */
+    PyObject *source_span_type;      /* turbohtml._locations.SourceSpan, one tag/attribute span */
     PyObject *js_minify_type;        /* turbohtml._minify.JSMinify, the Minify(minify_js=...) script-pass config */
     PyObject *css_minify_type;       /* turbohtml._cssmin.CSSMinify, the Minify(minify_css=...) style-pass config */
     PyObject *markdown_config_type;  /* turbohtml._render.Markdown, the to_markdown() options type */

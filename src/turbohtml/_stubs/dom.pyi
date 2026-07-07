@@ -7,6 +7,7 @@ from typing import TypeAlias, final
 from turbohtml._article import Article as Article
 from turbohtml._feed import Feed
 from turbohtml._links import Link
+from turbohtml._locations import SourceLocation
 from turbohtml._render import Html, Markdown, PlainText
 from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
@@ -63,6 +64,8 @@ class Node:
     def source_col(self) -> int | None: ...
     @property
     def position(self) -> tuple[int, int] | None: ...
+    @property
+    def source_location(self) -> SourceLocation | None: ...
     def find(
         self,
         tag: _Filter | None = None,
@@ -289,7 +292,7 @@ class Document(Node):
 
 @final
 class IncrementalParser:
-    def __init__(self, *, encoding: str = "utf-8", positions: bool = True) -> None: ...
+    def __init__(self, *, encoding: str = "utf-8", positions: bool = True, source_locations: bool = False) -> None: ...
     def feed(self, data: str | bytes) -> None: ...
     def close(self) -> Document: ...
     def __enter__(self) -> IncrementalParser: ...
@@ -302,9 +305,12 @@ def parse(
     strict: bool = False,
     detect_encoding: bool = False,
     positions: bool = True,
+    source_locations: bool = False,
     scripting: bool = False,
 ) -> Document: ...
-def parse_fragment(html: str, context: str = "div", *, positions: bool = True, scripting: bool = False) -> Element: ...
+def parse_fragment(
+    html: str, context: str = "div", *, positions: bool = True, source_locations: bool = False, scripting: bool = False
+) -> Element: ...
 def _build_document(
     head: list[Node],
     body: list[Node],

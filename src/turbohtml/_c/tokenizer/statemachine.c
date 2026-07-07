@@ -206,6 +206,7 @@ struct th_tokenizer {
     int resolve_references; /* fold references into text (1) or split them into
                                TH_CHARREF tokens (0) */
     int capture_source;     /* record the verbatim source span of markup tokens */
+    int capture_locations;  /* stamp the granular tag/attribute source spans */
     int building;           /* a markup token is mid-construction, so its source
                                span's opening '<' must survive input compaction */
 
@@ -324,6 +325,10 @@ th_tokenizer *th_tok_new(void) {
 void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source) {
     self->resolve_references = resolve_references;
     self->capture_source = capture_source;
+}
+
+void th_tok_capture_locations(th_tokenizer *self, int on) {
+    self->capture_locations = on;
 }
 
 /* Append ch to buf, recording any allocation failure on the tokenizer; the
@@ -712,6 +717,13 @@ static void new_attr(th_tokenizer *self) {
     buf_reset(&attr->name);
     buf_reset(&attr->value);
     attr->has_value = 0;
+    if (self->capture_locations) {
+        /* the cursor sits on the first name code point (or the '=' a name may open
+           with); the end span is filled as the name and any value complete */
+        attr->name_line = self->line;
+        attr->name_col = self->col;
+        attr->name_off = self->pos;
+    }
     self->attr = attr;
 }
 
@@ -788,6 +800,17 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
     return 0;
 }
 
+/* Extend the current attribute's source span to the cursor (a no-op unless
+   locations are being captured). Called on leaving the name state and after each
+   value delimiter, so the span ends past the last name or value code point. */
+static void attr_end_here(th_tokenizer *self) {
+    if (self->capture_locations) {
+        self->attr->end_line = self->line;
+        self->attr->end_col = self->col;
+        self->attr->end_off = self->pos;
+    }
+}
+
 /* Per WHATWG, on leaving the attribute name state: if the token already carries
    an attribute with this exact name it is a duplicate-attribute parse error and
    the new attribute is dropped, so the first occurrence wins. The dropped slot's
@@ -795,6 +818,7 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
    storage. The first attribute of each tag bumps the epoch, which clears the
    duplicate index in O(1) without walking the table. */
 static void finish_attr_name(th_tokenizer *self) {
+    attr_end_here(self); /* a valueless attribute ends here; a value overwrites it */
     th_token *tok = &self->tok;
     Py_ssize_t cur = tok->attr_count - 1;
     if (cur == 0) {
@@ -926,6 +950,12 @@ static void rawtext_fallback(th_tokenizer *self, enum state ret) {
 
 static void finish_tag(th_tokenizer *self) {
     self->state = ST_DATA;
+    if (self->capture_locations) {
+        /* the cursor has just passed the closing '>', so it marks the tag's end span */
+        self->tok.end_line = self->line;
+        self->tok.end_col = self->col;
+        self->tok.end_off = self->pos;
+    }
     if (self->tok.kind == TH_START_TAG) {
         remember_start_tag(self);
     }

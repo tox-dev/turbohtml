@@ -42,3 +42,13 @@ it.
 
 .. autoclass:: Article
     :members:
+
+When a tree is parsed with ``source_locations=True``, :attr:`Node.source_location` returns a :class:`SourceLocation`
+record built from :class:`SourceSpan` values -- the start-tag, end-tag, and per-attribute spans parse5 exposes as
+``sourceCodeLocationInfo``.
+
+.. autoclass:: SourceLocation
+    :members:
+
+.. autoclass:: SourceSpan
+    :members:

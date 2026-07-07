@@ -73,43 +73,49 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            ":returns: an iterator of Token objects in document order.\n"
                            ":raises TypeError: if s is not a str.");
 
-PyDoc_STRVAR(parse_doc,
-             "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True, scripting=False)\n"
-             "--\n\n"
-             "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
-             "return a navigable Document.\n\n"
-             ":param markup: the document, as str, or bytes whose encoding is sniffed (the\n"
-             "    encoding argument, then a <meta> charset, then windows-1252).\n"
-             ":param encoding: the encoding to decode bytes with; a declared, <meta>, or BOM\n"
-             "    encoding still wins over it.\n"
-             ":param strict: raise the first recovered parse error as HTMLParseError instead\n"
-             "    of collecting it on Document.errors.\n"
-             ":param detect_encoding: add a content-based detection step for bytes input,\n"
-             "    used only when the spec's encoding steps yield nothing.\n"
-             ":param positions: record each element's source_line/source_col; pass False to\n"
-             "    skip it when memory or speed matters more than source locations.\n"
-             ":param scripting: set the WHATWG scripting flag on. With it on, <noscript> is a\n"
-             "    raw-text element -- its content is raw text, not markup, and serializes\n"
-             "    unescaped -- reproducing the tree a scripting browser builds. Off by\n"
-             "    default so <noscript> content stays parsed and accessible.\n"
-             ":returns: the parsed Document.\n"
-             ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
-             ":raises LookupError: if encoding names a codec Python does not know.\n"
-             ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
-             "    its error attribute carries the ParseError (code, line, col).");
+PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True, "
+                        "source_locations=False, scripting=False)\n"
+                        "--\n\n"
+                        "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
+                        "return a navigable Document.\n\n"
+                        ":param markup: the document, as str, or bytes whose encoding is sniffed (the\n"
+                        "    encoding argument, then a <meta> charset, then windows-1252).\n"
+                        ":param encoding: the encoding to decode bytes with; a declared, <meta>, or BOM\n"
+                        "    encoding still wins over it.\n"
+                        ":param strict: raise the first recovered parse error as HTMLParseError instead\n"
+                        "    of collecting it on Document.errors.\n"
+                        ":param detect_encoding: add a content-based detection step for bytes input,\n"
+                        "    used only when the spec's encoding steps yield nothing.\n"
+                        ":param positions: record each element's source_line/source_col; pass False to\n"
+                        "    skip it when memory or speed matters more than source locations.\n"
+                        ":param source_locations: also record each element's granular start-/end-tag and\n"
+                        "    per-attribute spans, read via Element.source_location (parse5's\n"
+                        "    sourceCodeLocationInfo). Off by default; implies positions when on.\n"
+                        ":param scripting: set the WHATWG scripting flag on. With it on, <noscript> is a\n"
+                        "    raw-text element -- its content is raw text, not markup, and serializes\n"
+                        "    unescaped -- reproducing the tree a scripting browser builds. Off by\n"
+                        "    default so <noscript> content stays parsed and accessible.\n"
+                        ":returns: the parsed Document.\n"
+                        ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
+                        ":raises LookupError: if encoding names a codec Python does not know.\n"
+                        ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
+                        "    its error attribute carries the ParseError (code, line, col).");
 
-PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True, scripting=False)\n--\n\n"
-                                 "Parse an HTML fragment as the innerHTML of a context element.\n\n"
-                                 ":param html: the fragment markup.\n"
-                                 ":param context: the context element's tag name, optionally namespaced\n"
-                                 "    (e.g. 'td', 'svg path').\n"
-                                 ":param positions: record each element's source_line/source_col; pass\n"
-                                 "    False to skip it.\n"
-                                 ":param scripting: set the WHATWG scripting flag on, making <noscript> a\n"
-                                 "    raw-text element (see parse). Off by default.\n"
-                                 ":returns: the context Element with the parsed nodes as its children.\n"
-                                 ":raises TypeError: if html or context is not a str.\n"
-                                 ":raises ValueError: if context is not a known element tag.");
+PyDoc_STRVAR(parse_fragment_doc,
+             "parse_fragment(html, context='div', *, positions=True, source_locations=False, scripting=False)\n--\n\n"
+             "Parse an HTML fragment as the innerHTML of a context element.\n\n"
+             ":param html: the fragment markup.\n"
+             ":param context: the context element's tag name, optionally namespaced\n"
+             "    (e.g. 'td', 'svg path').\n"
+             ":param positions: record each element's source_line/source_col; pass\n"
+             "    False to skip it.\n"
+             ":param source_locations: also record each element's granular start-/end-tag and\n"
+             "    per-attribute spans, read via Element.source_location. Implies positions.\n"
+             ":param scripting: set the WHATWG scripting flag on, making <noscript> a\n"
+             "    raw-text element (see parse). Off by default.\n"
+             ":returns: the context Element with the parsed nodes as its children.\n"
+             ":raises TypeError: if html or context is not a str.\n"
+             ":raises ValueError: if context is not a known element tag.");
 
 PyDoc_STRVAR(annotation_surface_doc, "annotation_surface(text, spans, /)\n--\n\n"
                                      "Group the annotated substrings by label, the inscriptis surface-form\n"
@@ -142,6 +148,7 @@ static PyMethodDef html_methods[] = {
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_feed", turbohtml_register_feed, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},
+    {"_register_locations", turbohtml_register_locations, METH_VARARGS, NULL},
     {"_register_js_minify", turbohtml_register_js_minify, METH_O, NULL},
     {"_register_css_minify", turbohtml_register_css_minify, METH_O, NULL},
     {"_register_render_configs", turbohtml_register_render_configs, METH_VARARGS, NULL},
@@ -244,6 +251,8 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->feed_type);             /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->entry_type);            /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->article_type);          /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->source_location_type);  /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->source_span_type);      /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->js_minify_type);        /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->css_minify_type);       /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->markdown_config_type);  /* GCOVR_EXCL_BR_LINE: same */
@@ -307,6 +316,8 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->feed_type);
     Py_CLEAR(state->entry_type);
     Py_CLEAR(state->article_type);
+    Py_CLEAR(state->source_location_type);
+    Py_CLEAR(state->source_span_type);
     Py_CLEAR(state->js_minify_type);
     Py_CLEAR(state->css_minify_type);
     Py_CLEAR(state->markdown_config_type);

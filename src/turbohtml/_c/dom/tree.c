@@ -365,6 +365,13 @@ int th_node_source_position(th_tree *tree, th_node *node, Py_ssize_t *line, Py_s
     return 1;
 }
 
+const th_src_loc *th_node_source_location(th_tree *tree, th_node *node) {
+    if (!tree->track_locations || node->type != TH_NODE_ELEMENT) {
+        return NULL; /* untracked tree or a node type that reserves no location slot */
+    }
+    return *node_loc(node); /* NULL for a synthetic element with no source start tag */
+}
+
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
 static th_node *node_clone(th_tree *tree, const th_node *src);
@@ -417,6 +424,15 @@ static void stack_pop(th_tree *tree) {
            EOF close) so escape-mode sanitizing reproduces the author's `</tag>` */
         if (tree->closing_end_tag != NULL && name_matches(popped, tree->closing_end_tag, popped->ns != TH_NS_HTML)) {
             popped->tag_flags |= TH_ELEM_CLOSED_BY_END_TAG;
+            if (tree->track_locations) {
+                th_src_loc *loc = *node_loc(popped); /* NULL for a synthetic element the source never opened */
+                const th_token *end = tree->closing_end_tag;
+                if (loc != NULL) {
+                    loc->end_tag =
+                        (th_src_span){end->line, end->col, end->src_off, end->end_line, end->end_col, end->end_off};
+                    loc->has_end_tag = 1;
+                }
+            }
         }
         if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_OPTION) {
             /* "when an option element is popped off the stack ... run maybe
@@ -598,6 +614,37 @@ static void insertion_location(th_tree *tree, th_node **parent, th_node **before
     insertion_location_target(tree, current_node(tree), parent, before);
 }
 
+/* Record the start-tag and per-attribute source spans a location-tracking tree
+   hangs off the element, from the token the tokenizer stamped. The end-tag span is
+   left absent until the source closes the element (record_end_tag_location). NULL
+   on allocation failure. */
+static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_token *token) {
+    th_src_loc *loc = arena_alloc(tree, (Py_ssize_t)sizeof(th_src_loc));
+    if (loc == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    loc->start_tag =
+        (th_src_span){token->line, token->col, token->src_off, token->end_line, token->end_col, token->end_off};
+    loc->end_tag = (th_src_span){0};
+    loc->has_end_tag = 0;
+    loc->attr_count = token->attr_count;
+    loc->attrs = NULL;
+    if (token->attr_count > 0) {
+        loc->attrs = arena_alloc(tree, token->attr_count * (Py_ssize_t)sizeof(th_src_attr));
+        if (loc->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        for (Py_ssize_t index = 0; index < token->attr_count; index++) {
+            const th_attr *src = &token->attrs[index];
+            loc->attrs[index].name_atom = intern_attr(tree, &src->name); /* idempotent with insert_element's */
+            loc->attrs[index].span =
+                (th_src_span){src->name_line, src->name_col, src->name_off, src->end_line, src->end_col, src->end_off};
+        }
+    }
+    *node_loc(node) = loc;
+    return loc;
+}
+
 static th_node *insert_element(th_tree *tree, const th_token *token) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -610,6 +657,12 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
            multi-gigabyte minified document) saturates, which no real input reaches */
         node_pos(node)[0] = token->line > UINT32_MAX ? UINT32_MAX : (uint32_t)token->line; /* GCOVR_EXCL_BR_LINE */
         node_pos(node)[1] = token->col > UINT32_MAX ? UINT32_MAX : (uint32_t)token->col;   /* GCOVR_EXCL_BR_LINE */
+    }
+    if (tree->track_locations) {
+        /* the record's allocation failure is unreachable from a test */
+        if (build_source_location(tree, node, token) == NULL) { /* GCOVR_EXCL_BR_LINE */
+            return NULL;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     node->text = buf_to_ucs4(tree, &token->name, &node->text_len);
     if (token->attr_count > 0) {
@@ -3603,13 +3656,15 @@ static void finalize_document(th_tree *tree) {
 
 /* Allocate a fresh document tree ready for token-driven construction (the shared
    start of one-shot and streaming parses). positions enables per-element source
-   line/col tracking. NULL on allocation failure. */
-static th_tree *tree_new_document(int positions) {
+   line/col tracking; locations adds the granular spans and implies positions. NULL
+   on allocation failure. */
+static th_tree *tree_new_document(int positions, int locations) {
     th_tree *tree = PyMem_Calloc(1, sizeof(th_tree));
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    tree->track_positions = positions; /* set before any element node_new */
+    tree->track_positions = positions || locations; /* set before any element node_new */
+    tree->track_locations = locations;
     tree->document = node_new(tree, TH_NODE_DOCUMENT);
     if (tree->document == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree);       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -3619,8 +3674,8 @@ static th_tree *tree_new_document(int positions) {
     return tree;
 }
 
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int scripting) {
-    th_tree *tree = tree_new_document(positions);
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting) {
+    th_tree *tree = tree_new_document(positions, locations);
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
@@ -3635,6 +3690,7 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     th_tok_set_error_sink(sm, &tree->errors);
+    th_tok_capture_locations(sm, locations);
     setup_input(tree, sm, kind, data, length);
     th_run_state run_state;
     run_state_init(&run_state, M_INITIAL);
@@ -3684,7 +3740,7 @@ static enum mode fragment_mode(uint16_t ctx) {
 #define MAX_CONTEXT_NAME 32
 
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions, int scripting) {
+                                Py_ssize_t context_len, int positions, int locations, int scripting) {
     th_tree *tree = PyMem_Calloc(1, sizeof(th_tree));
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -3693,7 +3749,8 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
     tree->kind = kind;
     tree->data = data;
     tree->length = length;
-    tree->track_positions = positions; /* set before any element node_new */
+    tree->track_positions = positions || locations; /* set before any element node_new */
+    tree->track_locations = locations;
     tree->document = node_new(tree, TH_NODE_DOCUMENT);
     if (tree->document == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree);       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -3770,6 +3827,7 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
         th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    th_tok_capture_locations(sm, locations);
     /* the context element's content model selects the tokenizer's start state */
     int model = ctx_ns == TH_NS_HTML ? content_model_for(ctx_atom, ctx_flags, tree->scripting) : -1;
     if (model >= 0) {
@@ -3843,17 +3901,18 @@ struct th_stream {
     th_run_state run_state;
 };
 
-th_stream *th_stream_new(int positions) {
+th_stream *th_stream_new(int positions, int locations) {
     th_stream *stream = PyMem_Calloc(1, sizeof(th_stream));
     if (stream == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    stream->tree = tree_new_document(positions);
+    stream->tree = tree_new_document(positions, locations);
     stream->sm = th_tok_new();
     if (stream->tree == NULL || stream->sm == NULL) { /* GCOVR_EXCL_BR_LINE: alloc cannot be forced */
         th_stream_free(stream);                       /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    th_tok_capture_locations(stream->sm, locations);
     run_state_init(&stream->run_state, M_INITIAL);
     return stream;
 }

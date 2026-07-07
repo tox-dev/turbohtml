@@ -1,0 +1,9 @@
+:func:`turbohtml.parse`, :func:`turbohtml.parse_fragment`, and :class:`~turbohtml.IncrementalParser` gained a
+``source_locations`` flag (default ``False``) that records the granular source spans parse5 exposes as
+``sourceCodeLocationInfo``. With it on, each element's :attr:`~turbohtml.Node.source_location` returns a
+:class:`~turbohtml.SourceLocation` giving the :class:`~turbohtml.SourceSpan` of its start tag, its end tag (``None``
+when the source never closed it), and each attribute's whole ``name="value"``, every span carrying start/end line,
+column, and code-point offset so ``source[start_offset:end_offset]`` slices the construct out. The tokenizer stamps the
+spans in C as it runs and the tree builder hangs the record off each element, so the feature is zero-overhead when off;
+it implies ``positions`` when on, keeping :attr:`~turbohtml.Node.source_line` and :attr:`~turbohtml.Node.position`
+available beside the spans.

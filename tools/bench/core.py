@@ -128,6 +128,11 @@ def parse_scripting(text: str) -> None:
     turbohtml.parse(text, scripting=True)
 
 
+def parse_locations(text: str) -> None:
+    """Parse recording the granular start/end-tag and per-attribute source spans (parse5's sourceCodeLocationInfo)."""
+    turbohtml.parse(text, source_locations=True)
+
+
 def fragment(text: str) -> None:
     """Parse a fragment in its container context with turbohtml.parse_fragment."""
     turbohtml.parse_fragment(text, context="tbody")
@@ -574,6 +579,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "emit": (emit, "turbohtml"),
     "parse": (parse, "turbohtml"),
     "parse-scripting": (parse_scripting, "turbohtml"),
+    "parse-locations": (parse_locations, "turbohtml"),
     "fragment": (fragment, "turbohtml"),
     "escape": (escape, "turbohtml"),
     "unescape": (unescape, "turbohtml"),

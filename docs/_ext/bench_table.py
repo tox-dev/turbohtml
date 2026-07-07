@@ -99,6 +99,7 @@ _HOMEPAGES: Final = {
     "nh3": "https://nh3.readthedocs.io/",
     "pandas": "https://pandas.pydata.org/",
     "pandas.read_html": "https://pandas.pydata.org/",
+    "parse5": "https://github.com/inikulin/parse5",
     "parsel": "https://parsel.readthedocs.io/",
     "pyquery": "https://pyquery.readthedocs.io/",
     "rcssmin": "https://opensource.perlig.de/rcssmin/",

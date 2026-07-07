@@ -85,6 +85,7 @@ _LOADERS["minify-js"] = partial(corpus.large_text, *corpus.JS_FILES[0][1:])  # u
 _LOADERS["parse-scripting"] = partial(
     corpus.large_text, *corpus.REAL_PAGES[2][1:]
 )  # mozilla blog (95 kB), carries <noscript>
+_LOADERS["parse-locations"] = _spec  # the whatwg spec: many tags and attributes to stamp spans for
 
 
 def _spec_case(kind: str) -> tuple[str, str]:

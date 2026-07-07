@@ -136,6 +136,7 @@ OPERATIONS: dict[str, Operation] = {
     "emit": Operation("emit a built tree", "us"),
     "parse": Operation("parse to a tree", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
+    "parse-locations": Operation("parse to a tree (source locations)", "us"),
     "fragment": Operation("parse a fragment", "us"),
     "escape": Operation("escape", "us"),
     "unescape": Operation("unescape", "us"),
@@ -438,6 +439,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "emit": lambda: _ROWS,
     "parse": _parse_cases,
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
+    "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
     "escape": corpus.escape_cases,
     "unescape": corpus.unescape_cases,

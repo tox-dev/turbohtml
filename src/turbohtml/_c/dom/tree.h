@@ -107,14 +107,45 @@ struct th_node {
 
 typedef struct th_tree th_tree;
 
+/* One source span parse5's sourceCodeLocationInfo reports: 1-based start/end line,
+   0-based start/end column, and the code-point start/end offset into the
+   newline-normalized source. The half-open [start_offset, end_offset) covers the
+   construct; line/col address its endpoints. */
+typedef struct {
+    Py_ssize_t start_line, start_col, start_offset;
+    Py_ssize_t end_line, end_col, end_offset;
+} th_src_span;
+
+/* One attribute's source span, keyed by the interned name atom so it survives a
+   later mutation of the element's attribute array. */
+typedef struct {
+    uint32_t name_atom;
+    th_src_span span;
+} th_src_attr;
+
+/* The granular source location of a parsed element: the start-tag span, the
+   end-tag span (has_end_tag 0 when the source never closed it -- a void, a
+   self-closed, or an implicitly/EOF-closed element), and one span per start-tag
+   attribute. Arena-allocated and hung off an element only when a parse requests
+   source locations. */
+typedef struct {
+    th_src_span start_tag;
+    th_src_span end_tag;
+    int has_end_tag;
+    Py_ssize_t attr_count;
+    th_src_attr *attrs;
+} th_src_loc;
+
 /* Parse a whole document. kind/data/length are a borrowed PyUnicode buffer that
    must outlive the returned tree (its slice text points into it). positions
    records each element's source line/column (read via th_node_source_position) at
-   the cost of two trailing words per element; pass 0 to skip it. scripting is the
-   WHATWG scripting flag: when set, noscript is a raw-text element (its content is
-   raw text, serialized unescaped). Returns NULL only on allocation failure (no
-   Python error is set). */
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int scripting);
+   the cost of two trailing words per element; pass 0 to skip it. locations adds
+   the granular start/end-tag and per-attribute spans (read via
+   th_node_source_location) and implies positions. scripting is the WHATWG
+   scripting flag: when set, noscript is a raw-text element (its content is raw
+   text, serialized unescaped). Returns NULL only on allocation failure (no Python
+   error is set). */
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting);
 
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
@@ -209,7 +240,7 @@ void th_node_normalize(th_tree *tree, th_node *root);
    records element source line/column, and scripting sets the WHATWG scripting flag,
    both as in th_tree_parse. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions, int scripting);
+                                Py_ssize_t context_len, int positions, int locations, int scripting);
 
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */
@@ -223,9 +254,10 @@ void th_tree_free(th_tree *tree);
    state persists across feeds. */
 typedef struct th_stream th_stream;
 
-/* Create an empty push parser. positions records element source line/column as in
-   th_tree_parse. Returns NULL on allocation failure (no Python error is set). */
-th_stream *th_stream_new(int positions);
+/* Create an empty push parser. positions records element source line/column and
+   locations adds the granular source spans, both as in th_tree_parse. Returns NULL
+   on allocation failure (no Python error is set). */
+th_stream *th_stream_new(int positions, int locations);
 
 /* Append a chunk of code points (a borrowed PyUnicode buffer, copied) and build
    as far as the now-available tokens allow. Returns 0, or -1 on allocation
@@ -561,6 +593,11 @@ int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *pu
    synthetic element (implied html/head/body, a fragment root, or one constructed
    by hand) with no source. */
 int th_node_source_position(th_tree *tree, th_node *node, Py_ssize_t *line, Py_ssize_t *col);
+
+/* The granular source location of a parsed element, or NULL when the tree carries
+   no source locations, the node is not an element, or the element has no source
+   start tag (a synthetic html/head/body, a fragment root, or a hand-built one). */
+const th_src_loc *th_node_source_location(th_tree *tree, th_node *node);
 
 /* The interned name bytes (NUL-terminated UTF-8) for an attribute's name_atom;
    *out_len receives the length. Resolves a static atom from the generated table

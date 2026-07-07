@@ -136,6 +136,11 @@ PyObject *turbohtml_register_links(PyObject *module, PyObject *type);
    (METH_O); turbohtml._article registers it on import. */
 PyObject *turbohtml_register_article(PyObject *module, PyObject *type);
 
+/* Implemented in dom/node.c: stores the SourceLocation and SourceSpan record types
+   Element.source_location builds (METH_VARARGS); turbohtml._locations registers
+   them on import. */
+PyObject *turbohtml_register_locations(PyObject *module, PyObject *args);
+
 /* Implemented in dom/node.c: stores the Markdown/PlainText/Html config types in
    module state so to_markdown()/to_text()/serialize() can isinstance-check the
    options they are handed (METH_VARARGS); turbohtml._render registers them on
