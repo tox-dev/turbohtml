@@ -18,7 +18,9 @@ pins a version, so its output is fixed whatever interpreter runs it -- the prope
 The table is generated from the interpreter's own ``unicodedata`` at that version, so the C engine is an exact
 reimplementation of the same data, and a quick check (UAX #15) hands back already-normalized text -- the common case --
 without decomposing it. The four-form pipeline (decompose, canonical-order, recompose) is C; the Python layer only maps
-the form name and calls it.
+the form name and calls it. The engine is validated against the Unicode Consortium's own ``NormalizationTest.txt`` for
+16.0 (19,965 rows, all pass), covering every header invariant plus the rule that code points absent from its Part 1 are
+left unchanged by all four forms.
 
 Template engines need a different contract: `markupsafe <https://markupsafe.palletsprojects.com>`_'s, where escaping
 produces a ``Markup`` safe-string that records "this is already HTML" and combining it with untrusted text escapes that

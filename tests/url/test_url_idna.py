@@ -2,8 +2,10 @@
 
 ``_url_to_ascii`` runs the WHATWG domain-to-ASCII step -- Unicode IDNA ``ToASCII``, that is UTS #46 with
 ``Transitional_Processing=false`` and ``UseSTD3ASCIIRules=false`` -- over the Unicode 16.0.0 tables generated into
-``_c/data/idna_table.h``. The authoritative oracle is the Unicode ``IdnaTestV2.txt`` vector file, vendored at the same
-pinned version under ``data/``; every row's ``toAsciiN`` column is checked against the engine. The punycode core is
+``_c/data/idna_table.h``. The authoritative oracle is the Unicode ``IdnaTestV2.txt`` vector file, read from the
+``unicodetools`` submodule pinned to tag ``final-16.0-20240912`` (16.0 data lives under its ``dev`` directory); every
+row's ``toAsciiN`` column is checked against the engine. A missing submodule is a setup error, not a skip: the module
+raises so a dev without the checkout is told to init it (CI inits submodules). The punycode core is
 pinned separately to the RFC 3492 sample strings, and the remaining branches (an ASCII fast path, an already-encoded
 ``xn--`` label, an unpaired surrogate, the ignored and combining-mark mapping outcomes) get their own cases.
 """
@@ -18,7 +20,22 @@ import pytest
 from turbohtml._html import _url_to_ascii
 from turbohtml.extract import normalize_url
 
-_VECTORS = Path(__file__).parent / "data" / "IdnaTestV2.txt"
+_VECTORS = (
+    Path(__file__).parents[1]
+    / "conformance"
+    / "unicodetools"
+    / "unicodetools"
+    / "data"
+    / "idna"
+    / "dev"
+    / "IdnaTestV2.txt"
+)
+if not _VECTORS.exists():  # pragma: no cover
+    _HINT = (
+        "submodule tests/conformance/unicodetools not checked out; "
+        "run: git submodule update --init tests/conformance/unicodetools"
+    )
+    raise RuntimeError(_HINT)
 
 
 def _unescape(value: str) -> str:

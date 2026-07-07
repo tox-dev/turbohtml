@@ -28,3 +28,7 @@
 	path = tools/bench-data/backbone
 	url = https://github.com/jashkenas/backbone
 	shallow = true
+[submodule "tests/conformance/unicodetools"]
+	path = tests/conformance/unicodetools
+	url = https://github.com/unicode-org/unicodetools
+	shallow = true

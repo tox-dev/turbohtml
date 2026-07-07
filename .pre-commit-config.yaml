@@ -5,9 +5,9 @@ repos:
     rev: "v6.0.0" # v6.0.0
     hooks:
       - id: end-of-file-fixer
-        exclude: ^(tests/url/data/IdnaTestV2\.txt|tools/fuzz/corpus/.*)$ # vendored verbatim / byte-exact crash inputs
+        exclude: ^tools/fuzz/corpus/.*$ # byte-exact crash inputs
       - id: trailing-whitespace
-        exclude: ^(tests/url/data/IdnaTestV2\.txt|tools/fuzz/corpus/.*)$ # vendored verbatim / byte-exact crash inputs
+        exclude: ^tools/fuzz/corpus/.*$ # byte-exact crash inputs
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: "0.37.4" # 0.37.2
     hooks:

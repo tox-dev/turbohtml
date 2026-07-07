@@ -205,7 +205,11 @@ windows.config-settings.setup-args = [ "--vsenv", "-Dstrip=true" ]
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [ "tests/html5lib-tests", "tools/html5lib-python" ]  # vendored suites, not our code
+extend-exclude = [
+  "tests/conformance/unicodetools",
+  "tests/html5lib-tests",
+  "tools/html5lib-python"
+]  # vendored suites, not our code
 format.preview = true
 format.docstring-code-line-length = 100
 format.docstring-code-format = true
@@ -266,8 +270,8 @@ builtin = "clear,usage,en-GB_to_en-US"
 ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp"
 skip = """\
   */html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h,*/idna_t\
-  able.h,*/normalize_table.h,*/IdnaTestV2.txt,*/dompurify_expect.mjs,*/package-lock.json\
-  """  # generated tables of HTML5 / IANA / CSS / PSL / language / normalization names, the Unicode IDNA table + vectors, the DOMPurify XSS fixtures, and the npm lockfile
+  able.h,*/normalize_table.h,*/dompurify_expect.mjs,*/package-lock.json\
+  """  # generated tables of HTML5 / IANA / CSS / PSL / language / normalization names, the DOMPurify XSS fixtures, and the npm lockfile
 count = true
 quiet-level = 3
 
@@ -275,7 +279,11 @@ quiet-level = 3
 max_supported_python = "3.15"
 
 [tool.ty]
-src.exclude = [ "tests/html5lib-tests", "tools/html5lib-python" ]  # vendored suites, not our code
+src.exclude = [
+  "tests/conformance/unicodetools",
+  "tests/html5lib-tests",
+  "tools/html5lib-python"
+]  # vendored suites, not our code
 environment.extra-paths = [ "tools" ]  # the CodSpeed benchmarks import the bench registry from tools/bench
 environment.python-version = "3.15"
 
@@ -287,8 +295,9 @@ ini_options.testpaths = [
 # testpaths is tests only, so no build artifact dir is ever swept
 ini_options.norecursedirs = [ "*.egg", ".*", "_darcs", "{arch}", "CVS", "dist", "node_modules", "venv" ]
 ini_options.addopts = [
-  "--ignore=tests/html5lib-tests", # vendored conformance data, not our test modules
-  "--import-mode=importlib",       # tests mirror the source tree in nested dirs without __init__.py
+  "--ignore=tests/conformance/unicodetools", # vendored Unicode data submodule, not our test modules
+  "--ignore=tests/html5lib-tests",           # vendored conformance data, not our test modules
+  "--import-mode=importlib",                 # tests mirror the source tree in nested dirs without __init__.py
 ]
 ini_options.filterwarnings = [
   "error",
