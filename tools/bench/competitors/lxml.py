@@ -31,6 +31,11 @@ def fragment(text: str) -> None:
     lxml_html.fromstring(text)
 
 
+def parse_xml(text: str) -> None:
+    """Parse a whole XML document with lxml's libxml2-backed XML parser (etree.XMLParser)."""
+    lxml_html.etree.fromstring(text.encode())
+
+
 def build(count: int) -> None:
     """Build a ``<ul>`` of rows with lxml's Element factory and ``.text``, then serialize (the aggregate workload)."""
     ul = lxml_html.Element("ul")
@@ -302,6 +307,7 @@ def htmlparser(text: str) -> None:
 
 OPERATIONS = {
     "parse": (parse, "lxml"),
+    "parse-xml": (parse_xml, "lxml.etree"),
     "fragment": (fragment, "lxml"),
     "build": (build, "lxml"),
     "build-e": (build_e, "lxml.builder"),

@@ -88,7 +88,9 @@ The wider libxml2 toolchain is a deliberate clean-break scope cut:
 - XSLT (``lxml.etree.XSLT``): no equivalent.
 - Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
 - C14N canonicalization: no equivalent.
-- Generic XML parsing and namespaced XML documents: turbohtml targets HTML; use lxml for arbitrary XML.
+- DTD-declared entities and the wider infoset: :func:`turbohtml.parse_xml` (below) handles well-formed XML but resolves
+  only the five predefined entities and numeric references; a document that relies on ``<!ENTITY>`` definitions, or that
+  needs validation or canonicalization, stays with lxml.
 - XPath is at parity, not a gap. Both are XPath 1.0 with EXSLT, and turbohtml adds the XPath 2.0 string convenience
   functions on top. The only pieces out of scope are the node-synthesizing ``str:tokenize``/``str:split``, the implicit
   current-date ``date:`` forms, and full XPath 2.0 (sequences, types, FLWOR).
@@ -110,6 +112,45 @@ and any ``$name`` variables) stays ahead of lxml per evaluation, as the precompi
 EXSLT cases, a ``re:test`` predicate runs nearly twenty times ahead of lxml even though ``re:`` dispatches to Python's
 :mod:`re` where lxml uses C ``libexslt``, because it skips the per-call namespace resolution; lxml's streaming
 evaluation narrows the node-set reductions on the multi-megabyte inputs.
+
+*************
+ Parsing XML
+*************
+
+``lxml.etree.fromstring`` / ``etree.XMLParser`` and :func:`turbohtml.parse_xml` both parse under XML 1.0 well-formedness
+rather than the HTML tree builder: names are case-sensitive, ``<x/>`` self-closes any element, and CDATA sections,
+processing instructions, and namespace prefixes are honored. The entry points swap directly, with two differences to
+plan for.
+
+First, turbohtml keeps qualified names verbatim. lxml resolves a prefix to its URI and stores the tag in Clark notation
+(``{urn:h}a``, read back through ``etree.QName``); turbohtml leaves the tag as the source ``h:a`` and keeps every
+``xmlns``/``xmlns:prefix`` declaration as an ordinary attribute on :attr:`~turbohtml.Element.attrs`. It still validates
+namespaces -- an undeclared prefix is a well-formedness error -- but it does not build lxml's ``nsmap`` or rewrite
+names.
+
+Second, ill-formed input raises rather than recovering. A mismatched or unclosed tag, an undeclared prefix, an undefined
+entity, or a duplicate attribute raises :exc:`~turbohtml.HTMLParseError`, whose ``error`` carries the
+:class:`~turbohtml.ParseError` code, line, and column -- the equivalent of lxml's default ``recover=False``
+``XMLSyntaxError``. turbohtml has no ``recover=True`` counterpart; a document that must survive malformed input stays
+with lxml.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - `lxml <https://lxml.de/>`__
+      - turbohtml
+    - - ``etree.fromstring(b"<r/>")``, ``etree.XMLParser().feed(...)``
+      - :func:`turbohtml.parse_xml` (``parse_xml("<r/>")``)
+    - - ``etree.QName(el).localname``, ``el.tag == "{urn}a"``, ``el.nsmap``
+      - :attr:`el.tag <turbohtml.Element.tag>` is the source ``prefix:local``; declarations stay on
+        :attr:`~turbohtml.Element.attrs`
+    - - ``etree.XMLSyntaxError`` on malformed input
+      - :exc:`~turbohtml.HTMLParseError` (its ``error`` is a :class:`~turbohtml.ParseError`)
+
+libxml2 leads on raw XML throughput -- it is a decade-tuned C parser, and the ``parse XML to a tree`` row shows it ahead
+on the catalog document. turbohtml's XML mode trades that for the same native, fully typed, dependency-free node API its
+HTML path uses, so an XML feed and an HTML page navigate, query, and serialize through one surface.
 
 ****************
  How to migrate

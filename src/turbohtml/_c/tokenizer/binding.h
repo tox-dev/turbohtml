@@ -101,6 +101,7 @@ void th_node_freelist_clear(module_state *state);
    parse_fragment(). parse() matches METH_O; parse_fragment() matches
    METH_VARARGS | METH_KEYWORDS. */
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs);
+PyObject *turbohtml_parse_xml(PyObject *module, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObject *kwargs);
 
 /* Rebuild a node and its subtree from a pickle (kind, data, children) triple,

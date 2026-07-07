@@ -95,6 +95,9 @@ from ._stubs.dom import (
 from ._stubs.dom import (
     parse_fragment as parse_fragment,
 )
+from ._stubs.dom import (
+    parse_xml as parse_xml,
+)
 from ._stubs.features import (
     _date_scan as _date_scan,
 )

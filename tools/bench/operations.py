@@ -79,6 +79,26 @@ _FEED_XML = (
     + "</channel></rss>"
 )
 
+_XML_ITEM = (
+    '<book id="b{index}" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    "<dc:title>Book number {index} &amp; friends</dc:title>"
+    "<dc:creator>Author {index}</dc:creator>"
+    '<price currency="USD">{index}.99</price>'
+    "<description><![CDATA[Plain <text> with & symbols]]></description>"
+    "<tags><tag>alpha</tag><tag>beta</tag><tag>gamma</tag></tags>"
+    "</book>"
+)
+
+# A well-formed namespaced catalog both parse_xml and lxml.etree accept: 400 records with
+# prefixes, attributes, entities and CDATA, sized to clear the CodSpeed heap-jitter floor.
+_XML_DOC = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    "<!-- generated catalog -->\n"
+    '<catalog xmlns="urn:example:catalog">'
+    + "".join(_XML_ITEM.format(index=index) for index in range(400))
+    + "</catalog>"
+)
+
 _SANITIZE_TEMPLATES = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
@@ -135,6 +155,7 @@ OPERATIONS: dict[str, Operation] = {
     "construct": Operation("construct N elements (no serialize)", "us"),
     "emit": Operation("emit a built tree", "us"),
     "parse": Operation("parse to a tree", "us"),
+    "parse-xml": Operation("parse XML to a tree", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
     "parse-locations": Operation("parse to a tree (source locations)", "us"),
     "fragment": Operation("parse a fragment", "us"),
@@ -439,6 +460,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "construct": lambda: _ROWS,
     "emit": lambda: _ROWS,
     "parse": _parse_cases,
+    "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),

@@ -36,6 +36,7 @@ from ._html import (
     escape,
     parse,
     parse_fragment,
+    parse_xml,
     tokenize,
     unescape,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "escape",
     "parse",
     "parse_fragment",
+    "parse_xml",
     "tokenize",
     "unescape",
 ]

@@ -101,6 +101,23 @@ PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_en
                         ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
                         "    its error attribute carries the ParseError (code, line, col).");
 
+PyDoc_STRVAR(parse_xml_doc, "parse_xml(markup)\n--\n\n"
+                            "Parse a whole document under XML 1.0 well-formedness rather than the WHATWG\n"
+                            "HTML rules, and return a navigable Document.\n\n"
+                            "Unlike parse(), this applies XML productions with no HTML recovery: element\n"
+                            "and attribute names are case-sensitive, `<x/>` self-closes any element, CDATA\n"
+                            "sections and processing instructions become their own nodes, only the five\n"
+                            "predefined entities (amp, lt, gt, quot, apos) and numeric character\n"
+                            "references resolve, and a namespace prefix must be declared with xmlns. The\n"
+                            "first well-formedness violation stops the parse and raises.\n\n"
+                            ":param markup: the XML document, as str.\n"
+                            ":returns: the parsed Document.\n"
+                            ":raises TypeError: if markup is not a str.\n"
+                            ":raises HTMLParseError: on the first well-formedness error (a mismatched or\n"
+                            "    unclosed tag, an undeclared namespace prefix, an undefined entity, a\n"
+                            "    duplicate attribute, and the rest); its error attribute carries the\n"
+                            "    ParseError (code, line, col).");
+
 PyDoc_STRVAR(parse_fragment_doc,
              "parse_fragment(html, context='div', *, positions=True, source_locations=False, scripting=False)\n--\n\n"
              "Parse an HTML fragment as the innerHTML of a context element.\n\n"
@@ -154,6 +171,7 @@ static PyMethodDef html_methods[] = {
     {"_register_render_configs", turbohtml_register_render_configs, METH_VARARGS, NULL},
     {"tokenize", (PyCFunction)(void (*)(void))turbohtml_tokenize, METH_VARARGS | METH_KEYWORDS, tokenize_doc},
     {"parse", (PyCFunction)(void (*)(void))turbohtml_parse, METH_VARARGS | METH_KEYWORDS, parse_doc},
+    {"parse_xml", (PyCFunction)(void (*)(void))turbohtml_parse_xml, METH_VARARGS | METH_KEYWORDS, parse_xml_doc},
     {"parse_fragment", (PyCFunction)(void (*)(void))turbohtml_tree_parse_fragment, METH_VARARGS | METH_KEYWORDS,
      parse_fragment_doc},
     {"annotation_surface", turbohtml_annotation_surface, METH_VARARGS, annotation_surface_doc},

@@ -38,6 +38,7 @@ It is the wrong tool in a few honest cases:
     c-core
     stdlib-parity
     parsing
+    xml
     source-locations
     tree-model
     traversal

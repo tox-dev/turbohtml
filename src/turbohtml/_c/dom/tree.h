@@ -147,6 +147,16 @@ typedef struct {
    error is set). */
 th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting);
 
+/* Parse a whole document under XML 1.0 well-formedness rather than the HTML tree
+   builder: self-closing honored on every element, case-sensitive names, CDATA
+   sections, processing instructions, the five predefined plus numeric entities,
+   and namespace-prefix validation. kind/data/length are a borrowed PyUnicode
+   buffer that must outlive the returned tree (text nodes span into it). The first
+   well-formedness violation is recorded on the tree's error sink and parsing
+   stops; a caller reads th_tree_errors and raises. Returns NULL only on
+   allocation failure (no Python error is set). */
+th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length);
+
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
 th_tree *th_tree_new(void);

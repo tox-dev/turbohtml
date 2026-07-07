@@ -12,6 +12,7 @@ ending with running the toolkit from a shell.
     :maxdepth: 1
 
     parsing
+    xml
     tokenizing
     forms
     editing

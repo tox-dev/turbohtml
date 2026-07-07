@@ -890,6 +890,23 @@ PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
     return parse_bytes(state, markup, enc_arg, enc_len, strict, detect, positions, locations, scripting);
 }
 
+PyObject *turbohtml_parse_xml(PyObject *module, PyObject *args, PyObject *kwargs) {
+    static char *keywords[] = {"markup", NULL};
+    PyObject *markup;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "U:parse_xml", keywords, &markup)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    th_tree *tree = th_tree_parse_xml(PyUnicode_KIND(markup), PyUnicode_DATA(markup), PyUnicode_GET_LENGTH(markup));
+    if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (strict_raise(state, tree, 1) < 0) { /* XML always raises the first well-formedness error */
+        return NULL;
+    }
+    return tree_to_node(state, tree, markup, Py_None);
+}
+
 PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"html", "context", "positions", "source_locations", "scripting", NULL};
     PyObject *text;

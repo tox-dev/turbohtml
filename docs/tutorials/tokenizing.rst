@@ -86,6 +86,28 @@ here as :class:`~turbohtml.SourceSpan` records whose offsets slice the original 
 
     class="intro"
 
+The tokenizer follows the HTML rules throughout: it lowercases tag names, treats ``<script>`` as raw text, and recovers
+from malformed markup the way a browser does. When the input is XML rather than HTML, reach for
+:func:`turbohtml.parse_xml` instead, which parses under XML 1.0 well-formedness -- names stay case-sensitive, ``<x/>``
+self-closes any element, and a CDATA section becomes its own node:
+
+.. testcode::
+
+    doc = turbohtml.parse_xml("<Note><Body/>Buy <![CDATA[<milk>]]></Note>")
+    root = doc.children[0]
+    print(root.tag)
+    print([child.tag for child in root if isinstance(child, turbohtml.Element)])
+    print(root.children[-1].data)
+
+.. testoutput::
+
+    Note
+    ['Body']
+    <milk>
+
+A mismatched or unclosed tag is a well-formedness error there, not something to recover from -- it raises
+:exc:`~turbohtml.HTMLParseError` instead of building a repaired tree.
+
 That is the whole tokenizer API. If you are porting an existing :class:`python:html.parser.HTMLParser` subclass,
 :class:`turbohtml.migration.stdlib.HTMLParser` keeps the same ``handle_*`` callbacks over this tokenizer, so the
 migration is changing the base class. Head to the :doc:`/how-to/index` guides for task-focused recipes or the
