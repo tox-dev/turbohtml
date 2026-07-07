@@ -81,6 +81,49 @@ The named child lands in the ``title`` slot; the plain paragraph lands in the un
 back to its own children instead, and ``assigned_nodes(flatten=True)`` returns that fallback (expanding any nested
 shadow slots along the way).
 
+*********************************
+ Parse a declarative shadow root
+*********************************
+
+A server can ship a shadow tree in the markup itself with a ``<template shadowrootmode>``. When :func:`parse` meets one,
+it attaches a shadow root to the template's parent and parses the template's content into it, exactly as a browser does
+on navigation -- so the shadow tree is there before any script runs. The template element is consumed: it never joins
+the light tree. ``shadowrootmode`` is ``"open"`` or ``"closed"``, and ``shadowrootdelegatesfocus`` /
+``shadowrootclonable`` set the matching flags:
+
+.. testcode::
+
+    from turbohtml import parse
+
+    doc = parse(
+        "<article id=post>"
+        '<template shadowrootmode="open" shadowrootclonable>'
+        "<h1><slot name=title></slot></h1><slot></slot>"
+        "</template>"
+        '<span slot="title">Hello</span><p>World</p>'
+        "</article>"
+    )
+    post = doc.find(id="post")
+    root = post.shadow_root
+    print(root.mode, root.clonable)
+    print(root.html)
+    print(post.html)
+
+.. testoutput::
+
+    open True
+    <h1><slot name="title"></slot></h1><slot></slot>
+    <article id="post"><span slot="title">Hello</span><p>World</p></article>
+
+The shadow root's slots compose the host's light children just like a scripted one, so ``assigned_nodes`` and
+``flattened_children`` work unchanged. A closed root reads ``None`` from :attr:`Element.shadow_root`, but its content is
+still reachable through :attr:`Node.flattened_children`.
+
+Only a valid shadow host (a flow-content element such as ``div``, ``section``, ``span``, or a custom element with a
+hyphenated name) takes a declarative root; on any other parent the template stays an ordinary template. Whole-document
+:func:`parse` allows declarative shadow roots by default; :func:`parse_fragment` does not -- pass
+``allow_declarative_shadow_roots=True`` to opt in, matching the browser's ``setHTMLUnsafe`` rather than ``innerHTML``.
+
 *************************
  Read the flattened tree
 *************************

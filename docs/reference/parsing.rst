@@ -11,8 +11,10 @@ parses a fragment in a context element; :class:`IncrementalParser` builds a docu
 Both :func:`parse` and :func:`parse_fragment` take keyword options: ``encoding`` and ``detect_encoding`` steer decoding
 of ``bytes`` input, ``strict`` turns the first recovered parse error into an exception, ``positions`` records each
 element's source line and column, ``source_locations`` additionally records the granular :class:`SourceLocation` spans
-(read via :attr:`Node.source_location`), and ``scripting`` sets the WHATWG scripting flag so ``<noscript>`` parses as a
-raw-text element. Each is described on the function below.
+(read via :attr:`Node.source_location`), ``scripting`` sets the WHATWG scripting flag so ``<noscript>`` parses as a
+raw-text element, and ``allow_declarative_shadow_roots`` honors a ``<template shadowrootmode>`` by attaching a shadow
+root to its parent (on by default for :func:`parse`, off for :func:`parse_fragment`). Each is described on the function
+below.
 
 .. autofunction:: parse
 

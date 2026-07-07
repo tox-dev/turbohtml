@@ -144,6 +144,29 @@ The ``<tbody>`` no one wrote is there, and ``stray`` was moved out ahead of the 
 builds, delivered as events rather than nodes. If you prefer callbacks over a loop, subclass
 :class:`~turbohtml.saxparse.SaxHandler` and pass it to :func:`~turbohtml.saxparse.sax_parse`.
 
+The tree builder does more than fill in implied elements while it consumes the token stream. When it meets a
+``<template>`` carrying a ``shadowrootmode``, it attaches a *declarative shadow root* to the template's parent and
+parses the template's content into that shadow tree instead of a template content fragment -- the same markup a browser
+turns into a shadow root. The template element itself never lands in the light tree, so the parent serializes without
+it:
+
+.. testcode::
+
+    from turbohtml import parse
+
+    card = parse("<div id=card><template shadowrootmode=open><slot></slot></template><p>Body</p></div>").find(id="card")
+    print(card.shadow_root.mode)
+    print(card.html)
+
+.. testoutput::
+
+    open
+    <div id="card"><p>Body</p></div>
+
+Declarative shadow roots are honored for whole-document :func:`~turbohtml.parse` by default; pass
+``allow_declarative_shadow_roots=False`` to keep such templates as ordinary elements. See :doc:`/how-to/shadow-dom` for
+working with the shadow tree the parser built.
+
 That is the whole tokenizer API. If you are porting an existing :class:`python:html.parser.HTMLParser` subclass,
 :class:`turbohtml.migration.stdlib.HTMLParser` keeps the same ``handle_*`` callbacks over this tokenizer, so the
 migration is changing the base class. Head to the :doc:`/how-to/index` guides for task-focused recipes or the

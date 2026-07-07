@@ -82,6 +82,32 @@ faster than parse5 measured in-process (Node startup excluded):
 .. bench-table::
     :file: bench/parse5.json
 
+************************
+ Declarative shadow DOM
+************************
+
+parse5 has no shadow-tree model: it builds a plain ``<template>`` element with a content fragment for a ``<template
+shadowrootmode>`` and leaves the shadow-root attachment to its consumer (jsdom does it in its own layer; a custom
+``treeAdapter`` would do it in yours). turbohtml attaches the shadow root in the parser itself and hands it back on the
+host, so there is nothing extra to wire up:
+
+.. testcode::
+
+    from turbohtml import parse
+
+    host = parse("<section id=h><template shadowrootmode=open><slot></slot></template><p>x</p></section>").find(id="h")
+    print(host.shadow_root.mode)
+
+.. testoutput::
+
+    open
+
+The switch maps to the ``allow_declarative_shadow_roots`` option, which follows the WHATWG per-document flag: on by
+default for whole-document :func:`~turbohtml.parse` (a browser navigation), off for :func:`~turbohtml.parse_fragment`
+(an ``innerHTML`` assignment). Read the attached tree through :attr:`~turbohtml.Element.shadow_root`,
+:meth:`~turbohtml.Element.assigned_nodes`, and :attr:`~turbohtml.Node.flattened_children` -- the same API a scripted
+:meth:`~turbohtml.Element.attach_shadow` produces.
+
 ****************
  How to migrate
 ****************
@@ -133,3 +159,7 @@ with plain offsets:
 - **No pluggable tree adapter.** parse5's ``treeAdapter`` lets you build a custom node shape; turbohtml always builds
   its own :class:`~turbohtml.Document`. To feed another toolchain, serialize with :attr:`~turbohtml.Node.html` and
   reparse there.
+- **Declarative shadow is on for documents.** Unlike parse5, turbohtml attaches a shadow root for a ``<template
+  shadowrootmode>`` during a whole-document :func:`~turbohtml.parse`, so such templates leave the light tree. Pass
+  ``allow_declarative_shadow_roots=False`` to keep parse5's plain-template behavior, or opt a fragment in with
+  ``parse_fragment(..., allow_declarative_shadow_roots=True)``.
