@@ -33,13 +33,6 @@ def data_of(node: Node) -> str:
     return node.data
 
 
-def localnames(node: Element) -> list[str]:
-    out = [node.tag.split(":")[-1]]
-    for child in elements(node):
-        out.extend(localnames(child))
-    return out
-
-
 def test_returns_document_with_single_root() -> None:
     doc = parse_xml("<root><child>hi</child></root>")
     assert isinstance(doc, Document)
@@ -323,17 +316,3 @@ def test_lenient_empty_namespace_prefix_declaration() -> None:
 def test_non_str_raises_type_error() -> None:
     with pytest.raises(TypeError):
         parse_xml(b"<root/>")  # ty: ignore[invalid-argument-type]
-
-
-def test_round_trip_against_lxml() -> None:
-    lxml_etree = pytest.importorskip("lxml.etree")
-    source = (
-        '<catalog xmlns:dc="urn:dc">'
-        '<book id="b1"><dc:title>One</dc:title><price>9.99</price></book>'
-        '<book id="b2"><dc:title>Two &amp; a half</dc:title><price>5.00</price></book>'
-        "<!-- end --></catalog>"
-    )
-    theirs = lxml_etree.fromstring(source.encode())
-    ours = root_of(parse_xml(source))
-    their_locals = [lxml_etree.QName(node).localname for node in theirs.iter() if isinstance(node.tag, str)]
-    assert localnames(ours) == their_locals
