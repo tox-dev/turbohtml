@@ -31,7 +31,7 @@
 [submodule "tests/conformance/unicodetools"]
 	path = tests/conformance/unicodetools
 	url = https://github.com/unicode-org/unicodetools
-||||||| parent of 7651dab5 (✅ test(dom): validate source locations vs parse5)
+	shallow = true
 [submodule "tests/conformance/parse5"]
 	path = tests/conformance/parse5
 	url = https://github.com/inikulin/parse5
