@@ -84,7 +84,7 @@ The DOM schedules the callback on a microtask; with no event loop, turbohtml run
 
     doc = turbohtml.parse("<ul></ul>")
     ul = doc.find("ul")
-    observer = MutationObserver(lambda records, obs: print(f"{len(records)} change(s)"))
+    observer = MutationObserver(lambda records, _obs: print(f"{len(records)} change(s)"))
     observer.observe(ul, child_list=True)
     ul.append(Element("li"))
     observer.deliver()

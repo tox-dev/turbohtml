@@ -8,9 +8,9 @@ from turbohtml._article import Article as Article
 from turbohtml._feed import Feed
 from turbohtml._links import Link
 from turbohtml._locations import SourceLocation
-from turbohtml.mutations import MutationRecord
 from turbohtml._render import Canonical, Html, Markdown, PlainText
 from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
+from turbohtml.mutations import MutationRecord
 
 _Filter: TypeAlias = str | Pattern[str] | bool | Callable[[str | None], bool] | list[_Filter]
 
