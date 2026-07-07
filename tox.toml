@@ -73,6 +73,11 @@ commands = [
     "term-missing:skip-covered",
     "--cov-report",
     "html:{env_tmp_dir}{/}htmlcov",
+    # the tests/conformance suites validate a feature against a competitor's or standards body's own suite,
+    # vendored as pinned submodules; they only run with those oracles present, in the dedicated `conformance`
+    # env (the "🔬 conformance" CI job). Deselect them here so the normal matrix never runs an oracle suite
+    # without its oracle -- a missing oracle must error there, not skip silently in the matrix.
+    "--ignore={tox_root}{/}tests{/}conformance",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
   # enforce 100% C LINE coverage everywhere gcov runs, and 100% BRANCH coverage on
@@ -239,6 +244,45 @@ commands_pre = [
 ]
 commands = [
   [ "pytest", "{tox_root}{/}tests{/}benchmarks", "--codspeed", { replace = "posargs", extend = true } ],
+]
+
+[env.conformance]
+description = "run the vendored-oracle conformance suites in tests/conformance (the '🔬 conformance' CI job, not a per-PR gate)"
+package = "skip"  # commands_pre installs a plain release editable build; no coverage instrumentation
+deps = []  # no gcovr: this is a pass/fail correctness gate, not a coverage gate (the matrix owns the 100% gate)
+dependency_groups = [ "test" ]
+pass_env = [ "PYTEST_*" ]
+commands_pre = [
+  # a plain release build, uninstrumented -- the conformance suites only assert behavior against the oracles
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dbuildtype=release",
+  ],
+]
+# Each tests/conformance/test_*.py validates one feature against a competitor's or standards body's OWN suite,
+# vendored as a pinned submodule under tests/conformance/<oracle> (libxml2, unicodetools, qt3tests, parse5,
+# DOMPurify, ...) and/or a Node oracle in tools/bench/node. Run them for real with the oracles present: a suite
+# whose oracle submodule is absent errors here (never skips) -- that is the point of this env. This is a
+# correctness gate, not a coverage gate (no --cov). An empty or absent tests/conformance (no suites on this
+# branch yet) is a clean pass, not a failure, so a branch that adds no suite still goes green.
+commands = [
+  [
+    "python",
+    "-c",
+    """\
+  import pathlib, subprocess, sys; suites = sorted(pathlib.Path('tests', 'conformance').glob('test_*.py')); print('no \
+  tests/conformance suites present; nothing to run') if not suites else None; raise SystemExit(0 if not suites else \
+  subprocess.call([sys.executable, '-m', 'pytest', 'tests/conformance', '--no-cov', '-p', 'no:cacheprovider']))\
+  """,
+  ],
 ]
 
 [env.dev]

@@ -62,6 +62,38 @@ jobs:
         run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
         env:
           UV_PYTHON_PREFERENCE: only-managed
+  conformance:
+    name: 🔬 conformance
+    runs-on: ubuntu-24.04
+    # The tests/conformance/ suites validate each feature against a competitor's or standards body's OWN test suite,
+    # vendored as pinned submodules under tests/conformance/<oracle> (libxml2, unicodetools, xml-conformance-suite,
+    # qt3tests, parse5, DOMPurify, ...) and/or a Node oracle in tools/bench/node (jsdom, DOMPurify, parse5). They must
+    # RUN with those oracles present: a suite whose submodule is absent errors instead of skipping, which is the whole
+    # point of this job. The normal matrix deselects tests/conformance (tox --ignore) so it never runs an oracle suite
+    # without the oracle. This is a pass/fail correctness gate, not a coverage gate -- the 100% line/branch gate stays
+    # on the matrix (env_run_base), deliberately not bolted on here.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          submodules: recursive # every conformance oracle plus the html5lib-tests data; shallow submodules init here too
+          persist-credentials: false
+      - name: 🟢 Install Node
+        # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+      - name: 📦 Install the Node oracle deps (jsdom, DOMPurify, parse5)
+        run: npm ci
+        working-directory: tools/bench/node
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run the conformance suites
+        run: uvx --with tox-uv tox run -e conformance
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
   warnings:
     name: 🚨 -Werror (${{ matrix.label }})
     runs-on: ${{ matrix.os }}

@@ -67,6 +67,32 @@ codspeed`` or ``pytest tests/benchmarks --codspeed``), so the ordinary test run 
   and a comment explaining why it cannot run.
 - Keep the C output byte for byte identical to the standard library where the two overlap.
 
+********************
+ Conformance suites
+********************
+
+A conformance suite validates one feature against a competitor's or a standards body's **own** test suite rather than
+hand-written cases: libxml2, the Unicode ``unicodetools``, the W3C ``xml-conformance-suite`` and ``qt3tests``,
+``parse5``, DOMPurify, and so on. These suites live under ``tests/conformance/`` and vendor each oracle as a pinned git
+submodule at ``tests/conformance/<oracle>`` (and/or drive a Node oracle in ``tools/bench/node`` -- jsdom, DOMPurify,
+parse5). The convention is deliberate:
+
+- A missing oracle **errors, never skips.** A suite whose submodule (or Node oracle) is absent must fail loudly, so a
+  half-checked-out tree can never report a green run that silently validated nothing.
+- They run only in the dedicated ``🔬 conformance`` CI job, which checks out every submodule recursively and installs the
+  Node oracle deps before running ``tox r -e conformance``. The normal test matrix deselects ``tests/conformance``
+  (``--ignore``), so it never tries an oracle suite without its oracle.
+- It is a pass/fail correctness gate, **not** a coverage gate. The 100% line/branch coverage gate stays on the matrix;
+  the conformance job only asserts the oracle suites pass, so it does not run under coverage.
+
+.. code-block:: console
+
+    $ git submodule update --init tests/conformance/parse5   # fetch one oracle
+    $ tox r -e conformance                                    # run the suites against their oracles
+
+The vendored ``html5lib-tests`` conformance data is separate: it lives under ``tests/dom``, ``tests/tokenizer``, and
+``tests/encoding`` (not ``tests/conformance``) and runs in the ordinary matrix, so it is unaffected by the above.
+
 *********
  Fuzzing
 *********
