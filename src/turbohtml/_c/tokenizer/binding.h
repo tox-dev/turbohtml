@@ -43,6 +43,8 @@ typedef struct {
     PyObject *handle_type;           /* _TreeHandle (owns th_tree + the input str) */
     PyObject *attrs_type;            /* _Attrs (the live mutable view of an element's attributes) */
     PyObject *walker_type;           /* _NodeIterator (descendants / ancestors / siblings) */
+    PyObject *tree_walker_type;      /* TreeWalker (the DOM cursor traversal object) */
+    PyObject *node_iterator_type;    /* NodeIterator (the DOM flat filtered traversal object) */
     PyObject *string_walker_type;    /* _StringIterator (strings / stripped_strings) */
     PyObject *serialize_iter_type;   /* _SerializeIterator (serialize_iter chunk stream) */
     PyObject *namespace_enum;        /* Namespace (enum.Enum) */

@@ -1,0 +1,9 @@
+Added the DOM Living Standard traversal objects :class:`turbohtml.TreeWalker` and :class:`turbohtml.NodeIterator`, with
+the :class:`turbohtml.NodeFilter` constants for the ``what_to_show`` bitmask and the filter verdicts. A ``TreeWalker``
+is a movable cursor over a subtree -- ``parent_node``, ``first_child``, ``last_child``, ``next_sibling``,
+``previous_sibling``, ``next_node``, ``previous_node`` -- while a ``NodeIterator`` is the flat, filtered
+forward/backward view and iterates directly in a ``for`` loop. Both take a ``what_to_show`` node-type mask and an
+optional filter callback returning ``FILTER_ACCEPT``, ``FILTER_REJECT``, or ``FILTER_SKIP``; reject drops a node and its
+whole subtree while skip drops only the node, so a ``TreeWalker`` prunes where a ``NodeIterator`` (having no subtree)
+treats the two alike. The state machine and the ``what_to_show`` test run in the C core; the filter is the one callback
+into Python. This ports traversal code written against the browser DOM or jsdom.

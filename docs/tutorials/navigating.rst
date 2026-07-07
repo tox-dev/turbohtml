@@ -237,4 +237,54 @@ variable:
     Jerry
     /x
 
+*****************************
+ Walk with a filtered cursor
+*****************************
+
+The :attr:`~turbohtml.Node.descendants` iterator visits every node once, front to back. When you want a cursor you can
+steer -- step to a child, a sibling, or back to the parent, and point at a filtered subset -- reach for the DOM
+:class:`turbohtml.TreeWalker`. Its ``what_to_show`` bitmask picks node types (here
+:attr:`~turbohtml.NodeFilter.SHOW_ELEMENT`, so text and comments are stepped over), and each move returns the node it
+landed on:
+
+.. testcode::
+
+    from turbohtml import NodeFilter, TreeWalker
+
+    walker = TreeWalker(paragraph, NodeFilter.SHOW_ELEMENT)
+    print(walker.first_child())
+    print(walker.next_node())
+
+.. testoutput::
+
+    Element('a')
+    None
+
+A ``filter`` callback refines the walk further. It returns one of three verdicts, and the difference between two of them
+is the whole point of a *tree* walker: :attr:`~turbohtml.NodeFilter.FILTER_REJECT` drops a node **and its subtree**,
+while :attr:`~turbohtml.NodeFilter.FILTER_SKIP` drops only the node, so the walk still descends into its children:
+
+.. testcode::
+
+    tree = turbohtml.parse("<section><aside><b>x</b></aside><i>y</i></section>").find("section")
+
+
+    def hide_aside(verdict):
+        return lambda node: verdict if node.tag == "aside" else NodeFilter.FILTER_ACCEPT
+
+
+    skip = TreeWalker(tree, NodeFilter.SHOW_ELEMENT, hide_aside(NodeFilter.FILTER_SKIP))
+    reject = TreeWalker(tree, NodeFilter.SHOW_ELEMENT, hide_aside(NodeFilter.FILTER_REJECT))
+    print([node.tag for node in iter(skip.next_node, None)])
+    print([node.tag for node in iter(reject.next_node, None)])
+
+.. testoutput::
+
+    ['b', 'i']
+    ['i']
+
+For a flat, front-to-back view of the same filtered nodes, :class:`turbohtml.NodeIterator` iterates directly; it has no
+subtree to prune, so it treats reject and skip alike. See :doc:`/how-to/traversing` for the full cursor and
+:doc:`/explanation/traversal` for why the reject/skip split matters.
+
 Continue to :doc:`editing` to build and change trees of your own.

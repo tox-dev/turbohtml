@@ -52,3 +52,21 @@ record built from :class:`SourceSpan` values -- the start-tag, end-tag, and per-
 
 .. autoclass:: SourceSpan
     :members:
+
+*******************
+ Traversal objects
+*******************
+
+The DOM Living Standard traversal objects walk a subtree under a :class:`NodeFilter` bitmask and callback. A
+:class:`TreeWalker` is a movable cursor; a :class:`NodeIterator` is a flat forward/backward view. See
+:doc:`/how-to/traversing` for recipes and :doc:`/explanation/traversal` for the reject/skip semantics.
+
+.. autoclass:: NodeFilter
+    :members:
+    :undoc-members:
+
+.. autoclass:: TreeWalker
+    :members:
+
+.. autoclass:: NodeIterator
+    :members:

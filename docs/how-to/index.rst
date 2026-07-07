@@ -18,6 +18,7 @@ ending with running the toolkit from a shell.
     encoding
     selecting
     finding
+    traversing
     extracting
     xpath
     inspecting

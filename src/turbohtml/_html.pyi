@@ -45,6 +45,9 @@ from ._stubs.dom import (
     Node as Node,
 )
 from ._stubs.dom import (
+    NodeIterator as NodeIterator,
+)
+from ._stubs.dom import (
     ParseError as ParseError,
 )
 from ._stubs.dom import (
@@ -52,6 +55,9 @@ from ._stubs.dom import (
 )
 from ._stubs.dom import (
     Text as Text,
+)
+from ._stubs.dom import (
+    TreeWalker as TreeWalker,
 )
 from ._stubs.dom import (
     _build_document as _build_document,

@@ -40,6 +40,7 @@ It is the wrong tool in a few honest cases:
     parsing
     source-locations
     tree-model
+    traversal
     queries
     structured-data
     serialization

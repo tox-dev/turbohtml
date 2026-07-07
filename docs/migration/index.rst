@@ -104,6 +104,11 @@ input recovers the WHATWG way, and every node shares the navigation, query, and 
       - `docs <https://github.com/inikulin/parse5>`__
       - JavaScript (npm)
       - --
+    - - 10
+      - :doc:`jsdom <jsdom>`
+      - `docs <https://github.com/jsdom/jsdom>`__
+      - JavaScript (npm)
+      - --
 
 parse5 is the reference JavaScript WHATWG parser rather than a Python library; its guide is a cross-language reference
 for porting a parse5 pipeline -- and its ``sourceCodeLocationInfo`` model in particular -- onto turbohtml.
@@ -704,6 +709,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     html5-parser
     stdlib
     parse5
+    jsdom
     charset-normalizer
     chardet
     soupsieve

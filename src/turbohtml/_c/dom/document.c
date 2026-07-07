@@ -1507,6 +1507,18 @@ int tree_register(PyObject *module, module_state *state) {
         return -1;                                                       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     state->walker_type = PyType_FromModuleAndSpec(module, &walker_spec, NULL);
+    state->tree_walker_type = PyType_FromModuleAndSpec(module, &tree_walker_spec, NULL);
+    /* allocation failure cannot be forced from a test */
+    if (state->tree_walker_type == NULL ||                                          /* GCOVR_EXCL_BR_LINE */
+        PyModule_AddObjectRef(module, "TreeWalker", state->tree_walker_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                  /* GCOVR_EXCL_LINE: alloc-fail */
+    }
+    state->node_iterator_type = PyType_FromModuleAndSpec(module, &node_iterator_spec, NULL);
+    /* allocation failure cannot be forced from a test */
+    if (state->node_iterator_type == NULL ||                                            /* GCOVR_EXCL_BR_LINE */
+        PyModule_AddObjectRef(module, "NodeIterator", state->node_iterator_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE: alloc-fail */
+    }
     state->string_walker_type = PyType_FromModuleAndSpec(module, &string_walker_spec, NULL);
     state->serialize_iter_type = PyType_FromModuleAndSpec(module, &serialize_iter_spec, NULL);
     state->handle_type = PyType_FromModuleAndSpec(module, &handle_spec, NULL);

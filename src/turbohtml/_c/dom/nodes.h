@@ -528,6 +528,8 @@ PyObject *parse_error_new(module_state *state, const th_parse_error *error);
 PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding);
 PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored));
 extern PyType_Spec walker_spec;
+extern PyType_Spec tree_walker_spec;
+extern PyType_Spec node_iterator_spec;
 extern PyType_Spec string_walker_spec;
 extern PyType_Spec serialize_iter_spec;
 extern PyType_Spec node_spec;

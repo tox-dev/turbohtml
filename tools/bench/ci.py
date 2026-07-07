@@ -62,6 +62,7 @@ _DOCUMENT_OPS = (
     "set-html",
     "set-text",
     "navigate",
+    "treewalk",
     "chain",
     "links-extract",
     "links-absolutize",

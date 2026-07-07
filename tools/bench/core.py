@@ -250,6 +250,13 @@ def navigate(text: str) -> None:
         pass
 
 
+def treewalk(text: str) -> None:
+    """Walk every element of a parsed document through a filtered TreeWalker cursor."""
+    walker = turbohtml.TreeWalker(_parsed(text), turbohtml.NodeFilter.SHOW_ELEMENT)
+    while walker.next_node() is not None:
+        pass
+
+
 def chain(text: str) -> None:
     """Run a fluent jQuery-style chain with turbohtml's Query wrapper."""
     _Query(_parsed(text))("a").filter("[href]").eq(0).add_class("seen").attr("href")
@@ -600,6 +607,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "set-html": (Mutating(turbohtml.parse, set_html), "turbohtml"),
     "set-text": (Mutating(turbohtml.parse, set_text), "turbohtml"),
     "navigate": (navigate, "turbohtml"),
+    "treewalk": (treewalk, "turbohtml"),
     "chain": (chain, "turbohtml"),
     "links-extract": (links_extract, "turbohtml"),
     "links-absolutize": (Mutating(turbohtml.parse, links_absolutize), "turbohtml"),
