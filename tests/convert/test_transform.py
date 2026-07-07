@@ -593,8 +593,30 @@ def test_transform_recursion_depth_is_bounded() -> None:
         '<xsl:template match="/"><xsl:call-template name="loop"/></xsl:template>'
         '<xsl:template name="loop"><xsl:call-template name="loop"/></xsl:template>'
     )
-    with pytest.raises(ValueError, match="recursion too deep"):
+    with pytest.raises(RecursionError, match="nesting too deep"):
         _run("<r/>", body)
+
+
+def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:call-template name="rec"><xsl:with-param name="c" select="100000"/>'
+        "</xsl:call-template></xsl:template>"
+        '<xsl:template name="rec"><xsl:param name="c"/><xsl:if test="$c &gt; 0">.'
+        '<xsl:call-template name="rec"><xsl:with-param name="c" select="$c - 1"/>'
+        "</xsl:call-template></xsl:if></xsl:template>"
+    )
+    with pytest.raises(RecursionError, match="nesting too deep"):
+        _run("<r/>", body)
+
+
+def test_transform_deep_apply_templates_recursion_raises_cleanly() -> None:
+    source = "<r>" + "<n>" * 600 + "x" + "</n>" * 600 + "</r>"
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
+        '<xsl:template match="n">[<xsl:apply-templates/>]</xsl:template>'
+    )
+    with pytest.raises(RecursionError, match="nesting too deep"):
+        _run(source, body)
 
 
 def test_transform_anchored_patterns() -> None:
@@ -1723,3 +1745,55 @@ def test_transform_stylesheet_passed_as_root_element() -> None:
     root = _sheet('<xsl:template match="/">ok</xsl:template>').root
     assert root is not None
     assert transform(root, turbohtml.parse_xml("<r/>")) == "ok"
+
+
+def test_transform_apply_templates_with_sort_and_param() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/n">'
+        '<xsl:sort select="."/><xsl:with-param name="p" select="\'P\'"/></xsl:apply-templates></xsl:template>'
+        '<xsl:template match="n"><xsl:param name="p"/>'
+        '<xsl:value-of select="$p"/><xsl:value-of select="."/>,</xsl:template>'
+    )
+    assert _run("<r><n>b</n><n>a</n></r>", body) == "Pa,Pb,"
+
+
+def test_transform_apply_templates_failing_sort_raises() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//n">'
+        '<xsl:sort select="$undef"/></xsl:apply-templates></xsl:template>'
+        '<xsl:template match="n"><xsl:value-of select="."/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="unbound"):
+        _run("<r><n/><n/></r>", body)
+
+
+def test_transform_literal_element_with_namespace_declaration() -> None:
+    body = '<xsl:template match="/"><out xmlns:ex="urn:example"><inner>x</inner></out></xsl:template>'
+    result = _run("<r/>", body, method="xml")
+    assert "<out><inner>x</inner></out>" in result
+
+
+def test_transform_literal_element_with_long_attribute_name() -> None:
+    body = '<xsl:template match="/"><td colspan="2">x</td></xsl:template>'
+    assert _run("<r/>", body, method="xml") == '<td colspan="2">x</td>'
+
+
+def test_transform_many_equal_priority_templates_document_order() -> None:
+    templates = "".join(f'<xsl:template match="x">{index}</xsl:template>' for index in range(6))
+    body = f'<xsl:template match="/"><xsl:apply-templates select="r/x"/></xsl:template>{templates}'
+    # All six rules share priority 0, so the qsort tiebreak orders them by document
+    # position; the last one declared wins.
+    assert _run("<r><x/></r>", body) == "5"
+
+
+def test_transform_equal_priority_tie_break_across_a_higher_priority_rule() -> None:
+    # Two equal-priority rules (a, c) separated by a higher-priority one (b): the sort
+    # compares the pair with the later-declared rule as the left operand, exercising the
+    # other arm of the document-position tiebreak that a plain reversal never reaches.
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
+        '<xsl:template match="a" priority="5">A</xsl:template>'
+        '<xsl:template match="b" priority="9">B</xsl:template>'
+        '<xsl:template match="c" priority="5">C</xsl:template>'
+    )
+    assert _run("<r><a/><b/><c/></r>", body) == "ABC"

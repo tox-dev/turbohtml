@@ -491,10 +491,15 @@ typedef struct engine {
     int py_error;
 } engine;
 
-/* A cap on template-instantiation recursion (recursive named-template calls). Each
-   level costs a bounded C stack, so the cap bounds the stack a runaway recursive
-   stylesheet can consume before it faults. */
-#define XSLT_MAX_DEPTH 1500
+/* A cap on template-instantiation nesting (recursive apply-templates / named-template
+   calls, xsl:for-each and result-tree construction). The transform recurses in C, so
+   this guard turns a runaway or pathologically deep stylesheet into a clean
+   RecursionError instead of a C stack overflow. It is sized well below the depth that
+   overflows a small (~256 KB) thread stack -- each nesting level costs about half a
+   kilobyte, so 400 levels stay under ~200 KB with a wide safety margin over the frame
+   growth other compilers produce. Deep list processing should use xsl:for-each, which
+   iterates rather than recursing. */
+#define XSLT_MAX_DEPTH 400
 
 /* ---- xsl element identification ------------------------------------------- */
 
@@ -2102,9 +2107,16 @@ static int do_call_template(engine *eng, th_node *instruction, th_node *out_pare
     if (target == NULL) {
         return fail(eng, "xsl:call-template names an undeclared template");
     }
-    param_pass passes[XSLT_MAX_PARAMS];
+    /* The passes array lives on the heap, not the stack: do_call_template is on the
+       deep-recursion path of a self-calling named template, and keeping this array off
+       the frame lets the recursion run much deeper before the depth guard trips. */
+    param_pass *passes = PyMem_Malloc((size_t)XSLT_MAX_PARAMS * sizeof(param_pass));
+    if (passes == NULL) {                  /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
     int npasses = collect_params(eng, instruction, passes, XSLT_MAX_PARAMS);
     if (npasses < 0) {
+        PyMem_Free(passes);
         return -1;
     }
     Py_ssize_t mark;
@@ -2116,6 +2128,7 @@ static int do_call_template(engine *eng, th_node *instruction, th_node *out_pare
     for (int index = 0; index < npasses; index++) {
         xp_result_free(&passes[index].value);
     }
+    PyMem_Free(passes);
     return rc;
 }
 
@@ -2306,9 +2319,17 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
     for (int index = 0; index < nspecs; index++) {
         xp_free(specs[index].prog);
     }
-    param_pass passes[XSLT_MAX_PARAMS];
+    /* Heap, not stack: apply_templates is on the deep-recursion path (a template body
+       applies templates that recurse), so keeping this array off the frame lets the
+       recursion run much deeper before the depth guard trips. */
+    param_pass *passes = PyMem_Malloc((size_t)XSLT_MAX_PARAMS * sizeof(param_pass));
+    if (passes == NULL) {                  /* GCOVR_EXCL_BR_LINE: alloc */
+        xp_result_free(&value);            /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
     int npasses = collect_params(eng, instruction, passes, XSLT_MAX_PARAMS);
     if (npasses < 0) {
+        PyMem_Free(passes);
         xp_result_free(&value);
         return -1;
     }
@@ -2320,6 +2341,7 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
     for (int index = 0; index < npasses; index++) {
         xp_result_free(&passes[index].value);
     }
+    PyMem_Free(passes);
     xp_result_free(&value);
     return rc;
 }
@@ -2504,7 +2526,8 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
 static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
     if (++eng->depth > XSLT_MAX_DEPTH) {
         eng->depth--;
-        return fail(eng, "xslt: template recursion too deep");
+        PyErr_SetString(PyExc_RecursionError, "xslt: template nesting too deep");
+        return fail_py(eng);
     }
     Py_ssize_t scope_mark = eng->scope_len;
     int rc = 0;
@@ -2704,11 +2727,14 @@ static int rule_order(const void *left_ptr, const void *right_ptr) {
     const xslt_rule *left = left_ptr;
     const xslt_rule *right = right_ptr;
     /* Import precedence is not modeled (no xsl:import), so a single stylesheet's rules
-       order by priority then document position. */
+       order by priority then document position. Positions are unique small sequential
+       integers, so their signed difference orders them branchlessly (later position
+       sorts first) -- a ternary here leaves one arm that only some qsort implementations
+       ever call, which diverges across C libraries. */
     if (left->priority != right->priority) {
         return left->priority < right->priority ? 1 : -1;
     }
-    return left->position < right->position ? 1 : -1;
+    return (int)(right->position - left->position);
 }
 
 /* ---- output serialization ------------------------------------------------- */
