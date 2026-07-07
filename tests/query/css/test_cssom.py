@@ -256,6 +256,69 @@ def test_computed_style_overflow_shorthand() -> None:
     assert (style["overflow-x"], style["overflow-y"]) == ("hidden", "scroll")
 
 
+def test_computed_style_border_shorthand_expands_all_twelve_longhands() -> None:
+    style = _style("<div></div>", css="div { border: 2px dashed green }")
+    for side in ("top", "right", "bottom", "left"):
+        assert style[f"border-{side}-width"] == "2px"
+        assert style[f"border-{side}-style"] == "dashed"
+        assert style[f"border-{side}-color"] == "green"
+
+
+@pytest.mark.parametrize("side", ["top", "right", "bottom", "left"])
+def test_computed_style_border_side_shorthand_sets_only_that_side(side: str) -> None:
+    style = _style("<div></div>", css=f"div {{ border-{side}: 1px solid red }}")
+    assert (style[f"border-{side}-width"], style[f"border-{side}-style"], style[f"border-{side}-color"]) == (
+        "1px",
+        "solid",
+        "red",
+    )
+    other = "bottom" if side == "top" else "top"
+    assert style[f"border-{other}-width"] == "medium"  # a sibling side stays at its initial
+
+
+@pytest.mark.parametrize(
+    ("value", "width", "style_", "color"),
+    [
+        pytest.param("thick dotted blue", "thick", "dotted", "blue", id="width-style-color"),
+        pytest.param("blue thick dotted", "thick", "dotted", "blue", id="color-width-style-any-order"),
+        pytest.param("auto", "medium", "auto", "currentcolor", id="style-only-omits-reset-to-initial"),
+        pytest.param(".5px solid rgb(1, 2, 3)", ".5px", "solid", "rgb(1, 2, 3)", id="length-lead-and-color-function"),
+        pytest.param("thin", "thin", "none", "currentcolor", id="width-keyword-only"),
+    ],
+)
+def test_computed_style_outline_shorthand_classifies_components(
+    value: str, width: str, style_: str, color: str
+) -> None:
+    style = _style("<div></div>", css=f"div {{ outline: {value} }}")
+    assert (style["outline-width"], style["outline-style"], style["outline-color"]) == (width, style_, color)
+
+
+def test_computed_style_border_longhand_after_shorthand_wins() -> None:
+    style = _style("<div></div>", css="div { border: 2px solid green; border-top-color: navy }")
+    assert style["border-top-color"] == "navy"
+    assert style["border-right-color"] == "green"
+
+
+def test_computed_style_border_shorthand_after_longhand_resets_it() -> None:
+    style = _style("<div></div>", css="div { border-top-color: red; border-top: 2px solid }")
+    assert style["border-top-width"] == "2px"
+    assert style["border-top-style"] == "solid"
+    assert style["border-top-color"] == "currentcolor"  # the omitted component resets to the initial
+
+
+def test_computed_style_border_shorthand_higher_priority_longhand_survives() -> None:
+    style = _style("<div id='a' style='border: 5px solid red'></div>", css="#a { border-top-width: 9px !important }")
+    assert style["border-top-width"] == "9px"
+    assert style["border-right-width"] == "5px"
+
+
+def test_computed_style_border_shorthand_repeated_component_is_invalid() -> None:
+    # two style keywords cannot both bind: the whole declaration is invalid and sets nothing
+    style = _style("<div></div>", css="div { border-top-color: lime; border-top: solid dashed }")
+    assert style["border-top-style"] == "none"
+    assert style["border-top-color"] == "lime"  # the earlier longhand survives the dropped shorthand
+
+
 def test_computed_style_shorthand_with_whitespace_separators() -> None:
     style = _style("<div style='margin:1px\t2px\n3px'></div>")
     assert (style["margin-top"], style["margin-right"], style["margin-bottom"]) == ("1px", "2px", "3px")

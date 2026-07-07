@@ -31,13 +31,15 @@ Documented boundaries, argued from the spec rather than papered over:
   the UA default (CSS Cascade 4 §6.4, and the explanation doc). jsdom applies a UA sheet (``p { display: block }`` and
   the like), so every compared property is one an author declaration governs on the target element, keeping the UA
   origin out of the diff.
-- **Curated shorthand set.** turbohtml expands only the distributive shorthands its docs enumerate -- ``margin``,
-  ``padding``, ``border-width``/``style``/``color``, ``overflow``. The grammar-parsed shorthands (``border``,
-  ``border-top`` and siblings, ``outline``, ``font``, ``background``, ``list-style``) are out of scope and drop their
-  declaration; ``test_cssom_curated_shorthand_boundary`` records that as an ``xfail`` against jsdom.
-- **jsdom is non-conformant for the ``overflow`` shorthand.** jsdom's ``getComputedStyle`` does not propagate
-  ``overflow`` to ``overflow-x``/``overflow-y`` (it returns the initial ``visible``); turbohtml expands it per
-  CSS Overflow 3 §2.1, matching real browsers. Those longhands are validated against the spec only (``oracle=False``).
+- **Curated shorthand set.** turbohtml expands the distributive shorthands (``margin``, ``padding``,
+  ``border-width``/``style``/``color``, ``overflow``) and the ``<line-width> || <line-style> || <color>`` shorthands
+  (``border``, each ``border-<side>``, ``outline``). The remaining grammar shorthands (``font``, ``background``,
+  ``list-style``) are out of scope and drop their declaration; ``test_cssom_curated_shorthand_boundary`` records that as
+  an ``xfail`` against jsdom for ``font``.
+- **jsdom is non-conformant for the ``overflow`` and ``outline`` shorthands.** jsdom's ``getComputedStyle`` leaves the
+  ``overflow-x``/``overflow-y`` and ``outline-*`` longhands at their initial values rather than propagating the
+  shorthand; turbohtml expands both per CSS Overflow 3 §2.1 and CSS UI 4 §5, matching real browsers. Those longhands are
+  validated against the spec only (``oracle=False``).
 - **jsdom does not resolve ``revert``.** cssstyle returns the literal ``revert`` keyword; turbohtml resolves it to the
   unset behavior (CSS Cascade 4 §7.6). ``revert`` cases are validated against the spec only.
 - **css-cascade-5 ``revert-rule`` is unsupported.** turbohtml implements the cascade-4 keyword set; ``revert-rule`` is
@@ -301,6 +303,55 @@ CORPUS: tuple[Case, ...] = (
         "<style>#p{overflow:auto}</style><p id='p'>x</p>",
         (_c("#p", "overflow-x", "auto", oracle=False), _c("#p", "overflow-y", "auto", oracle=False)),
     ),
+    # -- <line-width> || <line-style> || <color> shorthands (CSS Backgrounds & Borders 3 §4, CSS UI 4 §5) --
+    Case(
+        "border-shorthand-expands-every-side",
+        "<style>#p{border:2px dashed green}</style><p id='p'>x</p>",
+        (
+            _c("#p", "border-top-width", "2px"),
+            _c("#p", "border-top-style", "dashed"),
+            _c("#p", "border-top-color", "green"),
+            _c("#p", "border-left-width", "2px"),
+            _c("#p", "border-bottom-color", "green"),
+            _c("#p", "border-right-style", "dashed"),
+        ),
+    ),
+    Case(
+        "border-side-shorthand-sets-one-side",
+        "<style>#p{border-top:1px solid red}</style><p id='p'>x</p>",
+        (
+            _c("#p", "border-top-width", "1px"),
+            _c("#p", "border-top-style", "solid"),
+            _c("#p", "border-top-color", "red"),
+            _c("#p", "border-right-width", "medium"),
+        ),
+    ),
+    # an omitted component resets its longhand to the initial value, overriding an earlier longhand (currentcolor
+    # resolves to the element's default color, opaque black, matching jsdom's resolved value).
+    Case(
+        "border-shorthand-omitted-component-resets-longhand",
+        "<style>#p{border-top-color:red;border-top:2px solid}</style><p id='p'>x</p>",
+        (
+            _c("#p", "border-top-width", "2px"),
+            _c("#p", "border-top-style", "solid"),
+            _c("#p", "border-top-color", "currentcolor"),
+        ),
+    ),
+    Case(
+        "border-longhand-after-shorthand-wins-by-source-order",
+        "<style>#p{border:2px solid green;border-top-color:navy}</style><p id='p'>x</p>",
+        (_c("#p", "border-top-color", "navy"), _c("#p", "border-right-color", "green")),
+    ),
+    # outline: turbohtml expands per CSS UI 4 §5 with any component order; jsdom does not expand it, so spec-only.
+    Case(
+        "outline-shorthand-any-order",
+        "<style>#p{outline:blue thick dotted}</style><p id='p'>x</p>",
+        (
+            _c("#p", "outline-width", "thick", oracle=False),
+            _c("#p", "outline-style", "dotted", oracle=False),
+            _c("#p", "outline-color", "blue", oracle=False),
+        ),
+    ),
     # -- longhand and shorthand interleaving resolves by source order --
     Case(
         "longhand-after-shorthand-wins",
@@ -357,17 +408,13 @@ CORPUS: tuple[Case, ...] = (
     ),
 )
 
-# The grammar-parsed shorthands turbohtml does not expand (documented curated-set boundary): jsdom expands them, so the
-# longhand stays at its initial value where jsdom reports the shorthand's component. Recorded as xfail.
+# A grammar shorthand still outside turbohtml's curated set (documented boundary): jsdom expands ``font`` to its
+# longhands, turbohtml drops the declaration and the longhand stays at its initial value. Recorded as xfail.
 CURATED_SHORTHAND_BOUNDARY: tuple[Case, ...] = (
     Case(
-        "border-shorthand-not-expanded",
-        "<style>#p{border:2px dashed green}</style><p id='p'>x</p>",
-        (
-            _c("#p", "border-top-width", "2px"),
-            _c("#p", "border-top-style", "dashed"),
-            _c("#p", "border-top-color", "green"),
-        ),
+        "font-shorthand-not-expanded",
+        "<style>#p{font:italic 12px serif}</style><p id='p'>x</p>",
+        (_c("#p", "font-style", "italic"),),
     ),
 )
 
@@ -393,6 +440,7 @@ _NAMED = {
     "gray": (128, 128, 128, 1.0),
     "transparent": (0, 0, 0, 0.0),
     "canvastext": (0, 0, 0, 1.0),  # color's initial value, a system color; opaque black in a default light theme
+    "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
 }
 
 
@@ -489,7 +537,7 @@ def test_cssom_matches_jsdom(case_id: str, check: Check) -> None:
 
 @pytest.mark.skipif(not _jsdom_available(), reason="node with jsdom is not installed")
 @pytest.mark.xfail(
-    reason="turbohtml expands only the distributive shorthands; border/outline are out of the curated set",
+    reason="turbohtml expands the distributive and border/outline shorthands; font is out of the curated set",
     strict=True,
 )
 @pytest.mark.parametrize(("case_id", "check"), _BOUNDARY_PARAMS)

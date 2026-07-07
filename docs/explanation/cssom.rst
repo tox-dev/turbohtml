@@ -28,9 +28,13 @@ For each element the cascade gathers every declaration that could apply and pick
   ``revert`` collapse to one of those. Properties are inherited by walking the ancestor chain from the root down, so a
   parent is always computed before its child.
 
-Shorthands are expanded before the sort. ``margin: 1px 2px`` becomes the four ``margin-*`` longhands, ``border-color``
-splits across the four sides, and ``overflow`` fills ``overflow-x`` and ``overflow-y``; a computed style therefore only
-ever exposes longhands, never a shorthand.
+Shorthands are expanded before the sort. The distributive ones split by the 1-to-4 rule -- ``margin: 1px 2px`` becomes
+the four ``margin-*`` longhands, ``border-color`` splits across the four sides, and ``overflow`` fills ``overflow-x``
+and ``overflow-y``. The ``<line-width> || <line-style> || <color>`` shorthands (``border``, each ``border-<side>``, and
+``outline``) classify their components by shape rather than position, so they accept any order and any omission, and
+they reset every longhand they cover -- an omitted component to that property's initial value, which is why a later
+``border`` overrides an earlier ``border-top-color`` it does not restate. A computed style therefore only ever exposes
+longhands, never a shorthand.
 
 **********************************
  Computed values, not used values
@@ -50,10 +54,10 @@ but return the pre-layout value. If you need pixel geometry, you need a browser 
 WeasyPrint; if you need to know which rule wins and what value it carries, that is exactly what
 :func:`~turbohtml.cssom.computed_style` gives you.
 
-The cascade is validated differentially against jsdom's ``getComputedStyle`` -- 39 fixtures over every axis above, all
-agreeing once color serialization and the boundaries here are accounted for (``tests/conformance``). The one place the
-two diverge on a supported property is the ``overflow`` shorthand, which turbohtml expands to
-``overflow-x``/``overflow-y`` per CSS Overflow 3 and jsdom leaves at its initial value.
+The cascade is validated differentially against jsdom's ``getComputedStyle`` -- fixtures over every axis above, all
+agreeing once color serialization and the boundaries here are accounted for (``tests/conformance``). The two places the
+two diverge on a supported property are the ``overflow`` and ``outline`` shorthands, which turbohtml expands to their
+longhands per CSS Overflow 3 and CSS UI 4 while jsdom leaves them at their initial values.
 
 ******************
  The property set
@@ -61,9 +65,9 @@ two diverge on a supported property is the ``overflow`` shorthand, which turboht
 
 The cascade tracks a curated set of common, well-defined longhands -- the inherited text and font properties (``color``,
 ``font-size``, ``line-height``, ``text-align`` and the like), the box properties (``margin-*``, ``padding-*``,
-``border-*-width/style/color``, ``width``, ``height``), and the common layout and paint properties (``display``,
-``position``, the offsets, ``float``, ``opacity``, ``background-color``, ``overflow-x/y``). Each carries its inheritance
-flag and its initial value from that property's specification. Properties outside the set are ignored rather than
-guessed at, and a declaration whose property is unknown is simply dropped -- so
+``border-*-width/style/color``, ``outline-*``, ``width``, ``height``), and the common layout and paint properties
+(``display``, ``position``, the offsets, ``float``, ``opacity``, ``background-color``, ``overflow-x/y``). Each carries
+its inheritance flag and its initial value from that property's specification. Properties outside the set are ignored
+rather than guessed at, and a declaration whose property is unknown is simply dropped -- so
 :meth:`~turbohtml.cssom.ComputedStyle.get` returns a value for every property the set covers and ``None`` for anything
 else.

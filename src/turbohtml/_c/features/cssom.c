@@ -140,6 +140,54 @@ static const css_shorthand CSS_SHORTHANDS[] = {
 
 #define NUM_SHORTHANDS ((int)(sizeof(CSS_SHORTHANDS) / sizeof(CSS_SHORTHANDS[0])))
 
+/* A <line-width> || <line-style> || <color> shorthand (CSS Backgrounds & Borders 3 §4
+   for border and each border-<side>, CSS UI 4 §5 for outline). Its up-to-three
+   components come in any order and any may be omitted, so each is classified by shape
+   rather than position; an omitted component resets its longhand to that property's
+   initial value. targets lists every longhand the shorthand writes, tagged with which
+   component supplies it -- one width/style/color triple for a single side, four for the
+   whole-box border. */
+enum css_component_kind { COMPONENT_WIDTH, COMPONENT_STYLE, COMPONENT_COLOR };
+
+typedef struct {
+    int kind;
+    int prop;
+} css_box_target;
+
+typedef struct {
+    const char *name;
+    int target_count;
+    css_box_target targets[12];
+} css_box_shorthand;
+
+/* clang-format off */
+static const css_box_shorthand CSS_BOX_SHORTHANDS[] = {
+    {"border", 12, {
+        {COMPONENT_WIDTH, PROP_BORDER_TOP_WIDTH},    {COMPONENT_STYLE, PROP_BORDER_TOP_STYLE},    {COMPONENT_COLOR, PROP_BORDER_TOP_COLOR},
+        {COMPONENT_WIDTH, PROP_BORDER_RIGHT_WIDTH},  {COMPONENT_STYLE, PROP_BORDER_RIGHT_STYLE},  {COMPONENT_COLOR, PROP_BORDER_RIGHT_COLOR},
+        {COMPONENT_WIDTH, PROP_BORDER_BOTTOM_WIDTH}, {COMPONENT_STYLE, PROP_BORDER_BOTTOM_STYLE}, {COMPONENT_COLOR, PROP_BORDER_BOTTOM_COLOR},
+        {COMPONENT_WIDTH, PROP_BORDER_LEFT_WIDTH},   {COMPONENT_STYLE, PROP_BORDER_LEFT_STYLE},   {COMPONENT_COLOR, PROP_BORDER_LEFT_COLOR},
+    }},
+    {"border-top", 3, {
+        {COMPONENT_WIDTH, PROP_BORDER_TOP_WIDTH}, {COMPONENT_STYLE, PROP_BORDER_TOP_STYLE}, {COMPONENT_COLOR, PROP_BORDER_TOP_COLOR},
+    }},
+    {"border-right", 3, {
+        {COMPONENT_WIDTH, PROP_BORDER_RIGHT_WIDTH}, {COMPONENT_STYLE, PROP_BORDER_RIGHT_STYLE}, {COMPONENT_COLOR, PROP_BORDER_RIGHT_COLOR},
+    }},
+    {"border-bottom", 3, {
+        {COMPONENT_WIDTH, PROP_BORDER_BOTTOM_WIDTH}, {COMPONENT_STYLE, PROP_BORDER_BOTTOM_STYLE}, {COMPONENT_COLOR, PROP_BORDER_BOTTOM_COLOR},
+    }},
+    {"border-left", 3, {
+        {COMPONENT_WIDTH, PROP_BORDER_LEFT_WIDTH}, {COMPONENT_STYLE, PROP_BORDER_LEFT_STYLE}, {COMPONENT_COLOR, PROP_BORDER_LEFT_COLOR},
+    }},
+    {"outline", 3, {
+        {COMPONENT_WIDTH, PROP_OUTLINE_WIDTH}, {COMPONENT_STYLE, PROP_OUTLINE_STYLE}, {COMPONENT_COLOR, PROP_OUTLINE_COLOR},
+    }},
+};
+/* clang-format on */
+
+#define NUM_BOX_SHORTHANDS ((int)(sizeof(CSS_BOX_SHORTHANDS) / sizeof(CSS_BOX_SHORTHANDS[0])))
+
 static int css_is_ws(Py_UCS4 ch) {
     /* a loop over the literals, not a chained ||, so branch coverage does not hinge on
        seeing every one of the five whitespace code points (issue-era chained-|| gaps) */
@@ -174,6 +222,57 @@ static int css_prop_id(const Py_UCS4 *name, Py_ssize_t len) {
         }
     }
     return -1;
+}
+
+/* A code-point slice; the value a component of a grammar shorthand carries, or the
+   fallback an omitted component resets its longhand to. */
+typedef struct {
+    const Py_UCS4 *value;
+    Py_ssize_t len;
+} css_span;
+
+/* clang-format off */
+static const Py_UCS4 CSS_INITIAL_WIDTH[] = {'m', 'e', 'd', 'i', 'u', 'm'};
+static const Py_UCS4 CSS_INITIAL_STYLE[] = {'n', 'o', 'n', 'e'};
+static const Py_UCS4 CSS_INITIAL_COLOR[] = {'c', 'u', 'r', 'r', 'e', 'n', 't', 'c', 'o', 'l', 'o', 'r'};
+/* clang-format on */
+
+/* The initial value an omitted component of a grammar shorthand resets its longhand to,
+   indexed by css_component_kind; these mirror the border/outline longhands' initials. */
+static const css_span CSS_COMPONENT_INITIAL[] = {
+    {CSS_INITIAL_WIDTH, (Py_ssize_t)(sizeof(CSS_INITIAL_WIDTH) / sizeof(Py_UCS4))},
+    {CSS_INITIAL_STYLE, (Py_ssize_t)(sizeof(CSS_INITIAL_STYLE) / sizeof(Py_UCS4))},
+    {CSS_INITIAL_COLOR, (Py_ssize_t)(sizeof(CSS_INITIAL_COLOR) / sizeof(Py_UCS4))},
+};
+
+/* Classify one component of a <line-width> || <line-style> || <color> shorthand: a
+   line-style keyword (plus outline's auto), a width keyword or a length (a numeric-led
+   token), else a color -- the grammar's only remaining alternative. */
+static int css_classify_component(const Py_UCS4 *data, Py_ssize_t len) {
+    static const char *const styles[] = {"none",   "hidden", "dotted", "dashed", "solid", "auto",
+                                         "double", "groove", "ridge",  "inset",  "outset"};
+    for (size_t index = 0; index < sizeof(styles) / sizeof(styles[0]); index++) {
+        if (css_slice_ci_eq(data, len, styles[index])) {
+            return COMPONENT_STYLE;
+        }
+    }
+    static const char *const widths[] = {"thin", "medium", "thick"};
+    for (size_t index = 0; index < sizeof(widths) / sizeof(widths[0]); index++) {
+        if (css_slice_ci_eq(data, len, widths[index])) {
+            return COMPONENT_WIDTH;
+        }
+    }
+    Py_UCS4 first = data[0];
+    if (first >= '0' && first <= '9') {
+        return COMPONENT_WIDTH;
+    }
+    /* a loop over the sign/dot leads, not a chained ||, so clang cannot fold the branch */
+    for (const char *lead = ".+-"; *lead != '\0'; lead++) {
+        if (first == (Py_UCS4)*lead) {
+            return COMPONENT_WIDTH;
+        }
+    }
+    return COMPONENT_COLOR;
 }
 
 /* Copy src stripping CSS block comments, honoring '' and "" strings (a comment
@@ -623,19 +722,22 @@ static int css_outranks(const css_slot *slot, int important, int inline_style, i
     return order >= slot->order;
 }
 
-/* Feed one declaration into the cascade slots, expanding a shorthand across its
-   longhands. Every candidate for one declaration shares an order stamp. */
-static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int inline_style, int spec_a, int spec_b,
-                           int spec_c, long order) {
-    int direct = css_prop_id(decl->name, decl->name_len);
-    if (direct >= 0) {
-        css_slot *slot = &slots[direct];
-        if (css_outranks(slot, decl->important, inline_style, spec_a, spec_b, spec_c, order)) {
-            *slot = (css_slot){
-                decl->value, decl->value_len, decl->important, inline_style, spec_a, spec_b, spec_c, order, 1};
-        }
-        return;
+/* Store value as prop's cascade winner when it outranks the current one, carrying the
+   ranking (importance, style attribute, specificity, source order) from rank. */
+static void css_set_slot(css_slot slots[NUM_PROPS], int prop, const Py_UCS4 *value, Py_ssize_t len,
+                         const css_slot *rank) {
+    css_slot *slot = &slots[prop];
+    if (css_outranks(slot, rank->important, rank->inline_style, rank->spec_a, rank->spec_b, rank->spec_c,
+                     rank->order)) {
+        *slot = (css_slot){
+            value, len, rank->important, rank->inline_style, rank->spec_a, rank->spec_b, rank->spec_c, rank->order, 1};
     }
+}
+
+/* Expand a distributive shorthand (margin, padding, the border-width/style/color
+   families, overflow) across its sides by the 1-to-4 rule. Returns 1 when decl names
+   one -- even if invalid, which sets nothing -- and 0 when it names none. */
+static int css_apply_distributive(css_slot slots[NUM_PROPS], const css_decl *decl, const css_slot *rank) {
     for (int index = 0; index < NUM_SHORTHANDS; index++) {
         const css_shorthand *shorthand = &CSS_SHORTHANDS[index];
         if (!css_slice_ci_eq(decl->name, decl->name_len, shorthand->name)) {
@@ -661,7 +763,7 @@ static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int 
         /* more components than sides (or than the 4 read) leaves a token unconsumed:
            the shorthand is invalid and sets nothing */
         if (part_count > shorthand->axes || pos < decl->value_len) {
-            return;
+            return 1;
         }
         for (int side = 0; side < shorthand->axes; side++) {
             /* the 1-to-4 rule: 1 value fills all, 2 splits opposite pairs, 3 sets the
@@ -674,14 +776,64 @@ static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int 
             } else if (part_count == 3 && side == 3) {
                 source = 1;
             }
-            css_slot *slot = &slots[shorthand->sides[side]];
-            if (css_outranks(slot, decl->important, inline_style, spec_a, spec_b, spec_c, order)) {
-                *slot = (css_slot){
-                    parts[source], part_lens[source], decl->important, inline_style, spec_a, spec_b, spec_c, order, 1};
+            css_set_slot(slots, shorthand->sides[side], parts[source], part_lens[source], rank);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/* Expand a grammar shorthand (border, a border-<side>, outline) whose components come
+   in any order and any may be omitted. Each component is classified by shape; a repeat
+   of one kind makes the whole shorthand invalid (it sets nothing). Every longhand is
+   written -- an omitted component resets its longhand to the property's initial value,
+   so this shorthand overrides an earlier longhand it does not restate. Returns 1 when
+   decl names such a shorthand, 0 when it names none. */
+static int css_apply_box(css_slot slots[NUM_PROPS], const css_decl *decl, const css_slot *rank) {
+    for (int index = 0; index < NUM_BOX_SHORTHANDS; index++) {
+        const css_box_shorthand *shorthand = &CSS_BOX_SHORTHANDS[index];
+        if (!css_slice_ci_eq(decl->name, decl->name_len, shorthand->name)) {
+            continue;
+        }
+        css_span components[3] = {CSS_COMPONENT_INITIAL[0], CSS_COMPONENT_INITIAL[1], CSS_COMPONENT_INITIAL[2]};
+        int seen[3] = {0, 0, 0};
+        Py_ssize_t pos = 0;
+        while (pos < decl->value_len) {
+            Py_ssize_t stop = css_component_end(decl->value, pos, decl->value_len);
+            int kind = css_classify_component(decl->value + pos, stop - pos);
+            if (seen[kind]) {
+                return 1;
+            }
+            seen[kind] = 1;
+            components[kind] = (css_span){decl->value + pos, stop - pos};
+            pos = stop;
+            while (pos < decl->value_len && css_is_ws(decl->value[pos])) {
+                pos++;
             }
         }
+        for (int target = 0; target < shorthand->target_count; target++) {
+            const css_box_target *item = &shorthand->targets[target];
+            css_set_slot(slots, item->prop, components[item->kind].value, components[item->kind].len, rank);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/* Feed one declaration into the cascade slots, expanding a shorthand across its
+   longhands. Every candidate for one declaration shares an order stamp. */
+static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int inline_style, int spec_a, int spec_b,
+                           int spec_c, long order) {
+    css_slot rank = {NULL, 0, decl->important, inline_style, spec_a, spec_b, spec_c, order, 1};
+    int direct = css_prop_id(decl->name, decl->name_len);
+    if (direct >= 0) {
+        css_set_slot(slots, direct, decl->value, decl->value_len, &rank);
         return;
     }
+    if (css_apply_distributive(slots, decl, &rank)) {
+        return;
+    }
+    css_apply_box(slots, decl, &rank);
 }
 
 /* An element's resolved computed values: one owned code-point buffer per longhand. */

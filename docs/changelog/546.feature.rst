@@ -6,4 +6,7 @@ in the C core under the per-tree critical section. Alongside it, :class:`~turboh
 :class:`~turbohtml.cssom.RuleList`, :class:`~turbohtml.cssom.StyleRule`, and :class:`~turbohtml.cssom.StyleDeclaration`
 are the read-only, turbohtml-native spelling of the CSSOM ``CSSStyleSheet`` / ``CSSRuleList`` / ``CSSStyleRule`` /
 ``CSSStyleDeclaration`` interfaces. The returned value is the computed value, not the used value: turbohtml runs no
-layout, so lengths and percentages come back as written, the same boundary jsdom and cssstyle draw.
+layout, so lengths and percentages come back as written, the same boundary jsdom and cssstyle draw. Shorthand expansion
+covers the distributive families (``margin``, ``padding``, ``border-width``/``style``/``color``, ``overflow``) and the
+``<line-width> || <line-style> || <color>`` shorthands ``border``, each ``border-<side>``, and ``outline``, whose
+components resolve in any order and reset every longhand they cover.
