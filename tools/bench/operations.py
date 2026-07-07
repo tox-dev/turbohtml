@@ -74,6 +74,15 @@ _SANITIZE_POST = dedent("""\
       <ul><li>one</li><li>two</li></ul>
     </div>""")
 
+# rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
+# per-declaration regex work rather than short-circuiting on an empty rule
+_SANITIZE_STYLES = dedent("""\
+    <div style="color: #ff0000; text-align: center; position: fixed">
+      <p style="color: rgb(1, 2, 3); font-size: 40px">Styled
+        <span style="text-align: left; color: green">inline</span> text.</p>
+      <p style="color: #abc; text-align: justify">More <b style="color: #123456">bold</b> content.</p>
+    </div>""")
+
 
 @dataclass(frozen=True)
 class Operation:
@@ -123,6 +132,7 @@ OPERATIONS: dict[str, Operation] = {
     "sanitize": Operation("sanitize", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
+    "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -426,6 +436,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     ),
     "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
+    "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),

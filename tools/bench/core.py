@@ -40,6 +40,14 @@ if TYPE_CHECKING:
 
 _SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
 _SANITIZER_TEMPLATES = _clean.Sanitizer(replace(_clean.Policy.relaxed(), strip_template_markers=True))
+_SANITIZER_STYLES = _clean.Sanitizer(
+    replace(
+        _clean.Policy.relaxed(),
+        attributes={"*": frozenset({"style", "title", "lang", "dir"})},
+        css_properties=frozenset({"color", "text-align", "font-size"}),
+        allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^center$|^right$"]}},
+    )
+)
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -256,6 +264,11 @@ def sanitize_templates(text: str) -> None:
 def sanitize_report(text: str) -> None:
     """Sanitize with the audit trail on, exercising the removed-node collection."""
     _SANITIZER.sanitize_report(text)
+
+
+def sanitize_styles(text: str) -> None:
+    """Sanitize with a per-property style value allowlist, exercising the allowed_styles scrub path."""
+    _SANITIZER_STYLES.sanitize(text)
 
 
 def markup(text: str) -> None:
@@ -550,6 +563,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "sanitize": (sanitize, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),
+    "sanitize-styles": (sanitize_styles, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),

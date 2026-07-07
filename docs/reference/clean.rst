@@ -26,6 +26,29 @@ element or stripped attribute, the way DOMPurify populates ``DOMPurify.removed``
 .. autoclass:: Policy
     :members: strict, basic, relaxed
 
+``Policy.css_properties`` allowlists style property *names*; ``Policy.allowed_styles`` narrows further by *value*, the
+way sanitize-html's ``allowedStyles`` does. Key it ``{tag: {property: [pattern, ...]}}`` (``"*"`` matches every tag); a
+``style`` declaration survives only when its property is listed for the element's tag or ``"*"`` and its value matches
+one of the patterns via an unanchored :func:`re.search`. It runs on top of ``css_properties`` and the dangerous-value
+baseline -- the property must still be in ``css_properties``, and ``expression()`` or a disallowed-scheme ``url()`` is
+dropped even when a pattern would admit it:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=frozenset({"color"}),
+        allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$"]}},
+    )
+    print(sanitize('<p style="color: #0a0; color: red">ok</p>', policy))
+
+.. testoutput::
+
+    <p style="color: #0a0">ok</p>
+
 .. autoclass:: OnDisallowed
     :members:
 

@@ -44,4 +44,5 @@ It is the wrong tool in a few honest cases:
     serialization
     main-content
     mutation
+    sanitizing
     free-threading

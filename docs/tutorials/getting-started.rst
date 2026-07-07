@@ -86,5 +86,31 @@ plus a combining mark, so ``"café"`` need not equal ``"café"`` even though the
     False
     True
 
-Reach for ``NFC`` before you compare or store text; the :doc:`/how-to/encoding` guide covers the other three forms. With
-the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.
+Reach for ``NFC`` before you compare or store text; the :doc:`/how-to/encoding` guide covers the other three forms.
+
+*************************
+ Sanitize untrusted HTML
+*************************
+
+When the input is already HTML rather than plain text, clean it against an allowlist with
+:func:`turbohtml.clean.sanitize`. A :class:`~turbohtml.clean.Policy` says what to keep; here it allows a ``<p>`` with a
+``style`` attribute and, through ``allowed_styles``, keeps a ``color`` only when it is a hex value. A non-overridable
+baseline still drops dangerous CSS, so the ``url(javascript:...)`` goes even though the property name is allowed:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=frozenset({"color"}),
+        allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$"]}},
+    )
+    print(sanitize('<p style="color: #0a0; color: url(javascript:x)">Hi</p>', policy))
+
+.. testoutput::
+
+    <p style="color: #0a0">Hi</p>
+
+With the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.
