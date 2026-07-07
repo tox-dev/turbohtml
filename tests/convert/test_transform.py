@@ -2672,3 +2672,12 @@ def test_transform_stylesheet_without_xsl_prefix_binding_defaults_to_xsl() -> No
     # and, finding no xsl:import, treats the whole document as a simplified literal-result stylesheet
     result = transform(turbohtml.parse_xml("<greeting>hi</greeting>"), turbohtml.parse_xml("<r/>"))
     assert _canon(result) == "<greeting>hi</greeting>"
+
+
+def test_transform_attribute_namespace_generates_past_long_non_xmlns_attr() -> None:
+    # the element's only attribute is a >6-char non-xmlns name, so the reuse scan rejects it and mints a prefix
+    body = (
+        '<xsl:template match="/"><out longattr="1">'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out longattr="1" xmlns:ns_1="urn:z" ns_1:thing="v"/>'

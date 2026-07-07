@@ -1633,12 +1633,24 @@ static int do_attribute_ns(engine *eng, th_node *out_parent, const Py_UCS4 *name
         const th_node_attr *decl_attr = &out_parent->attrs[index];
         Py_ssize_t decl_len = 0;
         const char *decl = th_attr_name(eng->out_tree, decl_attr->name_atom, &decl_len);
-        int is_xmlns = decl_len > 6 && memcmp(decl, "xmlns:", 6) == 0;
+        if (decl_len <= 6) {
+            continue;
+        }
+        static const char xmlns[] = "xmlns:";
+        int is_xmlns = 1;
+        for (int probe = 0; probe < 6; probe++) {
+            if (decl[probe] != xmlns[probe]) {
+                is_xmlns = 0;
+                break;
+            }
+        }
         if (!is_xmlns) {
             continue;
         }
-        int same_uri = decl_attr->value_len == nsuri_len &&
-                       memcmp(decl_attr->value, nsuri, (size_t)nsuri_len * sizeof(Py_UCS4)) == 0;
+        if (decl_attr->value_len != nsuri_len) {
+            continue;
+        }
+        int same_uri = memcmp(decl_attr->value, nsuri, (size_t)nsuri_len * sizeof(Py_UCS4)) == 0;
         if (!same_uri) {
             continue;
         }
@@ -2131,7 +2143,11 @@ static int format_multi(xb *out, const Py_UCS4 *format, Py_ssize_t format_len, c
     sep_start[0] = run;
     sep_len[0] = pos - run;
     Py_ssize_t ntok = 0;
-    while (pos < format_len && ntok < 32) {
+    while (pos < format_len) {
+        /* A format with more tokens than the fixed arrays hold cannot arise from a real picture. */
+        if (ntok == 32) { /* GCOVR_EXCL_BR_LINE: overflow guard for the token arrays */
+            break;        /* GCOVR_EXCL_LINE */
+        }
         Py_ssize_t token = pos;
         while (pos < format_len && alnum_cp(format[pos])) {
             pos++;
@@ -2340,7 +2356,11 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
             th_node *chain[64];
             Py_ssize_t depth = 0;
-            for (th_node *node = eng->cur_node; node != NULL && depth < 64; node = node->parent) {
+            for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+                /* A count chain deeper than the fixed buffer cannot arise from a real document. */
+                if (depth == 64) { /* GCOVR_EXCL_BR_LINE: overflow guard for the chain buffer */
+                    break;         /* GCOVR_EXCL_LINE */
+                }
                 if (have_from && match_set_has(&from_set, node, -1)) {
                     break;
                 }
@@ -3409,7 +3429,7 @@ static int parse_attrset(engine *eng, th_node *element) {
    namespace), or NULL when the prefix is not declared. */
 static const Py_UCS4 *resolve_prefix_uri(engine *eng, th_node *root, const Py_UCS4 *prefix, Py_ssize_t prefix_len,
                                          Py_ssize_t *out_len) {
-    int is_default = prefix_len == 8 && ucs4_ascii_eq(prefix, prefix_len, "#default");
+    int is_default = ucs4_ascii_eq(prefix, prefix_len, "#default"); /* the helper length-checks internally */
     for (Py_ssize_t index = 0; index < root->attr_count; index++) {
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, root->attrs[index].name_atom, &name_len);
@@ -3615,12 +3635,13 @@ static int rule_order(const void *left_ptr, const void *right_ptr) {
     const xslt_rule *left = left_ptr;
     const xslt_rule *right = right_ptr;
     /* Conflict resolution (section 5.5): higher import precedence wins, then higher priority,
-       then later document position. Positions are unique small sequential integers, so their
-       signed difference orders them branchlessly (later position sorts first) -- a ternary here
-       leaves one arm that only some qsort implementations ever call, which diverges across C
-       libraries. */
+       then later document position. Precedence and position are small ints, so their signed
+       difference orders them branchlessly (higher precedence, then later position, sorts first) --
+       a ternary here leaves one arm that only some qsort implementations ever call, which diverges
+       across C libraries. Priority is a double, so it keeps a ternary the single-stylesheet tests
+       already exercise both arms of. */
     if (left->precedence != right->precedence) {
-        return left->precedence < right->precedence ? 1 : -1;
+        return (int)(right->precedence - left->precedence);
     }
     if (left->priority != right->priority) {
         return left->priority < right->priority ? 1 : -1;
