@@ -159,6 +159,15 @@ from ._stubs.query import (
     XPath as XPath,
 )
 from ._stubs.query import (
+    _css_computed_style as _css_computed_style,
+)
+from ._stubs.query import (
+    _css_parse_declarations as _css_parse_declarations,
+)
+from ._stubs.query import (
+    _css_parse_rules as _css_parse_rules,
+)
+from ._stubs.query import (
     _css_specificity as _css_specificity,
 )
 from ._stubs.query import (

@@ -154,6 +154,7 @@ OPERATIONS: dict[str, Operation] = {
     "find": Operation("find every anchor", "us"),
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
+    "computed-style": Operation("computed style for every element", "us"),
     "match": Operation("match each anchor against div a[href]", "us"),
     "find-text": Operation("find by text content", "us"),
     "text-content": Operation("collect visible text", "us"),
@@ -365,6 +366,37 @@ def _article_page(paragraphs: int) -> str:
     return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 
 
+_STYLE_SHEET = dedent("""\
+    body { color: #222; font-size: 16px; line-height: 1.5; margin: 0 }
+    a { color: navy; text-decoration: underline }
+    a:hover { color: teal }
+    nav a { font-weight: bold; text-transform: uppercase }
+    article { max-width: 40em; margin: 0 auto; padding: 1em 2em }
+    article h2 { font-size: 24px; border-bottom: 1px solid #ccc }
+    article p { margin: 0 0 1em }
+    .note { background-color: #ffd; border: 1px dashed #cc0; padding: 4px 8px }
+    .note.warning { border-color: red; color: darkred }
+    #lead { font-size: 18px !important; font-weight: 300 }
+    ul.tags li { display: inline; margin-right: 6px; color: gray }
+    footer { color: #888; font-size: 12px; text-align: center }
+    """)
+
+
+def _styled_page(sections: int) -> str:
+    """Build a styled page: a ``<style>`` sheet plus ``sections`` repeated, class- and id-tagged content blocks."""
+    section = (
+        "<article><h2>Comets</h2><p id=lead>An icy small body that warms near the Sun.</p>"
+        "<p class=note>Read the <a href='/space'>space</a> guide.</p>"
+        "<p class='note warning'>Do not stare at the Sun.</p>"
+        "<ul class=tags><li>ice</li><li>coma</li><li>tail</li></ul></article>"
+    )
+    nav = "<nav><a href='/'>Home</a> <a href='/science'>Science</a> <a href='/space'>Space</a></nav>"
+    return (
+        f"<html lang=en><head><style>{_STYLE_SHEET}</style></head><body>{nav}"
+        f"{section * sections}<footer>Copyright notice</footer></body></html>"
+    )
+
+
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
     """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
     _name, relative, encoding = corpus.CORPUS_FILES[2]
@@ -471,6 +503,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find": _readpath_cases,
     "select": _readpath_cases,
     "select-has": _readpath_cases,
+    "computed-style": lambda: (("styled page (3 kB)", _styled_page(8)), ("styled page (11 kB)", _styled_page(40))),
     "match": _readpath_cases,
     "find-text": _readpath_cases,
     "text-content": _readpath_cases,

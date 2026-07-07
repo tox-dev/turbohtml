@@ -62,6 +62,14 @@ PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
 
+/* Implemented in features/cssom.c: the CSS Object Model cascade (issue #546).
+   _css_parse_declarations(text) and _css_parse_rules(text) parse a declaration block
+   and a whole stylesheet (both METH_O); _css_computed_style(element) resolves the
+   cascade for one element and returns its computed longhands (METH_O). */
+PyObject *turbohtml_css_parse_declarations(PyObject *module, PyObject *text);
+PyObject *turbohtml_css_parse_rules(PyObject *module, PyObject *text);
+PyObject *turbohtml_css_computed_style(PyObject *module, PyObject *arg);
+
 /* Implemented in dom/element.c: stores the SelectorSyntaxError type the selector
    and XPath parsers raise on a malformed expression (METH_O); turbohtml._selectors
    registers it on import. */

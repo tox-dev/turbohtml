@@ -113,4 +113,38 @@ baseline still drops dangerous CSS, so the ``url(javascript:...)`` goes even tho
 
     <p style="color: #0a0">Hi</p>
 
+**************************
+ Resolve a computed style
+**************************
+
+When you need the style a browser would apply rather than the raw rules, run the CSS cascade with
+:func:`turbohtml.cssom.computed_style`. It reads the document's ``<style>`` sheets plus each element's inline ``style``,
+orders the declarations by importance, the style attribute, specificity, and source order, then fills in inheritance and
+initial values. Here ``#intro`` wins ``color`` through ``!important`` over its own inline rule, and the nested ``<em>``
+inherits that color:
+
+.. testcode::
+
+    import turbohtml
+    from turbohtml.cssom import computed_style
+
+    doc = turbohtml.parse(
+        "<html><head><style>"
+        "p { color: gray } .lead { font-weight: bold } #intro { color: teal !important }"
+        "</style></head><body>"
+        "<p class=lead id=intro style='color: red'>Hello <em>world</em></p>"
+        "</body></html>"
+    )
+    intro = doc.select_one("#intro")
+    print(computed_style(intro)["color"], computed_style(intro)["font-weight"])
+    print(computed_style(doc.select_one("em"))["color"])
+
+.. testoutput::
+
+    teal bold
+    teal
+
+The value is the *computed* value, not the *used* value: turbohtml runs no layout, so lengths and percentages come back
+as written -- see :doc:`/explanation/cssom`.
+
 With the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.

@@ -153,9 +153,10 @@ answer, with the result a browser would pick.
  Query
 *******
 
-These libraries select nodes with CSS or XPath. turbohtml matches CSS selectors with :meth:`turbohtml.Node.select`,
-evaluates XPath 1.0 with :meth:`turbohtml.Node.xpath`, and exposes a soupsieve-shaped matching surface in
-:doc:`/reference/query`.
+These libraries select nodes with CSS or XPath, or read the CSS Object Model. turbohtml matches CSS selectors with
+:meth:`turbohtml.Node.select`, evaluates XPath 1.0 with :meth:`turbohtml.Node.xpath`, exposes a soupsieve-shaped
+matching surface in :doc:`/reference/query`, and resolves the CSS cascade to a computed style in
+:doc:`/reference/cssom`.
 
 .. list-table::
     :header-rows: 1
@@ -193,6 +194,15 @@ evaluates XPath 1.0 with :meth:`turbohtml.Node.xpath`, and exposes a soupsieve-s
       - .. image:: https://static.pepy.tech/badge/pyquery
             :alt: pyquery total downloads
             :target: https://pepy.tech/project/pyquery
+    - - 4
+      - :doc:`cssutils <cssutils>`
+      - `docs <https://cssutils.readthedocs.io/>`__
+      - .. image:: https://static.pepy.tech/badge/cssutils/month
+            :alt: cssutils monthly downloads
+            :target: https://pepy.tech/project/cssutils
+      - .. image:: https://static.pepy.tech/badge/cssutils
+            :alt: cssutils total downloads
+            :target: https://pepy.tech/project/cssutils
 
 *******
  Clean
@@ -724,6 +734,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     soupsieve
     parsel
     pyquery
+    cssutils
     linkify-it-py
     bleach
     nh3

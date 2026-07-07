@@ -23,6 +23,7 @@ from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
 from turbohtml.convert import css_specificity as _css_specificity
 from turbohtml.convert import css_to_xpath as _css_to_xpath
+from turbohtml.cssom import computed_style as _computed_style
 from turbohtml.detect import detect as _detect_encoding
 from turbohtml.detect import normalize as _normalize
 from turbohtml.extract import boilerplate as _extract_boilerplate
@@ -183,6 +184,13 @@ def select(text: str) -> None:
 def select_has(text: str) -> None:
     """Run the :has() relational selector with turbohtml's select."""
     _parsed(text).select(_HAS)
+
+
+def computed_style(text: str) -> None:
+    """Resolve the CSSOM computed style of every element in the parsed, styled document."""
+    for node in _parsed(text).descendants:
+        if isinstance(node, turbohtml.Element):
+            _computed_style(node)
 
 
 def match(text: str) -> None:
@@ -609,6 +617,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find": (find, "turbohtml"),
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
+    "computed-style": (computed_style, "turbohtml"),
     "match": (match, "turbohtml"),
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),

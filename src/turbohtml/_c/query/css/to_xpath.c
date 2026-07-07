@@ -927,8 +927,6 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
 /* Specificity (CSS Selectors Level 4 §17): a counts #id, b counts .class, [attr], and pseudo-classes, c counts type
    and pseudo-element selectors; the universal * adds nothing. :is()/:not()/:has() take the specificity of their most
    specific argument, and :where() always contributes zero. Accumulated into the three out-parameters. */
-static void spec_of_complex(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
-
 static void spec_of_simple(const sel_simple *simple, int *spec_a, int *spec_b, int *spec_c) {
     if (simple->kind == '#') {
         (*spec_a)++;
@@ -961,7 +959,7 @@ static void spec_of_simple(const sel_simple *simple, int *spec_a, int *spec_b, i
         int sub_a = 0;
         int sub_b = 0;
         int sub_c = 0;
-        spec_of_complex(&simple->sub[index], &sub_a, &sub_b, &sub_c);
+        sel_specificity(&simple->sub[index], &sub_a, &sub_b, &sub_c);
         /* pack each non-negative count into a 20-bit field so the lexicographic max is one comparison, not a chain of
            them; a selector never carries a million of any one component, so no field overflows */
         unsigned long long sub_key = (unsigned long long)sub_a << 40 | (unsigned long long)sub_b << 20 | sub_c;
@@ -977,7 +975,7 @@ static void spec_of_simple(const sel_simple *simple, int *spec_a, int *spec_b, i
     *spec_c += best_c;
 }
 
-static void spec_of_complex(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c) {
+void sel_specificity(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c) {
     for (int compound = 0; compound < complex->count; compound++) {
         const sel_compound *piece = &complex->compounds[compound];
         for (int simple = 0; simple < piece->count; simple++) {
@@ -1015,7 +1013,7 @@ PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args) {
         int spec_a = 0;
         int spec_b = 0;
         int spec_c = 0;
-        spec_of_complex(&alts[index], &spec_a, &spec_b, &spec_c);
+        sel_specificity(&alts[index], &spec_a, &spec_b, &spec_c);
         PyObject *triple = Py_BuildValue("(iii)", spec_a, spec_b, spec_c);
         if (triple == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(result);          /* GCOVR_EXCL_LINE: allocation-failure path */

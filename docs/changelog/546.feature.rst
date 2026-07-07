@@ -1,0 +1,9 @@
+:mod:`turbohtml.cssom` runs the CSS Object Model cascade: :func:`~turbohtml.cssom.computed_style` resolves the
+``getComputedStyle`` of an element by collecting every ``<style>`` sheet plus the inline ``style`` along its ancestor
+chain, matching the native selector engine, ordering the declarations by origin importance, the style attribute,
+specificity, and source order, then applying inheritance, shorthand expansion, and each property's initial value -- all
+in the C core under the per-tree critical section. Alongside it, :class:`~turbohtml.cssom.StyleSheet`,
+:class:`~turbohtml.cssom.RuleList`, :class:`~turbohtml.cssom.StyleRule`, and :class:`~turbohtml.cssom.StyleDeclaration`
+are the read-only, turbohtml-native spelling of the CSSOM ``CSSStyleSheet`` / ``CSSRuleList`` / ``CSSStyleRule`` /
+``CSSStyleDeclaration`` interfaces. The returned value is the computed value, not the used value: turbohtml runs no
+layout, so lengths and percentages come back as written, the same boundary jsdom and cssstyle draw.

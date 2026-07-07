@@ -87,6 +87,9 @@ _LOADERS["parse-scripting"] = partial(
     corpus.large_text, *corpus.REAL_PAGES[2][1:]
 )  # mozilla blog (95 kB), carries <noscript>
 _LOADERS["parse-locations"] = _spec  # the whatwg spec: many tags and attributes to stamp spans for
+# computed style re-collects every sheet and re-matches per element, so it stays on the bench's own 4 kB styled page
+# rather than the 235 kB spec the other read-path ops share
+_LOADERS["computed-style"] = lambda: INPUTS["computed-style"]()[0][1]
 
 
 def _spec_case(kind: str) -> tuple[str, str]:

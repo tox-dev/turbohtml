@@ -164,6 +164,13 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
 void selector_free(sel_compiled *compiled);
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope);
 int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ctx *ctx);
+/* Match one comma-separated alternative (a single complex selector) against node,
+   so the cascade can pair each matching alternative with its own specificity. */
+int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx);
+/* Accumulate the Selectors-4 §17 (a, b, c) specificity of one complex selector into
+   the three out-parameters (they must start zeroed). Shared by _css_specificity and
+   the CSSOM cascade. */
+void sel_specificity(const sel_complex *complex, int *spec_a, int *spec_b, int *spec_c);
 int selector_uses_has_memo(const sel_compiled *compiled);
 void sel_has_memo_free(sel_has_memo *memo);
 void sel_raise(PyObject *selector_error, PyObject *selector_str, const sel_parser *parser);

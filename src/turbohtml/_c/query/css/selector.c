@@ -1883,12 +1883,15 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
 /* node matches some alternative in alts: it is the subject (rightmost compound) of
    one complex whose combinators to the left verify. The top-level match and the
    :is()/:where() pseudo-classes share this. */
+int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx) {
+    int subject = complex->count - 1;
+    return sel_match_compound(node, &complex->compounds[subject], ctx) &&
+           sel_match_from(node, complex, subject, NULL, ctx);
+}
+
 static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx) {
     for (int index = 0; index < count; index++) {
-        const sel_complex *complex = &alts[index];
-        int subject = complex->count - 1;
-        if (sel_match_compound(node, &complex->compounds[subject], ctx) &&
-            sel_match_from(node, complex, subject, NULL, ctx)) {
+        if (selector_matches_alt(node, &alts[index], ctx)) {
             return 1;
         }
     }

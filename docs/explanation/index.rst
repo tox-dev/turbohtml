@@ -42,6 +42,7 @@ It is the wrong tool in a few honest cases:
     tree-model
     traversal
     queries
+    cssom
     structured-data
     serialization
     main-content
