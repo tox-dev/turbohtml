@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import pytest
 
 import turbohtml
 from turbohtml._html import _xslt_transform
 from turbohtml.transform import Transform, transform
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _NS = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
 
@@ -40,6 +44,11 @@ def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", *
 def _collapse(text: str) -> str:
     """Drop whitespace between tags so content compares without a serializer's layout."""
     return re.sub(r">\s+<", "><", text.strip())
+
+
+def _canon(text: str) -> str:
+    """Drop the XML declaration and inter-tag whitespace, as the conformance harness compares."""
+    return _collapse(re.sub(r"^<\?xml\s[^>]*\?>\s*", "", text))
 
 
 def test_transform_value_of_reads_string_value() -> None:
@@ -1891,3 +1900,768 @@ def test_transform_equal_priority_tie_break_across_a_higher_priority_rule() -> N
         '<xsl:template match="c" priority="5">C</xsl:template>'
     )
     assert _run("<r><a/><b/><c/></r>", body) == "ABC"
+
+
+def test_transform_strip_space_removes_whitespace_only_text() -> None:
+    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    assert _run("<r><p>  <b>x</b>  </p></r>", body) == "x"
+
+
+def test_transform_preserve_space_keeps_whitespace() -> None:
+    body = (
+        '<xsl:strip-space elements="*"/><xsl:preserve-space elements="p"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert _run("<r><p> <b>x</b> </p></r>", body) == " x "
+
+
+def test_transform_strip_space_honors_xml_space_preserve() -> None:
+    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    assert _run('<r><p xml:space="preserve"> <b>x</b> </p></r>', body) == " x "
+
+
+def test_transform_strip_space_prefixed_wildcard() -> None:
+    body = '<xsl:strip-space elements="n:*"/><xsl:template match="/"><xsl:apply-templates/></xsl:template>'
+    result = _run('<doc><n:p xmlns:n="urn:n"> <b>x</b> </n:p></doc>', body)
+    assert result == "x"
+
+
+def test_transform_strip_space_leaves_source_tree_unchanged() -> None:
+    source = turbohtml.parse_xml("<r><p>  <b>x</b>  </p></r>")
+    root = source.root
+    assert root is not None
+    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    before = len(root.children[0].children)
+    transform(_sheet(body), source)
+    assert len(root.children[0].children) == before
+
+
+def test_transform_strip_space_requires_elements_attribute() -> None:
+    with pytest.raises(ValueError, match="requires an elements attribute"):
+        _run("<r/>", '<xsl:strip-space/><xsl:template match="/">x</xsl:template>')
+
+
+def test_transform_attribute_set_applied_to_literal_element() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s">x</out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1">x</out>'
+
+
+def test_transform_attribute_set_own_attribute_overrides_set() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out a="2" xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="2"/>'
+
+
+def test_transform_attribute_set_chains_via_use_attribute_sets() -> None:
+    body = (
+        '<xsl:attribute-set name="base"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:attribute-set name="s" use-attribute-sets="base">'
+        '<xsl:attribute name="b">2</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
+
+
+def test_transform_attribute_set_on_xsl_element() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><xsl:element name="out" use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1"/>'
+
+
+def test_transform_attribute_set_on_xsl_copy() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
+        '<xsl:template match="r"><xsl:copy use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<r a="1"/>'
+
+
+def test_transform_attribute_set_requires_name() -> None:
+    body = (
+        '<xsl:attribute-set><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/">x</xsl:template>'
+    )
+    with pytest.raises(ValueError, match="attribute-set requires a name"):
+        _run("<r/>", body)
+
+
+def test_transform_namespace_alias_remaps_result_namespace() -> None:
+    body = (
+        '<xsl:namespace-alias stylesheet-prefix="a" result-prefix="xsl"/>'
+        '<xsl:template match="/"><a:out/></xsl:template>'
+    )
+    declare = 'xmlns:a="urn:alias"'
+    result = _collapse(transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")))
+    assert result == '<a:out xmlns:a="http://www.w3.org/1999/XSL/Transform"/>'
+
+
+def test_transform_namespace_alias_requires_both_prefixes() -> None:
+    body = '<xsl:namespace-alias stylesheet-prefix="a"/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match="stylesheet-prefix and result-prefix"):
+        transform(_sheet(body, declare='xmlns:a="urn:a"'), turbohtml.parse_xml("<r/>"))
+
+
+def test_transform_namespace_alias_undeclared_result_prefix() -> None:
+    body = '<xsl:namespace-alias stylesheet-prefix="a" result-prefix="zz"/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match="result-prefix is not a declared namespace"):
+        transform(_sheet(body, declare='xmlns:a="urn:a"'), turbohtml.parse_xml("<r/>"))
+
+
+def test_transform_attribute_with_namespace_generates_prefix() -> None:
+    body = (
+        '<xsl:template match="/"><out>'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out xmlns:ns_1="urn:z" ns_1:thing="v"/>'
+
+
+def test_transform_attribute_with_namespace_reuses_existing_prefix() -> None:
+    body = (
+        '<xsl:template match="/"><out xmlns:z="urn:z">'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out xmlns:z="urn:z" z:thing="v"/>'
+
+
+def test_transform_attribute_empty_namespace_is_ignored() -> None:
+    body = '<xsl:template match="/"><out><xsl:attribute name="a" namespace="">v</xsl:attribute></out></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="v"/>'
+
+
+def test_transform_number_multiple_levels() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//sec"/></xsl:template>'
+        '<xsl:template match="sec">[<xsl:number level="multiple" count="sec" format="1.1"/>]</xsl:template>'
+    )
+    result = _run("<doc><sec><sec/><sec/></sec><sec/></doc>", body)
+    assert result == "[1][1.1][1.2][2]"
+
+
+def test_transform_number_level_any() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="any" count="x"/>]</xsl:template>'
+    )
+    assert _run("<doc><g><x/><x/></g><x/></doc>", body) == "[1][2][3]"
+
+
+def test_transform_number_level_any_from_resets() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="any" from="g" count="x"/>]</xsl:template>'
+    )
+    assert _run("<doc><x/><g><x/><x/></g></doc>", body) == "[1][1][2]"
+
+
+def test_transform_number_single_with_count_and_from() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="single" from="g" count="x"/>]</xsl:template>'
+    )
+    assert _run("<doc><g><x/><x/></g></doc>", body) == "[1][2]"
+
+
+def test_transform_number_single_from_excludes_when_no_match() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="single" from="none" count="y"/>]</xsl:template>'
+    )
+    assert _run("<doc><x/></doc>", body) == "[]"
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    [
+        pytest.param("3", "1.234.567", id="size-3"),
+        pytest.param("1", "1.2.3.4.5.6.7", id="size-1"),
+        pytest.param("0", "1234567", id="size-0-disables"),
+        pytest.param("-1", "1234567", id="negative-disables"),
+        pytest.param("99", "1234567", id="too-large-no-split"),
+        pytest.param("bad", "1234567", id="non-numeric-disables"),
+    ],
+)
+def test_transform_number_grouping(size: str, expected: str) -> None:
+    body = (
+        f'<xsl:template match="/"><xsl:number value="1234567" grouping-separator="." '
+        f'grouping-size="{size}"/></xsl:template>'
+    )
+    assert _run("<r/>", body) == expected
+
+
+def test_transform_number_grouping_needs_separator() -> None:
+    body = '<xsl:template match="/"><xsl:number value="1234" grouping-size="3"/></xsl:template>'
+    assert _run("<r/>", body) == "1234"
+
+
+def test_transform_number_multi_token_format_reuses_last() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//s"/></xsl:template>'
+        '<xsl:template match="s">[<xsl:number level="multiple" count="s" format="A-1"/>]</xsl:template>'
+    )
+    assert _run("<d><s><s><s/></s></s></d>", body) == "[A][A-1][A-1-1]"
+
+
+def test_transform_cdata_section_elements_wraps_text() -> None:
+    body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d>&lt;x></d></xsl:template>'
+    assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<d><![CDATA[<x>]]></d>"
+
+
+def test_transform_cdata_from_literal_cdata_in_stylesheet() -> None:
+    body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d><![CDATA[<x>]]></d></xsl:template>'
+    assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<d><![CDATA[<x>]]></d>"
+
+
+def test_transform_html_method_auto_selected_for_html_root() -> None:
+    body = '<xsl:template match="/"><html><head><title>t</title></head><body>x</body></html></xsl:template>'
+    result = _collapse(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")))
+    assert not result.startswith("<?xml")
+    assert '<meta charset="UTF-8">' in result
+
+
+def test_transform_html_auto_select_skipped_for_non_html_root() -> None:
+    body = '<xsl:template match="/"><doc>x</doc></xsl:template>'
+    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_html_auto_select_skipped_when_namespaced() -> None:
+    body = '<xsl:template match="/"><html xmlns="urn:x">x</html></xsl:template>'
+    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_html_auto_select_skipped_after_significant_text() -> None:
+    body = '<xsl:template match="/">lead<html>x</html></xsl:template>'
+    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_html_auto_select_ignores_leading_whitespace() -> None:
+    body = '<xsl:template match="/"><xsl:text> </xsl:text><html><body>x</body></html></xsl:template>'
+    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_fallback_runs_for_extension_element() -> None:
+    body = '<xsl:template match="/"><e:go><xsl:fallback>done</xsl:fallback></e:go></xsl:template>'
+    declare = 'xmlns:e="urn:ext" extension-element-prefixes="e"'
+    assert transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>")) == "done"
+
+
+def test_transform_extension_element_without_fallback_yields_nothing() -> None:
+    body = '<xsl:template match="/">[<e:go/>]</xsl:template>'
+    declare = 'xmlns:e="urn:ext" extension-element-prefixes="e"'
+    assert transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>")) == "[]"
+
+
+def test_transform_simplified_stylesheet() -> None:
+    sheet = turbohtml.parse_xml(
+        '<out xsl:version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<v><xsl:value-of select="r/n"/></v></out>'
+    )
+    assert _canon(transform(sheet, turbohtml.parse_xml("<r><n>7</n></r>"))) == "<out><v>7</v></out>"
+
+
+def test_transform_import_loads_external_templates(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    result = transform(sheet, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(main))
+    assert _canon(result) == "[x]"
+
+
+def test_transform_import_precedence_importer_wins(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">base</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template>'
+        '<xsl:template match="a">main</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    assert _canon(transform(sheet, turbohtml.parse_xml("<r><a/></r>"), base_url=str(main))) == "main"
+
+
+def test_transform_import_nested(tmp_path: Path) -> None:
+    (tmp_path / "leaf.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">leaf</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    (tmp_path / "mid.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="leaf.xsl"/></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="mid.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    assert _canon(transform(sheet, turbohtml.parse_xml("<r><a/></r>"), base_url=str(main))) == "leaf"
+
+
+def test_transform_import_without_base_url_errors() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/></xsl:stylesheet>'
+    )
+    with pytest.raises(ValueError, match="needs a base_url"):
+        transform(sheet, turbohtml.parse_xml("<r/>"))
+
+
+def test_transform_import_missing_href_errors(tmp_path: Path) -> None:
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:import/></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="href attribute"):
+        transform(sheet, turbohtml.parse_xml("<r/>"), base_url=str(main))
+
+
+def test_transform_prebuilt_with_imports_reused(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    convert = Transform(turbohtml.parse_xml(main.read_text(encoding="utf-8")), base_url=str(main))
+    assert _canon(convert(turbohtml.parse_xml("<r><a>1</a></r>"))) == "[1]"
+    assert _canon(convert(turbohtml.parse_xml("<r><a>2</a></r>"))) == "[2]"
+
+
+def test_transform_cdata_multiple_named_elements_and_non_match() -> None:
+    body = (
+        '<xsl:output cdata-section-elements="a b"/><xsl:template match="/"><r><a>&lt;x></a><c>y</c></r></xsl:template>'
+    )
+    result = _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")))
+    assert result == "<r><a><![CDATA[<x>]]></a><c>y</c></r>"
+
+
+def test_transform_attribute_set_two_names_with_trailing_space() -> None:
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:attribute-set name="t"><xsl:attribute name="b">2</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s t "/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
+
+
+_POISON = '<xsl:attribute-set name="bad"><xsl:attribute name="{">v</xsl:attribute></xsl:attribute-set>'
+
+
+def test_transform_attribute_set_error_propagates_through_literal() -> None:
+    body = f'{_POISON}<xsl:template match="/"><out xsl:use-attribute-sets="bad"/></xsl:template>'
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_attribute_set_error_propagates_through_element() -> None:
+    body = f'{_POISON}<xsl:template match="/"><xsl:element name="out" use-attribute-sets="bad"/></xsl:template>'
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_attribute_set_error_propagates_through_copy() -> None:
+    body = (
+        f"{_POISON}"
+        '<xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
+        '<xsl:template match="r"><xsl:copy use-attribute-sets="bad"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_attribute_set_error_propagates_through_chain() -> None:
+    body = (
+        f"{_POISON}"
+        '<xsl:attribute-set name="s" use-attribute-sets="bad"/>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_attribute_with_prefixed_name_and_namespace() -> None:
+    body = (
+        '<xsl:template match="/"><out>'
+        '<xsl:attribute name="p:thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out xmlns:ns_1="urn:z" ns_1:thing="v"/>'
+
+
+def test_transform_attribute_namespace_bad_avt_errors() -> None:
+    body = '<xsl:template match="/"><out><xsl:attribute name="a" namespace="{">v</xsl:attribute></out></xsl:template>'
+    with pytest.raises(ValueError, match="attribute value template"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_number_grouping_size_sign_only() -> None:
+    body = '<xsl:template match="/"><xsl:number value="1234" grouping-separator="." grouping-size="+"/></xsl:template>'
+    assert _run("<r/>", body) == "1234"
+
+
+def test_transform_number_count_too_many_alternatives() -> None:
+    pattern = "|".join(f"n{index}" for index in range(80))
+    body = f'<xsl:template match="/"><xsl:number level="any" count="{pattern}"/></xsl:template>'
+    with pytest.raises(ValueError, match="too many alternatives"):
+        _run("<r/>", body)
+
+
+def test_transform_number_bad_count_pattern_errors() -> None:
+    body = '<xsl:template match="/"><xsl:number level="any" count="[[["/></xsl:template>'
+    with pytest.raises(ValueError, match="pattern"):
+        _run("<r/>", body)
+
+
+def test_transform_number_bad_from_pattern_errors() -> None:
+    body = '<xsl:template match="/"><xsl:number level="any" count="x" from="[[["/></xsl:template>'
+    with pytest.raises(ValueError, match="pattern"):
+        _run("<r/>", body)
+
+
+def test_transform_number_multiple_from_bounds_the_ancestor_walk() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="multiple" from="g" count="x"/>]</xsl:template>'
+    )
+    assert _run("<doc><g><x/><x/></g></doc>", body) == "[1][2]"
+
+
+def test_transform_number_single_from_before_count_yields_empty() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number level="single" from="doc" count="zzz"/>]</xsl:template>'
+    )
+    assert _run("<doc><x/></doc>", body) == "[]"
+
+
+def test_transform_namespace_alias_default_result_prefix() -> None:
+    body = (
+        '<xsl:namespace-alias stylesheet-prefix="a" result-prefix="#default"/>'
+        '<xsl:template match="/"><a:out/></xsl:template>'
+    )
+    declare = 'xmlns:a="urn:alias" xmlns="urn:default"'
+    result = _canon(transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")))
+    assert 'xmlns:a="urn:default"' in result
+
+
+def test_transform_strip_space_multi_name_list_with_trailing_space() -> None:
+    body = (
+        '<xsl:strip-space elements="p q "/><xsl:template match="/"><xsl:apply-templates select="//q"/></xsl:template>'
+    )
+    assert _run("<r><q> <b>x</b> </q></r>", body) == "x"
+
+
+def test_transform_preserve_space_requires_elements_attribute() -> None:
+    with pytest.raises(ValueError, match="requires an elements attribute"):
+        _run("<r/>", '<xsl:preserve-space/><xsl:template match="/">x</xsl:template>')
+
+
+def test_transform_html_auto_select_ignores_leading_comment() -> None:
+    body = '<xsl:template match="/"><xsl:comment>c</xsl:comment><html><body>x</body></html></xsl:template>'
+    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_fallback_body_with_literal_element() -> None:
+    body = '<xsl:template match="/"><e:go><xsl:fallback><doc>ok</doc></xsl:fallback></e:go></xsl:template>'
+    declare = 'xmlns:e="urn:ext" extension-element-prefixes="e" exclude-result-prefixes="e"'
+    result = _canon(transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")))
+    assert result == "<doc>ok</doc>"
+
+
+def test_transform_import_with_malformed_declaration_errors(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        "<xsl:strip-space/></xsl:stylesheet>",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/">x</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="requires an elements attribute"):
+        transform(sheet, turbohtml.parse_xml("<r/>"), base_url=str(main))
+
+
+def test_transform_import_rejects_non_node_item() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/">x</xsl:template></xsl:stylesheet>'
+    )
+    with pytest.raises((TypeError, ValueError)):
+        # exercises the C-side node-borrow guard on a non-node import item
+        _xslt_transform(sheet, turbohtml.parse_xml("<r/>"), None, [object()])  # ty: ignore[invalid-argument-type]
+
+
+def test_transform_attribute_namespace_generates_when_element_has_other_attrs() -> None:
+    body = (
+        '<xsl:template match="/"><out other="1">'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out other="1" xmlns:ns_1="urn:z" ns_1:thing="v"/>'
+
+
+def test_transform_fallback_body_error_propagates() -> None:
+    body = (
+        '<xsl:template match="/"><e:go><xsl:fallback><xsl:value-of select="]["/></xsl:fallback></e:go></xsl:template>'
+    )
+    declare = 'xmlns:e="urn:ext" extension-element-prefixes="e"'
+    with pytest.raises(ValueError, match="value-of"):
+        transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>"))
+
+
+def test_transform_html_auto_select_with_attributed_html_element() -> None:
+    body = '<xsl:template match="/"><html lang="en"><body>x</body></html></xsl:template>'
+    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_namespace_alias_scans_past_same_length_prefixes() -> None:
+    body = (
+        '<xsl:namespace-alias stylesheet-prefix="a" result-prefix="q"/>'
+        '<xsl:template match="/"><a:out xmlns:p="urn:p"/></xsl:template>'
+    )
+    declare = 'xmlns:a="urn:a" xmlns:p="urn:p2" xmlns:q="urn:q"'
+    result = _canon(transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")))
+    assert 'xmlns:a="urn:q"' in result
+
+
+def test_transform_cdata_token_list_with_surrounding_whitespace() -> None:
+    body = '<xsl:output cdata-section-elements="  a   b  "/><xsl:template match="/"><b>&lt;y></b></xsl:template>'
+    assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<b><![CDATA[<y>]]></b>"
+
+
+def test_transform_many_attribute_sets_grow_the_table() -> None:
+    sets = "".join(
+        f'<xsl:attribute-set name="s{index}"><xsl:attribute name="a{index}">{index}</xsl:attribute></xsl:attribute-set>'
+        for index in range(12)
+    )
+    body = f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s11"/></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a11="11"/>'
+
+
+def test_transform_many_namespace_aliases_grow_the_table() -> None:
+    aliases = "".join(f'<xsl:namespace-alias stylesheet-prefix="p{index}" result-prefix="xsl"/>' for index in range(6))
+    decls = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(6))
+    body = f'{aliases}<xsl:template match="/"><p5:out/></xsl:template>'
+    result = _canon(transform(_sheet(body, method="xml", declare=decls), turbohtml.parse_xml("<r/>")))
+    assert 'xmlns:p5="http://www.w3.org/1999/XSL/Transform"' in result
+
+
+def test_transform_strip_space_many_tokens_grow_the_table() -> None:
+    tokens = " ".join(f"e{index}" for index in range(12))
+    body = (
+        f'<xsl:strip-space elements="{tokens}"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//e11"/></xsl:template>'
+    )
+    assert _run("<r><e11> <b>x</b> </e11></r>", body) == "x"
+
+
+def test_transform_strip_space_many_stripped_nodes_grow_the_list() -> None:
+    kids = "".join(f"\n  <k>{index}</k>" for index in range(20))
+    body = '<xsl:strip-space elements="r"/><xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
+    assert _run(f"<r>{kids}\n</r>", body) == "".join(str(index) for index in range(20))
+
+
+def test_transform_number_grouping_size_with_leading_digits_token() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:number value="42" format="001" '
+        'grouping-separator="," grouping-size="2"/></xsl:template>'
+    )
+    assert _run("<r/>", body) == "0,42"
+
+
+def test_transform_number_alpha_token_uses_trailing_style() -> None:
+    body = '<xsl:template match="/"><xsl:number value="3" format="xa"/></xsl:template>'
+    assert _run("<r/>", body) == "c"
+
+
+def test_transform_number_decimal_token_then_nondigit() -> None:
+    body = '<xsl:template match="/"><xsl:number value="7" format="1x"/></xsl:template>'
+    assert _run("<r/>", body) == "7"
+
+
+def test_transform_number_grouping_size_negative_digit() -> None:
+    body = '<xsl:template match="/"><xsl:number value="12" grouping-separator="." grouping-size="1x"/></xsl:template>'
+    assert _run("<r/>", body) == "12"
+
+
+def test_transform_fallback_ignores_non_fallback_children() -> None:
+    body = '<xsl:template match="/"><e:go>text<xsl:fallback>ok</xsl:fallback><other/></e:go></xsl:template>'
+    declare = 'xmlns:e="urn:ext" xmlns:other="urn:o" extension-element-prefixes="e"'
+    assert transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>")) == "ok"
+
+
+def test_transform_cdata_mixed_length_tokens() -> None:
+    body = '<xsl:output cdata-section-elements="xx y"/><xsl:template match="/"><y>&lt;z></y></xsl:template>'
+    assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<y><![CDATA[<z>]]></y>"
+
+
+def test_transform_number_grouping_size_empty() -> None:
+    body = '<xsl:template match="/"><xsl:number value="12" grouping-separator="." grouping-size=""/></xsl:template>'
+    assert _run("<r/>", body) == "12"
+
+
+def test_transform_number_grouping_size_below_zero_char() -> None:
+    body = '<xsl:template match="/"><xsl:number value="12" grouping-separator="." grouping-size="1/2"/></xsl:template>'
+    assert _run("<r/>", body) == "12"
+
+
+def test_transform_attribute_namespace_reuse_skips_mismatched_declarations() -> None:
+    body = (
+        '<xsl:template match="/"><out foo="1" xmlns:w="urn:other" xmlns:z="urn:z">'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    result = _collapse(_run("<r/>", body, method="xml"))
+    assert 'z:thing="v"' in result
+    assert 'xmlns:z="urn:z"' in result
+
+
+def test_transform_namespace_alias_root_with_five_char_attribute() -> None:
+    body = (
+        '<xsl:namespace-alias stylesheet-prefix="a" result-prefix="#default"/>'
+        '<xsl:template match="/"><a:out/></xsl:template>'
+    )
+    declare = 'width="5" xmlns:a="urn:a" xmlns="urn:default"'
+    result = _canon(transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>")))
+    assert 'xmlns:a="urn:default"' in result
+
+
+def test_transform_number_single_default_element() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//x"/></xsl:template>'
+        '<xsl:template match="x">[<xsl:number/>]</xsl:template>'
+    )
+    assert _run("<d><x/><x/></d>", body) == "[1][2]"
+
+
+def test_transform_attribute_namespace_reuse_past_long_and_samelen_decls() -> None:
+    body = (
+        '<xsl:template match="/"><out colspan="1" xmlns:q="xxxxx" xmlns:z="urn:z">'
+        '<xsl:attribute name="thing" namespace="urn:z">v</xsl:attribute></out></xsl:template>'
+    )
+    assert 'z:thing="v"' in _collapse(_run("<r/>", body, method="xml"))
+
+
+def test_transform_number_multiple_with_empty_format() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="//s"/></xsl:template>'
+        '<xsl:template match="s">[<xsl:number level="multiple" count="s" format=""/>]</xsl:template>'
+    )
+    assert _run("<d><s><s/></s></d>", body) == "[1][11]"
+
+
+def test_transform_html_auto_select_with_five_char_attribute() -> None:
+    body = '<xsl:template match="/"><html class="x"><body>y</body></html></xsl:template>'
+    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+
+
+def test_transform_cdata_element_with_non_text_child() -> None:
+    body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d><e/>t</d></xsl:template>'
+    result = _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")))
+    assert result == "<d><e/><![CDATA[t]]></d>"
+
+
+def test_transform_namespace_alias_requires_stylesheet_prefix() -> None:
+    body = '<xsl:namespace-alias result-prefix="xsl"/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match="stylesheet-prefix and result-prefix"):
+        transform(_sheet(body), turbohtml.parse_xml("<r/>"))
+
+
+def test_transform_strip_space_star_suffixed_non_prefix_token() -> None:
+    body = (
+        '<xsl:strip-space elements="x* p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert _run("<r><p> <b>z</b> </p></r>", body) == "z"
+
+
+def test_transform_transform_element_root() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:transform version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">ok</xsl:template></xsl:transform>'
+    )
+    assert transform(sheet, turbohtml.parse_xml("<r/>")) == "ok"
+
+
+def test_transform_strip_preserve_specificity_conflict() -> None:
+    body = (
+        '<xsl:strip-space elements="*"/><xsl:preserve-space elements="p"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert _run("<r><p> <b>z</b> </p></r>", body) == " z "
+
+
+def test_transform_html_auto_select_whitespace_only_output_stays_xml() -> None:
+    body = '<xsl:template match="/"><xsl:text>  </xsl:text></xsl:template>'
+    result = transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))
+    assert result.startswith("<?xml")
+
+
+def test_transform_strip_less_specific_entry_after_more_specific() -> None:
+    body = (
+        '<xsl:strip-space elements="p"/><xsl:strip-space elements="*"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
+    )
+    assert _run("<r><p> <b>z</b> </p></r>", body) == "z"
+
+
+def test_transform_import_strip_space_precedence(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:preserve-space elements="p"/></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:import href="base.xsl"/><xsl:strip-space elements="p"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    assert transform(sheet, turbohtml.parse_xml("<r><p> <b>z</b> </p></r>"), base_url=str(main)) == "z"
+
+
+def test_transform_literal_element_other_xsl_attr_same_length_as_use_attribute_sets() -> None:
+    # xsl:aaaaaaaaaaaaaaaaaa shares the length of "use-attribute-sets", so the lookup skips it by content
+    body = (
+        '<xsl:attribute-set name="s"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:aaaaaaaaaaaaaaaaaa="x" xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1"/>'

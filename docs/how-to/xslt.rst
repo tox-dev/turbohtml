@@ -68,5 +68,41 @@ The stylesheet's ``xsl:output method`` picks the serialization: ``xml`` (the def
 stylesheet, a bad expression, or a reference to an undeclared key or template raises :exc:`ValueError`; an
 ``xsl:message`` with ``terminate="yes"`` raises :exc:`RuntimeError`.
 
-External resources are out of scope: ``xsl:include``, ``xsl:import``, and ``document()`` do not load other files. For
-the design, see :doc:`/explanation/xslt`; for a port from lxml, see :doc:`/migration/lxml`.
+*********************
+ Import a stylesheet
+*********************
+
+``xsl:import`` composes stylesheets across files. Because a parsed tree carries no location, pass the importing
+stylesheet's path as ``base_url`` so each ``href`` resolves against it; the imported templates join at lower import
+precedence, so the importer's own rules win a conflict.
+
+.. testcode::
+
+    import tempfile
+    from pathlib import Path
+    from turbohtml import parse_xml
+    from turbohtml.transform import transform
+
+    with tempfile.TemporaryDirectory() as folder:
+        base = Path(folder, "base.xsl")
+        base.write_text(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+            encoding="utf-8",
+        )
+        main = Path(folder, "main.xsl")
+        main.write_text(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:output method="text"/><xsl:import href="base.xsl"/>'
+            '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+            encoding="utf-8",
+        )
+        source = parse_xml("<r><a>x</a></r>")
+        print(transform(parse_xml(main.read_text(encoding="utf-8")), source, base_url=str(main)))
+
+.. testoutput::
+
+    [x]
+
+The only features out of reach are locale-aware ``xsl:sort`` collation, ``id()`` over DTD-declared IDs, ``xsl:include``,
+and ``document()``. For the design, see :doc:`/explanation/xslt`; for a port from lxml, see :doc:`/migration/lxml`.

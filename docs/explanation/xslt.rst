@@ -40,17 +40,36 @@ sorted once by descending import precedence, then priority, then document positi
 order is the winner. Default priorities follow the spec -- ``0`` for a lone name test, ``-0.5`` for an unqualified node
 test, ``0.5`` for anything with a predicate or more than one step -- computed from the pattern at compile time.
 
+***********************
+ Stripping and imports
+***********************
+
+Two features reach outside the single-pass instruction walk. ``xsl:strip-space``/``xsl:preserve-space`` (`section 3.4
+<https://www.w3.org/TR/xslt-10/#strip>`_) remove whitespace-only text nodes from the *source* before any query runs, so
+that ``position()``, ``last()``, and ``text()`` see the stripped tree the way the spec requires. turbohtml does this by
+detaching the strippable text nodes from the source at the start of the transform and re-attaching them at the end, so
+the caller's tree is a read-only participant that survives the call unchanged -- the same tree can drive many transforms
+concurrently. A strip/preserve conflict on one element is resolved by import precedence then NameTest specificity, and
+``xml:space="preserve"`` on an ancestor overrides both.
+
+``xsl:import`` (`section 2.6.2 <https://www.w3.org/TR/xslt-10/#import>`_) does load other files, so the thin Python shim
+resolves each ``href`` against the stylesheet's ``base_url`` and parses the imported sheets; the C engine then
+deep-copies every sheet -- principal and imported -- into one private tree so all their declarations share a single atom
+table, and walks them lowest import precedence first. Import precedence becomes the first key of the section 5.5
+conflict resolution above. ``document()`` still loads nothing, to stay free of an arbitrary-URL fetch surface.
+
 ****************
  Where it stops
 ****************
 
-The engine models a single stylesheet document. ``xsl:include`` and ``xsl:import`` would load other files, and
-``document()`` would load arbitrary URLs; turbohtml resolves none of them, both to stay free of a fetch/filesystem
-surface and because a self-contained transform is the common case. Import precedence therefore has one level, and the
-conflict resolution that matters in practice -- priority and document order -- is exact. A result tree fragment converts
-to its string value when used through XPath (the strict XSLT 1.0 rule), and ``xsl:copy-of`` of a fragment variable
-copies its nodes. Output shaping beyond the method choice -- ``indent``, ``doctype-*``, ``cdata-section-elements`` -- is
-not applied; the serializer is turbohtml's own, so its byte layout follows :doc:`serialization`, not libxslt's.
+Two spec features stay out of reach for want of a supporting layer, not by design. Locale-aware ``xsl:sort`` collation
+(``lang="de"``) needs a Unicode collation/ICU layer turbohtml does not carry, so sorting is Unicode-codepoint order.
+``id()`` over DTD-declared ID attributes needs a DTD layer the XML parser does not have. Both are marked ``xfail`` in
+the conformance suite with that reason. Everything else in XSLT 1.0 is modeled: whitespace stripping, ``xsl:import``
+with import precedence, ``xsl:attribute-set``, ``xsl:namespace-alias``, multi-level ``xsl:number``,
+``cdata-section-elements``, the auto-selected html output method, simplified stylesheets, and ``xsl:fallback``. A result
+tree fragment converts to its string value when used through XPath (the strict XSLT 1.0 rule), and ``xsl:copy-of`` of a
+fragment variable copies its nodes.
 
 *******************
  Conformance basis
@@ -59,9 +78,8 @@ not applied; the serializer is turbohtml's own, so its byte layout follows :doc:
 The processor is validated against libxslt's own XSLT 1.0 Recommendation corpus -- the ``REC`` and ``REC2``
 stylesheet/source/expected-output triples it ships, which are the worked examples from the spec run through the
 reference implementation. ``tests/conformance/test_xslt_conformance.py`` runs turbohtml over every triple and asserts
-byte-equal output (whitespace normalized per output method). Of the 79 cases, 56 pass exactly; the remaining 23 use
-features listed under "Where it stops" (whitespace stripping, namespace-alias, attribute sets, multi-level
-``xsl:number``, ``cdata-section-elements``, extension elements, and the html method's meta injection) and are marked
-``xfail`` with the spec section each needs. The corpus is the pinned ``tests/conformance/libxslt`` submodule.
+byte-equal output (whitespace normalized per output method). Of the 79 cases, 76 pass exactly; the three that remain use
+the locale-collation, DTD-id, and XPath namespace-axis layers turbohtml does not carry, and are marked ``xfail`` with
+that reason. The corpus is the pinned ``tests/conformance/libxslt`` submodule.
 
 For the XPath engine underneath, see :doc:`queries`; for a port from lxml, see :doc:`/migration/lxml`.

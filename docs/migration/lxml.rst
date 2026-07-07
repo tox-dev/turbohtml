@@ -86,9 +86,11 @@ What lxml has that turbohtml does not
 
 The wider libxml2 toolchain is a deliberate clean-break scope cut:
 
-- XSLT is at parity for the 1.0 core (see :ref:`the transform section <migration-lxml>` below): ``lxml.etree.XSLT``
-  ports to :class:`turbohtml.transform.Transform`. Out of scope are external-document loading (``xsl:include``,
-  ``xsl:import``, ``document()``) and the libxslt/EXSLT extension-element surface.
+- XSLT is at full 1.0 parity (see :ref:`the transform section <migration-lxml>` below): ``lxml.etree.XSLT`` ports to
+  :class:`turbohtml.transform.Transform`, which covers the whole XSLT 1.0 instruction set including ``xsl:import`` (pass
+  the stylesheet's ``base_url`` so its ``href`` resolves). The documented boundaries are locale-aware ``xsl:sort``
+  collation (sorting is Unicode-codepoint order), ``id()`` over DTD-declared IDs (no DTD layer), ``xsl:include`` and
+  ``document()`` (no additional-file loading beyond ``xsl:import``), and the libxslt/EXSLT extension-element surface.
 - Schema validation: ``etree.XMLSchema`` and ``etree.RelaxNG`` map to :class:`turbohtml.validate.XMLSchema` and
   :class:`~turbohtml.validate.RelaxNG` (below); DTD (``etree.DTD``) and Schematron have no equivalent.
 - DTD-declared entities and the wider infoset: :func:`turbohtml.parse_xml` (below) handles well-formed XML but resolves
@@ -216,15 +218,17 @@ the transformed markup as a ``str``.
 
 A top-level ``xsl:param`` is a keyword argument whose value is an XPath expression, exactly as in ``transform(doc,
 param="'text'")``. The engine reuses turbohtml's XPath 1.0 evaluator for every match pattern and select expression and
-implements the XSLT 1.0 core -- templates with modes and priorities, ``apply-templates`` with ``sort``,
-``call-template``, ``for-each``, ``if``, ``choose``, ``value-of``, ``copy``/``copy-of``, ``element``/``attribute``,
-``variable``/``param``, ``number``, ``key`` and ``key()``, the conflict-resolution rules, and the
-``xml``/``html``/``text`` output methods.
+implements the whole XSLT 1.0 instruction set -- templates with modes and priorities, ``apply-templates`` with ``sort``,
+``call-template``, ``for-each``, ``if``, ``choose``, ``value-of``, ``copy``/``copy-of``, ``element``/ ``attribute``,
+``variable``/``param``, multi-level ``number``, ``key`` and ``key()``, ``strip-space``/ ``preserve-space``,
+``attribute-set``, ``namespace-alias``, ``fallback``, simplified stylesheets, ``cdata-section-elements``, and the
+``xml``/``html``/``text`` output methods. ``xsl:import`` resolves against a ``base_url`` you pass alongside the source;
+the imported declarations enter conflict resolution at lower import precedence.
 
-Two limits to plan for. lxml resolves ``xsl:include``, ``xsl:import``, and ``document()`` against the filesystem;
-turbohtml loads no external resources, so a multi-file stylesheet must be flattened first, and ``document()`` returns an
-empty node-set. And libxslt leads on transform throughput -- it is a decade-tuned C engine, and the ``XSLT transform``
-row reflects that; turbohtml trades the raw speed for a stylesheet processor that ships in the same pure,
+Two limits to plan for. Only ``xsl:import`` loads other files (pass ``base_url``); ``xsl:include`` and ``document()``
+load nothing, and locale-aware ``xsl:sort`` collation and ``id()`` over DTD-declared IDs are out of reach for want of a
+collation and DTD layer. And libxslt leads on transform throughput -- it is a decade-tuned C engine, and the ``XSLT
+transform`` row reflects that; turbohtml trades the raw speed for a stylesheet processor that ships in the same pure,
 dependency-free wheel as the parser, over one typed node API. A pipeline that lives inside libxslt's wider XSLT/EXSLT
 surface stays with lxml.
 

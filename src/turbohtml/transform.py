@@ -15,9 +15,9 @@ apply-many shape::
 The whole transform runs in the C extension, reusing turbohtml's XPath 1.0 engine for every match pattern and select
 expression. It covers XSLT 1.0: ``xsl:template`` (match, name, mode, priority), ``xsl:apply-templates``,
 ``xsl:call-template``, ``xsl:for-each``, ``xsl:if``, ``xsl:choose``, ``xsl:value-of``, ``xsl:copy``/``xsl:copy-of``,
-``xsl:element``/``xsl:attribute``/``xsl:text``, ``xsl:variable``/``xsl:param``, ``xsl:sort``, multi-level ``xsl:number``,
-``xsl:key`` and the ``key()`` function, ``xsl:strip-space``/``xsl:preserve-space``, ``xsl:attribute-set``,
-``xsl:namespace-alias``, ``xsl:import`` with import precedence, ``xsl:fallback``, simplified (literal-result-element)
+``xsl:element``/``xsl:attribute``/``xsl:text``, ``xsl:variable``/``xsl:param``, ``xsl:sort``, multi-level
+``xsl:number``, ``xsl:key`` and the ``key()`` function, ``xsl:strip-space``/``xsl:preserve-space``,
+``xsl:attribute-set``, ``xsl:namespace-alias``, ``xsl:import`` with import precedence, ``xsl:fallback``, simplified
 stylesheets, ``cdata-section-elements`` and the ``xml``/``html``/``text`` output methods (html is auto-selected for a
 null-namespace ``html`` document element). The documented boundaries are locale-aware ``xsl:sort`` collation (a locale
 layer turbohtml does not carry) and ``id()`` over DTD-declared IDs (no DTD layer).
@@ -43,7 +43,7 @@ _XSLT_NS = "http://www.w3.org/1999/XSL/Transform"
 
 
 def _xsl_prefix(root: Element) -> str:
-    """The prefix bound to the XSLT namespace on a stylesheet root, defaulting to ``xsl``."""
+    """Return the prefix bound to the XSLT namespace on a stylesheet root, defaulting to ``xsl``."""
     for name, value in root.attrs.items():
         if name.startswith("xmlns:") and value == _XSLT_NS:
             return name[6:]
@@ -51,7 +51,8 @@ def _xsl_prefix(root: Element) -> str:
 
 
 def _load_imports(root: Element, base: Path) -> list[Node]:
-    """Resolve the ``xsl:import`` chain under ``root`` into parsed stylesheets, lowest import precedence first.
+    """
+    Resolve the ``xsl:import`` chain under ``root`` into parsed stylesheets, lowest import precedence first.
 
     Each import's own imports precede it (lower precedence) and, within a stylesheet, a later import outranks an earlier
     one, exactly the section 2.6.2 precedence order the C engine's conflict resolution then applies.
@@ -62,10 +63,10 @@ def _load_imports(root: Element, base: Path) -> list[Node]:
         if not isinstance(child, Element) or child.tag != f"{prefix}:import":
             continue
         href = child.attrs.get("href")
-        if not isinstance(href, str):
+        if href is None:
             msg = "xsl:import requires an href attribute"
             raise ValueError(msg)
-        path = base / href
+        path = base / str(href)
         imported = parse_xml(path.read_text(encoding="utf-8"))
         imported_root = imported.root
         if imported_root is not None:
@@ -75,7 +76,7 @@ def _load_imports(root: Element, base: Path) -> list[Node]:
 
 
 def _resolve(stylesheet: Node, base_url: str | None) -> list[Node] | None:
-    """The imported stylesheets a transform must merge, or None when the stylesheet imports nothing."""
+    """Return the imported stylesheets a transform must merge, or None when the stylesheet imports nothing."""
     root = stylesheet if isinstance(stylesheet, Element) else getattr(stylesheet, "root", None)
     if not isinstance(root, Element):
         return None
