@@ -250,7 +250,7 @@ def test_transform_copy_of_comment_and_pi() -> None:
     )
     result = _run("<r><!--note--><?pi data?></r>", body, method="xml")
     assert "<!--note-->" in result
-    assert "<?pi data>" in result
+    assert "<?pi data?>" in result
 
 
 def test_transform_xsl_copy_of_root_context() -> None:
@@ -269,7 +269,7 @@ def test_transform_comment_and_processing_instruction_instructions() -> None:
     )
     result = _run("<r/>", body, method="xml")
     assert "<!--hi-->" in result
-    assert "<?go data>" in result
+    assert "<?go data?>" in result
 
 
 @pytest.mark.parametrize(
@@ -1104,7 +1104,7 @@ def test_transform_attribute_instruction_at_root_is_ignored() -> None:
 
 def test_transform_copy_of_processing_instruction() -> None:
     body = '<xsl:template match="/"><out><xsl:copy-of select="//processing-instruction()"/></out></xsl:template>'
-    assert "<?pi x>" in _run("<r><?pi x?></r>", body, method="xml")
+    assert "<?pi x?>" in _run("<r><?pi x?></r>", body, method="xml")
 
 
 def test_transform_sort_without_select_uses_context() -> None:
@@ -1170,7 +1170,9 @@ def test_transform_apply_templates_to_attribute_children_are_empty() -> None:
 def test_transform_literal_element_default_namespace_declaration() -> None:
     body = '<xsl:template match="/"><out xmlns="urn:x"><in/></out></xsl:template>'
     result = _run("<r/>", body, method="xml")
-    assert "<out><in/></out>" in result or "<out ><in/></out>" in result
+    # XSLT 1.0 section 7.1.1: the default-namespace node is copied to the output element and the
+    # child inherits it (declared once), as libxslt/lxml emit it.
+    assert '<out xmlns="urn:x"><in/></out>' in result
 
 
 def test_transform_stylesheet_with_top_level_comment() -> None:
@@ -1473,7 +1475,7 @@ def test_transform_copy_of_rtf_variable_with_others_in_scope() -> None:
 
 def test_transform_copy_of_processing_instruction_identity() -> None:
     body = '<xsl:template match="/"><out><xsl:copy-of select="//processing-instruction()"/></out></xsl:template>'
-    assert "<?go x>" in _run("<r><?go x?></r>", body, method="xml")
+    assert "<?go x?>" in _run("<r><?go x?></r>", body, method="xml")
 
 
 def test_transform_sort_equal_length_equal_keys() -> None:
@@ -1660,7 +1662,7 @@ def test_transform_xsl_copy_of_processing_instruction() -> None:
         '<xsl:template match="/"><out><xsl:apply-templates select="//processing-instruction()"/></out></xsl:template>'
         '<xsl:template match="processing-instruction()"><xsl:copy/></xsl:template>'
     )
-    assert "<?go x>" in _run("<r><?go x?></r>", body, method="xml")
+    assert "<?go x?>" in _run("<r><?go x?></r>", body, method="xml")
 
 
 def test_transform_sort_mixed_length_keys() -> None:
@@ -1698,12 +1700,14 @@ def test_transform_sort_prefix_length_ordering(source: str, expected: str) -> No
 
 def test_transform_number_format_starting_with_symbol() -> None:
     body = '<xsl:template match="/"><xsl:number value="7" format="#"/></xsl:template>'
-    assert _run("<r/>", body) == "7"
+    # "#" is a leading separator (a prefix) with no format token, so the number follows it.
+    assert _run("<r/>", body) == "#7"
 
 
 def test_transform_number_format_digit_then_symbol() -> None:
     body = '<xsl:template match="/"><xsl:number value="7" format="0#"/></xsl:template>'
-    assert _run("<r/>", body) == "7"
+    # The "0" is the format token and the trailing "#" is a suffix.
+    assert _run("<r/>", body) == "7#"
 
 
 def test_transform_output_without_method_attribute() -> None:
@@ -1770,7 +1774,97 @@ def test_transform_apply_templates_failing_sort_raises() -> None:
 def test_transform_literal_element_with_namespace_declaration() -> None:
     body = '<xsl:template match="/"><out xmlns:ex="urn:example"><inner>x</inner></out></xsl:template>'
     result = _run("<r/>", body, method="xml")
-    assert "<out><inner>x</inner></out>" in result
+    # XSLT 1.0 section 7.1.1 copies every in-scope namespace node to the literal result element,
+    # even an unreferenced prefix, matching libxslt/lxml.
+    assert '<out xmlns:ex="urn:example"><inner>x</inner></out>' in result
+
+
+def test_transform_literal_element_namespace_child_inherits_parent() -> None:
+    body = '<xsl:template match="/"><a xmlns:p="urn:1"><p:b/></a></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<a xmlns:p="urn:1"><p:b/></a>'
+
+
+def test_transform_literal_element_namespace_rebinding_redeclares() -> None:
+    body = '<xsl:template match="/"><a xmlns:p="urn:1"><p:b xmlns:p="urn:2"/></a></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<a xmlns:p="urn:1"><p:b xmlns:p="urn:2"/></a>'
+
+
+def test_transform_exclude_result_prefixes_drops_only_listed() -> None:
+    body = '<xsl:template match="/"><out/></xsl:template>'
+    declare = 'xmlns:keep="urn:k" xmlns:drop="urn:d" exclude-result-prefixes="drop"'
+    result = transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>"))
+    assert _collapse(result) == '<out xmlns:keep="urn:k"/>'
+
+
+def test_transform_exclude_result_prefixes_default_namespace() -> None:
+    body = '<xsl:template match="/"><out/></xsl:template>'
+    declare = 'xmlns="urn:def" exclude-result-prefixes="#default"'
+    result = transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>"))
+    assert _collapse(result) == "<out/>"
+
+
+def test_transform_namespace_dedup_skips_non_matching_ancestor_attributes() -> None:
+    # The output parent carries an unrelated attribute and a same-length but different xmlns, so
+    # scope lookup scans past both and the child still declares its own prefix.
+    body = '<xsl:template match="/"><a foo="1" xmlns:q="urn:q"><p:b xmlns:p="urn:1"/></a></xsl:template>'
+    result = _collapse(_run("<r/>", body, method="xml"))
+    assert result == '<a xmlns:q="urn:q" foo="1"><p:b xmlns:p="urn:1"/></a>'
+
+
+def test_transform_namespace_rebinding_to_shorter_uri_redeclares() -> None:
+    body = '<xsl:template match="/"><a xmlns:p="urn:11"><p:b xmlns:p="urn:2"/></a></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<a xmlns:p="urn:11"><p:b xmlns:p="urn:2"/></a>'
+
+
+def test_transform_exclude_result_prefixes_multiple_whitespace_separated() -> None:
+    body = '<xsl:template match="/"><out/></xsl:template>'
+    declare = 'xmlns:keep="urn:k" xmlns:drop="urn:d" xmlns:drop2="urn:d2" exclude-result-prefixes=" drop  drop2 "'
+    result = transform(_sheet(body, method="xml", declare=declare), turbohtml.parse_xml("<r/>"))
+    assert _collapse(result) == '<out xmlns:keep="urn:k"/>'
+
+
+def test_transform_literal_element_keeps_non_xsl_prefixed_attribute() -> None:
+    body = '<xsl:template match="/"><out abc:x="1" xmlns:abc="urn:a"/></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out xmlns:abc="urn:a" abc:x="1"/>'
+
+
+def test_transform_html_method_omits_namespace_nodes() -> None:
+    body = '<xsl:template match="/"><out xmlns:x="urn:x"/></xsl:template>'
+    assert "xmlns" not in _run("<r/>", body, method="html")
+
+
+def test_transform_literal_element_strips_xsl_directive_attribute() -> None:
+    body = '<xsl:template match="/"><out xsl:exclude-result-prefixes="foo">t</out></xsl:template>'
+    assert _collapse(_run("<r/>", body, method="xml")) == "<out>t</out>"
+
+
+@pytest.mark.parametrize(
+    ("fmt", "expected"),
+    [
+        pytest.param("1. ", "1. ", id="decimal-suffix"),
+        pytest.param("(1)", "(1)", id="prefix-and-suffix"),
+        pytest.param("~", "~1", id="above-z-separator-is-prefix"),
+        pytest.param("001", "001", id="decimal-min-width"),
+        pytest.param("a", "a", id="alpha-lower"),
+        pytest.param("i", "i", id="roman-lower"),
+    ],
+)
+def test_transform_number_format_tokens(fmt: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:number value="1" format="{fmt}"/></xsl:template>'
+    assert _run("<r/>", body) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "fmt", "expected"),
+    [
+        pytest.param("0", "i", "0", id="roman-zero-falls-to-decimal"),
+        pytest.param("-3", "a", "-3", id="alpha-negative-falls-to-decimal"),
+        pytest.param("5000", "I", "5000", id="roman-over-4999-falls-to-decimal"),
+    ],
+)
+def test_transform_number_out_of_range_falls_back_to_decimal(value: str, fmt: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:number value="{value}" format="{fmt}"/></xsl:template>'
+    assert _run("<r/>", body) == expected
 
 
 def test_transform_literal_element_with_long_attribute_name() -> None:

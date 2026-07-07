@@ -52,4 +52,16 @@ to its string value when used through XPath (the strict XSLT 1.0 rule), and ``xs
 copies its nodes. Output shaping beyond the method choice -- ``indent``, ``doctype-*``, ``cdata-section-elements`` -- is
 not applied; the serializer is turbohtml's own, so its byte layout follows :doc:`serialization`, not libxslt's.
 
+*******************
+ Conformance basis
+*******************
+
+The processor is validated against libxslt's own XSLT 1.0 Recommendation corpus -- the ``REC`` and ``REC2``
+stylesheet/source/expected-output triples it ships, which are the worked examples from the spec run through the
+reference implementation. ``tests/conformance/test_xslt_conformance.py`` runs turbohtml over every triple and asserts
+byte-equal output (whitespace normalized per output method). Of the 79 cases, 56 pass exactly; the remaining 23 use
+features listed under "Where it stops" (whitespace stripping, namespace-alias, attribute sets, multi-level
+``xsl:number``, ``cdata-section-elements``, extension elements, and the html method's meta injection) and are marked
+``xfail`` with the spec section each needs. The corpus is the pinned ``tests/conformance/libxslt`` submodule.
+
 For the XPath engine underneath, see :doc:`queries`; for a port from lxml, see :doc:`/migration/lxml`.

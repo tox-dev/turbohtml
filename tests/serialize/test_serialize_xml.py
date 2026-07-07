@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET  # noqa: S405  # parsing turbohtml's own
 
 import pytest
 
-from turbohtml import Element, Formatter, Html, Indent, Minify, Text, parse
+from turbohtml import Element, Formatter, Html, Indent, Minify, ProcessingInstruction, Text, parse
 
 _XML = Html(xml=True)
 
@@ -149,6 +149,12 @@ def test_indent_pretty_xml_escapes_text() -> None:
 
 def test_indent_pretty_xml_empty_root_self_closes() -> None:
     assert _fragment("<div></div>", "div").serialize(Html(xml=True, layout=Indent(2))) == "<div/>"
+
+
+def test_xml_processing_instruction_closes_with_question_mark() -> None:
+    node = Element("doc", children=[ProcessingInstruction("t", "d")])
+    assert node.serialize(_XML) == "<doc><?t d?></doc>"
+    assert node.serialize(Html(xml=True, layout=Indent(2))) == "<doc>\n  <?t d?>\n</doc>"
 
 
 def test_serialize_iter_streams_xml() -> None:

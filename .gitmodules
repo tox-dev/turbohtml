@@ -32,3 +32,7 @@
 	path = tests/conformance/unicodetools
 	url = https://github.com/unicode-org/unicodetools
 	shallow = true
+[submodule "tests/conformance/libxslt"]
+	path = tests/conformance/libxslt
+	url = https://github.com/GNOME/libxslt
+	shallow = true

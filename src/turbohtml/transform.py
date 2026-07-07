@@ -17,9 +17,14 @@ expression. It covers the XSLT 1.0 instruction set -- ``xsl:template`` (match, n
 ``xsl:apply-templates``, ``xsl:call-template``, ``xsl:for-each``, ``xsl:if``, ``xsl:choose``, ``xsl:value-of``,
 ``xsl:copy``/``xsl:copy-of``,
 ``xsl:element``/``xsl:attribute``/``xsl:text``, ``xsl:variable``/``xsl:param``, ``xsl:sort``, ``xsl:number``,
-``xsl:key`` and the ``key()`` function, the built-in template rules, the section 5.5 conflict resolution, and the
-``xml``/``html``/``text`` output methods. External-document loading (``xsl:include``, ``xsl:import``, ``document()``) is
-not modeled.
+``xsl:key`` and the ``key()`` function, the built-in template rules, the section 5.5 conflict resolution,
+``exclude-result-prefixes`` with the section 7.1.1 namespace-node copying, and the ``xml``/``html``/``text`` output
+methods. External-document loading (``xsl:include``, ``xsl:import``, ``document()``) is not modeled.
+
+Validated against libxslt's XSLT 1.0 Recommendation test corpus (the ``REC`` and ``REC2`` example triples it ships):
+56 of the 79 cases pass exactly, and the remainder exercise features turbohtml does not model (whitespace stripping,
+namespace-alias, attribute sets, multi-level numbering, cdata-section-elements, extension elements, and the html
+output method's meta injection); see ``tests/conformance/test_xslt_conformance.py``.
 """
 
 from __future__ import annotations

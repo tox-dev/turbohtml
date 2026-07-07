@@ -473,6 +473,8 @@ typedef struct engine {
 
     Py_UCS4 *xsl_prefix;
     Py_ssize_t xsl_prefix_len;
+    const Py_UCS4 *exclude_prefixes; /* aliases the stylesheet root's exclude-result-prefixes value */
+    Py_ssize_t exclude_prefixes_len;
     int output_method;
     int omit_xml_decl;
 
@@ -1807,8 +1809,15 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
 
 /* ---- xsl:number ----------------------------------------------------------- */
 
+/* Whether a code point is alphanumeric, the class that separates a format token from the
+   separators around it (approximated to ASCII letters and digits, which cover the format
+   tokens XSLT 1.0 defines: decimal, "a"/"A", "i"/"I"). */
+static int alnum_cp(Py_UCS4 cp) {
+    return (cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z');
+}
+
 static int format_number_token(xb *out, long value, Py_UCS4 style) {
-    if (style == 'a' || style == 'A') {
+    if ((style == 'a' || style == 'A') && value >= 1) {
         char buffer[32];
         int length = 0;
         long remaining = value;
@@ -1824,7 +1833,10 @@ static int format_number_token(xb *out, long value, Py_UCS4 style) {
         }
         return 0;
     }
-    if (style == 'i' || style == 'I') {
+    /* Roman numerals are only conventionally defined for 1..4999; larger values would emit an
+       unbounded run of "M" (a memory-exhaustion hazard), so fall through to the decimal token,
+       as libxslt does. Non-positive values have no roman/alphabetic form either. */
+    if ((style == 'i' || style == 'I') && value >= 1 && value <= 4999) {
         static const int values[] = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
         static const char *const lower[] = {"m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"};
         static const char *const upper[] = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
@@ -1883,23 +1895,40 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     } else {
         value = eng->cur_attr >= 0 ? 1 : number_single(eng->cur_node);
     }
+    /* A format token string (XSLT 1.0 section 7.7.1) is a leading separator, an alphanumeric
+       format token, then a trailing separator; for single-level numbering the leading and
+       trailing separators surround the one formatted number as a prefix and suffix. */
     Py_ssize_t format_len = 0;
     const Py_UCS4 *format = attr_lookup(eng->sheet_tree, instruction, "format", &format_len);
+    Py_ssize_t prefix_end = 0;
+    while (prefix_end < format_len && !alnum_cp(format[prefix_end])) {
+        prefix_end++;
+    }
+    Py_ssize_t token_end = prefix_end;
+    while (token_end < format_len && alnum_cp(format[token_end])) {
+        token_end++;
+    }
     Py_UCS4 style = '1';
     Py_ssize_t pad = 1;
-    if (format != NULL && format_len > 0) {
-        if (format[0] >= '0' && format[0] <= '9') {
-            /* A decimal token's length is its minimum width: "01" pads to two digits. */
+    if (token_end > prefix_end) {
+        /* The token is alphanumeric, so a code point at or below '9' is a digit. */
+        if (format[prefix_end] <= '9') {
+            /* A decimal token's leading digits are its minimum width: "01" pads to two digits,
+               and only the leading run counts ("0a" is width one). */
+            style = '1';
             pad = 0;
-            while (pad < format_len && format[pad] >= '0' && format[pad] <= '9') {
+            while (prefix_end + pad < token_end && format[prefix_end + pad] <= '9') {
                 pad++;
             }
-            style = '1';
         } else {
-            style = format[format_len - 1];
+            style = format[token_end - 1];
         }
     }
     xb buffer = {0};
+    if (xb_add(&buffer, format, prefix_end) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        xb_free(&buffer);                          /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory");         /* GCOVR_EXCL_LINE */
+    }
     if (style == '1' && pad > 1) {
         char raw[32];
         int raw_len = snprintf(raw, sizeof(raw), "%ld", value);
@@ -1916,6 +1945,10 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     } else if (format_number_token(&buffer, value, style) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         xb_free(&buffer);                                        /* GCOVR_EXCL_LINE */
         return fail(eng, "out of memory");                       /* GCOVR_EXCL_LINE */
+    }
+    if (xb_add(&buffer, format + token_end, format_len - token_end) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        xb_free(&buffer);                                                  /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory");                                 /* GCOVR_EXCL_LINE */
     }
     int rc = emit_text(eng, out_parent, buffer.data, buffer.len);
     xb_free(&buffer);
@@ -2348,6 +2381,124 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
 
 /* ---- the body instantiation walk ------------------------------------------ */
 
+static const char XSLT_NS[] = "http://www.w3.org/1999/XSL/Transform";
+
+/* Whether an output ancestor of `start` already binds namespace `name` (an "xmlns" or
+   "xmlns:prefix" spelling) to the identical URI. The nearest binding wins, so a rebinding
+   to a different URI reports out-of-scope and the caller redeclares. */
+static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
+                              Py_ssize_t value_len) {
+    for (th_node *anc = start; anc != NULL; anc = anc->parent) {
+        if (anc->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
+            const th_node_attr *attr = &anc->attrs[index];
+            Py_ssize_t anc_len = 0;
+            const char *anc_name = th_attr_name(eng->out_tree, attr->name_atom, &anc_len);
+            if (anc_len != name_len || memcmp(anc_name, name, (size_t)name_len) != 0) {
+                continue;
+            }
+            return attr->value_len == value_len && memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0;
+        }
+    }
+    return 0;
+}
+
+/* Whether `prefix` appears in the stylesheet's exclude-result-prefixes list (a whitespace-
+   separated set of prefixes; the default namespace is named "#default"), so its namespace
+   node is not copied to the output. */
+static int prefix_excluded(const engine *eng, const char *prefix, Py_ssize_t prefix_len) {
+    Py_ssize_t index = 0;
+    while (index < eng->exclude_prefixes_len) {
+        while (index < eng->exclude_prefixes_len && ucs4_blank(&eng->exclude_prefixes[index], 1)) {
+            index++;
+        }
+        Py_ssize_t start = index;
+        while (index < eng->exclude_prefixes_len && !ucs4_blank(&eng->exclude_prefixes[index], 1)) {
+            index++;
+        }
+        if (index - start == prefix_len) {
+            Py_ssize_t offset = 0;
+            while (offset < prefix_len &&
+                   eng->exclude_prefixes[start + offset] == (Py_UCS4)(unsigned char)prefix[offset]) {
+                offset++;
+            }
+            if (offset == prefix_len) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Copy the stylesheet namespace declarations in scope at literal result element `lre` onto
+   its output copy (XSLT 1.0 section 7.1.1): every in-scope namespace node except the XSLT
+   namespace itself and any exclude-result-prefixes namespace, de-duplicated against the
+   declarations already in scope on the output parent so a prefix is redeclared only where it
+   is not already bound to that URI. The html and text output methods have no namespace
+   syntax, so they carry no namespace nodes (matching libxslt). */
+static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_node *out_parent) {
+    if (eng->output_method != OUT_XML) {
+        return 0;
+    }
+    /* The walk stops at the document node above the stylesheet root, which has no attributes. */
+    for (th_node *anc = lre; anc != NULL; anc = anc->parent) {
+        for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
+            const th_node_attr *attr = &anc->attrs[index];
+            Py_ssize_t name_len = 0;
+            const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
+            int prefixed = name_len > 6 && memcmp(name, "xmlns:", 6) == 0;
+            int is_default = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
+            if (!prefixed && !is_default) {
+                continue;
+            }
+            int excluded =
+                prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8);
+            if (excluded) {
+                continue;
+            }
+            int overridden = 0;
+            for (th_node *nearer = lre; nearer != anc; nearer = nearer->parent) {
+                for (Py_ssize_t probe = 0; probe < nearer->attr_count; probe++) {
+                    if (nearer->attrs[probe].name_atom == attr->name_atom) {
+                        overridden = 1;
+                        break;
+                    }
+                }
+                if (overridden) {
+                    break;
+                }
+            }
+            if (overridden || ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS) ||
+                output_ns_in_scope(eng, out_parent, name, name_len, attr->value, attr->value_len)) {
+                continue;
+            }
+            int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, attr->value, attr->value_len, 1);
+            if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return 0;
+}
+
+/* Whether attribute name `name` carries the stylesheet's XSLT-namespace prefix, i.e. it is an
+   XSLT directive (xsl:exclude-result-prefixes, xsl:use-attribute-sets, ...) placed on a literal
+   result element, which the spec strips from the output rather than copying. */
+static int is_xsl_attr(const engine *eng, const char *name, Py_ssize_t name_len) {
+    Py_ssize_t prefix_len = eng->xsl_prefix_len;
+    if (name_len <= prefix_len || name[prefix_len] != ':') {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < prefix_len; index++) {
+        if ((Py_UCS4)(unsigned char)name[index] != eng->xsl_prefix[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Copy a literal result element into the output, resolving attribute value
    templates, then instantiate its children inside it. */
 static int instantiate_literal(engine *eng, th_node *element, th_node *out_parent) {
@@ -2356,15 +2507,21 @@ static int instantiate_literal(engine *eng, th_node *element, th_node *out_paren
     if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
+    if (copy_namespace_decls(eng, element, copy, out_parent) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         const th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->sheet_tree, attr->name_atom, &name_len);
-        /* Drop the stylesheet's own xmlns:xsl declaration; keep other attributes. */
+        /* Namespace declarations are handled above; XSLT directives never reach the output. */
         if (name_len >= 6 && memcmp(name, "xmlns:", 6) == 0) {
             continue;
         }
         if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
+            continue;
+        }
+        if (is_xsl_attr(eng, name, name_len)) {
             continue;
         }
         Py_UCS4 *resolved;
@@ -2882,6 +3039,9 @@ static int analyze(engine *eng, th_node *sheet_root) {
     if (resolve_xsl_prefix(eng, sheet_root) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
         return -1;                                 /* GCOVR_EXCL_LINE */
     }
+    eng->exclude_prefixes_len = 0;
+    eng->exclude_prefixes =
+        attr_lookup(eng->sheet_tree, sheet_root, "exclude-result-prefixes", &eng->exclude_prefixes_len);
     int position = 0;
     for (th_node *child = sheet_root->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {

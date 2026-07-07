@@ -254,7 +254,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
     case TH_NODE_PI:
         sbuf_puts(out, "<?");
         sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_putc(out, '>');
+        /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the
+           bogus-comment form at ">". */
+        sbuf_puts(out, opts->xml ? "?>" : ">");
         break;
     case TH_NODE_CDATA:
         sbuf_puts(out, "<![CDATA[");
@@ -396,7 +398,9 @@ static th_node *serialize_pretty_step(sbuf *out, th_tree *tree, th_node *node, t
     case TH_NODE_PI:
         sbuf_puts(out, "<?");
         sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_putc(out, '>');
+        /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the
+           bogus-comment form at ">". */
+        sbuf_puts(out, opts->out->xml ? "?>" : ">");
         break;
     case TH_NODE_CDATA:
         sbuf_puts(out, "<![CDATA[");
