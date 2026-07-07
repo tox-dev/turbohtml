@@ -14,7 +14,8 @@ turbohtml covers that same ground and extends past it. :func:`turbohtml.escape` 
 stdlib functions byte for byte, :func:`turbohtml.tokenize` and :class:`turbohtml.Tokenizer` replace the callback
 tokenizer, and :class:`turbohtml.migration.stdlib.HTMLParser` keeps your existing ``handle_*`` subclass working
 unchanged. Everything runs over a WHATWG-conformant C core that also builds a full parse tree, which ``html.parser`` has
-no equivalent for.
+no equivalent for. The same C core also covers :mod:`python:unicodedata`'s Unicode normalization, so
+:func:`turbohtml.detect.normalize` is a drop-in for :func:`python:unicodedata.normalize`.
 
 *********************
  turbohtml vs stdlib
@@ -162,6 +163,40 @@ inverts the control flow. Each ``handle_*`` override becomes a branch on :attr:`
 .. testoutput::
 
     [('start', 'p', [('class', 'x')]), ('data', 'Hi & bye'), ('end', 'p')]
+
+***********************
+ Unicode normalization
+***********************
+
+:func:`python:unicodedata.normalize` and :func:`python:unicodedata.is_normalized` move to
+:func:`turbohtml.detect.normalize` and :func:`turbohtml.detect.is_normalized`: the form name comes first and the output
+is identical, because turbohtml runs the four forms in C over tables generated from the interpreter's own
+``unicodedata``. A quick check returns already-normalized text untouched.
+
+.. list-table::
+    :header-rows: 1
+    :widths: 50 50
+
+    - - stdlib call
+      - turbohtml call
+    - - ``unicodedata.normalize("NFC", s)``
+      - ``turbohtml.detect.normalize("NFC", s)``
+    - - ``unicodedata.is_normalized("NFC", s)``
+      - ``turbohtml.detect.is_normalized("NFC", s)``
+
+.. testcode::
+
+    import unicodedata
+
+    from turbohtml.detect import normalize
+
+    forms = ("NFC", "NFD", "NFKC", "NFKD")
+    text = "ﬁ café ẛ̣"
+    print(all(normalize(form, text) == unicodedata.normalize(form, text) for form in forms))
+
+.. testoutput::
+
+    True
 
 **********************
  Gotchas and pitfalls

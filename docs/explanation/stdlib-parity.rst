@@ -9,6 +9,17 @@ longest-prefix matching, numeric references, the Windows-1252 remaps, and the in
 ``U+FFFD`` or the empty string. The test suite checks the C output against the standard library over a large fuzzed
 corpus.
 
+Unicode normalization is stdlib parity from the string side: :func:`turbohtml.detect.normalize` reproduces
+:func:`python:unicodedata.normalize` across all four forms (NFC, NFD, NFKC, NFKD), and
+:func:`turbohtml.detect.is_normalized` its membership test. What differs is where the Unicode version lives.
+``unicodedata`` tracks the interpreter's Unicode version, so the same call can decompose a character one way on Python
+3.12 (Unicode 15.0) and another on 3.14 (16.0); turbohtml pins one version (16.0) into a generated table, the way ICU
+pins a version, so its output is fixed whatever interpreter runs it -- the property a store-then-compare pipeline needs.
+The table is generated from the interpreter's own ``unicodedata`` at that version, so the C engine is an exact
+reimplementation of the same data, and a quick check (UAX #15) hands back already-normalized text -- the common case --
+without decomposing it. The four-form pipeline (decompose, canonical-order, recompose) is C; the Python layer only maps
+the form name and calls it.
+
 Template engines need a different contract: `markupsafe <https://markupsafe.palletsprojects.com>`_'s, where escaping
 produces a ``Markup`` safe-string that records "this is already HTML" and combining it with untrusted text escapes that
 text. :mod:`turbohtml.migration.markupsafe` is a drop-in for markupsafe's public surface, down to the numeric

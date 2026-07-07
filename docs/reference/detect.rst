@@ -34,3 +34,12 @@ character-trigram model, reading the visible text rather than an ``<html lang>``
 .. autoclass:: LanguageMatch
 
 .. autoclass:: LanguageDetection
+
+Normalize text to a Unicode normalization form (UAX #15), a C successor to :func:`unicodedata.normalize` and
+:func:`unicodedata.is_normalized`. :func:`normalize` runs all four forms -- NFC, NFD, NFKC, NFKD -- over the pinned
+tables generated from the interpreter's own ``unicodedata``, so the two agree exactly; a quick check returns
+already-normalized text untouched.
+
+.. autofunction:: normalize
+
+.. autofunction:: is_normalized

@@ -10,6 +10,7 @@ are integer row counts; the rest are HTML strings or corpus documents.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from textwrap import dedent
 from typing import TYPE_CHECKING, Final
@@ -148,6 +149,7 @@ OPERATIONS: dict[str, Operation] = {
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
+    "normalize": Operation("normalize text to Unicode NFC", "us"),
     "urls-clean": Operation("clean and normalize 100 URLs", "us"),
     "links-filter": Operation("extract filtered page links", "us"),
 }
@@ -362,6 +364,22 @@ def _encoding_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
+def _normalize_cases() -> tuple[tuple[str, object], ...]:
+    """
+    Return the strings the Unicode-normalization suite folds to NFC.
+
+    Already-NFC prose and a real page exercise the quick-check fast path (the common case both engines short-circuit),
+    while the NFD-decomposed French forces the full decompose/reorder/compose pipeline.
+    """
+    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+    french = _ENCODING_FRENCH * 50
+    return (
+        ("nfc french (4 kB)", french),
+        ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
+        ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
+    )
+
+
 INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "build": lambda: _ROWS,
     "build-e": lambda: _ROWS,
@@ -454,6 +472,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
     "encoding": _encoding_cases,
+    "normalize": _normalize_cases,
     "urls-clean": lambda: (
         ("clean 100 URLs", ("clean", _URL_BATCH)),
         ("normalize 100 URLs", ("normalize", _URL_BATCH)),

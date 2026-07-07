@@ -22,14 +22,19 @@ character-trigram model: find the dominant Unicode script, then rank the languag
 text's most frequent character trigrams match each language's embedded profile. It returns a :class:`LanguageMatch`
 (ISO 639-3 code, confidence, script, English name); a frozen :class:`LanguageDetection` config carries a confidence
 floor and language constraints.
+
+:func:`normalize` runs Unicode normalization (UAX #15) in all four forms -- NFC, NFD, NFKC, NFKD -- the transform
+:func:`unicodedata.normalize` does whole strings, reimplemented in C over pinned tables generated from the same
+``unicodedata`` so the two agree exactly. A quick check returns already-normalized text untouched, and
+:func:`is_normalized` answers the membership question without building the normalized copy.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
-from ._html import _detect, _detect_language
+from ._html import _detect, _detect_language, _is_normalized, _normalize
 
 __all__ = [
     "Detection",
@@ -37,10 +42,17 @@ __all__ = [
     "EncodingMatch",
     "LanguageDetection",
     "LanguageMatch",
+    "NormalizationForm",
     "detect",
     "detect_all",
     "detect_language",
+    "is_normalized",
+    "normalize",
 ]
+
+NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
+
+_FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
 
 _LANGUAGES: Final[dict[str, str]] = {
     "big5": "Chinese",
@@ -336,3 +348,49 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     if language is None or confidence < settings.threshold:
         return _NO_LANGUAGE
     return LanguageMatch(language, confidence, script, name)
+
+
+def normalize(form: NormalizationForm, text: str, /) -> str:
+    """
+    Return *text* in a Unicode normalization form (UAX #15), the C successor to :func:`unicodedata.normalize`.
+
+    The four forms pair a decomposition depth with whether the result is recomposed: ``NFD`` fully decomposes and
+    canonically orders combining marks, ``NFC`` decomposes then recomposes, and the ``NFK*`` forms decompose
+    compatibility equivalents too (folding ligatures, superscripts, and width variants onto their plain characters).
+    ``NFC`` is what you want to compare or store user text so ``"é"`` written as a base plus a combining accent equals
+    ``"é"`` written as one code point; ``NFKC`` additionally flattens presentation variants. A quick check returns
+    already-normalized text (the common case) without allocating.
+
+    :param form: the normalization form, one of ``"NFC"``, ``"NFD"``, ``"NFKC"``, ``"NFKD"``.
+    :param text: the string to normalize.
+    :returns: the normalized string, the same object when it was already normalized.
+    :raises ValueError: when *form* is not one of the four names.
+    :raises TypeError: when *text* is not a ``str``.
+    """
+    try:
+        code = _FORMS[form]
+    except KeyError:
+        msg = f"invalid normalization form {form!r}"
+        raise ValueError(msg) from None
+    return _normalize(code, text)
+
+
+def is_normalized(form: NormalizationForm, text: str, /) -> bool:
+    """
+    Return whether *text* is already in a Unicode normalization form, the :func:`unicodedata.is_normalized` peer.
+
+    This decides the same question as ``normalize(form, text) == text`` but the quick check settles almost every string
+    in a single scan, without building the normalized copy.
+
+    :param form: the normalization form, one of ``"NFC"``, ``"NFD"``, ``"NFKC"``, ``"NFKD"``.
+    :param text: the string to test.
+    :returns: ``True`` when *text* is unchanged by :func:`normalize` for *form*.
+    :raises ValueError: when *form* is not one of the four names.
+    :raises TypeError: when *text* is not a ``str``.
+    """
+    try:
+        code = _FORMS[form]
+    except KeyError:
+        msg = f"invalid normalization form {form!r}"
+        raise ValueError(msg) from None
+    return _is_normalized(code, text)

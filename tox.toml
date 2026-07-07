@@ -321,6 +321,11 @@ commands = [
   [ "python", "{tox_root}{/}tools{/}generate_idna.py", "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}idna_table.h" ],
   [
     "python",
+    "{tox_root}{/}tools{/}generate_normalize.py",
+    "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}normalize_table.h",
+  ],
+  [
+    "python",
     "{tox_root}{/}tools{/}generate_css_colors.py",
     "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}css_colors.h"
   ],

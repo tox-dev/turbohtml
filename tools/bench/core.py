@@ -24,6 +24,7 @@ from turbohtml.clean import minify as _minify
 from turbohtml.convert import css_specificity as _css_specificity
 from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.detect import detect as _detect_encoding
+from turbohtml.detect import normalize as _normalize
 from turbohtml.extract import boilerplate as _extract_boilerplate
 from turbohtml.extract import clean_url as _clean_url
 from turbohtml.extract import dates as _extract_dates
@@ -481,6 +482,11 @@ def encoding(data: bytes) -> None:
     _detect_encoding(data)
 
 
+def normalize(text: str) -> None:
+    """Normalize text to Unicode NFC with turbohtml's C engine (quick-checked, then decompose/reorder/compose)."""
+    _normalize("NFC", text)
+
+
 def translate(selector: str) -> None:
     """Translate one CSS selector to XPath 1.0 with turbohtml's C translator."""
     _css_to_xpath(selector)
@@ -543,6 +549,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),
     "detect": (detect, "turbohtml"),
+    "normalize": (normalize, "turbohtml"),
     "markdown": (markdown, "turbohtml"),
     "markdown-google": (markdown_google, "turbohtml"),
     "tables": (tables, "turbohtml"),

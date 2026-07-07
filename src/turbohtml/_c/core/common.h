@@ -50,6 +50,12 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
 PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 
+/* Implemented in unicode/normalize.c. _normalize(form, text) applies one of the
+   four Unicode normalization forms (form 0..3 = NFC, NFD, NFKC, NFKD) to text;
+   _is_normalized(form, text) tests membership. Both match METH_VARARGS. */
+PyObject *turbohtml_normalize(PyObject *module, PyObject *args);
+PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
+
 /* Implemented in query/css/to_xpath.c, which reuses the selector parser.
    _css_to_xpath(selector, prefix) translates a CSS selector list to an
    equivalent XPath 1.0 expression; matches METH_VARARGS. */

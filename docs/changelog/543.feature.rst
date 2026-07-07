@@ -1,0 +1,4 @@
+:func:`turbohtml.detect.normalize` returns text in a Unicode normalization form (UAX #15) -- ``NFC``, ``NFD``, ``NFKC``,
+or ``NFKD`` -- the C successor to :func:`python:unicodedata.normalize`, and :func:`turbohtml.detect.is_normalized` tests
+membership. Both run over tables generated from the interpreter's own ``unicodedata``, so they agree with it exactly,
+and a quick check returns already-normalized text without allocating.

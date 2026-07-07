@@ -66,6 +66,12 @@ from ._stubs.dom import (
     _Filter as _Filter,
 )
 from ._stubs.dom import (
+    _is_normalized as _is_normalized,
+)
+from ._stubs.dom import (
+    _normalize as _normalize,
+)
+from ._stubs.dom import (
     _parse_fragment as _parse_fragment,
 )
 from ._stubs.dom import (

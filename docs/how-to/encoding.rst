@@ -69,3 +69,33 @@ directly. Rank the alternatives with :func:`~turbohtml.detect.detect_all`, const
 .. testoutput::
 
     UTF-8-SIG
+
+Normalize decoded text to a Unicode normalization form
+======================================================
+
+Once bytes are decoded, the same visible text can carry different code points -- ``"é"`` as one character or as an ``e``
+plus a combining accent -- so equality, search, and deduplication need a normalization pass first.
+:func:`turbohtml.detect.normalize` runs all four UAX #15 forms in C, the successor to
+:func:`python:unicodedata.normalize`:
+
+.. testcode::
+
+    from turbohtml.detect import is_normalized, normalize
+
+    composed = "café"
+    decomposed = "café"
+    print(composed == decomposed)
+    print(normalize("NFC", decomposed) == composed)
+    print(is_normalized("NFC", decomposed))
+    print(normalize("NFKC", "ﬁle") == "file")
+
+.. testoutput::
+
+    False
+    True
+    False
+    True
+
+Use ``NFC`` to compare or store user text, ``NFKC`` to additionally flatten presentation variants (ligatures,
+superscripts, width variants), and the ``NFD`` / ``NFKD`` forms when you want the fully decomposed representation.
+:func:`~turbohtml.detect.is_normalized` answers the membership question without building the normalized copy.

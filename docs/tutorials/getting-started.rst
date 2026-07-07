@@ -62,5 +62,29 @@ way to turn a plain message into clickable HTML:
 
     Visit <a href="https://example.com" rel="nofollow">https://example.com</a> today
 
-Every generated link carries ``rel="nofollow"`` by default, so untrusted text stays safe to publish. With the string
-helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.
+Every generated link carries ``rel="nofollow"`` by default, so untrusted text stays safe to publish.
+
+************************
+ Normalize Unicode text
+************************
+
+One more string helper cleans up Unicode itself. The same character can be typed as one code point or as a base letter
+plus a combining mark, so ``"café"`` need not equal ``"café"`` even though they look identical.
+:func:`turbohtml.detect.normalize` folds text to a Unicode normalization form, so the two compare equal:
+
+.. testcode::
+
+    from turbohtml.detect import normalize
+
+    composed = "café"  # e-acute as one code point
+    decomposed = "café"  # plain e followed by a combining acute accent
+    print(composed == decomposed)
+    print(normalize("NFC", composed) == normalize("NFC", decomposed))
+
+.. testoutput::
+
+    False
+    True
+
+Reach for ``NFC`` before you compare or store text; the :doc:`/how-to/encoding` guide covers the other three forms. With
+the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.

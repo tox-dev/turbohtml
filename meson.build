@@ -79,6 +79,7 @@ py.extension_module(
         'src/turbohtml/_c/features/links.c',
         'src/turbohtml/_c/url/url.c',
         'src/turbohtml/_c/url/idna.c',
+        'src/turbohtml/_c/unicode/normalize.c',
         'src/turbohtml/_c/url/registrable.c',
         'src/turbohtml/_c/features/annotation.c',
         'src/turbohtml/_c/features/structured_data.c',
