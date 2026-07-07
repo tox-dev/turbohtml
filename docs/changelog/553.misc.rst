@@ -1,0 +1,5 @@
+Validated the DOM Living Standard APIs -- :class:`~turbohtml.Range`/:class:`~turbohtml.StaticRange`,
+:class:`~turbohtml.TreeWalker`/:class:`~turbohtml.NodeIterator`, and the Shadow DOM tree model -- against jsdom with a
+differential harness: 108 shared operation sequences replay through both turbohtml and jsdom and must agree byte- and
+structure-exact. They all agree. Declarative shadow roots, which jsdom cannot parse, are checked against the WHATWG
+attach-a-shadow-root algorithm instead.

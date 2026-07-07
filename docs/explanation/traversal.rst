@@ -49,3 +49,8 @@ free-threaded build.
 ``current_node`` stays assignable, as the DOM requires, but only to a node in the walker's own tree: the cursor holds a
 raw pointer into that tree's arena, so accepting a node from another document would let it dangle. That is the single
 deliberate narrowing of the spec surface, traded for the guarantee that a walker can never point at freed memory.
+
+Both objects are validated against jsdom, which passes the WPT ``dom/traversal`` suite:
+:file:`tests/conformance/test_dom_jsdom_differential.py` replays each walk through both libraries over shared trees,
+covering every ``what_to_show`` mask and each filter verdict, and confirms the accepted-node sequences match -- so
+reject really prunes a subtree where skip drops only the node.

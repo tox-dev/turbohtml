@@ -37,3 +37,7 @@ drive, not an observer that follows edits made elsewhere. Second, :class:`~turbo
 counterpart the spec defines for exactly that observer case: it stores the four boundary values verbatim with no
 ordering, bounds, or same-root guarantee, so it is a cheap snapshot to hand around rather than a handle to operate
 through.
+
+Every boundary, comparison, and content operation is validated against jsdom, which passes the WPT ``dom/ranges`` suite:
+:file:`tests/conformance/test_dom_jsdom_differential.py` replays the same sequences through both libraries over shared
+trees and requires byte- and structure-exact agreement, which holds on every case.

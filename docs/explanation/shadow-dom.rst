@@ -75,3 +75,9 @@ and no style scoping -- turbohtml has no layout or CSS cascade across the bounda
 structural core: attach open and closed roots (imperatively or declaratively from markup), assign named and default
 slots, read the assignment both ways, and flatten the composed tree -- enough to build, inspect, and transform
 shadow-DOM markup with the same typed, C-backed API as the rest of the tree.
+
+The imperative attach and slot-assignment surface is validated against jsdom in
+:file:`tests/conformance/test_dom_jsdom_differential.py`, which builds the same host and shadow trees through both
+libraries and compares mode reachability, ``assignedNodes``/``assignedElements``, and each child's ``assignedSlot``.
+Declarative shadow roots are the one place jsdom cannot follow: version 29 has no ``<template shadowrootmode>`` parsing,
+so those cases are checked against the WHATWG attach-a-shadow-root algorithm directly.
