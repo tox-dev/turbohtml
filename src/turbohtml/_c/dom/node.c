@@ -37,11 +37,18 @@ PyObject *turbohtml_node_wrap_in(PyObject *owner, th_node *node) {
 #define NODE_FREELIST_MAX 1024
 
 void th_node_freelist_clear(module_state *state) {
+    /* GCOVR_EXCL_START
+       The drain runs only from html_clear (the module m_clear slot) at interpreter finalization, and only
+       when the pool is non-empty at that instant. Whether CPython reaches this with a populated pool is
+       nondeterministic across interpreters -- some 3.10/3.11 macOS and Linux runs finalize with the pool
+       already empty -- so the loop body cannot be covered portably; the OS reclaims the wrappers at process
+       exit regardless. */
     while (state->node_freelist != NULL) {
         NodeObject *self = (NodeObject *)state->node_freelist;
         state->node_freelist = (PyObject *)self->node;
         Py_TYPE(self)->tp_free(self); /* the type ref was dropped on push; the types are still live here */
     }
+    /* GCOVR_EXCL_STOP */
     state->node_freelist_len = 0;
 }
 #else
