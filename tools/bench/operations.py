@@ -119,6 +119,39 @@ _SHADOW_DOC = (
     + "</main></body></html>"
 )
 
+# A single-namespace records catalog and a matching XSD, sized like the parse corpus so the
+# validation walk clears the CodSpeed heap-jitter floor. Both turbohtml and lxml validate it.
+_VALIDATE_RECORD = (
+    '<record id="r{index}">'
+    "<name>Item {index}</name>"
+    "<qty>{index}</qty>"
+    "<price>{index}.99</price>"
+    "<tags><tag>alpha</tag><tag>beta</tag></tags>"
+    "</record>"
+)
+_VALIDATE_DOC = (
+    '<?xml version="1.0"?>'
+    '<catalog xmlns="urn:example:records">'
+    + "".join(_VALIDATE_RECORD.format(index=index) for index in range(400))
+    + "</catalog>"
+)
+_VALIDATE_XSD = (
+    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example:records"'
+    ' xmlns="urn:example:records" elementFormDefault="qualified">'
+    '<xs:element name="catalog"><xs:complexType><xs:sequence>'
+    '<xs:element name="record" maxOccurs="unbounded"><xs:complexType><xs:sequence>'
+    '<xs:element name="name" type="xs:string"/>'
+    '<xs:element name="qty" type="xs:nonNegativeInteger"/>'
+    '<xs:element name="price" type="xs:decimal"/>'
+    '<xs:element name="tags"><xs:complexType><xs:sequence>'
+    '<xs:element name="tag" type="xs:string" maxOccurs="unbounded"/>'
+    "</xs:sequence></xs:complexType></xs:element>"
+    "</xs:sequence>"
+    '<xs:attribute name="id" type="xs:string" use="required"/>'
+    "</xs:complexType></xs:element>"
+    "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+)
+
 _SANITIZE_TEMPLATES = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
@@ -196,6 +229,7 @@ OPERATIONS: dict[str, Operation] = {
     "shadow": Operation("attach a shadow tree with slots and flatten", "us"),
     "parse": Operation("parse to a tree", "us"),
     "parse-xml": Operation("parse XML to a tree", "us"),
+    "validate": Operation("validate a document against an XSD schema", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
     "parse-locations": Operation("parse to a tree (source locations)", "us"),
     "parse-shadow": Operation("parse declarative shadow roots", "us"),
@@ -571,6 +605,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "shadow": lambda: _ROWS,
     "parse": _parse_cases,
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
+    "validate": lambda: (("catalog XSD + doc", (_VALIDATE_XSD, _VALIDATE_DOC)),),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),

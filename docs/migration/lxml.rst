@@ -14,9 +14,9 @@ XML pipelines because it wraps a fast, battle-tested C library and exposes the f
 turbohtml covers the HTML side of that ground with a native C core of its own. :func:`turbohtml.parse` builds the WHATWG
 document tree libxml2's HTML parser does not, returns a fully type annotated :class:`~turbohtml.Document`, and folds
 XPath 1.0 (with EXSLT), CSS selection, and the ``find``/``find_all`` grammar into one node API instead of separate
-``findall``/``xpath``/``cssselect`` entry points, and adds an XSLT 1.0 processor (:mod:`turbohtml.transform`). It does
-not attempt schema validation or generic XML; it targets browser-accurate HTML parsing and the query/edit/transform/
-serialize surface around it.
+``findall``/``xpath``/``cssselect`` entry points, adds an XSLT 1.0 processor (:mod:`turbohtml.transform`), and validates
+XML against XSD 1.0 and RELAX NG schemas. It does not attempt generic XML pipelines; it targets browser-accurate HTML
+parsing and the query/edit/transform/validate/serialize surface around it.
 
 *******************
  turbohtml vs lxml
@@ -89,15 +89,40 @@ The wider libxml2 toolchain is a deliberate clean-break scope cut:
 - XSLT is at parity for the 1.0 core (see :ref:`the transform section <migration-lxml>` below): ``lxml.etree.XSLT``
   ports to :class:`turbohtml.transform.Transform`. Out of scope are external-document loading (``xsl:include``,
   ``xsl:import``, ``document()``) and the libxslt/EXSLT extension-element surface.
-- Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
+- Schema validation: ``etree.XMLSchema`` and ``etree.RelaxNG`` map to :class:`turbohtml.validate.XMLSchema` and
+  :class:`~turbohtml.validate.RelaxNG` (below); DTD (``etree.DTD``) and Schematron have no equivalent.
 - DTD-declared entities and the wider infoset: :func:`turbohtml.parse_xml` (below) handles well-formed XML but resolves
-  only the five predefined entities and numeric references; a document that relies on ``<!ENTITY>`` definitions, or that
-  needs schema validation, stays with lxml.
+  only the five predefined entities and numeric references; a document that relies on ``<!ENTITY>`` definitions stays
+  with lxml.
 - C14N 2.0: :meth:`~turbohtml.Node.canonicalize` implements the Canonical XML 1.0/1.1 and Exclusive family that XML
   signatures sign (see below); the later, separately specified C14N 2.0 (``etree.canonicalize``) is out of scope.
 - XPath is at parity, not a gap. Both are XPath 1.0 with EXSLT, and turbohtml adds the XPath 2.0 string convenience
   functions on top. The only pieces out of scope are the node-synthesizing ``str:tokenize``/``str:split``, the implicit
   current-date ``date:`` forms, and full XPath 2.0 (sequences, types, FLWOR).
+
+Validate against a schema
+=========================
+
+``etree.XMLSchema(schema_doc).validate(tree)`` becomes :meth:`turbohtml.validate.XMLSchema.validate`, and
+``etree.RelaxNG`` becomes :class:`~turbohtml.validate.RelaxNG`. Where lxml returns a bool and stashes the reasons on
+``schema.error_log``, turbohtml returns a :class:`~turbohtml.validate.ValidationResult` whose ``errors`` tuple carries
+each violation with the ``/root/child`` path that located it:
+
+.. testcode::
+
+    from turbohtml import parse_xml
+    from turbohtml.validate import XMLSchema
+
+    schema = XMLSchema(
+        '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
+        '<xs:element name="qty" type="xs:positiveInteger"/></xs:schema>'
+    )
+    result = schema.validate(parse_xml("<qty>0</qty>"))
+    print(result.valid, result.errors[0].path)
+
+.. testoutput::
+
+    False /qty
 
 Performance
 ===========

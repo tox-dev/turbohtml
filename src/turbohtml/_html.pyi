@@ -272,3 +272,9 @@ from ._stubs.tokenizer import (
 from ._stubs.tokenizer import (
     tokenize as tokenize,
 )
+from ._stubs.validate import (
+    _schema_compile as _schema_compile,
+)
+from ._stubs.validate import (
+    _schema_validate as _schema_validate,
+)

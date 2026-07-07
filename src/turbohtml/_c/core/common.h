@@ -255,6 +255,15 @@ PyObject *turbohtml_register_css_minify(PyObject *module, PyObject *type);
    mask depend on byte order, so callers treat a nonzero mask as "somewhere in
    these lanes" and resolve the exact index with a scalar scan. */
 
+/* Implemented in validate/schema.c, the XSD / RELAX NG schema validator behind
+   turbohtml.validate (issue #539). _schema_compile(kind, source) parses and compiles a
+   schema (kind 0 = XSD, 1 = RELAX NG) into a PyCapsule, raising ValueError on a
+   malformed schema; _schema_validate(capsule, node) validates a parse_xml document or
+   element against it, returning (valid, [errors]) where each error is a (message, path,
+   line, type) tuple. Both match METH_VARARGS. */
+PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args);
+PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args);
+
 #define UCS2_LANES 4
 #define UCS4_LANES 2
 

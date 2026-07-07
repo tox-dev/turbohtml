@@ -38,6 +38,7 @@ from turbohtml.query import Query as _Query
 from turbohtml.saxparse import SaxHandler as _SaxHandler
 from turbohtml.saxparse import sax_parse as _sax_parse
 from turbohtml.transform import Transform as _Transform
+from turbohtml.validate import XMLSchema as _XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -166,6 +167,18 @@ def parse(text: str) -> None:
 def parse_xml(text: str) -> None:
     """Parse a whole XML document into a navigable tree through turbohtml.parse_xml()."""
     turbohtml.parse_xml(text)
+
+
+_VALIDATORS: dict[str, _XMLSchema] = {}
+
+
+def validate(case: tuple[str, str]) -> None:
+    """Validate a parsed XML document against an XSD schema (compiled once, keyed by source)."""
+    schema, document = case
+    validator = _VALIDATORS.get(schema)
+    if validator is None:
+        validator = _VALIDATORS[schema] = _XMLSchema(schema)
+    validator.validate(turbohtml.parse_xml(document))
 
 
 def parse_scripting(text: str) -> None:
@@ -706,6 +719,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "shadow": (shadow, "turbohtml"),
     "parse": (parse, "turbohtml"),
     "parse-xml": (parse_xml, "turbohtml"),
+    "validate": (validate, "turbohtml"),
     "parse-scripting": (parse_scripting, "turbohtml"),
     "parse-locations": (parse_locations, "turbohtml"),
     "parse-shadow": (parse_shadow, "turbohtml"),

@@ -20,9 +20,9 @@ times faster than the standard library.
 
 It is the wrong tool in a few honest cases:
 
-- **You need schema validation or C14N.** turbohtml gives CSS selectors, the ``find`` filter grammar, an XPath 1.0
-  engine, and an :doc:`XSLT 1.0 processor <xslt>`, but none of `lxml <https://lxml.de>`_'s wider XML toolchain -- no
-  DTD/RELAX NG/XML Schema validation and no canonicalization. Code that leans on those should stay on lxml.
+- **You need DTD or Schematron validation.** turbohtml gives CSS selectors, the ``find`` filter grammar, an XPath 1.0
+  engine, an :doc:`XSLT 1.0 processor <xslt>`, C14N, and :doc:`XSD / RELAX NG validation <validation>`, but not `lxml
+  <https://lxml.de>`_'s DTD or Schematron validation. Code that leans on those should stay on lxml.
 - **You depend on `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`_'s ecosystem or its forgiving,
   duck-typed API.** ``bs4`` swaps parser backends, integrates with a long tail of tools, and accepts almost any shape;
   turbohtml is one conformant parser with a sealed, typed hierarchy. Code written to ``bs4``'s contract needs the
@@ -39,6 +39,7 @@ It is the wrong tool in a few honest cases:
     stdlib-parity
     parsing
     xml
+    validation
     sax
     source-locations
     tree-model

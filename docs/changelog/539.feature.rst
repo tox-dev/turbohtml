@@ -1,0 +1,8 @@
+:class:`turbohtml.validate.XMLSchema` and :class:`turbohtml.validate.RelaxNG` validate a document parsed with
+:func:`turbohtml.parse_xml` against an XSD 1.0 or RELAX NG schema, mirroring lxml's ``etree.XMLSchema`` /
+``etree.RelaxNG``. A schema compiles once in the C core and each :meth:`~turbohtml.validate.XMLSchema.validate` returns
+a :class:`~turbohtml.validate.ValidationResult` -- a ``valid`` flag plus one
+:class:`~turbohtml.validate.ValidationError` per violation, each with the document-order path that located it. XSD
+covers the element/attribute declarations, the sequence/choice/all content models with ``minOccurs``/``maxOccurs``,
+references, complex/simple types with extension, the built-in datatypes, and the constraining facets; RELAX NG covers
+the full XML-syntax pattern set (including ``interleave``) through the derivative algorithm.

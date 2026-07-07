@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import lxml.etree as lxml_etree  # ty: ignore[unresolved-import]  # C extension, ships no type stubs
 from lxml import html as lxml_html
@@ -35,6 +35,19 @@ def fragment(text: str) -> None:
 def parse_xml(text: str) -> None:
     """Parse a whole XML document with lxml's libxml2-backed XML parser (etree.XMLParser)."""
     lxml_html.etree.fromstring(text.encode())
+
+
+_VALIDATORS: dict[str, Any] = {}
+
+
+def validate(case: tuple[str, str]) -> None:
+    """Validate a parsed XML document against an XSD schema with lxml's etree.XMLSchema (compiled once)."""
+    schema, document = case
+    etree = lxml_html.etree
+    validator = _VALIDATORS.get(schema)
+    if validator is None:
+        validator = _VALIDATORS[schema] = etree.XMLSchema(etree.fromstring(schema.encode()))
+    validator.validate(etree.fromstring(document.encode()))
 
 
 def build(count: int) -> None:
@@ -328,6 +341,7 @@ def htmlparser(text: str) -> None:
 OPERATIONS = {
     "parse": (parse, "lxml"),
     "parse-xml": (parse_xml, "lxml.etree"),
+    "validate": (validate, "lxml.etree.XMLSchema"),
     "fragment": (fragment, "lxml"),
     "build": (build, "lxml"),
     "build-e": (build_e, "lxml.builder"),

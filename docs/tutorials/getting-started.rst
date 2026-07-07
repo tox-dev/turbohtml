@@ -177,4 +177,34 @@ call it on a source document:
 The transform reuses the XPath engine for every match pattern and select expression; see :doc:`/how-to/xslt` for
 parameters and output methods, and :doc:`/explanation/xslt` for how it works.
 
+***************************
+ Validate against a schema
+***************************
+
+When the input is XML with a contract, check it against an XSD or RELAX NG schema with
+:class:`turbohtml.validate.XMLSchema` or :class:`~turbohtml.validate.RelaxNG`. Compile the schema once, then validate a
+document parsed with :func:`turbohtml.parse_xml`; the result carries a ``valid`` flag and one
+:class:`~turbohtml.validate.ValidationError` per violation, each with the ``/root/child`` path that located it:
+
+.. testcode::
+
+    from turbohtml import parse_xml
+    from turbohtml.validate import XMLSchema
+
+    schema = XMLSchema(
+        '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
+        '<xs:element name="order"><xs:complexType><xs:sequence>'
+        '<xs:element name="sku" type="xs:string"/>'
+        '<xs:element name="qty" type="xs:positiveInteger"/>'
+        "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+    )
+    result = schema.validate(parse_xml("<order><sku>A-1</sku><qty>0</qty></order>"))
+    print(result.valid)
+    print(result.errors[0].path, result.errors[0].type)
+
+.. testoutput::
+
+    False
+    /order/qty datatype
+
 With the string helpers in hand, continue to :doc:`tokenizing` to break whole documents into tokens.

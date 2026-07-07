@@ -220,6 +220,8 @@ static PyMethodDef html_methods[] = {
     {"_url_to_ascii", turbohtml_url_to_ascii, METH_O, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {"_grow_probe", turbohtml_grow_probe, METH_VARARGS, NULL},
+    {"_schema_compile", turbohtml_schema_compile, METH_VARARGS, NULL},
+    {"_schema_validate", turbohtml_schema_validate, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 

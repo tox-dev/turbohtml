@@ -95,6 +95,7 @@ py.extension_module(
         'src/turbohtml/_c/features/tables.c',
         'src/turbohtml/_c/features/dates.c',
         'src/turbohtml/_c/features/cssom.c',
+        'src/turbohtml/_c/validate/schema.c',
     ],
     include_directories: include_directories('src/turbohtml/_c'),
     link_args: release_link_args,
@@ -134,6 +135,7 @@ py.install_sources(
         'src/turbohtml/saxparse.py',
         'src/turbohtml/transform.py',
         'src/turbohtml/traverse.py',
+        'src/turbohtml/validate.py',
         'src/turbohtml/py.typed',
     ],
     subdir: 'turbohtml',
@@ -147,6 +149,7 @@ py.install_sources(
         'src/turbohtml/_stubs/query.pyi',
         'src/turbohtml/_stubs/serialize.pyi',
         'src/turbohtml/_stubs/tokenizer.pyi',
+        'src/turbohtml/_stubs/validate.pyi',
     ],
     subdir: 'turbohtml/_stubs',
 )
