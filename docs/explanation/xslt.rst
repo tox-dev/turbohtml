@@ -5,9 +5,9 @@
 turbohtml ships an XSLT 1.0 processor in :mod:`turbohtml.transform`. This page explains how it is built on the existing
 XPath engine and why it stops where it does.
 
-*******************************
+************************
  One evaluator, not two
-*******************************
+************************
 
 An XSLT processor is mostly an XPath processor with a template-dispatch loop wrapped around it. turbohtml already has a
 compiled XPath 1.0 engine (:doc:`queries`), so the transform reuses it wholesale: every ``select`` expression, every
@@ -17,17 +17,17 @@ resolution, the instruction walk, and the result-tree serializer. This is why th
 alongside the XPath sources rather than a parallel path evaluator.
 
 The XSLT-only functions ride the same seam. ``current()``, ``key()``, ``generate-id()``, ``format-number()``, and
-``system-property()`` are not XPath core functions, so they are dispatched through the XPath engine's extension hook: the
-evaluator, on an unknown function name, calls back into the XSLT layer, which resolves them against the current node,
-the key tables, and the decimal-format rules. The engine never learns about XSLT; XSLT never re-implements function
-dispatch.
+``system-property()`` are not XPath core functions, so they are dispatched through the XPath engine's extension hook:
+the evaluator, on an unknown function name, calls back into the XSLT layer, which resolves them against the current
+node, the key tables, and the decimal-format rules. The engine never learns about XSLT; XSLT never re-implements
+function dispatch.
 
-***************************
+************************
  Patterns by membership
-***************************
+************************
 
-XSLT matches a node against a pattern like ``chapter/para`` or ``para[1]``; XPath selects a node-set from a context.
-The two meet through a definition in the spec: a node matches a pattern exactly when it is a member of the node-set the
+XSLT matches a node against a pattern like ``chapter/para`` or ``para[1]``; XPath selects a node-set from a context. The
+two meet through a definition in the spec: a node matches a pattern exactly when it is a member of the node-set the
 pattern selects from some ancestor. turbohtml uses that directly. A pattern is rewritten to an equivalent absolute
 expression (a relative pattern gains a leading ``//``), evaluated once against the source root, and the selected nodes
 are recorded in a hash set. Testing whether a node matches is then an O(1) set membership test, and each pattern is
@@ -40,9 +40,9 @@ sorted once by descending import precedence, then priority, then document positi
 order is the winner. Default priorities follow the spec -- ``0`` for a lone name test, ``-0.5`` for an unqualified node
 test, ``0.5`` for anything with a predicate or more than one step -- computed from the pattern at compile time.
 
-*******************
+****************
  Where it stops
-*******************
+****************
 
 The engine models a single stylesheet document. ``xsl:include`` and ``xsl:import`` would load other files, and
 ``document()`` would load arbitrary URLs; turbohtml resolves none of them, both to stay free of a fetch/filesystem

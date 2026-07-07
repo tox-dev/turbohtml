@@ -43,8 +43,8 @@ static int xb_reserve(xb *buf, Py_ssize_t extra) {
     size_t cap;
     size_t bytes;
     if (!th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 16, sizeof(Py_UCS4), &cap,
-                     &bytes)) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-        return -1;                /* GCOVR_EXCL_LINE */
+                     &bytes)) { /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return -1;              /* GCOVR_EXCL_LINE */
     }
     Py_UCS4 *grown = PyMem_Realloc(buf->data, bytes);
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
@@ -503,9 +503,10 @@ static const Py_UCS4 *attr_lookup(th_tree *tree, const th_node *node, const char
     }
     const th_node_attr *attr = &node->attrs[index];
     static const Py_UCS4 empty = 0;
-    if (attr->value == NULL) { /* GCOVR_EXCL_BR_LINE: XML forbids a valueless attribute, so a parse_xml stylesheet never has one */
-        *out_len = 0;          /* GCOVR_EXCL_LINE */
-        return &empty;         /* GCOVR_EXCL_LINE */
+    if (attr->value ==
+        NULL) { /* GCOVR_EXCL_BR_LINE: XML forbids a valueless attribute, so a parse_xml stylesheet never has one */
+        *out_len = 0;  /* GCOVR_EXCL_LINE */
+        return &empty; /* GCOVR_EXCL_LINE */
     }
     *out_len = attr->value_len;
     return attr->value;
@@ -669,9 +670,9 @@ static int scope_push(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, xp_
     if (eng->scope_len == eng->scope_cap) {
         Py_ssize_t cap = eng->scope_cap == 0 ? 8 : eng->scope_cap * 2;
         var_bind *grown = PyMem_Realloc(eng->scope, (size_t)cap * sizeof(var_bind));
-        if (grown == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        if (grown == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
             xp_result_free(&value); /* GCOVR_EXCL_LINE */
-            return -1;            /* GCOVR_EXCL_LINE */
+            return -1;              /* GCOVR_EXCL_LINE */
         }
         eng->scope = grown;
         eng->scope_cap = cap;
@@ -715,8 +716,7 @@ static int copy_result_value(const xp_result *src, xp_result *dst);
    only: '.' decimal separator, ',' grouping, '#' optional digit, '0' required digit,
    '%' percent, '-' minus). Enough of section 12.3 for the common integer/decimal
    pictures. Returns 0 with *out set, or -1 on allocation failure. */
-static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, Py_ssize_t picture_len,
-                            xp_result *out) {
+static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, Py_ssize_t picture_len, xp_result *out) {
     (void)eng;
     /* Split picture into a positive and (optional) '-'-introduced negative subpicture. */
     Py_ssize_t split = -1;
@@ -743,7 +743,7 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
     int min_int = 0;
     int frac_min = 0;
     int frac_max = 0;
-    int grouping = 0;   /* integer-digit positions after the rightmost ',' */
+    int grouping = 0; /* integer-digit positions after the rightmost ',' */
     int since_comma = 0;
     int had_comma = 0;
     int seen_digit = 0;
@@ -814,7 +814,7 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
         Py_ssize_t from_end = total_int - index;
         if (grouping > 0 && index > 0 && from_end % grouping == 0) {
             if (xb_add_char(&result, ',') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                goto oom2;                        /* GCOVR_EXCL_LINE */
+                goto oom2;                       /* GCOVR_EXCL_LINE */
             }
         }
         char digit = index < pad ? '0' : int_part[index - pad];
@@ -828,7 +828,7 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
     }
     if (frac_show > 0) {
         if (xb_add_char(&result, '.') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            goto oom2;                        /* GCOVR_EXCL_LINE */
+            goto oom2;                       /* GCOVR_EXCL_LINE */
         }
         for (Py_ssize_t index = 0; index < frac_show; index++) {
             if (xb_add_char(&result, (Py_UCS4)(unsigned char)frac_part[index]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -843,7 +843,7 @@ static int do_format_number(engine *eng, double value, const Py_UCS4 *picture, P
     xb_free(&suffix);
     result_string(out, result.data, result.len);
     return 0;
-oom2:                 /* GCOVR_EXCL_START: allocation-failure cleanup */
+oom2: /* GCOVR_EXCL_START: allocation-failure cleanup */
     xb_free(&result);
 oom:
     xb_free(&prefix);
@@ -908,7 +908,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
                 PyMem_Free(value);
                 for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
                     if (ns_push(&out->nodes, bucket->nodes[slot], -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                        return -1;                                          /* GCOVR_EXCL_LINE */
+                        return -1;                                           /* GCOVR_EXCL_LINE */
                     }
                 }
             }
@@ -923,7 +923,7 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         PyMem_Free(value);
         for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
             if (ns_push(&out->nodes, bucket->nodes[slot], -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                          /* GCOVR_EXCL_LINE */
+                return -1;                                           /* GCOVR_EXCL_LINE */
             }
         }
         return 0;
@@ -992,17 +992,15 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         result_string(out, str, str_len);
         return 0;
     }
-    if (ucs4_ascii_eq(name, name_len, "function-available") ||
-        ucs4_ascii_eq(name, name_len, "element-available")) {
+    if (ucs4_ascii_eq(name, name_len, "function-available") || ucs4_ascii_eq(name, name_len, "element-available")) {
         Py_ssize_t query_len;
         Py_UCS4 *query = to_string(eng->src_tree, &args[0], &query_len);
         if (query == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;       /* GCOVR_EXCL_LINE */
         }
-        static const char *const known[] = {"current",         "key",
-                                             "generate-id",     "format-number",
-                                             "system-property", "function-available",
-                                             "element-available"};
+        static const char *const known[] = {
+            "current",          "key", "generate-id", "format-number", "system-property", "function-available",
+            "element-available"};
         int available = 0;
         for (size_t index = 0; index < sizeof(known) / sizeof(known[0]); index++) {
             if (ucs4_ascii_eq(query, query_len, known[index])) {
@@ -1062,8 +1060,8 @@ static int build_key(engine *eng, xslt_key *key) {
     key->built = 1;
     xp_result matched;
     const char *feature = NULL;
-    int status = xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched,
-                            &feature);
+    int status =
+        xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched, &feature);
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
         return fail_py(eng);                                      /* GCOVR_EXCL_LINE */
@@ -1105,9 +1103,9 @@ static int build_key(engine *eng, xslt_key *key) {
             }
         }
         xp_result_free(&used);
-        if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: alloc */
+        if (rc < 0) {                 /* GCOVR_EXCL_BR_LINE: alloc */
             xp_result_free(&matched); /* GCOVR_EXCL_LINE */
-            return -1;        /* GCOVR_EXCL_LINE */
+            return -1;                /* GCOVR_EXCL_LINE */
         }
     }
     xp_result_free(&matched);
@@ -1122,8 +1120,8 @@ static int build_rule(engine *eng, xslt_rule *rule) {
     rule->built = 1;
     xp_result matched;
     const char *feature = NULL;
-    int status = xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched,
-                            &feature);
+    int status =
+        xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {
             PyErr_Format(PyExc_ValueError, "xslt: match pattern error (%s)", feature ? feature : "evaluation");
@@ -1131,10 +1129,10 @@ static int build_rule(engine *eng, xslt_rule *rule) {
         return fail_py(eng);
     }
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
-        if (match_set_add(&rule->matched, matched.nodes.items[index].node,
-                          matched.nodes.items[index].attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xp_result_free(&matched);                             /* GCOVR_EXCL_LINE */
-            return -1;                                            /* GCOVR_EXCL_LINE */
+        if (match_set_add(&rule->matched, matched.nodes.items[index].node, matched.nodes.items[index].attr) <
+            0) {                      /* GCOVR_EXCL_BR_LINE: alloc */
+            xp_result_free(&matched); /* GCOVR_EXCL_LINE */
+            return -1;                /* GCOVR_EXCL_LINE */
         }
     }
     xp_result_free(&matched);
@@ -1180,12 +1178,12 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
         Py_UCS4 ch = src[index];
         if (ch == '{' && index + 1 < len && src[index + 1] == '{') {
             if (xb_add_char(&buffer, '{') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                goto oom;                         /* GCOVR_EXCL_LINE */
+                goto oom;                        /* GCOVR_EXCL_LINE */
             }
             index++;
         } else if (ch == '}' && index + 1 < len && src[index + 1] == '}') {
             if (xb_add_char(&buffer, '}') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                goto oom;                         /* GCOVR_EXCL_LINE */
+                goto oom;                        /* GCOVR_EXCL_LINE */
             }
             index++;
         } else if (ch == '{') {
@@ -1221,9 +1219,9 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
             Py_ssize_t value_len;
             Py_UCS4 *text = to_string(eng->src_tree, &value, &value_len);
             xp_result_free(&value);
-            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            if (text == NULL) {   /* GCOVR_EXCL_BR_LINE: alloc */
                 xb_free(&buffer); /* GCOVR_EXCL_LINE */
-                goto oom;       /* GCOVR_EXCL_LINE */
+                goto oom;         /* GCOVR_EXCL_LINE */
             }
             int rc = xb_add(&buffer, text, value_len);
             PyMem_Free(text);
@@ -1238,7 +1236,7 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
     *out_data = buffer.data;
     *out_len = buffer.len;
     return 0;
-oom:                    /* GCOVR_EXCL_START: allocation-failure path */
+oom: /* GCOVR_EXCL_START: allocation-failure path */
     xb_free(&buffer);
     fail(eng, "out of memory");
     return -1; /* GCOVR_EXCL_STOP */
@@ -1319,9 +1317,9 @@ static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
         Py_ssize_t name_len;
         const char *attr_name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
-            if (th_node_attr_set(eng->out_tree, out_parent, attr_name, name_len, attr->value,
-                                 attr->value_len, 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return fail(eng, "out of memory");          /* GCOVR_EXCL_LINE */
+            if (th_node_attr_set(eng->out_tree, out_parent, attr_name, name_len, attr->value, attr->value_len, 1) <
+                0) {                               /* GCOVR_EXCL_BR_LINE: alloc */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
         }
         return 0;
@@ -1352,8 +1350,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
         for (Py_ssize_t index = 0; index < eng->scope_len; index++) {
             if (str_eq(eng->scope[index].name, eng->scope[index].name_len, var->str, var->str_len) &&
                 eng->scope[index].rtf != NULL) {
-                for (th_node *child = eng->scope[index].rtf->first_child; child != NULL;
-                     child = child->next_sibling) {
+                for (th_node *child = eng->scope[index].rtf->first_child; child != NULL; child = child->next_sibling) {
                     th_node *copy = th_tree_copy_node(eng->out_tree, eng->out_tree, child);
                     if (copy == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
                         xp_free(prog);                     /* GCOVR_EXCL_LINE */
@@ -1407,14 +1404,14 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
     for (th_node *child = fragment->first_child; child != NULL; child = child->next_sibling) {
         Py_ssize_t child_len;
         Py_UCS4 *child_text = th_node_text(eng->out_tree, child, &child_len);
-        if (child_text == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);     /* GCOVR_EXCL_LINE */
+        if (child_text == NULL) {              /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
         int rc = xb_add(&buffer, child_text, child_len);
         PyMem_Free(child_text);
-        if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer); /* GCOVR_EXCL_LINE */
+        if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
     }
@@ -1469,8 +1466,8 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
     Py_ssize_t utf8_len;
     char *utf8 = ucs4_to_utf8(name, resolved_len, &utf8_len);
     PyMem_Free(name);
-    if (utf8 == NULL) {   /* GCOVR_EXCL_BR_LINE: alloc */
-        PyMem_Free(value); /* GCOVR_EXCL_LINE */
+    if (utf8 == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(value);                 /* GCOVR_EXCL_LINE */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     int rc = th_node_attr_set(eng->out_tree, out_parent, utf8, utf8_len, value, value_len, 1);
@@ -1489,8 +1486,8 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT &&
-            th_node_attr_set(eng->out_tree, out_parent, name, name_len, attr->value, attr->value_len,
-                             1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            th_node_attr_set(eng->out_tree, out_parent, name, name_len, attr->value, attr->value_len, 1) <
+                0) {                           /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
         return 0;
@@ -1657,8 +1654,7 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             slot->node = set->items[index].node;
             slot->attr = set->items[index].attr;
             xp_result value;
-            int status = eval_program(eng, specs[spec].prog, set->items[index].node,
-                                      index + 1, set->len, &value);
+            int status = eval_program(eng, specs[spec].prog, set->items[index].node, index + 1, set->len, &value);
             if (status < 0) {
                 for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) {
                     PyMem_Free(items[done].key);
@@ -1669,11 +1665,11 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             }
             slot->key = to_string(eng->src_tree, &value, &slot->key_len);
             xp_result_free(&value);
-            if (slot->key == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            if (slot->key == NULL) {                                              /* GCOVR_EXCL_BR_LINE: alloc */
                 for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_LINE */
-                    PyMem_Free(items[done].key); /* GCOVR_EXCL_LINE */
+                    PyMem_Free(items[done].key);                                  /* GCOVR_EXCL_LINE */
                 } /* GCOVR_EXCL_LINE */
-                PyMem_Free(items); /* GCOVR_EXCL_LINE */
+                PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
                 return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
             slot->number = parse_number(slot->key, slot->key_len);
@@ -1681,11 +1677,11 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
     }
     /* Stable insertion sort over row indices. */
     Py_ssize_t *order = PyMem_Malloc((size_t)set->len * sizeof(Py_ssize_t));
-    if (order == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+    if (order == NULL) {                                                 /* GCOVR_EXCL_BR_LINE: alloc */
         for (Py_ssize_t index = 0; index < set->len * nspecs; index++) { /* GCOVR_EXCL_LINE */
-            PyMem_Free(items[index].key); /* GCOVR_EXCL_LINE */
+            PyMem_Free(items[index].key);                                /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
-        PyMem_Free(items); /* GCOVR_EXCL_LINE */
+        PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     for (Py_ssize_t index = 0; index < set->len; index++) {
@@ -1737,12 +1733,12 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
         order[probe + 1] = current;
     }
     xp_item *sorted = PyMem_Malloc((size_t)set->len * sizeof(xp_item));
-    if (sorted == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-        PyMem_Free(order); /* GCOVR_EXCL_LINE */
+    if (sorted == NULL) {                                                /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(order);                                               /* GCOVR_EXCL_LINE */
         for (Py_ssize_t index = 0; index < set->len * nspecs; index++) { /* GCOVR_EXCL_LINE */
-            PyMem_Free(items[index].key); /* GCOVR_EXCL_LINE */
+            PyMem_Free(items[index].key);                                /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
-        PyMem_Free(items); /* GCOVR_EXCL_LINE */
+        PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
         return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     for (Py_ssize_t index = 0; index < set->len; index++) {
@@ -1779,10 +1775,8 @@ static int format_number_token(xb *out, long value, Py_UCS4 style) {
     }
     if (style == 'i' || style == 'I') {
         static const int values[] = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
-        static const char *const lower[] = {"m",  "cm", "d",  "cd", "c",  "xc", "l",
-                                            "xl", "x",  "ix", "v",  "iv", "i"};
-        static const char *const upper[] = {"M",  "CM", "D",  "CD", "C",  "XC", "L",
-                                            "XL", "X",  "IX", "V",  "IV", "I"};
+        static const char *const lower[] = {"m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"};
+        static const char *const upper[] = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
         long remaining = value;
         for (int index = 0; index < 13; index++) {
             while (remaining >= values[index]) {
@@ -1859,13 +1853,13 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         char raw[32];
         int raw_len = snprintf(raw, sizeof(raw), "%ld", value);
         for (Py_ssize_t index = raw_len; index < pad; index++) {
-            if (xb_add_char(&buffer, '0') < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                xb_free(&buffer);                /* GCOVR_EXCL_LINE */
+            if (xb_add_char(&buffer, '0') < 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
+                xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
                 return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
         }
-        if (xb_add_ascii(&buffer, raw) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);                 /* GCOVR_EXCL_LINE */
+        if (xb_add_ascii(&buffer, raw) < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&buffer);                  /* GCOVR_EXCL_LINE */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
     } else if (format_number_token(&buffer, value, style) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -2023,10 +2017,10 @@ static int copy_result_value(const xp_result *src, xp_result *dst) {
     dst->kind = src->kind;
     if (src->kind == XP_NODESET) {
         for (Py_ssize_t index = 0; index < src->nodes.len; index++) {
-            if (ns_push(&dst->nodes, src->nodes.items[index].node,
-                        src->nodes.items[index].attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                xp_result_free(dst);                         /* GCOVR_EXCL_LINE */
-                return -1;                                   /* GCOVR_EXCL_LINE */
+            if (ns_push(&dst->nodes, src->nodes.items[index].node, src->nodes.items[index].attr) <
+                0) {                 /* GCOVR_EXCL_BR_LINE: alloc */
+                xp_result_free(dst); /* GCOVR_EXCL_LINE */
+                return -1;           /* GCOVR_EXCL_LINE */
             }
         }
         return 0;
@@ -2445,7 +2439,7 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
             }
             PyObject *message = make_str(text, text_len);
             PyMem_Free(text);
-            if (message == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            if (message == NULL) {   /* GCOVR_EXCL_BR_LINE: alloc */
                 return fail_py(eng); /* GCOVR_EXCL_LINE */
             }
             PyErr_Format(PyExc_RuntimeError, "xsl:message terminate: %U", message);
@@ -2702,22 +2696,22 @@ static PyObject *serialize_markup(engine *eng, th_node *root) {
     xb buffer = {0};
     if (eng->output_method == OUT_XML && !eng->omit_xml_decl) {
         if (xb_add_ascii(&buffer, "<?xml version=\"1.0\"?>\n") < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);                                        /* GCOVR_EXCL_LINE */
-            return PyErr_NoMemory();                                 /* GCOVR_EXCL_LINE */
+            xb_free(&buffer);                                         /* GCOVR_EXCL_LINE */
+            return PyErr_NoMemory();                                  /* GCOVR_EXCL_LINE */
         }
     }
     for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
         Py_ssize_t chunk_len;
         Py_UCS4 *chunk = th_node_serialize(eng->out_tree, child, &opts, NULL, 0, &chunk_len);
-        if (chunk == NULL) {        /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);       /* GCOVR_EXCL_LINE */
-            return PyErr_NoMemory();/* GCOVR_EXCL_LINE */
+        if (chunk == NULL) {         /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&buffer);        /* GCOVR_EXCL_LINE */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         }
         int rc = xb_add(&buffer, chunk, chunk_len);
         PyMem_Free(chunk);
-        if (rc < 0) {                 /* GCOVR_EXCL_BR_LINE: alloc */
-            xb_free(&buffer);         /* GCOVR_EXCL_LINE */
-            return PyErr_NoMemory();  /* GCOVR_EXCL_LINE */
+        if (rc < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
+            xb_free(&buffer);        /* GCOVR_EXCL_LINE */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         }
     }
     PyObject *out = make_str(buffer.data, buffer.len);

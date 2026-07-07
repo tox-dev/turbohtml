@@ -4,6 +4,6 @@ source documents, and :func:`turbohtml.transform.transform` does both in one cal
 extension, reusing turbohtml's XPath 1.0 engine for every match pattern and select expression, and covers the XSLT 1.0
 core: templates with ``match``/``name``/``mode``/``priority``, ``apply-templates`` with ``sort`` and ``with-param``,
 ``call-template``, ``for-each``, ``if``, ``choose``, ``value-of``, ``copy``/``copy-of``, ``element``/``attribute``/
-``text``, ``variable``/``param``, ``number``, ``sort``, ``key`` with the ``key()`` function, the built-in template rules,
-the section 5.5 priority-and-order conflict resolution, and the ``xml``/``html``/``text`` output methods. External
-resources (``xsl:include``, ``xsl:import``, ``document()``) are out of scope.
+``text``, ``variable``/``param``, ``number``, ``sort``, ``key`` with the ``key()`` function, the built-in template
+rules, the section 5.5 priority-and-order conflict resolution, and the ``xml``/``html``/``text`` output methods.
+External resources (``xsl:include``, ``xsl:import``, ``document()``) are out of scope.

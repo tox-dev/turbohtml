@@ -1,13 +1,13 @@
-##########################
+#########################
  Transform XML with XSLT
-##########################
+#########################
 
 You have an XML document and an XSLT 1.0 stylesheet, and you want the transformed output. Parse both, then apply the
 stylesheet.
 
-*******************
+********************
  Apply a stylesheet
-*******************
+********************
 
 A stylesheet is itself XML, so read it with :func:`turbohtml.parse_xml`; the source is any parsed tree. Wrap the
 stylesheet in :class:`turbohtml.transform.Transform` and call it with the source:
@@ -48,7 +48,7 @@ way lxml does:
     style = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:output method="text"/>'
-        "<xsl:param name=\"greeting\" select=\"'Hello'\"/>"
+        '<xsl:param name="greeting" select="\'Hello\'"/>'
         '<xsl:template match="/"><xsl:value-of select="$greeting"/>, <xsl:value-of select="//name"/></xsl:template>'
         "</xsl:stylesheet>"
     )
@@ -59,9 +59,9 @@ way lxml does:
 
     Hi, World
 
-****************
+*****************
  Choose a method
-****************
+*****************
 
 The stylesheet's ``xsl:output method`` picks the serialization: ``xml`` (the default, with a leading declaration unless
 ``omit-xml-declaration="yes"``), ``html`` (void elements stay open), or ``text`` (character data only). A malformed

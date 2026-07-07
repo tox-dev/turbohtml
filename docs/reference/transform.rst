@@ -19,10 +19,10 @@ The engine covers the XSLT 1.0 core: ``xsl:template`` (``match``, ``name``, ``mo
 ``xsl:apply-templates`` (``select``, ``mode``, ``xsl:sort``, ``xsl:with-param``), ``xsl:call-template``,
 ``xsl:for-each``, ``xsl:if``, ``xsl:choose``/``xsl:when``/``xsl:otherwise``, ``xsl:value-of``, ``xsl:copy`` and
 ``xsl:copy-of``, ``xsl:element``/``xsl:attribute``/``xsl:text``/``xsl:comment``/``xsl:processing-instruction``,
-``xsl:variable``/``xsl:param`` (local and top-level), ``xsl:sort`` (``data-type``, ``order``), ``xsl:number`` (``value``,
-``format``), ``xsl:key`` with the ``key()`` function, the built-in template rules, and the section 5.5 conflict
-resolution by priority then document order. It emits the ``xml``, ``html``, and ``text`` output methods, and adds the
-XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-number()``, ``system-property()``,
+``xsl:variable``/``xsl:param`` (local and top-level), ``xsl:sort`` (``data-type``, ``order``), ``xsl:number``
+(``value``, ``format``), ``xsl:key`` with the ``key()`` function, the built-in template rules, and the section 5.5
+conflict resolution by priority then document order. It emits the ``xml``, ``html``, and ``text`` output methods, and
+adds the XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-number()``, ``system-property()``,
 ``function-available()``, and ``element-available()``.
 
 External-document loading is out of scope: ``xsl:include``, ``xsl:import``, and ``document()`` do not resolve, so import
