@@ -356,6 +356,10 @@ class ShadowRoot(Node):
     def mode(self) -> str: ...
     @property
     def host(self) -> Element: ...
+    @property
+    def delegates_focus(self) -> bool: ...
+    @property
+    def clonable(self) -> bool: ...
     def append(self, child: Node, /) -> None: ...
     def set_inner_html(self, html: str, /) -> None: ...
 
@@ -429,10 +433,17 @@ def parse(
     positions: bool = True,
     source_locations: bool = False,
     scripting: bool = False,
+    allow_declarative_shadow_roots: bool = True,
 ) -> Document: ...
 def parse_xml(markup: str) -> Document: ...
 def parse_fragment(
-    html: str, context: str = "div", *, positions: bool = True, source_locations: bool = False, scripting: bool = False
+    html: str,
+    context: str = "div",
+    *,
+    positions: bool = True,
+    source_locations: bool = False,
+    scripting: bool = False,
+    allow_declarative_shadow_roots: bool = False,
 ) -> Element: ...
 def _build_document(
     head: list[Node],

@@ -2576,7 +2576,7 @@ static th_tree *parse_fragment_in_context(th_node *context, PyObject *html, int 
     name[name_len] = '\0';
     Py_DECREF(tag);
     th_tree *fragment = th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
-                                               name, name_len, 0, 0, scripting);
+                                               name, name_len, 0, 0, scripting, 0);
     PyMem_Free(name);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */

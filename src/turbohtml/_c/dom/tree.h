@@ -76,6 +76,12 @@ enum th_node_type {
 #define TH_SHADOW_ROOT 0x01u
 #define TH_SHADOW_CLOSED 0x02u
 
+/* Two further content-node bits carry a declarative shadow root's flags, set by the
+   tree builder from a `<template shadowrootmode>` element's shadowrootdelegatesfocus /
+   shadowrootclonable attributes; both clear on a shadow root the mutation API creates. */
+#define TH_SHADOW_DELEGATES_FOCUS 0x04u
+#define TH_SHADOW_CLONABLE 0x08u
+
 /* A comment node the parser built from a `<?` bogus comment (a comment carries no
    element category bits, so this bit is free on it, disjoint from the content-node
    shadow bits above). The SAX walk reads it to report the node as a processing
@@ -159,9 +165,12 @@ typedef struct {
    the granular start/end-tag and per-attribute spans (read via
    th_node_source_location) and implies positions. scripting is the WHATWG
    scripting flag: when set, noscript is a raw-text element (its content is raw
-   text, serialized unescaped). Returns NULL only on allocation failure (no Python
-   error is set). */
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting);
+   text, serialized unescaped). declarative_shadow is the WHATWG "allow declarative
+   shadow roots" flag: when set, a `<template shadowrootmode>` attaches a shadow root
+   to its parent instead of building a normal template content fragment. Returns NULL
+   only on allocation failure (no Python error is set). */
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting,
+                       int declarative_shadow);
 
 /* Parse a whole document under XML 1.0 well-formedness rather than the HTML tree
    builder: self-closing honored on every element, case-sensitive names, CDATA
@@ -272,10 +281,12 @@ void th_node_normalize(th_tree *tree, th_node *root);
 /* Parse an HTML fragment as if set as the innerHTML of the given context element
    (e.g. "td", or "svg path"). The returned tree serializes the context root's
    children. context is a NUL-free ASCII name; context_len its length. positions
-   records element source line/column, and scripting sets the WHATWG scripting flag,
-   both as in th_tree_parse. */
+   records element source line/column, scripting sets the WHATWG scripting flag, and
+   declarative_shadow allows `<template shadowrootmode>` to attach a shadow root to the
+   context element, all as in th_tree_parse. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions, int locations, int scripting);
+                                Py_ssize_t context_len, int positions, int locations, int scripting,
+                                int declarative_shadow);
 
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */

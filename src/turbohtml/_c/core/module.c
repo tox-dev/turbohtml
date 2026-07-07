@@ -74,7 +74,7 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            ":raises TypeError: if s is not a str.");
 
 PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True, "
-                        "source_locations=False, scripting=False)\n"
+                        "source_locations=False, scripting=False, allow_declarative_shadow_roots=True)\n"
                         "--\n\n"
                         "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
                         "return a navigable Document.\n\n"
@@ -95,6 +95,11 @@ PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_en
                         "    raw-text element -- its content is raw text, not markup, and serializes\n"
                         "    unescaped -- reproducing the tree a scripting browser builds. Off by\n"
                         "    default so <noscript> content stays parsed and accessible.\n"
+                        ":param allow_declarative_shadow_roots: honor a <template shadowrootmode>, which\n"
+                        "    attaches a shadow root to its parent element and parses the template's\n"
+                        "    content into it (Element.shadow_root). On by default, matching a browser\n"
+                        "    navigating to the document; pass False to keep such templates as ordinary\n"
+                        "    template elements.\n"
                         ":returns: the parsed Document.\n"
                         ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
                         ":raises LookupError: if encoding names a codec Python does not know.\n"
@@ -119,7 +124,8 @@ PyDoc_STRVAR(parse_xml_doc, "parse_xml(markup)\n--\n\n"
                             "    ParseError (code, line, col).");
 
 PyDoc_STRVAR(parse_fragment_doc,
-             "parse_fragment(html, context='div', *, positions=True, source_locations=False, scripting=False)\n--\n\n"
+             "parse_fragment(html, context='div', *, positions=True, source_locations=False, scripting=False, "
+             "allow_declarative_shadow_roots=False)\n--\n\n"
              "Parse an HTML fragment as the innerHTML of a context element.\n\n"
              ":param html: the fragment markup.\n"
              ":param context: the context element's tag name, optionally namespaced\n"
@@ -130,6 +136,9 @@ PyDoc_STRVAR(parse_fragment_doc,
              "    per-attribute spans, read via Element.source_location. Implies positions.\n"
              ":param scripting: set the WHATWG scripting flag on, making <noscript> a\n"
              "    raw-text element (see parse). Off by default.\n"
+             ":param allow_declarative_shadow_roots: honor a <template shadowrootmode> by\n"
+             "    attaching a shadow root to its parent (see parse). Off by default, matching\n"
+             "    the innerHTML fragment case; the setHTMLUnsafe path turns it on.\n"
              ":returns: the context Element with the parsed nodes as its children.\n"
              ":raises TypeError: if html or context is not a str.\n"
              ":raises ValueError: if context is not a known element tag.");

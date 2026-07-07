@@ -62,14 +62,15 @@ struct th_tree {
        element it closes with TH_ELEM_CLOSED_BY_END_TAG so the sanitizer can tell a
        source-closed element from a parser-closed one */
     const th_token *closing_end_tag;
-    int quirks;          /* quirks mode: a <table> no longer closes an open <p> */
-    int scripting;       /* the WHATWG scripting flag: noscript is a rawtext element when set */
-    int has_nul;         /* the input contains a U+0000; otherwise text needs no NUL filtering */
-    int can_span;        /* input is borrowed and outlives the tree: text nodes may be
-                            zero-copy spans into it instead of materialized copies */
-    int track_positions; /* record each element's source line/col in trailing node slots */
-    int track_locations; /* record each element's granular source spans (implies track_positions) */
-    int kind;            /* borrowed input storage */
+    int quirks;             /* quirks mode: a <table> no longer closes an open <p> */
+    int scripting;          /* the WHATWG scripting flag: noscript is a rawtext element when set */
+    int declarative_shadow; /* allow a <template shadowrootmode> to attach a shadow root to its parent */
+    int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
+    int can_span;           /* input is borrowed and outlives the tree: text nodes may be
+                               zero-copy spans into it instead of materialized copies */
+    int track_positions;    /* record each element's source line/col in trailing node slots */
+    int track_locations;    /* record each element's granular source spans (implies track_positions) */
+    int kind;               /* borrowed input storage */
     const void *data;
     Py_ssize_t length;
     int failed; /* an allocation failed; abandon the parse */

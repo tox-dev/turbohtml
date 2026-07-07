@@ -331,9 +331,22 @@ PyObject *node_get_flattened_children(PyObject *self, void *Py_UNUSED(closure)) 
 
 PyDoc_STRVAR(shadow_root_mode_doc, "the shadow root's mode: 'open' or 'closed'");
 PyDoc_STRVAR(shadow_root_host_doc, "the Element this shadow root is attached to");
+PyDoc_STRVAR(shadow_root_delegates_focus_doc,
+             "whether the shadow root delegates focus, from a declarative shadow root's\n"
+             "shadowrootdelegatesfocus attribute (always False otherwise)");
+PyDoc_STRVAR(shadow_root_clonable_doc, "whether the shadow root is clonable, from a declarative shadow root's\n"
+                                       "shadowrootclonable attribute (always False otherwise)");
 
 static PyObject *shadow_root_get_mode(PyObject *self, void *Py_UNUSED(closure)) {
     return PyUnicode_FromString(th_shadow_mode(((NodeObject *)self)->node) != 0 ? "closed" : "open");
+}
+
+static PyObject *shadow_root_get_delegates_focus(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong((((NodeObject *)self)->node->tag_flags & TH_SHADOW_DELEGATES_FOCUS) != 0);
+}
+
+static PyObject *shadow_root_get_clonable(PyObject *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong((((NodeObject *)self)->node->tag_flags & TH_SHADOW_CLONABLE) != 0);
 }
 
 static PyObject *shadow_root_get_host(PyObject *self, void *Py_UNUSED(closure)) {
@@ -349,6 +362,8 @@ static PyObject *shadow_root_get_host(PyObject *self, void *Py_UNUSED(closure)) 
 static PyGetSetDef shadow_root_getset[] = {
     {"mode", shadow_root_get_mode, NULL, shadow_root_mode_doc, NULL},
     {"host", shadow_root_get_host, NULL, shadow_root_host_doc, NULL},
+    {"delegates_focus", shadow_root_get_delegates_focus, NULL, shadow_root_delegates_focus_doc, NULL},
+    {"clonable", shadow_root_get_clonable, NULL, shadow_root_clonable_doc, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
 
@@ -387,7 +402,7 @@ static PyObject *shadow_root_set_inner_html(PyObject *self, PyObject *html) {
     }
     int scripting = th_tree_scripting(tree_of(self));
     th_tree *fragment = th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
-                                               "div", 3, 0, 0, scripting);
+                                               "div", 3, 0, 0, scripting, 1);
     if (fragment == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

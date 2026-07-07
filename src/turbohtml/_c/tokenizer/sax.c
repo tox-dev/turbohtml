@@ -254,7 +254,7 @@ PyObject *turbohtml_sax_events(PyObject *module, PyObject *arg) {
         return NULL;
     }
     module_state *state = PyModule_GetState(module);
-    th_tree *tree = th_tree_parse(PyUnicode_KIND(arg), PyUnicode_DATA(arg), PyUnicode_GET_LENGTH(arg), 0, 0, 0);
+    th_tree *tree = th_tree_parse(PyUnicode_KIND(arg), PyUnicode_DATA(arg), PyUnicode_GET_LENGTH(arg), 0, 0, 0, 1);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

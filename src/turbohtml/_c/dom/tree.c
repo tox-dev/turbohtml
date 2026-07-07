@@ -645,7 +645,11 @@ static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_
     return loc;
 }
 
-static th_node *insert_element(th_tree *tree, const th_token *token) {
+/* Build an element node from a start-tag token -- atom, category flags, source
+   position/spans, name and attributes -- without placing it in the tree. insert_element
+   appends it at the appropriate place; the declarative-shadow path keeps it off the
+   light tree, only on the stack of open elements. NULL on allocation failure. */
+static th_node *build_element(th_tree *tree, const th_token *token) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -680,6 +684,14 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
                 dst->value_len = 0;
             }
         }
+    }
+    return node;
+}
+
+static th_node *insert_element(th_tree *tree, const th_token *token) {
+    th_node *node = build_element(tree, token);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     th_node *parent, *before;
     insertion_location(tree, &parent, &before);
@@ -840,9 +852,154 @@ static int input_is_hidden(const th_token *token) {
     return 0;
 }
 
-/* Insert a <template> element and give it a content document-fragment child
-   that subsequent insertions are redirected into. */
+/* The start tag's attribute with this lowercased ASCII name (tokenizer names are
+   already lowercased), or NULL. Used for the boolean shadowroot* attributes and to
+   read shadowrootmode's value. A wider-kind name of the same length holds interleaved
+   zero bytes for its ASCII runs, so the byte compare against an all-ASCII literal can
+   never spuriously match. */
+static const th_attr *token_attr(const th_token *token, const char *name, Py_ssize_t name_len) {
+    for (Py_ssize_t index = 0; index < token->attr_count; index++) {
+        const th_attr *attr = &token->attrs[index];
+        if (attr->name.len == name_len && memcmp(attr->name.data, name, (size_t)name_len) == 0) {
+            return attr;
+        }
+    }
+    return NULL;
+}
+
+/* Whether a token buffer equals an ASCII literal, ASCII case-insensitively (an
+   enumerated attribute value like shadowrootmode's matches case-insensitively). */
+static int buf_iequals_ascii(const th_buf *buf, const char *ascii, Py_ssize_t ascii_len) {
+    if (buf->len != ascii_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < ascii_len; index++) {
+        Py_UCS4 ch = buf_read(buf, index);
+        if (ch >= 'A' && ch <= 'Z') {
+            ch += 32;
+        }
+        if (ch != (Py_UCS4)(unsigned char)ascii[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The shadowrootmode enumerated state of a <template> start tag: 0 none (absent or an
+   invalid value), 1 open, 2 closed. Only open/closed make a declarative shadow root. */
+static int shadowrootmode_state(const th_token *token) {
+    const th_attr *attr = token_attr(token, "shadowrootmode", 14);
+    if (attr == NULL || !attr->has_value) {
+        return 0;
+    }
+    if (buf_iequals_ascii(&attr->value, "open", 4)) {
+        return 1;
+    }
+    if (buf_iequals_ascii(&attr->value, "closed", 6)) {
+        return 2;
+    }
+    return 0;
+}
+
+/* Whether an element may host a shadow root (DOM: a valid shadow host name -- one of
+   the flow-content elements attachShadow accepts, or a custom element name, which the
+   parser lowercases so an interior hyphen is the whole remaining test). host_atom is
+   passed separately so the fragment root can be tested under its context element's
+   atom rather than the html it stands in for. */
+static int is_valid_shadow_host(const th_node *host, uint16_t host_atom) {
+    if (host->ns != TH_NS_HTML) {
+        return 0;
+    }
+    static const uint16_t hostable[] = {
+        TH_TAG_ARTICLE, TH_TAG_ASIDE, TH_TAG_BLOCKQUOTE, TH_TAG_BODY, TH_TAG_DIV,     TH_TAG_FOOTER,
+        TH_TAG_H1,      TH_TAG_H2,    TH_TAG_H3,         TH_TAG_H4,   TH_TAG_H5,      TH_TAG_H6,
+        TH_TAG_HEADER,  TH_TAG_MAIN,  TH_TAG_NAV,        TH_TAG_P,    TH_TAG_SECTION, TH_TAG_SPAN,
+    };
+    for (size_t index = 0; index < sizeof(hostable) / sizeof(hostable[0]); index++) {
+        if (host_atom == hostable[index]) {
+            return 1;
+        }
+    }
+    if (host_atom != TH_TAG_UNKNOWN) {
+        return 0;
+    }
+    /* a valid custom element name has an interior hyphen; the parser has already
+       lowercased the tag name, so a hyphen past the first byte is the whole test */
+    for (Py_ssize_t index = 1; index < host->text_len; index++) {
+        if (host->text[index] == '-') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The host a declarative `<template shadowrootmode>` attaches its shadow root to, per
+   the tree-construction steps: the tree must allow declarative shadow roots, the token
+   must carry an open/closed shadowrootmode, and the adjusted current node must be a
+   shadow-hostable element other than the topmost open element that does not already host
+   a shadow root. Sets *closed from the mode; returns NULL to insert a normal template. */
+static th_node *declarative_shadow_host(th_tree *tree, const th_token *token, int *closed) {
+    if (!tree->declarative_shadow) {
+        return NULL;
+    }
+    int state = shadowrootmode_state(token);
+    if (state == 0) {
+        return NULL;
+    }
+    /* The adjusted current node is the host: the context element in the single-element
+       fragment case (the root only stands in for it, so test it under the context atom),
+       otherwise the current node. The spec's "not the topmost element" guard needs no
+       separate test here -- a document's topmost open element is always <html>, which
+       is not a valid shadow host, and the fragment's topmost is handled above. */
+    th_node *host = current_node(tree);
+    uint16_t host_atom = host->atom;
+    if (tree->fragment_root != NULL && tree->open_len == 1) {
+        host = tree->fragment_root;
+        host_atom = tree->ctx_atom;
+    }
+    if (!is_valid_shadow_host(host, host_atom) || th_element_shadow_root(tree, host) != NULL) {
+        return NULL;
+    }
+    *closed = state == 2;
+    return host;
+}
+
+/* Build the template element off the light tree (only on the stack of open elements),
+   attach a shadow root to host carrying the shadowrootdelegatesfocus / shadowrootclonable
+   flags, and redirect the template's content into that shadow root so subsequent
+   insertions populate the shadow tree. NULL on allocation failure. */
+static th_node *insert_declarative_template(th_tree *tree, const th_token *token, th_node *host, int closed) {
+    th_node *tmpl = build_element(tree, token);
+    if (tmpl == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    th_node *shadow = th_element_attach_shadow(tree, host, closed);
+    if (shadow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    if (token_attr(token, "shadowrootdelegatesfocus", 24) != NULL) {
+        shadow->tag_flags |= TH_SHADOW_DELEGATES_FOCUS;
+    }
+    if (token_attr(token, "shadowrootclonable", 18) != NULL) {
+        shadow->tag_flags |= TH_SHADOW_CLONABLE;
+    }
+    /* the shadow root is the template's content: content parses straight into it, while
+       it stays parentless (off the light tree) so the flattened-tree walks still root
+       every shadow node at the shadow root rather than the discarded template */
+    tmpl->first_child = shadow;
+    tmpl->last_child = shadow;
+    return tmpl;
+}
+
+/* Insert a <template> element. A declarative `<template shadowrootmode>` attaches a
+   shadow root to its parent; every other template gets a content document-fragment
+   child that subsequent insertions are redirected into. */
 static th_node *insert_template(th_tree *tree, const th_token *token) {
+    int closed = 0;
+    th_node *host = declarative_shadow_host(tree, token, &closed);
+    if (host != NULL) {
+        return insert_declarative_template(tree, token, host, closed);
+    }
     th_node *node = insert_element(tree, token);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -3677,12 +3834,14 @@ static th_tree *tree_new_document(int positions, int locations) {
     return tree;
 }
 
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting) {
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int locations, int scripting,
+                       int declarative_shadow) {
     th_tree *tree = tree_new_document(positions, locations);
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     tree->scripting = scripting;
+    tree->declarative_shadow = declarative_shadow;
     tree->kind = kind;
     tree->data = data;
     tree->length = length;
@@ -3743,12 +3902,14 @@ static enum mode fragment_mode(uint16_t ctx) {
 #define MAX_CONTEXT_NAME 32
 
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions, int locations, int scripting) {
+                                Py_ssize_t context_len, int positions, int locations, int scripting,
+                                int declarative_shadow) {
     th_tree *tree = PyMem_Calloc(1, sizeof(th_tree));
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     tree->scripting = scripting;
+    tree->declarative_shadow = declarative_shadow;
     tree->kind = kind;
     tree->data = data;
     tree->length = length;
@@ -3916,6 +4077,7 @@ th_stream *th_stream_new(int positions, int locations) {
         th_stream_free(stream);                       /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    stream->tree->declarative_shadow = 1; /* a streaming document parse navigates like the browser */
     th_tok_capture_locations(stream->sm, locations);
     run_state_init(&stream->run_state, M_INITIAL);
     return stream;
