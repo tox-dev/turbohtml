@@ -316,10 +316,13 @@ static int mo_traverse(PyObject *self, visitproc visit, void *arg) {
     return 0;
 }
 
+/* tp_clear drops only the callback: it is the sole reference that can close a cycle
+   back to the observer. The handle is deliberately kept -- _TreeHandle is not
+   GC-tracked and frees the tree only in its own dealloc, so holding the reference
+   through mo_dealloc keeps the tree (and the registry entry we must remove) alive.
+   Clearing it here would let the tree free before mo_dealloc reaches its registry. */
 static int mo_clear_py(PyObject *self) {
-    MutationObserverObject *observer = (MutationObserverObject *)self;
-    Py_CLEAR(observer->callback); /* GCOVR_EXCL_BR_LINE: a callback (or None) is always set, so its NULL arm is dead */
-    Py_CLEAR(observer->handle);   /* the NULL arm runs for an observer that never observed */
+    Py_CLEAR(((MutationObserverObject *)self)->callback); /* GCOVR_EXCL_BR_LINE: a callback is always set */
     return 0;
 }
 
@@ -335,6 +338,7 @@ static void mo_dealloc(PyObject *self) {
         observer->observer = NULL;
     }
     (void)mo_clear_py(self);
+    Py_CLEAR(observer->handle); /* the NULL arm runs for an observer that never observed */
     type->tp_free(self);
     Py_DECREF(type);
 }
