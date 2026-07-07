@@ -307,7 +307,7 @@ def test_options_must_be_a_canonical_instance() -> None:
 
 
 def test_exclusive_1_1_is_rejected() -> None:
-    with pytest.raises(ValueError, match="exclusive canonicalization is defined only over version 1.0"):
+    with pytest.raises(ValueError, match=r"exclusive canonicalization is defined only over version 1\.0"):
         Canonical(exclusive=True, version="1.1")
 
 
