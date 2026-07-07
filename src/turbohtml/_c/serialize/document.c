@@ -201,6 +201,18 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
     switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
     case TH_NODE_ELEMENT:
         ser_open_tag(out, tree, node, opts);
+        if (opts->xml) {
+            /* XML syntax: every empty element self-closes, no void/raw-text special
+               casing, so a childless element ends the tag and a parent descends */
+            if (node->first_child == NULL) {
+                sbuf_puts(out, "/>");
+            } else {
+                sbuf_putc(out, '>');
+                descend = node->first_child;
+            }
+            break;
+        }
+        sbuf_putc(out, '>');
         ser_inject_head_meta(out, tree, node, opts);
         if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
             break; /* void elements have no children or end tag */
@@ -223,7 +235,11 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         break;
     case TH_NODE_TEXT:
-        sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
+        if (opts->xml) {
+            sbuf_put_xml_text(out, need_text(tree, node), node->text_len, 0);
+        } else {
+            sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
+        }
         break;
     case TH_NODE_COMMENT:
         sbuf_puts(out, "<!--");
@@ -302,6 +318,19 @@ static th_node *serialize_pretty_step(sbuf *out, th_tree *tree, th_node *node, t
     switch (node->type) { /* GCOVR_EXCL_BR_LINE: th_node_type is exhaustive; the implicit default is unreachable */
     case TH_NODE_ELEMENT: {
         ser_open_tag(out, tree, node, opts->out);
+        if (opts->out->xml) {
+            /* XML pretty form: an empty element self-closes on its line, a parent
+               opens then lays each child out one level deeper (the ascend closes it) */
+            if (node->first_child == NULL) {
+                sbuf_puts(out, "/>");
+            } else {
+                sbuf_putc(out, '>');
+                ser_newline_indent(out, opts, *depth + 1);
+                descend = node->first_child;
+            }
+            break;
+        }
+        sbuf_putc(out, '>');
         if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
             break;
         }
@@ -348,7 +377,11 @@ static th_node *serialize_pretty_step(sbuf *out, th_tree *tree, th_node *node, t
         break;
     }
     case TH_NODE_TEXT:
-        sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->out->formatter);
+        if (opts->out->xml) {
+            sbuf_put_xml_text(out, need_text(tree, node), node->text_len, 0);
+        } else {
+            sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->out->formatter);
+        }
         break;
     case TH_NODE_COMMENT:
         sbuf_puts(out, "<!--");
@@ -498,7 +531,7 @@ void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
-static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0};
+static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0};
 
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};

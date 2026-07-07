@@ -253,6 +253,56 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
     }
 }
 
+/* Whether a code point needs a reference under XML serialization. Structural
+   `& < >` always escape; a double quote, tab and newline escape only inside an
+   attribute value (where XML would otherwise normalize the whitespace away); a
+   carriage return escapes everywhere so a reparse cannot fold it to a newline. */
+static inline int sbuf_xml_special(Py_UCS4 character, int in_attr) {
+    if (character == '&' || character == '<' || character == '>' || character == '\r') {
+        return 1;
+    }
+    return in_attr && (character == '"' || character == '\t' || character == '\n');
+}
+
+/* Emit one flagged character's XML replacement. */
+static inline void sbuf_put_xml_special(sbuf *out, Py_UCS4 character) {
+    if (character == '&') {
+        sbuf_puts(out, "&amp;");
+    } else if (character == '<') {
+        sbuf_puts(out, "&lt;");
+    } else if (character == '>') {
+        sbuf_puts(out, "&gt;");
+    } else if (character == '"') {
+        sbuf_puts(out, "&quot;");
+    } else if (character == '\t') {
+        sbuf_puts(out, "&#9;");
+    } else if (character == '\n') {
+        sbuf_puts(out, "&#10;");
+    } else {
+        sbuf_puts(out, "&#13;"); /* the only remaining flagged character is U+000D */
+    }
+}
+
+/* Append text under XML escaping, bulk-copying each run with nothing to escape and
+   rewriting only the specials between. Unlike the HTML formatter, no-break space is
+   left verbatim (XML predefines no &nbsp;) and `>` escapes in every context. */
+static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr) {
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_ssize_t start = index;
+        while (index < len && !sbuf_xml_special(text[index], in_attr)) {
+            index++;
+        }
+        if (index > start) {
+            sbuf_put_run(out, &text[start], index - start);
+        }
+        if (index < len) {
+            sbuf_put_xml_special(out, text[index]);
+            index++;
+        }
+    }
+}
+
 /* An element whose text children serialize literally rather than escaped: the
    WHATWG literal set is style/script/xmp/iframe/noembed/noframes/plaintext.
    noscript carries the rawtext flag for tokenization but is raw-text only when the
@@ -448,15 +498,41 @@ static inline void ser_inject_head_meta(sbuf *out, th_tree *tree, const th_node 
     }
 }
 
-/* Write an element's start tag, "<tag attrs...>": attributes in source order, or in
-   name order when opts asks; values double-quoted and escaped under the formatter,
-   with a charset meta's declaration normalized when meta_charset is on. */
+/* Emit the namespace declarations an XML start tag needs to stay well-formed: the
+   default namespace on the root of a foreign (SVG/MathML) subtree -- an element
+   whose parent is in a different namespace -- and the xlink prefix on any element
+   carrying an `xlink:`-prefixed attribute (a redundant redeclaration on a nested
+   element is still well-formed, so no ancestor tracking is needed). */
+static inline void ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node) {
+    if (node->ns != TH_NS_HTML && (node->parent == NULL || node->parent->ns != node->ns)) {
+        sbuf_puts(out, node->ns == TH_NS_SVG ? " xmlns=\"http://www.w3.org/2000/svg\""
+                                             : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
+    }
+    for (Py_ssize_t position = 0; position < node->attr_count; position++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
+        if (name_len >= 6 && memcmp(name, "xlink:", 6) == 0) {
+            sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
+            break;
+        }
+    }
+}
+
+/* Write an element's start tag up to but not including its closing delimiter,
+   "<tag attrs...": attributes in source order, or in name order when opts asks;
+   values double-quoted and escaped under the formatter (or the XML rules when
+   opts->xml), with a charset meta's declaration normalized when meta_charset is on.
+   The caller appends ">" (or "/>" for an empty XML element) so it can choose the
+   self-closing form after inspecting the children. */
 static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, node->text, node->text_len);
+    if (opts->xml) {
+        ser_xml_ns_decls(out, tree, node);
+    }
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);
-    int charset_kind = opts->inject_meta ? ser_meta_charset_kind(tree, node) : 0;
+    int charset_kind = opts->inject_meta && !opts->xml ? ser_meta_charset_kind(tree, node) : 0;
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         sbuf_putc(out, ' ');
@@ -467,11 +543,14 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
             continue;
         }
         sbuf_puts(out, "=\"");
-        sbuf_put_text(out, attr->value, attr->value_len, 1, opts->formatter);
+        if (opts->xml) {
+            sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+        } else {
+            sbuf_put_text(out, attr->value, attr->value_len, 1, opts->formatter);
+        }
         sbuf_putc(out, '"');
     }
     ser_attr_order_free(order, stack_order);
-    sbuf_putc(out, '>');
 }
 
 static inline void ser_close_tag(sbuf *out, th_node *node) {

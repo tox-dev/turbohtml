@@ -1,0 +1,5 @@
+:class:`~turbohtml.Html` gained ``xml``: with ``xml=True``, :meth:`~turbohtml.Node.serialize`,
+:meth:`~turbohtml.Node.encode`, and :meth:`~turbohtml.Node.serialize_iter` emit XML/XHTML instead of HTML -- the
+equivalent of lxml's ``tostring(method="xml")``. Every empty element self-closes (``<br/>``), foreign SVG and MathML
+subtrees carry their namespace declarations, and text and attribute values follow the XML escaping rules, with no HTML
+void-element or raw-text special casing. It composes with ``sort_attributes`` and an :class:`~turbohtml.Indent` layout.

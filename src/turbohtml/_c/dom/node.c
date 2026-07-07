@@ -1678,8 +1678,8 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
    (the str output is conceptually UTF-8 for serialize, the target encoding for
    encode); it is borrowed only for the duration of the call. */
 static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj, int sort_attributes,
-                                    int meta_charset, const char *charset) {
-    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset)};
+                                    int meta_charset, int xml, const char *charset) {
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -1717,15 +1717,15 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
    leaving each unmentioned one at the caller's default. Returns 0 on success, -1 with
    an exception set. */
 static int parse_html_spec(PyObject *spec, PyObject **formatter_obj, PyObject **layout_obj, int *sort_attributes,
-                           int *meta_charset) {
-    static char *keywords[] = {"formatter", "layout", "sort_attributes", "meta_charset", NULL};
+                           int *meta_charset, int *xml) {
+    static char *keywords[] = {"formatter", "layout", "sort_attributes", "meta_charset", "xml", NULL};
     PyObject *empty = PyTuple_New(0);
     if (empty == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int parsed = PyArg_ParseTupleAndKeywords(empty, spec, "|$OOpp", keywords, formatter_obj, layout_obj,
-                                             sort_attributes, meta_charset);
+    int parsed = PyArg_ParseTupleAndKeywords(empty, spec, "|$OOppp", keywords, formatter_obj, layout_obj,
+                                             sort_attributes, meta_charset, xml);
     Py_DECREF(empty);
     return parsed ? 0 : -1;
 }
@@ -1735,17 +1735,18 @@ static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const 
     PyObject *layout_obj = NULL;
     int sort_attributes = 0;
     int meta_charset = 0;
-    if (parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset) < 0) {
+    int xml = 0;
+    if (parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset, &xml) < 0) {
         return NULL;
     }
-    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, charset);
+    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml, charset);
 }
 
 /* Resolve a serialize/encode call's options object to a str rendering under charset.
    None renders the defaults; otherwise the config's _unpack() supplies its keywords. */
 static PyObject *node_serialize_options(PyObject *self, PyObject *options, const char *charset) {
     if (options == NULL || options == Py_None) {
-        return node_serialize_str(self, NULL, NULL, 0, 0, charset);
+        return node_serialize_str(self, NULL, NULL, 0, 0, 0, charset);
     }
     PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
     if (spec == NULL) {
@@ -1786,9 +1787,9 @@ static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds) {
    A Minify layout is rejected: its transforms analyze the whole tree, so there is no
    per-node stream to resume. */
 static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj,
-                                          int sort_attributes, int meta_charset) {
+                                          int sort_attributes, int meta_charset, int xml) {
     module_state *state = state_of(self);
-    th_serialize_opts opts = {0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8")};
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -1817,7 +1818,7 @@ static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *k
         return NULL;
     }
     if (options == NULL || options == Py_None) {
-        return node_make_serialize_iter(self, NULL, NULL, 0, 0);
+        return node_make_serialize_iter(self, NULL, NULL, 0, 0, 0);
     }
     PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
     if (spec == NULL) {
@@ -1827,10 +1828,11 @@ static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *k
     PyObject *layout_obj = NULL;
     int sort_attributes = 0;
     int meta_charset = 0;
-    int parsed = parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset);
+    int xml = 0;
+    int parsed = parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset, &xml);
     Py_DECREF(spec);
     if (parsed < 0) {
         return NULL;
     }
-    return node_make_serialize_iter(self, formatter_obj, layout_obj, sort_attributes, meta_charset);
+    return node_make_serialize_iter(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml);
 }

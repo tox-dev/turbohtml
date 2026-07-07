@@ -76,3 +76,40 @@ as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the enc
 
     <html><head><meta charset="utf-8"><title>Hi</title></head><body></body></html>
     b'<html><head><meta charset="iso-8859-1"><title>Hi</title></head><body></body></html>'
+
+******************
+ Emit XML / XHTML
+******************
+
+Set ``xml=True`` to switch from HTML syntax to XML/XHTML -- the equivalent of lxml's ``tostring(method="xml")``. Every
+empty element self-closes (``<br/>``, ``<div/>``), a foreign SVG or MathML subtree carries the namespace declaration
+that makes it well-formed, and text and attribute values follow the XML escaping rules: ``&``, ``<`` and ``>`` in text,
+plus ``"`` and the whitespace characters in attribute values, become references, while a no-break space stays literal
+(XML predefines no ``&nbsp;``). The HTML void-element and raw-text special casing does not apply, so a ``<script>`` body
+is escaped like any other text. ``xml`` composes with ``sort_attributes`` and an :class:`~turbohtml.Indent` layout; it
+overrides ``formatter`` (the escaping is fixed by XML), and a :class:`~turbohtml.Minify` layout stays HTML:
+
+.. testcode::
+
+    import turbohtml
+    from turbohtml import Html, Indent
+
+    doc = turbohtml.parse("<div><br><p>if a < b</p><svg><rect></rect></svg></div>").select_one("div")
+    print(doc.serialize(Html(xml=True)))
+    print(doc.serialize(Html(xml=True, layout=Indent(2))))
+
+.. testoutput::
+
+    <div><br/><p>if a &lt; b</p><svg xmlns="http://www.w3.org/2000/svg"><rect/></svg></div>
+    <div>
+      <br/>
+      <p>
+        if a &lt; b
+      </p>
+      <svg xmlns="http://www.w3.org/2000/svg">
+        <rect/>
+      </svg>
+    </div>
+
+The output parses with any XML reader, so it round-trips through :mod:`xml.etree.ElementTree` and hands cleanly to an
+XSLT or XPath 2.0 pipeline that rejects HTML's unclosed tags.

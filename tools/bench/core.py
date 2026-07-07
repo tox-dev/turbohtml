@@ -58,6 +58,7 @@ _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</l
 _SET_TEXT = "Replacement text, escaped & verbatim."
 _DETECTOR = _LinkDetector()
 _ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
+_XML = turbohtml.Html(xml=True)  # the XML/XHTML serialization config, reused across the timed calls
 
 
 def build(count: int) -> None:
@@ -171,6 +172,11 @@ def text_content(text: str) -> None:
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with turbohtml's html property."""
     _ = _parsed(text).html
+
+
+def serialize_xml(text: str) -> None:
+    """Serialize a parsed document to well-formed XML/XHTML with turbohtml's Html(xml=True) option."""
+    _ = _parsed(text).serialize(_XML)
 
 
 def minify(text: str) -> str:
@@ -556,6 +562,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
+    "serialize-xml": (serialize_xml, "turbohtml"),
     "minify": (minify, "turbohtml"),
     "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
     "class-edit": (class_edit, "turbohtml"),

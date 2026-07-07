@@ -82,6 +82,25 @@ JavaScript is minified in the same pass, with local names renamed and constants 
 
     <p>Hi</p> <script>function greet(a){return"hi "+a}</script>
 
+**********************
+ Emit well-formed XML
+**********************
+
+To hand the tree to an XML toolchain instead of a browser, set ``xml=True`` on the :class:`~turbohtml.Html` config.
+Every empty element self-closes, foreign SVG and MathML subtrees carry their namespace declarations, and text and
+attribute values follow the XML escaping rules, so the output parses with any XML reader:
+
+.. testcode::
+
+    from turbohtml import Html
+
+    doc = turbohtml.parse("<p>a &amp; b<br><svg><circle r=5></circle></svg></p>")
+    print(doc.find("p").serialize(Html(xml=True)))
+
+.. testoutput::
+
+    <p>a &amp; b<br/><svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg></p>
+
 That is the whole tree API. Head to the :doc:`/how-to/index` guides for task-focused recipes, the
 :doc:`/migration/index` guide if you are coming from another HTML library, or the :doc:`/reference` for the exact
 signatures.

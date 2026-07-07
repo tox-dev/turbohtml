@@ -314,6 +314,7 @@ typedef struct {
     int inject_meta;     /* ensure <head> declares <meta charset=charset> */
     const char *charset; /* ASCII encoding label for the injected/normalized meta */
     Py_ssize_t charset_len;
+    int xml; /* XML/XHTML syntax: self-close empty elements, XML escaping, foreign namespace decls */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

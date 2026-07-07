@@ -36,6 +36,37 @@ otherwise reconstruct one across the gap and shift the tree; and a value is unqu
 re-open it. The transforms that would *not* round-trip (deleting whitespace between block elements, or omitting a tag
 whose reparse changes nesting) are exactly the ones turbohtml declines to make.
 
+***************************
+ HTML vs XML serialization
+***************************
+
+The WHATWG DOM standard defines two ways to turn a node tree into markup: *HTML fragment serialization* and *XML
+serialization*. They are different algorithms, not two escaping levels of one, and the same tree lands in both. The
+``xml`` field on :class:`~turbohtml.Html` selects the XML one -- lxml's ``method="xml"``, libxml2's serializer, and the
+``XMLSerializer`` a browser exposes all target the same form. turbohtml keeps a single tree walk and branches on a flag
+at the four points the algorithms diverge, so the HTML fast path is untouched.
+
+The first divergence is empty elements. HTML has a closed list of *void* elements (``br``, ``img``, ``input``, ...) that
+take a start tag and never an end tag, and every other empty element still writes ``<div></div>``. XML has no such list:
+any element with no children self-closes as ``<div/>`` and a childless ``<br>`` becomes ``<br/>`` for the same reason a
+``<div>`` does, not a special case. The second is raw text. HTML copies a ``<script>`` or ``<style>`` body verbatim,
+because those elements switch the tokenizer into a raw-text state on the way back in; XML has no raw-text elements, so a
+``<`` inside a script escapes like any other text and reparses to the same character. The third is escaping. XML
+predefines only ``&amp; &lt; &gt; &quot; &apos;``, so the HTML no-break-space shortcut ``&nbsp;`` -- undefined without a
+DTD -- cannot appear; turbohtml writes a literal U+00A0 (the output is Unicode), while the whitespace characters XML
+would otherwise normalize away inside an attribute (tab, newline, carriage return) become numeric references so the
+value round-trips.
+
+The fourth is namespaces. turbohtml parses HTML, so an inline ``<svg>`` or ``<math>`` lands in the SVG or MathML
+namespace inside an otherwise-HTML tree, with no namespace prefixes -- HTML has none. XML has no such implicit
+namespaces, so serializing that subtree well-formed means declaring them: the root of a foreign subtree gets the default
+``xmlns`` for its namespace, and an element carrying an ``xlink:``-prefixed attribute gets the ``xlink`` prefix declared
+on itself. Declaring the prefix on the element that uses it (rather than tracking which ancestor already declared it)
+keeps any subtree well-formed on its own, at the cost of a redundant-but-legal redeclaration on a nested user. The
+result parses with any XML reader, which is the whole point: an HTML tree becomes input for an XSLT or XPath 2.0
+pipeline that would reject HTML's unclosed tags. A :class:`~turbohtml.Minify` layout is inherently HTML (its
+optional-tag and unquoted-attribute rules are HTML-parser rules), so it stays HTML even under ``xml=True``.
+
 **********************
  Minifying JavaScript
 **********************

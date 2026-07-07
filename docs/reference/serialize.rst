@@ -5,14 +5,15 @@
 .. currentmodule:: turbohtml
 
 Turn a tree back into markup or text. Each renderer takes one configuration object: :meth:`Node.serialize` and
-:meth:`Node.encode` produce HTML under an :class:`Html` config (a :class:`Formatter` picks the escape policy and an
-:class:`Indent` or :class:`Minify` picks the whitespace), and :meth:`Node.serialize_iter` streams the same HTML in
-bounded ``str`` chunks for a large page (every layout but :class:`Minify`, which needs the whole tree);
-:meth:`Node.to_markdown` takes a :class:`Markdown` config; and :meth:`Node.to_text` and :meth:`Node.to_annotated_text`
-take a :class:`PlainText` config. :func:`escape` and :func:`unescape` are the standalone string helpers;
-:func:`annotation_surface` and :func:`annotation_tags` post-process the annotated-text result. A
-:class:`~turbohtml.clean.JSMinify` passed to :class:`Minify` extends HTML minification into inline ``<script>`` content;
-the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in :mod:`turbohtml.clean`.
+:meth:`Node.encode` produce HTML under an :class:`Html` config (a :class:`Formatter` picks the escape policy, an
+:class:`Indent` or :class:`Minify` picks the whitespace, and ``xml=True`` switches to XML/XHTML syntax), and
+:meth:`Node.serialize_iter` streams the same HTML in bounded ``str`` chunks for a large page (every layout but
+:class:`Minify`, which needs the whole tree); :meth:`Node.to_markdown` takes a :class:`Markdown` config; and
+:meth:`Node.to_text` and :meth:`Node.to_annotated_text` take a :class:`PlainText` config. :func:`escape` and
+:func:`unescape` are the standalone string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-process
+the annotated-text result. A :class:`~turbohtml.clean.JSMinify` passed to :class:`Minify` extends HTML minification into
+inline ``<script>`` content; the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in
+:mod:`turbohtml.clean`.
 
 .. autofunction:: escape
 

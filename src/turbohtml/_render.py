@@ -352,12 +352,17 @@ class Html:
         :class:`~turbohtml.Minify` minifies.
     :param sort_attributes: emit each element's attributes in name order rather than source order.
     :param meta_charset: normalize (or inject) the ``<meta charset>`` declaration to the output encoding.
+    :param xml: emit XML/XHTML syntax -- every empty element self-closes (``<br/>``), foreign SVG and MathML
+        subtrees carry their namespace declarations, and text and attribute values follow the XML escaping rules.
+        The HTML void-element and raw-text special casing (and the ``formatter``/``meta_charset`` options) do not
+        apply; a :class:`~turbohtml.Minify` layout stays HTML.
     """
 
     formatter: Formatter = Formatter.WHATWG
     layout: Indent | Minify | None = None
     sort_attributes: bool = False
     meta_charset: bool = False
+    xml: bool = False
 
     def _unpack(self) -> dict[str, object]:
         """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""

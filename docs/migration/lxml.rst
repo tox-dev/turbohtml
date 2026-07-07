@@ -176,6 +176,8 @@ so you iterate :attr:`~turbohtml.Node.children` instead of reading two string fi
       - :class:`turbohtml.IncrementalParser` (``feed`` chunks, ``close`` for the :class:`~turbohtml.Document`)
     - - ``lxml.html.tostring(el)``
       - :attr:`~turbohtml.Node.html`
+    - - ``lxml.etree.tostring(el, method="xml")``, ``tostring(el, method="xhtml")``
+      - :meth:`el.serialize(Html(xml=True)) <turbohtml.Node.serialize>`
 
 A query-and-select flow ports directly:
 
@@ -217,6 +219,22 @@ serialize surface stays available on what you build:
 .. testoutput::
 
     <ul><li class="item">one</li><li class="item">two</li></ul>
+
+Where lxml reaches for ``tostring(el, method="xml")`` (or ``"xhtml"``) to emit well-formed XML, pass
+:class:`~turbohtml.Html` with ``xml=True``. Empty elements self-close, foreign SVG and MathML subtrees carry their
+namespace declarations, and text and attribute values follow the XML escaping rules -- the HTML void-element and
+raw-text special casing does not apply:
+
+.. testcode::
+
+    from turbohtml import Html
+
+    doc = parse("<p>a &amp; b<br><svg><rect></rect></svg></p>")
+    print(doc.select_one("p").serialize(Html(xml=True)))
+
+.. testoutput::
+
+    <p>a &amp; b<br/><svg xmlns="http://www.w3.org/2000/svg"><rect/></svg></p>
 
 **********************
  Gotchas and pitfalls

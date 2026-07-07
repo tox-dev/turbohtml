@@ -101,6 +101,11 @@ def serialize(text: str) -> None:
     lxml_html.tostring(_parsed(text))
 
 
+def serialize_xml(text: str) -> None:
+    """Serialize a parsed document to XML with lxml's tostring(method='xml')."""
+    lxml_html.tostring(_parsed(text), method="xml")
+
+
 def extract_attr(text: str) -> None:
     """Read every anchor's href with lxml's XPath attribute selection."""
     _parsed(text).xpath("//a/@href")
@@ -307,6 +312,7 @@ OPERATIONS = {
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
+    "serialize-xml": (serialize_xml, "lxml method=xml"),
     "extract-attr": (extract_attr, "lxml"),
     "extract-text": (extract_text, "lxml"),
     "strip-remove": (strip_remove, "lxml"),
