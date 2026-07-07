@@ -43,9 +43,9 @@ Subclass :class:`~turbohtml.saxparse.SaxHandler`, override only the events you c
  The stream form
 *****************
 
-If you would rather drive the loop than invert control into callbacks, iterate
-:func:`~turbohtml.saxparse.iter_events`. It yields typed records -- :class:`~turbohtml.saxparse.StartElement`,
-:class:`~turbohtml.saxparse.Characters`, and the rest -- one at a time:
+If you would rather drive the loop than invert control into callbacks, iterate :func:`~turbohtml.saxparse.iter_events`.
+It yields typed records -- :class:`~turbohtml.saxparse.StartElement`, :class:`~turbohtml.saxparse.Characters`, and the
+rest -- one at a time:
 
 .. testcode::
 
@@ -62,8 +62,8 @@ If you would rather drive the loop than invert control into callbacks, iterate
  The events are the built tree
 *******************************
 
-Unlike ``html.parser``, the stream reflects the tree the WHATWG algorithm constructs, not the raw tags. Implied
-elements appear, and misplaced content is foster-parented into place:
+Unlike ``html.parser``, the stream reflects the tree the WHATWG algorithm constructs, not the raw tags. Implied elements
+appear, and misplaced content is foster-parented into place:
 
 .. testcode::
 

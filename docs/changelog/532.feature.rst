@@ -1,8 +1,8 @@
-A new :mod:`turbohtml.saxparse` module adds a DOM-less, event-driven parse. :func:`turbohtml.saxparse.sax_parse`
-drives a document through the WHATWG tree builder and fires a callback on a :class:`turbohtml.saxparse.SaxHandler`
-subclass for each construct it builds -- a start tag, an end tag, a run of text, a comment, the doctype, and a ``<?...>``
-processing instruction -- while :func:`turbohtml.saxparse.iter_events` yields the same stream as typed records. The
-events reflect the fully spec-correct tree (implied ``html``/``head``/``body``, foster parenting, the adoption agency),
-so unlike :class:`html.parser.HTMLParser` you see the tree the parser built; no per-node Python object is created and
-nothing is retained after the parse, so a one-pass extraction never builds a document-sized object graph. The
-tokenization, tree construction, and walk all run in C.
+A new :mod:`turbohtml.saxparse` module adds a DOM-less, event-driven parse. :func:`turbohtml.saxparse.sax_parse` drives
+a document through the WHATWG tree builder and fires a callback on a :class:`turbohtml.saxparse.SaxHandler` subclass for
+each construct it builds -- a start tag, an end tag, a run of text, a comment, the doctype, and a ``<?...>`` processing
+instruction -- while :func:`turbohtml.saxparse.iter_events` yields the same stream as typed records. The events reflect
+the fully spec-correct tree (implied ``html``/``head``/``body``, foster parenting, the adoption agency), so unlike
+:class:`html.parser.HTMLParser` you see the tree the parser built; no per-node Python object is created and nothing is
+retained after the parse, so a one-pass extraction never builds a document-sized object graph. The tokenization, tree
+construction, and walk all run in C.

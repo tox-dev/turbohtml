@@ -8,9 +8,9 @@ processing instruction -- instead of a tree. It sits between the two surfaces yo
 hands back raw tokens that know nothing about tree structure. This note explains what "higher level than tokens" buys
 you and, just as importantly, what the event model does and does not promise about memory.
 
-*******************************
+********************
  Events, not tokens
-*******************************
+********************
 
 A token stream is the literal markup: a ``<td>`` start-tag token appears exactly where the source wrote it, whether or
 not that is a legal place for a cell. The SAX events are the tree the WHATWG algorithm *builds* from those tokens. When
@@ -26,21 +26,21 @@ not HTML5-conformant, so misnested and malformed input diverges from what a brow
  What "no tree" actually means
 *******************************
 
-The promise is that you never receive a tree and never build a Python object per node. :func:`turbohtml.saxparse.sax_parse` and
-:func:`turbohtml.saxparse.iter_events` create no :class:`turbohtml.Element`, :class:`turbohtml.Text`, or any other node wrapper; the walk
-reads the C nodes directly and emits one event object at a time, which your handler consumes and drops. A one-pass
-extraction -- collect the links, count the headings, pull the title -- therefore runs without ever holding a
-document-sized graph of Python objects, and the moment the parse ends the working memory is released. Against
-:func:`turbohtml.parse`, whose returned document keeps the whole tree resident for as long as you hold it, that is the
-win: the object graph you never build and the tree you never keep.
+The promise is that you never receive a tree and never build a Python object per node.
+:func:`turbohtml.saxparse.sax_parse` and :func:`turbohtml.saxparse.iter_events` create no :class:`turbohtml.Element`,
+:class:`turbohtml.Text`, or any other node wrapper; the walk reads the C nodes directly and emits one event object at a
+time, which your handler consumes and drops. A one-pass extraction -- collect the links, count the headings, pull the
+title -- therefore runs without ever holding a document-sized graph of Python objects, and the moment the parse ends the
+working memory is released. Against :func:`turbohtml.parse`, whose returned document keeps the whole tree resident for
+as long as you hold it, that is the win: the object graph you never build and the tree you never keep.
 
-*****************************************
+************************************
  Why this is not an O(depth) stream
-*****************************************
+************************************
 
 It is tempting to expect the streaming, low-memory model of a pull tokenizer: memory proportional to how deeply elements
-nest, not to how large the document is. A spec-correct HTML tree builder cannot offer that, and it is worth understanding
-why, because the reason is intrinsic to the algorithm rather than to this implementation.
+nest, not to how large the document is. A spec-correct HTML tree builder cannot offer that, and it is worth
+understanding why, because the reason is intrinsic to the algorithm rather than to this implementation.
 
 The WHATWG construction rules reach backwards. The adoption agency, triggered by a misnested formatting element's end
 tag, moves and re-parents nodes that were emitted long before -- their subtrees are relocated into a fresh clone.
@@ -58,12 +58,12 @@ the events can be spec-correct, and spends the memory to buy the correctness. Th
 and far cheaper than a Python object graph; they are not a way to parse a document larger than memory. When you need
 that, tokenize instead and do your own bookkeeping, or accept ``html.parser``'s non-conformant recovery.
 
-*****************************************
+*******
  Speed
-*****************************************
+*******
 
 Tokenization, tree construction, and the document-order walk all run in the C extension; the only work that crosses into
-Python is the per-event dispatch. Driving a page through :func:`turbohtml.saxparse.sax_parse` with a counting handler runs several times
-faster than the same counting handler on :class:`python:html.parser.HTMLParser`, whose tokenizer and entity handling are
-pure Python -- and you get the corrected tree the standard library never reconstructs. The ``sax`` benchmark in the
-CodSpeed suite tracks this against ``html.parser`` on real pages.
+Python is the per-event dispatch. Driving a page through :func:`turbohtml.saxparse.sax_parse` with a counting handler
+runs several times faster than the same counting handler on :class:`python:html.parser.HTMLParser`, whose tokenizer and
+entity handling are pure Python -- and you get the corrected tree the standard library never reconstructs. The ``sax``
+benchmark in the CodSpeed suite tracks this against ``html.parser`` on real pages.

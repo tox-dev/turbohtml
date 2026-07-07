@@ -39,7 +39,7 @@ typedef struct {
 static PyObject *data_str(th_tree *tree, th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *data = th_node_data(tree, node, &len);
-    if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, len);
@@ -60,10 +60,10 @@ static PyObject *attrs_tuple(th_tree *tree, th_node *node) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attrs[index].name_atom, &name_len);
         PyObject *name_obj = PyUnicode_FromStringAndSize(name, name_len);
-        PyObject *value_obj = attrs[index].value == NULL
-                                  ? Py_NewRef(Py_None)
-                                  : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attrs[index].value,
-                                                              attrs[index].value_len);
+        PyObject *value_obj =
+            attrs[index].value == NULL
+                ? Py_NewRef(Py_None)
+                : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attrs[index].value, attrs[index].value_len);
         /* allocation failure cannot be forced from a test */
         if (name_obj == NULL || value_obj == NULL) { /* GCOVR_EXCL_BR_LINE */
             Py_XDECREF(name_obj);                    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -207,13 +207,14 @@ static PyObject *sax_iter_next(PyObject *self) {
 }
 
 static int sax_traverse(PyObject *self, visitproc visit, void *arg) {
-    Py_VISIT(Py_TYPE(self));                    /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
+    Py_VISIT(Py_TYPE(self)); /* GCOVR_EXCL_BR_LINE: the type is non-NULL for the object's lifetime */
     Py_VISIT(((SaxEventsObject *)self)->source); /* GCOVR_EXCL_BR_LINE: set at creation, dropped only in dealloc */
     return 0;
 }
 
 static int sax_clear(PyObject *self) {
-    Py_CLEAR(((SaxEventsObject *)self)->source); /* GCOVR_EXCL_BR_LINE: the source is non-NULL until this single clear */
+    Py_CLEAR(
+        ((SaxEventsObject *)self)->source); /* GCOVR_EXCL_BR_LINE: the source is non-NULL until this single clear */
     return 0;
 }
 
