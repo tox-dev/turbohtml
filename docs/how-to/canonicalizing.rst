@@ -1,15 +1,15 @@
-###############################
+##############################
  Canonicalize a tree for c14n
-###############################
+##############################
 
 When two systems must agree on a document's exact bytes -- signing it, hashing it, comparing it -- serialize it to
 Canonical XML with :meth:`~turbohtml.Node.canonicalize`. It returns the UTF-8 bytes an XML signature signs: attributes
 reordered (namespace declarations first, then by namespace URI and local name), redundant namespace declarations
 dropped, empty elements written as start-end pairs, and character references normalized.
 
-*******************************
+******************************
  Produce a stable byte string
-*******************************
+******************************
 
 Call :meth:`~turbohtml.Node.canonicalize` with no arguments for Canonical XML 1.0 without comments. Two trees with the
 same content canonicalize to the same bytes regardless of source attribute order or how empty elements were written:

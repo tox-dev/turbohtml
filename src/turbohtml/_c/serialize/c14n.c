@@ -247,8 +247,8 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     int render_xlink;
     if (node == apex) {
         if (opts->exclusive) {
-            render_xlink = c14n_has_xlink(tree, node) ||
-                           (c14n_prefix_forced(opts, "xlink") && c14n_xlink_in_scope(tree, node));
+            render_xlink =
+                c14n_has_xlink(tree, node) || (c14n_prefix_forced(opts, "xlink") && c14n_xlink_in_scope(tree, node));
         } else {
             render_xlink = c14n_xlink_in_scope(tree, node);
         }
@@ -302,7 +302,8 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
                     continue;
                 }
                 if (!c14n_already_has(attrs, count, name, name_len)) {
-                    attrs[count++] = c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
+                    attrs[count++] =
+                        c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
                 }
             }
         }

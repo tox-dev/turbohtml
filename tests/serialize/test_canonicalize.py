@@ -134,9 +134,7 @@ def test_comment_kept_with_comments() -> None:
 
 
 def test_doctype_is_dropped() -> None:
-    assert parse("<!doctype html><p>x").canonicalize() == (
-        b"<html><head></head><body><p>x</p></body></html>"
-    )
+    assert parse("<!doctype html><p>x").canonicalize() == (b"<html><head></head><body><p>x</p></body></html>")
 
 
 def test_document_leading_comment_gets_trailing_newline() -> None:
@@ -257,39 +255,39 @@ def test_versions_coincide_for_a_complete_subtree() -> None:
 
 
 def test_1_0_inherits_ancestor_xml_attributes_onto_apex() -> None:
-    node = _one('<div xml:lang=en xml:space=preserve xml:id=root><section><p/></section></div>', "section")
+    node = _one("<div xml:lang=en xml:space=preserve xml:id=root><section><p/></section></div>", "section")
     assert node.canonicalize(Canonical(version="1.0")) == (
         b'<section xml:id="root" xml:lang="en" xml:space="preserve"><p></p></section>'
     )
 
 
 def test_1_1_excludes_inherited_xml_id() -> None:
-    node = _one('<div xml:lang=en xml:id=root><section><p/></section></div>', "section")
+    node = _one("<div xml:lang=en xml:id=root><section><p/></section></div>", "section")
     assert node.canonicalize(Canonical(version="1.1")) == b'<section xml:lang="en"><p></p></section>'
 
 
 def test_apex_own_xml_id_survives_under_1_1() -> None:
-    node = _one('<div xml:lang=en><p xml:id=self>hi</p></div>', "p")
+    node = _one("<div xml:lang=en><p xml:id=self>hi</p></div>", "p")
     assert node.canonicalize(Canonical(version="1.1")) == b'<p xml:id="self" xml:lang="en">hi</p>'
 
 
 def test_nearest_ancestor_xml_value_wins() -> None:
-    node = _one('<div xml:lang=en><span xml:lang=fr><p>x</p></span></div>', "p")
+    node = _one("<div xml:lang=en><span xml:lang=fr><p>x</p></span></div>", "p")
     assert node.canonicalize() == b'<p xml:lang="fr">x</p>'
 
 
 def test_distinct_same_length_xml_attributes_both_inherit() -> None:
-    node = _one('<div xml:lang=en><span xml:base=u><p>x</p></span></div>', "p")
+    node = _one("<div xml:lang=en><span xml:base=u><p>x</p></span></div>", "p")
     assert node.canonicalize() == b'<p xml:base="u" xml:lang="en">x</p>'
 
 
 def test_1_1_inherits_a_six_char_xml_attribute_that_is_not_xml_id() -> None:
-    node = _one('<div xml:xx=v><p>x</p></div>', "p")
+    node = _one("<div xml:xx=v><p>x</p></div>", "p")
     assert node.canonicalize(Canonical(version="1.1")) == b'<p xml:xx="v">x</p>'
 
 
 def test_apex_does_not_reinherit_its_own_xml_attribute() -> None:
-    node = _one('<div xml:lang=en><p xml:lang=fr>x</p></div>', "p")
+    node = _one("<div xml:lang=en><p xml:lang=fr>x</p></div>", "p")
     assert node.canonicalize().count(b"xml:lang") == 1
 
 
@@ -327,7 +325,7 @@ def test_deep_subtree_does_not_overflow() -> None:
 
 def test_many_attributes_beyond_stack_buffer_sort() -> None:
     names = [f"a{index:02d}" for index in range(40)]
-    node = Element("p", {name: "1" for name in reversed(names)})
+    node = Element("p", dict.fromkeys(reversed(names), "1"))
     out = node.canonicalize().decode()
     positions = [out.index(f'{name}="1"') for name in names]
     assert positions == sorted(positions)
