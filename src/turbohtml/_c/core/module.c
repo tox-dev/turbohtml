@@ -73,32 +73,40 @@ PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_s
                            ":returns: an iterator of Token objects in document order.\n"
                            ":raises TypeError: if s is not a str.");
 
-PyDoc_STRVAR(parse_doc, "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True)\n--\n\n"
-                        "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
-                        "return a navigable Document.\n\n"
-                        ":param markup: the document, as str, or bytes whose encoding is sniffed (the\n"
-                        "    encoding argument, then a <meta> charset, then windows-1252).\n"
-                        ":param encoding: the encoding to decode bytes with; a declared, <meta>, or BOM\n"
-                        "    encoding still wins over it.\n"
-                        ":param strict: raise the first recovered parse error as HTMLParseError instead\n"
-                        "    of collecting it on Document.errors.\n"
-                        ":param detect_encoding: add a content-based detection step for bytes input,\n"
-                        "    used only when the spec's encoding steps yield nothing.\n"
-                        ":param positions: record each element's source_line/source_col; pass False to\n"
-                        "    skip it when memory or speed matters more than source locations.\n"
-                        ":returns: the parsed Document.\n"
-                        ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
-                        ":raises LookupError: if encoding names a codec Python does not know.\n"
-                        ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
-                        "    its error attribute carries the ParseError (code, line, col).");
+PyDoc_STRVAR(parse_doc,
+             "parse(markup, *, encoding=None, strict=False, detect_encoding=False, positions=True, scripting=False)\n"
+             "--\n\n"
+             "Parse a whole HTML document with the WHATWG tree-construction algorithm and\n"
+             "return a navigable Document.\n\n"
+             ":param markup: the document, as str, or bytes whose encoding is sniffed (the\n"
+             "    encoding argument, then a <meta> charset, then windows-1252).\n"
+             ":param encoding: the encoding to decode bytes with; a declared, <meta>, or BOM\n"
+             "    encoding still wins over it.\n"
+             ":param strict: raise the first recovered parse error as HTMLParseError instead\n"
+             "    of collecting it on Document.errors.\n"
+             ":param detect_encoding: add a content-based detection step for bytes input,\n"
+             "    used only when the spec's encoding steps yield nothing.\n"
+             ":param positions: record each element's source_line/source_col; pass False to\n"
+             "    skip it when memory or speed matters more than source locations.\n"
+             ":param scripting: set the WHATWG scripting flag on. With it on, <noscript> is a\n"
+             "    raw-text element -- its content is raw text, not markup, and serializes\n"
+             "    unescaped -- reproducing the tree a scripting browser builds. Off by\n"
+             "    default so <noscript> content stays parsed and accessible.\n"
+             ":returns: the parsed Document.\n"
+             ":raises TypeError: if markup is neither a str nor a bytes-like object.\n"
+             ":raises LookupError: if encoding names a codec Python does not know.\n"
+             ":raises HTMLParseError: under strict=True, on the first recovered parse error;\n"
+             "    its error attribute carries the ParseError (code, line, col).");
 
-PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True)\n--\n\n"
+PyDoc_STRVAR(parse_fragment_doc, "parse_fragment(html, context='div', *, positions=True, scripting=False)\n--\n\n"
                                  "Parse an HTML fragment as the innerHTML of a context element.\n\n"
                                  ":param html: the fragment markup.\n"
                                  ":param context: the context element's tag name, optionally namespaced\n"
                                  "    (e.g. 'td', 'svg path').\n"
                                  ":param positions: record each element's source_line/source_col; pass\n"
                                  "    False to skip it.\n"
+                                 ":param scripting: set the WHATWG scripting flag on, making <noscript> a\n"
+                                 "    raw-text element (see parse). Off by default.\n"
                                  ":returns: the context Element with the parsed nodes as its children.\n"
                                  ":raises TypeError: if html or context is not a str.\n"
                                  ":raises ValueError: if context is not a known element tag.");
@@ -145,7 +153,7 @@ static PyMethodDef html_methods[] = {
     {"_reconstruct", turbohtml_reconstruct, METH_VARARGS, NULL},
     {"_build_document", (PyCFunction)(void (*)(void))turbohtml_build_document, METH_VARARGS | METH_KEYWORDS, NULL},
     {"_tokenize_states", turbohtml_tokenize_states, METH_VARARGS, NULL},
-    {"_parse_tree", turbohtml_parse_tree, METH_O, NULL},
+    {"_parse_tree", turbohtml_parse_tree, METH_VARARGS, NULL},
     {"_parse_fragment", turbohtml_parse_fragment, METH_VARARGS, NULL},
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},

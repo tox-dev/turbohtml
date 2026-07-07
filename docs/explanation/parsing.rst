@@ -132,3 +132,21 @@ errors to record and the per-character paths are untouched), so it stays on by d
 standalone :func:`~turbohtml.tokenize` and :class:`~turbohtml.Tokenizer`, which expose the raw stream, do not collect.
 Pass ``strict=True`` to raise the first error as :class:`~turbohtml.HTMLParseError` (with the ``ParseError`` on its
 ``error`` attribute) instead of returning a recovered tree.
+
+********************
+ The scripting flag
+********************
+
+The WHATWG algorithm reads one bit that turns on only when a script host is present: the `scripting flag
+<https://html.spec.whatwg.org/multipage/parsing.html#scripting-flag>`_. Its one tree-shaping effect is ``<noscript>``.
+With scripting on, ``<noscript>`` is a raw-text element: its body tokenizes as one text run, so ``<noscript><a>x</a>``
+holds the string ``<a>x</a>``, not an ``a`` element, and serializes back unescaped. With scripting off, that same body
+is ordinary markup you can navigate and query.
+
+turbohtml opts scripting **off** by default. It is a toolkit, not a browser, and the fallback content authors put inside
+``<noscript>`` is exactly what a scraper or sanitizer wants to reach; keeping it parsed makes it navigable.
+Browser-fidelity parsers choose the other default -- parse5 and html5ever both default the flag on -- so pass
+``scripting=True`` to :func:`turbohtml.parse` or :func:`turbohtml.parse_fragment` when you need the tree a scripting
+browser builds. The flag is a property of the parsed tree rather than a serializer option: the serializer reads it back,
+so a tree always serializes ``<noscript>`` the way it was parsed, and an ``inner_html`` assignment on an element
+inherits its tree's flag.

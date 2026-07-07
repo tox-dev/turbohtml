@@ -297,6 +297,10 @@ int th_tree_quirks(const th_tree *tree) {
     return tree->quirks;
 }
 
+int th_tree_scripting(const th_tree *tree) {
+    return tree->scripting;
+}
+
 Py_ssize_t th_tree_max_depth(const th_tree *tree) {
     return tree->max_depth;
 }
@@ -1667,12 +1671,12 @@ static int all_whitespace_or_nul(const Py_UCS4 *text, Py_ssize_t len) {
 }
 
 /* The content model a start tag switches the tokenizer into, or -1 for none. */
-static int content_model_for(uint16_t atom, uint8_t flags) {
+static int content_model_for(uint16_t atom, uint8_t flags, int scripting) {
     if (atom == TH_TAG_SCRIPT) {
         return TH_INIT_SCRIPT_DATA;
     }
     if (atom == TH_TAG_NOSCRIPT) {
-        return -1; /* scripting is disabled, so noscript content is parsed normally */
+        return scripting ? TH_INIT_RAWTEXT : -1; /* rawtext with scripting on, else parsed as markup */
     }
     if (flags & TH_TAG_RCDATA) {
         return TH_INIT_RCDATA;
@@ -1904,7 +1908,7 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
         /* only the head's own raw-text/RCDATA elements switch to text
            mode here; textarea/xmp/iframe/etc belong in the body */
         if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
-            int model = content_model_for(atom, flags);
+            int model = content_model_for(atom, flags, tree->scripting);
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
@@ -1923,6 +1927,13 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
+            }
+            if (tree->scripting) {
+                /* with scripting on, noscript follows the generic raw-text path */
+                th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
+                dc->original_mode = M_IN_HEAD;
+                dc->mode = M_TEXT;
+                return TH_DRAIN_NEXT;
             }
             dc->mode = M_IN_HEAD_NOSCRIPT;
             return TH_DRAIN_NEXT;
@@ -2086,7 +2097,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                     if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                         stack_push(tree, node);
                     }
-                    th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags));
+                    th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags, tree->scripting));
                     dc->original_mode = M_AFTER_HEAD;
                     dc->mode = M_TEXT;
                 }
@@ -2136,7 +2147,7 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
             }
-            th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags));
+            th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags, tree->scripting));
             dc->original_mode = M_IN_TEMPLATE;
             dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
@@ -2563,7 +2574,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             th_tok_switch(dc->sm, TH_INIT_PLAINTEXT);
             return TH_DRAIN_NEXT; /* PLAINTEXT runs to EOF; no end tag returns from it */
         }
-        int model = content_model_for(atom, flags);
+        int model = content_model_for(atom, flags, tree->scripting);
         if (model >= 0) { /* rawtext / rcdata / script: no reconstruction */
             if (atom == TH_TAG_XMP) {
                 close_p_in_button_scope(tree);
@@ -2899,7 +2910,7 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT) {
             uint8_t f2 = tok->tag_flags;
             uint16_t a2 = tok->atom;
-            int model = content_model_for(a2, f2);
+            int model = content_model_for(a2, f2, tree->scripting);
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
@@ -3608,11 +3619,12 @@ static th_tree *tree_new_document(int positions) {
     return tree;
 }
 
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions) {
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int scripting) {
     th_tree *tree = tree_new_document(positions);
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    tree->scripting = scripting;
     tree->kind = kind;
     tree->data = data;
     tree->length = length;
@@ -3672,11 +3684,12 @@ static enum mode fragment_mode(uint16_t ctx) {
 #define MAX_CONTEXT_NAME 32
 
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions) {
+                                Py_ssize_t context_len, int positions, int scripting) {
     th_tree *tree = PyMem_Calloc(1, sizeof(th_tree));
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
+    tree->scripting = scripting;
     tree->kind = kind;
     tree->data = data;
     tree->length = length;
@@ -3758,7 +3771,7 @@ th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, c
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     /* the context element's content model selects the tokenizer's start state */
-    int model = ctx_ns == TH_NS_HTML ? content_model_for(ctx_atom, ctx_flags) : -1;
+    int model = ctx_ns == TH_NS_HTML ? content_model_for(ctx_atom, ctx_flags, tree->scripting) : -1;
     if (model >= 0) {
         th_tok_set_initial(sm, (enum th_initial_state)model, NULL, 0);
     }

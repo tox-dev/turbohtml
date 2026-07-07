@@ -208,7 +208,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         if (ser_needs_leading_newline(tree, node)) {
             sbuf_putc(out, '\n');
         }
-        if (is_rawtext_element(node)) {
+        if (is_rawtext_element(node, tree->scripting)) {
             /* a rawtext element's children are always text nodes */
             for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
                 sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
@@ -305,7 +305,7 @@ static th_node *serialize_pretty_step(sbuf *out, th_tree *tree, th_node *node, t
         if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
             break;
         }
-        int raw = is_rawtext_element(node);
+        int raw = is_rawtext_element(node, tree->scripting);
         int preserve = raw || ser_needs_leading_newline(tree, node) ||
                        (node->ns == TH_NS_HTML &&
                         (node->atom == TH_TAG_PRE || node->atom == TH_TAG_TEXTAREA || node->atom == TH_TAG_LISTING));

@@ -1,0 +1,5 @@
+:func:`turbohtml.parse` and :func:`turbohtml.parse_fragment` gained a ``scripting`` flag (default ``False``). With it on,
+turbohtml sets the WHATWG scripting flag: ``<noscript>`` becomes a raw-text element, so its content is one text run rather
+than parsed markup and serializes back unescaped, reproducing the tree a scripting browser builds. The flag is a property
+of the parsed tree, so the serializer and ``inner_html`` stay consistent with how it was parsed. parse5 and html5ever
+default this on for browser fidelity; turbohtml keeps it off so ``<noscript>`` fallback content stays navigable.

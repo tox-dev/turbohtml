@@ -6,16 +6,17 @@
 
 #include "dom/tree.h"
 
-PyObject *turbohtml_parse_tree(PyObject *Py_UNUSED(module), PyObject *arg) {
-    if (!PyUnicode_Check(arg)) {
-        PyErr_SetString(PyExc_TypeError, "_parse_tree() argument must be str");
+PyObject *turbohtml_parse_tree(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *arg;
+    int scripting = 0;
+    if (!PyArg_ParseTuple(args, "U|p:_parse_tree", &arg, &scripting)) {
         return NULL;
     }
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
     Py_ssize_t length = PyUnicode_GET_LENGTH(arg);
 
-    th_tree *tree = th_tree_parse(kind, data, length, 0);
+    th_tree *tree = th_tree_parse(kind, data, length, 0, scripting);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -38,7 +39,7 @@ PyObject *turbohtml_parse_only(PyObject *Py_UNUSED(module), PyObject *arg) {
         PyErr_SetString(PyExc_TypeError, "_parse_only() argument must be str");
         return NULL;
     }
-    th_tree *tree = th_tree_parse(PyUnicode_KIND(arg), PyUnicode_DATA(arg), PyUnicode_GET_LENGTH(arg), 0);
+    th_tree *tree = th_tree_parse(PyUnicode_KIND(arg), PyUnicode_DATA(arg), PyUnicode_GET_LENGTH(arg), 0, 0);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -50,11 +51,12 @@ PyObject *turbohtml_parse_fragment(PyObject *Py_UNUSED(module), PyObject *args) 
     PyObject *text;
     const char *context;
     Py_ssize_t context_len;
-    if (!PyArg_ParseTuple(args, "Us#:_parse_fragment", &text, &context, &context_len)) {
+    int scripting = 0;
+    if (!PyArg_ParseTuple(args, "Us#|p:_parse_fragment", &text, &context, &context_len, &scripting)) {
         return NULL;
     }
     th_tree *tree = th_tree_parse_fragment(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text),
-                                           context, context_len, 0);
+                                           context, context_len, 0, scripting);
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

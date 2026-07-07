@@ -197,7 +197,7 @@ PyObject *turbohtml_tokenize_states(PyObject *module, PyObject *args);
 /* Implemented in dom/binding.c. The internal conformance hooks _parse_tree
    and _parse_fragment return the html5lib "#document" serialization of a parsed
    document / innerHTML fragment. */
-PyObject *turbohtml_parse_tree(PyObject *module, PyObject *arg);
+PyObject *turbohtml_parse_tree(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_fragment(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
 

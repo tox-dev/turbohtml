@@ -585,7 +585,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             if (ser_needs_leading_newline(tree, node)) {
                 sbuf_putc(out, '\n');
             }
-            if (is_rawtext_element(node)) {
+            if (is_rawtext_element(node, tree->scripting)) {
                 int emitted = 0;
                 if (opts->minify_js) {
                     emitted = mini_emit_script_js(out, tree, node, opts);

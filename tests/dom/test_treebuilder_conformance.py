@@ -4,8 +4,9 @@ The ``.dat`` files under ``tests/html5lib-tests/tree-construction`` give, for
 each input, the document tree a conformant parser must build, serialized in the
 ``| ``-indented "#document" format. This harness parses each ``#data`` block and
 compares ``turbohtml``'s serialization against the ``#document`` expectation.
-Every case must pass; scripting-enabled cases are excluded because they need a
-script-executing host.
+Every case must pass. A ``#script-on`` block asserts the tree a scripting host
+builds (``<noscript>`` as raw text); those run through the ``scripting=True``
+parse path.
 """
 
 from __future__ import annotations
@@ -39,23 +40,21 @@ def _parse_dat(path: Path) -> list[tuple[str, str, bool, str | None]]:
     return cases
 
 
-def _iter_cases() -> list[tuple[str, str, str, str | None]]:
-    cases: list[tuple[str, str, str, str | None]] = []
+def _iter_cases() -> list[tuple[str, str, str, str | None, bool]]:
+    cases: list[tuple[str, str, str, str | None, bool]] = []
     for path in sorted(_TREE_DIR.glob("*.dat")):
         for data, document, script_on, context in _parse_dat(path):
-            if script_on:  # scripting-enabled cases need a script-executing host
-                continue
-            cases.append((path.name, data, document, context))
+            cases.append((path.name, data, document, context, script_on))
     return cases
 
 
 _CASES = _iter_cases()
 
 
-def _build(data: str, context: str | None) -> str:
+def _build(data: str, context: str | None, *, scripting: bool = False) -> str:
     if context is not None:
-        return _html._parse_fragment(data, context).rstrip("\n")
-    return _html._parse_tree(data).rstrip("\n")
+        return _html._parse_fragment(data, context, scripting).rstrip("\n")
+    return _html._parse_tree(data, scripting).rstrip("\n")
 
 
 # A few html5lib-tests cases encode the pre-errata "</p> and </br> in a foreign
@@ -95,13 +94,18 @@ _SPEC_OVERRIDES: dict[tuple[str, str, str | None], str] = {
 }
 
 
-@pytest.mark.parametrize("filename", sorted({name for name, _, _, _ in _CASES}))
+@pytest.mark.parametrize("filename", sorted({name for name, _, _, _, _ in _CASES}))
 def test_tree_construction(filename: str) -> None:
-    cases = [(d, _SPEC_OVERRIDES.get((filename, d, ctx), doc), ctx) for name, d, doc, ctx in _CASES if name == filename]
+    cases = [
+        (d, _SPEC_OVERRIDES.get((filename, d, ctx), doc), ctx, script_on)
+        for name, d, doc, ctx, script_on in _CASES
+        if name == filename
+    ]
     assert cases, f"no cases parsed from {filename}"
     failures = [
-        f"#data {data!r} (context={context!r})\nexpected:\n{document}\ngot:\n{_build(data, context)}"
-        for data, document, context in cases
-        if _build(data, context) != document
+        f"#data {data!r} (context={context!r}, scripting={script_on})\n"
+        f"expected:\n{document}\ngot:\n{_build(data, context, scripting=script_on)}"
+        for data, document, context, script_on in cases
+        if _build(data, context, scripting=script_on) != document
     ]
     assert not failures, f"{filename}: {len(failures)}/{len(cases)} failing\n\n" + "\n\n".join(failures[:5])

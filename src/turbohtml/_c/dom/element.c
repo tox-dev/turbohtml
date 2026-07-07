@@ -2516,7 +2516,7 @@ static int resolve_adjacency(PyObject *position, enum th_adjacency *out) {
    per-tree lock is taken and never holds a structural pointer across it. The caller
    owns the returned tree (free it with th_tree_free). NULL with an exception set on a
    non-encodable (lone-surrogate) tag name or an allocation failure. */
-static th_tree *parse_fragment_in_context(th_node *context, PyObject *html) {
+static th_tree *parse_fragment_in_context(th_node *context, PyObject *html, int scripting) {
     PyObject *tag = ucs4_to_str(context->text, context->text_len);
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2541,7 +2541,7 @@ static th_tree *parse_fragment_in_context(th_node *context, PyObject *html) {
     name[name_len] = '\0';
     Py_DECREF(tag);
     th_tree *fragment = th_tree_parse_fragment(PyUnicode_KIND(html), PyUnicode_DATA(html), PyUnicode_GET_LENGTH(html),
-                                               name, name_len, 0);
+                                               name, name_len, 0, scripting);
     PyMem_Free(name);
     if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2592,7 +2592,7 @@ static PyObject *element_set_inner_html(PyObject *self, PyObject *html) {
         return NULL;
     }
     th_node *node = ((NodeObject *)self)->node;
-    th_tree *fragment = parse_fragment_in_context(node, html);
+    th_tree *fragment = parse_fragment_in_context(node, html, th_tree_scripting(tree_of(self)));
     if (fragment == NULL) {
         return NULL;
     }
@@ -2633,7 +2633,7 @@ static PyObject *element_insert_adjacent_html(PyObject *self, PyObject *args) {
         }
         context = parent;
     }
-    th_tree *fragment = parse_fragment_in_context(context, html);
+    th_tree *fragment = parse_fragment_in_context(context, html, th_tree_scripting(tree_of(self)));
     if (fragment == NULL) {
         return NULL;
     }

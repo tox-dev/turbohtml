@@ -110,9 +110,11 @@ typedef struct th_tree th_tree;
 /* Parse a whole document. kind/data/length are a borrowed PyUnicode buffer that
    must outlive the returned tree (its slice text points into it). positions
    records each element's source line/column (read via th_node_source_position) at
-   the cost of two trailing words per element; pass 0 to skip it. Returns NULL only
-   on allocation failure (no Python error is set). */
-th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions);
+   the cost of two trailing words per element; pass 0 to skip it. scripting is the
+   WHATWG scripting flag: when set, noscript is a raw-text element (its content is
+   raw text, serialized unescaped). Returns NULL only on allocation failure (no
+   Python error is set). */
+th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positions, int scripting);
 
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
@@ -204,9 +206,10 @@ void th_node_normalize(th_tree *tree, th_node *root);
 /* Parse an HTML fragment as if set as the innerHTML of the given context element
    (e.g. "td", or "svg path"). The returned tree serializes the context root's
    children. context is a NUL-free ASCII name; context_len its length. positions
-   records element source line/column as in th_tree_parse. */
+   records element source line/column, and scripting sets the WHATWG scripting flag,
+   both as in th_tree_parse. */
 th_tree *th_tree_parse_fragment(int kind, const void *data, Py_ssize_t length, const char *context,
-                                Py_ssize_t context_len, int positions);
+                                Py_ssize_t context_len, int positions, int scripting);
 
 /* Whether context names a real element the public parse_fragment() accepts: a known
    HTML tag, or any explicitly namespaced (svg/math) foreign element. */
@@ -264,6 +267,11 @@ const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count)
    quirks mode CSS class and ID selectors match ASCII case-insensitively
    (Selectors-4 §6.1/§6.2); programmatic trees default to no-quirks. */
 int th_tree_quirks(const th_tree *tree);
+
+/* Whether the tree was parsed with the WHATWG scripting flag on (noscript is a
+   raw-text element); programmatic trees default to off. innerHTML fragment parsing
+   reads it so a scripting-parsed subtree keeps building noscript as raw text. */
+int th_tree_scripting(const th_tree *tree);
 
 /* The peak element-nesting depth recorded while parsing (0 for a tree built purely
    through the mutation API). A cheap O(1) proxy for how deep the tree nests, used to

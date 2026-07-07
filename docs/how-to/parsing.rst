@@ -95,6 +95,36 @@ parsed nodes as its children, applying the same insertion rules the element woul
     ['a', 'b']
     <tr><td>a</td><td>b</td></tr>
 
+**************************************
+ Reproduce the scripting-enabled tree
+**************************************
+
+By default turbohtml parses with the WHATWG scripting flag off, so ``<noscript>`` content is markup you can navigate:
+
+.. testcode::
+
+    document = turbohtml.parse("<noscript><a href='/no-js'>plain link</a></noscript>")
+    print(document.find("a").text)
+
+.. testoutput::
+
+    plain link
+
+A scripting browser instead treats ``<noscript>`` as a raw-text element -- its content is one text run, never parsed as
+markup. Pass ``scripting=True`` to build that tree; the inner tags become literal text and serialize back unescaped:
+
+.. testcode::
+
+    document = turbohtml.parse("<noscript><a href='/no-js'>plain link</a></noscript>", scripting=True)
+    noscript = document.find("noscript")
+    print(noscript.text)
+    print(noscript.html)
+
+.. testoutput::
+
+    <a href='/no-js'>plain link</a>
+    <noscript><a href='/no-js'>plain link</a></noscript>
+
 *********************************
  Find where an element came from
 *********************************

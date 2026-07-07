@@ -255,9 +255,9 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
 
 /* An element whose text children serialize literally rather than escaped: the
    WHATWG literal set is style/script/xmp/iframe/noembed/noframes/plaintext.
-   noscript carries the rawtext flag for tokenization but, since this parser runs
-   with scripting disabled, its content is normal escaped markup. */
-static inline int is_rawtext_element(const th_node *node) {
+   noscript carries the rawtext flag for tokenization but is raw-text only when the
+   tree was parsed with the scripting flag on; otherwise its content is escaped. */
+static inline int is_rawtext_element(const th_node *node, int scripting) {
     /* the caller passes only element nodes, so this skips the node-type check */
     if (node->ns != TH_NS_HTML) {
         return 0; /* foreign elements (svg, mathml) never carry html raw-text content */
@@ -265,8 +265,7 @@ static inline int is_rawtext_element(const th_node *node) {
     if (node->atom == TH_TAG_SCRIPT || node->atom == TH_TAG_PLAINTEXT) {
         return 1;
     }
-    /* noscript is raw-text only with scripting on; this parser runs scripting-disabled, so it escapes */
-    return (node->tag_flags & TH_TAG_RAWTEXT) && node->atom != TH_TAG_NOSCRIPT;
+    return (node->tag_flags & TH_TAG_RAWTEXT) && (node->atom != TH_TAG_NOSCRIPT || scripting);
 }
 
 /* The WHATWG fragment-serialization void set extends the parser's void elements
