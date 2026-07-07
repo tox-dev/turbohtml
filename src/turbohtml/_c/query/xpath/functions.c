@@ -492,6 +492,186 @@ static int exslt_re_replace(struct th_tree *tree, xp_result *args, xp_result *ou
     return 0;
 }
 
+/* The XPath 2.0 string convenience functions (fn:ends-with, fn:string-join,
+   fn:lower-case, fn:upper-case, fn:matches, fn:replace) ported lxml/elementpath and
+   antchfx/htmlquery expressions reach for. matches reuses the EXSLT re:test pipeline;
+   replace maps to a global re.sub after rewriting its replacement string. */
+
+/* lower-case / upper-case: Unicode case mapping (W3C fn:lower-case / fn:upper-case),
+   delegated to CPython's str.lower()/str.upper() so accented and non-Latin letters map
+   correctly rather than ASCII-only -- the same call-into-CPython path re:test takes. */
+static int case_convert(struct th_tree *tree, xp_result *arg, int to_upper, xp_result *out) {
+    Py_ssize_t len;
+    Py_UCS4 *text = to_string(tree, arg, &len);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *str = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, text, len);
+    PyMem_Free(text);
+    if (str == NULL) { /* GCOVR_EXCL_BR_LINE: a UCS-4 alloc cannot be forced */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    PyObject *mapped = PyObject_CallMethod(str, to_upper ? "upper" : "lower", NULL);
+    Py_DECREF(str);
+    if (mapped == NULL) { /* GCOVR_EXCL_BR_LINE: str.upper/str.lower cannot fail here */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t result_len = PyUnicode_GET_LENGTH(mapped);
+    Py_UCS4 *buf = PyUnicode_AsUCS4Copy(mapped);
+    Py_DECREF(mapped);
+    if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    result_string(out, buf, result_len);
+    return 0;
+}
+
+/* string-join(seq, sep): the string-values of the node-set members joined by the
+   separator -- the XPath-1.0-engine reading of fn:string-join, where a node-set is the
+   sequence (antchfx does the same). A non-node-set first argument is the lone item, so
+   its string-value passes through unseparated. */
+static int string_join(struct th_tree *tree, xp_result *args, xp_result *out) {
+    Py_ssize_t sep_len;
+    Py_UCS4 *sep = to_string(tree, &args[1], &sep_len);
+    if (sep == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    int is_set = args[0].kind == XP_NODESET;
+    Py_ssize_t count = is_set ? args[0].nodes.len : 1;
+    Py_UCS4 **parts = PyMem_Calloc((size_t)count, sizeof(Py_UCS4 *));
+    Py_ssize_t *lens = PyMem_Calloc((size_t)count, sizeof(Py_ssize_t));
+    if (parts == NULL || lens == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(parts);               /* GCOVR_EXCL_LINE */
+        PyMem_Free(lens);                /* GCOVR_EXCL_LINE */
+        PyMem_Free(sep);                 /* GCOVR_EXCL_LINE */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    int rc = 0;
+    Py_ssize_t total = count > 0 ? sep_len * (count - 1) : 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        parts[index] = is_set ? item_string(tree, args[0].nodes.items[index], &lens[index])
+                              : to_string(tree, &args[0], &lens[index]);
+        if (parts[index] == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;                /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+        total += lens[index];
+    }
+    if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_UCS4 *buf = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+        if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;       /* GCOVR_EXCL_LINE */
+        } else {           /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+            Py_ssize_t write_pos = 0;
+            for (Py_ssize_t index = 0; index < count; index++) {
+                if (index > 0) {
+                    memcpy(buf + write_pos, sep, (size_t)sep_len * sizeof(Py_UCS4));
+                    write_pos += sep_len;
+                }
+                memcpy(buf + write_pos, parts[index], (size_t)lens[index] * sizeof(Py_UCS4));
+                write_pos += lens[index];
+            }
+            result_string(out, buf, total);
+        }
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyMem_Free(parts[index]);
+    }
+    PyMem_Free(parts);
+    PyMem_Free(lens);
+    PyMem_Free(sep);
+    return rc;
+}
+
+/* Rewrite an fn:replace replacement string into a Python re-module template: a ``$N``
+   group reference becomes ``\g<N>``, ``\$`` and ``\\`` collapse to a literal ``$`` and
+   ``\``, and any other backslash is doubled so re reads it literally. NULL with an
+   exception set on failure. */
+static PyObject *fn_replacement_template(struct th_tree *tree, xp_result *repl_arg) {
+    Py_ssize_t len;
+    Py_UCS4 *repl = to_string(tree, repl_arg, &len);
+    if (repl == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    Py_UCS4 *buf = PyMem_Malloc((size_t)(len * 4 + 1) * sizeof(Py_UCS4));
+    if (buf == NULL) {    /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(repl); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t write = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_UCS4 ch = repl[index];
+        if (ch == '\\' && index + 1 < len && (repl[index + 1] == '\\' || repl[index + 1] == '$')) {
+            if (repl[index + 1] == '\\') {
+                buf[write++] = '\\';
+            }
+            buf[write++] = repl[index + 1];
+            index += 2;
+        } else if (ch == '$' && index + 1 < len && repl[index + 1] >= '0' && repl[index + 1] <= '9') {
+            buf[write++] = '\\';
+            buf[write++] = 'g';
+            buf[write++] = '<';
+            index++;
+            while (index < len && repl[index] >= '0' && repl[index] <= '9') {
+                buf[write++] = repl[index++];
+            }
+            buf[write++] = '>';
+        } else if (ch == '\\') {
+            buf[write++] = '\\';
+            buf[write++] = '\\';
+            index++;
+        } else {
+            buf[write++] = ch;
+            index++;
+        }
+    }
+    PyMem_Free(repl);
+    PyObject *template = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, buf, write);
+    PyMem_Free(buf);
+    return template;
+}
+
+/* replace(input, pattern, repl, flags?): every non-overlapping match of the pattern
+   rewritten (fn:replace always replaces all), sharing the EXSLT flag handling and
+   Python re backend. */
+static int fn_replace(struct th_tree *tree, xp_result *args, int argc, xp_result *out) {
+    int global;
+    PyObject *pattern = exslt_pattern(tree, &args[1], argc >= 4 ? &args[3] : NULL, &global);
+    PyObject *repl = fn_replacement_template(tree, &args[2]);
+    Py_ssize_t input_len;
+    Py_UCS4 *input_text = to_string(tree, &args[0], &input_len);
+    PyObject *input = NULL;
+    PyObject *re_module = NULL;
+    if (pattern != NULL && repl != NULL && input_text != NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        input = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, input_text, input_len);
+        re_module = PyImport_ImportModule("re");
+    }
+    PyMem_Free(input_text);
+    if (pattern == NULL || repl == NULL || input == NULL || re_module == NULL) { /* GCOVR_EXCL_BR_LINE: alloc/import */
+        Py_XDECREF(pattern);                                                     /* GCOVR_EXCL_LINE */
+        Py_XDECREF(repl);                                                        /* GCOVR_EXCL_LINE */
+        Py_XDECREF(input);                                                       /* GCOVR_EXCL_LINE */
+        Py_XDECREF(re_module);                                                   /* GCOVR_EXCL_LINE */
+        return -1;                                                               /* GCOVR_EXCL_LINE */
+    }
+    PyObject *replaced = PyObject_CallMethod(re_module, "sub", "OOO", pattern, repl, input);
+    Py_DECREF(re_module);
+    Py_DECREF(input);
+    Py_DECREF(repl);
+    Py_DECREF(pattern);
+    if (replaced == NULL) {
+        return -1; /* a malformed pattern set re.error */
+    }
+    Py_ssize_t result_len = PyUnicode_GET_LENGTH(replaced);
+    Py_UCS4 *buf = PyUnicode_AsUCS4Copy(replaced);
+    Py_DECREF(replaced);
+    if (buf == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    result_string(out, buf, result_len);
+    return 0;
+}
+
 /* The EXSLT set functions (set:). */
 /* The node-set arguments arrive in document order and duplicate-free (every
    node-set the engine builds is sorted_unique), so the results below preserve that
@@ -1000,6 +1180,12 @@ static const xp_func_sig FUNC_SIGS[] = {
     {"string-length", 0, 1},
     {"normalize-space", 0, 1},
     {"translate", 3, 3},
+    {"ends-with", 2, 2},
+    {"string-join", 2, 2},
+    {"lower-case", 1, 1},
+    {"upper-case", 1, 1},
+    {"matches", 2, 3},
+    {"replace", 3, 4},
     {"boolean", 1, 1},
     {"not", 1, 1},
     {"true", 0, 0},
@@ -1196,7 +1382,8 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         }
     } else if (func_is(fn, "id")) {
         rc = eval_id(ctx, &args[0], out);
-    } else if (func_is(fn, "re:test")) {
+    } else if (func_is(fn, "re:test") || func_is(fn, "matches")) {
+        /* fn:matches shares the EXSLT re:test regex pipeline (input, pattern, flags?) */
         rc = exslt_re_test(ctx->tree, args, argc, out);
     } else if (func_is(fn, "re:replace")) {
         rc = exslt_re_replace(ctx->tree, args, out);
@@ -1310,6 +1497,24 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         PyMem_Free(text);
         PyMem_Free(from);
         PyMem_Free(to);
+    } else if (func_is(fn, "ends-with")) {
+        Py_ssize_t hl;
+        Py_ssize_t nl;
+        Py_UCS4 *hay = to_string(ctx->tree, &args[0], &hl);
+        Py_UCS4 *needle = to_string(ctx->tree, &args[1], &nl);
+        if (hay == NULL || needle == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            rc = -1;                         /* GCOVR_EXCL_LINE */
+        } else {                             /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+            result_bool(out, nl <= hl && memcmp(hay + hl - nl, needle, (size_t)nl * sizeof(Py_UCS4)) == 0);
+        }
+        PyMem_Free(hay);
+        PyMem_Free(needle);
+    } else if (func_is(fn, "string-join")) {
+        rc = string_join(ctx->tree, args, out);
+    } else if (func_is(fn, "lower-case") || func_is(fn, "upper-case")) {
+        rc = case_convert(ctx->tree, &args[0], func_is(fn, "upper-case"), out);
+    } else if (func_is(fn, "replace")) {
+        rc = fn_replace(ctx->tree, args, argc, out);
     } else if (ctx->extension != NULL &&
                (rc = ctx->extension(ctx->extension_ctx, ctx->node, fn->str, fn->str_len, args, argc, out)) != -2) {
         /* a registered extension handled it (rc is 0 or a propagated error) */

@@ -262,6 +262,11 @@ _XPATH_FEATURES = (
 _XPATH_PARITY = (
     ("//a[@href=$x] (variable)", "variable"),
     ("//a[re:test(@href, ...)] (EXSLT)", "re:test"),
+    ("//a[ends-with(@href, ...)] (XPath 2.0)", "ends-with"),
+    ("string-join(//a/@href, ...) (XPath 2.0)", "string-join"),
+    ("//a[lower-case(@href) = ...] (XPath 2.0)", "lower-case"),
+    ("//a[matches(@href, ...)] (XPath 2.0)", "matches"),
+    ("replace(//a/@href, ...) (XPath 2.0)", "replace"),
     ("set:distinct(//a) (EXSLT)", "set:distinct"),
     ("//a/@href (smart_strings)", "smart_strings"),
     ("ext(//a) (extensions)", "extension"),

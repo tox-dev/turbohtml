@@ -100,6 +100,28 @@ namespace; the ``re:`` prefix dispatches to Python's :mod:`re`:
 
     ['/p/12']
 
+A subset of the XPath 2.0 string functions ported ``lxml``, ``elementpath``, and ``htmlquery`` expressions reach for is
+built in alongside the 1.0 core: ``ends-with``, ``string-join(seq, sep)``, ``lower-case`` and ``upper-case`` (Unicode
+case mapping), and the regex ``matches(input, pattern[, flags])`` and ``replace(input, pattern, repl[, flags])``.
+``replace`` uses ``$1``-style group references and rewrites every match:
+
+.. testcode::
+
+    import turbohtml
+
+    doc = turbohtml.parse("<ul><li>One</li><li>Two</li><li>Three</li></ul>")
+    print(doc.xpath("string-join(//li, ', ')"))
+    print(doc.xpath("upper-case(//li[1])"))
+    print(doc.xpath("matches('2024-05-06', '\\d{4}-\\d\\d-\\d\\d')"))
+    print(doc.xpath("replace('2024-05-06', '(\\d+)-(\\d+)-(\\d+)', '$3/$2/$1')"))
+
+.. testoutput::
+
+    One, Two, Three
+    ONE
+    True
+    06/05/2024
+
 Register your own functions under ``extensions={(namespace, name): callable}`` (use ``None`` for the namespace to call
 the function unprefixed). The callable receives a context whose ``context_node`` is the current element, then the
 evaluated arguments: a node-set arrives as a ``list`` of :class:`~turbohtml.Element`, and a string, number, or boolean

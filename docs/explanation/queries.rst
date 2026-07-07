@@ -57,19 +57,21 @@ document are rejected rather than dereferenced into a foreign arena. Because tha
 mutable state, :class:`turbohtml.XPath` exposes it directly: a hot expression compiles once and a single re-entrant,
 thread-shareable object evaluates against many context nodes, the same design lxml's ``etree.XPath`` uses. The EXSLT
 ``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` namespaces dispatch in the same C engine, so the regexp, node-set,
-string, numeric, and date helpers ``libexslt`` gives lxml work without registering a namespace. A prefix-to-URI mapping
-passed as ``namespaces`` is resolved during evaluation rather than baked into the compiled program, so the one cached
-program serves every mapping; a prefixed name test then constrains the match to the foreign-content namespace the tree
-builder tagged (SVG or MathML), while unprefixed tests stay namespace-agnostic over the null-namespace HTML tree. The
-core API stays one-name-per-concept and returns plain lists, so the jQuery-style chaining pyquery users expect lives in
-an optional Python-side wrapper, :class:`turbohtml.query.Query`, whose traversal and mutation methods each return a
-wrapper. Output runs back through :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.serialize`, and
-:meth:`~turbohtml.Node.encode`, WHATWG-conformant by default with the escaping selectable through
-:class:`~turbohtml.Formatter`. A registered ``extensions=`` function crosses the same value boundary in both directions:
-the four XPath value types marshal to and from Python, so a node-set argument arrives as a list of elements and a
-returned element or iterable of elements becomes a node-set the engine can feed into later steps. The extension only
-ever sees live wrappers bound to the queried tree, never the C node model, so a returned element from another document
-is rejected rather than silently mixing arenas.
+string, numeric, and date helpers ``libexslt`` gives lxml work without registering a namespace. The string subset of
+XPath 2.0 ported ``elementpath`` and ``htmlquery`` expressions expect -- ``ends-with``, ``string-join``, ``lower-case``,
+``upper-case``, and the regex ``matches`` and ``replace`` spellings -- resolves in that same dispatch, without the full
+2.0 sequence and type machinery behind it. A prefix-to-URI mapping passed as ``namespaces`` is resolved during
+evaluation rather than baked into the compiled program, so the one cached program serves every mapping; a prefixed name
+test then constrains the match to the foreign-content namespace the tree builder tagged (SVG or MathML), while
+unprefixed tests stay namespace-agnostic over the null-namespace HTML tree. The core API stays one-name-per-concept and
+returns plain lists, so the jQuery-style chaining pyquery users expect lives in an optional Python-side wrapper,
+:class:`turbohtml.query.Query`, whose traversal and mutation methods each return a wrapper. Output runs back through
+:attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.serialize`, and :meth:`~turbohtml.Node.encode`, WHATWG-conformant
+by default with the escaping selectable through :class:`~turbohtml.Formatter`. A registered ``extensions=`` function
+crosses the same value boundary in both directions: the four XPath value types marshal to and from Python, so a node-set
+argument arrives as a list of elements and a returned element or iterable of elements becomes a node-set the engine can
+feed into later steps. The extension only ever sees live wrappers bound to the queried tree, never the C node model, so
+a returned element from another document is rejected rather than silently mixing arenas.
 
 :meth:`~turbohtml.Element.css_path` and :meth:`~turbohtml.Element.xpath_path` invert the query surface: given a node,
 they return the locator that finds it again, the way browser devtools "copy selector" and lxml's ``getpath`` do. The

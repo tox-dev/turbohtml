@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from xml.etree import ElementTree as ET  # noqa: S405
 
 import pytest
 
@@ -101,6 +102,31 @@ def doc() -> turbohtml.Node:
         pytest.param("starts-with('hello', 'he')", True, id="starts-with-true"),
         pytest.param("starts-with('he', 'hello')", False, id="starts-with-longer-needle"),
         pytest.param("starts-with('hello', 'xx')", False, id="starts-with-miss"),
+        # XPath 2.0 string convenience functions
+        pytest.param("ends-with('hello', 'lo')", True, id="ends-with-true"),
+        pytest.param("ends-with('hello', 'he')", False, id="ends-with-miss"),
+        pytest.param("ends-with('hello', '')", True, id="ends-with-empty-suffix"),
+        pytest.param("ends-with('lo', 'hello')", False, id="ends-with-longer-suffix"),
+        pytest.param("string-join(//p, ',')", "one,two,three", id="string-join-nodeset"),
+        pytest.param("string-join(//div, '|')", "onetwothree", id="string-join-single-node"),
+        pytest.param("string-join(//zzz, ',')", "", id="string-join-empty-nodeset"),
+        pytest.param("string-join('abc', '-')", "abc", id="string-join-string"),
+        pytest.param("lower-case('Héllo WÖRLD')", "héllo wörld", id="lower-case"),
+        pytest.param("upper-case('Héllo wörld')", "HÉLLO WÖRLD", id="upper-case"),
+        pytest.param("matches('abc123', '[0-9]+')", True, id="matches-true"),
+        pytest.param("matches('abcdef', '[0-9]+')", False, id="matches-miss"),
+        pytest.param("matches('ABC', 'abc', 'i')", True, id="matches-flags"),
+        pytest.param("replace('a1b2c3', '[0-9]', '#')", "a#b#c#", id="replace-all"),
+        pytest.param("replace('2024-05-06', '(\\d+)-(\\d+)-(\\d+)', '$3/$2/$1')", "06/05/2024", id="replace-groups"),
+        pytest.param("replace('a', '(a)', '$1z')", "az", id="replace-group-then-letter"),
+        pytest.param("replace('ABCabc', 'b', 'X', 'i')", "AXCaXc", id="replace-flags"),
+        pytest.param("replace('a', 'a', 'x$')", "x$", id="replace-trailing-dollar"),
+        pytest.param("replace('a', 'a', '$x')", "$x", id="replace-dollar-above-digit"),
+        pytest.param("replace('a', 'a', '$.')", "$.", id="replace-dollar-below-digit"),
+        pytest.param("replace('a', 'a', '\\$')", "$", id="replace-escaped-dollar"),
+        pytest.param("replace('a', 'a', '\\\\')", "\\", id="replace-escaped-backslash"),
+        pytest.param("replace('a', 'a', '\\x')", "\\x", id="replace-lone-backslash"),
+        pytest.param("replace('a', 'a', 'x\\')", "x\\", id="replace-trailing-backslash"),
         pytest.param("name(//comment())", "", id="name-of-comment"),
         pytest.param("'a' = 1", False, id="string-eq-number"),
         pytest.param("local-name(//p)", "p", id="local-name"),
@@ -261,10 +287,30 @@ def test_namespace_axis(doc: turbohtml.Node) -> None:
         pytest.param("substring('a')", "substring() takes 2 to 3 arguments, got 1", id="range-too-few"),
         pytest.param("substring('a', 1, 2, 3)", "substring() takes 2 to 3 arguments, got 4", id="range-too-many"),
         pytest.param("concat('a')", "concat() takes at least 2 arguments, got 1", id="variadic-too-few"),
+        pytest.param("ends-with('a')", "ends-with() takes 2 arguments, got 1", id="ends-with-too-few"),
+        pytest.param("string-join(//p)", "string-join() takes 2 arguments, got 1", id="string-join-too-few"),
+        pytest.param("lower-case()", "lower-case() takes 1 argument, got 0", id="lower-case-too-few"),
+        pytest.param("upper-case('a', 'b')", "upper-case() takes 1 argument, got 2", id="upper-case-too-many"),
+        pytest.param("matches('a')", "matches() takes 2 to 3 arguments, got 1", id="matches-too-few"),
+        pytest.param("replace('a', 'b')", "replace() takes 3 to 4 arguments, got 2", id="replace-too-few"),
     ],
 )
 def test_wrong_arity_raises_value_error(doc: turbohtml.Node, expr: str, message: str) -> None:
     with pytest.raises(ValueError, match=re.escape(message)):
+        doc.xpath(expr)
+
+
+# matches/replace surface Python's re.error for a malformed pattern, the same way the
+# EXSLT re: functions do.
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param("matches('a', '[')", id="matches"),
+        pytest.param("replace('a', '[', 'x')", id="replace"),
+    ],
+)
+def test_regex_functions_reject_a_malformed_pattern(doc: turbohtml.Node, expr: str) -> None:
+    with pytest.raises(re.error):
         doc.xpath(expr)
 
 
@@ -322,3 +368,29 @@ def test_number_to_string_round_trips(value: float) -> None:
     assert isinstance(rendered, str)
     # the rendered decimal parses back to the bit-identical double it came from
     assert float(rendered).hex() == float(value).hex()
+
+
+# elementpath is the reference XPath 2.0 processor for ElementTree; the string
+# convenience subset must agree with it over the same document and literal arguments.
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param("ends-with('hello', 'lo')", id="ends-with-true"),
+        pytest.param("ends-with('hello', 'x')", id="ends-with-false"),
+        pytest.param("string-join(//p, ', ')", id="string-join-nodeset"),
+        pytest.param("lower-case(//p[1])", id="lower-case-node"),
+        pytest.param("upper-case(//p[2])", id="upper-case-node"),
+        pytest.param("matches('abc123', '[0-9]+')", id="matches"),
+        pytest.param("matches('ABC', 'abc', 'i')", id="matches-flags"),
+        pytest.param("replace('a1b2c3', '[0-9]', '#')", id="replace-all"),
+        pytest.param(r"replace('2024-05-06', '(\d+)-(\d+)-(\d+)', '$3/$2/$1')", id="replace-groups"),
+    ],
+)
+def test_string_functions_agree_with_elementpath(expr: str) -> None:
+    elementpath = pytest.importorskip("elementpath")
+    markup = "<div><p>One</p><p>Two</p><p>Three</p></div>"
+    root = ET.fromstring(markup)  # noqa: S314
+    want = elementpath.select(root, expr, parser=elementpath.XPath2Parser)
+    if isinstance(want, list) and len(want) == 1:
+        want = want[0]
+    assert turbohtml.parse(markup).xpath(expr) == want

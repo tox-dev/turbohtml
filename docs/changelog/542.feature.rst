@@ -1,0 +1,5 @@
+:meth:`~turbohtml.Node.xpath` gained the string subset of XPath 2.0: ``ends-with``, ``string-join(seq, sep)``,
+``lower-case`` and ``upper-case`` (Unicode case mapping), and the regex ``matches(input, pattern[, flags])`` and
+``replace(input, pattern, repl[, flags])`` spellings, where ``replace`` reads ``$1``-style group references and rewrites
+every match. They dispatch in the compiled-C engine alongside the XPath 1.0 core and the EXSLT namespaces, so an
+expression ported from ``elementpath``, ``lxml``, or ``htmlquery`` that leans on them runs without registration.

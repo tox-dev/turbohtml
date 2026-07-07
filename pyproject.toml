@@ -64,6 +64,7 @@ dev = [
 ]
 test = [
   "covdefaults>=2.3",
+  "elementpath>=5",             # the XPath 2.0 oracle the string-function differential test cross-checks against
   "jinja2>=3.1.6",              # the markup migration test renders templates with markupsafe swapped for turbohtml.markup
   "markdown-it-py>=4.2",        # a pure-Python GFM reference to round-trip to_markdown() output back to HTML and check it
   "meson>=1.11.1",

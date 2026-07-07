@@ -73,6 +73,10 @@ What turbohtml adds
 - Built-in EXSLT. The ``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` namespaces dispatch in the compiled-C XPath
   engine with no per-call registration; lxml has to register ``libexslt`` and re-resolve the namespace map on each
   evaluation.
+- The XPath 2.0 string convenience functions -- ``ends-with``, ``string-join``, ``lower-case``, ``upper-case``,
+  ``matches``, and ``replace`` -- resolve in the same dispatch. libxml2's XPath 1.0 has none of these, so an expression
+  ported from ``elementpath`` or ``htmlquery`` that leans on them runs unchanged rather than raising an unknown-function
+  error.
 - :meth:`~turbohtml.Element.css_path`, a unique CSS-selector locator, which lxml has no equivalent for.
 - Full type annotations and shipped stubs across the whole surface.
 
@@ -85,8 +89,9 @@ The wider libxml2 toolchain is a deliberate clean-break scope cut:
 - Schema validation (DTD, RelaxNG, XML-Schema, Schematron): no equivalent.
 - C14N canonicalization: no equivalent.
 - Generic XML parsing and namespaced XML documents: turbohtml targets HTML; use lxml for arbitrary XML.
-- XPath is at parity, not a gap. Both are XPath 1.0, and both run EXSLT. The only pieces out of scope are the
-  node-synthesizing ``str:tokenize``/``str:split`` and the implicit current-date ``date:`` forms.
+- XPath is at parity, not a gap. Both are XPath 1.0 with EXSLT, and turbohtml adds the XPath 2.0 string convenience
+  functions on top. The only pieces out of scope are the node-synthesizing ``str:tokenize``/``str:split``, the implicit
+  current-date ``date:`` forms, and full XPath 2.0 (sequences, types, FLWOR).
 
 Performance
 ===========
