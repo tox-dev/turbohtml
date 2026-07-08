@@ -154,26 +154,31 @@ static void walker_dealloc(PyObject *self) {
 
 static PyObject *walker_next(PyObject *self) {
     WalkerObject *walker = (WalkerObject *)self;
-    if (walker->current == NULL) {
-        return NULL;
+    th_node *node;
+    Py_BEGIN_CRITICAL_SECTION(walker->handle);
+    node = walker->current;
+    if (node != NULL) {
+        switch (walker->mode) {
+        case WALK_ANCESTORS:
+            walker->current = node->parent;
+            break;
+        case WALK_NEXT_SIBLINGS:
+            walker->current = node->next_sibling;
+            break;
+        case WALK_PREVIOUS_SIBLINGS:
+            walker->current = node->prev_sibling;
+            break;
+        case WALK_PRECEDING:
+            walker->current = preceding_skip(previous_element(node), walker->root);
+            break;
+        default: /* WALK_DESCENDANTS, and the following axis bounded by a NULL root */
+            walker->current = preorder_next(node, walker->root);
+            break;
+        }
     }
-    th_node *node = walker->current;
-    switch (walker->mode) {
-    case WALK_ANCESTORS:
-        walker->current = node->parent;
-        break;
-    case WALK_NEXT_SIBLINGS:
-        walker->current = node->next_sibling;
-        break;
-    case WALK_PREVIOUS_SIBLINGS:
-        walker->current = node->prev_sibling;
-        break;
-    case WALK_PRECEDING:
-        walker->current = preceding_skip(previous_element(node), walker->root);
-        break;
-    default: /* WALK_DESCENDANTS, and the following axis bounded by a NULL root */
-        walker->current = preorder_next(node, walker->root);
-        break;
+    Py_END_CRITICAL_SECTION();
+    if (node == NULL) {
+        return NULL;
     }
     return node_wrap(state_of(self), walker->handle, node);
 }
@@ -448,32 +453,55 @@ static PyObject *node_get_children(PyObject *self, void *Py_UNUSED(closure)) {
 
 static PyObject *node_get_descendants(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    return walker_new(state_of(self), node->handle, node->node->first_child, node->node, WALK_DESCENDANTS);
+    th_node *first_child;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    first_child = node->node->first_child;
+    Py_END_CRITICAL_SECTION();
+    return walker_new(state_of(self), node->handle, first_child, node->node, WALK_DESCENDANTS);
 }
 
 static PyObject *node_get_ancestors(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    return walker_new(state_of(self), node->handle, node->node->parent, NULL, WALK_ANCESTORS);
+    th_node *parent;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    parent = node->node->parent;
+    Py_END_CRITICAL_SECTION();
+    return walker_new(state_of(self), node->handle, parent, NULL, WALK_ANCESTORS);
 }
 
 static PyObject *node_get_next_siblings(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    return walker_new(state_of(self), node->handle, node->node->next_sibling, NULL, WALK_NEXT_SIBLINGS);
+    th_node *sibling;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    sibling = node->node->next_sibling;
+    Py_END_CRITICAL_SECTION();
+    return walker_new(state_of(self), node->handle, sibling, NULL, WALK_NEXT_SIBLINGS);
 }
 
 static PyObject *node_get_previous_siblings(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    return walker_new(state_of(self), node->handle, node->node->prev_sibling, NULL, WALK_PREVIOUS_SIBLINGS);
+    th_node *sibling;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    sibling = node->node->prev_sibling;
+    Py_END_CRITICAL_SECTION();
+    return walker_new(state_of(self), node->handle, sibling, NULL, WALK_PREVIOUS_SIBLINGS);
 }
 
 static PyObject *node_get_following(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    return walker_new(state_of(self), node->handle, subtree_next(node->node), NULL, WALK_DESCENDANTS);
+    th_node *start;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    start = subtree_next(node->node);
+    Py_END_CRITICAL_SECTION();
+    return walker_new(state_of(self), node->handle, start, NULL, WALK_DESCENDANTS);
 }
 
 static PyObject *node_get_preceding(PyObject *self, void *Py_UNUSED(closure)) {
     NodeObject *node = (NodeObject *)self;
-    th_node *start = preceding_skip(previous_element(node->node), node->node);
+    th_node *start;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    start = preceding_skip(previous_element(node->node), node->node);
+    Py_END_CRITICAL_SECTION();
     return walker_new(state_of(self), node->handle, start, node->node, WALK_PRECEDING);
 }
 
@@ -1296,18 +1324,23 @@ static PyGetSetDef node_getset[] = {
 
 static Py_ssize_t node_length(PyObject *self) {
     Py_ssize_t count = 0;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     for (th_node *child = ((NodeObject *)self)->node->first_child; child != NULL; child = child->next_sibling) {
         count++;
     }
+    Py_END_CRITICAL_SECTION();
     return count;
 }
 
 static PyObject *node_item(PyObject *self, Py_ssize_t index) {
     NodeObject *node = (NodeObject *)self;
-    th_node *child = node->node->first_child;
+    th_node *child;
+    Py_BEGIN_CRITICAL_SECTION(node->handle);
+    child = node->node->first_child;
     for (Py_ssize_t step = 0; step < index && child != NULL; step++) {
         child = child->next_sibling;
     }
+    Py_END_CRITICAL_SECTION();
     if (child == NULL) {
         PyErr_SetString(PyExc_IndexError, "node child index out of range");
         return NULL;
@@ -1316,7 +1349,7 @@ static PyObject *node_item(PyObject *self, Py_ssize_t index) {
 }
 
 static PyObject *node_iter(PyObject *self) {
-    PyObject *children = node_children_tuple(self);
+    PyObject *children = node_get_children(self, NULL);
     if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }

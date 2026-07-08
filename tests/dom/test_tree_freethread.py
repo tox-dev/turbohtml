@@ -102,6 +102,63 @@ def test_concurrent_reads_and_mixed_mutations_are_memory_safe() -> None:
     assert body.serialize().startswith("<body>")  # still well-formed after the concurrent churn
 
 
+def test_concurrent_lazy_node_iterators_and_extract_is_memory_safe() -> None:
+    doc = _doc(400)
+    body = doc.find("body")
+    assert body is not None
+    children = list(body.children)
+    start = threading.Barrier(3)
+
+    def descendant_reader() -> None:
+        start.wait()
+        for _ in range(300):
+            list(body.descendants)
+            list(body.following)
+
+    def sequence_reader() -> None:
+        start.wait()
+        for _ in range(300):
+            len(body)
+            list(body)
+
+    def mutator() -> None:
+        start.wait()
+        for child in children:
+            child.extract()
+
+    _run(descendant_reader, sequence_reader, mutator)
+    assert list(body.children) == []
+
+
+def test_concurrent_attrs_views_and_mutation_are_memory_safe() -> None:
+    doc = _doc(300)
+    body = doc.find("body")
+    assert body is not None
+    divs = body.find_all("div")
+    start = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(200):
+            for div in divs:
+                len(div.attrs)
+                list(div.attrs)
+                div.attrs.keys()
+                div.attrs.values()
+                div.attrs.items()
+                repr(div.attrs)
+
+    def mutator() -> None:
+        start.wait()
+        for index in range(200):
+            for div in divs:
+                div.attrs["data-x"] = str(index)
+                del div.attrs["data-x"]
+
+    _run(reader, mutator)
+    assert all("data-x" not in div.attrs for div in divs)
+
+
 def test_concurrent_reads_and_bulk_wrap_is_memory_safe() -> None:
     doc = _doc(300)
     body = doc.find("body")

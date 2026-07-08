@@ -57,7 +57,11 @@ static void attrs_dealloc(PyObject *self) {
 }
 
 static Py_ssize_t attrs_length(PyObject *self) {
-    return ((AttrsObject *)self)->node->attr_count;
+    Py_ssize_t count;
+    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+    count = ((AttrsObject *)self)->node->attr_count;
+    Py_END_CRITICAL_SECTION();
+    return count;
 }
 
 static PyObject *attrs_subscript(PyObject *self, PyObject *key) {
@@ -154,17 +158,23 @@ static int attrs_contains(PyObject *self, PyObject *key) {
 static PyObject *attrs_iter(PyObject *self) {
     th_node *node = ((AttrsObject *)self)->node;
     th_tree *tree = tree_of(self);
-    PyObject *names = PyList_New(node->attr_count);
-    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-        PyObject *name = attr_name_obj(tree, &node->attrs[index]);
-        if (name == NULL) {   /* GCOVR_EXCL_BR_LINE: a stored name always decodes */
-            Py_DECREF(names); /* GCOVR_EXCL_LINE: decode-failure path */
-            return NULL;      /* GCOVR_EXCL_LINE: decode-failure path */
+    PyObject *names;
+    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+    names = PyList_New(node->attr_count);
+    if (names != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            PyObject *name = attr_name_obj(tree, &node->attrs[index]);
+            if (name == NULL) {   /* GCOVR_EXCL_BR_LINE: a stored name always decodes */
+                Py_DECREF(names); /* GCOVR_EXCL_LINE: decode-failure path */
+                names = NULL;     /* GCOVR_EXCL_LINE: decode-failure path */
+                break;            /* GCOVR_EXCL_LINE: decode-failure path */
+            }
+            PyList_SET_ITEM(names, index, name);
         }
-        PyList_SET_ITEM(names, index, name);
+    }
+    Py_END_CRITICAL_SECTION();
+    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure and stored-name decode failure cannot be forced */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation/decode-failure path */
     }
     PyObject *iterator = PyObject_GetIter(names);
     Py_DECREF(names);
@@ -177,41 +187,46 @@ enum attrs_view { ATTRS_KEYS, ATTRS_VALUES, ATTRS_ITEMS };
 static PyObject *attrs_collect(PyObject *self, enum attrs_view kind) {
     th_node *node = ((AttrsObject *)self)->node;
     th_tree *tree = tree_of(self);
-    PyObject *out = PyList_New(node->attr_count);
-    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-        const th_node_attr *attr = &node->attrs[index];
-        PyObject *item;
-        if (kind == ATTRS_VALUES) {
-            item = attr_value_obj(attr);
-        } else {
-            PyObject *name = attr_name_obj(tree, attr);
-            if (name == NULL) { /* GCOVR_EXCL_BR_LINE: a stored name always decodes */
-                Py_DECREF(out); /* GCOVR_EXCL_LINE: decode-failure path */
-                return NULL;    /* GCOVR_EXCL_LINE: decode-failure path */
-            }
-            if (kind == ATTRS_KEYS) {
-                item = name;
+    PyObject *out;
+    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+    out = PyList_New(node->attr_count);
+    if (out != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            const th_node_attr *attr = &node->attrs[index];
+            PyObject *item;
+            if (kind == ATTRS_VALUES) {
+                item = attr_value_obj(attr);
             } else {
-                PyObject *value = attr_value_obj(attr);
-                if (value == NULL) { /* GCOVR_EXCL_BR_LINE: value object build cannot be forced to fail */
-                    Py_DECREF(name); /* GCOVR_EXCL_LINE: alloc-failure path */
-                    Py_DECREF(out);  /* GCOVR_EXCL_LINE: alloc-failure path */
-                    return NULL;     /* GCOVR_EXCL_LINE: alloc-failure path */
+                PyObject *name = attr_name_obj(tree, attr);
+                if (name == NULL) { /* GCOVR_EXCL_BR_LINE: a stored name always decodes */
+                    Py_DECREF(out); /* GCOVR_EXCL_LINE: decode-failure path */
+                    out = NULL;     /* GCOVR_EXCL_LINE: decode-failure path */
+                    break;          /* GCOVR_EXCL_LINE: decode-failure path */
                 }
-                item = PyTuple_Pack(2, name, value);
-                Py_DECREF(name);
-                Py_DECREF(value);
+                if (kind == ATTRS_KEYS) {
+                    item = name;
+                } else {
+                    PyObject *value = attr_value_obj(attr);
+                    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: value object build cannot be forced to fail */
+                        Py_DECREF(name); /* GCOVR_EXCL_LINE: alloc-failure path */
+                        Py_DECREF(out);  /* GCOVR_EXCL_LINE: alloc-failure path */
+                        out = NULL;      /* GCOVR_EXCL_LINE: alloc-failure path */
+                        break;           /* GCOVR_EXCL_LINE: alloc-failure path */
+                    }
+                    item = PyTuple_Pack(2, name, value);
+                    Py_DECREF(name);
+                    Py_DECREF(value);
+                }
             }
+            if (item == NULL) { /* GCOVR_EXCL_BR_LINE: item build cannot be forced to fail */
+                Py_DECREF(out); /* GCOVR_EXCL_LINE: alloc-failure path */
+                out = NULL;     /* GCOVR_EXCL_LINE: alloc-failure path */
+                break;          /* GCOVR_EXCL_LINE: alloc-failure path */
+            }
+            PyList_SET_ITEM(out, index, item);
         }
-        if (item == NULL) { /* GCOVR_EXCL_BR_LINE: item build cannot be forced to fail */
-            Py_DECREF(out); /* GCOVR_EXCL_LINE: alloc-failure path */
-            return NULL;    /* GCOVR_EXCL_LINE: alloc-failure path */
-        }
-        PyList_SET_ITEM(out, index, item);
     }
+    Py_END_CRITICAL_SECTION();
     return out;
 }
 
