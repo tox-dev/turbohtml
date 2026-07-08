@@ -10,6 +10,14 @@ ending with running the toolkit from a shell.
 
 .. toctree::
     :maxdepth: 1
+    :caption: Workflows
+
+    scrape-for-llm
+    page-metadata
+    truncating
+
+.. toctree::
+    :maxdepth: 1
     :caption: Parse & DOM
 
     parsing
@@ -24,6 +32,7 @@ ending with running the toolkit from a shell.
     observing-mutations
     shadow-dom
     forms
+    from-htmlparser
 
 .. toctree::
     :maxdepth: 1
@@ -67,6 +76,7 @@ ending with running the toolkit from a shell.
     main-content
     tables
     structured-data
+    feeds
 
 .. toctree::
     :maxdepth: 1
