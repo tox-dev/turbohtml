@@ -105,8 +105,8 @@ and a text child apiece -- built both ways (hyperpython measured on its last imp
 .. bench-table::
     :file: bench/hyperpython.json
 
-The decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the
-call that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
+``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree
+you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

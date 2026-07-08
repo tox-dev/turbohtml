@@ -12,8 +12,8 @@ which makes it a common choice for server-rendered views and email templates whe
 
 turbohtml covers the same construction ground with the terse :data:`turbohtml.build.E` builder, which keeps
 simple-html's call shape (attributes first, children after) but hands back a real :class:`~turbohtml.Element` tree
-instead of a string. That one difference in result type is the whole reason to move: the same call that builds your
-markup also leaves something you can query, edit, and re-serialize by exactly the rules that parse it back.
+instead of a string, so the same call that builds your markup also leaves something you can query, edit, and
+re-serialize by the same rules that parse it back.
 
 **************************
  turbohtml vs simple-html
@@ -64,7 +64,7 @@ What turbohtml adds
 - Mutate it with :meth:`~turbohtml.Element.append`, :meth:`~turbohtml.Element.extend`, and the rest of the edit API.
 - Convert it with :meth:`~turbohtml.Node.to_markdown`.
 - Serialize by the same C rules that parse HTML back, so round-tripping generated markup is exact.
-- A list-valued attribute joins on a space, so ``{"class": ["card", "lg"]}`` reads as a token list naturally.
+- A list-valued attribute joins on a space, so ``{"class": ["card", "lg"]}`` reads as a token list.
 
 What simple-html has that turbohtml does not
 ============================================
@@ -88,9 +88,8 @@ of rows -- a class, a ``data`` attribute, and a text child apiece -- built both 
     :file: bench/simple-html.json
 
 simple-html renders about three times faster than ``E`` on this microbenchmark -- it concatenates tuples straight into a
-string -- but the decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a
-string, so the call that builds the markup also leaves a tree you can query, edit, and
-re-:meth:`~turbohtml.Node.serialize`.
+string -- but ``E`` hands back a real :class:`~turbohtml.Element` rather than a string, so the call that builds the
+markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

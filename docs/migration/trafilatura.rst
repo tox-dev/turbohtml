@@ -14,8 +14,8 @@ builds on). It is a common front end for building text corpora for NLP and searc
 turbohtml covers the extraction core of that: :meth:`~turbohtml.Node.article` scores a parsed page and harvests its
 *declared* metadata in one C pass, returning an :class:`~turbohtml.Article` record. It works on HTML you already have,
 so pair it with your own downloader and, when you need trafilatura's heavier heuristics (inferred dates, Markdown/XML
-output), keep those alongside it. Detected language it now matches: :func:`turbohtml.detect.detect_language` classifies
-the extracted text.
+output), keep those alongside it. It now matches trafilatura's language detection:
+:func:`turbohtml.detect.detect_language` classifies the extracted text.
 
 **************************
  turbohtml vs trafilatura

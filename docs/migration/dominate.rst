@@ -101,8 +101,8 @@ child apiece -- built both ways:
 .. bench-table::
     :file: bench/dominate.json
 
-The decisive difference is the result type: ``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the
-call that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
+``E`` hands back a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree
+you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

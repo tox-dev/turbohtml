@@ -215,7 +215,7 @@ bleach shipped a frozen list. A bare domain such as ``example.com`` still links 
 **********************
 
 - turbohtml's safety baseline (``<script>``, ``on*`` handlers, ``javascript:`` URLs) is not configurable, so even a
-  permissive ``attributes`` callable cannot re-admit them, where bleach faithfully kept whatever you allowed.
+  permissive ``attributes`` callable cannot re-admit them, where bleach kept whatever you allowed.
 - The bleach-compatible ``clean`` shim does not take a ``css_sanitizer`` object; passing one raises
   ``NotImplementedError``. Configure CSS scrubbing through ``Policy.css_properties`` on the native
   :func:`~turbohtml.clean.sanitize` instead: it vets a kept ``style`` attribute and, when ``style`` is in

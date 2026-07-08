@@ -76,7 +76,7 @@ What turbohtml adds
 - Browser-faithful results: turbohtml reports the WHATWG canonical encoding a browser would pick, where chardet often
   names a sibling or superset (ISO-8859-7 for Greek windows-1253 bytes, GB18030 for GBK).
 - A frozen :class:`~turbohtml.detect.Detection` config with a language hint, an ``allowed`` set, and a mutually
-  exclusive ``excluded`` set -- richer than chardet's single ``lang_filter``.
+  exclusive ``excluded`` set -- more than chardet's single ``lang_filter``.
 - Fully typed results: :class:`~turbohtml.detect.EncodingMatch` instead of an untyped dict.
 - One detection path shared with parsing: standalone ``detect`` and ``parse(detect_encoding=True)`` always agree on the
   same bytes.

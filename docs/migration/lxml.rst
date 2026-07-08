@@ -9,7 +9,7 @@
 `lxml <https://lxml.de>`_ is the libxml2/libxslt binding that most Python HTML and XML processing has been built on.
 ``lxml.html`` parses documents into ElementTree-style elements with ``.text``/``.tail`` strings, and the wider stack
 adds XPath, XSLT, RelaxNG/DTD/XML-Schema validation, and C14N. It is the default reach for scraping, feed parsing, and
-XML pipelines because it wraps a fast, battle-tested C library and exposes the full ElementTree API.
+XML pipelines because it wraps a fast, mature C library and exposes the full ElementTree API.
 
 turbohtml covers the HTML side of that ground with a native C core of its own. :func:`turbohtml.parse` builds the WHATWG
 document tree libxml2's HTML parser does not, returns a fully type annotated :class:`~turbohtml.Document`, and folds

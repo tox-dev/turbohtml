@@ -5,7 +5,7 @@
 Python's standard library ships HTML primitives in the :mod:`python:html` package. :func:`python:html.escape` and
 :func:`python:html.unescape` handle entity encoding and decoding, :mod:`python:html.entities` exposes the reference
 tables, and :class:`python:html.parser.HTMLParser` is a SAX-style tokenizer you subclass and drive with ``handle_*``
-callbacks. These are the zero-dependency, always-available building blocks that ship with CPython; countless scripts,
+callbacks. These are the zero-dependency, always-available building blocks that ship with CPython; many scripts,
 templating helpers, and scrapers reach for them because they are already installed. The scope stops at tokenizing and
 entity work: ``html.parser`` does not build a document tree, does not implement WHATWG error recovery, and is explicitly
 documented as not fully HTML5-conformant.

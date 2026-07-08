@@ -96,9 +96,8 @@ of rows -- a class, a ``data`` attribute, and a text child apiece -- built both 
 .. bench-table::
     :file: bench/fast-html.json
 
-``E`` is about twice as fast as fast-html, and the decisive difference is the result type: ``E`` hands back a real
-:class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can query, edit,
-and re-:meth:`~turbohtml.Node.serialize`.
+``E`` is about twice as fast as fast-html, and it hands back a real :class:`~turbohtml.Element`, not a string, so the
+call that builds the markup also leaves a tree you can query, edit, and re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

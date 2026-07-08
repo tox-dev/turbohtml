@@ -11,10 +11,10 @@ against the stack of open elements, and calls a handler for each match, emitting
 Because it is JavaScript/Rust rather than Python, this guide is a cross-language reference for teams moving an edge
 rewriting pipeline onto turbohtml.
 
-Both share the same design and the same non-negotiable constraint: a single forward pass with no lookahead, so working
-memory stays proportional to the open-element depth rather than the document size. The port is mostly renaming --
-``element!("a", |el| ...)`` becomes a ``(selector, handler)`` pair, and lol-html's ``Element`` methods have one-to-one
-turbohtml counterparts.
+Both share the same design and the same constraint: a single forward pass with no lookahead, so working memory stays
+proportional to the open-element depth rather than the document size. The port is mostly renaming -- ``element!("a",
+|el| ...)`` becomes a ``(selector, handler)`` pair, and lol-html's ``Element`` methods have one-to-one turbohtml
+counterparts.
 
 ***********************
  turbohtml vs lol-html

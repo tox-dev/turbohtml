@@ -97,9 +97,9 @@ What charset-normalizer has that turbohtml does not
   ranked candidates and their confidences as the introspection surface.
 - File and stream helpers ``from_path`` / ``from_fp``. Workaround: read the bytes yourself and pass them to
   :func:`~turbohtml.detect.detect`, or feed chunks to :class:`~turbohtml.detect.EncodingDetector`.
-- Rich per-match analysis on ``CharsetMatch``: chaos/coherence scores, alphabet listings, and multiple candidate
-  languages. turbohtml reports a single ``confidence`` float and one ``language`` string per match. Workaround: none for
-  the alphabet and multi-language breakdown.
+- Per-match analysis on ``CharsetMatch``: chaos/coherence scores, alphabet listings, and multiple candidate languages.
+  turbohtml reports a single ``confidence`` float and one ``language`` string per match. Workaround: none for the
+  alphabet and multi-language breakdown.
 - Chunked-scan tuning knobs (``steps``, ``chunk_size``). No equivalent; turbohtml scores over the whole input.
 
 Performance

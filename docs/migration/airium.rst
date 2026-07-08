@@ -86,9 +86,9 @@ Performance
 .. bench-table::
     :file: bench/airium.json
 
-``E`` is roughly five to six times faster than airium, and the decisive difference is the result type: ``E`` hands back
-a real :class:`~turbohtml.Element`, not a string, so the call that builds the markup also leaves a tree you can query,
-edit, and re-:meth:`~turbohtml.Node.serialize`.
+``E`` is roughly five to six times faster than airium, and it hands back a real :class:`~turbohtml.Element`, not a
+string, so the call that builds the markup also leaves a tree you can query, edit, and
+re-:meth:`~turbohtml.Node.serialize`.
 
 ****************
  How to migrate

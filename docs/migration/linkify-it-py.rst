@@ -16,7 +16,7 @@ turbohtml covers the same ground with an HTML-aware, fully type-annotated API. :
 locates spans the way ``match``/``test`` do, and :func:`~turbohtml.clean.linkify` goes one step further: it parses the
 HTML, rewrites eligible text runs into ``<a>`` tags, and leaves URLs that already sit inside an ``<a>``, ``<script>``,
 or a skipped tag alone. The candidate scan runs in C, so the detection primitives outrun the Python scanner even though
-they do strictly more work per call.
+they do more work per call.
 
 ****************************
  turbohtml vs linkify-it-py
