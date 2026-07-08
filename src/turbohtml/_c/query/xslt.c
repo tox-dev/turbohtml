@@ -3111,6 +3111,84 @@ static int instantiate_fallback(engine *eng, th_node *node, th_node *out_parent)
     return 0;
 }
 
+/* The instructions instantiate_one dispatches on directly. XSL_OTHER covers every other
+   xsl:* element (sort, with-param, param, fallback, apply-imports, ...), which the parent
+   consumes or the core does not model, so it instantiates nothing. */
+enum xsl_instr {
+    XSL_OTHER,
+    XSL_VALUE_OF,
+    XSL_APPLY_TEMPLATES,
+    XSL_CALL_TEMPLATE,
+    XSL_FOR_EACH,
+    XSL_IF,
+    XSL_CHOOSE,
+    XSL_TEXT,
+    XSL_ELEMENT,
+    XSL_ATTRIBUTE,
+    XSL_COPY,
+    XSL_COPY_OF,
+    XSL_VARIABLE,
+    XSL_NUMBER,
+    XSL_COMMENT,
+    XSL_PI,
+    XSL_MESSAGE,
+};
+
+/* Classify an xsl:* element's local name into its instruction id in one pass. The caller
+   has confirmed the xsl namespace (is_any_xsl), so only the local name is matched -- the
+   prefix is not re-tested per candidate as a chain of is_xsl calls would. */
+static enum xsl_instr xsl_classify(const Py_UCS4 *local, Py_ssize_t len) {
+    if (ucs4_ascii_eq(local, len, "value-of")) {
+        return XSL_VALUE_OF;
+    }
+    if (ucs4_ascii_eq(local, len, "apply-templates")) {
+        return XSL_APPLY_TEMPLATES;
+    }
+    if (ucs4_ascii_eq(local, len, "call-template")) {
+        return XSL_CALL_TEMPLATE;
+    }
+    if (ucs4_ascii_eq(local, len, "for-each")) {
+        return XSL_FOR_EACH;
+    }
+    if (ucs4_ascii_eq(local, len, "if")) {
+        return XSL_IF;
+    }
+    if (ucs4_ascii_eq(local, len, "choose")) {
+        return XSL_CHOOSE;
+    }
+    if (ucs4_ascii_eq(local, len, "text")) {
+        return XSL_TEXT;
+    }
+    if (ucs4_ascii_eq(local, len, "element")) {
+        return XSL_ELEMENT;
+    }
+    if (ucs4_ascii_eq(local, len, "attribute")) {
+        return XSL_ATTRIBUTE;
+    }
+    if (ucs4_ascii_eq(local, len, "copy")) {
+        return XSL_COPY;
+    }
+    if (ucs4_ascii_eq(local, len, "copy-of")) {
+        return XSL_COPY_OF;
+    }
+    if (ucs4_ascii_eq(local, len, "variable")) {
+        return XSL_VARIABLE;
+    }
+    if (ucs4_ascii_eq(local, len, "number")) {
+        return XSL_NUMBER;
+    }
+    if (ucs4_ascii_eq(local, len, "comment")) {
+        return XSL_COMMENT;
+    }
+    if (ucs4_ascii_eq(local, len, "processing-instruction")) {
+        return XSL_PI;
+    }
+    if (ucs4_ascii_eq(local, len, "message")) {
+        return XSL_MESSAGE;
+    }
+    return XSL_OTHER;
+}
+
 /* Instantiate one instruction (an xsl:* element, a literal result element, or a text
    node) into out_parent. */
 static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
@@ -3148,26 +3226,23 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         }
         return instantiate_literal(eng, node, out_parent);
     }
-    if (is_xsl(eng, node, "value-of")) {
+    switch (xsl_classify(node->text + eng->xsl_prefix_len + 1, node->text_len - eng->xsl_prefix_len - 1)) {
+    case XSL_VALUE_OF:
         return do_value_of(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "apply-templates")) {
+    case XSL_APPLY_TEMPLATES:
         return apply_templates(eng, node, out_parent, NULL, 0);
-    }
-    if (is_xsl(eng, node, "call-template")) {
+    case XSL_CALL_TEMPLATE:
         return do_call_template(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "for-each")) {
+    case XSL_FOR_EACH:
         return do_for_each(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "if")) {
+    case XSL_IF: {
         int truth;
         if (eval_test(eng, node, &truth) < 0) {
             return -1;
         }
         return truth ? instantiate_body(eng, node, out_parent) : 0;
     }
-    if (is_xsl(eng, node, "choose")) {
+    case XSL_CHOOSE:
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
             if (is_xsl(eng, child, "when")) {
                 int truth;
@@ -3182,8 +3257,7 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
             }
         }
         return 0;
-    }
-    if (is_xsl(eng, node, "text")) {
+    case XSL_TEXT: {
         Py_UCS4 *text;
         Py_ssize_t text_len = 0;
         int rc = 0;
@@ -3202,19 +3276,15 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         }
         return 0;
     }
-    if (is_xsl(eng, node, "element")) {
+    case XSL_ELEMENT:
         return do_element(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "attribute")) {
+    case XSL_ATTRIBUTE:
         return do_attribute(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "copy")) {
+    case XSL_COPY:
         return do_copy(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "copy-of")) {
+    case XSL_COPY_OF:
         return do_copy_of(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "variable")) {
+    case XSL_VARIABLE: {
         Py_ssize_t name_len = 0;
         const Py_UCS4 *name = attr_lookup(eng->sheet_tree, node, "name", &name_len);
         if (name == NULL) {
@@ -3230,16 +3300,13 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         }
         return 0;
     }
-    if (is_xsl(eng, node, "number")) {
+    case XSL_NUMBER:
         return do_number(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "comment")) {
+    case XSL_COMMENT:
         return do_comment(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "processing-instruction")) {
+    case XSL_PI:
         return do_pi(eng, node, out_parent);
-    }
-    if (is_xsl(eng, node, "message")) {
+    case XSL_MESSAGE: {
         Py_ssize_t terminate_len = 0;
         const Py_UCS4 *terminate = attr_lookup(eng->sheet_tree, node, "terminate", &terminate_len);
         if (terminate != NULL && ucs4_ascii_eq(terminate, terminate_len, "yes")) {
@@ -3259,9 +3326,11 @@ static int instantiate_one(engine *eng, th_node *node, th_node *out_parent) {
         }
         return 0; /* a non-terminating message is discarded */
     }
-    /* sort, with-param and param are handled by their parent; anything else the core
-       does not model (fallback, apply-imports, ...) instantiates nothing. */
-    return 0;
+    default:
+        /* sort, with-param and param are handled by their parent; anything else the core
+           does not model (fallback, apply-imports, ...) instantiates nothing. */
+        return 0;
+    }
 }
 
 /* Instantiate every child of `body` (skipping the param declarations already bound). */
