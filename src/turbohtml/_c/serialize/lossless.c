@@ -42,7 +42,7 @@ static void sbuf_put_source(sbuf *out, th_tree *tree, Py_ssize_t start, Py_ssize
 }
 
 /* The WHATWG-conformant escaping the reserialized parts fall back to. */
-static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0};
+static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0};
 
 /* Emit a text node: its verbatim source span while it is still the zero-copy slice
    the parse left (character references and raw ampersands preserved), or the WHATWG

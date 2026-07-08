@@ -201,6 +201,12 @@ class Policy:
         when its tag is in ``tags``.
     :param allow_mathml: keep MathML-namespace elements, DOMPurify's ``USE_PROFILES.mathMl``. Off drops every MathML
         element even when its tag is in ``tags``.
+    :param xml: emit well-formed XML/XHTML instead of HTML, DOMPurify's ``RETURN_DOM`` served through the XML
+        serializer. Every kept empty element self-closes (``<br/>``), foreign SVG and MathML subtrees carry their
+        namespace declarations, text and attribute values follow the XML escaping rules, and a kept comment or a
+        stray control character is neutralized so the result reparses through :func:`turbohtml.parse_xml`. Use it to
+        clean an XHTML dialect (Reportlab's RML, ePub content) whose consumer rejects HTML's bare ``<br>``. Off (the
+        default) keeps the HTML serialization.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
@@ -228,6 +234,7 @@ class Policy:
     allow_html: bool = True
     allow_svg: bool = True
     allow_mathml: bool = True
+    xml: bool = False
 
     @classmethod
     def strict(cls) -> Policy:
@@ -313,7 +320,7 @@ class Sanitizer:
             or ``attribute_prefixes`` contains a non-string.
         :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
         """
-        return self._filter(html, None).inner_html
+        return self._render(self._filter(html, None))
 
     def sanitize_report(self, html: str) -> tuple[str, list[Removed]]:
         """
@@ -329,8 +336,12 @@ class Sanitizer:
         :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
         """
         removed: list[tuple[str, str | None]] = []
-        html_out = self._filter(html, removed).inner_html
+        html_out = self._render(self._filter(html, removed))
         return html_out, list(starmap(Removed, removed))
+
+    def _render(self, root: Element) -> str:
+        """Serialize the sanitized root's children as XML when the policy asks, else as HTML."""
+        return root.inner_xml if self.policy.xml else root.inner_html
 
     def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Element:
         """Run the C walk over a freshly parsed fragment, appending drops to ``removed`` when it is not None."""

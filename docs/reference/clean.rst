@@ -124,6 +124,21 @@ policy can keep SVG but not MathML:
 
     &lt;svg&gt;&lt;circle&gt;&lt;/circle&gt;&lt;/svg&gt;<math><mi>x</mi></math>
 
+``Policy.xml`` serializes the cleaned tree as well-formed XML/XHTML rather than HTML. The walk is unchanged, so the
+policy is exactly as safe; the difference is output syntax -- an empty element self-closes, values follow the XML
+escaping rules, a foreign root declares its namespace, and any comment, control character, or attribute name XML cannot
+hold is neutralized -- so the result reparses through :func:`turbohtml.parse_xml`. Use it to feed an XHTML dialect that
+rejects HTML's bare ``<br>``:
+
+.. testcode::
+
+    policy = Policy(tags=frozenset({"p", "br"}), xml=True)
+    print(sanitize("<p>one<br>two</p>", policy))
+
+.. testoutput::
+
+    <p>one<br/>two</p>
+
 .. autoclass:: Transform
 
 .. autoclass:: OnDisallowed

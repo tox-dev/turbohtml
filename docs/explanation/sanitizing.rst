@@ -68,6 +68,18 @@ choice about which content languages an application accepts at all. Keeping the 
 statement about intent, not a relaxation of the mutation-XSS defense that still governs how a MathML node may be
 reached.
 
+The ``xml`` flag sits outside the subtractive stack entirely: it changes how the surviving tree is *serialized*, not
+what survives. The walk is identical, and the safety baseline is unchanged, so an XML-mode policy is exactly as safe as
+its HTML-mode twin -- serializing more strictly cannot make a safe tree unsafe. What the XML serializer adds is
+well-formedness, which HTML does not require and XML does: an empty element self-closes, text and attribute values
+follow the XML escaping rules, a foreign root declares its namespace, and the two constructs HTML tolerates but XML
+forbids are neutralized in the serializer, not the walk -- a comment's ``--`` and trailing ``-`` gain a space, and a
+character outside XML's ``Char`` production (a C0 control, a lone surrogate) is dropped, along with an attribute whose
+name is not a valid XML name. Because this is a property of the one serialization pass rather than a second reparse, the
+sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared is emitted directly as XML, with no round
+trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector, serialized this way, reparses through
+:func:`turbohtml.parse_xml` without error.
+
 **Validated against DOMPurify.** ``tests/conformance/test_sanitizer_dompurify_conformance.py`` runs DOMPurify's own
 corpus (its ``test/fixtures/expect.mjs``, ~219 XSS vectors, vendored as a pinned submodule) through the sanitizer under
 every config, and diffs against a live DOMPurify Node build. The absolute result holds across the whole corpus and every

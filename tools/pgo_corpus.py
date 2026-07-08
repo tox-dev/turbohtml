@@ -225,6 +225,7 @@ _SPECIAL: Final[dict[str, Callable[[], list[object]]]] = {
     "structured": _structured_inputs,
     "socialcard": _socialcard_inputs,
     "sanitize": _sanitize_inputs,
+    "sanitize-xml": _sanitize_inputs,
     "article": _article_inputs,
     "boilerplate": _article_inputs,
     "date": _article_inputs,

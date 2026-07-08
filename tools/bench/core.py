@@ -94,6 +94,7 @@ _SANITIZER_CUSTOM = _clean.Sanitizer(
         custom_attribute_check=lambda _tag, name: name.startswith("data-"),
     )
 )
+_SANITIZER_XML = _clean.Sanitizer(replace(_clean.Policy.relaxed(), xml=True))
 _LINKS_BASE = "https://example.com/base/"
 _URL_HINT_BASE = "http://site.com/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
@@ -443,6 +444,11 @@ def sanitize_transform(text: str) -> None:
 def sanitize_custom_elements(text: str) -> None:
     """Sanitize keeping an app's x-* custom elements and their data-* attributes through the predicate path."""
     _SANITIZER_CUSTOM.sanitize(text)
+
+
+def sanitize_xml(text: str) -> None:
+    """Sanitize to well-formed XML/XHTML, exercising the XML serializer's self-close and escaping path."""
+    _SANITIZER_XML.sanitize(text)
 
 
 def markup(text: str) -> None:
@@ -850,6 +856,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "sanitize-styles": (sanitize_styles, "turbohtml"),
     "sanitize-transform": (sanitize_transform, "turbohtml"),
     "sanitize-custom-elements": (sanitize_custom_elements, "turbohtml"),
+    "sanitize-xml": (sanitize_xml, "turbohtml"),
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),

@@ -48,6 +48,9 @@ shelling out to Node.
     - - Content profiles
       - ``Policy.allow_html`` / ``allow_svg`` / ``allow_mathml``
       - ``USE_PROFILES: {html, svg, mathMl}``
+    - - XML/XHTML output
+      - ``Policy.xml`` (well-formed XML string)
+      - ``PARSER_MEDIA_TYPE: 'application/xhtml+xml'``, or ``RETURN_DOM`` for a DOM node to reserialize
     - - Typing
       - Fully annotated, ``py.typed``
       - TypeScript definitions
@@ -161,6 +164,28 @@ allowlist as the source of truth and adds three orthogonal namespace gates -- ``
 .. testoutput::
 
     <svg><circle></circle></svg>&lt;math&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;/math&gt;
+
+XML/XHTML output
+================
+
+DOMPurify hands back an HTML string by default; to clean an XHTML dialect you switch it to ``PARSER_MEDIA_TYPE:
+'application/xhtml+xml'`` (or take ``RETURN_DOM`` and reserialize the node yourself). turbohtml's port is
+``Policy.xml``: the same allowlist walk runs, but the cleared tree serializes as well-formed XML instead of HTML. Every
+empty element self-closes, text and attribute values follow the XML escaping rules, foreign SVG and MathML subtrees
+declare their namespace, and a kept comment or a stray control character is neutralized, so the output always reparses
+through :func:`turbohtml.parse_xml`. It is the fix for the bare ``<br>`` that a bleach-based cleaner has to patch with a
+brittle ``.replace("<br>", "<br/>")`` when its consumer -- Reportlab's RML, an ePub content document -- is strict XML:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(tags=frozenset({"p", "br", "b"}), xml=True)
+    print(sanitize("<p>line one<br>line two <b>bold</b></p>", policy))
+
+.. testoutput::
+
+    <p>line one<br/>line two <b>bold</b></p>
 
 Performance
 ===========

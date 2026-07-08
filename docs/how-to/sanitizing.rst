@@ -180,6 +180,28 @@ later parse breaks *out* of it; a raw carriage return in text also becomes a new
 all of that in its one pass, so the string it returns is inert. Reparsing and reserializing that string can yield a
 different string that is still inert. The guarantee is inertness, not byte-stable output across a round trip.
 
+****************************
+ Emit well-formed XML/XHTML
+****************************
+
+An XHTML dialect (Reportlab's RML, an ePub content document, an XML feed body) rejects HTML's bare ``<br>``: every empty
+element has to self-close, and text has to follow the XML escaping rules. Set ``xml`` on the policy and the same walk
+serializes its result as XML instead of HTML -- ``<br>`` becomes ``<br/>``, foreign SVG and MathML subtrees carry their
+namespace declarations, and a kept comment or a stray control character is neutralized, so the output always reparses
+through :func:`turbohtml.parse_xml`. That replaces the brittle ``.replace("<br>", "<br/>")`` pass a bleach-based cleaner
+needs.
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    policy = Policy(tags=frozenset({"p", "br", "b"}), xml=True)
+    print(sanitize("<p>line one<br>line two <b>bold</b></p>", policy))
+
+.. testoutput::
+
+    <p>line one<br/>line two <b>bold</b></p>
+
 *****************************
  See what the policy dropped
 *****************************

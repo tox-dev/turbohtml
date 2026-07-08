@@ -62,6 +62,20 @@ escapes the elements it removes rather than discarding their text:
 
     <a>x</a> <b>bold</b>&lt;script&gt;bad()&lt;/script&gt;
 
+If the target is an XHTML dialect rather than HTML -- an ePub document, or an XML template that will not accept a bare
+``<br>`` -- set ``xml`` on the :class:`~turbohtml.clean.Policy` and the cleaned tree serializes as well-formed XML,
+every empty element self-closed:
+
+.. testcode::
+
+    from turbohtml.clean import sanitize, Policy
+
+    print(sanitize("<p>one<br>two</p>", Policy(tags=frozenset({"p", "br"}), xml=True)))
+
+.. testoutput::
+
+    <p>one<br/>two</p>
+
 *******************
  Shrink the output
 *******************

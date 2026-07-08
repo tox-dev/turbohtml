@@ -1,0 +1,8 @@
+:class:`~turbohtml.clean.Policy` gained ``xml``: with it on, the sanitizer serializes the cleaned tree as well-formed
+XML/XHTML instead of HTML. Every kept empty element self-closes (``<br/>``), foreign SVG and MathML subtrees declare
+their namespace, text and attribute values follow the XML escaping rules, and a kept comment, a control character
+outside XML's ``Char`` production, or an attribute name XML cannot hold is neutralized, so the output always reparses
+through :func:`turbohtml.parse_xml`. The walk and the safety baseline are unchanged, so an XML-mode policy is exactly as
+safe as its HTML-mode twin. This clones DOMPurify's ``PARSER_MEDIA_TYPE: 'application/xhtml+xml'`` and replaces the
+brittle ``.replace("<br>", "<br/>")`` a bleach-based cleaner needs to feed a strict XHTML consumer such as Reportlab's
+RML. :attr:`turbohtml.Node.inner_xml` exposes the same children-only XML serialization for any node.

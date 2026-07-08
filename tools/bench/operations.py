@@ -275,6 +275,7 @@ OPERATIONS: dict[str, Operation] = {
     "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
     "sanitize-transform": Operation("sanitize (tag transform)", "us"),
     "sanitize-custom-elements": Operation("sanitize (custom elements)", "us"),
+    "sanitize-xml": Operation("sanitize (XML/XHTML output)", "us"),
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
@@ -661,6 +662,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),
     "sanitize-custom-elements": lambda: (("custom 4 KiB", _SANITIZE_CUSTOM * 11),),
+    "sanitize-xml": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "markup": lambda: _MARKUP_ESCAPE_CASES,
     "markup-op": lambda: (
         ("striptags", ("striptags", _MARKUP_OPS_HTML)),

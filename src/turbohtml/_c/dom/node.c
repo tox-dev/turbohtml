@@ -513,6 +513,14 @@ static PyObject *node_get_inner_html(PyObject *self, void *Py_UNUSED(closure)) {
     return result;
 }
 
+static PyObject *node_get_inner_xml(PyObject *self, void *Py_UNUSED(closure)) {
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    result = str_from_accessor(th_node_inner_xml, tree_of(self), ((NodeObject *)self)->node);
+    Py_END_CRITICAL_SECTION();
+    return result;
+}
+
 PyDoc_STRVAR(to_markdown_doc, "to_markdown(options=None)\n--\n\n"
                               "Render this node and its subtree as Markdown. The defaults emit opinionated\n"
                               "GitHub-Flavored Markdown.\n\n"
@@ -1263,6 +1271,7 @@ static PyGetSetDef node_getset[] = {
     {"text", node_get_text, NULL, "the concatenated character data of every Text descendant", NULL},
     {"html", node_get_html, NULL, "the HTML serialization of this node and its subtree", NULL},
     {"inner_html", node_get_inner_html, NULL, "the HTML serialization of this node's children", NULL},
+    {"inner_xml", node_get_inner_xml, NULL, "the well-formed XML/XHTML serialization of this node's children", NULL},
     {"source_line", node_get_source_line, NULL,
      "the 1-based source line of this element's start tag, or None if unavailable", NULL},
     {"source_col", node_get_source_col, NULL,
@@ -1788,7 +1797,7 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
    encode); it is borrowed only for the duration of the call. */
 static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj, int sort_attributes,
                                     int meta_charset, int xml, const char *charset) {
-    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml};
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset), xml, 0};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }
@@ -2015,7 +2024,7 @@ static PyObject *node_to_source(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj,
                                           int sort_attributes, int meta_charset, int xml) {
     module_state *state = state_of(self);
-    th_serialize_opts opts = {0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml};
+    th_serialize_opts opts = {0, sort_attributes, meta_charset, "utf-8", (Py_ssize_t)strlen("utf-8"), xml, 0};
     if (resolve_formatter(state, formatter_obj, &opts.formatter) < 0) {
         return NULL;
     }

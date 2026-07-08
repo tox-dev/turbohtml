@@ -405,6 +405,12 @@ Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
    compact. PyMem-allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
+/* Serialize only node's children as well-formed XML/XHTML: empty elements self-close,
+   values follow the XML escaping rules, foreign subtrees declare their namespace, and
+   comments and character data are neutralized so the result always reparses. PyMem-
+   allocated; *out_len receives the length. NULL on failure. */
+Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+
 /* Output-shaping options shared by serialize() and encode(): the escape formatter
    plus two opt-in normalizations that leave the tree untouched. Every field is
    off (zero / NULL) by default, so the common serialize costs nothing. */
@@ -414,7 +420,9 @@ typedef struct {
     int inject_meta;     /* ensure <head> declares <meta charset=charset> */
     const char *charset; /* ASCII encoding label for the injected/normalized meta */
     Py_ssize_t charset_len;
-    int xml; /* XML/XHTML syntax: self-close empty elements, XML escaping, foreign namespace decls */
+    int xml;         /* XML/XHTML syntax: self-close empty elements, XML escaping, foreign namespace decls */
+    int well_formed; /* implies xml: also drop non-XML characters, neutralize comments, and skip an attribute
+                        whose name or duplicate xmlns XML cannot hold, for the sanitizer's inner_xml */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

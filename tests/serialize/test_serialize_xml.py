@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET  # noqa: S405  # parsing turbohtml's own
 
 import pytest
 
-from turbohtml import Element, Formatter, Html, Indent, Minify, ProcessingInstruction, Text, parse
+from turbohtml import Element, Formatter, Html, Indent, Minify, Node, ProcessingInstruction, Text, parse
 
 _XML = Html(xml=True)
 
@@ -197,3 +197,107 @@ def test_round_trip_reparses_to_same_html() -> None:
     reparsed = parse(node.serialize(_XML)).select_one("div")
     assert reparsed is not None
     assert reparsed.serialize() == node.serialize()
+
+
+def _inner_xml(node: Node) -> str:
+    """Serialize one node through the well-formed inner_xml path (Node.serialize keeps the raw XML syntax)."""
+    return Element("root", children=[node]).inner_xml
+
+
+def _parsed_inner_xml(markup: str) -> str:
+    """Serialize parsed markup through inner_xml, for nodes (foreign, tag-soup names) the constructor rejects."""
+    node = parse(f"<div>{markup}</div>").select_one("div")
+    assert node is not None
+    return node.inner_xml
+
+
+def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
+    from turbohtml import Comment  # noqa: PLC0415  # local: only this raw-vs-well-formed contrast needs the leaf
+
+    node = Element("doc", children=[Comment("a--b")])
+    assert node.serialize(_XML) == "<doc><!--a--b--></doc>"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param("note", "<!--note-->", id="benign-unchanged"),
+        pytest.param("a--b", "<!--a- -b-->", id="double-hyphen-split"),
+        pytest.param("a---b", "<!--a- - -b-->", id="triple-hyphen-split"),
+        pytest.param("end-", "<!--end- -->", id="trailing-hyphen-spaced"),
+        pytest.param("--", "<!--- - -->", id="only-hyphens"),
+        pytest.param("a\x0cb", "<!--ab-->", id="control-char-dropped"),
+    ],
+)
+def test_inner_xml_comment_is_made_well_formed(body: str, expected: str) -> None:
+    from turbohtml import Comment  # noqa: PLC0415  # local: only this comment-body suite needs the leaf type
+
+    out = _inner_xml(Comment(body))
+    assert out == expected
+    ET.fromstring(f"<doc>{out}</doc>")  # noqa: S314  # our own output, parsed to assert the neutralized comment reparses
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("a\x0cb", "ab", id="form-feed-dropped"),
+        pytest.param("a\x01b", "ab", id="control-dropped"),
+        pytest.param("a\tb", "a\tb", id="tab-kept"),
+        pytest.param("a\ud800b", "ab", id="surrogate-dropped"),
+        pytest.param("a\ufffeb", "ab", id="noncharacter-fffe-dropped"),
+        pytest.param("a\uffffb", "ab", id="noncharacter-ffff-dropped"),
+        pytest.param("a\U0001f600b", "a\U0001f600b", id="astral-kept"),
+    ],
+)
+def test_inner_xml_drops_characters_absent_from_xml(text: str, expected: str) -> None:
+    assert _inner_xml(Element("p", children=[Text(text)])) == f"<p>{expected}</p>"
+
+
+def test_inner_xml_drops_invalid_characters_in_attribute_values() -> None:
+    assert _inner_xml(Element("p", {"title": "a\x0cb&c"})) == '<p title="ab&amp;c"/>'
+
+
+def test_inner_xml_serializes_children_only() -> None:
+    node = _fragment("<div><br><p>x&amp;y</p></div>", "div")
+    assert node.inner_xml == "<br/><p>x&amp;y</p>"
+    assert node.inner_html == "<br><p>x&amp;y</p>"
+
+
+def test_inner_xml_does_not_duplicate_a_stored_xmlns() -> None:
+    out = _parsed_inner_xml('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')
+    assert out.count("xmlns=") == 1
+    assert out == '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
+
+
+def test_inner_xml_does_not_duplicate_a_stored_xmlns_prefix() -> None:
+    out = _parsed_inner_xml('<svg xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x"></svg>')
+    assert out.count("xmlns:xlink=") == 1
+    ET.fromstring(out)  # noqa: S314  # our own output, parsed to assert the single declaration is well-formed
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<b <script>x</b>", "<b>x</b>", id="invalid-first-char"),
+        pytest.param('<p a"b=1>x', "<p>x</p>", id="invalid-later-char"),
+    ],
+)
+def test_inner_xml_drops_attributes_with_invalid_names(markup: str, expected: str) -> None:
+    out = _parsed_inner_xml(markup)
+    assert out == expected
+    ET.fromstring(out)  # noqa: S314  # our own output, parsed to assert dropping the bad name left it well-formed
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param({"ü": "1"}, '<p ü="1"/>', id="non-ascii-start"),
+        pytest.param({"data-ü": "1"}, '<p data-ü="1"/>', id="non-ascii-later"),
+        pytest.param({"data-x": "1"}, '<p data-x="1"/>', id="ascii-name-kept"),
+        pytest.param({"aria-hidden": "1"}, '<p aria-hidden="1"/>', id="eleven-char-name-not-a-declaration"),
+        pytest.param({"xmlns": "urn:x"}, '<p xmlns="urn:x"/>', id="xmlns-kept-when-not-a-foreign-root"),
+        pytest.param({"xmlns:xlink": "urn:x"}, '<p xmlns:xlink="urn:x"/>', id="xmlns-prefix-kept-without-xlink-attr"),
+    ],
+)
+def test_inner_xml_keeps_valid_attribute_names(attributes: dict[str, str], expected: str) -> None:
+    assert _inner_xml(Element("p", attributes)) == expected
