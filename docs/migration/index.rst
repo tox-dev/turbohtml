@@ -734,113 +734,13 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
 
 .. toctree::
     :hidden:
-    :maxdepth: 1
-    :caption: Parse & DOM
+    :maxdepth: 2
 
-    beautifulsoup
-    lxml
-    html5lib
-    selectolax
-    resiliparse
-    mechanicalsoup
-    html5-parser
-    stdlib
-    parse5
-    jsdom
-    lol-html
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Detect
-
-    charset-normalizer
-    chardet
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Query
-
-    soupsieve
-    parsel
-    pyquery
-    cssutils
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Clean
-
-    linkify-it-py
-    bleach
-    nh3
-    lxml-html-clean
-    rcssmin
-    rjsmin
-    jsmin
-    minify-html
-    htmlmin
-    csscompressor
-    html-sanitizer
-    calmjs-parse
-    html5validator
-    lightningcss
-    sanitize-html
-    dompurify
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Convert
-
-    cssselect
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Extract
-
-    pandas
-    w3lib
-    trafilatura
-    courlan
-    extruct
-    justext
-    readability-lxml
-    readabilipy
-    metadata_parser
-    newspaper3k
-    boilerpy3
-    goose3
-    microdata
-    news-please
-    opengraph
-    htmldate
-    feedparser
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Build
-
-    dominate
-    yattag
-    htbuilder
-    htpy
-    airium
-    markyp
-    fast-html
-    simple-html
-    hyperpython
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-    :caption: Serialize
-
-    markupsafe
-    markdownify
-    html2text
-    inscriptis
-    html-text
+    parse-and-dom
+    detect
+    query
+    clean
+    convert
+    extract
+    build
+    serialize
