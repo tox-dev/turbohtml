@@ -42,6 +42,7 @@ It is the wrong tool in a few honest cases:
     validation
     conformance
     sax
+    treebuild
     streaming
     source-locations
     tree-model

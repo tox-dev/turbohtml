@@ -144,6 +144,40 @@ The ``<tbody>`` no one wrote is there, and ``stray`` was moved out ahead of the 
 builds, delivered as events rather than nodes. If you prefer callbacks over a loop, subclass
 :class:`~turbohtml.saxparse.SaxHandler` and pass it to :func:`~turbohtml.saxparse.sax_parse`.
 
+When the thing you are building *is* a tree -- an index, a diff, or another library's nodes -- reach for
+:func:`turbohtml.treebuild.parse_into`. It runs the same tree builder and calls a builder object of yours for each node,
+handing you the parent so you assemble structure directly, with no tree of turbohtml's own. Here a builder skims the
+heading outline as the parse runs:
+
+.. testcode::
+
+    from turbohtml.treebuild import parse_into
+
+
+    class Outline:
+        def __init__(self):
+            self.headings = []
+
+        def create_element(self, tag, namespace, attrs):
+            if tag in {"h1", "h2", "h3"}:
+                self.headings.append(tag)
+
+        def create_document(self): ...
+        def create_doctype(self, name, public_id, system_id): ...
+        def create_text(self, data): ...
+        def create_comment(self, data): ...
+        def create_pi(self, data): ...
+        def append(self, parent, child): ...
+
+
+    outline = Outline()
+    parse_into("<h1>Title</h1><p>x</p><h2>Sub</h2>", outline)
+    print(outline.headings)
+
+.. testoutput::
+
+    ['h1', 'h2']
+
 When you want to *change* the markup as it streams rather than just observe it, :func:`turbohtml.rewrite.rewrite`
 transforms a document in one pass without building a tree. You register a CSS selector and a handler; the handler edits
 each matching element in place, and everything you do not touch is copied through verbatim. Here every external link

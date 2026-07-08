@@ -33,6 +33,23 @@ below.
 
 .. autoexception:: HTMLParseError
 
+*********************
+ turbohtml.treebuild
+*********************
+
+.. module:: turbohtml.treebuild
+
+Retarget the parser at a tree you control. :func:`parse_into` runs the same WHATWG tree builder and drives a builder
+object -- one ``create_*`` per node kind plus an ``append`` -- to construct the tree directly, with no navigable
+:class:`~turbohtml.Node` materialized and no second walk. It is Rust html5ever's ``TreeSink`` and Node parse5's
+``TreeAdapter`` in turbohtml shape. See :doc:`/explanation/treebuild` for how it differs from the SAX stream and
+:doc:`/how-to/treebuild` for worked builders.
+
+.. autofunction:: parse_into
+
+.. autoclass:: TreeBuilder
+    :members:
+
 ****************************
  turbohtml.migration.stdlib
 ****************************

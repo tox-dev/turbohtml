@@ -36,6 +36,8 @@ SNIPPET_IGNORE = (
     "E401",  # comparison imports are grouped on one line
     "E402",  # imports follow prose-driven setup statements
     "ARG001",  # illustrative callbacks accept arguments they ignore
+    "ARG002",  # ... and illustrative builder/adapter methods ignore protocol arguments
+    "PLR6301",  # a builder/handler example implements instance methods that need not touch self
 )
 
 

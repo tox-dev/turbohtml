@@ -110,6 +110,57 @@ default for whole-document :func:`~turbohtml.parse` (a browser navigation), off 
 :meth:`~turbohtml.Element.assigned_nodes`, and :attr:`~turbohtml.Node.flattened_children` -- the same API a scripted
 :meth:`~turbohtml.Element.attach_shadow` produces.
 
+**********************
+ Custom tree adapters
+**********************
+
+parse5's ``treeAdapter`` option lets you retarget the parser at a tree of your own rather than its default object model,
+the way jsdom plugs in its own node types. turbohtml's :func:`turbohtml.treebuild.parse_into` is the same idea: pass a
+builder object and it drives the WHATWG tree builder straight into your representation, no :class:`~turbohtml.Document`
+built on the way. The method set lines up with a parse5 adapter -- ``create_element`` receives a namespace URI and the
+attributes as ``(name, value)`` pairs, ``append`` links a child under its parent -- so an adapter ports to a builder
+method for method:
+
+.. testcode::
+
+    from turbohtml.treebuild import parse_into
+
+
+    class Adapter:
+        def create_document(self):
+            return {"tag": "#document", "children": []}
+
+        def create_doctype(self, name, public_id, system_id):
+            return {"tag": "#doctype", "children": []}
+
+        def create_element(self, name, namespace, attrs):
+            return {"tag": name, "ns": namespace, "children": []}
+
+        def create_text(self, data):
+            return {"tag": "#text", "children": []}
+
+        def create_comment(self, data):
+            return {"tag": "#comment", "children": []}
+
+        def create_pi(self, data):
+            return {"tag": "#pi", "children": []}
+
+        def append(self, parent, child):
+            parent["children"].append(child)
+
+
+    document = parse_into("<a href=/x>link</a>", Adapter())
+    anchor = document["children"][0]["children"][1]["children"][0]
+    print(anchor["tag"], anchor["ns"])
+
+.. testoutput::
+
+    a http://www.w3.org/1999/xhtml
+
+Where parse5 folds ``<?...>`` into a comment, turbohtml routes it to a separate ``create_pi`` so you can keep it
+distinct, and a ``<template>``'s content is appended straight under the template handle. See :doc:`/how-to/treebuild`
+for the full builder recipe.
+
 ****************
  How to migrate
 ****************

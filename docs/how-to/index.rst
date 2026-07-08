@@ -17,6 +17,7 @@ ending with running the toolkit from a shell.
     conformance
     tokenizing
     sax
+    treebuild
     rewriting
     forms
     editing

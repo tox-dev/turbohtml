@@ -1,0 +1,9 @@
+A new :mod:`turbohtml.treebuild` module retargets the parser at a tree of your own.
+:func:`turbohtml.treebuild.parse_into` runs the WHATWG tree builder and drives a builder object -- a ``create_*`` method
+per node kind plus an ``append`` that links a child under its parent -- to construct the tree directly, returning
+whatever the builder made its document root. No navigable :class:`turbohtml.Node` is materialized and the tree is walked
+only once, so an index, a diff tree, or another library's nodes is populated straight from the parse rather than by a
+second descent. Each element carries its namespace URI and its attributes as ``(name, value)`` pairs, a ``<template>``'s
+content is appended under the template handle, and a bogus ``<?...>`` construct reaches a distinct ``create_pi``. This
+is Rust html5ever's ``TreeSink`` and Node parse5's ``TreeAdapter`` in turbohtml shape; the tree construction, the walk,
+and the string extraction all run in C.
