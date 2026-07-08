@@ -1,0 +1,1 @@
+Keep controls inside the first ``<legend>`` child of a disabled ``<fieldset>`` in ``form_data()`` output.
