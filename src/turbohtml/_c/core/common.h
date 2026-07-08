@@ -62,7 +62,7 @@ PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
 
-/* Implemented in features/cssom.c: the CSS Object Model cascade (issue #546).
+/* Implemented in cssom/cssom.c: the CSS Object Model cascade (issue #546).
    _css_parse_declarations(text) and _css_parse_rules(text) parse a declaration block
    and a whole stylesheet (both METH_O); _css_computed_style(element) resolves the
    cascade for one element and returns its computed longhands (METH_O). */
@@ -158,7 +158,7 @@ PyObject *turbohtml_node_links(PyObject *owner, struct th_tree *tree, struct th_
 PyObject *turbohtml_node_rewrite_links(PyObject *owner, struct th_tree *tree, struct th_node *root, PyObject *replace);
 PyObject *turbohtml_node_resolve_links(PyObject *owner, struct th_tree *tree, struct th_node *root, PyObject *base_url);
 
-/* Implemented in features/structured_data.c, the engine behind the Document.structured_data()/json_ld()/opengraph()/
+/* Implemented in extract/structured_data.c, the engine behind the Document.structured_data()/json_ld()/opengraph()/
    microdata() methods (wired into the document method table in dom/document.c). Each gathers one structured-data format
    from the document in a pure-C tree walk under the per-tree critical section. structured_data()/opengraph()/
    microdata() match METH_VARARGS | METH_KEYWORDS for their optional base_url that absolutizes URL-valued fields;
@@ -174,7 +174,7 @@ PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwar
 PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *unused);
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args);
 
-/* Implemented in features/feed.c, the engine behind Document.feed() (wired into the document method table in
+/* Implemented in extract/feed.c, the engine behind Document.feed() (wired into the document method table in
    dom/document.c). Normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record in a pure-C tree walk
    under the per-tree critical section, handing the gathered fields to the Feed / Entry NamedTuple classes the facade
    defines. _register_feed (METH_VARARGS) stores those two classes. */
@@ -197,7 +197,7 @@ PyObject *turbohtml_element_table_rows(PyObject *owner, struct th_tree *tree, st
 PyObject *turbohtml_element_table_records(PyObject *owner, struct th_tree *tree, struct th_node *table);
 PyObject *turbohtml_node_tables(PyObject *owner, struct th_tree *tree, struct th_node *root);
 
-/* Implemented in features/dates.c, the pure date-string parser turbohtml._dates
+/* Implemented in extract/dates.c, the pure date-string parser turbohtml._dates
    delegates instead of the datetime module and its re patterns. _date_scan(text,
    year) returns the first numeric date (ISO 8601, an 8-digit stamp, or a
    day-month-year spelling) as a (year, month, day) tuple or None; _date_scan_all

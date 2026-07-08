@@ -145,7 +145,9 @@ mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation
             serialize/       # HTML, minify, markdown, text, escape/unescape
             query/           # css/, xpath/, find/ selection engines
             encoding/        # charset prescan and detection
-            features/        # sanitize, linkify, links, annotation
+            clean/           # sanitize, linkify
+            extract/         # readability, structured data, dates, tables, links, feed, annotation
+            cssom/           # CSS Object Model cascade and computed style
             data/            # generated tables (do not edit)
     tools/generate_*.py      # regenerate the data/ tables
     tests/                   # pytest suite, mirroring src/turbohtml/_c/
@@ -170,22 +172,27 @@ Each ``_c/`` subdirectory owns one subsystem:
       - The tree builder (``tree.c``) and the node object model split by PyType (``node``, ``element``, ``leaf``,
         ``document``, ``formatters``).
     - - ``serialize/``
-      - Output modes over a built tree: html5lib ``#document``, minify, markdown, layout text, readability; plus
-        escape/unescape and the markupsafe surface.
+      - Output modes over a built tree: html5lib ``#document``, minify, markdown, layout text; plus escape/unescape and
+        the markupsafe surface.
     - - ``query/``
       - The selection engines, one per subdirectory: ``css/`` (selector matching), ``xpath/`` (XPath 1.0 + EXSLT),
         ``find/`` (``find``/``find_all``).
     - - ``encoding/``
       - Charset prescan and content-based encoding detection.
-    - - ``features/``
-      - Transforms over a finished tree: ``sanitize``, ``linkify``, ``links``, ``annotation``.
+    - - ``clean/``
+      - Transforms that rewrite a finished tree in place: ``sanitize``, ``linkify``.
+    - - ``extract/``
+      - Pull structured content out of a finished tree: ``readability``, ``structured_data``, ``dates``, ``tables``,
+        ``links``, ``feed``, ``annotation``.
+    - - ``cssom/``
+      - The CSS Object Model cascade and ``getComputedStyle`` over a finished tree.
     - - ``data/``
       - Generated static tables (tag and attribute atoms, HTML entities, TLDs). Regenerate with ``tools/generate_*.py``.
 
 Input bytes pass through ``encoding/`` (when detection is requested), then ``tokenizer/`` turns them into tokens, and
 ``dom/tree.c`` builds the node tree with the WHATWG insertion-mode algorithm. From a built tree you query it
-(``query/``), serialize it (``serialize/``), or transform it (``features/``). The Python node types in ``dom/`` wrap the
-C tree and expose all of this to users.
+(``query/``), serialize it (``serialize/``), clean it (``clean/``), or extract from it (``extract/``). The Python node
+types in ``dom/`` wrap the C tree and expose all of this to users.
 
 .. _architecture-decisions:
 
