@@ -30,9 +30,52 @@ counterpart and supports the free-threaded build.
 .. important::
 
     Learn this rule first: turbohtml models text as real **child nodes** following the `WHATWG DOM
-    <https://dom.spec.whatwg.org/>`_ shape, where `lxml <https://lxml.de>`_ uses ``text``/``tail`` and `BeautifulSoup
-    <https://www.crummy.com/software/BeautifulSoup/>`_ uses ``.string``. So ``node[i]`` indexes a node's children, and
-    attributes are reached through ``node.attrs``, never ``node["attr"]``.
+    <https://dom.spec.whatwg.org/>`_ shape, so ``node[i]`` indexes a node's children and attributes are reached through
+    ``node.attrs``, never ``node["attr"]``. The :doc:`how-to/troubleshooting` guide covers this and the other habits
+    that trip up a first session.
+
+************
+ Start here
+************
+
+.. grid:: 1 2 2 3
+    :gutter: 3
+
+    .. grid-item-card:: Tutorials
+        :link: tutorials/index
+        :link-type: doc
+
+        Learn turbohtml by doing, one runnable step at a time.
+
+    .. grid-item-card:: How-to guides
+        :link: how-to/index
+        :link-type: doc
+
+        Task recipes you can lift straight into your code.
+
+    .. grid-item-card:: Reference
+        :link: reference
+        :link-type: doc
+
+        The complete public API, grouped by namespace.
+
+    .. grid-item-card:: Explanation
+        :link: explanation/index
+        :link-type: doc
+
+        How the C core is built and why it makes its choices.
+
+    .. grid-item-card:: Migration
+        :link: migration/index
+        :link-type: doc
+
+        Port from the 65 libraries turbohtml replaces.
+
+    .. grid-item-card:: Troubleshooting
+        :link: how-to/troubleshooting
+        :link-type: doc
+
+        Symptoms and fixes for the common first-session snags.
 
 *******************
  Design principles

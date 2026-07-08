@@ -40,22 +40,46 @@ discoverable.
 turbohtml models text as real child nodes following the WHATWG DOM shape, so `node[i]` indexes children and attributes
 are reached through `node.attrs`.
 
+The dominant scraping workflow — isolate the article and hand it to a language model as Markdown — is two calls:
+
+```python
+import turbohtml
+
+html = "<body><nav>Home</nav><article><h1>Tea</h1><p>Loose-leaf tea steeps best just off the boil.</p></article><aside>Ads</aside></body>"
+doc = turbohtml.parse(html)
+print(doc.main_content().to_markdown())
+# # Tea
+#
+# Loose-leaf tea steeps best just off the boil.
+```
+
+`main_content` scores out the navigation and sidebars, and `to_markdown` renders the article, replacing a
+readability-plus-markdownify pipeline with no intermediate string.
+
 ## Capabilities
 
 | Task              | API                                                                                                    |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
 | Escape / unescape | `escape`, `unescape` — byte-for-byte with `html.escape`/`html.unescape`                                |
 | Tokenize          | `tokenize`, `Tokenizer` — WHATWG streaming tokenizer with incremental `feed`/`close`                   |
-| Parse             | `parse`, `parse_fragment`, `IncrementalParser` — encoding sniffing and source positions                |
-| Query             | `find`/`find_all`, CSS `select`/`select_one`, XPath `xpath`/`xpath_one`                                |
+| Parse             | `parse`, `parse_fragment`, `parse_xml`, `IncrementalParser` — encoding sniffing and source positions   |
+| Detect            | `detect`, `detect_all` — standalone encoding detection (the `chardet`/`charset-normalizer` successor)  |
+| Query             | `find`/`find_all`, CSS `select`/`select_one`, XPath `xpath`/`xpath_one`, `matches`/`closest`           |
+| Computed style    | `computed_style` — resolve the CSS cascade to a computed value (CSSOM)                                 |
+| Convert           | `css_to_xpath` — translate a CSS selector to XPath 1.0 (the `cssselect` successor)                     |
+| Transform         | `transform.Transform` — apply an XSLT 1.0 stylesheet                                                   |
+| Validate          | `validate.XMLSchema`, `RelaxNG`, and HTML5 authoring conformance checks                                |
 | Serialize         | `serialize`/`encode` with an `Html` config (`Formatter` escaping, `Indent`/`Minify` whitespace)        |
-| Minify JS         | `minify_js` with a `JSMinify` config, and `Minify(minify_js=...)` to minify inline `<script>`          |
+| Minify            | `minify` (HTML), `minify_css`, `minify_js` — value-safe, and `Minify(minify_js=...)` for `<script>`    |
 | Sanitize          | `sanitize` — allowlist scrub of untrusted HTML (the `bleach.clean` successor)                          |
 | Linkify           | `linkify` — auto-link URLs and emails without touching existing links (the `bleach.linkify` successor) |
+| Rewrite           | `rewrite.rewrite` — edit markup in one streaming pass, no tree (the `lol-html` successor)              |
+| Forms             | `field_value`, `checked`, `form_data` — read and submit form controls with WHATWG semantics            |
 | Markdown          | `to_markdown` with a `Markdown` config — GitHub-Flavored Markdown export                               |
 | Plain text        | `to_text`, `to_annotated_text` with a `PlainText` config — layout-aware text, optional labeled spans   |
-| Extract           | `tables`, `structured_data` (JSON-LD / Microdata / OpenGraph), `article` (main content)                |
+| Extract           | `tables`, `structured_data` (JSON-LD / Microdata / OpenGraph), `article` (main content), `feed`        |
 | Build / edit      | `Element`, `E`/`ElementMaker`, `unwrap`/`wrap`/`decompose`/`replace_with` and live `attrs`             |
+| Command line      | the `turbohtml` console script — `to-markdown`, `to-text`, `detect`, `minify`, `sanitize` over stdin   |
 | Migration         | `turbohtml.migration.*` — drop-in shims for `markupsafe` and template autoescaping                     |
 
 ## Performance
@@ -63,20 +87,21 @@ are reached through `node.attrs`.
 On an Apple M4 measured with [pyperf](https://pyperf.readthedocs.io), `parse` builds a full WHATWG tree 2–5× faster than
 the C parsers [lxml](https://lxml.de) and [selectolax](https://github.com/rushter/selectolax) and 30–80× faster than
 [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/), and `tokenize` runs 9–15× faster than `html.parser`.
-See the [performance page](https://turbohtml.readthedocs.io/en/latest/development/performance.html) for the full tables
+See the [performance page](https://turbohtml.readthedocs.io/en/stable/development/performance.html) for the full tables
 and methodology.
 
 ## Design principles
 
 turbohtml puts the hot path in C over a single bump-allocated arena, exposes one fully-typed Python name per concept,
 conforms to the WHATWG HTML standard, is free-threading ready, and carries no native dependencies. The full list lives
-in the [design principles](https://turbohtml.readthedocs.io/en/latest/#design-principles).
+in the [design principles](https://turbohtml.readthedocs.io/en/stable/#design-principles).
 
 ## Migration
 
 turbohtml is a clean break, not an API-compatible replacement. The
-[migration guides](https://turbohtml.readthedocs.io/en/latest/migration/) translate code from pandas, markupsafe,
-BeautifulSoup, lxml, html5lib, the standard library, and 20+ other libraries, ordered by adoption.
+[migration guides](https://turbohtml.readthedocs.io/en/stable/migration/) translate code from 65 libraries —
+BeautifulSoup, lxml, html5lib, pandas, markupsafe, and the standard library among them — each mapped to the namespace
+that replaces it, ordered by adoption.
 
 ## Documentation
 
@@ -85,4 +110,4 @@ Full documentation — tutorials, how-to guides, migration guides, the API refer
 
 ## License
 
-`turbohtml` is released under the [MIT license](LICENSE). </content> </invoke>
+`turbohtml` is released under the [MIT license](LICENSE).

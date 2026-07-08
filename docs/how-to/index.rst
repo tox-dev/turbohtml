@@ -103,6 +103,7 @@ ending with running the toolkit from a shell.
 
 .. toctree::
     :maxdepth: 1
-    :caption: Command line
+    :caption: Getting help
 
     cli
+    troubleshooting
