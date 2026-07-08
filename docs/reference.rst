@@ -19,7 +19,8 @@ translates CSS selectors to XPath 1.0 (:doc:`reference/convert`) and applies an 
 Microdata, and OpenGraph records (:doc:`reference/structured-data`) out of a page. **Build** constructs a tree in code
 (:doc:`reference/build`), and **Serialize** renders one back to HTML, Markdown, or plain text
 (:doc:`reference/serialize`). **Validate** checks a document against an XSD 1.0 or RELAX NG schema
-(:doc:`reference/validate`) and runs the HTML5 authoring-conformance rules (:doc:`reference/conformance`).
+(:doc:`reference/validate`) and runs the HTML5 authoring-conformance rules (:doc:`reference/conformance`). **Command
+line** wraps that surface for the shell, one subcommand per entry point (:doc:`reference/cli`).
 
 .. currentmodule:: turbohtml
 
@@ -84,3 +85,9 @@ Microdata, and OpenGraph records (:doc:`reference/structured-data`) out of a pag
 
     reference/validate
     reference/conformance
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Command line
+
+    reference/cli

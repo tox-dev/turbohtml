@@ -85,6 +85,7 @@ type = [
 docs = [
   "furo>=2025.12.19",
   "sphinx>=9.1",
+  "sphinx-argparse-cli>=1.19",        # generate the CLI reference from the argparse parser so it cannot drift
   "sphinx-autodoc-typehints>=3.11",   # 3.11 types C getset descriptors from the stub
   "sphinx-copybutton>=0.5.2",
   "sphinx-issues>=6",

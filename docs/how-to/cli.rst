@@ -50,3 +50,6 @@ is omitted or ``-``) and writes to stdout, or to the ``-o FILE`` given:
 A subcommand exits ``0`` on success and ``1`` with a message on stderr when the library rejects the input (an unparsable
 script, an empty byte stream to ``detect``) or the input file cannot be read; argument errors exit ``2``. For policies,
 renderer options, or streaming, call the API from Python.
+
+The :doc:`/reference/cli` lists every subcommand and flag, generated from the parser so it cannot drift from the
+command.

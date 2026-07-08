@@ -36,6 +36,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",  # run the testcode/testoutput examples so the docs cannot drift from the code
     "sphinx.ext.intersphinx",
+    "sphinx_argparse_cli",  # generate the CLI reference from turbohtml.__main__._parser so it cannot drift
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
     "sphinx_issues",  # the :issue: role used by the changelog
