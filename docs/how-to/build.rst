@@ -1,5 +1,6 @@
-Build
-=====
+#######
+ Build
+#######
 
 Construct a tree from scratch with the element builder.
 

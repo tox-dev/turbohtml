@@ -1,5 +1,6 @@
-Foundations
-===========
+#############
+ Foundations
+#############
 
 Start here. The core mechanics, one runnable step at a time.
 

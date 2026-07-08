@@ -1,5 +1,6 @@
-Clean
-=====
+#######
+ Clean
+#######
 
 Move sanitizing, linkifying, and minifying to turbohtml.
 

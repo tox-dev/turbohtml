@@ -1,5 +1,6 @@
-Clean
-=====
+#######
+ Clean
+#######
 
 Scrub untrusted markup, rewrite links, and shrink output.
 

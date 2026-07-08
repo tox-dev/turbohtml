@@ -1,5 +1,6 @@
-Validate
-========
+##########
+ Validate
+##########
 
 How schema validation and conformance checking work.
 

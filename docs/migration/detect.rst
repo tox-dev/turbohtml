@@ -1,5 +1,6 @@
-Detect
-======
+########
+ Detect
+########
 
 Move encoding detection to turbohtml.
 

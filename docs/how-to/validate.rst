@@ -1,5 +1,6 @@
-Validate
-========
+##########
+ Validate
+##########
 
 Check a document against a schema or the conformance suites.
 

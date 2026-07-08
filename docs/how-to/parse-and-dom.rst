@@ -1,5 +1,6 @@
-Parse & DOM
-===========
+#############
+ Parse & DOM
+#############
 
 Turn markup into a tree, then read, edit, and walk it.
 

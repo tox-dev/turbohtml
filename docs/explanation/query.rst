@@ -1,5 +1,6 @@
-Query
-=====
+#######
+ Query
+#######
 
 How the selector, find, and XPath engines resolve nodes, and the cascade.
 

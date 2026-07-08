@@ -1,5 +1,6 @@
-Serialize
-=========
+###########
+ Serialize
+###########
 
 Write a tree back out as HTML, Markdown, or plain text.
 

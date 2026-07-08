@@ -1,5 +1,6 @@
-Extract
-=======
+#########
+ Extract
+#########
 
 Lift the article, tables, metadata, and feeds out of a page.
 

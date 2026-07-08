@@ -1,5 +1,6 @@
-Serialize
-=========
+###########
+ Serialize
+###########
 
 Move escaping, Markdown, and text conversion to turbohtml.
 

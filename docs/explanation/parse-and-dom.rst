@@ -1,5 +1,6 @@
-Parse & DOM
-===========
+#############
+ Parse & DOM
+#############
 
 How bytes become a navigable tree, and the model you walk and mutate.
 

@@ -1,5 +1,6 @@
-Workflows
-=========
+###########
+ Workflows
+###########
 
 Multi-step recipes that chain several turbohtml calls into one real task.
 
