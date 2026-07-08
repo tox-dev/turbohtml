@@ -1,0 +1,10 @@
+Added an HTML5 authoring-conformance checker with a severity model. :func:`turbohtml.conformance.check` walks a parsed
+document and returns a :class:`~turbohtml.conformance.ConformanceReport` -- a ``valid`` verdict plus every
+:class:`~turbohtml.conformance.ConformanceMessage`, each carrying a stable ``code``, a ``severity`` (``"error"``,
+``"warning"``, or ``"info"``), a human-readable message, and a source line and column. It flags the document-conformance
+requirements the parser does not raise as a :class:`~turbohtml.ParseError`: a missing ``img`` alt, obsolete
+presentational elements and attributes, duplicate ids, invalid or redundant ARIA roles, empty headings, a ``section``
+without a heading, and a document with no title or ``lang``. The document is valid exactly when nothing is an error, so
+warnings and info notes never change the verdict. The whole walk runs in the C core against the WHATWG authoring rules
+and WAI-ARIA 1.2, the model the Nu Html Checker (validator.nu) uses; :func:`~turbohtml.conformance.check_html` parses a
+markup string first.

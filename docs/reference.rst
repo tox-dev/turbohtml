@@ -37,3 +37,4 @@ Microdata / OpenGraph records out of a page. :doc:`reference/build` constructs a
     reference/build
     reference/serialize
     reference/validate
+    reference/conformance

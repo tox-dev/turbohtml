@@ -264,6 +264,14 @@ PyObject *turbohtml_register_css_minify(PyObject *module, PyObject *type);
 PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args);
 PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args);
 
+/* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind
+   turbohtml.conformance (issue #541). _conformance_check(node) walks a parsed document or
+   subtree and returns a list of (code, severity, message, line, column) findings -- the
+   document-conformance requirements (img alt, obsolete markup, duplicate id, ARIA role,
+   heading and section structure, document title and language) the parser does not raise
+   as a ParseError. Matches METH_O. */
+PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg);
+
 #define UCS2_LANES 4
 #define UCS4_LANES 2
 

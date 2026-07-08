@@ -21,6 +21,7 @@ from turbohtml.build import E
 from turbohtml.clean import LinkDetector as _LinkDetector
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
+from turbohtml.conformance import check as _check_conformance
 from turbohtml.convert import css_specificity as _css_specificity
 from turbohtml.convert import css_to_xpath as _css_to_xpath
 from turbohtml.cssom import computed_style as _computed_style
@@ -267,6 +268,11 @@ def text_content(text: str) -> None:
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with turbohtml's html property."""
     _ = _parsed(text).html
+
+
+def conformance(text: str) -> None:
+    """Run the HTML5 authoring-conformance checks over a parsed document."""
+    _check_conformance(_parsed(text))
 
 
 def serialize_xml(text: str) -> None:
@@ -761,6 +767,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
+    "conformance": (conformance, "turbohtml"),
     "serialize-xml": (serialize_xml, "turbohtml"),
     "canonicalize": (canonicalize, "turbohtml"),
     "minify": (minify, "turbohtml"),

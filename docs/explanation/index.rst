@@ -40,6 +40,7 @@ It is the wrong tool in a few honest cases:
     parsing
     xml
     validation
+    conformance
     sax
     streaming
     source-locations

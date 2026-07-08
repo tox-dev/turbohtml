@@ -364,6 +364,15 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://img.shields.io/npm/dt/dompurify
             :alt: DOMPurify total downloads
             :target: https://www.npmjs.com/package/dompurify
+    - - 16
+      - :doc:`html5validator <html5validator>`
+      - `docs <https://github.com/svenkreiss/html5validator>`__
+      - .. image:: https://static.pepy.tech/badge/html5validator/month
+            :alt: html5validator monthly downloads
+            :target: https://pepy.tech/project/html5validator
+      - .. image:: https://static.pepy.tech/badge/html5validator
+            :alt: html5validator total downloads
+            :target: https://pepy.tech/project/html5validator
 
 *********
  Convert
@@ -736,6 +745,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     lxml
     jsdom
     dompurify
+    html5validator
     chardet
     linkify-it-py
     bleach

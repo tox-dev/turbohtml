@@ -117,6 +117,7 @@ bench = [
   "html2text>=2025.4.15",
   "html5-parser>=0.4.12",
   "html5lib>=1.1",
+  "html5validator>=0.4.2",
   "htmldate>=1.10",
   "htmlmin2>=0.1.13",
   "htpy>=26.5.1",
@@ -327,6 +328,7 @@ run.omit = [
   "tests/query/match/test_soupsieve_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
   "tests/serialize/test_c14n_differential.py",
+  "tests/validate/test_conformance_differential.py",   # differential oracle: skips when html5validator/vnu.jar or a JRE is absent
   "tests/validate/test_schema_differential.py",
 ]
 run.parallel = true

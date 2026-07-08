@@ -53,6 +53,7 @@ _DOCUMENT_OPS = (
     "find-text",
     "text-content",
     "serialize",
+    "conformance",
     "serialize-xml",
     "canonicalize",
     "minify",

@@ -14,6 +14,7 @@ ending with running the toolkit from a shell.
     parsing
     xml
     validating
+    conformance
     tokenizing
     sax
     rewriting

@@ -1,0 +1,20 @@
+{
+  "label": "input",
+  "parties": [
+    "turbohtml",
+    "html5validator"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "check page (3 KiB)",
+      0.0001537915668450296,
+      0.9602818329585716
+    ],
+    [
+      "check page (27 KiB)",
+      0.0013404370401985943,
+      1.0296690829563886
+    ]
+  ]
+}
