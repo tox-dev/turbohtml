@@ -55,14 +55,12 @@ extensions = [
     "sphinxcontrib.towncrier.ext",  # render unreleased news fragments as a draft section
     "sphinxext.opengraph",  # OpenGraph tags so shared links preview well
     "bench_table",  # the .. bench-table:: directive rendering the benchmark tables from a data feed (docs/_ext)
+    "llms_txt",  # generate llms.txt and llms-full.txt from the built tree at build-finished (docs/_ext)
 ]
 
 html_theme = "furo"
 html_title = "turbohtml"
 html_static_path = ["_static"]
-# _extra is copied verbatim to the site root, so llms.txt and llms-full.txt (the llmstxt.org map for AI agents) are
-# served at /llms.txt and /llms-full.txt.
-html_extra_path = ["_extra"]
 html_css_files = ["custom.css"]
 html_logo = "_static/turbohtml.svg"
 html_favicon = "_static/turbohtml.svg"
