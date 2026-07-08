@@ -118,6 +118,23 @@ static const css_prop_meta CSS_PROPS[NUM_PROPS] = {
     {"outline-color", 0, "currentcolor"},
 };
 
+/* CSS_PROPS ids ordered by their name, so css_prop_id can binary-search a declaration
+   name instead of scanning all NUM_PROPS rows. Kept in sync with CSS_PROPS by hand: a
+   new property must be inserted here at its lexicographic position. */
+static const uint8_t CSS_PROPS_SORTED[NUM_PROPS] = {
+    PROP_BACKGROUND_COLOR, PROP_BACKGROUND_IMAGE, PROP_BORDER_BOTTOM_COLOR, PROP_BORDER_BOTTOM_STYLE, PROP_BORDER_BOTTOM_WIDTH, PROP_BORDER_LEFT_COLOR,
+    PROP_BORDER_LEFT_STYLE, PROP_BORDER_LEFT_WIDTH, PROP_BORDER_RIGHT_COLOR, PROP_BORDER_RIGHT_STYLE, PROP_BORDER_RIGHT_WIDTH, PROP_BORDER_TOP_COLOR,
+    PROP_BORDER_TOP_STYLE, PROP_BORDER_TOP_WIDTH, PROP_BOTTOM, PROP_BOX_SIZING, PROP_CAPTION_SIDE, PROP_CLEAR,
+    PROP_COLOR, PROP_CURSOR, PROP_DIRECTION, PROP_DISPLAY, PROP_FLOAT, PROP_FONT_SIZE,
+    PROP_FONT_STYLE, PROP_FONT_VARIANT, PROP_FONT_WEIGHT, PROP_HEIGHT, PROP_LEFT, PROP_LETTER_SPACING,
+    PROP_LINE_HEIGHT, PROP_LIST_STYLE_POSITION, PROP_LIST_STYLE_TYPE, PROP_MARGIN_BOTTOM, PROP_MARGIN_LEFT, PROP_MARGIN_RIGHT,
+    PROP_MARGIN_TOP, PROP_MAX_HEIGHT, PROP_MAX_WIDTH, PROP_MIN_HEIGHT, PROP_MIN_WIDTH, PROP_OPACITY,
+    PROP_OUTLINE_COLOR, PROP_OUTLINE_STYLE, PROP_OUTLINE_WIDTH, PROP_OVERFLOW_X, PROP_OVERFLOW_Y, PROP_PADDING_BOTTOM,
+    PROP_PADDING_LEFT, PROP_PADDING_RIGHT, PROP_PADDING_TOP, PROP_POSITION, PROP_RIGHT, PROP_TEXT_ALIGN,
+    PROP_TEXT_INDENT, PROP_TEXT_TRANSFORM, PROP_TOP, PROP_VERTICAL_ALIGN, PROP_VISIBILITY, PROP_WHITE_SPACE,
+    PROP_WIDTH, PROP_WORD_SPACING, PROP_Z_INDEX,
+};
+
 /* A shorthand whose value distributes across four physical sides (margin, padding,
    the border-width/style/color families) using the 1-to-4 rule, or across two axes
    (overflow). sides holds the target longhand ids in top,right,bottom,left order
@@ -213,12 +230,37 @@ static int css_slice_ci_eq(const Py_UCS4 *data, Py_ssize_t len, const char *word
     return word[len] == '\0';
 }
 
+/* Three-way ASCII case-insensitive compare of a code-point slice against a lowercase C
+   string, ordering the lowercased slice lexicographically: <0, 0, or >0. */
+static int css_slice_ci_cmp(const Py_UCS4 *data, Py_ssize_t len, const char *word) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (word[index] == '\0') {
+            return 1;
+        }
+        Py_UCS4 lowered = css_lower(data[index]);
+        if (lowered != (Py_UCS4)word[index]) {
+            return lowered < (Py_UCS4)word[index] ? -1 : 1;
+        }
+    }
+    return word[len] == '\0' ? 0 : -1;
+}
+
 /* The longhand id for a property name slice, or -1 when it is not a property the
-   cascade tracks. */
+   cascade tracks. Binary search over CSS_PROPS_SORTED. */
 static int css_prop_id(const Py_UCS4 *name, Py_ssize_t len) {
-    for (int index = 0; index < NUM_PROPS; index++) {
-        if (css_slice_ci_eq(name, len, CSS_PROPS[index].name)) {
-            return index;
+    int low = 0;
+    int high = NUM_PROPS - 1;
+    while (low <= high) {
+        int mid = (low + high) / 2;
+        int prop = CSS_PROPS_SORTED[mid];
+        int order = css_slice_ci_cmp(name, len, CSS_PROPS[prop].name);
+        if (order == 0) {
+            return prop;
+        }
+        if (order < 0) {
+            high = mid - 1;
+        } else {
+            low = mid + 1;
         }
     }
     return -1;

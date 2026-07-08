@@ -167,6 +167,14 @@ def test_computed_style_picks_most_specific_matching_alternative() -> None:
     assert style["color"] == "teal"
 
 
+def test_computed_style_ignores_names_bordering_known_properties() -> None:
+    # names the property binary search must reject: one a char longer than "color"
+    # (a real name is its prefix) and a bare "c" (a prefix of a real name). Neither
+    # matches, so the real color declaration still wins.
+    style = _style("<div></div>", css="div { colorz: red; c: green; color: blue }")
+    assert style["color"] == "blue"
+
+
 def test_computed_style_later_source_order_wins_on_a_tie() -> None:
     assert _style("<p></p>", css="p { color: red } p { color: blue }", tag="p")["color"] == "blue"
 
