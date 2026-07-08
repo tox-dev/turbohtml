@@ -148,9 +148,10 @@ def test_linkify_skips_raw_text_elements(tag: str) -> None:
     assert '<a href="http://y.com">' in out
 
 
-def test_linkify_skip_tags() -> None:
+@pytest.mark.parametrize("skip_tag", ["code", "CODE"], ids=["lowercase", "uppercase"])
+def test_linkify_skip_tags(skip_tag: str) -> None:
     html = "<code>http://x.com</code> http://y.com"
-    out = linkify(html, Linkify(skip_tags=["code"], callbacks=_no_callbacks()))
+    out = linkify(html, Linkify(skip_tags=[skip_tag], callbacks=_no_callbacks()))
     assert out == '<code>http://x.com</code> <a href="http://y.com">http://y.com</a>'
 
 

@@ -159,7 +159,9 @@ class Linker:
         """Compile a configuration into the form the walk consumes."""
         config = options if options is not None else Linkify()
         self.callbacks = list(config.callbacks)
-        self.skip_tags = frozenset(config.skip_tags or ())
+        self.skip_tags = (
+            frozenset(tag.lower() for tag in config.skip_tags) if config.skip_tags is not None else frozenset()
+        )
         self.parse_email = config.parse_email
         self.process_existing = config.process_existing
         self.extra_tlds = tuple(sorted({tld.lower() for tld in config.extra_tlds})) if config.extra_tlds else ()
