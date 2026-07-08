@@ -93,6 +93,9 @@ from ._stubs.dom import (
     _parse_fragment as _parse_fragment,
 )
 from ._stubs.dom import (
+    _parse_into as _parse_into,
+)
+from ._stubs.dom import (
     _parse_only as _parse_only,
 )
 from ._stubs.dom import (

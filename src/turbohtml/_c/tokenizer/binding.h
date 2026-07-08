@@ -115,6 +115,13 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args);
    tree. Wired as the private _sax_events() behind turbohtml.saxparse. Matches
    METH_O. */
 PyObject *turbohtml_sax_events(PyObject *module, PyObject *arg);
+
+/* Parse markup and drive a caller-supplied builder object over the constructed tree in
+   document order (create_document/create_doctype/create_element/create_text/
+   create_comment/create_pi/append), returning whatever the builder made its root without
+   materializing a navigable tree. Wired as the private _parse_into() behind
+   turbohtml.treebuild. Matches METH_VARARGS: (source, builder). */
+PyObject *turbohtml_parse_into(PyObject *module, PyObject *args);
 int range_register(PyObject *module, module_state *state);
 
 /* Register the MutationObserver type (dom/observe.c). */
