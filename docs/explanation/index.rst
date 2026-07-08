@@ -34,13 +34,18 @@ It is the wrong tool in a few honest cases:
 
 .. toctree::
     :maxdepth: 1
+    :caption: Foundations
 
     c-core
     stdlib-parity
+    free-threading
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Parse & DOM
+
     parsing
     xml
-    validation
-    conformance
     sax
     treebuild
     streaming
@@ -49,13 +54,44 @@ It is the wrong tool in a few honest cases:
     traversal
     ranges
     shadow-dom
+    mutation
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Query
+
     queries
     cssom
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Clean
+
+    sanitizing
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Convert & transform
+
     xslt
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Extract
+
     structured-data
+    main-content
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Serialize
+
     serialization
     canonicalization
-    main-content
-    mutation
-    sanitizing
-    free-threading
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Validate
+
+    validation
+    conformance

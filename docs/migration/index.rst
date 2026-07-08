@@ -735,69 +735,112 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
 .. toctree::
     :hidden:
     :maxdepth: 1
+    :caption: Parse & DOM
+
+    beautifulsoup
+    lxml
+    html5lib
+    selectolax
+    resiliparse
+    mechanicalsoup
+    html5-parser
+    stdlib
+    parse5
+    jsdom
+    lol-html
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Detect
 
     charset-normalizer
-    pandas
-    markupsafe
-    parse5
-    beautifulsoup
-    soupsieve
-    lxml
-    jsdom
-    dompurify
     chardet
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Query
+
+    soupsieve
+    parsel
+    pyquery
+    cssutils
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Clean
+
     linkify-it-py
     bleach
-    markdownify
     nh3
-    sanitize-html
-    html5lib
-    cssselect
-    html2text
     lxml-html-clean
-    feedparser
-    htmldate
+    rcssmin
+    rjsmin
+    jsmin
+    minify-html
+    htmlmin
+    csscompressor
+    html-sanitizer
+    calmjs-parse
+    html5validator
+    lightningcss
+    sanitize-html
+    dompurify
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Convert
+
+    cssselect
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Extract
+
+    pandas
     w3lib
     trafilatura
     courlan
-    cssutils
-    justext
-    selectolax
-    parsel
-    rjsmin
-    rcssmin
-    dominate
-    pyquery
-    readability-lxml
-    html-text
-    minify-html
-    readabilipy
-    inscriptis
-    jsmin
-    htmlmin
-    resiliparse
-    csscompressor
-    newspaper3k
-    html-sanitizer
-    yattag
     extruct
-    lol-html
-    htbuilder
-    boilerpy3
-    htpy
-    mechanicalsoup
-    airium
-    goose3
-    calmjs-parse
-    html5validator
-    html5-parser
-    news-please
-    markyp
-    lightningcss
+    justext
+    readability-lxml
+    readabilipy
     metadata_parser
+    newspaper3k
+    boilerpy3
+    goose3
     microdata
+    news-please
+    opengraph
+    htmldate
+    feedparser
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Build
+
+    dominate
+    yattag
+    htbuilder
+    htpy
+    airium
+    markyp
     fast-html
     simple-html
-    opengraph
     hyperpython
-    stdlib
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+    :caption: Serialize
+
+    markupsafe
+    markdownify
+    html2text
+    inscriptis
+    html-text

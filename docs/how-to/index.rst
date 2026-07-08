@@ -10,43 +10,89 @@ ending with running the toolkit from a shell.
 
 .. toctree::
     :maxdepth: 1
+    :caption: Parse & DOM
 
     parsing
     xml
-    validating
-    conformance
     tokenizing
     sax
     treebuild
     rewriting
-    forms
     editing
+    inspecting
     ranges
     observing-mutations
     shadow-dom
+    forms
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Detect
+
     encoding
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Query
+
     selecting
-    computed-style
     finding
     traversing
-    extracting
-    xpath
-    inspecting
-    pruning
-    chaining
     matching
-    xslt
+    chaining
+    pruning
+    xpath
+    extracting
+    computed-style
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Clean
+
     sanitizing
     links
     minifying
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Convert & transform
+
     css-to-xpath
-    tables
+    xslt
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Extract
+
     main-content
+    tables
     structured-data
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Build
+
     building
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Serialize
+
     serializing
     canonicalizing
     markdown
     plain-text
     escaping
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Validate
+
+    validating
+    conformance
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Command line
+
     cli
