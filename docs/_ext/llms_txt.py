@@ -2,10 +2,10 @@
 Generate ``llms.txt`` and ``llms-full.txt`` from the documentation tree at build time.
 
 The `llmstxt.org <https://llmstxt.org>`_ convention asks a site to publish a Markdown map of itself for language models:
-a curated ``llms.txt`` index and a fuller ``llms-full.txt`` dump. Hand-maintaining those two files let them drift out of
-step with the pages they list, so this extension derives both from the built tree instead. On ``build-finished`` it
-walks the root toctree in navigation order, reads each page's title and first paragraph, groups the pages by Diátaxis
-section, and writes the two files into the HTML output root. ``html_baseurl`` supplies the absolute URLs.
+a curated ``llms.txt`` index and a fuller ``llms-full.txt`` dump. Kept by hand, the two files drifted from the pages
+they list, so this extension derives both from the built tree. On ``build-finished`` it walks the root toctree in nav
+order, reads each page's title and first paragraph, groups the pages by Diátaxis section, and writes the two files into
+the HTML output root. ``html_baseurl`` supplies the absolute URLs.
 
 ``llms.txt`` enumerates the tutorials, how-to guides, reference, and explanation, and points at the migration index in
 one line; ``llms-full.txt`` enumerates every page in every section, migration guides included.
@@ -14,7 +14,7 @@ one line; ``llms-full.txt`` enumerates every page in every section, migration gu
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from docutils import nodes
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # (docname prefix, heading) in the order the sections read; a docname's section is its first path segment, so
 # ``reference`` and ``reference/nodes`` both fall under Reference. Pages outside these prefixes (changelog, license) are
 # left out of both files.
-_SECTIONS: tuple[tuple[str, str], ...] = (
+_SECTIONS: Final[tuple[tuple[str, str], ...]] = (
     ("tutorials", "Tutorials"),
     ("how-to", "How-to guides"),
     ("reference", "Reference"),
@@ -37,7 +37,7 @@ _SECTIONS: tuple[tuple[str, str], ...] = (
 )
 
 # the landing page of each section; listed under "Start here", not enumerated with the section's own pages
-_SECTION_INDEX: dict[str, str] = {
+_SECTION_INDEX: Final[dict[str, str]] = {
     "tutorials": "tutorials/index",
     "how-to": "how-to/index",
     "reference": "reference",
@@ -46,7 +46,7 @@ _SECTION_INDEX: dict[str, str] = {
     "development": "development/index",
 }
 
-_START_HERE: tuple[tuple[str, str], ...] = (
+_START_HERE: Final[tuple[tuple[str, str], ...]] = (
     ("index", "turbohtml overview"),
     ("tutorials/index", "Tutorials"),
     ("how-to/index", "How-to guides"),
@@ -55,11 +55,44 @@ _START_HERE: tuple[tuple[str, str], ...] = (
     ("migration/index", "Migration guides"),
 )
 
-_DIATAXIS_NOTE = (
+_DIATAXIS_NOTE: Final = (
     "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, a reference for "
     "the API, and explanation for the design, plus migration guides from the libraries turbohtml replaces. Each index "
     "is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
 )
+
+
+def setup(app: Sphinx) -> dict[str, Any]:
+    """Register the build-finished hook that writes the two llms map files."""
+    app.connect("build-finished", _emit_llms_txt)
+    return {"parallel_read_safe": True, "parallel_write_safe": True}
+
+
+def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
+    """Write llms.txt and llms-full.txt into the HTML output root once the build succeeds."""
+    if exception is not None or app.builder.name != "html":
+        return
+    env = app.env
+    root = env.config.root_doc
+    base = app.config.html_baseurl.rstrip("/")
+    order = _ordered_docnames(env, root)
+    titles = {docname: env.titles[docname].astext() for docname in [root, *order] if docname in env.titles}
+    summaries = {docname: _summary(env, docname) for docname in titles}
+
+    def link(docname: str, label: str | None = None) -> str:
+        return f"- [{label or titles[docname]}]({base}/{docname}.html): {summaries.get(docname, '')}"
+
+    grouped: dict[str, list[str]] = {key: [] for key, _ in _SECTIONS}
+    index_pages = set(_SECTION_INDEX.values())
+    for docname in order:
+        section = _section_of(docname)
+        if section in grouped and docname not in index_pages:
+            grouped[section].append(docname)
+
+    project_summary = summaries.get(root, "")
+    out = Path(app.outdir)
+    (out / "llms.txt").write_text(_render_curated(base, titles, grouped, project_summary, link), encoding="utf-8")
+    (out / "llms-full.txt").write_text(_render_full(titles, grouped, project_summary, link), encoding="utf-8")
 
 
 def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
@@ -87,35 +120,6 @@ def _summary(env: BuildEnvironment, docname: str) -> str:
 
 def _section_of(docname: str) -> str:
     return docname.split("/", 1)[0]
-
-
-def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
-    """Write llms.txt and llms-full.txt into the HTML output root once the build succeeds."""
-    if exception is not None or app.builder.name != "html":
-        return
-    env = app.env
-    root = env.config.root_doc
-    base = app.config.html_baseurl.rstrip("/")
-    order = _ordered_docnames(env, root)
-    titles = {docname: env.titles[docname].astext() for docname in [root, *order] if docname in env.titles}
-    summaries = {docname: _summary(env, docname) for docname in titles}
-
-    def link(docname: str, label: str | None = None) -> str:
-        return f"- [{label or titles[docname]}]({base}/{docname}.html): {summaries.get(docname, '')}"
-
-    grouped: dict[str, list[str]] = {key: [] for key, _ in _SECTIONS}
-    index_pages = set(_SECTION_INDEX.values())
-    for docname in order:
-        section = _section_of(docname)
-        if section in grouped and docname not in index_pages:
-            grouped[section].append(docname)
-
-    project_summary = summaries.get(root, "")
-    curated = _render_curated(base, titles, grouped, project_summary, link)
-    full = _render_full(titles, grouped, project_summary, link)
-    out = Path(app.outdir)
-    (out / "llms.txt").write_text(curated, encoding="utf-8")
-    (out / "llms-full.txt").write_text(full, encoding="utf-8")
 
 
 def _render_curated(
@@ -161,9 +165,3 @@ def _render_full(
         if pages := grouped[key]:
             lines += ["", f"## {heading}", *[link(docname) for docname in pages]]
     return "\n".join(lines) + "\n"
-
-
-def setup(app: Sphinx) -> dict[str, Any]:
-    """Register the build-finished hook that writes the two llms map files."""
-    app.connect("build-finished", _emit_llms_txt)
-    return {"parallel_read_safe": True, "parallel_write_safe": True}
