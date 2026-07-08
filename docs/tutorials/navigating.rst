@@ -261,7 +261,7 @@ landed on:
     None
 
 A ``filter`` callback refines the walk further. It returns one of three verdicts, and the difference between two of them
-is the whole point of a *tree* walker: :attr:`~turbohtml.NodeFilter.FILTER_REJECT` drops a node **and its subtree**,
+is what makes it a *tree* walker: :attr:`~turbohtml.NodeFilter.FILTER_REJECT` drops a node **and its subtree**,
 while :attr:`~turbohtml.NodeFilter.FILTER_SKIP` drops only the node, so the walk still descends into its children:
 
 .. testcode::
