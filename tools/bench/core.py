@@ -42,6 +42,7 @@ from turbohtml.saxparse import SaxHandler as _SaxHandler
 from turbohtml.saxparse import sax_parse as _sax_parse
 from turbohtml.transform import Transform as _Transform
 from turbohtml.treebuild import parse_into as _parse_into
+from turbohtml.validate import RelaxNG as _RelaxNG
 from turbohtml.validate import XMLSchema as _XMLSchema
 
 if TYPE_CHECKING:
@@ -183,6 +184,18 @@ def validate(case: tuple[str, str]) -> None:
     validator = _VALIDATORS.get(schema)
     if validator is None:
         validator = _VALIDATORS[schema] = _XMLSchema(schema)
+    validator.validate(turbohtml.parse_xml(document))
+
+
+_RNG_VALIDATORS: dict[str, _RelaxNG] = {}
+
+
+def validate_rng(case: tuple[str, str]) -> None:
+    """Validate a parsed XML document against a RELAX NG schema (compiled once, keyed by source)."""
+    schema, document = case
+    validator = _RNG_VALIDATORS.get(schema)
+    if validator is None:
+        validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
     validator.validate(turbohtml.parse_xml(document))
 
 
@@ -811,6 +824,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "parse": (parse, "turbohtml"),
     "parse-xml": (parse_xml, "turbohtml"),
     "validate": (validate, "turbohtml"),
+    "validate-rng": (validate_rng, "turbohtml"),
     "parse-scripting": (parse_scripting, "turbohtml"),
     "parse-locations": (parse_locations, "turbohtml"),
     "parse-shadow": (parse_shadow, "turbohtml"),
@@ -822,6 +836,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
     "computed-style": (computed_style, "turbohtml"),
+    "computed-style-dense": (computed_style, "turbohtml"),
     "match": (match, "turbohtml"),
     "find-text": (find_text, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
@@ -829,6 +844,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "conformance": (conformance, "turbohtml"),
     "serialize-xml": (serialize_xml, "turbohtml"),
     "canonicalize": (canonicalize, "turbohtml"),
+    "canonicalize-deep": (canonicalize, "turbohtml"),
     "lossless-serialize": (Mutating(_parse_source_locations, lossless_serialize), "turbohtml"),
     "minify": (minify, "turbohtml"),
     "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
@@ -885,6 +901,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "specificity": (specificity, "turbohtml"),
     "xpath": (xpath, "turbohtml"),
     "transform": (transform, "turbohtml"),
+    "transform-dense": (transform, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
     "encoding": (encoding, "turbohtml"),

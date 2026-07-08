@@ -151,6 +151,25 @@ _VALIDATE_XSD = (
     "</xs:complexType></xs:element>"
     "</xs:sequence></xs:complexType></xs:element></xs:schema>"
 )
+# the same records catalog described in RELAX NG (XML syntax): grammar/define/ref, an interleave over the record's four
+# child patterns, oneOrMore, and XSD datatypes. RelaxNG drives a separate C compiler and validator (relaxng.h) that the
+# XSD validate op never reaches, so this is the only bench that exercises the RELAX NG engine.
+_VALIDATE_RNG = (
+    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"'
+    ' datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes" ns="urn:example:records">'
+    '<start><ref name="catalog"/></start>'
+    '<define name="catalog"><element name="catalog"><oneOrMore><ref name="record"/></oneOrMore></element></define>'
+    '<define name="record"><element name="record">'
+    '<attribute name="id" ns=""><data type="string"/></attribute>'
+    "<interleave>"
+    '<element name="name"><text/></element>'
+    '<element name="qty"><data type="nonNegativeInteger"/></element>'
+    '<element name="price"><data type="decimal"/></element>'
+    '<element name="tags"><oneOrMore><element name="tag"><text/></element></oneOrMore></element>'
+    "</interleave>"
+    "</element></define>"
+    "</grammar>"
+)
 
 _SANITIZE_TEMPLATES = dedent("""\
     <article class=card>
@@ -230,6 +249,7 @@ OPERATIONS: dict[str, Operation] = {
     "parse": Operation("parse to a tree", "us"),
     "parse-xml": Operation("parse XML to a tree", "us"),
     "validate": Operation("validate a document against an XSD schema", "us"),
+    "validate-rng": Operation("validate a document against a RELAX NG schema", "us"),
     "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
     "parse-locations": Operation("parse to a tree (source locations)", "us"),
     "parse-shadow": Operation("parse declarative shadow roots", "us"),
@@ -241,6 +261,7 @@ OPERATIONS: dict[str, Operation] = {
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
     "computed-style": Operation("computed style for every element", "us"),
+    "computed-style-dense": Operation("computed style over a property-dense sheet", "us"),
     "match": Operation("match each anchor against div a[href]", "us"),
     "find-text": Operation("find by text content", "us"),
     "text-content": Operation("collect visible text", "us"),
@@ -248,6 +269,7 @@ OPERATIONS: dict[str, Operation] = {
     "conformance": Operation("check HTML5 authoring conformance", "us"),
     "serialize-xml": Operation("serialize a parsed tree to XML", "us"),
     "canonicalize": Operation("canonicalize a parsed tree (c14n)", "us"),
+    "canonicalize-deep": Operation("canonicalize a deep xlink-free tree (c14n)", "us"),
     "lossless-serialize": Operation("edit then re-emit untouched bytes (to_source)", "us"),
     "minify": Operation("minify a document", "us"),
     "edit": Operation("tag every link rel=nofollow", "us"),
@@ -303,6 +325,7 @@ OPERATIONS: dict[str, Operation] = {
     "specificity": Operation("CSS selector specificity", "us"),
     "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
     "transform": Operation("XSLT transform a catalog (120 rows)", "us"),
+    "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
@@ -330,6 +353,23 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     label, relative, encoding = corpus.CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
     pages.append((label, corpus.corpus_text(relative, encoding)))
     return tuple(pages)
+
+
+def _deep_tree(depth: int, leaves: int) -> str:
+    """
+    Build a deep, wide, xlink-free tree: a spine of ``depth`` nested divs, each carrying ``leaves`` leaf spans.
+
+    Canonicalization decides every element's xmlns:xlink from whether the prefix is in scope, which the c14n serializer
+    resolved by walking node->root; the deep spine makes that per-element walk O(depth) and, xlink-free, the walk always
+    ran to the root before short-circuiting. It is the workload the drop-the-redundant-walk change (#603) turned into a
+    single local attr scan, which a shallow real page barely registers.
+    """
+    spine = "".join(
+        f"<div class='n{level}'>" + "".join(f"<span>t{level}-{leaf}</span>" for leaf in range(leaves))
+        for level in range(depth)
+    )
+    body = spine + "</div>" * depth
+    return f"<!doctype html><html><body>{body}</body></html>"
 
 
 _TOKENIZE_CASES = (
@@ -494,6 +534,37 @@ def _styled_page(sections: int) -> str:
     )
 
 
+# every longhand the cascade tracks, each declared once, so resolving one rule runs css_prop_id (the name->id lookup)
+# over the whole property surface -- the lookup the property table's binary search (#604) replaced a 63-row linear scan
+_DENSE_DECLS = (
+    "color:#123456;font-size:15px;font-style:italic;font-weight:600;font-variant:small-caps;"
+    "line-height:1.4;text-align:justify;text-indent:2px;text-transform:uppercase;letter-spacing:1px;"
+    "word-spacing:2px;white-space:nowrap;visibility:visible;list-style-type:square;list-style-position:inside;"
+    "cursor:pointer;direction:ltr;caption-side:bottom;display:block;position:relative;top:1px;right:2px;"
+    "bottom:3px;left:4px;float:left;clear:both;width:50px;height:60px;min-width:10px;min-height:20px;"
+    "max-width:500px;max-height:600px;margin-top:1px;margin-right:2px;margin-bottom:3px;margin-left:4px;"
+    "padding-top:1px;padding-right:2px;padding-bottom:3px;padding-left:4px;border-top-width:1px;"
+    "border-right-width:2px;border-bottom-width:3px;border-left-width:4px;border-top-style:solid;"
+    "border-right-style:dashed;border-bottom-style:dotted;border-left-style:double;border-top-color:#111;"
+    "border-right-color:#222;border-bottom-color:#333;border-left-color:#444;background-color:#eee;"
+    "background-image:none;opacity:0.9;z-index:5;overflow-x:hidden;overflow-y:scroll;vertical-align:middle;"
+    "box-sizing:border-box;outline-width:1px;outline-style:solid;outline-color:#555"
+)
+# four rules every element matches (the universal rule plus the three classes it carries), so each element resolves the
+# full longhand set four times over, the per-declaration css_prop_id lookup a utility-class framework really produces
+_DENSE_SHEET = "".join(f"{selector} {{{_DENSE_DECLS}}}\n" for selector in ("*", ".u", ".v", ".w"))
+
+
+def _dense_styled_page(sections: int) -> str:
+    """Build a page whose stylesheet declares every longhand across four rules each of ``sections`` blocks matches."""
+    section = (
+        "<section class='u v w'><div class='u v w'><p class='u v w'>Text with a "
+        "<a class='u v w' href='/x'>link</a> and <span class='u v w'>inline</span>.</p>"
+        "<ul class='u v w'><li class='u v w'>one</li><li class='u v w'>two</li></ul></div></section>"
+    )
+    return f"<html><head><style>{_DENSE_SHEET}</style></head><body>{section * sections}</body></html>"
+
+
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
     """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
     _name, relative, encoding = corpus.CORPUS_FILES[2]
@@ -532,6 +603,43 @@ _XSLT_SOURCE = (
 def _transform_cases() -> tuple[tuple[str, object], ...]:
     """Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog."""
     return (("catalog (120 rows)", (_XSLT_SHEET, _XSLT_SOURCE)),)
+
+
+# one instruction unit weighted toward the elements late in the old is_xsl probe chain: copy-of, variable, number,
+# comment and message (the last probe). Instantiating each dispatched through a chain of is_xsl calls that re-tested
+# the xsl prefix per candidate; the classify-once switch (#605) tests it once, so a late instruction stops paying for
+# the earlier probes. message is near free to run (a non-terminating one is discarded), so dispatch dominates its cost.
+_XSLT_LATE_UNIT = (
+    '<xsl:variable name="v{index}" select="@cat"/>'
+    '<xsl:number format="1"/>'
+    "<xsl:comment>c{index}</xsl:comment>"
+    '<xsl:copy-of select="title"/>'
+    "<xsl:message>m{index}</xsl:message>"
+    "<xsl:message>n{index}</xsl:message>"
+    "<xsl:message>o{index}</xsl:message>"
+)
+_XSLT_DENSE_SHEET = (
+    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+    '<xsl:output method="xml"/>'
+    '<xsl:template match="/"><out><xsl:apply-templates select="catalog/book"/></out></xsl:template>'
+    '<xsl:template match="book"><row><xsl:value-of select="title"/>'
+    + "".join(_XSLT_LATE_UNIT.format(index=unit) for unit in range(8))
+    + "</row></xsl:template>"
+    "</xsl:stylesheet>"
+)
+_XSLT_DENSE_SOURCE = (
+    "<catalog>"
+    + "".join(
+        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+        for index in range(200)
+    )
+    + "</catalog>"
+)
+
+
+def _transform_dense_cases() -> tuple[tuple[str, object], ...]:
+    """Return the instruction-dense XSLT case: a template of 56 xsl:* instructions applied over 200 nodes."""
+    return (("instruction-dense (200 nodes)", (_XSLT_DENSE_SHEET, _XSLT_DENSE_SOURCE)),)
 
 
 def _tokenize_cases() -> tuple[tuple[str, object], ...]:
@@ -611,6 +719,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "parse": _parse_cases,
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "validate": lambda: (("catalog XSD + doc", (_VALIDATE_XSD, _VALIDATE_DOC)),),
+    "validate-rng": lambda: (("catalog RNG + doc", (_VALIDATE_RNG, _VALIDATE_DOC)),),
     "parse-scripting": _readpath_cases,  # the real pages carry <noscript>, so the scripting rawtext path runs
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),
@@ -636,6 +745,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "select": _readpath_cases,
     "select-has": _readpath_cases,
     "computed-style": lambda: (("styled page (3 kB)", _styled_page(8)), ("styled page (11 kB)", _styled_page(40))),
+    "computed-style-dense": lambda: (("dense sheet (9 kB)", _dense_styled_page(20)),),
     "match": _readpath_cases,
     "find-text": _readpath_cases,
     "text-content": _readpath_cases,
@@ -643,6 +753,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "conformance": _readpath_cases,
     "serialize-xml": _readpath_cases,
     "canonicalize": _readpath_cases,
+    "canonicalize-deep": lambda: (("deep tree (150 deep)", _deep_tree(150, 3)),),
     "lossless-serialize": _readpath_cases,
     "minify": _readpath_cases,
     "socialcard": lambda: (
@@ -714,6 +825,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "specificity": lambda: _TRANSLATE_CASES,
     "xpath": _xpath_cases,
     "transform": _transform_cases,
+    "transform-dense": _transform_dense_cases,
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
     "encoding": _encoding_cases,
