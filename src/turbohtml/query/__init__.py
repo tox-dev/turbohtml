@@ -7,7 +7,7 @@ ordered, duplicate-free set of elements and every traversal and mutation method 
 compose (``Query(html)("div").find("a").filter(".x").eq(0).attr("href")``). Alongside it, the soupsieve-shaped surface
 (:func:`compile`, :class:`Matcher`, the module-level :func:`select`/:func:`select_one`/:func:`iselect`/:func:`match`/
 :func:`filter`/:func:`closest`, :func:`escape_identifier`, and the :class:`Matching` config) mirrors soupsieve's call
-shapes for a BeautifulSoup port -- see :mod:`turbohtml._match` for the detail.
+shapes for a BeautifulSoup port -- see :mod:`turbohtml.query._match` for the detail.
 
 Both are kept out of the core API (which is one-name-per-concept and not chainable) so the extra shapes stay optional.
 The :class:`Query` method names are turbohtml's own -- ``add_class`` rather than pyquery's ``addClass`` -- so a port
@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast, overload
 
-from ._html import Document, Element, parse
+from turbohtml._html import Document, Element, parse
+
 from ._match import (
     DEBUG,
     Matcher,

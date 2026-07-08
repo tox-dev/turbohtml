@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import _register_structured_data
+from turbohtml._html import _register_structured_data
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

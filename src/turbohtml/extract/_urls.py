@@ -18,7 +18,7 @@ from functools import lru_cache
 from typing import Final, NamedTuple
 from urllib.parse import urlunsplit
 
-from ._html import (
+from turbohtml._html import (
     _registrable_domain,
     _url_join,
     _url_percent_decode,

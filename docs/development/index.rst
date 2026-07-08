@@ -134,9 +134,10 @@ mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation
         __init__.py          # public API re-export, typed
         _html.pyi            # type stub for the C extension
         py.typed             # PEP 561 marker
-        query.py             # Query, the chainable wrapper
-        sanitizer.py         # allowlist HTML sanitizer
-        linkify.py           # URL and email autolinker
+        extract/             # readability, dates, feed, links, structured data, url helpers
+        query/               # Query wrapper, selector match, xpath
+        clean/               # allowlist sanitizer, URL and email autolinker
+        _internal/           # helpers shared by more than one subsystem: render, minify, selectors, locations
         migration/           # drop-in shims: bleach, markupsafe, stdlib
         _c/                  # C sources, compiled into one turbohtml._html module
             core/            # module entry point (module.c), shared headers

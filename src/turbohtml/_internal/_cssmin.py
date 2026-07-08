@@ -15,14 +15,14 @@ input's UTF-8 bytes. Every transform is value-safe at any baseline; the baseline
 Importing this module also registers :class:`CSSMinify` with the core, so the HTML serializer's
 ``Minify(minify_css=...)`` hook reaches it with a module-state pointer load. Registering from here, which imports only
 :mod:`turbohtml._html`, keeps the reference graph small enough to collect at interpreter shutdown, the way
-:mod:`turbohtml._jsminify` registers its own config type.
+:mod:`turbohtml._internal._jsminify` registers its own config type.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._html import _minify_css, _minify_css_inline, _register_css_minify
+from turbohtml._html import _minify_css, _minify_css_inline, _register_css_minify
 
 __all__ = [
     "CSSMinify",

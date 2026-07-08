@@ -19,12 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Final, Literal
 
-from ._html import Formatter, Indent, Minify, _register_render_configs
+from turbohtml._html import Formatter, Indent, Minify, _register_render_configs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from ._html import Element
+    from turbohtml._html import Element
 
 
 @dataclass(frozen=True)

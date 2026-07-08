@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from ._html import Minify, _minify_js, parse
+from turbohtml._html import Minify, _minify_js, parse
+
 from ._jsminify import JSMinify
 from ._render import Html
 

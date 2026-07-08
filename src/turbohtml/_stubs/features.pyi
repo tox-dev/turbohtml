@@ -2,8 +2,8 @@
 import re
 from collections.abc import Callable, Iterable, Mapping
 
-from turbohtml._feed import Entry, Feed
-from turbohtml._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
+from turbohtml.extract._feed import Entry, Feed
+from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
 from .dom import Element
 

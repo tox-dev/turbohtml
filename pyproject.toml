@@ -236,6 +236,9 @@ lint.per-file-ignores."docs/conf.py" = [
   "PLC2701", # patching the Sphinx 9 functional autodoc engine requires its private _dynamic modules
   "SLF001",  # ... and replacing their private signature/property builders for the C extension
 ]
+lint.per-file-ignores."src/turbohtml/{clean,extract,query}/__init__.py" = [
+  "RUF067", # the public module's implementation lives in its package __init__, re-exported unchanged
+]
 lint.per-file-ignores."tasks/**/*.py" = [
   "INP001", # no implicit namespace
   "S404",   # subprocess is required to drive git, gh and towncrier

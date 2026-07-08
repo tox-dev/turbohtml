@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import Element, Text, _linkify_find, _linkify_scan, parse_fragment
+from turbohtml._html import Element, Text, _linkify_find, _linkify_scan, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable

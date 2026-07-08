@@ -21,12 +21,12 @@ from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
-from ._html import _sanitize, parse_fragment
+from turbohtml._html import _sanitize, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from ._html import Element
+    from turbohtml._html import Element
 
 
 @dataclass(frozen=True, slots=True)

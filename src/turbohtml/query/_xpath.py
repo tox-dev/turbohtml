@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ._html import Element, _register_xpath_string  # Element stays importable so autodoc resolves it
+from turbohtml._html import Element, _register_xpath_string  # Element stays importable so autodoc resolves it
 
 if TYPE_CHECKING:
     from typing_extensions import Self

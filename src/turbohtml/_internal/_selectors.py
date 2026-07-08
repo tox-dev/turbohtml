@@ -9,7 +9,7 @@ engine raises it from C, so importing this module registers the type with the co
 
 from __future__ import annotations
 
-from ._html import _register_selector_error
+from turbohtml._html import _register_selector_error
 
 __all__ = ["SelectorSyntaxError"]
 

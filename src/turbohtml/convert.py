@@ -16,7 +16,7 @@ delegate to the same engine, which always applies the HTML rules (element and at
 from __future__ import annotations
 
 from ._html import _css_specificity, _css_to_xpath
-from ._selectors import SelectorSyntaxError
+from ._internal._selectors import SelectorSyntaxError
 
 __all__ = [
     "ExpressionError",

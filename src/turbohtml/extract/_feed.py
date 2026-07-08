@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._html import _register_feed
+from turbohtml._html import _register_feed
 
 __all__ = ["Entry", "Feed"]
 

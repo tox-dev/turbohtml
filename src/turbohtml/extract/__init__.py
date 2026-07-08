@@ -34,10 +34,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, NamedTuple
 
+from turbohtml._html import Element, parse
+
 from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates
 from ._feed import Entry, Feed
-from ._html import Element, parse
 from ._links import Link
 from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url

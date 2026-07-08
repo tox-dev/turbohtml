@@ -1,16 +1,4 @@
 # Aggregate stub for the compiled turbohtml._html extension; re-exports the _stubs subsystem packages.
-from ._structured_data import (
-    JSONValue as JSONValue,
-)
-from ._structured_data import (
-    MicrodataItem as MicrodataItem,
-)
-from ._structured_data import (
-    OpenGraph as OpenGraph,
-)
-from ._structured_data import (
-    StructuredData as StructuredData,
-)
 from ._stubs.dom import (
     Article as Article,
 )
@@ -289,4 +277,16 @@ from ._stubs.validate import (
 )
 from ._stubs.validate import (
     _schema_validate as _schema_validate,
+)
+from .extract._structured_data import (
+    JSONValue as JSONValue,
+)
+from .extract._structured_data import (
+    MicrodataItem as MicrodataItem,
+)
+from .extract._structured_data import (
+    OpenGraph as OpenGraph,
+)
+from .extract._structured_data import (
+    StructuredData as StructuredData,
 )

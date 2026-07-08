@@ -2,8 +2,8 @@
 from enum import Enum
 from typing import final
 
-from turbohtml._cssmin import CSSMinify
-from turbohtml._minify import JSMinify
+from turbohtml._internal._cssmin import CSSMinify
+from turbohtml._internal._minify import JSMinify
 
 class Formatter(Enum):
     WHATWG = "whatwg"

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._html import _register_locations  # Element stays importable so autodoc resolves it
+from turbohtml._html import _register_locations  # Element stays importable so autodoc resolves it
 
 __all__ = ["SourceLocation", "SourceSpan"]
 

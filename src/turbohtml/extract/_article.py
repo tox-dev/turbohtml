@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._html import Element, _register_article  # Element stays importable so autodoc resolves it
+from turbohtml._html import Element, _register_article  # Element stays importable so autodoc resolves it
 
 
 class Article(NamedTuple):

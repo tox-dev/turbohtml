@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
-from ._html import Document, Element, parse
-from ._selectors import SelectorSyntaxError
+from turbohtml._html import Document, Element, parse
+from turbohtml._internal._selectors import SelectorSyntaxError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping

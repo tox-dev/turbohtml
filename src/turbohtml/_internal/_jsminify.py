@@ -1,20 +1,20 @@
 """
 The JavaScript-minifier options object and its registration with the C core.
 
-``JSMinify`` lives here, apart from :mod:`turbohtml._minify`, because handing the type to the
+``JSMinify`` lives here, apart from :mod:`turbohtml._internal._minify`, because handing the type to the
 extension (``_register_js_minify``) puts it in the C module state, and through it the whole
 defining module. ``_minify`` pulls in the render layer and module-level default instances; that
 reference graph keeps the extension's module state alive at interpreter shutdown, so its teardown
 (and the freelist drain it runs) never executes. Registering from this module, which imports only
-``_html``, keeps the graph small enough to collect, the way :mod:`turbohtml._article` and
-:mod:`turbohtml._structured_data` register their record types.
+``_html``, keeps the graph small enough to collect, the way :mod:`turbohtml.extract._article` and
+:mod:`turbohtml.extract._structured_data` register their record types.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._html import _register_js_minify
+from turbohtml._html import _register_js_minify
 
 __all__ = ["JSMinify"]
 

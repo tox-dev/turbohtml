@@ -11,12 +11,10 @@ thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`, :
 
 from __future__ import annotations
 
-from ._cssmin import (
-    CSSMinify,
-    minify_css,
-    minify_css_inline,
-)
-from ._html import Minify
+from turbohtml._html import Minify
+from turbohtml._internal._cssmin import CSSMinify, minify_css, minify_css_inline
+from turbohtml._internal._minify import JSMinify, minify, minify_js
+
 from ._linkify import (
     DEFAULT_CALLBACKS,
     Callback,
@@ -29,7 +27,6 @@ from ._linkify import (
     nofollow,
     target_blank,
 )
-from ._minify import JSMinify, minify, minify_js
 from ._sanitizer import (
     DEFAULT_ATTRIBUTES,
     DEFAULT_CSS_PROPERTIES,

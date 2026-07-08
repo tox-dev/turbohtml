@@ -111,32 +111,13 @@ py.install_sources(
     [
         'src/turbohtml/__init__.py',
         'src/turbohtml/__main__.py',
-        'src/turbohtml/_article.py',
-        'src/turbohtml/_cssmin.py',
-        'src/turbohtml/_dates.py',
-        'src/turbohtml/_feed.py',
         'src/turbohtml/_html.pyi',
-        'src/turbohtml/_jsminify.py',
-        'src/turbohtml/_linkify.py',
-        'src/turbohtml/_links.py',
-        'src/turbohtml/_locations.py',
-        'src/turbohtml/_match.py',
-        'src/turbohtml/_minify.py',
-        'src/turbohtml/_render.py',
-        'src/turbohtml/mutations.py',
-        'src/turbohtml/_sanitizer.py',
-        'src/turbohtml/_selectors.py',
-        'src/turbohtml/_structured_data.py',
-        'src/turbohtml/_urls.py',
-        'src/turbohtml/_xpath.py',
         'src/turbohtml/build.py',
-        'src/turbohtml/clean.py',
         'src/turbohtml/conformance.py',
         'src/turbohtml/convert.py',
         'src/turbohtml/cssom.py',
         'src/turbohtml/detect.py',
-        'src/turbohtml/extract.py',
-        'src/turbohtml/query.py',
+        'src/turbohtml/mutations.py',
         'src/turbohtml/rewrite.py',
         'src/turbohtml/saxparse.py',
         'src/turbohtml/treebuild.py',
@@ -146,6 +127,50 @@ py.install_sources(
         'src/turbohtml/py.typed',
     ],
     subdir: 'turbohtml',
+)
+
+py.install_sources(
+    [
+        'src/turbohtml/extract/__init__.py',
+        'src/turbohtml/extract/_article.py',
+        'src/turbohtml/extract/_dates.py',
+        'src/turbohtml/extract/_feed.py',
+        'src/turbohtml/extract/_links.py',
+        'src/turbohtml/extract/_structured_data.py',
+        'src/turbohtml/extract/_urls.py',
+    ],
+    subdir: 'turbohtml/extract',
+)
+
+py.install_sources(
+    [
+        'src/turbohtml/query/__init__.py',
+        'src/turbohtml/query/_match.py',
+        'src/turbohtml/query/_xpath.py',
+    ],
+    subdir: 'turbohtml/query',
+)
+
+py.install_sources(
+    [
+        'src/turbohtml/clean/__init__.py',
+        'src/turbohtml/clean/_linkify.py',
+        'src/turbohtml/clean/_sanitizer.py',
+    ],
+    subdir: 'turbohtml/clean',
+)
+
+py.install_sources(
+    [
+        'src/turbohtml/_internal/__init__.py',
+        'src/turbohtml/_internal/_cssmin.py',
+        'src/turbohtml/_internal/_jsminify.py',
+        'src/turbohtml/_internal/_locations.py',
+        'src/turbohtml/_internal/_minify.py',
+        'src/turbohtml/_internal/_render.py',
+        'src/turbohtml/_internal/_selectors.py',
+    ],
+    subdir: 'turbohtml/_internal',
 )
 
 py.install_sources(

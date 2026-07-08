@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 from itertools import starmap
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
-from ._html import Document, _date_scan, _date_scan_all, _date_url, parse
+from turbohtml._html import Document, _date_scan, _date_scan_all, _date_url, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
