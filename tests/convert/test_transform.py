@@ -2184,6 +2184,73 @@ def test_transform_import_loads_external_templates(tmp_path: Path) -> None:
     assert _canon(result) == "[x]"
 
 
+def test_transform_import_resolves_file_url_base(tmp_path: Path) -> None:
+    (tmp_path / "base.xsl").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    result = transform(sheet, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=main.as_uri())
+    assert _canon(result) == "[x]"
+
+
+def test_transform_import_resolves_file_url_href(tmp_path: Path) -> None:
+    base = tmp_path / "base.xsl"
+    base.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:import href="{base.as_uri()}"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    result = transform(sheet, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(main))
+    assert _canon(result) == "[x]"
+
+
+def test_transform_import_rejects_remote_base_url() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/></xsl:stylesheet>'
+    )
+    with pytest.raises(ValueError, match="base_url must be a local path or file URL"):
+        transform(sheet, turbohtml.parse_xml("<r/>"), base_url="https://example.com/main.xsl")
+
+
+def test_transform_import_rejects_remote_href(tmp_path: Path) -> None:
+    main = tmp_path / "main.xsl"
+    main.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="https://example.com/base.xsl"/></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="href must be a local path or file URL"):
+        transform(sheet, turbohtml.parse_xml("<r/>"), base_url=str(main))
+
+
+def test_transform_import_rejects_remote_file_url() -> None:
+    sheet = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="base.xsl"/></xsl:stylesheet>'
+    )
+    with pytest.raises(ValueError, match="base_url file URL must point to a local path"):
+        transform(sheet, turbohtml.parse_xml("<r/>"), base_url="file://example.com/main.xsl")
+
+
 def test_transform_import_precedence_importer_wins(tmp_path: Path) -> None:
     (tmp_path / "base.xsl").write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'

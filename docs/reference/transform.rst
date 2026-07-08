@@ -25,6 +25,6 @@ conflict resolution by priority then document order. It emits the ``xml``, ``htm
 adds the XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-number()``, ``system-property()``,
 ``function-available()``, and ``element-available()``.
 
-External-document loading is out of scope: ``xsl:include``, ``xsl:import``, and ``document()`` do not resolve, so import
-precedence collapses to a single stylesheet's priority-and-order resolution, and ``document()`` returns an empty
-node-set.
+External-document loading is limited. ``xsl:import`` resolves local paths and file URLs against ``base_url``; the
+imported declarations join conflict resolution at lower import precedence. ``xsl:include`` and ``document()`` do not
+resolve, and ``document()`` returns an empty node-set.
