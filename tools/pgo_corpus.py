@@ -212,7 +212,7 @@ def _scripts() -> list[object]:
 
 
 _HTML_DOCUMENT_OPS: Final = frozenset({
-    "parse", "parse-shadow", "tokenize", "sax", "rewrite", "fragment", "serialize", "minify", "htmlparser",
+    "parse", "parse-shadow", "tokenize", "sax", "treebuild", "rewrite", "fragment", "serialize", "minify", "htmlparser",
     "path", "path-xpath", "find", "select", "select-has", "match", "find-text", "text-content", "conformance",
     "edit", "class-edit", "strip-remove", "strip-tags", "set-html", "set-text", "observe", "navigate", "chain",
     "lossless-serialize", "links-extract", "links-absolutize", "links-rewrite", "extract-attr", "extract-text",

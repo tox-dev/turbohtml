@@ -41,6 +41,7 @@ from turbohtml.rewrite import rewrite as _rewrite
 from turbohtml.saxparse import SaxHandler as _SaxHandler
 from turbohtml.saxparse import sax_parse as _sax_parse
 from turbohtml.transform import Transform as _Transform
+from turbohtml.treebuild import parse_into as _parse_into
 from turbohtml.validate import XMLSchema as _XMLSchema
 
 if TYPE_CHECKING:
@@ -609,6 +610,46 @@ def sax(text: str) -> None:
     _sax_parse(text, _SaxCounter())
 
 
+class _Node:
+    """A compact tree node a turbohtml.treebuild builder materializes: a tag and its children, no navigable Node."""
+
+    __slots__ = ("children", "tag")
+
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+        self.children: list[_Node] = []
+
+
+class _NodeBuilder:
+    """Retarget the parser at :class:`_Node`; parse_into binds each method per instance, hence the PLR6301 waivers."""
+
+    def create_document(self) -> _Node:  # noqa: PLR6301
+        return _Node("#document")
+
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _Node:  # noqa: ARG002, PLR6301
+        return _Node("#doctype")
+
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:  # noqa: ARG002, PLR6301
+        return _Node(name)
+
+    def create_text(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+        return _Node("#text")
+
+    def create_comment(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+        return _Node("#comment")
+
+    def create_pi(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+        return _Node("#pi")
+
+    def append(self, parent: _Node, child: _Node) -> None:  # noqa: PLR6301
+        parent.children.append(child)
+
+
+def treebuild(text: str) -> None:
+    """Retarget the parser at a custom tree, materializing it directly and never building a navigable Node."""
+    _parse_into(text, _NodeBuilder())
+
+
 def _rewrite_rel(element: _RewriteElement) -> None:
     """Mark a link rel=nofollow as the streaming rewriter visits it."""
     element.set_attribute("rel", "nofollow")
@@ -829,6 +870,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "extract-url": (extract_url, "turbohtml"),
     "htmlparser": (htmlparser, "turbohtml"),
     "sax": (sax, "turbohtml"),
+    "treebuild": (treebuild, "turbohtml"),
     "rewrite": (rewrite, "turbohtml"),
     "path": (css_path, "turbohtml"),
     "path-xpath": (xpath_path, "turbohtml"),
