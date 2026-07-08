@@ -1,0 +1,1 @@
+Lock free-threaded DOM tree reads and attribute views; concurrent mutation no longer crashes those readers.
