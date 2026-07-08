@@ -1,0 +1,1 @@
+Normalize configured ``Linkify.skip_tags`` names before matching parsed HTML tags; ``CODE`` now skips ``<code>`` text.
