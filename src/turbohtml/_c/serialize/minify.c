@@ -15,7 +15,7 @@
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
-#include "serialize/css.h"
+#include "css/minify/css.h"
 #include "serialize/js/minify.h"
 
 #include <string.h>

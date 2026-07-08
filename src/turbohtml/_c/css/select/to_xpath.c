@@ -14,7 +14,7 @@
 
 #include "core/vec.h"
 #include "dom/nodes.h"
-#include "query/css/selector.h"
+#include "css/select/selector.h"
 
 typedef struct {
     Py_UCS4 *data;

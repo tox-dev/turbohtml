@@ -3,7 +3,7 @@
    selector.h now carries only the shared types plus the entry-point prototypes. */
 
 #include "core/vec.h"
-#include "query/css/selector.h"
+#include "css/select/selector.h"
 
 /* Record a parse failure with the position and reason for the error message. Set
    unconditionally: an error propagates up through early returns without another

@@ -143,11 +143,11 @@ mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation
             tokenizer/       # WHATWG tokenizer and Token/Tokenizer bindings
             dom/             # tree builder and the node object model
             serialize/       # HTML, minify, markdown, text, escape/unescape
-            query/           # css/, xpath/, find/ selection engines
+            query/           # xpath/, find/ selection engines
             encoding/        # charset prescan and detection
             clean/           # sanitize, linkify
             extract/         # readability, structured data, dates, tables, links, feed, annotation
-            cssom/           # CSS Object Model cascade and computed style
+            css/             # minify/, select/ (selectors + css_to_xpath), cssom/
             data/            # generated tables (do not edit)
     tools/generate_*.py      # regenerate the data/ tables
     tests/                   # pytest suite, mirroring src/turbohtml/_c/
@@ -175,8 +175,8 @@ Each ``_c/`` subdirectory owns one subsystem:
       - Output modes over a built tree: html5lib ``#document``, minify, markdown, layout text; plus escape/unescape and
         the markupsafe surface.
     - - ``query/``
-      - The selection engines, one per subdirectory: ``css/`` (selector matching), ``xpath/`` (XPath 1.0 + EXSLT),
-        ``find/`` (``find``/``find_all``).
+      - The selection engines, one per subdirectory: ``xpath/`` (XPath 1.0 + EXSLT), ``find/`` (``find``/``find_all``);
+        CSS selectors live in ``css/select/``.
     - - ``encoding/``
       - Charset prescan and content-based encoding detection.
     - - ``clean/``
@@ -184,8 +184,9 @@ Each ``_c/`` subdirectory owns one subsystem:
     - - ``extract/``
       - Pull structured content out of a finished tree: ``readability``, ``structured_data``, ``dates``, ``tables``,
         ``links``, ``feed``, ``annotation``.
-    - - ``cssom/``
-      - The CSS Object Model cascade and ``getComputedStyle`` over a finished tree.
+    - - ``css/``
+      - The CSS engines, one per subdirectory: ``minify/`` (the CSS minifier behind ``convert``), ``select/`` (the
+        selector matcher and the ``css_to_xpath`` translation), ``cssom/`` (the cascade and ``getComputedStyle``).
     - - ``data/``
       - Generated static tables (tag and attribute atoms, HTML entities, TLDs). Regenerate with ``tools/generate_*.py``.
 

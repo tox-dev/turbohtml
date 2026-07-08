@@ -56,13 +56,13 @@ PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 PyObject *turbohtml_normalize(PyObject *module, PyObject *args);
 PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
 
-/* Implemented in query/css/to_xpath.c, which reuses the selector parser.
+/* Implemented in css/select/to_xpath.c, which reuses the selector parser.
    _css_to_xpath(selector, prefix) translates a CSS selector list to an
    equivalent XPath 1.0 expression; matches METH_VARARGS. */
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
 
-/* Implemented in cssom/cssom.c: the CSS Object Model cascade (issue #546).
+/* Implemented in css/cssom/cssom.c: the CSS Object Model cascade (issue #546).
    _css_parse_declarations(text) and _css_parse_rules(text) parse a declaration block
    and a whole stylesheet (both METH_O); _css_computed_style(element) resolves the
    cascade for one element and returns its computed longhands (METH_O). */

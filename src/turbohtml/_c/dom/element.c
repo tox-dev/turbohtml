@@ -5,7 +5,7 @@
 
 #include "core/vec.h" /* th_grow_cap overflow-safe buffer growth */
 
-#include "query/css/selector.h"
+#include "css/select/selector.h"
 
 static int validate_name(PyObject *name, int is_attr);
 

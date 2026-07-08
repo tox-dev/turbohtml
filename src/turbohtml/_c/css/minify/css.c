@@ -25,14 +25,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "serialize/css_tokenize.h"
-#include "serialize/css_value.h"
-#include "serialize/css_calc.h"
-#include "serialize/css_render.h"
-#include "serialize/css_shorthand.h"
-#include "serialize/css_selector.h"
-#include "serialize/css_grammar.h"
-#include "serialize/css.h"
+#include "css/minify/css_tokenize.h"
+#include "css/minify/css_value.h"
+#include "css/minify/css_calc.h"
+#include "css/minify/css_render.h"
+#include "css/minify/css_shorthand.h"
+#include "css/minify/css_selector.h"
+#include "css/minify/css_grammar.h"
+#include "css/minify/css.h"
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
    harness and the CPython binding both call this; it touches no CPython runtime. */

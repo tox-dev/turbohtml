@@ -16,21 +16,26 @@ A subsystem keeps the same name across four places: the `_c/` directory that imp
 that exposes it, the `tests/` directory that exercises it, and the `docs/reference/` page that documents it. Use the row
 to jump between them.
 
-| `_c/`        | Python surface                                        | `tests/`                  | `docs/reference/`               |
-| ------------ | ----------------------------------------------------- | ------------------------- | ------------------------------- |
-| `tokenizer/` | `parse`, `parse_xml`, `saxparse`, `rewrite`           | `tokenizer`               | `parsing`, `tokenizer`          |
-| `dom/`       | `Node`, `treebuild`, `traverse`, `mutations`, `build` | `dom`, `build`            | `nodes`, `build`                |
-| `serialize/` | `Node.serialize`, `convert`/minify renderers          | `serialize`               | `serialize`                     |
-| `query/`     | `query`, `convert`, `transform`                       | `query`, `convert`        | `query`, `convert`, `transform` |
-| `clean/`     | `clean` (sanitize, linkify)                           | `clean`                   | `clean`                         |
-| `extract/`   | `extract` (readability, structured data, dates, ...)  | `extract`                 | `extract`, `structured-data`    |
-| `cssom/`     | `cssom`                                               | `cssom`                   | `cssom`                         |
-| `encoding/`  | `detect`                                              | `detect`, `encoding`      | `detect`                        |
-| `url/`       | absolutization behind `clean` and `extract`           | `url`                     | (under `clean`, `extract`)      |
-| `validate/`  | `validate`, `conformance`                             | `validate`, `conformance` | `validate`, `conformance`       |
-| `core/`      | module init, atom interning, shared buffers           | `core`                    | —                               |
-| `data/`      | generated static tables                               | —                         | —                               |
-| `unicode/`   | normalization used by `url/` and `validate/`          | (via those)               | —                               |
+| `_c/`        | Python surface                                                 | `tests/`                  | `docs/reference/`               |
+| ------------ | -------------------------------------------------------------- | ------------------------- | ------------------------------- |
+| `tokenizer/` | `parse`, `parse_xml`, `saxparse`, `rewrite`                    | `tokenizer`               | `parsing`, `tokenizer`          |
+| `dom/`       | `Node`, `treebuild`, `traverse`, `mutations`, `build`          | `dom`, `build`            | `nodes`, `build`                |
+| `serialize/` | `Node.serialize`, `convert`/minify renderers                   | `serialize`               | `serialize`                     |
+| `query/`     | `query`, `convert`, `transform`                                | `query`, `convert`        | `query`, `convert`, `transform` |
+| `clean/`     | `clean` (sanitize, linkify)                                    | `clean`                   | `clean`                         |
+| `extract/`   | `extract` (readability, structured data, dates, ...)           | `extract`                 | `extract`, `structured-data`    |
+| `css/`       | `cssom`; `query`/`Node.select` selectors; `convert` CSS minify | `cssom`, `query`          | `cssom`                         |
+| `encoding/`  | `detect`                                                       | `detect`, `encoding`      | `detect`                        |
+| `url/`       | absolutization behind `clean` and `extract`                    | `url`                     | (under `clean`, `extract`)      |
+| `validate/`  | `validate`, `conformance`                                      | `validate`, `conformance` | `validate`, `conformance`       |
+| `core/`      | module init, atom interning, shared buffers                    | `core`                    | —                               |
+| `data/`      | generated static tables                                        | —                         | —                               |
+| `unicode/`   | normalization used by `url/` and `validate/`                   | (via those)               | —                               |
+
+`css/` is the one umbrella that backs more than one Python surface, because the three CSS engines share a value model:
+it holds `minify/` (the CSS minifier behind `convert`), `select/` (the selector matcher and the `css_to_xpath`
+translation that `query`, `Node.select`, and `cssom` all match with), and `cssom/` (the cascade behind the `cssom`
+module).
 
 The public Python module names (`clean`, `cssom`, `detect`, `query`, ...) are the user-facing API and do not move; this
 map is how the four names line up, not a promise that every subsystem is one file, one test dir, and one page.

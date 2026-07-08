@@ -3,7 +3,7 @@
    turbohtml.rewrite.rewrite() streams the raw WHATWG tokenizer over the input and
    maintains only the stack of currently-open elements -- an O(open-depth) spine, never
    a document tree. Each open element is a lightweight th_node whose sole live link is
-   its parent, so the existing CSS selector engine (query/css/selector.c) matches the
+   its parent, so the existing CSS selector engine (css/select/selector.c) matches the
    streamable selector subset (type, universal, id, class, attribute, the descendant and
    child combinators, :root, and :is()/:where()/:not() over that subset) against the
    spine directly. A matched element, or a streamed text/comment/doctype, is handed to a
@@ -24,7 +24,7 @@
 #include "data/attr_atom.h"
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
-#include "query/css/selector.h"
+#include "css/select/selector.h"
 
 #include <string.h>
 

@@ -17,7 +17,7 @@
 
 #include "data/attr_atom.h"
 #include "dom/nodes.h"
-#include "query/css/selector.h"
+#include "css/select/selector.h"
 
 #include <string.h>
 
