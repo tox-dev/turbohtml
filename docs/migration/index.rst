@@ -338,33 +338,6 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
             :alt: calmjs.parse total downloads
             :target: https://pepy.tech/project/calmjs.parse
     - - 13
-      - :doc:`lightningcss <lightningcss>`
-      - `docs <https://pypi.org/project/lightningcss/>`__
-      - .. image:: https://static.pepy.tech/badge/lightningcss/month
-            :alt: lightningcss monthly downloads
-            :target: https://pepy.tech/project/lightningcss
-      - .. image:: https://static.pepy.tech/badge/lightningcss
-            :alt: lightningcss total downloads
-            :target: https://pepy.tech/project/lightningcss
-    - - 14
-      - :doc:`sanitize-html <sanitize-html>`
-      - `docs <https://github.com/apostrophecms/sanitize-html>`__
-      - .. image:: https://img.shields.io/npm/dm/sanitize-html
-            :alt: sanitize-html monthly downloads
-            :target: https://www.npmjs.com/package/sanitize-html
-      - .. image:: https://img.shields.io/npm/dt/sanitize-html
-            :alt: sanitize-html total downloads
-            :target: https://www.npmjs.com/package/sanitize-html
-    - - 15
-      - :doc:`DOMPurify <dompurify>`
-      - `docs <https://github.com/cure53/DOMPurify>`__
-      - .. image:: https://img.shields.io/npm/dm/dompurify
-            :alt: DOMPurify monthly downloads
-            :target: https://www.npmjs.com/package/dompurify
-      - .. image:: https://img.shields.io/npm/dt/dompurify
-            :alt: DOMPurify total downloads
-            :target: https://www.npmjs.com/package/dompurify
-    - - 16
       - :doc:`html5validator <html5validator>`
       - `docs <https://github.com/svenkreiss/html5validator>`__
       - .. image:: https://static.pepy.tech/badge/html5validator/month
@@ -373,6 +346,33 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://static.pepy.tech/badge/html5validator
             :alt: html5validator total downloads
             :target: https://pepy.tech/project/html5validator
+    - - 14
+      - :doc:`lightningcss <lightningcss>`
+      - `docs <https://pypi.org/project/lightningcss/>`__
+      - .. image:: https://static.pepy.tech/badge/lightningcss/month
+            :alt: lightningcss monthly downloads
+            :target: https://pepy.tech/project/lightningcss
+      - .. image:: https://static.pepy.tech/badge/lightningcss
+            :alt: lightningcss total downloads
+            :target: https://pepy.tech/project/lightningcss
+    - - 15
+      - :doc:`sanitize-html <sanitize-html>`
+      - `docs <https://github.com/apostrophecms/sanitize-html>`__
+      - .. image:: https://img.shields.io/npm/dm/sanitize-html
+            :alt: sanitize-html monthly downloads
+            :target: https://www.npmjs.com/package/sanitize-html
+      - .. image:: https://img.shields.io/npm/dt/sanitize-html
+            :alt: sanitize-html total downloads
+            :target: https://www.npmjs.com/package/sanitize-html
+    - - 16
+      - :doc:`DOMPurify <dompurify>`
+      - `docs <https://github.com/cure53/DOMPurify>`__
+      - .. image:: https://img.shields.io/npm/dm/dompurify
+            :alt: DOMPurify monthly downloads
+            :target: https://www.npmjs.com/package/dompurify
+      - .. image:: https://img.shields.io/npm/dt/dompurify
+            :alt: DOMPurify total downloads
+            :target: https://www.npmjs.com/package/dompurify
 
 *********
  Convert
@@ -745,7 +745,6 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     lxml
     jsdom
     dompurify
-    html5validator
     chardet
     linkify-it-py
     bleach
@@ -790,6 +789,7 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     airium
     goose3
     calmjs-parse
+    html5validator
     html5-parser
     news-please
     markyp
