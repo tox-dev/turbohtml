@@ -84,7 +84,7 @@ py.extension_module(
         'src/turbohtml/_c/query/xpath/parser.c',
         'src/turbohtml/_c/query/xpath/eval.c',
         'src/turbohtml/_c/query/xpath/functions.c',
-        'src/turbohtml/_c/query/find/find.c',
+        'src/turbohtml/_c/query/find.c',
         'src/turbohtml/_c/features/sanitize.c',
         'src/turbohtml/_c/features/linkify.c',
         'src/turbohtml/_c/features/links.c',
