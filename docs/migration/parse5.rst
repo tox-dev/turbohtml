@@ -2,6 +2,8 @@
  From parse5
 #############
 
+.. package-meta:: npm parse5 inikulin/parse5
+
 `parse5 <https://github.com/inikulin/parse5>`_ is the reference JavaScript WHATWG parser -- the tree builder behind
 jsdom, Angular, and much of the Node HTML ecosystem. It is unusual among the libraries here in being JavaScript rather
 than Python, so this guide is a cross-language reference: it maps the parse5 API, and its ``sourceCodeLocationInfo``

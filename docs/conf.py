@@ -10,12 +10,14 @@ import sys
 from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from docutils import nodes
 from docutils.parsers.rst import Directive
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sphinx.application import Sphinx
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
@@ -246,35 +248,22 @@ def _stub_signature_for_alias(  # noqa: PLR0913, PLR0917 -- the signature is fix
 
 class _PackageMeta(Directive):
     """
-    Render one badge row of package metadata: ``.. package-meta:: <pypi-name> [github-slug]``.
+    Render one badge row of package metadata: ``.. package-meta:: [ecosystem] <name> [github-slug]``.
 
     Every migration guide opens with the same at-a-glance facts about the library it replaces (latest release,
     supported Pythons, license, downloads, and -- when the project lives on GitHub -- stars and recency), so a single
-    directive keeps the set and its order identical across the guides instead of hand-maintaining badge stacks.
+    directive keeps the set and its order identical across the guides instead of hand-maintaining badge stacks. The
+    first argument may name the ecosystem -- ``npm`` or ``crates`` for the JavaScript and Rust libraries -- and defaults
+    to PyPI when it is a bare package name, so every existing ``.. package-meta:: <pypi-name>`` call is unchanged.
     """
 
     required_arguments = 1
-    optional_arguments = 1
+    optional_arguments = 2
 
     def run(self) -> list[nodes.Node]:
-        pypi = self.arguments[0]
-        badges = [
-            (
-                "latest release",
-                f"https://img.shields.io/pypi/v/{pypi}?label=release",
-                f"https://pypi.org/project/{pypi}/",
-            ),
-            (
-                "supported Pythons",
-                f"https://img.shields.io/pypi/pyversions/{pypi}",
-                f"https://pypi.org/project/{pypi}/",
-            ),
-            ("license", f"https://img.shields.io/pypi/l/{pypi}", f"https://pypi.org/project/{pypi}/"),
-            ("monthly downloads", f"https://static.pepy.tech/badge/{pypi}/month", f"https://pepy.tech/project/{pypi}"),
-            ("total downloads", f"https://static.pepy.tech/badge/{pypi}", f"https://pepy.tech/project/{pypi}"),
-        ]
-        if len(self.arguments) > 1:
-            slug = self.arguments[1]
+        ecosystem, name, slug = self._parse_arguments()
+        badges = self._ECOSYSTEMS[ecosystem](name)
+        if slug is not None:
             badges += [
                 ("GitHub stars", f"https://img.shields.io/github/stars/{slug}", f"https://github.com/{slug}"),
                 ("last commit", f"https://img.shields.io/github/last-commit/{slug}", f"https://github.com/{slug}"),
@@ -282,9 +271,53 @@ class _PackageMeta(Directive):
         row = nodes.paragraph(classes=["package-meta"])
         for alt, image, target in badges:
             link = nodes.reference(refuri=target)
-            link += nodes.image(uri=image, alt=f"{pypi} {alt}")
+            link += nodes.image(uri=image, alt=f"{name} {alt}")
             row += link
         return [row]
+
+    def _parse_arguments(self) -> tuple[str, str, str | None]:
+        head, *rest = self.arguments
+        if head in self._ECOSYSTEMS:
+            name, *tail = rest
+        else:
+            name, tail = head, rest
+            head = "pypi"
+        return head, name, tail[0] if tail else None
+
+    @staticmethod
+    def _pypi_badges(name: str) -> list[tuple[str, str, str]]:
+        page = f"https://pypi.org/project/{name}/"
+        return [
+            ("latest release", f"https://img.shields.io/pypi/v/{name}?label=release", page),
+            ("supported Pythons", f"https://img.shields.io/pypi/pyversions/{name}", page),
+            ("license", f"https://img.shields.io/pypi/l/{name}", page),
+            ("monthly downloads", f"https://static.pepy.tech/badge/{name}/month", f"https://pepy.tech/project/{name}"),
+            ("total downloads", f"https://static.pepy.tech/badge/{name}", f"https://pepy.tech/project/{name}"),
+        ]
+
+    @staticmethod
+    def _npm_badges(name: str) -> list[tuple[str, str, str]]:
+        page = f"https://www.npmjs.com/package/{name}"
+        return [
+            ("latest release", f"https://img.shields.io/npm/v/{name}", page),
+            ("license", f"https://img.shields.io/npm/l/{name}", page),
+            ("monthly downloads", f"https://img.shields.io/npm/dm/{name}", page),
+        ]
+
+    @staticmethod
+    def _crates_badges(name: str) -> list[tuple[str, str, str]]:
+        page = f"https://crates.io/crates/{name}"
+        return [
+            ("latest release", f"https://img.shields.io/crates/v/{name}", page),
+            ("license", f"https://img.shields.io/crates/l/{name}", page),
+            ("downloads", f"https://img.shields.io/crates/d/{name}", page),
+        ]
+
+    _ECOSYSTEMS: ClassVar[dict[str, Callable[[str], list[tuple[str, str, str]]]]] = {
+        "pypi": _pypi_badges,
+        "npm": _npm_badges,
+        "crates": _crates_badges,
+    }
 
 
 _DESCRIPTION_LIMIT = 160

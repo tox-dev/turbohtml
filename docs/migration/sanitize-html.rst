@@ -2,6 +2,8 @@
  From sanitize-html
 ####################
 
+.. package-meta:: npm sanitize-html apostrophecms/sanitize-html
+
 `sanitize-html <https://github.com/apostrophecms/sanitize-html>`_ is the standard Node HTML sanitizer: you declare the
 tags, attributes, URL schemes, and CSS properties you trust, and everything else is stripped. Its distinguishing feature
 is ``transformTags`` -- a map that renames an element (and optionally rewrites its attributes) during the sanitize pass,

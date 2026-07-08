@@ -2,6 +2,8 @@
  From lol-html
 ###############
 
+.. package-meta:: crates lol-html cloudflare/lol-html
+
 `lol-html <https://github.com/cloudflare/lol-html>`_ is Cloudflare's streaming HTML rewriter -- the engine behind
 Workers' ``HTMLRewriter`` that transforms responses at the edge. It is written in Rust (with a WebAssembly/JavaScript
 binding) and, like turbohtml's rewriter, never builds a DOM: it runs the tokenizer over the input, matches CSS selectors

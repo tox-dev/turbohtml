@@ -727,67 +727,67 @@ GitHub-Flavored Markdown, and :meth:`turbohtml.Node.to_text` extracts rendered t
     :hidden:
     :maxdepth: 1
 
-    beautifulsoup
-    lxml
-    html5lib
-    selectolax
-    resiliparse
-    mechanicalsoup
-    html5-parser
-    stdlib
-    parse5
-    jsdom
-    lol-html
     charset-normalizer
-    chardet
+    pandas
+    markupsafe
+    parse5
+    beautifulsoup
     soupsieve
-    parsel
-    pyquery
-    cssutils
+    lxml
+    jsdom
+    dompurify
+    chardet
     linkify-it-py
     bleach
+    markdownify
     nh3
     sanitize-html
-    dompurify
-    lxml-html-clean
-    rcssmin
-    rjsmin
-    jsmin
-    minify-html
-    htmlmin
-    csscompressor
-    html-sanitizer
-    calmjs-parse
-    lightningcss
+    html5lib
     cssselect
-    pandas
+    html2text
+    lxml-html-clean
+    feedparser
+    htmldate
     w3lib
     trafilatura
     courlan
-    extruct
+    cssutils
     justext
-    readability-lxml
-    readabilipy
-    metadata_parser
-    newspaper3k
-    boilerpy3
-    goose3
-    microdata
-    news-please
-    opengraph
-    htmldate
-    feedparser
+    selectolax
+    parsel
+    rjsmin
+    rcssmin
     dominate
+    pyquery
+    readability-lxml
+    html-text
+    minify-html
+    readabilipy
+    inscriptis
+    jsmin
+    htmlmin
+    resiliparse
+    csscompressor
+    newspaper3k
+    html-sanitizer
     yattag
+    extruct
+    lol-html
     htbuilder
+    boilerpy3
     htpy
+    mechanicalsoup
     airium
+    goose3
+    calmjs-parse
+    html5-parser
+    news-please
     markyp
+    lightningcss
+    metadata_parser
+    microdata
     fast-html
     simple-html
+    opengraph
     hyperpython
-    markupsafe
-    markdownify
-    html2text
-    inscriptis
-    html-text
+    stdlib

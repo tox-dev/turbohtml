@@ -2,6 +2,8 @@
  From jsdom
 ############
 
+.. package-meta:: npm jsdom jsdom/jsdom
+
 `jsdom <https://github.com/jsdom/jsdom>`_ is a JavaScript implementation of the WHATWG DOM and HTML standards, used to
 run browser-shaped code under Node. Its ``document.createTreeWalker`` and ``document.createNodeIterator`` are the DOM
 Living Standard traversal objects: a movable cursor and a flat filtered view over a subtree, each driven by a

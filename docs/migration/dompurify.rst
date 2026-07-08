@@ -2,6 +2,8 @@
  From DOMPurify
 ################
 
+.. package-meta:: npm dompurify cure53/DOMPurify
+
 `DOMPurify <https://github.com/cure53/DOMPurify>`_ is the reference client-side HTML sanitizer: it parses untrusted
 markup, walks it against a hardened allowlist, and hands back a string safe to assign to ``innerHTML``. It runs in a
 browser or, server-side, on ``jsdom`` through ``isomorphic-dompurify``. Several of its options harden against attacks
