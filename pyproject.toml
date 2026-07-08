@@ -325,6 +325,7 @@ run.omit = [
   "tests/convert/test_css_to_xpath_differential.py",
   "tests/convert/test_transform_differential.py",
   "tests/dom/test_parse_xml_differential.py",
+  "tests/dom/test_treebuild_differential.py",
   "tests/query/match/test_soupsieve_differential.py",
   "tests/query/xpath/test_xpath_differential.py",
   "tests/serialize/test_c14n_differential.py",
