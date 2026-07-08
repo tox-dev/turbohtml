@@ -365,5 +365,4 @@ type = [
   { directory = "bugfix", name = "Bug fixes", showcontent = true },
   { directory = "doc", name = "Improved documentation", showcontent = true },
   { directory = "packaging", name = "Packaging updates", showcontent = true },
-  { directory = "misc", name = "Miscellaneous internal changes", showcontent = true },
 ]

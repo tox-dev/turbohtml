@@ -1,3 +1,0 @@
-The pure-Python source is regrouped so each private helper sits under the public subsystem it serves -- ``extract``,
-``query`` and ``clean`` become packages and the cross-cutting helpers move to ``_internal``. No public import path
-changed.
