@@ -25,9 +25,9 @@ both ways. Finally each surviving candidate's score is discounted by its link de
 sits inside an ``<a>``), so a dense menu that slipped through scores near zero, and the highest remaining score wins.
 When nothing scores positively (a stub page, pure navigation), there is no winner and the method returns ``None``.
 
-The heuristic has limits worth stating. It is tuned for article-shaped pages; a search-results grid, a forum thread, or
-a single-page app rendered entirely from script has no dominant prose container and may return ``None`` or a surprising
-node. It selects an existing element unchanged (it does not clean inline boilerplate *within* the winner the way
+The heuristic has limits. It is tuned for article-shaped pages; a search-results grid, a forum thread, or a single-page
+app rendered entirely from script has no dominant prose container and may return ``None`` or a surprising node. It
+selects an existing element unchanged (it does not clean inline boilerplate *within* the winner the way
 ``Readability.js`` rewrites the DOM), so pair it with :class:`~turbohtml.clean.Sanitizer` when you need a scrubbed
 fragment. And it is content extraction only: language detection and WARC/web-archive handling, which ``resiliparse``
 bundles alongside, are out of scope; reach for a dedicated tool there.

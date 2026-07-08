@@ -6,7 +6,7 @@
 processing instruction -- instead of a tree. It sits between the two surfaces you already know: lower level than
 :func:`turbohtml.parse`, which hands back a navigable document, and higher level than :func:`turbohtml.tokenize`, which
 hands back raw tokens that know nothing about tree structure. This note explains what "higher level than tokens" buys
-you and, just as importantly, what the event model does and does not promise about memory.
+you and what the event model does and does not promise about memory.
 
 ********************
  Events, not tokens
@@ -39,8 +39,8 @@ as long as you hold it, that is the win: the object graph you never build and th
 ************************************
 
 It is tempting to expect the streaming, low-memory model of a pull tokenizer: memory proportional to how deeply elements
-nest, not to how large the document is. A spec-correct HTML tree builder cannot offer that, and it is worth
-understanding why, because the reason is intrinsic to the algorithm rather than to this implementation.
+nest, not to how large the document is. A spec-correct HTML tree builder cannot offer that, and the reason is intrinsic
+to the algorithm rather than to this implementation.
 
 The WHATWG construction rules reach backwards. The adoption agency, triggered by a misnested formatting element's end
 tag, moves and re-parents nodes that were emitted long before -- their subtrees are relocated into a fresh clone.

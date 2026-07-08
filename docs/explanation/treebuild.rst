@@ -29,8 +29,8 @@ bookkeeping.
  What the single pass actually saves
 *************************************
 
-The capability is *skip generic DOM materialization and a second walk*. Both halves are real, and it is worth being
-precise about which cost each removes.
+The capability is *skip generic DOM materialization and a second walk*. Both halves are real, and each removes a
+distinct cost.
 
 The materialization saved is the Python object graph. :func:`turbohtml.parse` returns a document backed by the C tree,
 but every :class:`~turbohtml.Element`, :class:`~turbohtml.Text`, and :class:`~turbohtml.Comment` you touch is a Python
