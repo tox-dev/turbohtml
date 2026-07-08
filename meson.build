@@ -59,6 +59,7 @@ py.extension_module(
         'src/turbohtml/_c/serialize/unescape.c',
         'src/turbohtml/_c/serialize/markup.c',
         'src/turbohtml/_c/serialize/document.c',
+        'src/turbohtml/_c/serialize/lossless.c',
         'src/turbohtml/_c/serialize/c14n.c',
         'src/turbohtml/_c/serialize/minify.c',
         'src/turbohtml/_c/serialize/css.c',

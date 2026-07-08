@@ -195,12 +195,27 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
     return 0;
 }
 
+/* Flag a located element's start tag as changed, so the lossless serializer rewrites
+   it from the current attributes rather than re-emitting the stale source span. A
+   no-op unless the tree tracks source locations and the element carries one (a
+   synthetic or hand-built element has none). */
+static void mark_start_dirty(th_tree *tree, th_node *node) {
+    if (!tree->track_locations) {
+        return;
+    }
+    th_src_loc *loc = *node_loc(node);
+    if (loc != NULL) {
+        loc->start_dirty = 1;
+    }
+}
+
 /* Upsert an attribute by name: replace the value of the existing attribute with
    that atom, or append a new slot (growing the arena array by one). has_value 0
    stores a valueless attribute; an empty value stays distinct from valueless.
    Returns 0, or -1 on allocation failure. */
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value) {
+    mark_start_dirty(tree, node);
     uint32_t atom = th_attr_intern_utf8(tree, name, name_len);
     Py_UCS4 *owned = NULL;
     if (has_value) {
@@ -292,6 +307,7 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     if (index < 0) {
         return 0;
     }
+    mark_start_dirty(tree, node);
     th_mo_attr_changed(tree, node, node->attrs[index].name_atom, node->attrs[index].value, node->attrs[index].value_len,
                        1);
     for (Py_ssize_t shift = index; shift + 1 < node->attr_count; shift++) {

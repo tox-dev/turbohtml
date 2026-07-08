@@ -1,0 +1,7 @@
+:meth:`turbohtml.Node.to_source` losslessly serializes a tree back to HTML, re-emitting the verbatim source bytes of
+every element and text run a parse left untouched and reserializing only the parts a mutation changed. Parse with
+``source_locations=True`` and an unedited round trip reproduces the input byte for byte -- author quoting, tag-name
+case, character-reference spelling, and insignificant whitespace intact -- for markup that parsed without implied
+elements or content reordering; after an edit only the changed node's markup is rewritten while every untouched sibling
+and subtree keeps its original span. It is the tree-based counterpart to the streaming
+:func:`turbohtml.rewrite.rewrite`, the model Cloudflare's lol-html popularized.

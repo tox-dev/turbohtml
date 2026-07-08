@@ -113,3 +113,37 @@ overrides ``formatter`` (the escaping is fixed by XML), and a :class:`~turbohtml
 
 The output parses with any XML reader, so it round-trips through :mod:`xml.etree.ElementTree` and hands cleanly to an
 XSLT or XPath 2.0 pipeline that rejects HTML's unclosed tags.
+
+***********************************
+ Preserve the source byte for byte
+***********************************
+
+:meth:`~turbohtml.Node.serialize` normalizes the whole document: it re-quotes every attribute, lowercases tag names, and
+rewrites character references to their canonical form. When you want the opposite -- a surgical edit that leaves every
+other byte, including the author's own quoting and formatting, exactly as written -- :meth:`~turbohtml.Node.to_source`
+re-emits the verbatim source of every element and text run the parse left untouched and reserializes only the parts you
+changed. Parse with ``source_locations=True`` so the tree records the spans it re-emits, and an unedited round trip
+reproduces the input:
+
+.. testcode::
+
+    import turbohtml
+
+    source = '<!DOCTYPE html><html><head></head><body><a HREF="/x">go</a></body></html>'
+    doc = turbohtml.parse(source, source_locations=True)
+    print(doc.to_source() == source)
+
+    link = doc.select_one("a")
+    link.attrs["rel"] = "nofollow"
+    print(doc.to_source())
+
+.. testoutput::
+
+    True
+    <!DOCTYPE html><html><head></head><body><a href="/x" rel="nofollow">go</a></body></html>
+
+Only the edited ``<a>`` start tag rebuilds (its ``HREF`` normalizing to ``href`` as the added ``rel`` joins it); the
+doctype, the ``<head>``, and the link text stay the bytes the source held. Removing a node drops its span, and an
+inserted node -- which carries no source location -- serializes canonically while its untouched siblings copy theirs.
+This is the tree-based counterpart to the streaming :func:`turbohtml.rewrite.rewrite`; see
+:doc:`/explanation/serialization` for what round-trips byte for byte and what a spec-mandated normalization changes.

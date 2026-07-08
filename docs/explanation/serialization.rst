@@ -227,3 +227,38 @@ span closes before any opens, an outer span opens before an inner one and closes
 first), and a zero-width span emits its own ``<label></label>`` intact rather than splitting it across a neighbor's
 boundary. The sort key carries the span's other endpoint and its original index, so the order is total and the output
 deterministic even when several spans coincide.
+
+**********************************
+ Lossless, byte-preserving output
+**********************************
+
+The serializers above all *normalize*: they rebuild each start tag from the parsed attributes, so the author's quoting,
+tag-name case, and character-reference spelling are gone by the time bytes come out. That is the right default -- the
+output is canonical and diff-stable -- but it is the wrong tool for a surgical edit, where you want every byte you did
+not touch left exactly as written. :meth:`~turbohtml.Node.to_source` is that tool. It is the tree-based counterpart to
+the streaming :func:`turbohtml.rewrite.rewrite`: where the rewriter never builds a tree, ``to_source`` walks a tree you
+have parsed, queried, and mutated, and re-emits the verbatim source of everything the mutation left alone.
+
+The mechanism is the per-element source spans a parse with ``source_locations=True`` records (the same spans
+:attr:`~turbohtml.Node.source_location` exposes). The walk emits each node's own bytes and composes them: an element
+copies its start-tag span, recurses, and copies its end-tag span; a text run copies its slice of the input while it is
+still the zero-copy span the parse left. Because contiguous child spans tile the parent's content, concatenating the
+pieces reproduces the original -- no separate whole-subtree copy is needed, and each clean node costs one ``memcpy``.
+The walk is iterative, descending through first-child and ascending through parent pointers, so an arbitrarily deep tree
+never grows the C stack.
+
+Three edits are reflected without any bookkeeping, because the walk reads the tree's current state: an inserted element
+carries no source location, so it reserializes canonically; a removed element is simply absent from the child list; and
+an edited text run has been materialized off its span, so it re-escapes. The one edit a span cannot reveal is a changed
+attribute *value* -- the start-tag bytes live in the source, independent of the attribute array -- so the mutation API
+flags a located element's start tag when it sets or deletes an attribute, and the walk rebuilds that one tag from the
+current attributes while leaving its end tag, its children, and its siblings verbatim.
+
+What round-trips byte for byte is therefore the tree that faithfully mirrors the source: input that parses without
+implied elements or content reordering. A document that spells out its structure (``<html>``, ``<head>``, ``<body>``, an
+explicit ``<tbody>``) reproduces exactly; a fragment reproduces through its children. Two normalizations the parser
+itself performs are not reversible from the tree and so are not preserved: a lowercase ``<!doctype html>`` re-emits as
+``<!DOCTYPE html>``, and a character reference the tokenizer resolved re-emits in its canonical spelling (``&amp;``,
+``&lt;``, ``&gt;``, and ``&nbsp;`` survive, since the escaper re-encodes them; a legacy or numeric reference becomes its
+character). Where every byte must survive an error-recovering or reordering parse, reach for the streaming rewriter,
+which sees the token stream the tree has already discarded.

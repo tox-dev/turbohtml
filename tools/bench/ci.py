@@ -55,6 +55,7 @@ _DOCUMENT_OPS = (
     "serialize",
     "serialize-xml",
     "canonicalize",
+    "lossless-serialize",
     "minify",
     "edit",
     "class-edit",

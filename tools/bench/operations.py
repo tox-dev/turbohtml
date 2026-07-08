@@ -247,6 +247,7 @@ OPERATIONS: dict[str, Operation] = {
     "serialize": Operation("serialize a parsed tree", "us"),
     "serialize-xml": Operation("serialize a parsed tree to XML", "us"),
     "canonicalize": Operation("canonicalize a parsed tree (c14n)", "us"),
+    "lossless-serialize": Operation("edit then re-emit untouched bytes (to_source)", "us"),
     "minify": Operation("minify a document", "us"),
     "edit": Operation("tag every link rel=nofollow", "us"),
     "class-edit": Operation("class add/remove on every link", "us"),
@@ -638,6 +639,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "serialize": _readpath_cases,
     "serialize-xml": _readpath_cases,
     "canonicalize": _readpath_cases,
+    "lossless-serialize": _readpath_cases,
     "minify": _readpath_cases,
     "socialcard": lambda: (
         ("head", _SOCIAL_HEAD),

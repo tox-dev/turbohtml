@@ -154,6 +154,10 @@ typedef struct {
     th_src_span start_tag;
     th_src_span end_tag;
     int has_end_tag;
+    /* set once the mutation API changes the element's attributes, so the lossless
+       serializer (th_node_serialize_source) rewrites the start tag from the current
+       attributes instead of re-emitting its now-stale source bytes. */
+    int start_dirty;
     Py_ssize_t attr_count;
     th_src_attr *attrs;
 } th_src_loc;
@@ -418,6 +422,13 @@ typedef struct {
    allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len);
+
+/* Losslessly serialize node and its subtree, re-emitting the verbatim source bytes
+   of every element and text run the parse left untouched and reserializing only the
+   parts a mutation changed. Requires a tree parsed with source locations to preserve
+   author formatting; without them every element reserializes canonically. PyMem-
+   allocated; *out_len receives the length. NULL on failure. */
+Py_UCS4 *th_node_serialize_source(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
 /* Where a streaming serialization (serialize_iter) resumes between chunks: the next
    node to emit (NULL once the subtree is done) and the pretty layout's current

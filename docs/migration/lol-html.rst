@@ -121,6 +121,43 @@ method: turbohtml HTML-escapes inserted content by default (the ``Text`` behavio
 become the ``text``, ``comments``, and ``doctype`` keyword arguments, each a callable taking the same
 :class:`~turbohtml.rewrite.Element` handle specialized to that node kind.
 
+*********************************
+ When you need a tree: to_source
+*********************************
+
+lol-html's byte-preserving guarantee -- untouched tokens re-emitted verbatim -- is a property of its single forward
+pass. That pass is also its constraint: a handler sees only the current element and its open ancestors, never a later
+sibling or a descendant, so an edit that depends on content further down the document (or on a second look at content
+already streamed past) is off the table. turbohtml offers a second route to the same byte preservation for exactly that
+case. Parse the document into a tree, run any query or mutation the DOM allows -- positional selectors, ``:has()``,
+cross-subtree lookups, repeated passes -- then re-emit with :meth:`~turbohtml.Node.to_source`, which copies the verbatim
+source of every element and text run the parse left untouched and reserializes only the nodes you changed:
+
+.. testcode::
+
+    import turbohtml
+
+    source = '<!DOCTYPE html><html><head></head><body><a HREF="/x">go</a></body></html>'
+    doc = turbohtml.parse(source, source_locations=True)
+    print(doc.to_source() == source)  # an unedited round trip is byte for byte
+
+    for link in doc.find_all("a"):
+        link.attrs["rel"] = "noopener"
+    print(doc.to_source())
+
+.. testoutput::
+
+    True
+    <!DOCTYPE html><html><head></head><body><a href="/x" rel="noopener">go</a></body></html>
+
+The trade is the streaming rewriter's fixed working set for the tree's random access: ``to_source`` holds the whole
+document in memory, where ``rewrite`` holds only the open-element depth. Reach for the rewriter at the edge and for a
+page larger than memory; reach for ``to_source`` when the edit needs a query the stream cannot decide. Because the tree
+is the post-error-recovery image of the source, the byte-exact round trip covers input that parsed without implied
+elements or content reordering; where every byte of an error-recovering parse must survive, the streaming rewriter,
+which never discards the token stream, is the tool. See :doc:`/explanation/serialization` for the full round-trip
+contract.
+
 *************
  Performance
 *************

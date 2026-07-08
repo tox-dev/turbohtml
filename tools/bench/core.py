@@ -295,6 +295,18 @@ def edit(document: turbohtml.Document) -> None:
         anchor.attrs["rel"] = "nofollow"
 
 
+def _parse_source_locations(text: str) -> turbohtml.Document:
+    """Parse a fresh tree recording source locations, the setup a lossless re-emit needs."""
+    return turbohtml.parse(text, source_locations=True)
+
+
+def lossless_serialize(document: turbohtml.Document) -> str:
+    """Tag every link rel=nofollow, then re-emit with to_source so only the edited start tags rebuild."""
+    for anchor in document.find_all("a"):
+        anchor.attrs["rel"] = "nofollow"
+    return document.to_source()
+
+
 def class_edit(text: str) -> None:
     """Add then drop a class token on every link with turbohtml's classList mutators."""
     for anchor in _parsed(text).find_all("a"):
@@ -763,6 +775,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "serialize": (serialize, "turbohtml"),
     "serialize-xml": (serialize_xml, "turbohtml"),
     "canonicalize": (canonicalize, "turbohtml"),
+    "lossless-serialize": (Mutating(_parse_source_locations, lossless_serialize), "turbohtml"),
     "minify": (minify, "turbohtml"),
     "edit": (Mutating(turbohtml.parse, edit), "turbohtml"),
     "class-edit": (class_edit, "turbohtml"),

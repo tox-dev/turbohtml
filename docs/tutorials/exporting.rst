@@ -123,6 +123,22 @@ two trees with the same content produce identical bytes:
     b'<p a="2" z="1">hi &amp; bye<br></br></p>'
     b'<p a="2" z="1">hi &amp; bye<br></br></p>'
 
+Those renderers all normalize the markup. When instead you want to edit one thing and leave the rest of the source
+untouched, parse with ``source_locations=True`` and call :meth:`~turbohtml.Node.to_source`: it re-emits the verbatim
+bytes of everything you did not change and reserializes only what you did.
+
+.. testcode::
+
+    doc = turbohtml.parse("<p class='lead'>Steep the <b>tea</b>.</p>", source_locations=True)
+    doc.find("b").attrs["data-term"] = "1"
+    print(doc.find("p").to_source())
+
+.. testoutput::
+
+    <p class='lead'>Steep the <b data-term="1">tea</b>.</p>
+
+The single-quoted ``class`` and the unchanged text stay exactly as written; only the edited ``<b>`` tag rebuilds.
+
 That is the whole tree API. Head to the :doc:`/how-to/index` guides for task-focused recipes, the
 :doc:`/migration/index` guide if you are coming from another HTML library, or the :doc:`/reference` for the exact
 signatures.

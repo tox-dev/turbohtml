@@ -1507,6 +1507,23 @@ static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *k
 
 static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwds);
 
+static PyObject *node_to_source(PyObject *self, PyObject *ignored);
+
+PyDoc_STRVAR(to_source_doc, "to_source()\n--\n\n"
+                            "Losslessly serialize this node and its subtree back to a str, re-emitting\n"
+                            "the verbatim source bytes of every element and text run the parse left\n"
+                            "untouched and reserializing only the parts a mutation changed.\n\n"
+                            "On a tree parsed with source_locations=True and not otherwise read, the\n"
+                            "round trip reproduces the source byte for byte -- author quoting, tag-name\n"
+                            "case, character-reference spelling, and insignificant whitespace intact --\n"
+                            "for input that parsed without implied elements or content reordering. After a\n"
+                            "mutation only the changed node's markup is rewritten: an element whose\n"
+                            "attributes changed rebuilds its start tag, an edited text run re-escapes, and\n"
+                            "an inserted element serializes canonically, while every untouched sibling and\n"
+                            "subtree still copies its original span. Without source locations every element\n"
+                            "reserializes canonically, so the result matches serialize().\n\n"
+                            ":returns: the lossless HTML serialization.");
+
 PyDoc_STRVAR(canonicalize_doc, "canonicalize(options=None)\n--\n\n"
                                "Serialize this node and its subtree to Canonical XML (c14n), the byte-exact\n"
                                "form an XML signature signs, returned as UTF-8 bytes.\n\n"
@@ -1660,6 +1677,7 @@ static PyMethodDef node_methods[] = {
      serialize_iter_doc},
     {"encode", (PyCFunction)(void (*)(void))node_encode, METH_VARARGS | METH_KEYWORDS, encode_doc},
     {"canonicalize", (PyCFunction)(void (*)(void))node_canonicalize, METH_VARARGS | METH_KEYWORDS, canonicalize_doc},
+    {"to_source", node_to_source, METH_NOARGS, to_source_doc},
     {"to_markdown", (PyCFunction)(void (*)(void))node_to_markdown, METH_VARARGS | METH_KEYWORDS, to_markdown_doc},
     {"to_text", (PyCFunction)(void (*)(void))node_to_text, METH_VARARGS | METH_KEYWORDS, to_text_doc},
     {"to_annotated_text", (PyCFunction)(void (*)(void))node_to_annotated_text, METH_VARARGS | METH_KEYWORDS,
@@ -1972,6 +1990,21 @@ static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwd
     }
     PyObject *result = node_canonicalize_from_spec(self, spec);
     Py_DECREF(spec);
+    return result;
+}
+
+static PyObject *node_to_source(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    Py_ssize_t out_len;
+    Py_UCS4 *data;
+    /* hold the per-tree lock so a concurrent mutate cannot rewire the subtree mid-walk */
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    data = th_node_serialize_source(tree_of(self), ((NodeObject *)self)->node, &out_len);
+    Py_END_CRITICAL_SECTION();
+    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = ucs4_to_str(data, out_len);
+    PyMem_Free(data);
     return result;
 }
 
