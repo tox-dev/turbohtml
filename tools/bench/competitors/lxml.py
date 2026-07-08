@@ -154,6 +154,17 @@ def strip_tags(text: str) -> None:
     _ = lxml_html.tostring(tree)
 
 
+def rewrite(text: str) -> None:
+    """Full parse, mutate, serialize -- the DOM round-trip the streamer skips: rel=nofollow, lazy img, drop comments."""
+    tree = lxml_html.document_fromstring(text)
+    for anchor in tree.xpath("//a[@href]"):
+        anchor.set("rel", "nofollow")
+    for image in tree.findall(".//img"):
+        image.set("loading", "lazy")
+    lxml_html.etree.strip_elements(tree, lxml_html.etree.Comment, with_tail=False)
+    _ = lxml_html.tostring(tree)
+
+
 def edit(tree: HtmlElement) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through lxml's Element.set."""
     for anchor in tree.findall(".//a"):
@@ -358,6 +369,7 @@ OPERATIONS = {
     "extract-text": (extract_text, "lxml"),
     "strip-remove": (strip_remove, "lxml"),
     "strip-tags": (strip_tags, "lxml"),
+    "rewrite": (rewrite, "lxml"),
     "edit": (Mutating(lxml_html.document_fromstring, edit), "lxml"),
     "class-edit": (class_edit, "lxml"),
     "set-html": (Mutating(lxml_html.document_fromstring, set_html), "lxml"),

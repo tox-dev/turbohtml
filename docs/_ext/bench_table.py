@@ -43,8 +43,10 @@ _MISSING_REASON: Final = "no measurement recorded"
 
 # The row's best ratio takes the green end and the rest log-interpolate toward red, but the scale never compresses
 # below a minimum span, so a near-parity row reads green throughout instead of stretching a few percent across the
-# whole ladder. A few percent of size is as telling as a multiple of time, so its minimum span is tighter.
-_MIN_SPAN: Final = {"size": math.log(1.10), "time": math.log(8.0)}
+# whole ladder. A few percent of size is as telling as a multiple of time, so its minimum span is tighter; peak memory
+# spans multiples like time, so it shares time's wider span.
+_TIME_SPAN: Final = math.log(8.0)
+_MIN_SPAN: Final = {"size": math.log(1.10), "time": _TIME_SPAN, "memory": _TIME_SPAN}
 
 # microseconds carry the micro sign the docs use throughout; the escape keeps the literal unambiguous
 _TIME_UNITS: Final = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
@@ -131,6 +133,10 @@ def _format_time(seconds: float) -> str:
 
 def _format_size(size: float) -> str:
     return f"{size / 1000:.1f} kB" if size >= 1000 else f"{size:.0f} B"
+
+
+def _format_memory(size: float) -> str:
+    return f"{size / 1e6:.1f} MB" if size >= 1e6 else f"{size / 1e3:.0f} kB"
 
 
 def _format_ratio(ratio: float, metric: str) -> str:
@@ -302,7 +308,12 @@ class BenchTable(Directive):
                 index = 1 + party_index * len(metrics) + metric_index
                 value = cells[index]
                 if isinstance(value, (int, float)):
-                    figure = _format_size(value) if metric == "size" else _format_time(value)
+                    if metric == "size":
+                        figure = _format_size(value)
+                    elif metric == "memory":
+                        figure = _format_memory(value)
+                    else:
+                        figure = _format_time(value)
                     ratio = value / turbo
                     if "turbohtml" not in party:
                         figure += f" {_format_ratio(ratio, metric)}"

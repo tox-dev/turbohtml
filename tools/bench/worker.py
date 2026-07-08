@@ -12,6 +12,8 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,6 +49,26 @@ def _bench(runner: pyperf.Runner, name: str, func: object, arg: object) -> pyper
     return runner.bench_func(name, func, arg)
 
 
+def _peak_memory(case_index: int) -> float:
+    """Spawn ``bench.memory`` in a fresh process for one case and return the peak resident bytes it prints."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "bench.memory"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "BENCH_CASE": str(case_index)},
+    )
+    return float(completed.stdout.strip())
+
+
+def _record_memory(operation: str, label: str, stats: dict[str, dict[str, float | str]]) -> None:
+    """Add ``peak`` resident bytes to each measured case of a memory op, one fresh subprocess per case."""
+    for case_index, (case_name, _arg) in enumerate(operations.INPUTS[operation]()):
+        entry = stats.get(f"{operation}|{case_name}|{label}")
+        if entry is not None and "mean" in entry:  # skip a case that errored or was too fast to measure
+            entry["peak"] = _peak_memory(case_index)
+
+
 def main() -> None:
     """Benchmark every case of the operation for the target; write ``{name: {mean, stdev}}`` from the pyperf manager."""
     target = os.environ["BENCH_TARGET"]
@@ -78,6 +100,8 @@ def main() -> None:
                 entry["size"] = float(len(func(arg).encode("utf-8")))
             stats[name] = entry
     if not args.worker:  # the pyperf manager, holding every value -- not a per-value worker
+        if operation in operations.MEMORY_OPS:  # peak RSS from a fresh child, never a forked pyperf worker's timing run
+            _record_memory(operation, label, stats)
         Path(os.environ["BENCH_OUT"]).write_text(json.dumps(stats), encoding="utf-8")
 
 

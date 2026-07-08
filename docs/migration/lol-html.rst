@@ -164,12 +164,23 @@ contract.
  Performance
 *************
 
-turbohtml has no fair in-process peer for lol-html to benchmark against -- lol-html runs in Rust or WebAssembly, not the
-CPython process. Both rewriters share the streaming design that matters most: the transform runs in one pass with a
-working set proportional to the open-element depth, not the document size, so a page far larger than memory rewrites in
-a fixed footprint. turbohtml's rewriter is a thin typed shim over the same C tokenizer and native CSS selector engine
-that power :func:`turbohtml.parse` and :meth:`~turbohtml.Node.select`, so a rewrite pays for tokenization and
-per-element selector matching only, never for tree construction.
+lol-html runs in Rust or WebAssembly, never in the CPython process, so it cannot share a harness with turbohtml. The
+fair in-process peer is the work the streaming rewriter skips: the same visible transform -- ``rel="nofollow"`` on every
+``a[href]``, ``loading="lazy"`` on every ``img``, every comment dropped -- reached instead through a full parse into a
+DOM, a mutation pass, and a reserialization. lxml and BeautifulSoup take that route; turbohtml streams the three edits
+in one pass and builds no tree.
+
+.. bench-table::
+    :file: bench/rewrite.json
+
+The throughput gap is the tree. turbohtml's rewriter pays for tokenization and per-element selector matching only, so it
+clears lxml's parse-mutate-serialize round trip by roughly threefold and BeautifulSoup's by more than an order of
+magnitude. Peak resident memory is the same cost measured a second way. The DOM peers hold the whole parsed tree, while
+the streaming pass retains only the open-element stack. A fixed interpreter baseline dominates the absolute figures on
+these modest pages, so the margin reads small here, though it widens with the input, because the streaming footprint
+tracks nesting depth rather than document size while a peer's tree tracks the whole document. A page far larger than
+memory rewrites in a footprint no parse-first peer can hold. turbohtml's rewriter is a thin typed shim over the same C
+tokenizer and native CSS selector engine that power :func:`turbohtml.parse` and :meth:`~turbohtml.Node.select`.
 
 See :doc:`/how-to/rewriting` for the full set of recipes and :doc:`/explanation/streaming` for the memory model and the
 no-lookahead selector constraint the two rewriters share.

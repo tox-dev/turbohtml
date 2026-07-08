@@ -6,7 +6,7 @@ import functools
 import re
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup, UnicodeDammit
+from bs4 import BeautifulSoup, Comment, UnicodeDammit
 from bs4.element import AttributeValueList
 
 from bench.timing import Mutating
@@ -143,6 +143,18 @@ def encoding(data: bytes) -> None:
     _ = UnicodeDammit(data).original_encoding
 
 
+def rewrite(text: str) -> None:
+    """Full parse, mutate, serialize -- the DOM round-trip the streamer skips: rel=nofollow, lazy img, drop comments."""
+    soup = BeautifulSoup(text, "html.parser")
+    for anchor in soup.select("a[href]"):
+        anchor["rel"] = "nofollow"
+    for image in soup.find_all("img"):
+        image["loading"] = "lazy"
+    for comment in soup.find_all(string=lambda node: isinstance(node, Comment)):
+        comment.extract()
+    _ = str(soup)
+
+
 def edit(soup: BeautifulSoup) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through BeautifulSoup's item assignment."""
     for anchor in soup.find_all("a"):
@@ -236,6 +248,7 @@ OPERATIONS = {
     "extract-text": (extract_text, "BeautifulSoup"),
     "strip-remove": (strip_remove, "BeautifulSoup"),
     "strip-tags": (strip_tags, "BeautifulSoup"),
+    "rewrite": (rewrite, "BeautifulSoup"),
     "encoding": (encoding, "BeautifulSoup"),
     "edit": (Mutating(_fresh, edit), "BeautifulSoup"),
     "set-html": (Mutating(_fresh, set_html), "BeautifulSoup"),

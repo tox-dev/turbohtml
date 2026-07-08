@@ -27,8 +27,8 @@ _SCALE: dict[str, float] = {"ns": 1e9, "us": 1e6, "ms": 1e3}
 _TURBO_COL = 18
 _COMPETITOR_COL = 26
 
-# a party's entry for one case: a measurement (``mean``/``stdev``, plus ``size`` for a minify op), or the message a
-# competitor threw on this input under the ``error`` key
+# a party's entry for one case: a measurement (``mean``/``stdev``, plus ``size`` for a minify op or ``peak`` for a
+# memory op), or the message a competitor threw on this input under the ``error`` key
 _Stat = dict[str, float | str]
 
 TABLE_JSON_DIR: Path | None = None
@@ -62,10 +62,16 @@ def _cell(stat: _Stat, scale: float, unit: str) -> str:
     return f"{mean * scale:8.1f} {unit} ±{relative:3.0f}%"
 
 
+def _memory_cell(stat: _Stat) -> str:
+    """Format one measured case's peak resident memory as ``<N.N MB>``; appended for a memory op only."""
+    return f"{float(stat['peak']) / 1e6:6.1f} MB"
+
+
 def render(operation: str, stats: dict[str, _Stat]) -> None:
     """Print the table for one operation: turbohtml against each competitor with its slowdown factor."""
     meta = operations.OPERATIONS[operation]
     scale, competitors = _SCALE[meta.unit], _labels(operation, stats)[1:]
+    memory_op = operation in operations.MEMORY_OPS
     print()
     header = f"{meta.title:32} {'turbohtml':>{_TURBO_COL}}" + "".join(
         f"{label:>{_COMPETITOR_COL}}" for label in competitors
@@ -74,7 +80,10 @@ def render(operation: str, stats: dict[str, _Stat]) -> None:
     for case_name in _case_names(operation, stats):
         if (turbo := stats.get(f"{operation}|{case_name}|turbohtml")) is None:
             continue
-        row = f"{case_name:32} {_cell(turbo, scale, meta.unit):>{_TURBO_COL}}"
+        turbo_cell = _cell(turbo, scale, meta.unit)
+        if memory_op:  # peak RSS beside the timing, the streaming rewriter's headline advantage
+            turbo_cell = f"{turbo_cell} {_memory_cell(turbo)}"
+        row = f"{case_name:32} {turbo_cell:>{_TURBO_COL}}"
         for label in competitors:
             other = stats.get(f"{operation}|{case_name}|{label}")
             if other is None:
@@ -83,42 +92,54 @@ def render(operation: str, stats: dict[str, _Stat]) -> None:
                 row += f"{reason[:_COMPETITOR_COL]:>{_COMPETITOR_COL}}"
             else:
                 cell = f"{_cell(other, scale, meta.unit)} {float(other['mean']) / float(turbo['mean']):5.1f}x"
+                if memory_op:
+                    cell = f"{cell} {_memory_cell(other)}"
                 row += f"{cell:>{_COMPETITOR_COL}}"
         print(row)
     if TABLE_JSON_DIR is not None:
         _emit_table_json(operation, stats, TABLE_JSON_DIR)
 
 
-def _cells(stat: _Stat | None, *, size_op: bool) -> list[float | str | None]:
+def _extra_metric(operation: str) -> str | None:
+    """Return the leading non-time metric key: ``size`` for a minify op, ``peak`` for a memory op, else none."""
+    if operation in operations.SIZE_OPS:
+        return "size"
+    if operation in operations.MEMORY_OPS:
+        return "peak"
+    return None
+
+
+def _cells(stat: _Stat | None, *, extra: str | None) -> list[float | str | None]:
     """
-    Return a party's cells for one case: ``[size, time]`` for a minify op, else ``[time]``.
+    Return a party's cells for one case: ``[extra, time]`` when a leading metric applies, else ``[time]``.
 
     A missing measurement carries its reason across every metric column: the thrown message when the competitor
     errored on this input (``{"error": ...}``), else ``None`` for a party the run did not reach at all.
     """
     if stat is None:
-        return [None, None] if size_op else [None]
+        return [None, None] if extra else [None]
     if (reason := stat.get("error")) is not None:
-        return [reason, reason] if size_op else [reason]
-    return [stat["size"], stat["mean"]] if size_op else [stat["mean"]]
+        return [reason, reason] if extra else [reason]
+    return [stat[extra], stat["mean"]] if extra else [stat["mean"]]
 
 
 def _emit_table_json(operation: str, stats: dict[str, _Stat], directory: Path) -> None:
-    """Write one operation's raw means (plus size for a minify op) as the docs' bench-table feed DIR/<op>.json."""
+    """Write one operation's raw means (plus size or peak memory) as the docs' bench-table feed DIR/<op>.json."""
     competitors = _labels(operation, stats)[1:]
-    size_op = operation in operations.SIZE_OPS
+    extra = _extra_metric(operation)
     rows: list[list[str | float | None]] = []
     for case_name in _case_names(operation, stats):
         if (turbo := stats.get(f"{operation}|{case_name}|turbohtml")) is None:
             continue
-        row: list[str | float | None] = [case_name, *_cells(turbo, size_op=size_op)]
+        row: list[str | float | None] = [case_name, *_cells(turbo, extra=extra)]
         for label in competitors:
-            row += _cells(stats.get(f"{operation}|{case_name}|{label}"), size_op=size_op)
+            row += _cells(stats.get(f"{operation}|{case_name}|{label}"), extra=extra)
         rows.append(row)
+    metrics = [{"size": "size", "peak": "memory"}[extra], "time"] if extra else []
     feed = {
         "label": operations.OPERATIONS[operation].title,
         "parties": ["turbohtml", *competitors],
-        "metrics": ["size", "time"] if size_op else [],
+        "metrics": metrics,
         "rows": rows,
     }
     directory.mkdir(parents=True, exist_ok=True)

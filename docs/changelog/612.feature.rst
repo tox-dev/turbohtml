@@ -1,0 +1,5 @@
+The ``rewrite`` benchmark now runs against a fair in-process peer. lxml and BeautifulSoup do the same edits --
+``rel=nofollow`` on every link, ``loading=lazy`` on every image, every comment dropped -- through the parse, mutate, and
+serialize round trip that :func:`turbohtml.rewrite.rewrite` skips, and the table reports each party's peak resident
+memory beside throughput, so the tree the streaming rewriter never builds shows up as memory it never holds. The
+:doc:`lol-html migration guide </migration/lol-html>` carries the numbers.

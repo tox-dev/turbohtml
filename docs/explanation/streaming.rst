@@ -21,7 +21,10 @@ entries -- the working set is a function of nesting depth, never of document siz
 This is the property that makes the rewriter usable on inputs a full parse cannot afford: a multi-gigabyte log of
 records, a response streamed through a proxy, a page far larger than memory. The output is produced incrementally as
 each construct is decided, and an untouched construct is copied through verbatim -- character references, attribute
-quoting, and whitespace are preserved exactly -- so a rewrite that edits nothing returns its input unchanged.
+quoting, and whitespace are preserved exactly -- so a rewrite that edits nothing returns its input unchanged. The
+:doc:`lol-html migration guide </migration/lol-html>` benchmarks this against parse-first peers, running the same edits
+through a full parse, mutate, and serialize and reporting each one's peak resident memory -- the tree the streaming pass
+never builds.
 
 The one part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
 closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint.

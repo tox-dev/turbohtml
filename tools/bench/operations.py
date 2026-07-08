@@ -239,6 +239,10 @@ class Operation:
 # functions return the minified text; the worker records its byte length once (deterministic) beside the timing.
 SIZE_OPS: Final[frozenset[str]] = frozenset({"minify", "minify-css", "minify-js"})
 
+# The streaming rewrite never builds a tree; a full-parse peer must. This op's table carries the peak resident memory
+# of doing the task in a fresh process alongside time, so the tree turbohtml avoids surfaces as bytes it never holds.
+MEMORY_OPS: Final[frozenset[str]] = frozenset({"rewrite"})
+
 
 OPERATIONS: dict[str, Operation] = {
     "build": Operation("build a list (constructors)", "us"),
