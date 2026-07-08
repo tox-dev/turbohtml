@@ -255,7 +255,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     } else if (opts->exclusive) {
         render_xlink = c14n_has_xlink(tree, node) && !c14n_ancestor_binds_xlink(tree, node, apex);
     } else {
-        render_xlink = c14n_xlink_in_scope(tree, node) && !c14n_xlink_in_scope(tree, node->parent);
+        render_xlink = c14n_has_xlink(tree, node) && !c14n_xlink_in_scope(tree, node->parent);
     }
     if (render_xlink) {
         sbuf_puts(out, " xmlns:xlink=\"");
