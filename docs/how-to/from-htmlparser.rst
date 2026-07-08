@@ -62,9 +62,9 @@ A tag stripper -- the ``MLStripper`` recipe that collects text and drops markup 
  The events follow the tree
 ****************************
 
-One behavior differs, and in your favor. ``HTMLParser`` reports the raw tags it reads; ``saxparse`` reports the tree the
-WHATWG algorithm builds, so implied elements appear and misplaced content is foster-parented into place. A ``<td>`` with
-no table around it still fires inside a generated ``<table><tbody><tr>``:
+One behavior differs. ``HTMLParser`` reports the raw tags it reads; ``saxparse`` reports the tree the WHATWG algorithm
+builds, so implied elements appear and misplaced content is foster-parented into place. A ``<td>`` with no table around
+it still fires inside a generated ``<table><tbody><tr>``:
 
 .. testcode::
 

@@ -140,5 +140,5 @@ There is no ``.string``, no ``text``/``tail``, and no ``soup(...)`` callable; on
 to BeautifulSoup's or lxml's contract needs a translation, not a rename. The :doc:`/migration/index` guides map each
 library's surface onto turbohtml's.
 
-Still stuck? The :doc:`/reference` has the exact signatures, the :doc:`/explanation/index` has the why, and the issue
-tracker takes a report the guides do not cover.
+For anything the guides do not cover, the :doc:`/reference` has the exact signatures, the :doc:`/explanation/index`
+carries the reasoning, and the issue tracker takes a report.

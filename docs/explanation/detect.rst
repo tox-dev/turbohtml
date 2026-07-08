@@ -13,8 +13,8 @@ the encoding it picks is the one a browser would decode with.
 
 The detector is a C port of Firefox's `chardetng <https://github.com/hsivonen/chardetng>`_, the encoding scanner Gecko
 ships. Porting a shipping browser detector rather than inventing a scoring model keeps the result aligned with what real
-pages already render as: chardetng is tuned against the corpus of legacy-encoded pages the web actually serves, and its
-verdicts are the ones users have been reading for years. The alternative detectors turbohtml replaces -- `chardet
+pages already render as: chardetng is tuned against the corpus of legacy-encoded pages the web serves, and its verdicts
+are the ones users have been reading for years. The alternative detectors turbohtml replaces -- `chardet
 <https://chardet.readthedocs.io/>`_ and `charset-normalizer <https://charset-normalizer.readthedocs.io/>`_ -- each carry
 their own heuristics; matching a browser instead means one fewer way for a page to decode differently in your pipeline
 than in the reader's tab.
@@ -39,5 +39,5 @@ multi-byte UTF-8 is distinctive enough to recognize outright.
 free of the scan. You reach for detection at the byte boundary. Pass ``bytes`` to :func:`turbohtml.parse` and it runs
 the pipeline above to decode them; call :func:`turbohtml.detect.detect` on their own to learn the encoding without
 building a tree, the job a standalone ``chardet.detect`` did. Keeping it explicit means the fast path never pays for a
-scan it does not need, and the guessing only happens where the input genuinely lacks a label. The
-:doc:`/how-to/encoding` guide shows both calls.
+scan it does not need, and the guessing only happens where the input lacks a label. The :doc:`/how-to/encoding` guide
+shows both calls.
