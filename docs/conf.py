@@ -84,6 +84,11 @@ autosectionlabel_maxdepth = 1
 # a later one, and stays quiet on the migration before/after snippets whose old-library imports it cannot resolve.
 codeautolink_concat_default = True
 
+# Read the Docs builds from a shallow clone, so sphinx-last-updated-by-git cannot see far enough back to stamp some
+# pages and warns "Git clone too shallow"; under -W that would fail the build. Suppress just that warning -- the stamp
+# still resolves for pages within the clone depth, and degrades to the build date otherwise.
+suppress_warnings = ["git.too_shallow"]
+
 # #262 split the single development and performance pages into the development/ tree; redirect the old URLs so external
 # links survive. New entries go here whenever a page's path changes.
 redirects = {
