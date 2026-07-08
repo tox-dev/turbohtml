@@ -73,7 +73,7 @@ repos:
         language: python
         files: ^docs/.*\.rst$
         additional_dependencies:
-          - ruff==0.15.18 # kept on the ruff-pre-commit rev by sync-pre-commit-deps
+          - ruff==0.15.20 # kept on the ruff-pre-commit rev by sync-pre-commit-deps
       - id: changelogs-rst
         name: changelog filenames
         language: fail
