@@ -291,6 +291,24 @@ package = "editable"
 dependency_groups = [ "dev" ]
 commands = [ [ "uv", "pip", "list", "--format=columns" ], [ "python", "-c", 'print(r"{env_python}")' ] ]
 
+[env.docs-linkcheck]
+description = "check every external link in the documentation resolves (network-bound; run on demand, not a per-PR gate)"
+package = "wheel"
+dependency_groups = [ "docs" ]
+commands_pre = []
+commands = [
+  [
+    "sphinx-build",
+    "-d",
+    "{env_tmp_dir}{/}docs_tree",
+    "docs",
+    "{env_tmp_dir}{/}linkcheck",
+    "--color",
+    "-b",
+    "linkcheck",
+  ],
+]
+
 [env.fuzz]
 description = "coverage-guided/mutation deep fuzz of every harness under ASan/UBSan (scheduled/manual, not a PR gate)"
 deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage

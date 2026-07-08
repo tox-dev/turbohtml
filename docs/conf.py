@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import copy
+import importlib
+import inspect
 import os
 import re
 import sys
@@ -11,6 +13,7 @@ from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
+from urllib.parse import urlsplit
 
 from docutils import nodes
 from docutils.parsers.rst import Directive
@@ -34,14 +37,23 @@ doctest_global_setup = "import turbohtml\nfrom turbohtml import parse"
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",  # reference any section by its title; prefixed by document to keep labels unique
     "sphinx.ext.doctest",  # run the testcode/testoutput examples so the docs cannot drift from the code
     "sphinx.ext.intersphinx",
+    "sphinx.ext.linkcode",  # link each documented Python object to its source on GitHub
+    "notfound.extension",  # a versioned 404 page that keeps its links absolute
     "sphinx_argparse_cli",  # generate the CLI reference from turbohtml.__main__._parser so it cannot drift
     "sphinx_autodoc_typehints",
+    "sphinx_codeautolink",  # turn the names in code and doctest blocks into links to the reference
     "sphinx_copybutton",
+    "sphinx_design",  # the card grid on the landing page
     "sphinx_issues",  # the :issue: role used by the changelog
+    "sphinx_last_updated_by_git",  # stamp each page with the date of its last git edit
+    "sphinx_reredirects",  # 301 old URLs to their new home after a page moves
+    "sphinx_sitemap",  # emit sitemap.xml over the built pages
     "sphinxcontrib.mermaid",  # the .. mermaid:: directive used by the explanation diagrams
     "sphinxcontrib.towncrier.ext",  # render unreleased news fragments as a draft section
+    "sphinxext.opengraph",  # OpenGraph tags so shared links preview well
     "bench_table",  # the .. bench-table:: directive rendering the benchmark tables from a data feed (docs/_ext)
 ]
 
@@ -58,8 +70,75 @@ html_favicon = "_static/turbohtml.svg"
 # local or CI build. Sphinx emits a <link rel="canonical"> per page from this, and the sitemap below reuses it.
 html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "https://turbohtml.readthedocs.io/en/latest/")
 
+# sphinx-sitemap reuses html_baseurl; the URL already carries the /en/<version>/ segment, so the per-page scheme is just
+# the page path. sphinxext-opengraph and sphinx-notfound-page derive their absolute URLs from the same base.
+sitemap_url_scheme = "{link}"
+ogp_site_url = html_baseurl
+notfound_urls_prefix = urlsplit(html_baseurl).path
+
+# autosectionlabel would collide on identical section titles across pages (every migration guide has a "Quick reference"
+# heading, say), so scope each label to its document. Label only the page title: a how-to whose opening section repeats
+# the title (main-content, sanitizing) would else clash with it in the one document, which the prefix cannot resolve.
+autosectionlabel_prefix_document = True
+autosectionlabel_maxdepth = 1
+
+# codeautolink threads the names in one page's code blocks together, so a name bound in an early block still resolves in
+# a later one, and stays quiet on the migration before/after snippets whose old-library imports it cannot resolve.
+codeautolink_concat_default = True
+
+# #262 split the single development and performance pages into the development/ tree; redirect the old URLs so external
+# links survive. New entries go here whenever a page's path changes.
+redirects = {
+    "development": "development/index.html",
+    "performance": "development/performance.html",
+}
+
+# The badge images, competitor docs, and deep anchors these pages link to rate-limit or move often enough that a
+# linkcheck run against them is noisy rather than useful; skip them and check the stable targets.
+linkcheck_ignore = [
+    r"https://img\.shields\.io/.*",
+    r"https://static\.pepy\.tech/.*",
+    r"https://pepy\.tech/.*",
+    r"https://pypi\.org/.*",
+    r"https://www\.npmjs\.com/.*",
+    r"https://crates\.io/.*",
+    r"https://github\.com/.*#.*",
+]
+
 # News fragments are assembled by towncrier, not rendered as standalone pages.
 exclude_patterns = ["changelog/*"]
+
+_GITHUB_BLOB = "https://github.com/tox-dev/turbohtml/blob"
+_REPO_ROOT = Path(__file__).parent.parent
+
+
+def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
+    """
+    Link a documented Python object to the line range of its source on GitHub.
+
+    The compiled ``turbohtml._html`` objects carry no Python source, so ``inspect`` cannot locate them and the object is
+    left unlinked; the pure-Python modules (build, query, extract, clean, ...) resolve to a file and line range. The ref
+    follows the checked-out commit on Read the Docs and falls back to ``main`` for a local build.
+    """
+    if domain != "py" or not info["module"]:
+        return None
+    try:
+        module = importlib.import_module(info["module"])
+    except ImportError:
+        return None
+    obj: object | None = module
+    for part in info["fullname"].split("."):
+        obj = getattr(obj, part, None)
+    try:
+        target = inspect.unwrap(obj)
+        source_file = inspect.getsourcefile(target)
+        lines, start = inspect.getsourcelines(target)
+        relative = Path(source_file).resolve().relative_to(_REPO_ROOT)
+    except (TypeError, OSError, ValueError):
+        return None
+    ref = os.environ.get("READTHEDOCS_GIT_IDENTIFIER", "main")
+    return f"{_GITHUB_BLOB}/{ref}/{relative.as_posix()}#L{start}-L{start + len(lines) - 1}"
+
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -343,25 +422,10 @@ def _add_page_description(
         return
 
 
-def _write_sitemap(app: Sphinx, exception: Exception | None) -> None:
-    """Emit a sitemap.xml over every built HTML page, so crawlers find the whole documentation tree."""
-    if exception is not None or app.builder.name != "html":
-        return
-    base = f"{html_baseurl.rstrip('/')}/"
-    entries = "".join(f"  <url><loc>{base}{name}.html</loc></url>\n" for name in sorted(app.env.found_docs))
-    sitemap = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        f"{entries}</urlset>\n"
-    )
-    (Path(app.outdir) / "sitemap.xml").write_text(sitemap, encoding="utf-8")
-
-
 def setup(app: Sphinx) -> dict[str, Any]:
-    """Wire the stub-sourced type annotations into autodoc and register the badge row, meta tags, and sitemap."""
+    """Wire the stub-sourced type annotations into autodoc and register the badge row and per-page meta description."""
     _patch_autodoc_engine()
     app.connect("autodoc-process-signature", _stub_signature_for_alias)
     app.connect("html-page-context", _add_page_description)
-    app.connect("build-finished", _write_sitemap)
     app.add_directive("package-meta", _PackageMeta)
     return {"parallel_read_safe": True, "parallel_write_safe": True}

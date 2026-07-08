@@ -87,6 +87,12 @@ repos:
         args: ["--line-length=120", "--no-format-python-code-blocks"] # ruff-docs owns the Python snippets
         types_or: [rst]
         files: ^docs/.*\.rst$
+  - repo: https://github.com/sphinx-contrib/sphinx-lint
+    rev: "v1.0.0" # v1.0.0
+    hooks:
+      - id: sphinx-lint
+        types: [rst]
+        files: ^docs/.*\.rst$
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: "v1.26.1" # v1.25.2
     hooks:
