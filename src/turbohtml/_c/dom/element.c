@@ -820,15 +820,37 @@ static int element_set_checked(PyObject *self, PyObject *value, void *Py_UNUSED(
     return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_attr_set only fails on OOM */
 }
 
+/* Whether control sits inside fieldset's first legend child, the subtree a disabled
+   fieldset does not disable. */
+static int control_in_first_legend(th_node *fieldset, th_node *control) {
+    th_node *legend = NULL;
+    for (th_node *child = fieldset->first_child; child != NULL; child = child->next_sibling) {
+        if (child->atom == TH_TAG_LEGEND) {
+            legend = child;
+            break;
+        }
+    }
+    if (legend == NULL) {
+        return 0;
+    }
+    for (th_node *ancestor = control->parent; ancestor != fieldset; ancestor = ancestor->parent) {
+        if (ancestor == legend) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Whether a control is barred from submission: its own disabled attribute, or a
-   disabled fieldset between it and the form. */
+   disabling fieldset between it and the form. */
 static int control_disabled(th_node *control, th_node *form) {
     if (find_node_attr(control, TH_ATTR_DISABLED) != NULL) {
         return 1;
     }
     /* form is always an ancestor (collect_control only walks its descendants), so the walk stops there */
     for (th_node *ancestor = control->parent; ancestor != form; ancestor = ancestor->parent) {
-        if (ancestor->atom == TH_TAG_FIELDSET && find_node_attr(ancestor, TH_ATTR_DISABLED) != NULL) {
+        if (ancestor->atom == TH_TAG_FIELDSET && find_node_attr(ancestor, TH_ATTR_DISABLED) != NULL &&
+            !control_in_first_legend(ancestor, control)) {
             return 1;
         }
     }
@@ -914,7 +936,7 @@ static int collect_control(th_tree *tree, th_node *form, th_node *node, PyObject
 PyDoc_STRVAR(form_data_doc, "form_data()\n--\n\n"
                             "Collect this form's successful controls, following the WHATWG form-submission\n"
                             "entry-list rules. Controls without a non-empty name, disabled controls (their\n"
-                            "own disabled or a disabled ancestor fieldset), buttons, and\n"
+                            "own disabled or a disabling ancestor fieldset), buttons, and\n"
                             "file/submit/reset/image inputs are skipped; a checkbox or radio contributes\n"
                             "only when checked, a select one pair per selected non-disabled option (the\n"
                             "default first option only when its display size is 1). Controls inside a\n"

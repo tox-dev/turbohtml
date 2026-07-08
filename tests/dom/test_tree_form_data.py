@@ -77,6 +77,21 @@ def test_a_disabled_fieldset_skips_its_controls() -> None:
     assert form.form_data() == [("b", "2")]
 
 
+def test_a_disabled_fieldset_keeps_controls_inside_its_first_legend() -> None:
+    form = _form(
+        "<form><fieldset disabled><legend><input name=a value=1></legend><input name=b value=2></fieldset></form>"
+    )
+    assert form.form_data() == [("a", "1")]
+
+
+def test_a_disabled_fieldset_skips_controls_inside_later_legends() -> None:
+    form = _form(
+        "<form><fieldset disabled><legend>x</legend><legend><input name=a value=1></legend>"
+        "<input name=b value=2></fieldset></form>"
+    )
+    assert form.form_data() == []
+
+
 def test_an_enabled_fieldset_keeps_its_controls() -> None:
     form = _form("<form><fieldset><input name=a value=1></fieldset></form>")
     assert form.form_data() == [("a", "1")]
