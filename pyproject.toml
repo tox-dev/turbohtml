@@ -11,11 +11,19 @@ name = "turbohtml"
 description = "A fast, fully typed HTML toolkit for Python, powered by a C-accelerated core."
 readme = "README.md"
 keywords = [
+  "css-selector",
+  "encoding-detection",
   "escape",
   "html",
   "html5",
+  "markdown",
+  "minify",
   "parser",
+  "sanitize",
+  "scraping",
   "unescape",
+  "xml",
+  "xpath",
 ]
 license = "MIT"
 license-files = [
@@ -26,7 +34,7 @@ maintainers = [
 ]
 requires-python = ">=3.10"
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
@@ -41,6 +49,9 @@ classifiers = [
   "Topic :: Internet",
   "Topic :: Software Development :: Libraries",
   "Topic :: Text Processing :: Markup :: HTML",
+  "Topic :: Text Processing :: Markup :: Markdown",
+  "Topic :: Text Processing :: Markup :: XML",
+  "Typing :: Typed",
 ]
 dynamic = [
   "version",
