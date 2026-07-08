@@ -11,7 +11,7 @@
    NULL and the caller emits the original source unchanged, so partial coverage can
    never corrupt a script. */
 
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <stdio.h>
 #include <string.h>

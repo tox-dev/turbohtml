@@ -14,7 +14,7 @@
    Numeric literals are canonicalized to the shortest value-preserving form; string
    quote/escape minimization and constant folding are later phases. */
 
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <stdio.h>
 #include <string.h>

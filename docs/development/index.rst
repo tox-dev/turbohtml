@@ -148,6 +148,7 @@ mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation
             clean/           # sanitize, linkify
             extract/         # readability, structured data, dates, tables, links, feed, annotation
             css/             # minify/, select/ (selectors + css_to_xpath), cssom/
+            js/              # JS minifier: lexer, parser, fold, mangle, printer
             data/            # generated tables (do not edit)
     tools/generate_*.py      # regenerate the data/ tables
     tests/                   # pytest suite, mirroring src/turbohtml/_c/
@@ -187,6 +188,9 @@ Each ``_c/`` subdirectory owns one subsystem:
     - - ``css/``
       - The CSS engines, one per subdirectory: ``minify/`` (the CSS minifier behind ``convert``), ``select/`` (the
         selector matcher and the ``css_to_xpath`` translation), ``cssom/`` (the cascade and ``getComputedStyle``).
+    - - ``js/``
+      - The JS minifier behind ``convert``/``clean.minify_js``: a standalone lex-parse-transform-print engine
+        (``lexer``, ``parser``, ``ast``, ``fold``, ``mangle``, ``printer``) decoupled from CPython via ``jstypes.h``.
     - - ``data/``
       - Generated static tables (tag and attribute atoms, HTML entities, TLDs). Regenerate with ``tools/generate_*.py``.
 

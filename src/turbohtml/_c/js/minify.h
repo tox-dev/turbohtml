@@ -8,7 +8,7 @@
 #ifndef TURBOHTML_SERIALIZE_JS_MINIFY_H
 #define TURBOHTML_SERIALIZE_JS_MINIFY_H
 
-#include "serialize/js/jstypes.h"
+#include "js/jstypes.h"
 
 /* Minify the script src[0..len) into a freshly PyMem-allocated code-point buffer;
    *out_len receives its length. fold runs the constant-folding / dead-code pass and

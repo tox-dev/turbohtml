@@ -55,7 +55,7 @@ def main() -> int:
         "-I",
         str(_ROOT / "src" / "turbohtml" / "_c"),
         str(_ROOT / "tools" / "js_minify_harness.c"),
-        *[str(_ROOT / "src" / "turbohtml" / "_c" / "serialize" / "js" / name) for name in _ENGINE],
+        *[str(_ROOT / "src" / "turbohtml" / "_c" / "js" / name) for name in _ENGINE],
         "-o",
         str(binary),
     ]

@@ -11,7 +11,7 @@
 #ifndef TURBOHTML_SERIALIZE_JS_INTERNAL_H
 #define TURBOHTML_SERIALIZE_JS_INTERNAL_H
 
-#include "serialize/js/jstypes.h"
+#include "js/jstypes.h"
 
 /* ECMAScript token kinds. The lexer never decides whether a `/` is division or a
    regular-expression literal (that needs grammar position): it always reports

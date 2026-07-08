@@ -4,8 +4,8 @@
    inline-<script> path adds its own fallback so a single bad script cannot break
    document serialization; the standalone minify_js() surfaces the error. */
 
-#include "serialize/js/internal.h"
-#include "serialize/js/minify.h"
+#include "js/internal.h"
+#include "js/minify.h"
 
 Py_UCS4 *th_js_minify(const Py_UCS4 *src, Py_ssize_t len, int fold, int mangle, Py_ssize_t *out_len, char *errbuf,
                       size_t errlen) {

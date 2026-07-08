@@ -25,6 +25,7 @@ to jump between them.
 | `clean/`     | `clean` (sanitize, linkify)                                    | `clean`                   | `clean`                         |
 | `extract/`   | `extract` (readability, structured data, dates, ...)           | `extract`                 | `extract`, `structured-data`    |
 | `css/`       | `cssom`; `query`/`Node.select` selectors; `convert` CSS minify | `cssom`, `query`          | `cssom`                         |
+| `js/`        | `convert`/`clean` JS minify (`minify_js`)                      | `serialize`               | `serialize`                     |
 | `encoding/`  | `detect`                                                       | `detect`, `encoding`      | `detect`                        |
 | `url/`       | absolutization behind `clean` and `extract`                    | `url`                     | (under `clean`, `extract`)      |
 | `validate/`  | `validate`, `conformance`                                      | `validate`, `conformance` | `validate`, `conformance`       |

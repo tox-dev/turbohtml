@@ -26,7 +26,7 @@
 
    Validated by execution differentials under Node. */
 
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <string.h>
 

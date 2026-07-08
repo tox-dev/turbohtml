@@ -12,7 +12,7 @@
    operators and punctuation are ASCII). */
 
 #include "core/ascii.h"
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <string.h>
 

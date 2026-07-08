@@ -12,7 +12,7 @@
    Build (macOS, ASan+UBSan; LSan is unavailable on Apple clang):
      clang -DJM_STANDALONE -fsanitize=address,undefined -g -O1 -fno-omit-frame-pointer \
        -I src/turbohtml/_c tools/js_minify_harness.c \
-       src/turbohtml/_c/serialize/js/{lexer,ast,parser,printer,minify}.c -o /tmp/jsmin
+       src/turbohtml/_c/js/{lexer,ast,parser,printer,minify}.c -o /tmp/jsmin
    Build (Linux, adds LSan automatically): same command; run ASAN_OPTIONS=detect_leaks=1.
 
    Usage: jsmin [file ...]   — minifies each file (and the built-in edge cases). */
@@ -20,7 +20,7 @@
 #ifndef JM_STANDALONE
 #define JM_STANDALONE
 #endif
-#include "serialize/js/minify.h"
+#include "js/minify.h"
 
 #include <errno.h>
 #include <stdio.h>

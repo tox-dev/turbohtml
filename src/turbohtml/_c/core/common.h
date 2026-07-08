@@ -233,7 +233,7 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args);
    diff against. Signature matches METH_O. */
 PyObject *turbohtml_xpath_parse(PyObject *module, PyObject *arg);
 
-/* Implemented in serialize/js/lexdump.c. minify_js is the one minifier, exposed as
+/* Implemented in js/lexdump.c. minify_js is the one minifier, exposed as
    _minify_js(source, fold, mangle) (METH_VARARGS); the _tokens / _parse hooks are not
    minifiers but conformance dumps of the token stream and the AST that the JS lexer and
    parser tests diff against (METH_O). */

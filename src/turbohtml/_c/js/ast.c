@@ -3,7 +3,7 @@
    tree's arena), plus jm_dump, the canonical S-expression the parser tests diff
    against the way the XPath front end does. */
 
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <string.h>
 

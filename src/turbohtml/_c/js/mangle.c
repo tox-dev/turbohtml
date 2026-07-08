@@ -20,7 +20,7 @@
    sibling scopes reuse slots), then the shortest names go to the slots whose bindings
    are referenced most -- the frequency ordering esbuild/terser/swc use. */
 
-#include "serialize/js/internal.h"
+#include "js/internal.h"
 
 #include <stdlib.h>
 #include <string.h>

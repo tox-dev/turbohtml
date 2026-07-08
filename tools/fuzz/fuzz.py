@@ -88,7 +88,7 @@ def _run_standalone(mode: str, extra: Path | None) -> int:
     _compile(_FUZZ / "idna_harness.c", [], "-DTH_IDNA_STANDALONE", idna)
     _compile(
         _ROOT / "tools" / "js_minify_harness.c",
-        [_ROOT / "src" / "turbohtml" / "_c" / "serialize" / "js" / f"{name}.c" for name in _JS_ENGINE],
+        [_ROOT / "src" / "turbohtml" / "_c" / "js" / f"{name}.c" for name in _JS_ENGINE],
         "-DJM_STANDALONE",
         js,
     )

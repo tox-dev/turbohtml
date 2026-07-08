@@ -12,8 +12,8 @@
    Dump format: tokens space-separated; a value-bearing token as KIND:lexeme, a
    punctuator as KIND; a token with a line terminator before it is prefixed with *. */
 
-#include "serialize/js/internal.h"
-#include "serialize/js/minify.h"
+#include "js/internal.h"
+#include "js/minify.h"
 
 #include "core/common.h"
 
