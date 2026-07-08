@@ -1,4 +1,4 @@
-"""Conformance tests for the C ``_url_to_ascii`` engine behind :mod:`turbohtml._urls`.
+"""Conformance tests for the C ``_url_to_ascii`` engine behind :mod:`turbohtml.extract._urls`.
 
 ``_url_to_ascii`` runs the WHATWG domain-to-ASCII step -- Unicode IDNA ``ToASCII``, that is UTS #46 with
 ``Transitional_Processing=false`` and ``UseSTD3ASCIIRules=false`` -- over the Unicode 16.0.0 tables generated into
@@ -21,7 +21,7 @@ from turbohtml._html import _url_to_ascii
 from turbohtml.extract import normalize_url
 
 _VECTORS = (
-    Path(__file__).parents[1]
+    Path(__file__).parents[2]
     / "conformance"
     / "unicodetools"
     / "unicodetools"

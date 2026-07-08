@@ -1,4 +1,4 @@
-"""Conformance tests for the C percent-coders behind :mod:`turbohtml._urls`.
+"""Conformance tests for the C percent-coders behind :mod:`turbohtml.extract._urls`.
 
 ``_url_percent_encode`` and ``_url_percent_decode`` apply the WHATWG component percent-encode sets (URL standard 1.3)
 and their inverse. They coincide with ``urllib.parse.quote``/``unquote`` for every input the spec pins, so the bulk of

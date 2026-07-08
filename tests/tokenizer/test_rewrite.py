@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from turbohtml import parse
-from turbohtml._selectors import SelectorSyntaxError
+from turbohtml._internal._selectors import SelectorSyntaxError
 from turbohtml.rewrite import Element, rewrite
 
 if TYPE_CHECKING:

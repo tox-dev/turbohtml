@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse
-from turbohtml._feed import Entry, Feed
 from turbohtml.extract import feed
+from turbohtml.extract._feed import Entry, Feed
 
 RSS = """<?xml version="1.0"?>
 <rss version="2.0"><channel>

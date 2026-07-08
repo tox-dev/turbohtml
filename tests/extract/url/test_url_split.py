@@ -1,4 +1,4 @@
-"""Conformance tests for the C ``_url_split`` primitive behind :mod:`turbohtml._urls`.
+"""Conformance tests for the C ``_url_split`` primitive behind :mod:`turbohtml.extract._urls`.
 
 The split follows the WHATWG basic URL parser's component boundaries, which coincide with ``urllib.parse.urlsplit``
 for every reasonable URL, so the bulk of the coverage is a differential against urllib over a generated corpus. The one

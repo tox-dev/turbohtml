@@ -1,4 +1,4 @@
-"""Conformance tests for the C ``_url_join`` primitive behind :mod:`turbohtml._urls`.
+"""Conformance tests for the C ``_url_join`` primitive behind :mod:`turbohtml.extract._urls`.
 
 ``_url_join`` resolves a relative reference against a base URL, the RFC 3986 section 5.3 reference transform
 ``urllib.parse.urljoin`` runs. It reproduces the transform ``urljoin`` runs on Python 3.14, where the standard library

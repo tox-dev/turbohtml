@@ -15,7 +15,7 @@ from turbohtml import Comment, Element, IncrementalParser, SourceSpan, Text, par
 
 if TYPE_CHECKING:
     from turbohtml import Node
-    from turbohtml._locations import SourceLocation
+    from turbohtml._internal._locations import SourceLocation
 
 
 def child(root: Node, tag: str) -> Element:

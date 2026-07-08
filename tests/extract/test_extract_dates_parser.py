@@ -1,6 +1,6 @@
 """Conformance for the date-string parser C hooks (_date_scan/_date_scan_all/_date_url).
 
-These are the pure parsers turbohtml._dates delegates to. Each case pins the exact (year, month, day) tuples
+These are the pure parsers turbohtml.extract._dates delegates to. Each case pins the exact (year, month, day) tuples
 the pre-C-port Python implementation produced, so the port stays byte-for-byte faithful across ISO 8601,
 the 8-digit stamp, the day-month-year spellings, the five-language written-month vocabulary, and the URL
 path date. A fixed pivot year keeps the two-digit-year expansion deterministic.

@@ -7,7 +7,7 @@ import pytest
 from turbohtml import parse
 
 if TYPE_CHECKING:
-    from turbohtml._structured_data import JSONValue
+    from turbohtml.extract._structured_data import JSONValue
 
 
 @pytest.mark.parametrize(
