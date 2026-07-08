@@ -58,6 +58,12 @@ It is the wrong tool in a few honest cases:
 
 .. toctree::
     :maxdepth: 1
+    :caption: Detect
+
+    detect
+
+.. toctree::
+    :maxdepth: 1
     :caption: Query
 
     queries
@@ -81,6 +87,12 @@ It is the wrong tool in a few honest cases:
 
     structured-data
     main-content
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Build
+
+    build
 
 .. toctree::
     :maxdepth: 1
