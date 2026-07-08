@@ -8,9 +8,22 @@ through, then jump back to whichever stage you need.
 
 .. toctree::
     :maxdepth: 1
+    :caption: Foundations
 
     getting-started
     tokenizing
     navigating
     editing
     exporting
+
+.. toctree::
+    :maxdepth: 1
+    :caption: Real-world
+
+    selecting
+    reading-bytes
+    extracting-content
+    forms
+    cleaning
+    pipelines
+    cli
