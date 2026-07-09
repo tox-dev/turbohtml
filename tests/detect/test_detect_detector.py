@@ -152,6 +152,11 @@ def test_the_stream_rejects_a_non_string_tld() -> None:
         _html._DetectStream(7)  # ty: ignore[invalid-argument-type]  # rejected at runtime
 
 
+def test_detect_rejects_a_non_string_tld() -> None:
+    with pytest.raises(TypeError):
+        _html._detect(b"abc", 7)  # ty: ignore[invalid-argument-type]  # rejected at runtime
+
+
 def test_the_stream_feeds_only_bytes() -> None:
     with pytest.raises(TypeError):
         _html._DetectStream(None).feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime

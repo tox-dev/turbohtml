@@ -17,6 +17,21 @@ _CZECH_SHORT: bytes = "Příliš žluťoučký kůň úpěl".encode("iso-8859-2"
 _TRADITIONAL: bytes = "繁體中文字元測試內容".encode("big5")
 _SIMPLIFIED: bytes = "天地玄黄宇宙洪荒日月盈昃".encode("gb18030")
 
+# Byte soup that kills one candidate of a sibling pair and leaves the other scoring, so the TLD falls back on its
+# sibling script. Big5 dies on the first, ISO-8859-2 on the second; chardetng answers as asserted below.
+_NO_TRADITIONAL: bytes = bytes.fromhex("e098bcf194a9")
+_NO_CENTRAL_ISO: bytes = bytes.fromhex("a699dd")
+
+# Byte soup too short to hold a two-letter word in either script. ISO-8859-6 is native to .sa and windows-1256 to
+# .my without being what either domain expects, so each one scores there and nowhere else.
+_SHORT_ARABIC_ISO: bytes = bytes.fromhex("bfed")
+_SHORT_ARABIC_WINDOWS: bytes = bytes.fromhex("d6a59ebd")
+
+
+def _ranked(raw: bytes, tld: str | None = None) -> set[str | None]:
+    """The encodings that scored, which is not every encoding ``detect_all`` reports: the winner leads it either way."""
+    return {match.encoding for match in detect_all(raw, Detection(tld=tld))[1:]}
+
 
 @pytest.mark.parametrize(
     ("tld", "encoding"),
@@ -28,6 +43,10 @@ _SIMPLIFIED: bytes = "天地玄黄宇宙洪荒日月盈昃".encode("gb18030")
         pytest.param("ru", "windows-1252", id="cyrillic-zeroes-the-central-candidates"),
         pytest.param("de", "windows-1252", id="a-western-label-does-too"),
         pytest.param("zz", "windows-1252", id="an-unlisted-country-code-reads-as-western"),
+        pytest.param("edu", "windows-1252", id="edu-reads-as-western"),
+        pytest.param("xn--unlisted", "ISO-8859-2", id="an-unlisted-punycode-label-hints-nothing"),
+        pytest.param("longlabel", "ISO-8859-2", id="a-label-that-is-not-punycode-hints-nothing"),
+        pytest.param("xn--p1a", "ISO-8859-2", id="a-label-too-short-to-be-punycode-hints-nothing"),
         pytest.param("th", "ISO-8859-2", id="a-script-absent-from-the-bytes-penalizes-nothing"),
     ],
 )
@@ -51,6 +70,39 @@ def test_a_traditional_tld_picks_traditional_over_simplified() -> None:
 
 def test_a_simplified_tld_picks_simplified_over_traditional() -> None:
     assert detect(_TRADITIONAL, Detection(tld="cn")).encoding == "GBK"
+
+
+def test_a_traditional_tld_falls_back_on_simplified_when_no_big5_survives() -> None:
+    # .tw expects Big5, which these bytes kill. chardetng then scores the page as though it came from a Simplified
+    # domain, handing GBK the point the TLD's own encoding would have taken and penalizing the Latin candidate that
+    # wins with no TLD at all.
+    assert detect(_NO_TRADITIONAL).encoding == "windows-1252"
+    assert detect(_NO_TRADITIONAL, Detection(tld="tw")).encoding == "GBK"
+    assert detect(_NO_TRADITIONAL, Detection(tld="tw")) == detect(_NO_TRADITIONAL, Detection(tld="cn"))
+
+
+def test_a_tld_whose_sibling_script_is_also_absent_leaves_the_bytes_alone() -> None:
+    # .tw expects Big5 and would settle for GBK, and Czech text carries neither. With both gone chardetng has no
+    # expectation left to flip to, so it drops the TLD rather than let a dead sibling hand GBK the point.
+    assert detect(_CZECH, Detection(tld="tw")).encoding == detect(_CZECH).encoding == "ISO-8859-2"
+
+
+def test_a_central_iso_tld_falls_back_on_central_windows() -> None:
+    # .hu expects ISO-8859-2, which these bytes kill, so windows-1250 inherits the expectation
+    assert detect(_NO_CENTRAL_ISO, Detection(tld="hu")).encoding == "windows-1250"
+
+
+def test_a_caseless_candidate_survives_the_word_gate_on_its_native_tld() -> None:
+    # ISO-8859-6 never sees the two-letter Arabic word the gate asks for, so it scores only where its script is
+    # native. .sa expects windows-1256, so nothing injects ISO-8859-6 as that domain's default.
+    assert "ISO-8859-6" in _ranked(_SHORT_ARABIC_ISO, "sa")
+    assert "ISO-8859-6" not in _ranked(_SHORT_ARABIC_ISO)
+
+
+def test_an_arabic_french_candidate_survives_the_word_gate_on_its_native_tld() -> None:
+    # .my expects windows-1252 and counts windows-1256 as native, which is what carries it past the gate
+    assert "windows-1256" in _ranked(_SHORT_ARABIC_WINDOWS, "my")
+    assert "windows-1256" not in _ranked(_SHORT_ARABIC_WINDOWS)
 
 
 def test_a_tld_whose_script_never_appears_stops_penalizing_the_rest() -> None:

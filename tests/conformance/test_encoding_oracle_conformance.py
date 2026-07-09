@@ -232,10 +232,14 @@ def _tld_labels() -> list[str]:
     here drives both implementations down their not-found path.
     """
     source = (_ORACLES.parent / "chardetng" / "src" / "tld.rs").read_text(encoding="utf-8")
-    two_letter = re.findall(r"\[b'(.)', b'(.)'\]", source)
-    punycode = re.findall(r'b"([^"]+)"', source)
-    listed = [first + second for first, second in two_letter] + [f"xn--{key.lower()}" for key in punycode]
-    return listed + list(_UNLISTED_TLDS)
+    keys = re.search(r"static TWO_LETTER_KEYS.*?\n\];", source, re.DOTALL)
+    punycode_keys = re.search(r"static PUNYCODE_KEYS.*?\n\];", source, re.DOTALL)
+    if keys is None or punycode_keys is None:
+        msg = "chardetng's tld.rs key tables were not found"
+        raise RuntimeError(msg)
+    two_letter = [first + second for first, second in re.findall(r"\[b'(.)', b'(.)'\]", keys.group())]
+    punycode = [f"xn--{key.lower()}" for key in re.findall(r'b"([^"]+)"', punycode_keys.group())]
+    return two_letter + punycode + list(_UNLISTED_TLDS)
 
 
 def _tld_samples() -> list[bytes]:

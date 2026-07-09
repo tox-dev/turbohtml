@@ -1,3 +1,10 @@
+The encoding detector ignored the domain the bytes came from. chardetng, which ``_c/encoding/detect.h`` ports, takes the
+host's rightmost DNS label and reads it three ways: the encoding that label expects gains a point, the encodings native
+to it keep their score, and the rest pay a penalty. The port dropped all three, so turbohtml scored a Czech page served
+from a ``.ru`` domain the same as one served from ``.cz``. :class:`turbohtml.detect.Detection` now carries a ``tld``
+field that reaches the scoring, and leaving it unset detects as before. A differential test runs both implementations
+over all 133 labels chardetng's classifier carries.
+
 :class:`turbohtml.detect.EncodingDetector` no longer buffers the stream. It appended every chunk to a ``bytearray`` and
 detected once over the concatenation at :meth:`~turbohtml.detect.EncodingDetector.close`, so a caller streaming a large
 file paid its length in memory, in a class documented as mirroring chardet's ``UniversalDetector``. Each candidate now
