@@ -8,7 +8,10 @@ Detect the character encoding of bytes without parsing them, a successor to ``ch
 ``charset_normalizer.from_bytes``. The pipeline is the one :func:`turbohtml.parse` runs for ``bytes`` input -- the
 WHATWG sniff (byte-order mark, then a ``<meta>`` prescan), a content detector that scores byte-pair frequencies against
 per-encoding character-class models, then the spec's windows-1252 fallback -- so a standalone detection and
-``parse(data, detect_encoding=True)`` always agree (:doc:`how it decides </explanation/parsing>`).
+``parse(data, detect_encoding=True)`` agree, except that a byte-order mark reports its own label here (:doc:`how it
+decides </explanation/parsing>`). Decode with :attr:`EncodingMatch.codec <turbohtml.detect.EncodingMatch>`, not
+:attr:`EncodingMatch.encoding <turbohtml.detect.EncodingMatch>`: a WHATWG name and the CPython codec answering to it
+name different encodings.
 
 .. autofunction:: detect
 

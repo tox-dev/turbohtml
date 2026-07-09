@@ -40,15 +40,20 @@ When you only need the encoding, say to decode a file or a response body, run th
     raw = "Précédemment, la créativité française".encode("cp1252")
     match = detect(raw)
     print(match.encoding, match.language)
-    print(raw.decode(match.encoding))
+    print(raw.decode(match.codec))
 
 .. testoutput::
 
     windows-1252 None
     Précédemment, la créativité française
 
-Every name :func:`~turbohtml.detect.detect` can return is a valid :mod:`python:codecs` alias, so the decode call works
-directly. Rank the alternatives with :func:`~turbohtml.detect.detect_all`, constrain or threshold them with a
+Decode through ``match.codec``, not ``match.encoding``. The two are different strings: ``encoding`` is the WHATWG name,
+and the CPython codec that answers to the same name is a different encoding -- ``bytes.decode("big5")`` reaches a strict
+subset of the spec's Big5, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
+codec at all. ``match.codec`` names a ``whatwg-*`` codec :mod:`turbohtml.detect` registers, whose decoder is the one
+:func:`turbohtml.parse` uses, so the text you get back is the text the parser would have seen.
+
+Rank the alternatives with :func:`~turbohtml.detect.detect_all`, constrain or threshold them with a
 :class:`~turbohtml.detect.Detection` config, and feed a stream chunk by chunk with a
 :class:`~turbohtml.detect.EncodingDetector`:
 

@@ -164,10 +164,12 @@ either package unchanged.
  Gotchas and pitfalls
 **********************
 
-- Encoding names differ in spelling, not identity: turbohtml reports the WHATWG canonical name (``windows-1251``,
-  ``Shift_JIS``), chardet its own casing (``Windows-1251``, ``CP932``), cchardet upper case. Every name turbohtml can
-  detect is a valid :mod:`python:codecs` alias, so ``data.decode(match.encoding)`` works; only a ``<meta>``-declared
-  ``x-user-defined`` has no stdlib codec.
+- Encoding names differ in identity, not just spelling: turbohtml reports the WHATWG canonical name (``windows-1251``,
+  ``Shift_JIS``), chardet its own casing (``Windows-1251``, ``CP932``), cchardet upper case. Do not pass any of them to
+  ``bytes.decode``. The WHATWG encoding and the CPython codec of the same name differ -- the spec's ``koi8-u`` is
+  KOI8-RU, its ``Big5`` a superset of CPython's, its ``EUC-KR`` windows-949, its ``Shift_JIS`` windows-31j -- and
+  ``x-mac-cyrillic`` and ``replacement`` are not CPython codecs at all. Decode with ``data.decode(match.codec)``, which
+  names a ``whatwg-*`` codec :mod:`turbohtml.detect` registers for this purpose.
 - Confidence scales are not comparable across libraries. turbohtml's confidence is the candidate's share of the positive
   frequency scores (1.0 for a declaration or structural proof, 0.0 for the no-evidence windows-1252 fallback); do not
   port a chardet threshold number directly, use :meth:`Detection.chardet() <turbohtml.detect.Detection.chardet>` for its

@@ -43,15 +43,16 @@ tree -- to decode a file yourself, or to log what you received -- call :func:`tu
     raw = "Précédemment, la créativité française".encode("cp1252")
     match = detect(raw)
     print(match.encoding, match.language)
-    print(raw.decode(match.encoding))
+    print(raw.decode(match.codec))
 
 .. testoutput::
 
     windows-1252 None
     Précédemment, la créativité française
 
-Every name :func:`~turbohtml.detect.detect` returns is a valid :mod:`python:codecs` alias, so the decode call works
-straight off. The :doc:`/how-to/encoding` guide covers ranking alternatives and feeding a stream chunk by chunk.
+Decode through ``match.codec``, not ``match.encoding``: ``encoding`` is the WHATWG label, and the CPython codec of the
+same name is a different encoding. ``codec`` names a ``whatwg-*`` codec :mod:`turbohtml.detect` registers, so the call
+works straight off. The :doc:`/how-to/encoding` guide covers ranking alternatives and feeding a stream chunk by chunk.
 
 *********************
  Recover from a mess

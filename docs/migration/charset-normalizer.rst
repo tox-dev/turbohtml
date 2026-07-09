@@ -61,7 +61,7 @@ Portable one-to-one between the two libraries:
   <turbohtml.detect.EncodingMatch>`.
 - The byte-order-mark flag: ``best().bom`` maps to :attr:`EncodingMatch.bom <turbohtml.detect.EncodingMatch>`. A mark
   reports the mark's own label -- ``UTF-8-SIG`` for a UTF-8 mark and ``UTF-16LE`` / ``UTF-16BE`` / ``UTF-32LE`` /
-  ``UTF-32BE`` for the UTF-16 and UTF-32 marks -- so ``data.decode(match.encoding)`` (or ``utf-8-sig`` / ``utf-16`` /
+  ``UTF-32BE`` for the UTF-16 and UTF-32 marks -- so ``data.decode(match.codec)`` (or ``utf-8-sig`` / ``utf-16`` /
   ``utf-32``) strips it, matching charset-normalizer's mark-aware decode.
 - A ``<meta>`` charset in the first bytes is honored by both (charset-normalizer's ``preemptive_behaviour``, on by
   default, and turbohtml's prescan).
@@ -151,7 +151,7 @@ API mapping:
     - - ``best().language``
       - :attr:`EncodingMatch.language <turbohtml.detect.EncodingMatch>`
     - - ``str(best())`` (the decoded text)
-      - ``data.decode(match.encoding)``
+      - ``data.decode(match.codec)``
     - - ``best().could_be_from_charset`` (equal-fit codecs)
       - the runner-up entries of :func:`~turbohtml.detect.detect_all`
 
@@ -164,7 +164,7 @@ A worked round-trip:
     raw = "Précédemment, la créativité française".encode("cp1252")
     match = detect(raw)
     print(match.encoding)
-    print(raw.decode(match.encoding))
+    print(raw.decode(match.codec))
 
 .. testoutput::
 
@@ -178,10 +178,11 @@ A worked round-trip:
 - charset-normalizer's ``threshold`` bounds the *chaos* it tolerates (lower is stricter); :attr:`Detection.threshold
   <turbohtml.detect.Detection>` floors the *confidence* it requires (higher is stricter). The two numbers measure
   different things, so pick a new value rather than copying one across.
-- Names differ in spelling: charset-normalizer reports Python codec names (``cp1251``), turbohtml the WHATWG canonical
-  (``windows-1251``). Both decode through :mod:`python:codecs`, so downstream ``bytes.decode`` calls keep working.
+- Names differ in kind: charset-normalizer reports Python codec names (``cp1251``), turbohtml the WHATWG canonical
+  (``windows-1251``). A WHATWG name is a label, not a codec -- ``bytes.decode("big5")`` is not the spec's Big5 -- so
+  decode with ``match.codec``, the ``whatwg-*`` codec :mod:`turbohtml.detect` registers, rather than ``match.encoding``.
 - ``str(best())`` returns the decoded text directly; :func:`~turbohtml.detect.detect` returns only the encoding, so
-  decode explicitly with ``data.decode(match.encoding)``.
+  decode explicitly with ``data.decode(match.codec)``.
 - ``best()`` can be ``None`` when nothing scores; :func:`~turbohtml.detect.detect` always returns an
   :class:`~turbohtml.detect.EncodingMatch`, but its ``encoding`` is ``None`` for empty input or when every candidate is
   ruled out by ``threshold``, ``allowed``, or ``excluded``.

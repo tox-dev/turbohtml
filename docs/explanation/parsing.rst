@@ -33,13 +33,16 @@ For ``bytes`` input the first stage resolves an encoding in the `WHATWG order
 outright, then the caller's ``encoding`` argument, then a prescan of the first 1024 bytes for a ``<meta>`` charset
 declaration, and windows-1252 stands in when nothing matched. Passing ``detect_encoding=True`` inserts one step before
 that fallback: a content-based detector that validates UTF-8 structurally and otherwise lets the CJK and single-byte
-candidates compete on character-pair frequencies, where a single decode error or C1 control disqualifies a candidate.
-The step is opt-in and strictly subordinate: a declared encoding always wins, so spec conformance is untouched, and pure
-ASCII stays windows-1252 (the two decode ASCII identically).
+candidates compete on character-pair frequencies, penalizing a candidate for a byte pair its encoding leaves unmapped
+and disqualifying it outright for one it cannot decode at all. The step is opt-in and strictly subordinate: a declared
+encoding always wins, so spec conformance is untouched, and pure ASCII stays windows-1252 (the two decode ASCII
+identically).
 
 The same pipeline, minus the decode and the parse, is the standalone :func:`turbohtml.detect.detect` -- the
 :doc:`chardet and charset-normalizer replacement </reference/detect>` -- which is why a standalone detection and
-``parse(data, detect_encoding=True)`` can never disagree about the same bytes.
+``parse(data, detect_encoding=True)`` agree about the same bytes. A byte-order mark is the one divergence:
+:func:`~turbohtml.detect.detect` reports the mark's own label so a caller can strip it, where the spec-locked parse
+keeps the plain WHATWG name.
 
 ************************
  A spec-exact tokenizer
