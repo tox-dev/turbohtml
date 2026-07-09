@@ -73,6 +73,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         }
         if (cursor == first_digit) {
             /* "&#" or "&#x" with no digits is not a reference: emit it literally */
+            tok_error_at(self, "absence-of-digits-in-numeric-character-reference", self->col + (hex ? 3 : 2));
             push(self, dest, '&');
             push(self, dest, '#');
             if (hex) {
@@ -85,13 +86,34 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (cursor < len && TH_READ(cursor) == ';') {
             end = cursor + 1;
         }
+        /* every error below is reported where the reference ended, not where it began */
+        Py_ssize_t end_col = self->col + (end - amp);
+        if (end == cursor) {
+            tok_error_at(self, "missing-semicolon-after-character-reference", end_col);
+        }
         Py_UCS4 replacement;
-        if (overflow || (num >= 0xD800 && num <= 0xDFFF) || num > 0x10FFFF) {
+        if (num == 0) {
+            tok_error_at(self, "null-character-reference", end_col);
             push(self, dest, REPLACEMENT);
-        } else if (charref_find_invalid(num, &replacement)) {
-            push(self, dest, replacement);
+        } else if (overflow || num > 0x10FFFF) {
+            tok_error_at(self, "character-reference-outside-unicode-range", end_col);
+            push(self, dest, REPLACEMENT);
+        } else if (num >= 0xD800 && num <= 0xDFFF) {
+            tok_error_at(self, "surrogate-character-reference", end_col);
+            push(self, dest, REPLACEMENT);
         } else {
-            push(self, dest, num);
+            if ((num >= 0xFDD0 && num <= 0xFDEF) || (num & 0xFFFE) == 0xFFFE) {
+                tok_error_at(self, "noncharacter-character-reference", end_col);
+            } else if (num == 0x0D || (num >= 0x7F && num <= 0x9F) ||
+                       (num < 0x20 && num != 0x09 && num != 0x0A && num != 0x0C)) {
+                /* 0x0D is ASCII whitespace, and the spec still names it here */
+                tok_error_at(self, "control-character-reference", end_col);
+            }
+            if (charref_find_invalid(num, &replacement)) {
+                push(self, dest, replacement);
+            } else {
+                push(self, dest, num);
+            }
         }
         if (is_reference != NULL) {
             *is_reference = 1;
@@ -133,6 +155,20 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
     } else if (cursor >= len && !self->eof) {
         return -1; /* a ';' might still follow */
     }
+    /* A name longer than the table's longest cannot match, but the spec keeps consuming
+       alphanumerics, so a ';' beyond the cap still says the author meant a reference. */
+    int named_semicolon = semicolon;
+    Py_ssize_t ambiguous_end = cursor;
+    if (name_len == HTML5_MAX_NAME_LEN) {
+        while (ambiguous_end < len && (is_ascii_alpha(TH_READ(ambiguous_end)) ||
+                                       (TH_READ(ambiguous_end) >= '0' && TH_READ(ambiguous_end) <= '9'))) {
+            ambiguous_end++;
+        }
+        if (ambiguous_end >= len && !self->eof) {
+            return -1; /* the run of name characters might continue */
+        }
+        named_semicolon = ambiguous_end < len && TH_READ(ambiguous_end) == ';';
+    }
     int token_len = name_len + semicolon;
 
     const html5_entity *entity = charref_find_entity(ascii, token_len);
@@ -150,7 +186,11 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
     }
 
     if (entity == NULL) {
-        /* no match: emit '&' and the consumed name characters literally */
+        /* no match: emit '&' and the consumed name characters literally. A trailing ';'
+           means the author meant a reference the table does not have. */
+        if (named_semicolon) {
+            tok_error_at(self, "unknown-named-character-reference", self->col + (ambiguous_end - amp));
+        }
         push(self, dest, '&');
         for (int index = 0; index < name_len; index++) {
             push(self, dest, chars[index]);
@@ -170,6 +210,9 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         }
     }
 
+    if (!match_semicolon) {
+        tok_error_at(self, "missing-semicolon-after-character-reference", self->col + 1 + match_len);
+    }
     push(self, dest, entity->cp0);
     if (entity->cp1) {
         push(self, dest, entity->cp1);
@@ -269,7 +312,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                last-newline column in along the way. The wider widths keep the
                generic newline-stopping scan: they are rarer and the dedicated
                1-byte pass is where real documents live. */
-            if (ch != '&' && ch != '<') {
+            if (ch != '&' && ch != '<' && ch != 0) {
                 Py_ssize_t newlines;
                 Py_ssize_t last_nl;
                 Py_ssize_t stop = scan_data_ucs1(self, self->pos, &newlines, &last_nl);
@@ -277,12 +320,20 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
 #else
-            if (ch != '&' && ch != '<' && ch != '\n') {
-                Py_ssize_t stop = TH_SCAN(self, self->pos + 1, '&', '<', '\n', '\n');
+            if (ch != '&' && ch != '<' && ch != '\n' && ch != 0) {
+                Py_ssize_t stop = TH_SCAN(self, self->pos + 1, '&', '<', '\n', 0);
                 text_append_run(self, stop);
                 continue;
             }
 #endif
+            if (ch == 0) {
+                /* the data state keeps the NUL, where every other text state replaces it */
+                tok_error(self, "unexpected-null-character");
+                text_begin(self);
+                text_push(self, 0);
+                CONSUME();
+                continue;
+            }
             if (ch == '&') {
                 if (self->resolve_references) {
                     text_begin(self);
@@ -360,6 +411,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_RCDATA_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -378,6 +432,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 self->state = ST_RAWTEXT_LT;
                 continue;
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -398,6 +455,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_SCRIPT_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -411,12 +471,16 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 text_append_run(self, stop);
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
 
         case ST_TAG_OPEN:
             if (at_eof) {
+                tok_error(self, "eof-before-tag-name");
                 text_begin_mark(self);
                 text_push(self, '<');
                 EOF_FLUSH();
@@ -444,6 +508,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_BOGUS_COMMENT;
                 continue;
             }
+            tok_error(self, "invalid-first-character-of-tag-name");
             text_begin_mark(self);
             text_push(self, '<');
             self->state = ST_DATA;
@@ -451,6 +516,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
 
         case ST_END_TAG_OPEN:
             if (at_eof) {
+                tok_error(self, "eof-before-tag-name");
                 text_begin_mark(self);
                 text_push(self, '<');
                 text_push(self, '/');
@@ -468,6 +534,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_DATA;
                 continue;
             }
+            tok_error(self, "invalid-first-character-of-tag-name");
             init_markup(self, TH_COMMENT);
             self->state = ST_BOGUS_COMMENT;
             continue;
@@ -491,6 +558,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 finish_tag(self);
                 return RUN_EMITTED;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             push(self, &self->tok.name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
             CONSUME();
             continue;
@@ -510,6 +580,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_RCDATA_END_OPEN:
             if (!at_eof && is_ascii_alpha(ch)) {
                 start_tag(self, 1, lower_ascii(ch));
+                self->eof_code = NULL; /* speculative until it proves to be the appropriate end tag */
                 push(self, &self->temp, ch);
                 CONSUME();
                 self->state = ST_RCDATA_END_NAME;
@@ -524,11 +595,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_RCDATA_END_NAME:
             if (!at_eof && is_space(ch) && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag"; /* the end tag is the appropriate one, so it is now open */
                 self->state = ST_BEFORE_ATTR_NAME;
                 continue;
             }
             if (!at_eof && ch == '/' && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag";
                 self->state = ST_SELF_CLOSING_START_TAG;
                 continue;
             }
@@ -561,6 +634,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_RAWTEXT_END_OPEN:
             if (!at_eof && is_ascii_alpha(ch)) {
                 start_tag(self, 1, lower_ascii(ch));
+                self->eof_code = NULL; /* speculative until it proves to be the appropriate end tag */
                 push(self, &self->temp, ch);
                 CONSUME();
                 self->state = ST_RAWTEXT_END_NAME;
@@ -575,11 +649,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_RAWTEXT_END_NAME:
             if (!at_eof && is_space(ch) && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag"; /* the end tag is the appropriate one, so it is now open */
                 self->state = ST_BEFORE_ATTR_NAME;
                 continue;
             }
             if (!at_eof && ch == '/' && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag";
                 self->state = ST_SELF_CLOSING_START_TAG;
                 continue;
             }
@@ -620,6 +696,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_SCRIPT_END_OPEN:
             if (!at_eof && is_ascii_alpha(ch)) {
                 start_tag(self, 1, lower_ascii(ch));
+                self->eof_code = NULL; /* speculative until it proves to be the appropriate end tag */
                 push(self, &self->temp, ch);
                 CONSUME();
                 self->state = ST_SCRIPT_END_NAME;
@@ -634,11 +711,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_SCRIPT_END_NAME:
             if (!at_eof && is_space(ch) && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag"; /* the end tag is the appropriate one, so it is now open */
                 self->state = ST_BEFORE_ATTR_NAME;
                 continue;
             }
             if (!at_eof && ch == '/' && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag";
                 self->state = ST_SELF_CLOSING_START_TAG;
                 continue;
             }
@@ -678,6 +757,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
 
         case ST_SCRIPT_ESCAPED:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -692,12 +772,16 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_SCRIPT_ESCAPED_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
 
         case ST_SCRIPT_ESCAPED_DASH:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -712,6 +796,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_SCRIPT_ESCAPED_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             self->state = ST_SCRIPT_ESCAPED;
@@ -719,6 +806,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
 
         case ST_SCRIPT_ESCAPED_DASH_DASH:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -737,6 +825,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 text_push(self, '>');
                 self->state = ST_SCRIPT;
                 continue;
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -765,6 +856,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_SCRIPT_ESCAPED_END_OPEN:
             if (!at_eof && is_ascii_alpha(ch)) {
                 start_tag(self, 1, lower_ascii(ch));
+                self->eof_code = NULL; /* speculative until it proves to be the appropriate end tag */
                 push(self, &self->temp, ch);
                 CONSUME();
                 self->state = ST_SCRIPT_ESCAPED_END_NAME;
@@ -779,11 +871,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
         case ST_SCRIPT_ESCAPED_END_NAME:
             if (!at_eof && is_space(ch) && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag"; /* the end tag is the appropriate one, so it is now open */
                 self->state = ST_BEFORE_ATTR_NAME;
                 continue;
             }
             if (!at_eof && ch == '/' && appropriate_end_tag(self)) {
                 CONSUME();
+                self->eof_code = "eof-in-tag";
                 self->state = ST_SELF_CLOSING_START_TAG;
                 continue;
             }
@@ -821,6 +915,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
 
         case ST_SCRIPT_DOUBLE_ESCAPED:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -835,12 +930,16 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_SCRIPT_DOUBLE_ESCAPED_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
 
         case ST_SCRIPT_DOUBLE_ESCAPED_DASH:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -855,6 +954,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_SCRIPT_DOUBLE_ESCAPED_LT;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             self->state = ST_SCRIPT_DOUBLE_ESCAPED;
@@ -862,6 +964,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
 
         case ST_SCRIPT_DOUBLE_ESCAPED_DASH_DASH:
             if (at_eof) {
+                tok_error(self, "eof-in-script-html-comment-like-text");
                 EOF_FLUSH();
             }
             if (ch == '-') {
@@ -880,6 +983,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 text_push(self, '>');
                 self->state = ST_SCRIPT;
                 continue;
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             text_push(self, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -926,6 +1032,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             new_attr(self);
             if (ch == '=') {
+                tok_error(self, "unexpected-equals-sign-before-attribute-name");
                 push(self, &self->attr->name, ch);
                 CONSUME();
             }
@@ -943,6 +1050,11 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 self->state = ST_BEFORE_ATTR_VALUE;
                 continue;
+            }
+            if (ch == '"' || ch == '\'' || ch == '<') {
+                tok_error(self, "unexpected-character-in-attribute-name");
+            } else if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->attr->name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
             CONSUME();
@@ -992,6 +1104,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (!at_eof && ch == '>') {
+                tok_error(self, "missing-attribute-value");
                 CONSUME();
                 finish_tag(self);
                 return RUN_EMITTED;
@@ -1027,6 +1140,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->col += consumed;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -1057,6 +1173,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->col += consumed;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -1086,6 +1205,11 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 finish_tag(self);
                 return RUN_EMITTED;
             }
+            if (ch == '"' || ch == '\'' || ch == '<' || ch == '=' || ch == '`') {
+                tok_error(self, "unexpected-character-in-unquoted-attribute-value");
+            } else if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -1109,6 +1233,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 finish_tag(self);
                 return RUN_EMITTED;
             }
+            tok_error(self, "missing-whitespace-between-attributes");
             self->state = ST_BEFORE_ATTR_NAME;
             continue;
 
@@ -1122,6 +1247,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 finish_tag(self);
                 return RUN_EMITTED;
             }
+            tok_error(self, "unexpected-solidus-in-tag");
             self->state = ST_BEFORE_ATTR_NAME;
             continue;
 
@@ -1132,6 +1258,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (ch == '>') {
                 CONSUME();
                 EMIT_MARKUP();
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->tok.text, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -1169,6 +1298,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                     self->state = ST_CDATA; /* CDATA content is a plain text run */
                     continue;
                 }
+                tok_error_at(self, "cdata-in-html-content", self->col - 1);
                 init_markup(self, TH_COMMENT);
                 for (const char *cdata_char = "[CDATA["; *cdata_char; cdata_char++) {
                     push(self, &self->tok.text, (Py_UCS4)(unsigned char)*cdata_char);
@@ -1179,6 +1309,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (match == 1 && !self->eof) {
                 return RUN_NEED_MORE;
             }
+            tok_error(self, "incorrectly-opened-comment");
             init_markup(self, TH_COMMENT);
             self->state = ST_BOGUS_COMMENT;
             continue;
@@ -1231,6 +1362,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_COMMENT_END_DASH;
                 continue;
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             push(self, &self->tok.text, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
             continue;
@@ -1269,6 +1403,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             continue;
 
         case ST_COMMENT_LT_BANG_DASH_DASH:
+            if (!at_eof && ch != '>') {
+                tok_error(self, "nested-comment");
+            }
             self->state = ST_COMMENT_END;
             continue;
 
@@ -1321,6 +1458,7 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "incorrectly-closed-comment");
                 CONSUME();
                 EMIT_MARKUP();
             }
@@ -1341,6 +1479,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 self->state = ST_BEFORE_DOCTYPE_NAME;
                 continue;
             }
+            if (ch != '>') {
+                tok_error(self, "missing-whitespace-before-doctype-name");
+            }
             self->state = ST_BEFORE_DOCTYPE_NAME;
             continue;
 
@@ -1356,9 +1497,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             init_markup(self, TH_DOCTYPE);
             if (ch == '>') {
+                tok_error(self, "missing-doctype-name");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->tok.name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
             CONSUME();
@@ -1378,6 +1523,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (ch == '>') {
                 CONSUME();
                 EMIT_MARKUP();
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->tok.name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
             CONSUME();
@@ -1416,9 +1564,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (match == 1 && !self->eof) {
                 return RUN_NEED_MORE;
             }
+            tok_error(self, "invalid-character-sequence-after-doctype-name");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
         }
 
         case ST_AFTER_DOCTYPE_PUBLIC_KW:
@@ -1432,19 +1580,21 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '"' || ch == '\'') {
+                tok_error(self, "missing-whitespace-after-doctype-public-keyword");
                 self->tok.has_public_id = 1;
                 self->state = (ch == '"') ? ST_DOCTYPE_PUBLIC_ID_DQ : ST_DOCTYPE_PUBLIC_ID_SQ;
                 CONSUME();
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "missing-doctype-public-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
             }
+            tok_error(self, "missing-quote-before-doctype-public-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_BEFORE_DOCTYPE_PUBLIC_ID:
             if (at_eof) {
@@ -1462,13 +1612,14 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "missing-doctype-public-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
             }
+            tok_error(self, "missing-quote-before-doctype-public-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_DOCTYPE_PUBLIC_ID_DQ:
         case ST_DOCTYPE_PUBLIC_ID_SQ: {
@@ -1483,9 +1634,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "abrupt-doctype-public-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->tok.public_id, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -1507,14 +1662,15 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 EMIT_MARKUP();
             }
             if (ch == '"' || ch == '\'') {
+                tok_error(self, "missing-whitespace-between-doctype-public-and-system-identifiers");
                 self->tok.has_system_id = 1;
                 self->state = (ch == '"') ? ST_DOCTYPE_SYSTEM_ID_DQ : ST_DOCTYPE_SYSTEM_ID_SQ;
                 CONSUME();
                 continue;
             }
+            tok_error(self, "missing-quote-before-doctype-system-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_BETWEEN_DOCTYPE_PUB_SYS:
             if (at_eof) {
@@ -1535,9 +1691,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 continue;
             }
+            tok_error(self, "missing-quote-before-doctype-system-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_AFTER_DOCTYPE_SYSTEM_KW:
             if (at_eof) {
@@ -1550,19 +1706,21 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '"' || ch == '\'') {
+                tok_error(self, "missing-whitespace-after-doctype-system-keyword");
                 self->tok.has_system_id = 1;
                 self->state = (ch == '"') ? ST_DOCTYPE_SYSTEM_ID_DQ : ST_DOCTYPE_SYSTEM_ID_SQ;
                 CONSUME();
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "missing-doctype-system-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
             }
+            tok_error(self, "missing-quote-before-doctype-system-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_BEFORE_DOCTYPE_SYSTEM_ID:
             if (at_eof) {
@@ -1580,13 +1738,14 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "missing-doctype-system-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
             }
+            tok_error(self, "missing-quote-before-doctype-system-identifier");
             self->tok.force_quirks = 1;
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            BOGUS_DOCTYPE();
 
         case ST_DOCTYPE_SYSTEM_ID_DQ:
         case ST_DOCTYPE_SYSTEM_ID_SQ: {
@@ -1601,9 +1760,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '>') {
+                tok_error(self, "abrupt-doctype-system-identifier");
                 self->tok.force_quirks = 1;
                 CONSUME();
                 EMIT_MARKUP();
+            }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
             }
             push(self, &self->tok.system_id, ch == 0 ? REPLACEMENT : ch);
             CONSUME();
@@ -1623,8 +1786,8 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 EMIT_MARKUP();
             }
-            self->state = ST_BOGUS_DOCTYPE;
-            continue;
+            tok_error(self, "unexpected-character-after-doctype-system-identifier");
+            BOGUS_DOCTYPE();
 
         case ST_BOGUS_DOCTYPE:
             if (at_eof) {
@@ -1634,11 +1797,15 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 EMIT_MARKUP();
             }
+            if (ch == 0) {
+                tok_error(self, "unexpected-null-character");
+            }
             CONSUME();
             continue;
 
         case ST_CDATA:
             if (at_eof) {
+                tok_error(self, "eof-in-cdata");
                 EOF_FLUSH();
             }
             if (ch != ']' && ch != '\n') {

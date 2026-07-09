@@ -484,13 +484,16 @@ PyObject *turbohtml_tokenize_states(PyObject *Py_UNUSED(module), PyObject *args)
     } else {
         th_tok_set_initial(sm, initial, NULL, 0);
     }
+    th_error_sink errors = {0};
+    th_tok_set_error_sink(sm, &errors);
     th_tok_feed(sm, PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text));
     th_tok_close(sm);
 
     PyObject *out = PyList_New(0);
-    if (out == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_tok_free(sm); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (out == NULL) {               /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_error_sink_free(&errors); /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_tok_free(sm);             /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_token *record;
     enum th_step step;
@@ -500,17 +503,48 @@ PyObject *turbohtml_tokenize_states(PyObject *Py_UNUSED(module), PyObject *args)
         if (tuple == NULL || PyList_Append(out, tuple) < 0) { /* GCOVR_EXCL_BR_LINE */
             Py_XDECREF(tuple);                                /* GCOVR_EXCL_LINE: allocation-failure path */
             Py_DECREF(out);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            th_error_sink_free(&errors);                      /* GCOVR_EXCL_LINE: allocation-failure path */
             th_tok_free(sm);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_DECREF(tuple);
     }
     th_tok_free(sm);
-    if (step == TH_STEP_ERROR) { /* GCOVR_EXCL_BR_LINE: the only step error is an out-of-memory condition */
-        Py_DECREF(out);          /* GCOVR_EXCL_LINE: allocation-failure path */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (step == TH_STEP_ERROR) {     /* GCOVR_EXCL_BR_LINE: the only step error is an out-of-memory condition */
+        Py_DECREF(out);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_error_sink_free(&errors); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return out;
+    th_error_sink preprocessing = {0};
+    th_input_stream_errors(PyUnicode_KIND(text), PyUnicode_DATA(text), PyUnicode_GET_LENGTH(text), &preprocessing);
+    int merge_failed = th_error_sink_merge(&errors, &preprocessing) < 0;
+    th_error_sink_free(&preprocessing);
+    if (merge_failed) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(out);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_error_sink_free(&errors); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* the conformance hook also reports the WHATWG parse errors, as (code, line, col)
+       triples, so the suite's expected `errors` arrays gate them */
+    PyObject *reported = PyList_New(errors.len);
+    if (reported == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(out);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_error_sink_free(&errors); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < errors.len; index++) {
+        PyObject *entry =
+            Py_BuildValue("(snn)", errors.items[index].code, errors.items[index].line, errors.items[index].col);
+        if (entry == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(reported);         /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(out);              /* GCOVR_EXCL_LINE: allocation-failure path */
+            th_error_sink_free(&errors); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyList_SET_ITEM(reported, index, entry);
+    }
+    th_error_sink_free(&errors);
+    return Py_BuildValue("(NN)", out, reported);
 }
 
 int tokenizer_register(PyObject *module, module_state *state) {

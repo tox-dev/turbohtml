@@ -140,6 +140,15 @@ int th_error_sink_push(th_error_sink *sink, const char *code, Py_ssize_t line, P
 /* Release a sink's storage and reset it to empty. */
 void th_error_sink_free(th_error_sink *sink);
 
+/* Report the WHATWG preprocessing parse errors -- a control, noncharacter, or surrogate
+   code point anywhere in the input -- into sink, in document order. The tokenizer states
+   never see these: the spec raises them as the input stream is read. */
+void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink);
+
+/* Fold src's preprocessing errors into dst's tokenizer errors by source position. Returns
+   -1 only on allocation failure, leaving dst untouched. */
+int th_error_sink_merge(th_error_sink *dst, const th_error_sink *src);
+
 /* Content-model states a consumer may start in. The public tokenizer always
    starts in DATA; the others are reachable through tag transitions and are
    selectable directly only by the conformance harness. */

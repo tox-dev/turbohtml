@@ -174,22 +174,23 @@ def test_a_matching_late_meta_does_not_reparse() -> None:
 
 
 @pytest.mark.parametrize(
-    ("markup", "encoding", "detect", "expected"),
+    ("markup", "encoding", "expected"),
     [
-        pytest.param(b"\xef\xbb\xbf<p>x", None, False, "certain", id="byte-order-mark"),
-        pytest.param(b"<p>x", "utf-8", False, "certain", id="encoding-argument"),
-        pytest.param(b"<meta charset=utf-8><p>x", None, False, "certain", id="meta-inside-the-window"),
-        pytest.param(
-            b"<!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>", None, False, "certain", id="meta-past-window"
-        ),
-        pytest.param(b"<p>caf\xc3\xa9", None, False, "tentative", id="structural-utf8"),
-        pytest.param(b"<p>caf\xe9", None, False, "tentative", id="windows-1252-fallback"),
-        pytest.param(b"<p>caf\xe9", None, True, "tentative", id="opt-in-detector"),
+        pytest.param(b"\xef\xbb\xbf<p>x", None, "certain", id="byte-order-mark"),
+        pytest.param(b"<p>x", "utf-8", "certain", id="encoding-argument"),
+        pytest.param(b"<meta charset=utf-8><p>x", None, "certain", id="meta-inside-the-window"),
+        pytest.param(b"<!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>", None, "certain", id="meta-past-window"),
+        pytest.param(b"<p>caf\xc3\xa9", None, "tentative", id="structural-utf8"),
+        pytest.param(b"<p>caf\xe9", None, "tentative", id="windows-1252-fallback"),
     ],
 )
-def test_encoding_confidence(markup: bytes, encoding: str | None, detect: bool, expected: str) -> None:  # noqa: FBT001
+def test_encoding_confidence(markup: bytes, encoding: str | None, expected: str) -> None:
     # the spec's certain/tentative split: a declaration decides, a sniff only guesses
-    assert parse(markup, encoding=encoding, detect_encoding=detect).encoding_confidence == expected
+    assert parse(markup, encoding=encoding).encoding_confidence == expected
+
+
+def test_the_opt_in_detector_stays_tentative() -> None:
+    assert parse(b"<p>caf\xe9", detect_encoding=True).encoding_confidence == "tentative"
 
 
 def test_str_input_has_no_encoding_confidence() -> None:

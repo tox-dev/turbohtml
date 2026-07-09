@@ -760,15 +760,15 @@ static const char *meta_value_ascii(th_tree *tree, const th_buf *value) {
    Every other <meta> declares no encoding and is skipped. Kept in document order because an
    unresolvable label falls through to the next declaration rather than ending the search. */
 static void record_meta_label(th_tree *tree, const th_token *token) {
-    const th_attr *charset = token_attr(token, "charset", 7);
+    const th_attr *declaration = token_attr(token, "charset", 7);
     int from_content = 0;
-    if (charset == NULL || !charset->has_value) {
-        const th_attr *equiv = token_attr(token, "http-equiv", 10);
-        if (equiv == NULL || !equiv->has_value || !buf_iequals_ascii(&equiv->value, "content-type", 12)) {
+    if (declaration == NULL || !declaration->has_value) {
+        const th_attr *pragma = token_attr(token, "http-equiv", 10);
+        if (pragma == NULL || !pragma->has_value || !buf_iequals_ascii(&pragma->value, "content-type", 12)) {
             return;
         }
-        charset = token_attr(token, "content", 7);
-        if (charset == NULL || !charset->has_value) {
+        declaration = token_attr(token, "content", 7);
+        if (declaration == NULL || !declaration->has_value) {
             return;
         }
         from_content = 1;
@@ -783,7 +783,7 @@ static void record_meta_label(th_tree *tree, const th_token *token) {
         tree->meta_labels = grown;
         tree->meta_label_cap = cap;
     }
-    const char *text = meta_value_ascii(tree, &charset->value);
+    const char *text = meta_value_ascii(tree, &declaration->value);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
@@ -3949,6 +3949,12 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
     run_state_init(&run_state, M_INITIAL);
     run_drain(tree, sm, &run_state);
     run_close(tree);
+    th_error_sink preprocessing = {0};
+    th_input_stream_errors(kind, data, length, &preprocessing);
+    if (th_error_sink_merge(&tree->errors, &preprocessing) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        tree->failed = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_error_sink_free(&preprocessing);
     th_tok_free(sm);
     finalize_document(tree);
 

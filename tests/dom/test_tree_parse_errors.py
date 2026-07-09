@@ -6,7 +6,7 @@ import gc
 
 import pytest
 
-from turbohtml import Document, HTMLParseError, ParseError, parse, tokenize
+from turbohtml import Document, HTMLParseError, ParseError, Tokenizer, parse, tokenize
 
 
 @pytest.mark.parametrize(
@@ -28,6 +28,128 @@ def test_single_error(markup: str, code: str, line: int, col: int) -> None:
     errors = parse(markup).errors
     assert len(errors) == 1
     assert (errors[0].code, errors[0].line, errors[0].col) == (code, line, col)
+
+
+@pytest.mark.parametrize(
+    ("markup", "code", "line", "col"),
+    [
+        pytest.param("<!DOCTYPEhtml>", "missing-whitespace-before-doctype-name", 1, 9, id="doctype-no-space"),
+        pytest.param("<!DOCTYPE>", "missing-doctype-name", 1, 9, id="doctype-no-name"),
+        pytest.param('<!DOCTYPE a PUBLIC"x">', "missing-whitespace-after-doctype-public-keyword", 1, 18, id="public"),
+        pytest.param('<!DOCTYPE a SYSTEM"x">', "missing-whitespace-after-doctype-system-keyword", 1, 18, id="system"),
+        pytest.param("<!DOCTYPE a x>", "invalid-character-sequence-after-doctype-name", 1, 12, id="doctype-junk"),
+        pytest.param("<0>", "invalid-first-character-of-tag-name", 1, 1, id="bad-tag-name"),
+        pytest.param("<div/ id=1>", "unexpected-solidus-in-tag", 1, 5, id="stray-solidus"),
+        pytest.param('<a b="c"d>', "missing-whitespace-between-attributes", 1, 8, id="no-space-between-attrs"),
+        pytest.param("<a =b>", "unexpected-equals-sign-before-attribute-name", 1, 3, id="leading-equals"),
+        pytest.param("<a b=>", "missing-attribute-value", 1, 5, id="empty-attribute-value"),
+        pytest.param("<a b<c>", "unexpected-character-in-attribute-name", 1, 4, id="lt-in-attr-name"),
+        pytest.param("<a b=c`>", "unexpected-character-in-unquoted-attribute-value", 1, 6, id="backtick-in-value"),
+        pytest.param("<!x>", "incorrectly-opened-comment", 1, 2, id="bogus-comment"),
+        pytest.param("<!--x--!>", "incorrectly-closed-comment", 1, 8, id="bang-before-close"),
+        pytest.param("<![CDATA[x]]>", "cdata-in-html-content", 1, 8, id="cdata-outside-foreign"),
+        pytest.param("&#;", "absence-of-digits-in-numeric-character-reference", 1, 2, id="no-digits"),
+        pytest.param("&#xd800;", "surrogate-character-reference", 1, 8, id="surrogate-reference"),
+        pytest.param("&#xfdd0;", "noncharacter-character-reference", 1, 8, id="noncharacter-reference"),
+        pytest.param("&#x0000;", "null-character-reference", 1, 8, id="null-reference"),
+        pytest.param("&#013;", "control-character-reference", 1, 6, id="control-reference"),
+        pytest.param("&NotARealEntity;", "unknown-named-character-reference", 1, 15, id="unknown-entity"),
+        pytest.param("a\x0bz", "control-character-in-input-stream", 1, 1, id="control-in-input"),
+        pytest.param("a\ufdd0z", "noncharacter-in-input-stream", 1, 1, id="noncharacter-in-input"),
+        pytest.param("a\ud800z", "surrogate-in-input-stream", 1, 1, id="surrogate-in-input"),
+        pytest.param("a\x00b", "unexpected-null-character", 1, 1, id="null-in-data"),
+    ],
+)
+def test_single_error_across_the_whatwg_codes(markup: str, code: str, line: int, col: int) -> None:
+    errors = parse(markup).errors
+    assert len(errors) == 1
+    assert (errors[0].code, errors[0].line, errors[0].col) == (code, line, col)
+
+
+def test_preprocessing_errors_interleave_with_tokenizer_errors() -> None:
+    # the control character precedes the tag error at the same position, as the spec reads
+    # the input stream before the tokenizer consumes the character
+    assert [error.code for error in parse("<\x01").errors] == [
+        "control-character-in-input-stream",
+        "invalid-first-character-of-tag-name",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<\x01",
+            ["control-character-in-input-stream", "invalid-first-character-of-tag-name"],
+            id="same-position-preprocessing-first",
+        ),
+        pytest.param(
+            "<0>\x01",
+            ["invalid-first-character-of-tag-name", "control-character-in-input-stream"],
+            id="tokenizer-error-comes-first",
+        ),
+        pytest.param(
+            "\x01\n<0>",
+            ["control-character-in-input-stream", "invalid-first-character-of-tag-name"],
+            id="preprocessing-error-on-the-earlier-line",
+        ),
+        pytest.param(
+            "<0>\n\x01",
+            ["invalid-first-character-of-tag-name", "control-character-in-input-stream"],
+            id="tokenizer-error-on-the-earlier-line",
+        ),
+    ],
+)
+def test_preprocessing_errors_interleave_by_position(markup: str, expected: list[str]) -> None:
+    # the spec reads the input stream before the tokenizer consumes the character, so a
+    # preprocessing error precedes a tokenizer error raised at the same position
+    assert [error.code for error in parse(markup).errors] == expected
+
+
+# the tokenizer core is stamped once per PyUnicode storage width, so each width has to run
+_WIDTHS = [pytest.param("", id="ucs1"), pytest.param("\u20ac", id="ucs2"), pytest.param("\U0001f600", id="ucs4")]
+
+
+@pytest.mark.parametrize("prefix", _WIDTHS)
+@pytest.mark.parametrize(
+    "reference",
+    [
+        pytest.param("&#9;", id="tab"),
+        pytest.param("&#10;", id="line-feed"),
+        pytest.param("&#12;", id="form-feed"),
+        pytest.param("&#32;", id="space"),
+    ],
+)
+def test_ascii_whitespace_references_are_not_control_references(prefix: str, reference: str) -> None:
+    assert parse(prefix + reference).errors == []
+
+
+@pytest.mark.parametrize("prefix", _WIDTHS)
+def test_a_name_longer_than_the_table_still_reports_the_semicolon(prefix: str) -> None:
+    errors = parse(prefix + "&" + "a1" * 40 + ";").errors
+    assert [error.code for error in errors] == ["unknown-named-character-reference"]
+
+
+@pytest.mark.parametrize("prefix", _WIDTHS)
+@pytest.mark.parametrize(
+    "tail",
+    [pytest.param(" ", id="followed-by-text"), pytest.param("", id="ends-the-input")],
+)
+def test_a_name_longer_than_the_table_without_a_semicolon_is_literal(prefix: str, tail: str) -> None:
+    assert parse(prefix + "&" + "a1" * 40 + tail).errors == []
+
+
+def test_a_long_text_run_still_reports_a_null() -> None:
+    # the run scanners are vectorized, so the NUL must stop a block, not only a scalar tail
+    assert [error.code for error in parse("a" * 64 + "\x00").errors] == ["unexpected-null-character"]
+
+
+@pytest.mark.parametrize("prefix", _WIDTHS)
+def test_an_overlong_reference_suspends_until_the_input_ends(prefix: str) -> None:
+    # the reference helper waits for more input rather than deciding on a partial name
+    tokenizer = Tokenizer()
+    assert list(tokenizer.feed(prefix + "&" + "a" * 40)) == []
+    assert [token.data for token in tokenizer.close()] == [prefix + "&" + "a" * 40]
 
 
 def test_well_formed_document_has_no_errors() -> None:

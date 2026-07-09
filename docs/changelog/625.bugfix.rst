@@ -11,3 +11,10 @@ own encoding through a byte-order mark, the ``encoding`` argument, or a ``<meta>
 sniff guessed, and ``None`` for ``str`` input. :func:`turbohtml.detect.detect` reads bytes without a tree, so on a
 document whose only ``<meta>`` sits past the prescan window it stops at the prescan and can answer differently from
 :func:`turbohtml.parse`.
+
+:attr:`turbohtml.Document.errors` reports every parse error the WHATWG tokenizer defines. It carried eight codes, of the
+48 the algorithm names, so ``a\x00b`` and ``<0>`` and a malformed ``<!DOCTYPE>`` all parsed silently. The missing 45 now
+report, together with the preprocessing errors a control, noncharacter, or surrogate code point raises simply by being
+in the input, interleaved with the tokenizer's in source order. ``strict=True`` therefore raises on documents it used to
+accept. The vendored ``html5lib-tests`` tokenizer suite, whose ``errors`` arrays nothing gated before, now gates the
+codes and their order on all 7032 cases, and their line and column on every BMP-only input.

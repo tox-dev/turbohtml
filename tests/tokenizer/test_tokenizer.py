@@ -381,6 +381,9 @@ def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> No
         pytest.param("<script><!--<script/>x-->", id="double-escape-start-slash"),
         pytest.param("<script><!--<script></script ->x", id="double-escape-end-space"),
         pytest.param("<script><!--<script></script/->x", id="double-escape-end-slash"),
+        # a six-character buffer that is not "script" takes the other side of each comparison
+        pytest.param("<script><!--<scripx >x", id="double-escape-start-near-miss"),
+        pytest.param("<script><!--<script></scripx >x", id="double-escape-end-near-miss"),
     ],
 )
 def test_eof_mid_construct_matches_streaming(document: str, width_prefix: str) -> None:
@@ -398,7 +401,8 @@ def test_eof_mid_construct_matches_streaming(document: str, width_prefix: str) -
     ],
 )
 def test_cdata_section_edges(text: str, expected: str, storage_kind: int) -> None:
-    assert _html._tokenize_states(text, "CDATA section state", None, storage_kind) == [("Character", expected)]
+    tokens, _ = _html._tokenize_states(text, "CDATA section state", None, storage_kind)
+    assert tokens == [("Character", expected)]
 
 
 @pytest.mark.parametrize(
@@ -416,7 +420,8 @@ def test_cdata_section_edges(text: str, expected: str, storage_kind: int) -> Non
     ],
 )
 def test_text_run_breaks_on_special_characters(state: str, text: str, expected: str, storage_kind: int) -> None:
-    assert _html._tokenize_states(text, state, None, storage_kind) == [("Character", expected)]
+    tokens, _ = _html._tokenize_states(text, state, None, storage_kind)
+    assert tokens == [("Character", expected)]
 
 
 def test_reset_discards_state() -> None:
@@ -566,7 +571,8 @@ def test_api_rejects_bad_arguments(call: Callable[[], object], exc: type[Excepti
     ],
 )
 def test_tokenize_states_returns_characters(args: tuple[str, ...], expected: str) -> None:
-    assert _html._tokenize_states(*args) == [("Character", expected)]  # ty: ignore[invalid-argument-type]  # variadic str args
+    tokens, _ = _html._tokenize_states(*args)  # ty: ignore[invalid-argument-type]  # variadic str args
+    assert tokens == [("Character", expected)]
 
 
 def test_tag_names_are_lowercased() -> None:

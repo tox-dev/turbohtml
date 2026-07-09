@@ -15,8 +15,10 @@
    arrives. Everything else consumes a single character per step, so suspending
    leaves the state unchanged and returns.
 
-   The spec's parse errors take their recovery transitions but go unreported;
-   the public API exposes the token stream, not the error stream. */
+   The spec's parse errors take their recovery transitions and, when the caller attaches an
+   error sink, are reported through it: every tokenizer error the WHATWG algorithm names,
+   plus the preprocessing errors a control, noncharacter, or surrogate code point raises
+   just by being in the input, which th_input_stream_errors finds in its own pass. */
 
 #include "tokenizer/statemachine.h"
 
@@ -376,6 +378,15 @@ void th_tok_set_error_sink(th_tokenizer *self, th_error_sink *sink) {
 static void tok_error(th_tokenizer *self, const char *code) {
     if (self->err_sink != NULL) {
         th_error_sink_push(self->err_sink, code, self->line, self->col);
+    }
+}
+
+/* Record a parse error at a column the caller computed. The character-reference helper
+   scans ahead of the cursor, and the spec reports its errors where the scan stopped rather
+   than at the '&'; a reference never spans a newline, so the line is the cursor's. */
+static void tok_error_at(th_tokenizer *self, const char *code, Py_ssize_t col) {
+    if (self->err_sink != NULL) {
+        th_error_sink_push(self->err_sink, code, self->line, col);
     }
 }
 
@@ -946,6 +957,9 @@ static void rawtext_fallback(th_tokenizer *self, enum state ret) {
     for (Py_ssize_t index = 0; index < self->temp.len; index++) {
         text_push(self, buf_read(&self->temp, index));
     }
+    /* the speculative end tag turned out to be text, so no tag is open any more and an
+       EOF here is not eof-in-tag */
+    self->eof_code = NULL;
     self->state = ret;
 }
 
@@ -959,6 +973,15 @@ static void finish_tag(th_tokenizer *self) {
     }
     if (self->tok.kind == TH_START_TAG) {
         remember_start_tag(self);
+    } else {
+        /* the spec attaches both to the end tag's emission, not to any one state, and
+           reports them at the '>' the cursor has just passed */
+        if (self->tok.attr_count > 0) {
+            tok_error_at(self, "end-tag-with-attributes", self->col - 1);
+        }
+        if (self->tok.self_closing) {
+            tok_error_at(self, "end-tag-with-trailing-solidus", self->col - 1);
+        }
     }
     emit_tok(self);
 }
@@ -1007,9 +1030,114 @@ enum run_result { RUN_EMITTED, RUN_NEED_MORE, RUN_DONE };
         return RUN_EMITTED;                                                                                            \
     }
 
+/* Give up on the doctype's remaining syntax. Clearing eof_code matters: the bogus
+   DOCTYPE state emits its token at EOF without an eof-in-doctype error, where every
+   state that leads here would have reported one. */
+#define BOGUS_DOCTYPE()                                                                                                \
+    {                                                                                                                  \
+        self->eof_code = NULL;                                                                                         \
+        self->state = ST_BOGUS_DOCTYPE;                                                                                \
+        continue;                                                                                                      \
+    }
+
 #define TH_ONES UINT64_C(0x0101010101010101)
 #define TH_HIGHS UINT64_C(0x8080808080808080)
 #define TH_HASZERO(word) (((word) - TH_ONES) & ~(word) & TH_HIGHS)
+
+/* The parse error a code point raises simply by being in the input stream, or NULL. The
+   spec's preprocessing step reports these before tokenization looks at the character, so a
+   separate scan finds them rather than any one state. NUL is absent on purpose: the states
+   report it as unexpected-null-character. */
+static const char *input_stream_error(Py_UCS4 cp) {
+    if (cp >= 0xD800 && cp <= 0xDFFF) {
+        return "surrogate-in-input-stream";
+    }
+    if ((cp >= 0xFDD0 && cp <= 0xFDEF) || (cp & 0xFFFE) == 0xFFFE) {
+        return "noncharacter-in-input-stream";
+    }
+    if ((cp != 0 && cp < 0x20 && cp != 0x09 && cp != 0x0A && cp != 0x0C && cp != 0x0D) || (cp >= 0x7F && cp <= 0x9F)) {
+        return "control-character-in-input-stream"; /* a control that is neither NUL nor ASCII whitespace */
+    }
+    return NULL;
+}
+
+/* Whether eight 1-byte code points are all printable ASCII, so the scan can skip the block
+   whole: nothing below U+0020 (which covers every newline), nothing at U+007F, and nothing
+   above. Ordinary markup answers yes, so the pass costs a fraction of a compare per
+   character; accented Latin-1 text falls back to the per-character loop, which is correct
+   either way. */
+static int plain_ascii_block(uint64_t word) {
+    uint64_t below_space = (word - TH_ONES * 0x20) & ~word & TH_HIGHS;
+    uint64_t high_bit = word & TH_HIGHS;
+    return !(below_space | high_bit | TH_HASZERO(word ^ (TH_ONES * 0x7F)));
+}
+
+void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink) {
+    Py_ssize_t line = 1;
+    Py_ssize_t col = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        if (kind == PyUnicode_1BYTE_KIND && index + 8 <= len) {
+            uint64_t word;
+            memcpy(&word, (const Py_UCS1 *)data + index, sizeof(word));
+            if (plain_ascii_block(word)) {
+                index += 8;
+                col += 8;
+                continue;
+            }
+        }
+        Py_UCS4 cp = PyUnicode_READ(kind, data, index);
+        const char *code = input_stream_error(cp);
+        if (code != NULL) {
+            th_error_sink_push(sink, code, line, col);
+        }
+        /* the tokenizer reads a newline-normalized stream, so CRLF and a lone CR are one */
+        if (cp == '\r') {
+            if (index + 1 < len && PyUnicode_READ(kind, data, index + 1) == '\n') {
+                index++;
+            }
+            cp = '\n';
+        }
+        if (cp == '\n') {
+            line++;
+            col = 0;
+        } else {
+            col++;
+        }
+        index++;
+    }
+}
+
+/* Merge the preprocessing errors into the tokenizer's, both already in document order. A
+   preprocessing error precedes a tokenizer error at the same position, because the spec
+   reports it before the tokenizer consumes the character. */
+int th_error_sink_merge(th_error_sink *dst, const th_error_sink *src) {
+    if (src->len == 0) {
+        return 0;
+    }
+    Py_ssize_t total = dst->len + src->len;
+    th_parse_error *merged = PyMem_New(th_parse_error, total); /* GCOVR_EXCL_BR_LINE: the size-overflow guard needs a
+                                                                  count no allocation could hold */
+    if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t out = 0, from_input = 0, from_tokenizer = 0;
+    while (from_input < src->len || from_tokenizer < dst->len) {
+        int take_input = from_tokenizer == dst->len;
+        if (!take_input && from_input < src->len) {
+            const th_parse_error *input = &src->items[from_input];
+            const th_parse_error *tokenized = &dst->items[from_tokenizer];
+            take_input =
+                input->line < tokenized->line || (input->line == tokenized->line && input->col <= tokenized->col);
+        }
+        merged[out++] = take_input ? src->items[from_input++] : dst->items[from_tokenizer++];
+    }
+    PyMem_Free(dst->items);
+    dst->items = merged;
+    dst->len = total;
+    dst->cap = total;
+    return 0;
+}
 
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
@@ -1078,14 +1206,14 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_neon_long(const th_tokenizer *self,
 
     while (index + 32 <= len) {
         uint8x16_t left = vld1q_u8(data + index);
-        uint8x16_t left_hit = vorrq_u8(vceqq_u8(left, amp), vceqq_u8(left, lt));
+        uint8x16_t left_hit = vorrq_u8(vorrq_u8(vceqq_u8(left, amp), vceqq_u8(left, lt)), vceqzq_u8(left));
         if (vmaxvq_u8(left_hit)) {
             goto scalar_tail;
         }
         newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(left, nlv), 7));
 
         uint8x16_t right = vld1q_u8(data + index + 16);
-        uint8x16_t right_hit = vorrq_u8(vceqq_u8(right, amp), vceqq_u8(right, lt));
+        uint8x16_t right_hit = vorrq_u8(vorrq_u8(vceqq_u8(right, amp), vceqq_u8(right, lt)), vceqzq_u8(right));
         if (vmaxvq_u8(right_hit)) {
             index += 16;
             goto scalar_tail;
@@ -1095,7 +1223,7 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_neon_long(const th_tokenizer *self,
     }
     while (index + 16 <= len) {
         uint8x16_t block = vld1q_u8(data + index);
-        if (vmaxvq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)))) {
+        if (vmaxvq_u8(vorrq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)), vceqzq_u8(block)))) {
             goto scalar_tail;
         }
         newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(block, nlv), 7)); /* 0xFF >> 7 == 1 per match */
@@ -1103,7 +1231,7 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_neon_long(const th_tokenizer *self,
     }
 
 scalar_tail:
-    while (index < len && data[index] != '&' && data[index] != '<') {
+    while (index < len && data[index] != '&' && data[index] != '<' && data[index] != 0) {
         newlines += data[index] == '\n';
         index++;
     }
@@ -1149,7 +1277,8 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_sse2_long(const th_tokenizer *self,
     }
     while (index + 16 <= len) {
         __m128i block = _mm_loadu_si128((const __m128i *)(data + index));
-        if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)))) {
+        if (_mm_movemask_epi8(_mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)),
+                                           _mm_cmpeq_epi8(block, _mm_setzero_si128())))) {
             goto scalar_tail;
         }
         /* sum one-per-newline across the lanes with SAD (escape.c's reduction), so
@@ -1161,7 +1290,7 @@ static TH_NOINLINE Py_ssize_t scan_data_ucs1_sse2_long(const th_tokenizer *self,
     }
 
 scalar_tail:
-    while (index < len && data[index] != '&' && data[index] != '<') {
+    while (index < len && data[index] != '&' && data[index] != '<' && data[index] != 0) {
         newlines += data[index] == '\n';
         index++;
     }
@@ -1194,7 +1323,7 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
     uint8x16_t amp = vdupq_n_u8('&'), lt = vdupq_n_u8('<'), nlv = vdupq_n_u8('\n');
     while (index + 16 <= len) {
         uint8x16_t block = vld1q_u8(data + index);
-        if (vmaxvq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)))) {
+        if (vmaxvq_u8(vorrq_u8(vorrq_u8(vceqq_u8(block, amp), vceqq_u8(block, lt)), vceqzq_u8(block)))) {
             break;
         }
         newlines += vaddvq_u8(vshrq_n_u8(vceqq_u8(block, nlv), 7)); /* 0xFF >> 7 == 1 per match */
@@ -1207,7 +1336,8 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
     __m128i amp = _mm_set1_epi8('&'), lt = _mm_set1_epi8('<'), nlv = _mm_set1_epi8('\n');
     while (index + 16 <= len) {
         __m128i block = _mm_loadu_si128((const __m128i *)(data + index));
-        if (_mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)))) {
+        if (_mm_movemask_epi8(_mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(block, amp), _mm_cmpeq_epi8(block, lt)),
+                                           _mm_cmpeq_epi8(block, _mm_setzero_si128())))) {
             break;
         }
         /* sum one-per-newline across the lanes with SAD (escape.c's reduction), so
@@ -1225,14 +1355,14 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
     while (index + 8 <= len) {
         uint64_t word;
         memcpy(&word, data + index, sizeof(word));
-        if (TH_HASZERO(word ^ amp) | TH_HASZERO(word ^ lt)) {
+        if (TH_HASZERO(word ^ amp) | TH_HASZERO(word ^ lt) | TH_HASZERO(word)) {
             break;
         }
         newlines += (Py_ssize_t)(((TH_HASZERO(word ^ nlv) >> 7) * TH_ONES) >> 56);
         index += 8;
     }
 #endif
-    while (index < len && data[index] != '&' && data[index] != '<') {
+    while (index < len && data[index] != '&' && data[index] != '<' && data[index] != 0) {
         newlines += data[index] == '\n';
         index++;
     }
