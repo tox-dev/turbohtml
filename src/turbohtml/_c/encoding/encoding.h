@@ -366,6 +366,20 @@ static const char *th_detect_bom(const unsigned char *buf, Py_ssize_t len) {
     return NULL;
 }
 
+/* The encoding a <meta> label names, after the two rewrites the spec applies wherever a
+   document declares its own encoding (HTML §13.2.3.2, and again in "changing the encoding
+   while parsing"): a UTF-16 label cannot be right, because an ASCII-compatible read of the
+   bytes is what surfaced it, and x-user-defined means windows-1252. */
+static const th_encoding_entry *th_encoding_declared(const th_encoding_entry *entry) {
+    if (strcmp(entry->canonical, "UTF-16LE") == 0 || strcmp(entry->canonical, "UTF-16BE") == 0) {
+        return th_encoding_lookup("utf-8", 5);
+    }
+    if (strcmp(entry->canonical, "x-user-defined") == 0) {
+        return th_encoding_lookup("windows-1252", 12);
+    }
+    return entry;
+}
+
 /* WHATWG "get an attribute" over [*pos, end): on success fills name/value (each
    lowercased, NUL-terminated, truncated to its buffer) and returns 1. Returns 0
    when the element's attributes are exhausted or the input ends mid-attribute (an
@@ -554,14 +568,7 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
             if (need_pragma == 0 || (need_pragma == 1 && got_pragma)) {
                 const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
                 if (entry != NULL) {
-                    /* WHATWG prescan overrides: a UTF-16 label means UTF-8, and an
-                       x-user-defined label means windows-1252 (HTML §13.2.3.2) */
-                    if (strcmp(entry->canonical, "UTF-16LE") == 0 || strcmp(entry->canonical, "UTF-16BE") == 0) {
-                        entry = th_encoding_lookup("utf-8", 5);
-                    } else if (strcmp(entry->canonical, "x-user-defined") == 0) {
-                        entry = th_encoding_lookup("windows-1252", 12);
-                    }
-                    return entry;
+                    return th_encoding_declared(entry);
                 }
             }
         } else if (pos + 2 <= len && buf[pos] == '<' &&

@@ -704,6 +704,94 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
     return node;
 }
 
+/* The start tag's attribute with this lowercased ASCII name (tokenizer names are
+   already lowercased), or NULL. Used for the boolean shadowroot* attributes, to
+   read shadowrootmode's value, and to read a <meta> encoding declaration. A wider-kind
+   name of the same length holds interleaved zero bytes for its ASCII runs, so the byte
+   compare against an all-ASCII literal can never spuriously match. */
+static const th_attr *token_attr(const th_token *token, const char *name, Py_ssize_t name_len) {
+    for (Py_ssize_t index = 0; index < token->attr_count; index++) {
+        const th_attr *attr = &token->attrs[index];
+        if (attr->name.len == name_len && memcmp(attr->name.data, name, (size_t)name_len) == 0) {
+            return attr;
+        }
+    }
+    return NULL;
+}
+
+/* Whether a token buffer equals an ASCII literal, ASCII case-insensitively (an
+   enumerated attribute value like shadowrootmode's matches case-insensitively). */
+static int buf_iequals_ascii(const th_buf *buf, const char *ascii, Py_ssize_t ascii_len) {
+    if (buf->len != ascii_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < ascii_len; index++) {
+        Py_UCS4 ch = buf_read(buf, index);
+        if (ch >= 'A' && ch <= 'Z') {
+            ch += 32;
+        }
+        if (ch != (Py_UCS4)(unsigned char)ascii[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* An attribute value as a lowercased, NUL-terminated ASCII string in the arena. No
+   encoding label and no charset= token of a content value holds a non-ASCII code
+   point, so one is written as 0x7f: a byte no label contains, which therefore cannot
+   make an unrelated value resolve. Lowercasing here is what lets dom/document.c reuse
+   the prescan's case-sensitive charset= scan on a content value. */
+static const char *meta_value_ascii(th_tree *tree, const th_buf *value) {
+    char *out = arena_alloc(tree, value->len + 1);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    for (Py_ssize_t index = 0; index < value->len; index++) {
+        Py_UCS4 ch = buf_read(value, index);
+        out[index] = ch < 0x80 ? (char)lower_ascii(ch) : (char)0x7f;
+    }
+    out[value->len] = '\0';
+    return out;
+}
+
+/* Record a <meta> element's encoding declaration, if it carries one: a charset attribute,
+   or an http-equiv="content-type" whose content still needs its charset= token extracted.
+   Every other <meta> declares no encoding and is skipped. Kept in document order because an
+   unresolvable label falls through to the next declaration rather than ending the search. */
+static void record_meta_label(th_tree *tree, const th_token *token) {
+    const th_attr *charset = token_attr(token, "charset", 7);
+    int from_content = 0;
+    if (charset == NULL || !charset->has_value) {
+        const th_attr *equiv = token_attr(token, "http-equiv", 10);
+        if (equiv == NULL || !equiv->has_value || !buf_iequals_ascii(&equiv->value, "content-type", 12)) {
+            return;
+        }
+        charset = token_attr(token, "content", 7);
+        if (charset == NULL || !charset->has_value) {
+            return;
+        }
+        from_content = 1;
+    }
+    if (tree->meta_label_count == tree->meta_label_cap) {
+        Py_ssize_t cap = tree->meta_label_cap == 0 ? 4 : tree->meta_label_cap * 2;
+        th_meta_label *grown = PyMem_Realloc(tree->meta_labels, (size_t)cap * sizeof(*grown));
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        tree->meta_labels = grown;
+        tree->meta_label_cap = cap;
+    }
+    const char *text = meta_value_ascii(tree, &charset->value);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    tree->meta_labels[tree->meta_label_count].text = text;
+    tree->meta_labels[tree->meta_label_count].from_content = from_content;
+    tree->meta_label_count++;
+}
+
 static th_node *insert_element(th_tree *tree, const th_token *token) {
     th_node *node = build_element(tree, token);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -712,7 +800,17 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
     th_node *parent, *before;
     insertion_location(tree, &parent, &before);
     node_insert_before(parent, node, before);
+    /* the one place every HTML <meta> lands, whatever insertion mode routed it here;
+       foreign content goes through insert_foreign, where a <meta> declares nothing */
+    if (token->atom == TH_TAG_META) {
+        record_meta_label(tree, token);
+    }
     return node;
+}
+
+const th_meta_label *th_tree_meta_labels(const th_tree *tree, Py_ssize_t *count) {
+    *count = tree->meta_label_count;
+    return tree->meta_labels;
 }
 
 /* Build a doctype node's serialized text: the name, plus ` "public" "system"`
@@ -866,39 +964,6 @@ static int input_is_hidden(const th_token *token) {
         return 1;
     }
     return 0;
-}
-
-/* The start tag's attribute with this lowercased ASCII name (tokenizer names are
-   already lowercased), or NULL. Used for the boolean shadowroot* attributes and to
-   read shadowrootmode's value. A wider-kind name of the same length holds interleaved
-   zero bytes for its ASCII runs, so the byte compare against an all-ASCII literal can
-   never spuriously match. */
-static const th_attr *token_attr(const th_token *token, const char *name, Py_ssize_t name_len) {
-    for (Py_ssize_t index = 0; index < token->attr_count; index++) {
-        const th_attr *attr = &token->attrs[index];
-        if (attr->name.len == name_len && memcmp(attr->name.data, name, (size_t)name_len) == 0) {
-            return attr;
-        }
-    }
-    return NULL;
-}
-
-/* Whether a token buffer equals an ASCII literal, ASCII case-insensitively (an
-   enumerated attribute value like shadowrootmode's matches case-insensitively). */
-static int buf_iequals_ascii(const th_buf *buf, const char *ascii, Py_ssize_t ascii_len) {
-    if (buf->len != ascii_len) {
-        return 0;
-    }
-    for (Py_ssize_t index = 0; index < ascii_len; index++) {
-        Py_UCS4 ch = buf_read(buf, index);
-        if (ch >= 'A' && ch <= 'Z') {
-            ch += 32;
-        }
-        if (ch != (Py_UCS4)(unsigned char)ascii[index]) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 /* The shadowrootmode enumerated state of a <template> start tag: 0 none (absent or an
@@ -4077,6 +4142,7 @@ void th_tree_free(th_tree *tree) {
     PyMem_Free(tree->attr_slots);
     PyMem_Free(tree->attr_recs);
     PyMem_Free(tree->shadows);
+    PyMem_Free(tree->meta_labels);
     th_error_sink_free(&tree->errors);
     PyMem_Free(tree);
 }

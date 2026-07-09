@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse
+from turbohtml.detect import detect
 
 
 def test_str_input_has_no_encoding() -> None:
@@ -103,7 +104,99 @@ def test_invalid_bytes_become_replacement_characters() -> None:
     ],
 )
 def test_meta_prescan_stops_at_1024_bytes(pad: int, expected: str) -> None:
+    # detect() is the byte sniffer alone, so it is where the prescan's window stays visible;
+    # parse() reaches a later <meta> through the reparse below.
+    assert detect(b"a" * pad + b"<meta charset=utf-8>").encoding == expected
+
+
+@pytest.mark.parametrize(
+    ("pad", "expected"),
+    [
+        pytest.param(1004, "UTF-8", id="prescan-reaches-it"),
+        pytest.param(1005, "UTF-8", id="reparse-reaches-it"),
+        pytest.param(10240, "UTF-8", id="reparse-reaches-it-far-out"),
+    ],
+)
+def test_parse_honors_a_meta_past_the_prescan_window(pad: int, expected: str) -> None:
+    # WHATWG "changing the encoding while parsing": a <meta> the prescan could not reach
+    # still redoes the parse, so where it sits in the document does not change the answer.
     assert parse(b"a" * pad + b"<meta charset=utf-8>").encoding == expected
+
+
+def test_reparse_decodes_text_before_the_late_meta() -> None:
+    # the whole document is re-decoded, not just the bytes after the declaration
+    doc = parse(b"<p>\xe8\xed\xf8</p><!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>")
+    paragraph = doc.find("p")
+    assert paragraph is not None
+    assert paragraph.text == "číř"
+
+
+def test_reparse_reads_a_late_http_equiv_content_type() -> None:
+    late = b"<!-- " + b"x" * 1100 + b' --><meta http-equiv="Content-Type" content="text/html; charset=gbk">'
+    paragraph = parse(late + b"<p>\xd6\xd0\xce\xc4</p>").find("p")
+    assert paragraph is not None
+    assert paragraph.text == "中文"
+
+
+def test_reparse_skips_an_unresolvable_label_for_the_next_meta() -> None:
+    # an unsupported label falls through, exactly as the prescan's lookup does
+    late = b"<!-- " + b"x" * 1100 + b' --><meta charset="bogus"><meta charset="iso8859-2">'
+    assert parse(late + b"<p>\xe8</p>").encoding == "ISO-8859-2"
+
+
+def test_reparse_ignores_a_meta_written_inside_a_script() -> None:
+    # only a real <meta> element counts; a byte-level scan past the window would be fooled
+    script = b"<!-- " + b"x" * 1100 + b' --><script>var s = "<meta charset=iso-8859-2>";</script>'
+    assert parse(script + b"<p>caf\xc3\xa9</p>").encoding == "UTF-8"
+
+
+def test_reparse_ignores_a_non_ascii_charset_label() -> None:
+    # \xfc is not valid UTF-8, so the sniff falls back to windows-1252 and decodes the label
+    # as "utf-8" with a leading U+00FC, which names no encoding: the parse is not redone
+    late = b"<!-- " + b"x" * 1100 + b" --><meta charset=\xfctf-8>"
+    assert parse(late + b"<p>x</p>").encoding == "windows-1252"
+
+
+@pytest.mark.parametrize(
+    ("markup", "encoding", "expected"),
+    [
+        pytest.param(b"\xef\xbb\xbf" + b"a" * 1100 + b"<meta charset=iso-8859-2>", None, "UTF-8", id="bom-is-certain"),
+        pytest.param(b"a" * 1100 + b"<meta charset=iso-8859-2>", "utf-8", "UTF-8", id="argument-is-certain"),
+    ],
+)
+def test_a_certain_encoding_blocks_the_reparse(markup: bytes, encoding: str | None, expected: str) -> None:
+    assert parse(markup, encoding=encoding).encoding == expected
+
+
+def test_a_matching_late_meta_does_not_reparse() -> None:
+    # the declaration agrees with the sniff, so the encoding is merely confirmed
+    assert parse(b"<p>caf\xc3\xa9</p><!-- " + b"x" * 1100 + b" --><meta charset=utf-8>").encoding == "UTF-8"
+
+
+def _past_the_window(meta: bytes) -> bytes:
+    # \xe8 keeps the document out of the structural UTF-8 check, so only the <meta> can decide
+    return b"<p>\xe8</p><!-- " + b"x" * 1100 + b" -->" + meta
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        pytest.param(b"<meta charset>", id="valueless-charset"),
+        pytest.param(b'<meta http-equiv content="text/html; charset=gbk">', id="valueless-http-equiv"),
+        pytest.param(b'<meta http-equiv="refresh" content="0; url=/x">', id="pragma-is-not-content-type"),
+        pytest.param(b'<meta http-equiv="content-type">', id="content-type-without-content"),
+        pytest.param(b'<meta http-equiv="content-type" content>', id="valueless-content"),
+        pytest.param(b'<meta name="description" content="text/html; charset=gbk">', id="name-is-not-a-pragma"),
+    ],
+)
+def test_a_meta_declaring_no_encoding_does_not_reparse(meta: bytes) -> None:
+    assert parse(_past_the_window(meta)).encoding == "windows-1252"
+
+
+def test_reparse_looks_past_the_first_few_unresolvable_metas() -> None:
+    # more declarations than the label array's initial room, none of the first five usable
+    metas = b"".join(b'<meta charset="bogus-%d">' % index for index in range(5))
+    assert parse(_past_the_window(metas + b'<meta charset="iso8859-2">')).encoding == "ISO-8859-2"
 
 
 @pytest.mark.parametrize(

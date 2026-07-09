@@ -629,9 +629,35 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
     return -1;
 }
 
-/* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta> prescan, then windows-1252), decode
-   it with the WHATWG decoder in encoding/decode.h, which turns every malformed sequence into U+FFFD, and parse the
-   resulting str. The decoded str is retained as the tree's source. */
+/* The encoding the document's <meta> elements declare, or NULL when none of them resolves.
+   The first label naming a supported encoding decides; an unsupported one falls through to
+   the next, the way the prescan's own lookup does. */
+static const th_encoding_entry *meta_declared_encoding(const th_tree *tree) {
+    Py_ssize_t count;
+    const th_meta_label *labels = th_tree_meta_labels(tree, &count);
+    for (Py_ssize_t index = 0; index < count; index++) {
+        char extracted[64]; /* label may point into it, so it outlives the branch below */
+        const char *label = labels[index].text;
+        if (labels[index].from_content) {
+            label = prescan_charset_in_content(label, extracted, sizeof(extracted));
+            if (label == NULL) {
+                continue;
+            }
+        }
+        const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+        if (entry != NULL) {
+            return th_encoding_declared(entry);
+        }
+    }
+    return NULL;
+}
+
+/* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta> prescan, then a structural UTF-8
+   check, then windows-1252), decode it with the WHATWG decoder in encoding/decode.h, which turns every malformed
+   sequence into U+FFFD, and parse the resulting str. When the sniff was only tentative and the built tree turns out to
+   declare a different encoding in a <meta> the 1024-byte prescan could not reach, the parse is redone once against the
+   declared encoding -- the WHATWG "changing the encoding while parsing" step. The decoded str is retained as the tree's
+   source. */
 static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *enc_arg, Py_ssize_t enc_len, int strict,
                              int detect, int positions, int locations, int scripting, int declarative) {
     Py_buffer view;
@@ -655,28 +681,63 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
             entry = labeled;
         }
     }
+    /* a byte-order mark and the transport-layer argument are the spec's two certain
+       sources; everything below them is tentative, so a <meta> may still overrule it */
+    int certain = entry != NULL;
     if (entry == NULL) {
         entry = th_encoding_prescan(bytes, len);
     }
-    if (entry == NULL && detect) {
-        /* opt-in content-based detection, strictly after the spec sniffing steps */
-        th_detect_scores scores;
-        entry = th_encoding_detect(bytes, len, &scores);
+    if (entry == NULL) {
+        if (detect) {
+            /* opt-in content-based detection, strictly after the spec sniffing steps */
+            th_detect_scores scores;
+            entry = th_encoding_detect(bytes, len, &scores);
+        } else {
+            /* The detector's first step on its own: UTF-8 validity is a structural proof,
+               not a frequency guess, so it costs none of the opt-in model's candidate
+               scoring, and an undeclared UTF-8 document never reaches the windows-1252
+               fallback. Pure ASCII is left to that fallback, which decodes it identically. */
+            int has_non_ascii;
+            if (th_detect_is_utf8(bytes, len, &has_non_ascii) && has_non_ascii) {
+                entry = th_encoding_lookup("utf-8", 5);
+            }
+        }
     }
     if (entry == NULL) {
         entry = th_encoding_lookup("windows-1252", 12);
     }
-    PyObject *decoded = th_decode(entry, bytes + skip, len - skip);
+    /* Decode and parse, then -- while the encoding is still tentative -- let a <meta> the
+       prescan's 1024-byte window could not reach redo the parse against what it declares.
+       Only a real <meta> element counts, so a charset written inside a <script> string
+       cannot fool it the way an unbounded byte scan would. At most one redo: the second
+       pass runs with the declared encoding, which the spec then calls certain. */
+    PyObject *decoded = NULL;
+    th_tree *tree = NULL;
+    for (int attempt = 0;; attempt++) {
+        decoded = th_decode(entry, bytes + skip, len - skip);
+        if (decoded == NULL) {       /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
+            PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: decode failure */
+            return NULL;             /* GCOVR_EXCL_LINE: decode failure */
+        }
+        tree = th_tree_parse(PyUnicode_KIND(decoded), PyUnicode_DATA(decoded), PyUnicode_GET_LENGTH(decoded), positions,
+                             locations, scripting, declarative);
+        if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
+            Py_DECREF(decoded);      /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (certain || attempt == 1) {
+            break;
+        }
+        const th_encoding_entry *declared = meta_declared_encoding(tree);
+        if (declared == NULL || strcmp(declared->canonical, entry->canonical) == 0) {
+            break;
+        }
+        entry = declared;
+        th_tree_free(tree); /* the tree spans the decoded str, so it goes first */
+        Py_DECREF(decoded);
+    }
     PyBuffer_Release(&view);
-    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
-        return NULL;       /* GCOVR_EXCL_LINE: decode failure */
-    }
-    th_tree *tree = th_tree_parse(PyUnicode_KIND(decoded), PyUnicode_DATA(decoded), PyUnicode_GET_LENGTH(decoded),
-                                  positions, locations, scripting, declarative);
-    if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
-        Py_DECREF(decoded);      /* GCOVR_EXCL_LINE: allocation-failure path */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
     if (strict_raise(state, tree, strict) < 0) {
         Py_DECREF(decoded);
         return NULL;

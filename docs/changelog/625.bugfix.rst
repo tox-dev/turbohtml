@@ -1,0 +1,7 @@
+:func:`turbohtml.parse` no longer mojibakes two common inputs. Bytes that are valid UTF-8 but declare no encoding are
+now decoded as UTF-8 instead of reaching the windows-1252 fallback: validity is a structural proof, not a frequency
+guess, so it needs none of ``detect_encoding=True``'s cost, and pure ASCII still resolves to windows-1252, which decodes
+it identically. And a ``<meta>`` charset that sits past the prescan's 1024-byte window now redoes the parse against what
+it declares -- the WHATWG "changing the encoding while parsing" step -- so where the declaration sits in the document no
+longer changes the answer. Only a real ``<meta>`` element counts, so a charset written inside a ``<script>`` string
+cannot fool it, and a byte-order mark or the ``encoding`` argument still settles the encoding outright.

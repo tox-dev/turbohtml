@@ -1,9 +1,10 @@
 """Content-based encoding detection (issue #182), the opt-in detect_encoding step.
 
 Detection is strictly subordinate to the WHATWG sniffing path: a BOM, the encoding
-argument, and a ``<meta>`` charset always win, and the step runs only when the
-caller passes ``detect_encoding=True``. Phase 1 resolves UTF-8 by structural
-validation; the single-byte and CJK candidates follow in later phases.
+argument, and a ``<meta>`` charset always win. UTF-8 is resolved by structural
+validation, which is a proof rather than a guess and so runs unconditionally; the
+frequency-scored single-byte and CJK candidates are what ``detect_encoding=True``
+adds.
 """
 
 from __future__ import annotations
@@ -17,13 +18,21 @@ def detected(raw: bytes) -> str | None:
     return parse(raw, detect_encoding=True).encoding
 
 
-def test_utf8_detected_only_with_opt_in() -> None:
+def test_utf8_is_resolved_without_the_opt_in() -> None:
+    # structural validity is a proof, so undeclared UTF-8 never reaches the windows-1252 fallback
     raw = "<p>café résumé Москва 日本語</p>".encode()
-    assert parse(raw).encoding == "windows-1252"  # default stays spec-conformant
+    assert parse(raw).encoding == "UTF-8"
     assert detected(raw) == "UTF-8"
-    paragraph = parse(raw, detect_encoding=True).find("p")
+    paragraph = parse(raw).find("p")
     assert paragraph is not None
     assert paragraph.text == "café résumé Москва 日本語"
+
+
+def test_the_frequency_model_still_needs_the_opt_in() -> None:
+    # windows-1250 text is not valid UTF-8, so only the opt-in candidates can name it
+    raw = "<p>Příliš žluťoučký kůň</p>".encode("windows-1250")
+    assert parse(raw).encoding == "windows-1252"
+    assert detected(raw) == "windows-1250"
 
 
 def test_pure_ascii_is_not_detected() -> None:
