@@ -1,0 +1,2 @@
+Decode the legacy encodings 1.2x to 1.5x faster by inlining each WHATWG decoder into its specialized loop, and stop
+reallocating :class:`turbohtml.IncrementalParser`'s decode scratch on every :meth:`~turbohtml.IncrementalParser.feed`.
