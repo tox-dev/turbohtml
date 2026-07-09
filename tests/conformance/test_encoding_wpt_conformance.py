@@ -25,6 +25,8 @@ import turbohtml.detect  # noqa: F401  # importing registers the whatwg-* codecs
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from _pytest.mark import ParameterSet
+
 _CORPUS: Final = Path(__file__).parent / "data" / "wpt_encoding.json"
 
 # The corpus ships with the source tree, so an absent one is a packaging bug rather than a missing oracle.
@@ -35,7 +37,7 @@ if not _CORPUS.is_file():
 _DATA: Final = json.loads(_CORPUS.read_text(encoding="utf-8"))
 
 
-def _cases() -> Iterator[pytest.param]:
+def _cases() -> Iterator[ParameterSet]:
     for case in _DATA["cases"]:
         label, raw = case["encoding"], case["bytes"]
         arm = case.get("arm")

@@ -309,6 +309,8 @@ max_supported_python = "3.15"
 
 [tool.ty]
 src.exclude = [
+  "tests/conformance/chardetng",
+  "tests/conformance/encoding_rs",
   "tests/conformance/unicodetools",
   "tests/html5lib-tests",
   "tools/html5lib-python"
