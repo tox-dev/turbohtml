@@ -75,16 +75,20 @@ def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  
 
 def _search(name: str) -> codecs.CodecInfo | None:
     """
-    Resolve a ``whatwg-*`` codec name, which CPython has already lowercased and underscored before handing it here.
+    Resolve a ``whatwg-*`` codec name.
 
     These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
     subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
-    codec at all. Underscoring is lossy -- ``shift_jis`` and ``shift-jis`` normalize alike -- so both spellings of the
+    codec at all.
+
+    The name arrives lowercased and underscored up to Python 3.14 and verbatim from 3.15 on, so normalize it here rather
+    than trust either. Underscoring is lossy -- ``shift_jis`` and ``shift-jis`` collapse -- so both spellings of the
     label are offered to the C lookup, which knows every spec alias.
     """
-    if not name.startswith("whatwg_"):
+    normalized = name.lower().replace("-", "_")
+    if not normalized.startswith("whatwg_"):
         return None
-    normalized = name.removeprefix("whatwg_")
+    normalized = normalized.removeprefix("whatwg_")
     if (delegate := _BOM_CODECS.get(normalized)) is not None:
         return codecs.CodecInfo(_refuse_encode, codecs.lookup(delegate).decode, name=name)
     label = next((form for form in (normalized, normalized.replace("_", "-")) if _decodable(form)), None)
