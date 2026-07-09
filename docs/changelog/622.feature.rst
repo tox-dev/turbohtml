@@ -1,3 +1,2 @@
-Add :attr:`EncodingMatch.codec <turbohtml.detect.EncodingMatch>`, the name of a registered ``whatwg-*`` codec that
-decodes as :func:`turbohtml.parse` does. ``data.decode(match.encoding)`` was never safe, and raised :exc:`LookupError`
-for ``x-mac-cyrillic`` and ``replacement``.
+Add :attr:`EncodingMatch.codec <turbohtml.detect.EncodingMatch>`; ``data.decode(match.codec)`` reproduces what
+:func:`turbohtml.parse` saw, where ``match.encoding`` corrupted or raised.
