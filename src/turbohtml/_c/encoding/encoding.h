@@ -506,17 +506,21 @@ static const char *prescan_charset_in_content(const char *content, char *out, si
 static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py_ssize_t len) {
     Py_ssize_t pos = 0;
     char name[32];
-    char value[128];
+    /* the spec caps nothing but the 1024-byte prescan window, so a value can fill it; a smaller buffer would drop the
+       "charset=" of a long content attribute and silently fall back to windows-1252 */
+    char value[1025];
     if (len > 1024) {
         len = 1024;
     }
     while (pos < len) {
         if (pos + 4 <= len && memcmp(buf + pos, "<!--", 4) == 0) {
-            pos += 4;
-            while (pos + 3 <= len && memcmp(buf + pos, "-->", 3) != 0) {
-                pos++;
+            /* the spec closes the comment at the first '>' preceded by two '-' that comes after the '<', so the two
+               dashes of "<!--" may double as the "--" of "-->" and "<!-->" is a complete comment */
+            Py_ssize_t at = pos + 2;
+            while (at + 3 <= len && memcmp(buf + at, "-->", 3) != 0) {
+                at++;
             }
-            pos += 3;
+            pos = at + 3;
         } else if (pos + 6 <= len && buf[pos] == '<' && (buf[pos + 1] | 32) == 'm' && (buf[pos + 2] | 32) == 'e' &&
                    (buf[pos + 3] | 32) == 't' && (buf[pos + 4] | 32) == 'a' &&
                    (is_attr_space(buf[pos + 5]) || buf[pos + 5] == '/')) {
@@ -524,14 +528,22 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
             int got_pragma = 0;
             int need_pragma = -1; /* -1 unset, 0 from a charset attr, 1 from a content attr */
             char label[64] = {0};
+            /* the spec builds an attribute list and skips an attribute whose name is already in it, so the first
+               occurrence of each name wins and a repeated charset or http-equiv cannot override it */
+            int seen_http_equiv = 0;
+            int seen_content = 0;
+            int seen_charset = 0;
             while (prescan_attribute(buf, &pos, len, name, sizeof(name), value, sizeof(value))) {
-                if (strcmp(name, "http-equiv") == 0) {
+                if (strcmp(name, "http-equiv") == 0 && !seen_http_equiv) {
+                    seen_http_equiv = 1;
                     got_pragma = strcmp(value, "content-type") == 0;
-                } else if (strcmp(name, "content") == 0 && label[0] == '\0') {
-                    if (prescan_charset_in_content(value, label, sizeof(label)) != NULL) {
+                } else if (strcmp(name, "content") == 0 && !seen_content) {
+                    seen_content = 1;
+                    if (label[0] == '\0' && prescan_charset_in_content(value, label, sizeof(label)) != NULL) {
                         need_pragma = 1;
                     }
-                } else if (strcmp(name, "charset") == 0) {
+                } else if (strcmp(name, "charset") == 0 && !seen_charset) {
+                    seen_charset = 1;
                     size_t copy = strlen(value);
                     copy = copy < sizeof(label) - 1 ? copy : sizeof(label) - 1;
                     memcpy(label, value, copy);
@@ -565,7 +577,9 @@ static const th_encoding_entry *th_encoding_prescan(const unsigned char *buf, Py
                 /* attributes of an unrelated tag are discarded */
             }
             pos += pos < len ? 1 : 0;
-        } else if (pos + 2 <= len && buf[pos] == '<' && (buf[pos + 1] == '!' || buf[pos + 1] == '?')) {
+        } else if (pos + 2 <= len && buf[pos] == '<' &&
+                   (buf[pos + 1] == '!' || buf[pos + 1] == '?' || buf[pos + 1] == '/')) {
+            /* a bogus comment, including "</" not followed by a letter: skip to the next '>' */
             pos += 2;
             while (pos < len && buf[pos] != '>') {
                 pos++;
