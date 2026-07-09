@@ -565,9 +565,13 @@ static TH_HOT Py_ssize_t th_decode_ascii_run(const unsigned char *bytes, Py_ssiz
 /* Copy the ASCII run at dec->pos straight out, and return how many code points that was. Every legacy encoding but
    ISO-2022-JP, whose escapes reinterpret an ASCII byte, decodes ASCII to itself, and markup is mostly ASCII even when
    the text around it is not. A decoder clears its lead before it returns, so the only state that can outlive a step is
-   the combining mark a Big5 combination still owes the caller, and that mark has to go out before this run does. */
+   the combining mark a Big5 combination still owes the caller, and that mark has to go out before this run does.
+
+   Test the byte before setting up the scan over it: text runs many code points with no ASCII between them, and paying
+   for a word-at-a-time scan that finds nothing after each one costs a Shift_JIS page more than copying its markup
+   saves. */
 static TH_HOT Py_ssize_t th_decode_ascii_copy(th_decoder *dec, Py_UCS4 *out) {
-    if (dec->has_pending) {
+    if (dec->pos >= dec->len || dec->buf[dec->pos] >= 0x80 || dec->has_pending) {
         return 0;
     }
     Py_ssize_t run = th_decode_ascii_run(dec->buf + dec->pos, dec->len - dec->pos);
@@ -605,19 +609,22 @@ static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
 
    Returns the number of code points written to out (which must hold len of them), sets *consumed to the offset the next
    chunk should start at, and leaves the mode state in *dec. step is passed as a constant from th_decode_chunk so the
-   compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding. */
+   compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding.
+   stateful is a constant too, and marks ISO-2022-JP: the one decoder whose escapes reinterpret an ASCII byte, and so
+   the one whose ASCII cannot be copied past it and whose mode has to survive a rewind. */
 static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar,
-                                       th_decode_fn step, int ascii_shortcut) {
-    /* Copied once so the guarded update below cannot read an uninitialized state; a final chunk never rewinds. */
+                                       th_decode_fn step, int stateful) {
+    /* Copied once so the guarded update below cannot read an uninitialized decoder; a final chunk never rewinds. */
     th_decoder rewind = *dec;
     Py_ssize_t count = 0;
     for (;;) {
-        if (ascii_shortcut) {
+        if (!stateful) {
             count += th_decode_ascii_copy(dec, out + count);
         }
-        if (!final) {
+        if (stateful && !final) {
             rewind = *dec;
         }
+        Py_ssize_t start = dec->pos;
         Py_UCS4 point = 0;
         int status = step(dec, &point);
         if (status == TH_DEC_FINISHED) {
@@ -625,12 +632,13 @@ static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final,
             return count;
         }
         if (status == TH_DEC_ERROR && !final && dec->error_at == -1) {
-            /* An incomplete tail: hand the bytes to the next chunk, and the state they were read in with them. The
-               end-of-stream probe that found them incomplete has already moved on -- ISO-2022-JP leaves its escape
-               state for output_state, and its trail state for lead -- so rewinding the position alone loses the mode
-               those bytes belong to. */
-            *dec = rewind;
-            *consumed = dec->pos;
+            /* An incomplete tail: the next chunk re-reads these bytes. A stateless decoder clears its lead before it
+               returns, so the position is the whole of what it left behind; ISO-2022-JP instead falls back to
+               output_state, or to the lead state, and the mode those bytes belong to has to come back with them. */
+            if (stateful) {
+                *dec = rewind;
+            }
+            *consumed = start;
             return count;
         }
         point = status == TH_DEC_ERROR ? 0xFFFD : point;
@@ -642,19 +650,19 @@ static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final,
 static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar) {
     switch (dec->kind) {
     case TH_DEC_X_USER_DEFINED:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined, 0);
     case TH_DEC_BIG5:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_big5, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_big5, 0);
     case TH_DEC_EUC_KR:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_kr, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_kr, 0);
     case TH_DEC_SHIFT_JIS:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_shift_jis, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_shift_jis, 0);
     case TH_DEC_EUC_JP:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp, 0);
     case TH_DEC_GB18030:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030, 1);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030, 0);
     default: /* TH_DEC_ISO_2022_JP */
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp, 0);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp, 1);
     }
 }
 
