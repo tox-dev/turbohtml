@@ -1,0 +1,9 @@
+Decode every legacy encoding with the WHATWG decoder rather than the CPython codec of the same name. The spec's
+``koi8-u`` is KOI8-RU, its ``Big5`` a superset of CPython's, its ``EUC-KR`` windows-949, its ``Shift_JIS`` windows-31j,
+its ``gb18030`` the 2005 revision, ``0x80`` the euro sign in GBK, and an unassigned byte between ``0x80`` and ``0x9F``
+its C1 control rather than U+FFFD; the spec's error handling pushes an ASCII trail byte back, so Big5 ``81 41`` decodes
+to U+FFFD then ``A`` and ``81 FF`` to a single U+FFFD. The ``<meta>`` prescan now ignores a repeated ``charset`` or
+``http-equiv`` attribute, finds a ``charset=`` past the 128th byte of a ``content`` value, closes ``<!-->``, and skips
+from ``</`` before a non-letter to the next ``>``. The content detector feeds a trailing space to each single-byte
+candidate at end of stream, as chardetng does, so ``detect("Привет".encode("cp1251"))`` no longer answers ``GBK``, and
+:class:`~turbohtml.IncrementalParser` decodes its chunks the way :func:`turbohtml.parse` does.

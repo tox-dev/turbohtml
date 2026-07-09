@@ -1,0 +1,4 @@
+:func:`turbohtml.detect.detect` reports ``windows-1252`` rather than ``ascii`` for a stream with no non-ASCII byte,
+matching :func:`turbohtml.parse` and the spec's label set; :class:`~turbohtml.detect.EncodingMatch` gained a trailing
+``codec`` field; and :class:`~turbohtml.IncrementalParser` takes WHATWG labels rather than arbitrary CPython codec
+names, so ``latin-1`` raises where ``iso-8859-1`` works, and it reports the canonical name.
