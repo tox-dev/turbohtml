@@ -26,6 +26,19 @@ static PyObject *document_get_encoding(PyObject *self, void *Py_UNUSED(closure))
     return Py_NewRef(((HandleObject *)((NodeObject *)self)->handle)->encoding);
 }
 
+/* The WHATWG confidence in Document.encoding. "certain" means the document said so: a
+   byte-order mark, the encoding argument, or a <meta> declaration. "tentative" means the
+   sniff guessed -- a structural UTF-8 read, the opt-in detector, or the windows-1252
+   fallback -- and a scraper may want to second-guess it. None for str input, which was
+   never decoded. */
+static PyObject *document_get_encoding_confidence(PyObject *self, void *Py_UNUSED(closure)) {
+    const HandleObject *handle = (HandleObject *)((NodeObject *)self)->handle;
+    if (handle->encoding == Py_None) {
+        Py_RETURN_NONE;
+    }
+    return PyUnicode_FromString(handle->encoding_certain ? "certain" : "tentative");
+}
+
 /* The scheme scanner's alphabets, complementing the WHATWG component percent-encode sets that now live in url.c: a
    scheme leads with a letter (URL_ALPHABET) and continues over letters, digits, and "+-." (URL_SCHEME_TAIL). */
 static const char URL_ALPHABET[] = TH_URL_ALPHA;
@@ -519,6 +532,10 @@ static PyObject *document_get_errors(PyObject *self, void *Py_UNUSED(closure)) {
 static PyGetSetDef document_getset[] = {
     {"root", document_get_root, NULL, "the root <html> element, or None", NULL},
     {"encoding", document_get_encoding, NULL, "the resolved encoding name for bytes input, or None for str", NULL},
+    {"encoding_confidence", document_get_encoding_confidence, NULL,
+     "'certain' when a byte-order mark, the encoding argument, or a <meta> named the encoding, 'tentative' when the "
+     "sniff guessed it, or None for str input",
+     NULL},
     {"errors", document_get_errors, NULL, "the WHATWG parse errors detected, as a list of ParseError in document order",
      NULL},
     {NULL, NULL, NULL, NULL, NULL},
@@ -566,7 +583,7 @@ static PyType_Spec handle_spec = {
     .slots = handle_slots,
 };
 
-PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding) {
+PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding, int encoding_certain) {
     PyTypeObject *type = (PyTypeObject *)state->handle_type;
     HandleObject *self = (HandleObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -575,13 +592,15 @@ PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObj
     self->tree = tree;
     self->source = Py_NewRef(source);
     self->encoding = Py_NewRef(encoding);
+    self->encoding_certain = encoding_certain;
     return (PyObject *)self;
 }
 
 /* Wrap a freshly built tree (which borrows source's storage) and return its
    document/context node. Frees the tree on wrapping failure. */
-static PyObject *tree_to_node(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding) {
-    PyObject *handle = handle_new(state, tree, source, encoding);
+static PyObject *tree_to_node(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding,
+                              int encoding_certain) {
+    PyObject *handle = handle_new(state, tree, source, encoding, encoding_certain);
     if (handle == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -713,7 +732,7 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
        pass runs with the declared encoding, which the spec then calls certain. */
     PyObject *decoded = NULL;
     th_tree *tree = NULL;
-    for (int attempt = 0;; attempt++) {
+    for (int redone = 0;; redone = 1) {
         decoded = th_decode(entry, bytes + skip, len - skip);
         if (decoded == NULL) {       /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
             PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: decode failure */
@@ -726,11 +745,19 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
             PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        if (certain || attempt == 1) {
+        if (certain) {
+            break;
+        }
+        if (redone) { /* this pass already ran with what the document declares */
+            certain = 1;
             break;
         }
         const th_encoding_entry *declared = meta_declared_encoding(tree);
-        if (declared == NULL || strcmp(declared->canonical, entry->canonical) == 0) {
+        if (declared == NULL) { /* nothing declares an encoding: the sniff stays a guess */
+            break;
+        }
+        if (strcmp(declared->canonical, entry->canonical) == 0) {
+            certain = 1; /* the declaration confirms the sniff, so no redo is needed */
             break;
         }
         entry = declared;
@@ -748,7 +775,7 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
         Py_DECREF(decoded);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *node = tree_to_node(state, tree, decoded, canonical);
+    PyObject *node = tree_to_node(state, tree, decoded, canonical, certain);
     Py_DECREF(canonical);
     Py_DECREF(decoded);
     return node;
@@ -899,7 +926,7 @@ PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
         if (strict_raise(state, tree, strict) < 0) {
             return NULL;
         }
-        return tree_to_node(state, tree, markup, Py_None);
+        return tree_to_node(state, tree, markup, Py_None, 0);
     }
     if (!PyObject_CheckBuffer(markup)) {
         PyErr_SetString(PyExc_TypeError, "parse() argument must be str or a bytes-like object");
@@ -922,7 +949,7 @@ PyObject *turbohtml_parse_xml(PyObject *module, PyObject *args, PyObject *kwargs
     if (strict_raise(state, tree, 1) < 0) { /* XML always raises the first well-formedness error */
         return NULL;
     }
-    return tree_to_node(state, tree, markup, Py_None);
+    return tree_to_node(state, tree, markup, Py_None, 0);
 }
 
 PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObject *kwargs) {
@@ -958,7 +985,7 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    return tree_to_node(PyModule_GetState(module), tree, text, Py_None);
+    return tree_to_node(PyModule_GetState(module), tree, text, Py_None, 0);
 }
 
 /* The public IncrementalParser: a push parser that owns a C th_stream plus, once
@@ -1194,7 +1221,7 @@ static PyObject *stream_close_locked(StreamObject *parser, module_state *state) 
     th_stream_free(parser->stream); /* frees the tokenizer; the tree is the caller's now */
     parser->stream = NULL;
     if (parser->entry == NULL) { /* only str chunks were fed, so the tree has no source encoding */
-        return tree_to_node(state, tree, Py_None, Py_None);
+        return tree_to_node(state, tree, Py_None, Py_None, 0);
     }
     /* report the canonical name, as parse(bytes) does; the label the caller passed may be one of its many aliases */
     PyObject *canonical = PyUnicode_FromString(parser->entry->canonical);
@@ -1202,7 +1229,7 @@ static PyObject *stream_close_locked(StreamObject *parser, module_state *state) 
         th_tree_free(tree);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *node = tree_to_node(state, tree, Py_None, canonical);
+    PyObject *node = tree_to_node(state, tree, Py_None, canonical, 1);
     Py_DECREF(canonical);
     return node;
 }

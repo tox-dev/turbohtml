@@ -5,3 +5,9 @@ it identically. And a ``<meta>`` charset that sits past the prescan's 1024-byte 
 it declares -- the WHATWG "changing the encoding while parsing" step -- so where the declaration sits in the document no
 longer changes the answer. Only a real ``<meta>`` element counts, so a charset written inside a ``<script>`` string
 cannot fool it, and a byte-order mark or the ``encoding`` argument still settles the encoding outright.
+
+:attr:`turbohtml.Document.encoding_confidence` reports which step answered: ``"certain"`` when the document named its
+own encoding through a byte-order mark, the ``encoding`` argument, or a ``<meta>`` charset, ``"tentative"`` when the
+sniff guessed, and ``None`` for ``str`` input. :func:`turbohtml.detect.detect` reads bytes without a tree, so on a
+document whose only ``<meta>`` sits past the prescan window it stops at the prescan and can answer differently from
+:func:`turbohtml.parse`.

@@ -7,7 +7,7 @@
    handle, and return the wrapper. On allocation failure frees the tree and returns
    NULL with an exception set. */
 PyObject *wrap_fresh_tree_node(module_state *state, th_tree *tree, th_node *node) {
-    PyObject *handle = handle_new(state, tree, Py_None, Py_None);
+    PyObject *handle = handle_new(state, tree, Py_None, Py_None, 0);
     if (handle == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */

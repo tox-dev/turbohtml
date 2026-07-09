@@ -173,6 +173,31 @@ def test_a_matching_late_meta_does_not_reparse() -> None:
     assert parse(b"<p>caf\xc3\xa9</p><!-- " + b"x" * 1100 + b" --><meta charset=utf-8>").encoding == "UTF-8"
 
 
+@pytest.mark.parametrize(
+    ("markup", "encoding", "detect", "expected"),
+    [
+        pytest.param(b"\xef\xbb\xbf<p>x", None, False, "certain", id="byte-order-mark"),
+        pytest.param(b"<p>x", "utf-8", False, "certain", id="encoding-argument"),
+        pytest.param(b"<meta charset=utf-8><p>x", None, False, "certain", id="meta-inside-the-window"),
+        pytest.param(
+            b"<!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>", None, False, "certain", id="meta-past-window"
+        ),
+        pytest.param(b"<p>caf\xc3\xa9", None, False, "tentative", id="structural-utf8"),
+        pytest.param(b"<p>caf\xe9", None, False, "tentative", id="windows-1252-fallback"),
+        pytest.param(b"<p>caf\xe9", None, True, "tentative", id="opt-in-detector"),
+    ],
+)
+def test_encoding_confidence(markup: bytes, encoding: str | None, detect: bool, expected: str) -> None:  # noqa: FBT001
+    # the spec's certain/tentative split: a declaration decides, a sniff only guesses
+    assert parse(markup, encoding=encoding, detect_encoding=detect).encoding_confidence == expected
+
+
+def test_str_input_has_no_encoding_confidence() -> None:
+    document = parse("<p>x</p>")
+    assert document.encoding is None
+    assert document.encoding_confidence is None
+
+
 def _past_the_window(meta: bytes) -> bytes:
     # \xe8 keeps the document out of the structural UTF-8 check, so only the <meta> can decide
     return b"<p>\xe8</p><!-- " + b"x" * 1100 + b" -->" + meta

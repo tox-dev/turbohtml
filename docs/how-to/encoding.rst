@@ -26,6 +26,34 @@ Decode bytes of unknown or declared encoding the way a browser would, and inspec
     ISO-8859-2
     á
 
+*********************************
+ Tell a declaration from a guess
+*********************************
+
+:attr:`~turbohtml.Document.encoding_confidence` reports which of the sniff's steps answered. It is ``"certain"`` when
+the document named its own encoding -- a byte-order mark, the ``encoding`` argument, or a ``<meta>`` charset -- and
+``"tentative"`` when nothing did and the sniff fell back on a structural UTF-8 read, the opt-in detector, or
+windows-1252. A scraper that logs mojibake reports can use it to separate pages that lied from pages that said nothing:
+
+.. testcode::
+
+    import turbohtml
+
+    print(turbohtml.parse(b'<meta charset="utf-8"><p>caf\xc3\xa9</p>').encoding_confidence)
+    print(turbohtml.parse(b"<p>caf\xc3\xa9</p>").encoding_confidence)
+    print(turbohtml.parse("<p>café</p>").encoding_confidence)
+
+.. testoutput::
+
+    certain
+    tentative
+    None
+
+A ``<meta>`` charset counts wherever it sits, even past the 1024 bytes the prescan reads: :func:`turbohtml.parse` redoes
+the parse against a declaration it could not reach in time, which is the WHATWG "changing the encoding while parsing"
+step. :func:`turbohtml.detect.detect` has no tree to consult, so it stops at the prescan and can answer differently on
+such a document; html5lib draws the same line between its input stream's encoding and its parser's ``documentEncoding``.
+
 ************************************
  Detect an encoding without parsing
 ************************************

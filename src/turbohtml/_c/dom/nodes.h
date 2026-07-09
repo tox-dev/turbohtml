@@ -59,6 +59,10 @@ typedef struct {
     PyObject_HEAD th_tree *tree;
     PyObject *source;   /* the input str whose storage the tree's spans borrow */
     PyObject *encoding; /* the resolved encoding name for bytes input, else None */
+    /* WHATWG encoding confidence: a byte-order mark, the encoding argument, or a <meta>
+       declaration makes it certain; a prescan-free sniff leaves it a guess. Meaningless,
+       and always 0, when encoding is None. */
+    int encoding_certain;
     /* Lazy per-tree element index, bucketed by tag atom: index_nodes holds every
        element in document (pre-order) order grouped by atom, with the bucket for
        atom a spanning index_nodes[index_offsets[a] .. index_offsets[a + 1]).
@@ -528,7 +532,7 @@ PyObject *doctype_get_name(PyObject *self, void *Py_UNUSED(closure));
 PyObject *doctype_get_public_id(PyObject *self, void *Py_UNUSED(closure));
 PyObject *doctype_get_system_id(PyObject *self, void *Py_UNUSED(closure));
 PyObject *parse_error_new(module_state *state, const th_parse_error *error);
-PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding);
+PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObject *encoding, int encoding_certain);
 PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored));
 
 /* Prepare child_obj to become a child of dest_parent in anchor's tree, returning the
