@@ -110,13 +110,14 @@ static TH_HOT int th_dec_ascii(int byte) {
     return byte >= 0x00 && byte <= 0x7F;
 }
 
-/* ASCII bytes stay put, 0x80..0xFF map to the private-use block U+F780..U+F7FF. */
+/* 0x80..0xFF map to the private-use block U+F780..U+F7FF. ASCII stays put, and never arrives: this is the one decoder
+   nothing but th_decode_run drives, and the run copies each ASCII byte out before it steps. */
 static TH_HOT int th_dec_x_user_defined(th_decoder *dec, Py_UCS4 *point) {
     int byte = th_dec_next(dec);
     if (byte == TH_DEC_EOF) {
         return TH_DEC_FINISHED;
     }
-    *point = th_dec_ascii(byte) ? (Py_UCS4)byte : (Py_UCS4)(0xF700 + byte);
+    *point = (Py_UCS4)(0xF700 + byte);
     return TH_DEC_POINT;
 }
 
@@ -544,6 +545,39 @@ static TH_HOT int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
 
 typedef int (*th_decode_fn)(th_decoder *dec, Py_UCS4 *point);
 
+/* The offset of the first byte that is not ASCII, or len when every byte is. */
+static TH_HOT Py_ssize_t th_decode_ascii_run(const unsigned char *bytes, Py_ssize_t len) {
+    Py_ssize_t index = 0;
+    while (index + (Py_ssize_t)sizeof(uint64_t) <= len) {
+        uint64_t word;
+        memcpy(&word, bytes + index, sizeof(word));
+        if (word & UINT64_C(0x8080808080808080)) {
+            break;
+        }
+        index += (Py_ssize_t)sizeof(uint64_t);
+    }
+    while (index < len && bytes[index] < 0x80) {
+        index++;
+    }
+    return index;
+}
+
+/* Copy the ASCII run at dec->pos straight out, and return how many code points that was. Every legacy encoding but
+   ISO-2022-JP, whose escapes reinterpret an ASCII byte, decodes ASCII to itself, and markup is mostly ASCII even when
+   the text around it is not. A decoder clears its lead before it returns, so the only state that can outlive a step is
+   the combining mark a Big5 combination still owes the caller, and that mark has to go out before this run does. */
+static TH_HOT Py_ssize_t th_decode_ascii_copy(th_decoder *dec, Py_UCS4 *out) {
+    if (dec->has_pending) {
+        return 0;
+    }
+    Py_ssize_t run = th_decode_ascii_run(dec->buf + dec->pos, dec->len - dec->pos);
+    for (Py_ssize_t index = 0; index < run; index++) {
+        out[index] = dec->buf[dec->pos + index];
+    }
+    dec->pos += run;
+    return run;
+}
+
 /* Yield the next code point, TH_DEC_FINISHED at end of stream, or TH_DEC_ERROR for one malformed sequence. The caller
    resumes stepping after an error, which is how a pushed-back ASCII byte reaches the output. Only the encodings the
    content detector scores reach this: a single-byte or x-user-defined stream is decoded in one pass instead. */
@@ -573,11 +607,14 @@ static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
    chunk should start at, and leaves the mode state in *dec. step is passed as a constant from th_decode_chunk so the
    compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding. */
 static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar,
-                                       th_decode_fn step) {
+                                       th_decode_fn step, int ascii_shortcut) {
     /* Copied once so the guarded update below cannot read an uninitialized state; a final chunk never rewinds. */
     th_decoder rewind = *dec;
     Py_ssize_t count = 0;
     for (;;) {
+        if (ascii_shortcut) {
+            count += th_decode_ascii_copy(dec, out + count);
+        }
         if (!final) {
             rewind = *dec;
         }
@@ -605,37 +642,20 @@ static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final,
 static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar) {
     switch (dec->kind) {
     case TH_DEC_X_USER_DEFINED:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined, 1);
     case TH_DEC_BIG5:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_big5);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_big5, 1);
     case TH_DEC_EUC_KR:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_kr);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_kr, 1);
     case TH_DEC_SHIFT_JIS:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_shift_jis);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_shift_jis, 1);
     case TH_DEC_EUC_JP:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp, 1);
     case TH_DEC_GB18030:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030, 1);
     default: /* TH_DEC_ISO_2022_JP */
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp);
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp, 0);
     }
-}
-
-/* The offset of the first byte that is not ASCII, or len when every byte is. */
-static Py_ssize_t th_decode_ascii_run(const unsigned char *bytes, Py_ssize_t len) {
-    Py_ssize_t index = 0;
-    while (index + (Py_ssize_t)sizeof(uint64_t) <= len) {
-        uint64_t word;
-        memcpy(&word, bytes + index, sizeof(word));
-        if (word & UINT64_C(0x8080808080808080)) {
-            break;
-        }
-        index += (Py_ssize_t)sizeof(uint64_t);
-    }
-    while (index < len && bytes[index] < 0x80) {
-        index++;
-    }
-    return index;
 }
 
 /* One code point per byte, and th_decode only calls this once a byte of 0x80 or above is present, which no index maps
