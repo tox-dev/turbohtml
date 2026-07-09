@@ -125,19 +125,15 @@ static PyObject *iter_next(PyObject *self) {
 PyDoc_STRVAR(iter_doc, "Iterator over the tokens a Tokenizer has buffered. Yields Token objects.");
 
 static PyType_Slot iter_slots[] = {
-    {Py_tp_doc, (void *)iter_doc},
-    {Py_tp_dealloc, iter_dealloc},
-    {Py_tp_traverse, iter_traverse},
-    {Py_tp_clear, iter_clear},
-    {Py_tp_iter, PyObject_SelfIter},
-    {Py_tp_iternext, iter_next},
-    {0, NULL},
+    {Py_tp_doc, (void *)iter_doc}, {Py_tp_dealloc, iter_dealloc},   {Py_tp_traverse, iter_traverse},
+    {Py_tp_clear, iter_clear},     {Py_tp_iter, PyObject_SelfIter}, {Py_tp_iternext, iter_next},
+    TH_SEALED_NEW{0, NULL},
 };
 
 static PyType_Spec iter_spec = {
     .name = "turbohtml._html._TokenIterator",
     .basicsize = sizeof(IterObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | TH_SEALED,
     .slots = iter_slots,
 };
 

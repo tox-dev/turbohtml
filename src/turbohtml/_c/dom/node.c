@@ -187,13 +187,13 @@ static PyType_Slot walker_slots[] = {
     {Py_tp_dealloc, walker_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, walker_next},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec walker_spec = {
     .name = "turbohtml._html._NodeIterator",
     .basicsize = sizeof(WalkerObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = walker_slots,
 };
 
@@ -256,13 +256,13 @@ static PyType_Slot string_walker_slots[] = {
     {Py_tp_dealloc, string_walker_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, string_walker_next},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec string_walker_spec = {
     .name = "turbohtml._html._StringIterator",
     .basicsize = sizeof(StringWalkerObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = string_walker_slots,
 };
 
@@ -330,13 +330,13 @@ static PyType_Slot serialize_iter_slots[] = {
     {Py_tp_dealloc, serialize_iter_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, serialize_iter_next},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec serialize_iter_spec = {
     .name = "turbohtml._html._SerializeIterator",
     .basicsize = sizeof(SerializeIterObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = serialize_iter_slots,
 };
 
@@ -1769,13 +1769,13 @@ static PyType_Slot node_slots[] = {
     {Py_tp_hash, node_hash},       {Py_tp_getset, node_getset},
     {Py_tp_methods, node_methods}, {Py_tp_iter, node_iter},
     {Py_sq_length, node_length},   {Py_sq_item, node_item},
-    {Py_nb_bool, node_bool},       {0, NULL},
+    {Py_nb_bool, node_bool},       TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec node_spec = {
     .name = "turbohtml._html.Node",
     .basicsize = sizeof(NodeObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | TH_SEALED,
     .slots = node_slots,
 };
 

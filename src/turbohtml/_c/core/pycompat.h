@@ -10,7 +10,15 @@
    no-op through tokenizer/binding.h's `#ifndef` -- the same shim CPython 3.10-3.12 take, and
    correct for the same reason: cpyext holds the GIL across every call into this extension.
 
-   Three things differ.
+   Four things differ.
+
+   Py_TPFLAGS_DISALLOW_INSTANTIATION is a no-op in cpyext until PyPy 7.3.21, so the sealed types
+   would construct with no tree attached and segfault on first use -- pure Python code taking the
+   interpreter down. 7.3.21 honors the flag and prints a debug line to stdout for every type that
+   sets it. Both cost nothing to avoid: cpyext seals a type through an explicit tp_new (the
+   `elif pto.c_tp_new` arm the flag would otherwise shadow), so on PyPy the flag comes off and
+   th_disallow_new goes on. Every sealed spec pairs TH_SEALED in its flags with TH_SEALED_NEW in its
+   slots. A subtype that declares its own tp_new overrides the inherited one, as it does on CPython.
 
    PyUnicode_CopyCharacters does not exist in cpyext at all, so it gets the READ/WRITE loop below.
 
@@ -47,6 +55,13 @@
 #include <Python.h>
 
 #ifdef PYPY_VERSION
+
+/* tp_new for a type CPython seals with Py_TPFLAGS_DISALLOW_INSTANTIATION. tp_name carries the
+   spec's dotted name, so the message matches CPython's word for word. */
+static inline PyObject *th_disallow_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    PyErr_Format(PyExc_TypeError, "cannot create '%s' instances", type->tp_name);
+    return NULL;
+}
 
 /* how_many code points of `from` into `to` at `to_start`. The callers size `to` with a maxchar that
    covers `from`, so the widening write always fits and this cannot fail; CPython's function returns
@@ -94,6 +109,8 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
 #define th_str_format(...) th_str_ready(PyUnicode_FromFormat(__VA_ARGS__))
 #define th_str_format_v(format, args) th_str_ready(PyUnicode_FromFormatV((format), (args)))
 #define th_str_maxchar(maxchar) ((maxchar) > 0xFF ? (Py_UCS4)0x10FFFF : (Py_UCS4)(maxchar))
+#define TH_SEALED 0
+#define TH_SEALED_NEW {Py_tp_new, th_disallow_new},
 
 #else
 
@@ -102,6 +119,8 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
 #define th_str_format(...) PyUnicode_FromFormat(__VA_ARGS__)
 #define th_str_format_v(format, args) PyUnicode_FromFormatV((format), (args))
 #define th_str_maxchar(maxchar) (maxchar)
+#define TH_SEALED Py_TPFLAGS_DISALLOW_INSTANTIATION
+#define TH_SEALED_NEW
 
 #endif /* PYPY_VERSION */
 

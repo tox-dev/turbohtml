@@ -303,13 +303,13 @@ static PyType_Slot attrs_slots[] = {
     {Py_sq_contains, attrs_contains},
     {Py_tp_iter, attrs_iter},
     {Py_tp_methods, attrs_methods},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec attrs_spec = {
     .name = "turbohtml._html._Attrs",
     .basicsize = sizeof(AttrsObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = attrs_slots,
 };
 

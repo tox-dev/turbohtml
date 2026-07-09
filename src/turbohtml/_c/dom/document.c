@@ -530,13 +530,13 @@ static PyType_Slot document_slots[] = {
     {Py_tp_doc, (void *)document_doc},
     {Py_tp_getset, document_getset},
     {Py_tp_methods, document_methods},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 static PyType_Spec document_spec = {
     .name = "turbohtml._html.Document",
     .basicsize = sizeof(NodeObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = document_slots,
 };
 
@@ -556,13 +556,13 @@ static void handle_dealloc(PyObject *self) {
 
 static PyType_Slot handle_slots[] = {
     {Py_tp_dealloc, handle_dealloc},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 static PyType_Spec handle_spec = {
     .name = "turbohtml._html._TreeHandle",
     .basicsize = sizeof(HandleObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = handle_slots,
 };
 

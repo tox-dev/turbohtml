@@ -199,10 +199,10 @@ release = [
 # APIs), so we ship a wheel per interpreter; cibuildwheel automates the matrix.
 # requires-python bounds the low end; free-threading wheels for 3.14+/3.15+ are
 # built automatically, and cpython-prerelease covers 3.15 while it is in beta.
-# "pypy" selects pp311 only: cibuildwheel classes PyPy 3.10 and below as EoL, and turbohtml refuses to import on
-# PyPy below 7.3.22 anyway (core/module.c) -- earlier cpyext ignores Py_TPFLAGS_DISALLOW_INSTANTIATION, which lets the
-# C types be built without a tree and segfault on first use.
-enable = [ "cpython-prerelease", "pypy" ]
+# "pypy" selects pp311; "pypy-eol" adds pp310, whose final PyPy release (7.3.19) still receives wheels here because
+# core/pycompat.h seals the C types through an explicit tp_new rather than through the
+# Py_TPFLAGS_DISALLOW_INSTANTIATION flag its cpyext ignores.
+enable = [ "cpython-prerelease", "pypy", "pypy-eol" ]
 build-frontend = "build[uv]"
 test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtml.escape('a & b')) == 'a & b'\""
 # Profile-guided optimization for the manylinux/musllinux wheels, where the gcc the spike measured runs. before-build

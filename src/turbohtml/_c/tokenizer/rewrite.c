@@ -902,13 +902,13 @@ static PyType_Slot rw_handle_slots[] = {
     {Py_tp_dealloc, rw_handle_dealloc},
     {Py_tp_methods, rw_handle_methods},
     {Py_tp_getset, rw_handle_getset},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 static PyType_Spec rw_handle_spec = {
     .name = "turbohtml._html._RewriteHandle",
     .basicsize = sizeof(rw_handle),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = rw_handle_slots,
 };
 

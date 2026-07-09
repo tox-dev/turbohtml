@@ -2,9 +2,9 @@
  Interpreters
 ##############
 
-turbohtml runs on CPython 3.10 and newer, on the free-threaded build, and on PyPy 3.11 (7.3.22 and newer). The same C
-core serves all of them: there is no pure-Python fallback, and no separate PyPy backend. What differs is the layer
-underneath, and it differs enough to be worth understanding before you choose PyPy for an HTML workload.
+turbohtml runs on CPython 3.10 and newer, on the free-threaded build, and on PyPy 3.10 and 3.11. The same C core serves
+all of them: there is no pure-Python fallback, and no separate PyPy backend. What differs is the layer underneath, and
+it differs enough to be worth understanding before you choose PyPy for an HTML workload.
 
 ***********************
  What cpyext costs you
@@ -84,25 +84,28 @@ exception you catch differs.
 and methods are unaffected. :func:`gc.is_tracked` does not exist on PyPy at all.
 
 *******************
- The version floor
+ Sealing the types
 *******************
 
-turbohtml refuses to import on PyPy older than 7.3.22, with an :exc:`ImportError` that says so. Before 7.3.21, cpyext
-ignored ``Py_TPFLAGS_DISALLOW_INSTANTIATION``, the flag that makes ``Document()`` and its siblings raise
-:exc:`TypeError`. Without it those types construct with no tree attached and segfault the interpreter on first use --
-pure Python code taking the process down. 7.3.21 honors the flag but prints a debug line to stdout for every type that
-sets it, which corrupts anything reading the CLI's output. 7.3.22 is the first release with neither problem.
+``Document()``, ``Node()``, ``Token()`` and eleven siblings raise :exc:`TypeError`: only a parse builds them, and one
+constructed by hand carries no tree. CPython enforces that with ``Py_TPFLAGS_DISALLOW_INSTANTIATION``. cpyext ignored
+that flag until PyPy 7.3.21, so those types would construct with no tree attached and segfault on first use, letting
+pure Python code take the interpreter down. 7.3.21 honors the flag and prints a debug line to stdout for every type that
+sets it, which corrupts anything reading the CLI's output.
 
-PyPy 3.10 reached end of life without ever honoring that flag, so it is not supported and no wheel is published for it.
-A wheel tag cannot express a PyPy floor -- ``pp311_pp73`` matches 7.3.18 as readily as 7.3.23 -- which is why the check
-lives at import rather than in the metadata.
+Neither costs anything to avoid. cpyext also seals a type through an explicit ``tp_new``, the branch the flag would
+otherwise shadow, so on PyPy the flag comes off and a ``tp_new`` that raises goes on. Every supported PyPy then refuses
+the same constructions with the same message, and 7.3.21 stays quiet because nothing sets the flag it prints for. A
+subtype declaring its own ``tp_new`` overrides the inherited one, so ``Element("div")`` and ``Text("hi")`` build as they
+do on CPython.
 
 *********************
  How the core adapts
 *********************
 
 ``src/turbohtml/_c/core/pycompat.h`` holds every adaptation, and each one is an identity macro on CPython, so a CPython
-build's preprocessed token stream is unchanged and its machine code cannot shift. Three calls need it.
+build's preprocessed token stream is unchanged and its machine code cannot shift. Besides the sealing above, three calls
+need it.
 
 ``PyUnicode_CopyCharacters`` does not exist in cpyext, so it gets a ``PyUnicode_READ``/``PyUnicode_WRITE`` loop.
 

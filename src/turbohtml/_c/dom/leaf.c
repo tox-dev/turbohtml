@@ -311,13 +311,13 @@ PyDoc_STRVAR(doctype_doc, "A document type declaration.");
 static PyType_Slot doctype_slots[] = {
     {Py_tp_doc, (void *)doctype_doc},
     {Py_tp_getset, doctype_getset},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec doctype_spec = {
     .name = "turbohtml._html.Doctype",
     .basicsize = sizeof(NodeObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = doctype_slots,
 };
 
@@ -414,12 +414,12 @@ static PyType_Slot parse_error_slots[] = {
     {Py_tp_hash, parse_error_hash},
     {Py_tp_richcompare, parse_error_richcompare},
     {Py_tp_getset, parse_error_getset},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec parse_error_spec = {
     .name = "turbohtml._html.ParseError",
     .basicsize = sizeof(ParseErrorObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE | TH_SEALED,
     .slots = parse_error_slots,
 };

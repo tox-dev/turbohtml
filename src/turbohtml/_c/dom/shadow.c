@@ -443,12 +443,12 @@ static PyType_Slot shadow_root_slots[] = {
     {Py_tp_doc, (void *)shadow_root_doc},
     {Py_tp_getset, shadow_root_getset},
     {Py_tp_methods, shadow_root_methods},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 PyType_Spec shadow_root_spec = {
     .name = "turbohtml._html.ShadowRoot",
     .basicsize = sizeof(NodeObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = shadow_root_slots,
 };

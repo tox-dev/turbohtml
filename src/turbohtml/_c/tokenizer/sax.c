@@ -237,13 +237,13 @@ static PyType_Slot sax_iter_slots[] = {
     {Py_tp_clear, sax_clear},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, sax_iter_next},
-    {0, NULL},
+    TH_SEALED_NEW{0, NULL},
 };
 
 static PyType_Spec sax_iter_spec = {
     .name = "turbohtml._html._SaxEvents",
     .basicsize = sizeof(SaxEventsObject),
-    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_DISALLOW_INSTANTIATION,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC | TH_SEALED,
     .slots = sax_iter_slots,
 };
 

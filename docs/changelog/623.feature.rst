@@ -1,4 +1,2 @@
-Run the C core on PyPy 3.11 (7.3.22 and newer) through ``cpyext``, with the same conformance and byte-identical output
-as CPython; see :doc:`/explanation/interpreters` for what ``cpyext`` costs and for the three behaviors that do not carry
-over. turbohtml refuses to import on older PyPy, where ``cpyext`` ignores ``Py_TPFLAGS_DISALLOW_INSTANTIATION`` and the
-C types construct without a tree and segfault on first use.
+Run the C core on PyPy 3.10 and 3.11 through ``cpyext``, with the same conformance and byte-identical output as CPython;
+see :doc:`/explanation/interpreters` for what ``cpyext`` costs and for the three behaviors that do not carry over.

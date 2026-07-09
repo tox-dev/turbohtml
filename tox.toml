@@ -7,6 +7,7 @@ env_list = [
   "3.11",
   "3.10",
   "pypy3.11",
+  "pypy3.10",
   "3.14t",
   "3.15t",
   "docs",
@@ -442,11 +443,39 @@ commands = [
   ],
 ]
 
+[env."pypy3.10"]
+description = "run the test suite under PyPy 3.10 through cpyext"
+base_python = [ "pypy3.10" ]
+deps = []
+commands_pre = [
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+  ],
+]
+commands = [
+  [
+    "pytest",
+    "--durations",
+    "10",
+    "--no-cov",
+    "--ignore={tox_root}{/}tests{/}conformance",
+    { replace = "posargs", default = [ "tests" ], extend = true },
+  ],
+]
+
 [env."pypy3.11"]
 description = "run the test suite under PyPy 3.11 through cpyext"
 base_python = [ "pypy3.11" ]
 # gcovr reaches cpyext through lxml, which publishes no PyPy wheels, and there is no gcov for a cpyext build
-# to feed it anyway. The C and Python coverage gates both run on the CPython matrix; this env proves behavior.
+# to feed it anyway. The C and Python coverage gates both run on the CPython matrix; these envs prove behavior.
 deps = []
 commands_pre = [
   [
