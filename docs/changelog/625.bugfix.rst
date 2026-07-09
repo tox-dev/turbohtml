@@ -16,6 +16,8 @@ so on a document whose only ``<meta>`` sits past the prescan window it stops at 
 :attr:`turbohtml.Document.errors` reports every parse error the WHATWG tokenizer defines. It carried 8 of the 48 codes
 the algorithm names, so ``a\x00b`` and a malformed ``<!DOCTYPE>`` both parsed without a word. turbohtml now reports the
 other 45, along with the preprocessing errors a control, noncharacter, or surrogate code point raises by being in the
-input at all, interleaved with the tokenizer's in source order. ``strict=True`` therefore raises on documents it used to
-accept. Nothing gated the ``errors`` arrays the vendored ``html5lib-tests`` tokenizer suite carries; they now gate the
+input at all, interleaved with the tokenizer's in source order. Reading :attr:`~turbohtml.Document.errors` is what finds
+the preprocessing ones, so a parse that never asks for them does not pay to look. ``strict=True`` therefore raises on
+documents it used to accept, and :class:`turbohtml.IncrementalParser` keeps no source to walk, so it reports none of
+them. Nothing gated the ``errors`` arrays the vendored ``html5lib-tests`` tokenizer suite carries; they now gate the
 codes and their order on all 7032 cases, and the line and column on every BMP-only input.

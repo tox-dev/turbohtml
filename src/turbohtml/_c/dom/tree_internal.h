@@ -103,8 +103,11 @@ struct th_tree {
     Py_ssize_t observer_cap;
     /* WHATWG parse errors collected during the parse, in document order. The
        tokenizer fills it through this sink while the tree builder adds its own
-       construction errors; read-only once the parse returns. */
+       construction errors. The preprocessing errors, which depend on the input alone,
+       are folded in on the first read rather than at parse time: a document nobody
+       asks for errors from should not pay to find them. */
     th_error_sink errors;
+    int input_errors_merged;
 };
 
 static inline void *arena_alloc(th_tree *tree, Py_ssize_t size) {

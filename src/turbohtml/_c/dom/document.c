@@ -510,7 +510,17 @@ static PyMethodDef document_methods[] = {
 /* The parse errors are immutable once the parse returns, so this reads them
    lock-free (like the other accessors) and materializes a fresh list each call. */
 static PyObject *document_get_errors(PyObject *self, void *Py_UNUSED(closure)) {
-    th_tree *tree = ((HandleObject *)((NodeObject *)self)->handle)->tree;
+    HandleObject *handle = (HandleObject *)((NodeObject *)self)->handle;
+    th_tree *tree = handle->tree;
+    /* the first read folds the preprocessing errors into the tree, so two threads reading
+       Document.errors at once must not both do it; a streamed or hand-built tree kept no
+       source, and its input raises no error to find */
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    if (PyUnicode_Check(handle->source)) {
+        th_tree_ensure_input_errors(tree, PyUnicode_KIND(handle->source), PyUnicode_DATA(handle->source),
+                                    PyUnicode_GET_LENGTH(handle->source));
+    }
+    Py_END_CRITICAL_SECTION();
     Py_ssize_t count;
     const th_parse_error *errors = th_tree_errors(tree, &count);
     PyObject *list = PyList_New(count);
@@ -613,9 +623,14 @@ static PyObject *tree_to_node(module_state *state, th_tree *tree, PyObject *sour
 /* In strict mode, raise HTMLParseError carrying the first parse error and free
    the tree, returning -1; otherwise return 0 and leave the tree to be wrapped.
    The exception's str is a readable summary and its .error is the ParseError. */
-static int strict_raise(module_state *state, th_tree *tree, int strict) {
+/* source is the str the tree was parsed from, or NULL for the XML parser, whose
+   well-formedness errors are its own and carry no preprocessing step. */
+static int strict_raise(module_state *state, th_tree *tree, int strict, PyObject *source) {
     if (!strict) {
         return 0;
+    }
+    if (source != NULL) {
+        th_tree_ensure_input_errors(tree, PyUnicode_KIND(source), PyUnicode_DATA(source), PyUnicode_GET_LENGTH(source));
     }
     Py_ssize_t count;
     const th_parse_error *errors = th_tree_errors(tree, &count);
@@ -765,7 +780,7 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
         Py_DECREF(decoded);
     }
     PyBuffer_Release(&view);
-    if (strict_raise(state, tree, strict) < 0) {
+    if (strict_raise(state, tree, strict, decoded) < 0) {
         Py_DECREF(decoded);
         return NULL;
     }
@@ -923,7 +938,7 @@ PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
         if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        if (strict_raise(state, tree, strict) < 0) {
+        if (strict_raise(state, tree, strict, markup) < 0) {
             return NULL;
         }
         return tree_to_node(state, tree, markup, Py_None, 0);
@@ -946,7 +961,7 @@ PyObject *turbohtml_parse_xml(PyObject *module, PyObject *args, PyObject *kwargs
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (strict_raise(state, tree, 1) < 0) { /* XML always raises the first well-formedness error */
+    if (strict_raise(state, tree, 1, NULL) < 0) { /* XML always raises the first well-formedness error */
         return NULL;
     }
     return tree_to_node(state, tree, markup, Py_None, 0);

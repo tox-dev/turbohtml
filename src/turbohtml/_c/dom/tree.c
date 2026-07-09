@@ -305,6 +305,20 @@ Py_ssize_t th_tree_max_depth(const th_tree *tree) {
     return tree->max_depth;
 }
 
+/* Fold the preprocessing errors into the tokenizer's, once. They depend only on the input the
+   tree still borrows, so finding them at the first read costs a parse that never reads errors
+   nothing at all. */
+void th_tree_ensure_input_errors(th_tree *tree, int kind, const void *data, Py_ssize_t length) {
+    if (tree->input_errors_merged) {
+        return;
+    }
+    tree->input_errors_merged = 1;
+    th_error_sink preprocessing = {0};
+    th_input_stream_errors(kind, data, length, &preprocessing);
+    tree->failed |= th_error_sink_merge(&tree->errors, &preprocessing) < 0;
+    th_error_sink_free(&preprocessing);
+}
+
 const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count) {
     *out_count = tree->errors.len;
     return tree->errors.items;
@@ -3949,12 +3963,6 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
     run_state_init(&run_state, M_INITIAL);
     run_drain(tree, sm, &run_state);
     run_close(tree);
-    th_error_sink preprocessing = {0};
-    th_input_stream_errors(kind, data, length, &preprocessing);
-    if (th_error_sink_merge(&tree->errors, &preprocessing) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        tree->failed = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
-    } /* GCOVR_EXCL_BR_LINE: clang counts the fall-through of the allocation guard as its own branch */
-    th_error_sink_free(&preprocessing);
     th_tok_free(sm);
     finalize_document(tree);
 

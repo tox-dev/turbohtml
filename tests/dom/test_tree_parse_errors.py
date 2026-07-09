@@ -6,7 +6,7 @@ import gc
 
 import pytest
 
-from turbohtml import Document, HTMLParseError, ParseError, Tokenizer, parse, tokenize
+from turbohtml import Document, HTMLParseError, IncrementalParser, ParseError, Tokenizer, parse, parse_xml, tokenize
 
 
 @pytest.mark.parametrize(
@@ -174,6 +174,30 @@ def test_an_overlong_reference_suspends_until_the_input_ends(prefix: str) -> Non
     tokenizer = Tokenizer()
     assert list(tokenizer.feed(prefix + "&" + "a" * 40)) == []
     assert [token.data for token in tokenizer.close()] == [prefix + "&" + "a" * 40]
+
+
+def test_reading_errors_twice_reports_the_same_list() -> None:
+    # the preprocessing errors are folded in on the first read, and once only
+    document = parse("a\x01b")
+    first = [error.code for error in document.errors]
+    assert first == ["control-character-in-input-stream"]
+    assert [error.code for error in document.errors] == first
+
+
+def test_a_streamed_tree_keeps_no_source_to_scan() -> None:
+    # IncrementalParser copies its chunks and drops them, so there is no input left to walk
+    parser = IncrementalParser()
+    parser.feed("a\x01b")
+    assert parser.close().errors == []
+
+
+def test_xml_reports_its_own_error_set() -> None:
+    # the XML parser names a control character its own way, and never runs the HTML
+    # preprocessing step; a well-formed document leaves the list empty
+    assert parse_xml("<r>ab</r>").errors == []
+    with pytest.raises(HTMLParseError) as raised:
+        parse_xml("<r>a\x01b</r>")
+    assert raised.value.error.code == "xml-invalid-char"
 
 
 def test_well_formed_document_has_no_errors() -> None:
