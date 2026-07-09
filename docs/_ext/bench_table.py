@@ -3,8 +3,8 @@ The ``bench-table`` directive: benchmark tables rendered from committed JSON fee
 
 Every benchmark table pairs turbohtml against competitors. A feed carries only data -- a row label and one raw number
 per party and metric (seconds for a time, bytes for a size), the shape ``tools/bench --table-json`` writes -- and this
-directive derives everything shown: the readable unit for each figure, the ``(Nx)`` ratio against turbohtml, the
-spanned party headers with metric subcolumns, and a tint on each cell from best-in-row green to worst-in-row red.
+directive derives everything shown: the readable unit for each figure, the ``(Nx)`` ratio against the leftmost party,
+the spanned party headers with metric subcolumns, and a tint on each cell from best-in-row green to worst-in-row red.
 
 ::
 
@@ -18,7 +18,8 @@ superscript, the empty cells show ``--`` with that superscript, and a legend cen
 out, so one marker never conflates two reasons. Column order is derived too: turbohtml first, then each competitor by
 its combined score with every metric weighing equally, so the best speed/size combination sits leftmost whatever order
 the feed carries. The tint scale is row-relative per metric -- a row's cells ran the same input, so they compare; a
-column mixes inputs, so it does not -- with turbohtml competing at its defining 1.0x.
+column mixes inputs, so it does not -- with the leftmost party competing at its defining 1.0x. Every column but the
+first carries its ratio, so a feed comparing turbohtml against itself (the interpreter table) reads like any other.
 """
 
 from __future__ import annotations
@@ -297,14 +298,12 @@ class BenchTable(Directive):
         rendered: dict[int, tuple[str, str | None]] = {}
         marks: dict[int, int] = {}
         for metric_index, metric in enumerate(metrics):
-            turbo = next(
-                cells[1 + party_index * len(metrics) + metric_index]
-                for party_index, party in enumerate(parties)
-                if "turbohtml" in party
-            )
+            # _order_columns has already put the baseline first, so column 0 is what every ratio is read against; a
+            # feed whose columns are all turbohtml (the interpreter comparison) still gets a ratio on every other one
+            turbo = cells[1 + metric_index]
             positions: list[int] = []
             ratios: list[float] = []
-            for party_index, party in enumerate(parties):
+            for party_index in range(len(parties)):
                 index = 1 + party_index * len(metrics) + metric_index
                 value = cells[index]
                 if isinstance(value, (int, float)):
@@ -315,7 +314,7 @@ class BenchTable(Directive):
                     else:
                         figure = _format_time(value)
                     ratio = value / turbo
-                    if "turbohtml" not in party:
+                    if party_index:
                         figure += f" {_format_ratio(ratio, metric)}"
                     positions.append(index)
                     ratios.append(ratio)
