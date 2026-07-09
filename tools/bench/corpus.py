@@ -106,10 +106,6 @@ def _cached(filename: str, url: str) -> Path:
     """
     target = _LARGE_DIR / filename
     if not target.exists():
-        # imported here, not at module scope: a benchmark worker runs in an isolated venv holding pyperf, turbohtml and
-        # one competitor, and it only needs an HTTP client on the first run, before the cache exists
-        from httpfetch import fetch_bytes  # noqa: PLC0415
-
         target.parent.mkdir(parents=True, exist_ok=True)
 
         target.write_bytes(fetch_bytes(url))
