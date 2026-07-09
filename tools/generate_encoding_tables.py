@@ -149,6 +149,10 @@ def _flat_table(name: str, index: Sequence[int | None]) -> str:
     if any(point > 0xFFFF for point in points):
         msg = f"index {name} has an astral code point; it cannot use a uint16_t table"
         raise SystemExit(msg)
+    if name == "gb18030" and 0 in points:
+        # the two-byte decoder indexes this table without a hole test, which only holds while every pointer maps
+        msg = "index gb18030 gained an unmapped pointer; the decoder must test for a hole again"
+        raise SystemExit(msg)
     return f"static const uint16_t th_{name}[{len(points)}] = {{\n{_rows(points)}\n}};\n"
 
 

@@ -426,7 +426,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
         unsigned char quote = buf[at++];
         while (at < end && buf[at] != quote) {
             unsigned char ch = buf[at++];
-            if (value_len < value_cap - 1) {
+            if (value_len < value_cap - 1) { /* GCOVR_EXCL_BR_LINE: value outgrows the 1024-byte window */
                 value[value_len++] = (char)lower_ascii(ch);
             }
         }
@@ -441,7 +441,7 @@ static int prescan_attribute(const unsigned char *buf, Py_ssize_t *pos, Py_ssize
     } else {
         while (at < end && !is_attr_space(buf[at]) && buf[at] != '>') {
             unsigned char ch = buf[at++];
-            if (value_len < value_cap - 1) {
+            if (value_len < value_cap - 1) { /* GCOVR_EXCL_BR_LINE: value outgrows the 1024-byte window */
                 value[value_len++] = (char)lower_ascii(ch);
             }
         }

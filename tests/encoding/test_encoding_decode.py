@@ -6,7 +6,14 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml._html import _decode
+import turbohtml.detect  # noqa: F401  # importing registers the whatwg-* codecs these tests decode through
+from turbohtml._html import _decode as _decode_binding
+
+
+def _decode(data: bytes, label: str) -> str:
+    # decode through the registered whatwg-<label> codec rather than the private binding, so the tests exercise the
+    # same C decoder over the public surface a caller reaches with bytes.decode
+    return data.decode(f"whatwg-{label}")
 
 
 @pytest.mark.parametrize(
@@ -122,7 +129,116 @@ def test_iso_8859_8_i_shares_the_iso_8859_8_index() -> None:
 
 def test_unknown_label_raises_lookup_error() -> None:
     with pytest.raises(LookupError, match="unknown encoding: no-such-encoding"):
-        _decode(b"", "no-such-encoding")
+        _decode_binding(b"", "no-such-encoding")
+
+
+def test_decode_binding_rejects_a_non_bytes_first_argument() -> None:
+    # the _decode binding parses (bytes, str); a str where the bytes buffer belongs fails PyArg_ParseTuple, the one
+    # path the whatwg-* codec (which always hands it real bytes) cannot reach
+    with pytest.raises(TypeError):
+        _decode_binding("not bytes", "gbk")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
+
+
+@pytest.mark.parametrize(
+    ("label", "data", "text"),
+    [
+        pytest.param("big5", b"\x81\xa1", "�", id="big5-lead-plus-in-range-trail-that-is-a-table-hole"),
+        pytest.param("big5", b"\x81\x40", "�@", id="big5-pointer-below-the-index-base-then-ascii-pushback"),
+        pytest.param("euc-kr", b"\x81\x80", "�", id="euc-kr-in-range-trail-that-is-a-table-hole"),
+        pytest.param("shift_jis", b"\x81\xad", "�", id="shift-jis-in-range-trail-that-is-a-table-hole"),
+        pytest.param("euc-jp", b"\xa2\xaf", "�", id="euc-jp-jis0208-in-range-pair-that-is-a-table-hole"),
+        pytest.param("euc-jp", b"\x8f\xa1\xa1", "�", id="euc-jp-jis0212-in-range-pair-that-is-a-table-hole"),
+    ],
+)
+def test_an_in_range_pair_that_maps_to_a_table_hole_is_one_replacement(label: str, data: bytes, text: str) -> None:
+    # the pointer is inside the index's bounds, so the range guard passes; the table entry is zero, so the decoder
+    # errors -- the false side of `pointer < size && table[pointer] != 0`
+    assert _decode(data, label) == text
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"\xe0\x40", "漾", id="lead-in-the-0xe0-0xfc-block"),
+        pytest.param(b"\xa0", "�", id="byte-between-the-katakana-and-lead-blocks"),
+        pytest.param(b"\xfd", "�", id="byte-that-starts-no-sequence"),
+    ],
+)
+def test_shift_jis_lead_byte_classes(data: bytes, text: str) -> None:
+    # the second disjunct of the lead test (0xE0..0xFC) and the fall-through for a byte that is neither ASCII, single
+    # katakana, nor a lead
+    assert _decode(data, "shift_jis") == text
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"\x8e\xa1", "｡", id="0x8e-half-width-katakana"),
+        pytest.param(b"\x8e\x20", "� ", id="0x8e-then-a-byte-below-the-katakana-range"),
+        pytest.param(b"\x8e\xe0", "�", id="0x8e-then-a-byte-above-the-katakana-range"),
+        pytest.param(b"\x8f\xb0\xa1", "丂", id="0x8f-jis0212-plane"),
+        pytest.param(b"\x8f\x20", "� ", id="0x8f-then-a-byte-below-the-plane-range"),
+        pytest.param(b"\x8f\xff", "�", id="0x8f-then-a-byte-above-the-plane-range"),
+        pytest.param(b"\xa1\xff", "�", id="jis0208-lead-then-a-trail-above-its-range"),
+    ],
+)
+def test_euc_jp_single_shift_bytes(data: bytes, text: str) -> None:
+    # the 0x8E (JIS X 0201 katakana) and 0x8F (JIS X 0212 plane) single-shift leads, plus the leads followed by a byte
+    # each range rejects: the katakana and plane range edges, and a two-byte pair whose trail is out of range
+    assert _decode(data, "euc-jp") == text
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"\x81\x35\xf4\x37", "", id="pointer-7457-the-range-list-cannot-express"),
+        pytest.param(b"\x84\x31\xdf\x30", "�", id="four-byte-pointer-in-the-unmapped-gap"),
+        pytest.param(b"\xfe\x39\xfe\x39", "�", id="four-byte-pointer-past-the-last-scalar"),
+        pytest.param(b"\x81\x30\x81\x2f", "�0�/", id="fourth-byte-below-the-digit-range"),
+        pytest.param(b"\x81\x30\x20", "�0 ", id="two-byte-tail-then-a-non-lead-rewinds-two-bytes"),
+        pytest.param(b"\x81\x30\xff", "�0�", id="second-tail-byte-above-the-lead-range"),
+        pytest.param(b"\x81\x2f", "�/", id="lead-then-ascii-non-digit-pushes-the-ascii-byte-back"),
+        pytest.param(b"\x81", "�", id="lead-alone-flushes-at-end-of-stream"),
+        pytest.param(b"\x81\x30", "�", id="lead-and-digit-flush-at-end-of-stream"),
+        pytest.param(b"\x81\x30\x81", "�", id="lead-digit-lead-flush-at-end-of-stream"),
+    ],
+)
+def test_gb18030_four_byte_and_error_arms(data: bytes, text: str) -> None:
+    # the U+E7C7 special pointer, the two out-of-range four-byte pointers (the unmapped gap and past the last scalar),
+    # the rewind when a tail byte is out of range, and the end-of-stream flush of one, two, or three pending bytes
+    assert _decode(data, "gb18030") == text
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"", "", id="empty-input"),
+        pytest.param(b"\x0e", "�", id="ascii-state-rejects-shift-out"),
+        pytest.param(b"\x0f", "�", id="ascii-state-rejects-shift-in"),
+        pytest.param(b"\x80", "�", id="ascii-state-rejects-a-high-byte"),
+        pytest.param(b"\x1b(JX\x1b(BY", "XY", id="escape-out-of-roman-state"),
+        pytest.param(b"\x1b(J\x0e", "�", id="roman-state-rejects-shift-out"),
+        pytest.param(b"\x1b(J\x0f", "�", id="roman-state-rejects-shift-in"),
+        pytest.param(b"\x1b(J\x80", "�", id="roman-state-rejects-a-high-byte"),
+        pytest.param(b"\x1b(I\x60", "�", id="katakana-state-rejects-a-byte-above-its-range"),
+        pytest.param(b"\x1b$B", "", id="lead-state-finishes-cleanly-at-end-of-stream"),
+        pytest.param(b"\x1b$B\x0e", "�", id="lead-state-rejects-shift-out"),
+        pytest.param(b"\x1b$B\x7f", "�", id="lead-byte-above-its-range"),
+        pytest.param(b"\x1b$@\x21\x21", "　", id="escape-dollar-at-selects-jis0208"),
+        pytest.param(b"\x1b$B\x22\x2f", "�", id="jis0208-in-range-pair-that-is-a-table-hole"),
+        pytest.param(b"\x1b$B\x21\x1b(B", "�", id="escape-interrupts-a-trail-byte"),
+        pytest.param(b"\x1b$B\x21", "�", id="trail-byte-missing-at-end-of-stream"),
+        pytest.param(b"\x1b$B\x21\x7f", "�", id="trail-byte-out-of-range"),
+        pytest.param(b"\x1bZ", "�Z", id="escape-start-rejects-a-byte-and-pushes-it-back"),
+        pytest.param(b"\x1b", "�", id="escape-start-at-end-of-stream"),
+        pytest.param(b"\x1b(B\x1b(B", "�", id="back-to-back-escapes-emit-one-error"),
+        pytest.param(b"\x1b(I\x20", "�", id="katakana-state-rejects-a-byte-below-its-range"),
+    ],
+)
+def test_iso_2022_jp_state_machine_arms(data: bytes, text: str) -> None:
+    # every error and escape arm of the ASCII, Roman, Katakana, Lead, Trail, Escape-start, and Escape states, plus the
+    # empty-input shortcut and the clean end-of-stream flush from the Lead state
+    assert _decode(data, "iso-2022-jp") == text
 
 
 @pytest.mark.parametrize(

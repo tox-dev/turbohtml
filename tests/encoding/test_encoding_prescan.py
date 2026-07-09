@@ -65,3 +65,11 @@ def test_a_slash_not_followed_by_a_letter_skips_to_the_next_gt() -> None:
 )
 def test_charset_and_content_attributes_resolve_in_the_spec_order(markup: bytes, encoding: str) -> None:
     assert parse(markup).encoding == encoding
+
+
+def test_a_repeated_content_attribute_is_ignored() -> None:
+    # the first content wins, as it does for charset and http-equiv; the second declares a different encoding
+    markup = (
+        b'<meta http-equiv=content-type content="text/html;charset=utf-8" content="text/html;charset=windows-1251">'
+    )
+    assert parse(markup).encoding == "UTF-8"

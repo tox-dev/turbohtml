@@ -26,6 +26,8 @@ def _streamed(raw: bytes, encoding: str, chunk: int) -> str:
         pytest.param("x-user-defined", b"<p>\x80\xff", id="x-user-defined"),
         pytest.param("koi8-u", b"<p>\xae\xbe", id="koi8-u"),
         pytest.param("utf-8", "<p>日本語".encode(), id="utf-8"),
+        pytest.param("utf-16le", "<p>日本語".encode("utf-16-le"), id="utf-16le"),
+        pytest.param("utf-16be", "<p>日本語".encode("utf-16-be"), id="utf-16be"),
     ],
 )
 @pytest.mark.parametrize("chunk", [pytest.param(1, id="one-byte"), pytest.param(2, id="two-byte")])

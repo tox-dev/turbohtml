@@ -82,22 +82,20 @@ static int th_dec_next(th_decoder *dec) {
     return dec->pos < dec->len ? dec->buf[dec->pos++] : TH_DEC_EOF;
 }
 
+/* Each decoder derives a pointer from byte ranges it has already tested, and the largest pointer those ranges allow is
+   the last slot of the table it indexes. The bound is therefore a property of the tables, proved once here, rather than
+   a branch taken for every code point; the compiler rechecks it whenever the generator resizes a table. */
+#define TH_ENTRIES(table) ((int)(sizeof(table) / sizeof((table)[0])))
+_Static_assert((0xFE - 0x81) * 157 + (0xFE - 0x62) - TH_BIG5_FIRST < TH_ENTRIES(th_big5_low), "big5 pointer overruns");
+_Static_assert((0xFE - 0x81) * 190 + (0xFE - 0x41) < TH_ENTRIES(th_euc_kr), "euc-kr pointer overruns");
+_Static_assert((0xFC - 0xC1) * 188 + (0xFC - 0x41) < TH_ENTRIES(th_jis0208), "shift_jis pointer overruns");
+_Static_assert((0xFE - 0xA1) * 94 + (0xFE - 0xA1) < TH_ENTRIES(th_jis0212), "euc-jp jis0212 pointer overruns");
+_Static_assert((0xFE - 0xA1) * 94 + (0xFE - 0xA1) < TH_ENTRIES(th_jis0208), "euc-jp jis0208 pointer overruns");
+_Static_assert((0xFE - 0x81) * 190 + (0xFE - 0x41) < TH_ENTRIES(th_gb18030), "gb18030 pointer overruns");
+_Static_assert((0x7E - 0x21) * 94 + (0x7E - 0x21) < TH_ENTRIES(th_jis0208), "iso-2022-jp pointer overruns");
+
 static int th_dec_ascii(int byte) {
     return byte >= 0x00 && byte <= 0x7F;
-}
-
-static int th_dec_single_byte(th_decoder *dec, Py_UCS4 *point) {
-    int byte = th_dec_next(dec);
-    if (byte == TH_DEC_EOF) {
-        return TH_DEC_FINISHED;
-    }
-    uint16_t mapped = th_sb_index[dec->single][byte];
-    if (mapped == 0xFFFD) { /* the generator stores U+FFFD where the spec's index leaves the byte null */
-        dec->error_at = dec->pos - 1;
-        return TH_DEC_ERROR;
-    }
-    *point = mapped;
-    return TH_DEC_POINT;
 }
 
 /* ASCII bytes stay put, 0x80..0xFF map to the private-use block U+F780..U+F7FF. */
@@ -138,8 +136,7 @@ static int th_dec_big5(th_decoder *dec, Py_UCS4 *point) {
                         return TH_DEC_POINT;
                     }
                     int rebased = pointer - TH_BIG5_FIRST;
-                    if (rebased >= 0 && rebased < (int)(sizeof(th_big5_low) / sizeof(th_big5_low[0])) &&
-                        th_big5_low[rebased] != 0) {
+                    if (rebased >= 0 && th_big5_low[rebased] != 0) {
                         uint16_t low = th_big5_low[rebased];
                         int astral = (th_big5_astral[rebased >> 3] >> (rebased & 7)) & 1;
                         *point = astral ? (TH_BIG5_PLANE | low) : low;
@@ -179,7 +176,7 @@ static int th_dec_euc_kr(th_decoder *dec, Py_UCS4 *point) {
             dec->lead = 0;
             if (byte >= 0x41 && byte <= 0xFE) {
                 int pointer = (lead - 0x81) * 190 + (byte - 0x41);
-                if (pointer < (int)(sizeof(th_euc_kr) / sizeof(th_euc_kr[0])) && th_euc_kr[pointer] != 0) {
+                if (th_euc_kr[pointer] != 0) {
                     *point = th_euc_kr[pointer];
                     return TH_DEC_POINT;
                 }
@@ -222,7 +219,7 @@ static int th_dec_shift_jis(th_decoder *dec, Py_UCS4 *point) {
                         *point = (Py_UCS4)(0xE000 - 8836 + pointer);
                         return TH_DEC_POINT;
                     }
-                    if (pointer < (int)(sizeof(th_jis0208) / sizeof(th_jis0208[0])) && th_jis0208[pointer] != 0) {
+                    if (th_jis0208[pointer] != 0) {
                         *point = th_jis0208[pointer];
                         return TH_DEC_POINT;
                     }
@@ -247,7 +244,7 @@ static int th_dec_shift_jis(th_decoder *dec, Py_UCS4 *point) {
             *point = (Py_UCS4)(0xFF61 - 0xA1 + byte);
             return TH_DEC_POINT;
         }
-        if ((byte >= 0x81 && byte <= 0x9F) || (byte >= 0xE0 && byte <= 0xFC)) {
+        if (byte <= 0x9F || (byte >= 0xE0 && byte <= 0xFC)) { /* 0x80 and the katakana run already returned */
             dec->lead = (unsigned char)byte;
             continue;
         }
@@ -274,11 +271,10 @@ static int th_dec_euc_jp(th_decoder *dec, Py_UCS4 *point) {
             unsigned char from_jis0212 = dec->jis0212;
             dec->lead = 0;
             dec->jis0212 = 0;
-            if (lead >= 0xA1 && lead <= 0xFE && byte >= 0xA1 && byte <= 0xFE) {
+            if (lead >= 0xA1 && byte >= 0xA1 && byte <= 0xFE) { /* lead holds only 0x8E, 0x8F, or 0xA1..0xFE */
                 int pointer = (lead - 0xA1) * 94 + (byte - 0xA1);
                 const uint16_t *table = from_jis0212 ? th_jis0212 : th_jis0208;
-                size_t entries = (from_jis0212 ? sizeof(th_jis0212) : sizeof(th_jis0208)) / sizeof(uint16_t);
-                if (pointer < (int)entries && table[pointer] != 0) {
+                if (table[pointer] != 0) {
                     *point = table[pointer];
                     return TH_DEC_POINT;
                 }
@@ -332,7 +328,7 @@ static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         if (byte == TH_DEC_EOF) {
-            if (dec->first == 0 && dec->second == 0 && dec->third == 0) {
+            if (dec->first == 0) { /* second is set only once first is, and third only once second is */
                 return TH_DEC_FINISHED;
             }
             dec->first = dec->second = dec->third = 0;
@@ -371,11 +367,9 @@ static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
             dec->first = 0;
             int offset = byte < 0x7F ? 0x40 : 0x41;
             if ((byte >= 0x40 && byte <= 0x7E) || (byte >= 0x80 && byte <= 0xFE)) {
-                int pointer = (lead - 0x81) * 190 + (byte - offset);
-                if (pointer < (int)(sizeof(th_gb18030) / sizeof(th_gb18030[0])) && th_gb18030[pointer] != 0) {
-                    *point = th_gb18030[pointer];
-                    return TH_DEC_POINT;
-                }
+                /* every two-byte pointer maps; the generator refuses to emit a gb18030 table with a hole */
+                *point = th_gb18030[(lead - 0x81) * 190 + (byte - offset)];
+                return TH_DEC_POINT;
             }
             dec->error_at = dec->pos - 1;
             if (th_dec_ascii(byte)) {
@@ -391,7 +385,7 @@ static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
             *point = 0x20AC;
             return TH_DEC_POINT;
         }
-        if (byte >= 0x81 && byte <= 0xFE) {
+        if (byte <= 0xFE) { /* the ASCII bytes and 0x80 already returned */
             dec->first = (unsigned char)byte;
             continue;
         }
@@ -482,7 +476,7 @@ static int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
             dec->state = TH_JP_LEAD;
             if (byte >= 0x21 && byte <= 0x7E) {
                 int pointer = (dec->lead - 0x21) * 94 + (byte - 0x21);
-                if (pointer < (int)(sizeof(th_jis0208) / sizeof(th_jis0208[0])) && th_jis0208[pointer] != 0) {
+                if (th_jis0208[pointer] != 0) {
                     *point = th_jis0208[pointer];
                     return TH_DEC_POINT;
                 }
@@ -538,33 +532,24 @@ static int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
 
 typedef int (*th_decode_fn)(th_decoder *dec, Py_UCS4 *point);
 
-/* The step function for a decoder's kind, resolved once so a loop over a whole buffer does not switch per code point.
- */
-static th_decode_fn th_decode_stepper(const th_decoder *dec) {
-    switch (dec->kind) {
-    case TH_DEC_SINGLE_BYTE:
-        return th_dec_single_byte;
-    case TH_DEC_X_USER_DEFINED:
-        return th_dec_x_user_defined;
-    case TH_DEC_BIG5:
-        return th_dec_big5;
-    case TH_DEC_EUC_KR:
-        return th_dec_euc_kr;
-    case TH_DEC_SHIFT_JIS:
-        return th_dec_shift_jis;
-    case TH_DEC_EUC_JP:
-        return th_dec_euc_jp;
-    case TH_DEC_GB18030:
-        return th_dec_gb18030;
-    default: /* TH_DEC_ISO_2022_JP */
-        return th_dec_iso_2022_jp;
-    }
-}
-
 /* Yield the next code point, TH_DEC_FINISHED at end of stream, or TH_DEC_ERROR for one malformed sequence. The caller
-   resumes stepping after an error, which is how a pushed-back ASCII byte reaches the output. */
+   resumes stepping after an error, which is how a pushed-back ASCII byte reaches the output. Only the encodings the
+   content detector scores reach this: a single-byte or x-user-defined stream is decoded in one pass instead. */
 static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
-    return th_decode_stepper(dec)(dec, point);
+    switch (dec->kind) {
+    case TH_DEC_BIG5:
+        return th_dec_big5(dec, point);
+    case TH_DEC_EUC_KR:
+        return th_dec_euc_kr(dec, point);
+    case TH_DEC_SHIFT_JIS:
+        return th_dec_shift_jis(dec, point);
+    case TH_DEC_EUC_JP:
+        return th_dec_euc_jp(dec, point);
+    case TH_DEC_GB18030:
+        return th_dec_gb18030(dec, point);
+    default: /* TH_DEC_ISO_2022_JP */
+        return th_dec_iso_2022_jp(dec, point);
+    }
 }
 
 /* Decode a chunk of a byte stream. Unlike th_decode, which sees the whole input, this holds back the trailing bytes of
@@ -598,8 +583,6 @@ static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final,
 
 static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar) {
     switch (dec->kind) {
-    case TH_DEC_SINGLE_BYTE:
-        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_single_byte);
     case TH_DEC_X_USER_DEFINED:
         return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined);
     case TH_DEC_BIG5:
