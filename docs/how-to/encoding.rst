@@ -9,8 +9,9 @@ Decode bytes of unknown or declared encoding the way a browser would, and inspec
  Parse bytes of an unknown encoding
 ************************************
 
-:func:`turbohtml.parse` accepts ``bytes`` and runs the WHATWG encoding sniffing algorithm (a byte-order mark, then a
-``<meta>`` declaration, defaulting to windows-1252). Pass ``encoding`` to override the sniff, and read
+:func:`turbohtml.parse` accepts ``bytes`` and runs the WHATWG encoding sniffing algorithm: a byte-order mark, then the
+``encoding`` argument, then a ``<meta>`` declaration, then a structural UTF-8 check, defaulting to windows-1252. Pass
+``encoding`` to outrank the ``<meta>`` and the sniff -- a byte-order mark still outranks it -- and read
 :attr:`~turbohtml.Document.encoding` for the WHATWG name that was resolved:
 
 .. testcode::
@@ -31,9 +32,9 @@ Decode bytes of unknown or declared encoding the way a browser would, and inspec
 *********************************
 
 :attr:`~turbohtml.Document.encoding_confidence` reports which of the sniff's steps answered. It is ``"certain"`` when
-the document named its own encoding -- a byte-order mark, the ``encoding`` argument, or a ``<meta>`` charset -- and
-``"tentative"`` when nothing did and the sniff fell back on a structural UTF-8 read, the opt-in detector, or
-windows-1252. A scraper that logs mojibake reports can use it to separate pages that lied from pages that said nothing:
+the document named its own encoding, through a byte-order mark, the ``encoding`` argument, or a ``<meta>`` charset. It
+is ``"tentative"`` when nothing did and the sniff fell back on a structural UTF-8 read, the opt-in detector, or
+windows-1252. Chasing a mojibake report, that tells a page that declared the wrong encoding from one that declared none:
 
 .. testcode::
 
@@ -51,8 +52,9 @@ windows-1252. A scraper that logs mojibake reports can use it to separate pages 
 
 A ``<meta>`` charset counts wherever it sits, even past the 1024 bytes the prescan reads: :func:`turbohtml.parse` redoes
 the parse against a declaration it could not reach in time, which is the WHATWG "changing the encoding while parsing"
-step. :func:`turbohtml.detect.detect` has no tree to consult, so it stops at the prescan and can answer differently on
-such a document; html5lib draws the same line between its input stream's encoding and its parser's ``documentEncoding``.
+step. :func:`turbohtml.detect.detect` has no tree to consult, so it stops at the prescan and can disagree with
+:func:`turbohtml.parse` on such a document; html5lib draws the same line between its input stream's encoding and its
+parser's ``documentEncoding``.
 
 ************************************
  Detect an encoding without parsing

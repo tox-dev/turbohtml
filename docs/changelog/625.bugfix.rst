@@ -1,20 +1,21 @@
-:func:`turbohtml.parse` no longer mojibakes two common inputs. Bytes that are valid UTF-8 but declare no encoding are
-now decoded as UTF-8 instead of reaching the windows-1252 fallback: validity is a structural proof, not a frequency
-guess, so it needs none of ``detect_encoding=True``'s cost, and pure ASCII still resolves to windows-1252, which decodes
-it identically. And a ``<meta>`` charset that sits past the prescan's 1024-byte window now redoes the parse against what
-it declares -- the WHATWG "changing the encoding while parsing" step -- so where the declaration sits in the document no
-longer changes the answer. Only a real ``<meta>`` element counts, so a charset written inside a ``<script>`` string
-cannot fool it, and a byte-order mark or the ``encoding`` argument still settles the encoding outright.
+:func:`turbohtml.parse` no longer mojibakes two common inputs. Bytes that are valid UTF-8 but declare no encoding now
+decode as UTF-8 rather than reaching the windows-1252 fallback. Validity is a structural proof rather than a frequency
+guess, so it costs none of the candidate scoring ``detect_encoding=True`` adds, and pure ASCII still resolves to
+windows-1252, which decodes it to the same text. A ``<meta>`` charset sitting past the prescan's 1024-byte window now
+redoes the parse against what it declares, following the WHATWG "changing the encoding while parsing" step, so where the
+declaration sits in the document no longer changes the answer. Only a real ``<meta>`` element counts, so a charset
+written inside a ``<script>`` string cannot pose as one, and a byte-order mark or the ``encoding`` argument still
+settles the encoding.
 
 :attr:`turbohtml.Document.encoding_confidence` reports which step answered: ``"certain"`` when the document named its
 own encoding through a byte-order mark, the ``encoding`` argument, or a ``<meta>`` charset, ``"tentative"`` when the
-sniff guessed, and ``None`` for ``str`` input. :func:`turbohtml.detect.detect` reads bytes without a tree, so on a
-document whose only ``<meta>`` sits past the prescan window it stops at the prescan and can answer differently from
+sniff guessed, and ``None`` for ``str`` input. :func:`turbohtml.detect.detect` reads bytes and has no tree to consult,
+so on a document whose only ``<meta>`` sits past the prescan window it stops at the prescan and can disagree with
 :func:`turbohtml.parse`.
 
-:attr:`turbohtml.Document.errors` reports every parse error the WHATWG tokenizer defines. It carried eight codes, of the
-48 the algorithm names, so ``a\x00b`` and ``<0>`` and a malformed ``<!DOCTYPE>`` all parsed silently. The missing 45 now
-report, together with the preprocessing errors a control, noncharacter, or surrogate code point raises simply by being
-in the input, interleaved with the tokenizer's in source order. ``strict=True`` therefore raises on documents it used to
-accept. The vendored ``html5lib-tests`` tokenizer suite, whose ``errors`` arrays nothing gated before, now gates the
-codes and their order on all 7032 cases, and their line and column on every BMP-only input.
+:attr:`turbohtml.Document.errors` reports every parse error the WHATWG tokenizer defines. It carried 8 of the 48 codes
+the algorithm names, so ``a\x00b`` and a malformed ``<!DOCTYPE>`` both parsed without a word. turbohtml now reports the
+other 45, along with the preprocessing errors a control, noncharacter, or surrogate code point raises by being in the
+input at all, interleaved with the tokenizer's in source order. ``strict=True`` therefore raises on documents it used to
+accept. Nothing gated the ``errors`` arrays the vendored ``html5lib-tests`` tokenizer suite carries; they now gate the
+codes and their order on all 7032 cases, and the line and column on every BMP-only input.

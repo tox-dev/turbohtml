@@ -31,18 +31,27 @@ green stage is the navigable tree you query.
 For ``bytes`` input the first stage resolves an encoding in the `WHATWG order
 <https://html.spec.whatwg.org/multipage/parsing.html#determining-the-character-encoding>`_: a byte-order mark wins
 outright, then the caller's ``encoding`` argument, then a prescan of the first 1024 bytes for a ``<meta>`` charset
-declaration, and windows-1252 stands in when nothing matched. Passing ``detect_encoding=True`` inserts one step before
-that fallback: a content-based detector that validates UTF-8 structurally and otherwise lets the CJK and single-byte
-candidates compete on character-pair frequencies, penalizing a candidate for a byte pair its encoding leaves unmapped
-and disqualifying it outright for one it cannot decode at all. The step is opt-in and strictly subordinate: a declared
-encoding always wins, so spec conformance is untouched, and pure ASCII stays windows-1252 (the two decode ASCII
-identically).
+declaration, then a structural UTF-8 check, and windows-1252 stands in when nothing matched. Validity is a proof rather
+than a frequency guess, so the UTF-8 check needs no opt-in, and pure ASCII stays windows-1252 (the two decode ASCII to
+the same text). Passing ``detect_encoding=True`` adds the rest of the content detector before that fallback: the CJK and
+single-byte candidates compete on character-pair frequencies, penalizing a candidate for a byte pair its encoding leaves
+unmapped and disqualifying it outright for one it cannot decode at all. Those candidates are opt-in and subordinate,
+because a declared encoding always wins, which leaves spec conformance untouched.
+
+The prescan reads 1024 bytes, but the algorithm does not stop there. A ``<meta>`` charset beyond that window redoes the
+parse against what it declares, the spec's `changing the encoding while parsing
+<https://html.spec.whatwg.org/multipage/parsing.html#changing-the-encoding-while-parsing>`_ step, so where the
+declaration sits in the document does not change the answer. The tree builder sees it, so a charset written inside a
+``<script>`` string cannot pose as one. :attr:`~turbohtml.Document.encoding_confidence` reports whether the document
+named its encoding (``"certain"``) or the sniff guessed it (``"tentative"``).
 
 The same pipeline, minus the decode and the parse, is the standalone :func:`turbohtml.detect.detect` -- the
 :doc:`chardet and charset-normalizer replacement </reference/detect>` -- which is why a standalone detection and
-``parse(data, detect_encoding=True)`` agree about the same bytes. A byte-order mark is the one divergence:
-:func:`~turbohtml.detect.detect` reports the mark's own label so a caller can strip it, where the spec-locked parse
-keeps the plain WHATWG name.
+``parse(data, detect_encoding=True)`` agree about the same bytes. Two things diverge. A byte-order mark makes
+:func:`~turbohtml.detect.detect` report the mark's own label so a caller can strip it, where the spec-locked parse keeps
+the plain WHATWG name. And a ``<meta>`` past the prescan window is invisible to :func:`~turbohtml.detect.detect`, which
+reads bytes and has no tree to consult, where :func:`turbohtml.parse` honors it; html5lib draws the same line between
+its input stream's encoding and its parser's ``documentEncoding``.
 
 ************************
  A spec-exact tokenizer

@@ -1062,10 +1062,9 @@ static const char *input_stream_error(Py_UCS4 cp) {
 }
 
 /* Whether eight 1-byte code points are all printable ASCII, so the scan can skip the block
-   whole: nothing below U+0020 (which covers every newline), nothing at U+007F, and nothing
-   above. Ordinary markup answers yes, so the pass costs a fraction of a compare per
-   character; accented Latin-1 text falls back to the per-character loop, which is correct
-   either way. */
+   whole: nothing below U+0020 (which covers the newlines), nothing at U+007F, and nothing
+   above it. Ordinary markup skips, costing a fraction of a compare per character; accented
+   Latin-1 text drops to the per-character loop, which is correct either way. */
 static int plain_ascii_block(uint64_t word) {
     uint64_t below_space = (word - TH_ONES * 0x20) & ~word & TH_HIGHS;
     uint64_t high_bit = word & TH_HIGHS;

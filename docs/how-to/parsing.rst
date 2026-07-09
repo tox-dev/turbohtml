@@ -47,8 +47,10 @@ parser releases its work-in-progress when the block exits, so you can stop early
 ****************************************
 
 :func:`turbohtml.parse` recovers from malformed markup the way a browser does and records each WHATWG parse error it
-recovered from on :attr:`~turbohtml.Document.errors`. Each :class:`~turbohtml.ParseError` carries the spec ``code`` and
-the source position (1-based ``line``, 0-based ``col``); a well-formed document yields an empty list:
+recovered from on :attr:`~turbohtml.Document.errors`: every tokenizer error the spec names, plus the preprocessing
+errors a control, noncharacter, or surrogate code point raises by being in the input at all, in source order. Each
+:class:`~turbohtml.ParseError` carries the spec ``code`` and the source position (1-based ``line``, 0-based ``col``); a
+well-formed document yields an empty list:
 
 .. testcode::
 
@@ -75,6 +77,20 @@ To fail instead of recover (in a linter or a strict ingest pipeline), pass ``str
 .. testoutput::
 
     eof-in-doctype
+
+Gate a scrape on this list rather than on the shape of the tree. A page that raised nothing last week and now raises
+``eof-in-tag`` arrived truncated; one raising ``control-character-in-input-stream`` came back under the wrong encoding.
+Read it with :attr:`~turbohtml.Document.encoding_confidence` to tell a page that named its encoding from one the sniff
+guessed at:
+
+.. testcode::
+
+    page = turbohtml.parse(b"<p>caf\xe9")
+    print(page.encoding, page.encoding_confidence, [error.code for error in page.errors])
+
+.. testoutput::
+
+    windows-1252 tentative []
 
 ************************
  Parse an HTML fragment

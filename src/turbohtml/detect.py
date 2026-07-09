@@ -5,10 +5,12 @@ turbohtml.detect: standalone character-encoding detection over bytes.
 are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse`
 uses for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024
 bytes), then a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte
-candidates on character-pair frequencies, then the spec's windows-1252 fallback. A non-mark input therefore always
-yields the same encoding whether you detect it standalone or parse it with ``detect_encoding=True``; a byte-order mark
-is the one divergence, reported here with its own label (``UTF-8-SIG`` and the UTF-16/UTF-32 marks) so a caller can
-strip it, where the spec-locked parse path keeps the plain WHATWG name.
+candidates on character-pair frequencies, then the spec's windows-1252 fallback. A non-mark input therefore yields the
+same encoding whether you detect it standalone or parse it with ``detect_encoding=True``, with two divergences. A
+byte-order mark is reported here with its own label (``UTF-8-SIG`` and the UTF-16/UTF-32 marks) so a caller can strip
+it, where the spec-locked parse path keeps the plain WHATWG name. And a ``<meta>`` charset past the prescan's 1024-byte
+window is invisible here, because these functions read bytes and have no tree to consult, where :func:`turbohtml.parse`
+redoes the parse against what it declares.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every

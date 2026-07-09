@@ -86,7 +86,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (cursor < len && TH_READ(cursor) == ';') {
             end = cursor + 1;
         }
-        /* every error below is reported where the reference ended, not where it began */
+        /* the spec places each error below at the reference's end rather than at its '&' */
         Py_ssize_t end_col = self->col + (end - amp);
         if (end == cursor) {
             tok_error_at(self, "missing-semicolon-after-character-reference", end_col);
