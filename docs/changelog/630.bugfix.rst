@@ -1,0 +1,3 @@
+Report a control character that follows a tab, form feed, or NUL inside the same eight bytes of input. The
+word-at-a-time skip built its mask from a borrow-based test whose bits are not exact per byte, so an ordinary low byte
+erased its neighbor's error.

@@ -184,6 +184,21 @@ def test_reading_errors_twice_reports_the_same_list() -> None:
     assert [error.code for error in document.errors] == first
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("\t\x08" + "A" * 6, id="tab-then-control"),
+        pytest.param("\x00\x01" + "A" * 6, id="null-then-control"),
+        pytest.param("\x0c\x1f" + "A" * 6, id="form-feed-then-control"),
+    ],
+)
+def test_a_control_beside_an_ordinary_low_byte_is_still_reported(markup: str) -> None:
+    # the eight-byte skip masks the tab, form feed and NUL out of the "below space" test, and the mask it built from
+    # them used to erase the neighboring control character's bit along with them
+    codes = [error.code for error in parse(markup).errors]
+    assert "control-character-in-input-stream" in codes
+
+
 def test_a_streamed_tree_keeps_no_source_to_scan() -> None:
     # IncrementalParser copies its chunks and drops them, so there is no input left to walk
     parser = IncrementalParser()

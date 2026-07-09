@@ -1061,26 +1061,31 @@ static const char *input_stream_error(Py_UCS4 cp) {
     return NULL;
 }
 
-#define TH_HASVALUE(word, byte) TH_HASZERO((word) ^ (TH_ONES * (byte)))
+#define TH_LOW7 UINT64_C(0x7F7F7F7F7F7F7F7F)
 
-/* Which of eight 1-byte code points raise a preprocessing error. Newlines and tabs sit below
-   U+0020 and are ordinary text, so testing "below space" alone would drop every line of real
-   markup into the per-character walk; the ASCII whitespace and the NUL every state reports
-   for itself are masked out. The C1 test matches a byte whose top three bits are 100
-   (U+0080..U+009F), and U+007F stands on its own. Latin-1 accents (U+00A0 and above) are not
-   errors, so a page full of them still skips. */
-static uint64_t block_input_error(uint64_t word) {
-    uint64_t below_space = (word - TH_ONES * 0x20) & ~word & TH_HIGHS;
-    uint64_t ignored = TH_HASVALUE(word, 0x00) | TH_HASVALUE(word, 0x09) | TH_HASVALUE(word, 0x0A) |
-                       TH_HASVALUE(word, 0x0C) | TH_HASVALUE(word, 0x0D);
-    uint64_t c1 = TH_HASZERO((word & (TH_ONES * 0xE0)) ^ (TH_ONES * 0x80));
-    return (below_space & ~ignored) | c1 | TH_HASVALUE(word, 0x7F);
+/* The high bit set in exactly the lanes whose byte is zero. TH_HASZERO answers whether any lane
+   is one, but the borrow it relies on can light a neighbor's high bit too, so its result is a
+   predicate and never a per-lane mask. */
+static uint64_t bytes_zero(uint64_t word) {
+    return ~(((word & TH_LOW7) + TH_LOW7) | word) & TH_HIGHS;
 }
 
-/* Whether the block can be stepped over whole: it raises no error, and it carries no line
-   break, so the column simply advances by eight. */
+#define TH_BYTES_EQ(word, byte) bytes_zero((word) ^ (TH_ONES * (byte)))
+
+/* Whether eight 1-byte code points can be stepped over whole: none raises a preprocessing error,
+   and none breaks the line, so the column simply advances by eight. A byte below U+0020 has its
+   top three bits clear, which is the test here; the tab, the form feed, and the NUL every state
+   reports for itself are the three that are ordinary text, so they are masked back out. U+000A
+   and U+000D stay in, because a block carrying one has to walk the characters that count the
+   line. The C1 test matches a byte whose top three bits are 100 (U+0080..U+009F), and U+007F
+   stands on its own. Latin-1 accents (U+00A0 and above) are not errors, so a page full of them
+   still skips. */
 static int block_skippable(uint64_t word) {
-    return !(block_input_error(word) | TH_HASVALUE(word, '\n') | TH_HASVALUE(word, '\r'));
+    uint64_t high_bits = word & (TH_ONES * 0xE0);
+    uint64_t below_space = bytes_zero(high_bits);
+    uint64_t ordinary = TH_BYTES_EQ(word, 0x00) | TH_BYTES_EQ(word, 0x09) | TH_BYTES_EQ(word, 0x0C);
+    uint64_t c1 = TH_BYTES_EQ(high_bits, 0x80);
+    return !((below_space & ~ordinary) | c1 | TH_BYTES_EQ(word, 0x7F));
 }
 
 /* The preprocessing errors over 1-byte input, where the corpora live. */
@@ -1396,7 +1401,8 @@ static Py_ssize_t scan_data_ucs1(const th_tokenizer *self, Py_ssize_t index, Py_
         if (TH_HASZERO(word ^ amp) | TH_HASZERO(word ^ lt) | TH_HASZERO(word)) {
             break;
         }
-        newlines += (Py_ssize_t)(((TH_HASZERO(word ^ nlv) >> 7) * TH_ONES) >> 56);
+        /* summing the lanes needs a mask that is exact per lane, which TH_HASZERO is not */
+        newlines += (Py_ssize_t)(((bytes_zero(word ^ nlv) >> 7) * TH_ONES) >> 56);
         index += 8;
     }
 #endif
