@@ -42,6 +42,29 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           COV_GCOV: ${{ matrix.cov }}
+  pypy:
+    # PyPy is a separate job, not a matrix row: it needs an interpreter uv does not manage yet (uv's newest PyPy 3.11
+    # is 7.3.21, and turbohtml requires 7.3.22 -- see core/pycompat.h), and it runs no coverage gate.
+    name: 🧪 PyPy 3.11 - Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          submodules: true # html5lib-tests data for the conformance test
+          persist-credentials: false
+      - name: 🐍 Install PyPy
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "pypy-3.11"
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run pypy3.11
+        run: uvx --with tox-uv tox run --skip-missing-interpreters false -e pypy3.11
+        env:
+          UV_PYTHON_PREFERENCE: only-system
   check:
     name: 🔎 ${{ matrix.tox_env }}
     runs-on: ubuntu-24.04

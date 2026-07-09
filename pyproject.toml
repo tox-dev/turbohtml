@@ -47,6 +47,8 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3.15",
   "Programming Language :: Python :: Free Threading :: 1 - Unstable",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
   "Topic :: Internet",
   "Topic :: Software Development :: Libraries",
   "Topic :: Text Processing :: Markup :: HTML",
@@ -197,7 +199,10 @@ release = [
 # APIs), so we ship a wheel per interpreter; cibuildwheel automates the matrix.
 # requires-python bounds the low end; free-threading wheels for 3.14+/3.15+ are
 # built automatically, and cpython-prerelease covers 3.15 while it is in beta.
-enable = [ "cpython-prerelease" ]
+# "pypy" selects pp311 only: cibuildwheel classes PyPy 3.10 and below as EoL, and turbohtml refuses to import on
+# PyPy below 7.3.22 anyway (core/module.c) -- earlier cpyext ignores Py_TPFLAGS_DISALLOW_INSTANTIATION, which lets the
+# C types be built without a tree and segfault on first use.
+enable = [ "cpython-prerelease", "pypy" ]
 build-frontend = "build[uv]"
 test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtml.escape('a & b')) == 'a & b'\""
 # Profile-guided optimization for the manylinux/musllinux wheels, where the gcc the spike measured runs. before-build
@@ -226,6 +231,17 @@ windows.archs = [ "AMD64" ]  # 64-bit only; skip the 32-bit x86 build
 # force the MSVC toolchain: meson otherwise picks up MinGW from the runner's PATH (the strip flag is a no-op on
 # MSVC, whose release .pyd carries no symbol table and which exports nothing without dllexport)
 windows.config-settings.setup-args = [ "--vsenv", "-Dstrip=true" ]
+
+# The Linux PGO hook above trains the profile by driving turbohtml from the interpreter it is building for. Under PyPy
+# that run is dominated by cpyext boundary crossings rather than by the C hot paths, so the profile it produces is a
+# picture of the wrong workload, and -Db_pgo=use would lay the object out for it. Drop PGO (and the build directory the
+# two phases share) for the PyPy wheels and keep LTO, which is interpreter-independent. Only Linux needs the override:
+# before-build and the profile arguments are set nowhere else, and matching pp*-macosx / pp*-win here would clobber
+# their own setup-args.
+[[tool.cibuildwheel.overrides]]
+select = "pp*-manylinux*"
+config-settings.setup-args = [ "-Dbuildtype=release", "-Db_lto=true", "-Dstrip=true" ]
+before-build = ""
 
 [tool.ruff]
 line-length = 120
