@@ -203,10 +203,16 @@ def _warm_corpus(operation_names: Iterable[str]) -> None:
 
     A worker runs in an isolated venv holding pyperf, turbohtml and one competitor, and nothing else. Building a case
     can download a corpus document, so do it in this process, which carries the HTTP client, and let the workers read
-    the cache it leaves behind.
+    the cache it leaves behind. An operation whose vendored corpus is not checked out has nothing to warm and is left
+    to raise where it runs, which is what pgo_train does with the same absence.
     """
     for name in operation_names:
-        operations.INPUTS[name]()
+        if (build_cases := operations.INPUTS.get(name)) is None:
+            continue  # sax draws its document from the ci loaders rather than from INPUTS
+        try:
+            build_cases()
+        except FileNotFoundError:  # a corpus submodule is absent, so no cache can be primed for this operation
+            continue
 
 
 def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
@@ -248,6 +254,9 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
     corpus.prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
+        if pgo:
+            # the profile-guided build trains on every operation, in a venv as bare as a worker's, so warm them all
+            _warm_corpus(operations.OPERATIONS)
         if command in COMPETITORS:
             _warm_corpus(COMPETITORS[command][1])
             report_package(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
