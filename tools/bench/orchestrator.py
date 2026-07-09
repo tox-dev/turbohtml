@@ -20,7 +20,7 @@ from pathlib import Path
 import pgo_build
 import tomllib
 
-from bench import operations, report
+from bench import corpus, operations, report
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOOLS_DIR = Path(__file__).resolve().parents[1]
@@ -220,6 +220,7 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
         "pyperf options like --rigorous or --affinity=<cpu> after the command to control sampling and CPU pinning.",
         file=sys.stderr,
     )
+    corpus.prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         if command in COMPETITORS:

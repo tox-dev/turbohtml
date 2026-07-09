@@ -13,8 +13,6 @@ import html
 import random
 from pathlib import Path
 
-from httpfetch import fetch_bytes
-
 _TOOLS = Path(__file__).resolve().parent.parent
 
 CORPUS_DIR = _TOOLS / "html5lib-python" / "benchmarks" / "data"
@@ -94,11 +92,25 @@ STYLESHEETS: tuple[tuple[str, str, str], ...] = (
 
 def large_text(filename: str, url: str) -> str:
     """Return a multi-megabyte document, downloading and caching it on first use."""
+    return _cached(filename, url).read_text(encoding="utf-8")
+
+
+def _cached(filename: str, url: str) -> Path:
+    """
+    Return the cache path for a downloaded corpus, fetching it on a miss.
+
+    httpfetch pulls in httpx2, which a worker venv holds no reason to install: it carries pyperf, turbohtml, and at
+    most one competitor. So this module imports under the standard library alone, as its docstring promises, and the
+    import that needs the network sits at the miss. :func:`prefetch` fills the cache from the orchestrator, which does
+    have httpx2, before any worker starts, so a worker only ever hits.
+    """
     target = _LARGE_DIR / filename
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
+        from httpfetch import fetch_bytes  # noqa: PLC0415  # see the docstring above
+
         target.write_bytes(fetch_bytes(url))
-    return target.read_text(encoding="utf-8")
+    return target
 
 
 _DATA_DIR = _TOOLS / "bench-data"
@@ -212,3 +224,10 @@ def unescape_cases() -> tuple[tuple[str, str], ...]:
         ("dense refs (4 MiB)", _tile(_references_of(rng, _ASCII_WORDS, 1, _CHUNK, _REFERENCES), LARGE)),
         ("UCS-2 refs (4 MiB)", _tile(_references_of(rng, _UCS2_WORDS, 10, _CHUNK, _REFERENCES), LARGE)),
     )
+
+
+def prefetch() -> None:
+    """Download every cached corpus that is missing, so the worker venvs only ever read from the cache."""
+    for table in (LARGE_FILES, REAL_PAGES, STYLESHEETS, JS_FILES):
+        for _name, filename, url in table:
+            _cached(filename, url)
