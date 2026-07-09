@@ -256,3 +256,11 @@ def test_decoded_str_is_in_its_narrowest_form(label: str, data: bytes, text: str
     decoded = _decode(data, label)
     assert decoded == text
     assert hash(decoded) == hash(text)
+
+
+def test_a_big5_combination_holds_its_mark_back_past_an_ascii_run() -> None:
+    # the combining mark is the only state that outlives a step, so the ASCII run after it cannot be copied out until
+    # the mark has gone: copying first would reorder U+0304 behind the "A"
+    decoded = _decode(b"\x88\x62Aa", "big5")
+    assert decoded == "Ê̄Aa"
+    assert hash(decoded) == hash("Ê̄Aa")
