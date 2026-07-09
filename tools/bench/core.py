@@ -787,6 +787,12 @@ def encoding(data: bytes) -> None:
     _detect_encoding(data)
 
 
+def decode(case: tuple[str, bytes]) -> None:
+    """Decode a legacy byte stream with turbohtml's WHATWG decoders, reached through the codecs detect registers."""
+    label, data = case
+    data.decode(f"whatwg-{label}")
+
+
 def normalize(text: str) -> None:
     """Normalize text to Unicode NFC with turbohtml's C engine (quick-checked, then decompose/reorder/compose)."""
     _normalize("NFC", text)
@@ -905,6 +911,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
     "encoding": (encoding, "turbohtml"),
+    "decode": (decode, "turbohtml"),
     "urls-clean": (urls_clean, "turbohtml"),
     "links-filter": (links_filter, "turbohtml"),
 }

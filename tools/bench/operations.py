@@ -333,6 +333,7 @@ OPERATIONS: dict[str, Operation] = {
     "minify-css": Operation("minify CSS", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
+    "decode": Operation("decode a legacy byte stream", "us"),
     "normalize": Operation("normalize text to Unicode NFC", "us"),
     "urls-clean": Operation("clean and normalize 100 URLs", "us"),
     "links-filter": Operation("extract filtered page links", "us"),
@@ -698,6 +699,30 @@ def _encoding_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
+def _decode_page(text: str) -> str:
+    """Wrap prose in tags, so the bytes are mostly ASCII markup: the shape of a real page in a legacy encoding."""
+    rows = "".join(f'<p class="line" id="l{index}">{text}</p>' for index in range(60))
+    return f"<html><body>{rows}</body></html>"
+
+
+def _decode_cases() -> tuple[tuple[str, object], ...]:
+    """
+    Return the byte streams the WHATWG decoders turn into str, keyed by the label that names the decoder.
+
+    windows-1252 covers the single-byte tables, shift_jis and gb18030 the two- and four-byte state machines, and
+    iso-2022-jp the stateful escapes, which are the one encoding whose ASCII bytes a run cannot copy past the decoder.
+    Each case is encoded with the CPython codec whose table matches the spec's, so the bytes decode to the prose rather
+    than to a page of U+FFFD.
+    """
+    japanese = _decode_page(_ENCODING_JAPANESE)
+    return (
+        ("shift_jis japanese (8 kB)", ("shift_jis", japanese.encode("cp932"))),
+        ("windows-1252 french (9 kB)", ("windows-1252", _decode_page(_ENCODING_FRENCH).encode("cp1252"))),
+        ("gb18030 japanese (8 kB)", ("gb18030", japanese.encode("gb18030"))),
+        ("iso-2022-jp japanese (8 kB)", ("iso-2022-jp", japanese.encode("iso2022_jp"))),
+    )
+
+
 def _normalize_cases() -> tuple[tuple[str, object], ...]:
     """
     Return the strings the Unicode-normalization suite folds to NFC.
@@ -833,6 +858,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-css": _minify_cases,
     "minify-js": _minify_js_cases,
     "encoding": _encoding_cases,
+    "decode": _decode_cases,
     "normalize": _normalize_cases,
     "urls-clean": lambda: (
         ("clean 100 URLs", ("clean", _URL_BATCH)),
