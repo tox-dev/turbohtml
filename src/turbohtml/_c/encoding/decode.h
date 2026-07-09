@@ -91,11 +91,7 @@ static int th_dec_single_byte(th_decoder *dec, Py_UCS4 *point) {
     if (byte == TH_DEC_EOF) {
         return TH_DEC_FINISHED;
     }
-    if (th_dec_ascii(byte)) {
-        *point = (Py_UCS4)byte;
-        return TH_DEC_POINT;
-    }
-    uint16_t mapped = th_sb_index[dec->single][byte - 0x80];
+    uint16_t mapped = th_sb_index[dec->single][byte];
     if (mapped == 0xFFFD) { /* the generator stores U+FFFD where the spec's index leaves the byte null */
         dec->error_at = dec->pos - 1;
         return TH_DEC_ERROR;
@@ -540,27 +536,35 @@ static int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
     }
 }
 
+typedef int (*th_decode_fn)(th_decoder *dec, Py_UCS4 *point);
+
+/* The step function for a decoder's kind, resolved once so a loop over a whole buffer does not switch per code point.
+ */
+static th_decode_fn th_decode_stepper(const th_decoder *dec) {
+    switch (dec->kind) {
+    case TH_DEC_SINGLE_BYTE:
+        return th_dec_single_byte;
+    case TH_DEC_X_USER_DEFINED:
+        return th_dec_x_user_defined;
+    case TH_DEC_BIG5:
+        return th_dec_big5;
+    case TH_DEC_EUC_KR:
+        return th_dec_euc_kr;
+    case TH_DEC_SHIFT_JIS:
+        return th_dec_shift_jis;
+    case TH_DEC_EUC_JP:
+        return th_dec_euc_jp;
+    case TH_DEC_GB18030:
+        return th_dec_gb18030;
+    default: /* TH_DEC_ISO_2022_JP */
+        return th_dec_iso_2022_jp;
+    }
+}
+
 /* Yield the next code point, TH_DEC_FINISHED at end of stream, or TH_DEC_ERROR for one malformed sequence. The caller
    resumes stepping after an error, which is how a pushed-back ASCII byte reaches the output. */
 static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
-    switch (dec->kind) {
-    case TH_DEC_SINGLE_BYTE:
-        return th_dec_single_byte(dec, point);
-    case TH_DEC_X_USER_DEFINED:
-        return th_dec_x_user_defined(dec, point);
-    case TH_DEC_BIG5:
-        return th_dec_big5(dec, point);
-    case TH_DEC_EUC_KR:
-        return th_dec_euc_kr(dec, point);
-    case TH_DEC_SHIFT_JIS:
-        return th_dec_shift_jis(dec, point);
-    case TH_DEC_EUC_JP:
-        return th_dec_euc_jp(dec, point);
-    case TH_DEC_GB18030:
-        return th_dec_gb18030(dec, point);
-    default: /* TH_DEC_ISO_2022_JP */
-        return th_dec_iso_2022_jp(dec, point);
-    }
+    return th_decode_stepper(dec)(dec, point);
 }
 
 /* Decode a chunk of a byte stream. Unlike th_decode, which sees the whole input, this holds back the trailing bytes of
@@ -569,13 +573,15 @@ static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
    decoder's state travels with it, since ISO-2022-JP's mode survives a chunk boundary while its bytes do not.
 
    Returns the number of code points written to out (which must hold len of them), sets *consumed to the offset the next
-   chunk should start at, and leaves the mode state in *dec. */
-static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar) {
+   chunk should start at, and leaves the mode state in *dec. step is passed as a constant from th_decode_chunk so the
+   compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding. */
+static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar,
+                                       th_decode_fn step) {
     Py_ssize_t count = 0;
     for (;;) {
         Py_ssize_t start = dec->pos;
         Py_UCS4 point = 0;
-        int status = th_decode_step(dec, &point);
+        int status = step(dec, &point);
         if (status == TH_DEC_FINISHED) {
             *consumed = dec->len;
             return count;
@@ -587,6 +593,27 @@ static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_s
         point = status == TH_DEC_ERROR ? 0xFFFD : point;
         out[count++] = point;
         *maxchar = point > *maxchar ? point : *maxchar;
+    }
+}
+
+static Py_ssize_t th_decode_chunk(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar) {
+    switch (dec->kind) {
+    case TH_DEC_SINGLE_BYTE:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_single_byte);
+    case TH_DEC_X_USER_DEFINED:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_x_user_defined);
+    case TH_DEC_BIG5:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_big5);
+    case TH_DEC_EUC_KR:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_kr);
+    case TH_DEC_SHIFT_JIS:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_shift_jis);
+    case TH_DEC_EUC_JP:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_euc_jp);
+    case TH_DEC_GB18030:
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_gb18030);
+    default: /* TH_DEC_ISO_2022_JP */
+        return th_decode_run(dec, out, final, consumed, maxchar, th_dec_iso_2022_jp);
     }
 }
 
@@ -607,41 +634,59 @@ static Py_ssize_t th_decode_ascii_run(const unsigned char *bytes, Py_ssize_t len
     return index;
 }
 
-/* One code point per byte, so the length is known up front and only the width has to be found. A str must be in its
-   narrowest form or CPython's equality, which compares kind before content, reports two equal strings as different, so
-   the pass over the bytes takes the real maximum rather than the table's ceiling. */
+/* One code point per byte, and th_decode only calls this once a byte of 0x80 or above is present, which no index maps
+   below U+0080. The result therefore always needs at least a Latin-1 str, so build one and widen on the first character
+   that will not fit, rather than reading the whole buffer once to find the width and again to fill it. */
 static PyObject *th_decode_single_byte(uint8_t single, const unsigned char *bytes, Py_ssize_t len) {
     const uint16_t *table = th_sb_index[single];
-    Py_UCS4 maxchar = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        unsigned char byte = bytes[index];
-        Py_UCS4 point = byte < 0x80 ? (Py_UCS4)byte : (Py_UCS4)table[byte - 0x80];
-        maxchar = point > maxchar ? point : maxchar;
+    PyObject *narrow = PyUnicode_New(len, 0xFF);
+    if (narrow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *decoded = PyUnicode_New(len, maxchar);
-    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    Py_UCS1 *out = PyUnicode_1BYTE_DATA(narrow);
+    Py_ssize_t index = 0;
+    for (; index < len; index++) {
+        uint16_t point = table[bytes[index]];
+        if (point > 0xFF) {
+            break;
+        }
+        out[index] = (Py_UCS1)point;
     }
-    int kind = PyUnicode_KIND(decoded);
-    void *out = PyUnicode_DATA(decoded);
-    for (Py_ssize_t index = 0; index < len; index++) {
-        unsigned char byte = bytes[index];
-        PyUnicode_WRITE(kind, out, index, byte < 0x80 ? (Py_UCS4)byte : (Py_UCS4)table[byte - 0x80]);
+    if (index == len) {
+        return narrow;
     }
-    return decoded;
+    Py_DECREF(narrow);
+    PyObject *wide = PyUnicode_New(len, 0xFFFF);
+    if (wide == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS2 *widened = PyUnicode_2BYTE_DATA(wide);
+    for (index = 0; index < len; index++) {
+        widened[index] = table[bytes[index]];
+    }
+    return wide;
 }
 
-/* Build the str, narrowest form first so CPython's equality -- which compares kind before content -- sees it as equal
-   to its own value. */
+/* Build the str in its narrowest form, since CPython's equality compares the kind before the content and would report
+   a too-wide str as unequal to its own value. One loop per width: PyUnicode_WRITE would branch on the kind for every
+   code point. */
 static PyObject *th_points_to_str(const Py_UCS4 *points, Py_ssize_t count, Py_UCS4 maxchar) {
     PyObject *decoded = PyUnicode_New(count, maxchar);
     if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int kind = PyUnicode_KIND(decoded);
-    void *out = PyUnicode_DATA(decoded);
-    for (Py_ssize_t index = 0; index < count; index++) {
-        PyUnicode_WRITE(kind, out, index, points[index]);
+    if (maxchar > 0xFFFF) {
+        memcpy(PyUnicode_4BYTE_DATA(decoded), points, (size_t)count * sizeof(Py_UCS4));
+    } else if (maxchar > 0xFF) {
+        Py_UCS2 *out = PyUnicode_2BYTE_DATA(decoded);
+        for (Py_ssize_t index = 0; index < count; index++) {
+            out[index] = (Py_UCS2)points[index];
+        }
+    } else {
+        Py_UCS1 *out = PyUnicode_1BYTE_DATA(decoded);
+        for (Py_ssize_t index = 0; index < count; index++) {
+            out[index] = (Py_UCS1)points[index];
+        }
     }
     return decoded;
 }

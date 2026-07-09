@@ -107,14 +107,15 @@ def _slot_name(name: str) -> str:
 
 
 def _single_byte_tables(indexes: dict[str, list[int | None]]) -> tuple[str, str]:
-    """Emit the slot constants and the 27 single-byte tables."""
-    tables = [
-        f"    {{ /* {name} */\n{_rows(_REPLACEMENT if point is None else point for point in indexes[name])}\n    }},"
-        for name in _SINGLE_BYTE
-    ]
+    """Emit the slot constants and the 27 single-byte tables, each covering all 256 bytes."""
+    tables = []
+    for name in _SINGLE_BYTE:
+        # the ASCII half is the identity, so the decoder indexes by the raw byte and needs no compare per byte
+        points = list(range(0x80)) + [_REPLACEMENT if point is None else point for point in indexes[name]]
+        tables.append(f"    {{ /* {name} */\n{_rows(points)}\n    }},")
     slots = "\n".join(f"#define {_slot_name(name)} {slot}" for slot, name in enumerate(_SINGLE_BYTE))
     body = "\n".join(tables)
-    return f"{slots}\n", f"static const uint16_t th_sb_index[TH_SB_INDEX_COUNT][128] = {{\n{body}\n}};\n"
+    return f"{slots}\n", f"static const uint16_t th_sb_index[TH_SB_INDEX_COUNT][256] = {{\n{body}\n}};\n"
 
 
 def _big5_tables(index: Sequence[int | None]) -> str:
@@ -178,8 +179,10 @@ def generate(out_path: Path) -> None:
         ),
         "/* The row each single-byte encoding occupies in th_sb_index; the label table names one of these. */\n"
         + sb_slots,
-        "/* Pointer -> code point for each legacy single-byte encoding, byte 0x80 + i; U+FFFD marks an unmapped byte,\n"
-        "   which the spec's index leaves null and the decoder reports as an error. */\n" + sb_table,
+        "/* Byte -> code point for each legacy single-byte encoding. The ASCII half is the identity;\n"
+        "   U+FFFD marks a byte the spec's index leaves null, which the decoder reports as an error.\n"
+        "   No index maps a byte below U+0080, so a decoder reaching this table always emits a\n"
+        "   non-ASCII code point. */\n" + sb_table,
         _big5_tables(indexes["big5"]),
         _flat_table("euc_kr", indexes["euc-kr"]),
         _flat_table("gb18030", indexes["gb18030"]),

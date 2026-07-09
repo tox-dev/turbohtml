@@ -962,15 +962,21 @@ static void stream_dealloc(PyObject *self) {
 static PyObject *stream_decode_legacy(StreamObject *parser, const unsigned char *chunk, Py_ssize_t chunk_len,
                                       int final) {
     Py_ssize_t len = parser->tail_len + chunk_len;
-    unsigned char *joined = PyMem_Malloc((size_t)(len > 0 ? len : 1));
-    if (joined == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    /* the previous chunk usually ended on a sequence boundary, and then the chunk decodes where it lies */
+    const unsigned char *joined = chunk;
+    unsigned char *spliced = NULL;
+    if (parser->tail_len > 0) {
+        spliced = PyMem_Malloc((size_t)len);
+        if (spliced == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memcpy(spliced, parser->tail, (size_t)parser->tail_len);
+        memcpy(spliced + parser->tail_len, chunk, (size_t)chunk_len);
+        joined = spliced;
     }
-    memcpy(joined, parser->tail, (size_t)parser->tail_len);
-    memcpy(joined + parser->tail_len, chunk, (size_t)chunk_len);
     Py_UCS4 *scratch = PyMem_Malloc((size_t)(len > 0 ? len : 1) * sizeof(Py_UCS4));
     if (scratch == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(joined);      /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(spliced);     /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     parser->decoder.buf = joined;
@@ -981,7 +987,7 @@ static PyObject *stream_decode_legacy(StreamObject *parser, const unsigned char 
     Py_ssize_t count = th_decode_chunk(&parser->decoder, scratch, final, &consumed, &maxchar);
     parser->tail_len = len - consumed;
     memcpy(parser->tail, joined + consumed, (size_t)parser->tail_len);
-    PyMem_Free(joined);
+    PyMem_Free(spliced);
     PyObject *decoded = th_points_to_str(scratch, count, maxchar);
     PyMem_Free(scratch);
     return decoded;
@@ -1031,6 +1037,10 @@ static PyObject *stream_decode(StreamObject *parser, const unsigned char *chunk,
         }
         parser->replaced = 1;
         return PyUnicode_FromOrdinal(0xFFFD);
+    }
+    if (parser->entry->kind == TH_DEC_SINGLE_BYTE || parser->entry->kind == TH_DEC_X_USER_DEFINED) {
+        /* one code point per byte and no state, so a chunk decodes on its own with nothing held back */
+        return th_decode(parser->entry, chunk, chunk_len);
     }
     return stream_decode_legacy(parser, chunk, chunk_len, final);
 }
