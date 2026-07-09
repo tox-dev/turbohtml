@@ -647,15 +647,34 @@ pairs a minifier's output size with the time to produce it; both ratios are agai
 
 :func:`turbohtml.detect.detect` against the encoding detectors it replaces: `chardet <https://chardet.readthedocs.io/>`_
 (the pure-Python prober ensemble), `charset-normalizer <https://charset-normalizer.readthedocs.io/>`_ (decode-and-score,
-what ``requests`` uses), and `faust-cchardet <https://github.com/faust-streaming/cChardet>`_ (the maintained C binding
-of uchardet; the original cchardet stops compiling at Python 3.11). turbohtml resolves certain input -- a byte-order
-mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII -- structurally before any scoring, which is where the 40x-1800x
-rows come from, and its chardetng frequency scoring keeps declaration-less single-byte text about 3x ahead of chardet.
-The one workload it loses is CJK-heavy bytes, where each CJK candidate drives a CPython incremental codec and uchardet's
-native tables stay ahead.
+what ``requests`` uses), `faust-cchardet <https://github.com/faust-streaming/cChardet>`_ (the maintained C binding of
+uchardet; the original cchardet stops compiling at Python 3.11), `resiliparse <https://resiliparse.chatnoir.eu/>`_'s
+``detect_encoding``, and BeautifulSoup's ``UnicodeDammit``, benchmarked with the ``chardet`` backend it only sniffs
+with. turbohtml resolves certain input -- a byte-order mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII --
+structurally before any scoring, which is where the 20x-1900x rows come from, and its chardetng frequency scoring keeps
+declaration-less single-byte text 2.7x-3.7x ahead of chardet.
+
+The two native C detectors, faust-cchardet and resiliparse, win two workloads. On a kilobyte of ASCII or UTF-8 all three
+native detectors finish inside five microseconds, where the winner is whoever has less to set up rather than whoever
+scans faster. On CJK-heavy bytes uchardet's tables stay about 3x ahead, because turbohtml decodes each candidate
+encoding to score it and a CJK stream leaves several candidates standing.
 
 .. bench-table::
     :file: bench/encoding-detection.json
+
+*****************
+ Legacy decoding
+*****************
+
+The WHATWG decoders against the CPython codecs they replaced: ``cp932`` for Shift_JIS, ``cp1252``, ``gb18030`` and
+``iso2022_jp``. None of those is the spec's decoder -- the tables differ, the error handling differs, and
+:doc:`/how-to/encoding` explains why no rename could have reconciled them -- so the table prices the replacement rather
+than claiming the codecs were a substitute. Each case wraps prose in tags, the shape of a real page, since a decoder
+that walks markup one byte at a time pays for it: ASCII runs are copied out whole, and only ISO-2022-JP, whose escapes
+can reinterpret an ASCII byte, has to step through them.
+
+.. bench-table::
+    :file: bench/legacy-decoding.json
 
 ********************************
  URL cleaning & link extraction

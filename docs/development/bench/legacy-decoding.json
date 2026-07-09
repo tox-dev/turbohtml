@@ -1,0 +1,30 @@
+{
+  "label": "decode a legacy byte stream",
+  "parties": [
+    "turbohtml",
+    "stdlib"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "shift_jis japanese (8 kB)",
+      5.5130582611676955e-06,
+      8.261752068960958e-06
+    ],
+    [
+      "windows-1252 french (9 kB)",
+      2.27691266925234e-06,
+      2.218966516309706e-06
+    ],
+    [
+      "gb18030 japanese (8 kB)",
+      6.063508564698357e-06,
+      1.387438168241791e-05
+    ],
+    [
+      "iso-2022-jp japanese (8 kB)",
+      7.75614387033367e-06,
+      1.2441246714918938e-05
+    ]
+  ]
+}
