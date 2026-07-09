@@ -782,6 +782,14 @@ def minify_css(css: str) -> str:
     return _clean.minify_css(css)
 
 
+def stream(text: str) -> None:
+    """Push a document through IncrementalParser in 4 kB chunks, the streaming build the one-shot parse skips."""
+    parser = turbohtml.IncrementalParser()
+    for start in range(0, len(text), 4096):
+        parser.feed(text[start : start + 4096])
+    parser.close()
+
+
 def encoding(data: bytes) -> None:
     """Detect a byte stream's character encoding with turbohtml's C sniffing pipeline."""
     _detect_encoding(data)
@@ -910,6 +918,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "transform-dense": (transform, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
+    "stream": (stream, "turbohtml"),
     "encoding": (encoding, "turbohtml"),
     "decode": (decode, "turbohtml"),
     "urls-clean": (urls_clean, "turbohtml"),

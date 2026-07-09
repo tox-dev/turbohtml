@@ -78,6 +78,7 @@ _DOCUMENT_OPS = (
     "sax",
     "treebuild",
     "rewrite",
+    "stream",
     "path",
     "path-xpath",
     "links-filter",
