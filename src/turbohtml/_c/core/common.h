@@ -48,6 +48,7 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
    over a byte buffer without parsing; the turbohtml.detect facade shapes its
    (winner, certain, ranked scores, bom) tuple into EncodingMatch results. METH_O. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg);
+PyObject *turbohtml_decode(PyObject *module, PyObject *args);
 PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 
 /* Implemented in unicode/normalize.c. _normalize(form, text) applies one of the

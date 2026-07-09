@@ -82,8 +82,9 @@ def test_utf8_validator(raw: bytes, is_utf8: bool) -> None:  # noqa: FBT001  # p
 
 
 def test_truncated_sequence_at_eof_is_not_utf8() -> None:
-    # an incomplete multi-byte sequence at the very end of the buffer disqualifies UTF-8
-    assert detected(b"caf\xc3") == "windows-1252"
+    # an incomplete multi-byte sequence at the very end of the buffer disqualifies UTF-8; chardetng answers
+    # windows-1250 here, and did so before this port did, once the single-byte candidates see EOF as a space
+    assert detected(b"caf\xc3") == "windows-1250"
 
 
 # Single-byte detection (Phase 2). The expected values are golden, captured from

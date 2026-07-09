@@ -38,7 +38,7 @@
 typedef struct {
     struct {
         const char *label;
-        long score;
+        int64_t score;
     } items[25];
     int count;
     int structural;
@@ -115,7 +115,7 @@ static int th_detect_is_non_latin(const th_detect_single_byte *data, unsigned ch
    stored probability for a pair below the boundary (255 meaning implausible), and
    the plausibility rules for pairs that straddle it. A direct port of
    SingleByteData::score. */
-static long th_detect_pair_score(const th_detect_single_byte *data, int current, int previous, int windows_1256) {
+static int64_t th_detect_pair_score(const th_detect_single_byte *data, int current, int previous, int windows_1256) {
     int boundary = data->ascii + data->non_ascii;
     if (current < boundary && previous < boundary) {
         if ((previous == 0 && current == 0) || (previous < data->ascii && current < data->ascii)) {
@@ -125,7 +125,7 @@ static long th_detect_pair_score(const th_detect_single_byte *data, int current,
                                                  (data->ascii + data->non_ascii) * (current - data->ascii) + previous
                                            : current * data->non_ascii + previous - data->ascii;
         unsigned char stored = data->probabilities[index];
-        return stored == 255 ? TH_DETECT_IMPLAUSIBILITY_PENALTY : (long)stored;
+        return stored == 255 ? TH_DETECT_IMPLAUSIBILITY_PENALTY : (int64_t)stored;
     }
     if (current < boundary) {
         /* current alphabetic below the boundary, previous above it. The ASCII-digit
@@ -214,7 +214,7 @@ typedef struct {
     int koi8u;
     int ibm866;
     int alive;
-    long score;
+    int64_t score;
     unsigned char prev;
     int prev_ascii;
     unsigned prev_non_ascii;
@@ -227,6 +227,11 @@ typedef struct {
     unsigned long plausible_punctuation;
 } th_sb_candidate;
 
+/* The row of th_detect_single_byte_data that carries the plain windows-1252 table. The Icelandic windows-1252 variant
+   (row 8) shares the label but is a distinct table, so the ordinal state machine, which chardetng keys on data pointer
+   identity to the one western table (LatinCandidate::new), must run for this row alone -- not the Icelandic sibling. */
+#define TH_DETECT_WINDOWS_1252_INDEX 7
+
 static void th_sb_init(th_sb_candidate *cand, const th_detect_single_byte *data, th_sb_kind kind) {
     memset(cand, 0, sizeof(*cand));
     cand->data = data;
@@ -235,7 +240,7 @@ static void th_sb_init(th_sb_candidate *cand, const th_detect_single_byte *data,
     cand->prev_ascii = 1;
     cand->case_state = TH_LAT_SPACE; /* both case enums start at 0 == Space */
     cand->ordinal_state = TH_ORD_SPACE;
-    cand->windows_1252 = strcmp(data->label, "windows-1252") == 0;
+    cand->windows_1252 = data == &th_detect_single_byte_data[TH_DETECT_WINDOWS_1252_INDEX];
     cand->koi8u = strcmp(data->label, "koi8-u") == 0;
     cand->ibm866 = strcmp(data->label, "ibm866") == 0;
 }
@@ -394,10 +399,10 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
             int ascii_pair =
                 cand->kind == TH_SB_LATIN ? (cand->prev_non_ascii == 0 && ascii) : (cand->prev_ascii && ascii);
             if (cand->kind == TH_SB_LATIN) {
-                long penalty = cand->prev_non_ascii <= 2   ? 0
-                               : cand->prev_non_ascii == 3 ? -5
-                               : cand->prev_non_ascii == 4 ? -20
-                                                           : -200;
+                int64_t penalty = cand->prev_non_ascii <= 2   ? 0
+                                  : cand->prev_non_ascii == 3 ? -5
+                                  : cand->prev_non_ascii == 4 ? -20
+                                                              : -200;
                 cand->score += penalty;
             }
             int latin_alpha = cand->kind == TH_SB_LATIN ? (caseless > 0 && caseless < data->ascii + data->non_ascii)
@@ -467,7 +472,7 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
                 } else if (cand->case_state == TH_NL_ALLCAPS && cand->koi8u) {
                     cand->score += TH_DETECT_NON_LATIN_ALL_CAPS_PENALTY;
                 } else if (cand->case_state == TH_NL_MIX) {
-                    cand->score += TH_DETECT_NON_LATIN_MIXED_CASE_PENALTY * (long)cand->current_word_len;
+                    cand->score += TH_DETECT_NON_LATIN_MIXED_CASE_PENALTY * (int64_t)cand->current_word_len;
                 }
                 cand->case_state = TH_NL_SPACE;
             } else if ((cls >> 7) == 0) {
@@ -523,9 +528,16 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
 }
 /* NOLINTEND(bugprone-branch-clone) */
 
+/* chardetng feeds one space to every single-byte candidate once the stream ends, so a word or an ordinal or a
+   copyright sign that runs up against EOF still reaches the word-boundary arms of its scorer. Without it a Cyrillic
+   word loses its capitalization bonus and windows-1251 loses to GBK on the bare word "Привет". */
+static void th_sb_feed_eof(th_sb_candidate *cand) {
+    th_sb_feed(cand, (const unsigned char *)" ", 1);
+}
+
 /* The candidate's final score, or 0 (not scored) when it is disqualified or, for a
    non-Latin script, has not seen a word of at least two non-Latin letters. */
-static int th_sb_final_score(const th_sb_candidate *cand, long *out) {
+static int th_sb_final_score(const th_sb_candidate *cand, int64_t *out) {
     if (!cand->alive) {
         return 0;
     }
@@ -570,17 +582,18 @@ static const struct {
 
 /* CJK multi-byte candidates (issue #182, phase 3).
 
-   chardetng scores the CJK candidates by feeding each byte to an encoding_rs
-   decoder and classifying every scalar it emits. turbohtml has no encoding_rs, so
-   each candidate drives the matching CPython incremental codec instead and applies
-   the same scoring. The two decoders agree on well-formed CJK text, which is what
-   decides the guess. chardetng additionally keeps a few malformed byte sequences
-   alive with a large penalty (Shift_JIS-2004, the Mac extensions, unmapped Big5 and
-   GBK pairs); the strict CPython codec disqualifies them, but those candidates lose
-   the strict-max either way, so the winner is unchanged. The scoring constants are
-   chardetng's, with the integer divisions pre-evaluated. */
-#define TH_CJK_BASE 41
-#define TH_CJK_SECONDARY 20
+   chardetng scores the CJK candidates by feeding each byte to an encoding_rs decoder and classifying every scalar it
+   emits. turbohtml drives its own WHATWG decoders (decode.h), which match encoding_rs byte for byte, and applies the
+   same scoring. A malformed sequence does not disqualify a candidate outright: chardetng inspects the byte that failed
+   (`b`) and the byte before it (`prev_byte`) and, for the Shift_JIS-2004/MacJapanese, MacKorean, MacChinese, and
+   unmapped Big5/GBK/EUC-KR pairs, applies a large penalty and keeps scoring; only sequences no arm recognizes end the
+   candidate. th_cjk_feed recovers `b`/`prev_byte`/`prev_prev_byte` from decode.h's error_at, and malformed_len (the
+   consumed byte count) from the decoder's net advance. An end-of-stream flush of an incomplete sequence (error_at ==
+   -1) is candidate death, matching chardetng's final decode_to_utf16(last=true) returning Malformed. The scoring
+   constants are chardetng's, with the integer divisions pre-evaluated. */
+/* int64_t so every penalty derived from it is computed wide; chardetng accumulates in i64 */
+#define TH_CJK_BASE INT64_C(41)
+#define TH_CJK_SECONDARY INT64_C(20)
 #define TH_CJK_LATIN_ADJ (-41)
 #define TH_CJ_PUNCT 20
 #define TH_CJK_OTHER 5
@@ -598,14 +611,28 @@ static const struct {
 #define TH_EUCJP_INITIAL_KANA_PENALTY (-14)
 #define TH_BIG5_LEVEL_1 41
 #define TH_BIG5_OTHER 20
+/* harsher than the other PUA penalties, so unmapped Big5 pairs do not let EUC-KR win */
+#define TH_BIG5_PUA_PENALTY (-(TH_CJK_BASE * 30))
+#define TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY (-(TH_CJK_BASE * 40))
 #define TH_EUCKR_EUC_HANGUL 42
+/* TH_CJK_SECONDARY / 5, the Windows-949/UHC Hangul that falls outside the EUC (KS X 1001) plane */
+#define TH_EUCKR_NON_EUC_HANGUL 4
 #define TH_EUCKR_HANJA 10
 #define TH_EUCKR_HANJA_AFTER_HANGUL_PENALTY (-410)
 #define TH_EUCKR_LONG_WORD_PENALTY (-6)
+#define TH_EUCKR_PUA_PENALTY (TH_GBK_PUA_PENALTY - 1) /* one less than GBK's, to break the tie in GBK's favor */
+#define TH_EUCKR_MAC_KOREAN_PENALTY (TH_EUCKR_PUA_PENALTY * 2)
+#define TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY (TH_EUCKR_PUA_PENALTY * 2)
 #define TH_GBK_LEVEL_1 41
 #define TH_GBK_LEVEL_2 20
 #define TH_GBK_NON_EUC 5
-#define TH_GBK_PUA_PENALTY (-410)
+#define TH_GBK_PUA_PENALTY (-(TH_CJK_BASE * 10))
+#define TH_GBK_SINGLE_BYTE_EXTENSION_PENALTY (TH_GBK_PUA_PENALTY * 4)
+#define TH_SJIS_PUA_PENALTY (-(TH_CJK_BASE * 10))
+#define TH_SJIS_EXTENSION_PENALTY (TH_SJIS_PUA_PENALTY * 2)
+#define TH_SJIS_SINGLE_BYTE_EXTENSION_PENALTY (TH_SJIS_PUA_PENALTY * 2)
+/* harsher than Shift_JIS's extension penalty, else EUC-KR text misdetects as EUC-JP */
+#define TH_EUCJP_EXTENSION_PENALTY (-(TH_CJK_BASE * 50))
 
 typedef enum {
     TH_CJK_GBK,
@@ -622,14 +649,14 @@ enum { TH_CJ_ASCII, TH_CJ_CJ, TH_CJ_HANJA, TH_CJ_OTHER };
 enum { TH_HWK_FORBIDDEN, TH_HWK_DAKUTEN, TH_HWK_DAKUTEN_OR_HANDAKUTEN };
 
 typedef struct {
-    PyObject *decoder;
+    const th_encoding_entry *entry;
     th_cjk_kind kind;
     int alive;
-    long score;
+    int64_t score;
     unsigned char prev_byte;
     unsigned char prev_prev_byte;
     int prev;
-    long pending;
+    int64_t pending;
     int has_pending;
     int hwk_state;
     int hwk_seen;
@@ -639,7 +666,7 @@ typedef struct {
 
 /* chardetng's cjk_extra_score: a frequency bonus that is larger the earlier the
    scalar appears in the 128-entry most-frequent table for its script. */
-static long th_cjk_extra_score(uint16_t u, const uint16_t *table) {
+static int64_t th_cjk_extra_score(uint16_t u, const uint16_t *table) {
     for (int pos = 0; pos < 128; pos++) {
         if (table[pos] == u) {
             return (128 - pos) / 16;
@@ -686,11 +713,11 @@ static void th_cjk_flush_pending(th_cjk_candidate *cand) {
 
 /* Count s now if the previous scalar was CJ or the lead is unproblematic, else hold
    it as pending until the next scalar decides whether the run is plausible. */
-static long th_cjk_maybe_pending(th_cjk_candidate *cand, long s, int problematic) {
+static int64_t th_cjk_maybe_pending(th_cjk_candidate *cand, int64_t score, int problematic) {
     if (cand->prev == TH_CJ_CJ || !problematic) {
-        return s;
+        return score;
     }
-    cand->pending = s;
+    cand->pending = score;
     cand->has_pending = 1;
     return 0;
 }
@@ -832,18 +859,22 @@ static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned 
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
-    } else if (u >= 0x3400 && u < 0xA000) {
-        /* the strict CPython shift_jis codec never emits the U+F900..U+FAFF compatibility
-           ideographs chardetng also matches here, so that range is dropped */
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
         th_cjk_flush_pending(cand);
-        long s = (cand->prev_byte < 0x98 || (cand->prev_byte == 0x98 && b < 0x73))
-                     ? TH_SJIS_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_kanji)
-                     : TH_SJIS_LEVEL_2;
-        cand->score += th_cjk_maybe_pending(cand, s, th_cjk_problematic_lead(cand->prev_byte));
+        int64_t score = (cand->prev_byte < 0x98 || (cand->prev_byte == 0x98 && b < 0x73))
+                            ? TH_SJIS_LEVEL_1 + th_cjk_extra_score(u, th_detect_freq_frequent_kanji)
+                            : TH_SJIS_LEVEL_2;
+        cand->score += th_cjk_maybe_pending(cand, score, th_cjk_problematic_lead(cand->prev_byte));
         if (cand->prev == TH_CJ_ASCII) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
+    } else if (u >= 0xE000 && u < 0xF900) {
+        /* WHATWG Shift_JIS maps the 0xF0..0xF9 lead-byte block to this private-use area, which real Shift_JIS text
+           never uses, so the run is implausible. */
+        th_cjk_flush_pending(cand);
+        cand->score += TH_SJIS_PUA_PENALTY;
+        cand->prev = TH_CJ_OTHER;
     } else if (th_cj_punct5(u)) {
         th_cjk_flush_pending(cand);
         cand->score += TH_CJ_PUNCT;
@@ -851,14 +882,16 @@ static void th_cjk_score_shift_jis(th_cjk_candidate *cand, uint16_t u, unsigned 
     } else if (u <= 0x7F) {
         cand->has_pending = 0;
         cand->prev = TH_CJ_OTHER;
+    } else if (u == 0x80) {
+        /* the spec passes the lone 0x80 through as U+0080, a control that overlaps the euro in windows-1252 */
+        cand->has_pending = 0;
+        cand->score += TH_DETECT_IMPLAUSIBILITY_PENALTY;
+        cand->prev = TH_CJ_OTHER;
     } else {
         th_cjk_flush_pending(cand);
         cand->score += TH_CJK_OTHER;
         cand->prev = TH_CJ_OTHER;
     }
-    /* chardetng's Shift_JIS scorer also penalizes the private-use area and the lone
-       0x80, but the strict CPython shift_jis codec emits neither, so those arms are
-       unreachable here and omitted. */
 }
 
 static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
@@ -898,9 +931,7 @@ static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
         cand->prev = TH_CJ_CJ;
-    } else if (u >= 0x3400 && u < 0xA000) {
-        /* like shift_jis, the euc_jp codec never emits the U+F900..U+FAFF compatibility
-           ideographs, so chardetng's second range is dropped */
+    } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
         if (cand->prev_prev_byte == 0x8F) {
             cand->score += TH_EUCJP_OTHER_KANJI;
         } else if (cand->prev_byte < 0xD0) {
@@ -923,10 +954,25 @@ static void th_cjk_score_euc_jp(th_cjk_candidate *cand, uint16_t u) {
     }
 }
 
-/* The strict CPython big5 codec emits one BMP scalar per sequence -- no astral
-   scalars and no two-scalar combining output -- so chardetng's written==2 arm is
-   unreachable here and omitted. */
-static void th_cjk_score_big5(th_cjk_candidate *cand, uint16_t u) {
+/* The Big5 decoder reaches chardetng's written==2 both for an astral scalar (a surrogate pair, u the high surrogate)
+   and for the four combining pointers that decode to U+00CA/U+00EA plus a combining mark (u the base letter): the base
+   scores as CJK_OTHER, the astral as another hanzi. th_cjk_feed drains the combining mark decode.h still owes, so it is
+   not scored a second time. */
+static void th_cjk_score_big5(th_cjk_candidate *cand, int written, uint16_t u) {
+    if (written == 2) {
+        th_cjk_flush_pending(cand);
+        if (u == 0x00CA || u == 0x00EA) {
+            cand->score += TH_CJK_OTHER;
+            cand->prev = TH_CJ_OTHER;
+        } else {
+            cand->score += th_cjk_maybe_pending(cand, TH_BIG5_OTHER, th_cjk_problematic_lead(cand->prev_byte));
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+        }
+        return;
+    }
     if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
         cand->has_pending = 0;
         if (cand->prev == TH_CJ_CJ) {
@@ -935,8 +981,8 @@ static void th_cjk_score_big5(th_cjk_candidate *cand, uint16_t u) {
         cand->prev = TH_CJ_ASCII;
     } else if ((u >= 0x3400 && u < 0xA000) || (u >= 0xF900 && u < 0xFB00)) {
         th_cjk_flush_pending(cand);
-        long s = (cand->prev_byte >= 0xA4 && cand->prev_byte <= 0xC6) ? TH_BIG5_LEVEL_1 : TH_BIG5_OTHER;
-        cand->score += th_cjk_maybe_pending(cand, s, th_cjk_problematic_lead(cand->prev_byte));
+        int64_t score = (cand->prev_byte >= 0xA4 && cand->prev_byte <= 0xC6) ? TH_BIG5_LEVEL_1 : TH_BIG5_OTHER;
+        cand->score += th_cjk_maybe_pending(cand, score, th_cjk_problematic_lead(cand->prev_byte));
         if (cand->prev == TH_CJ_ASCII) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
@@ -955,10 +1001,14 @@ static void th_cjk_score_big5(th_cjk_candidate *cand, uint16_t u) {
     }
 }
 
-/* The strict CPython euc_kr codec decodes only the EUC (KS X 1001) plane, where every
-   Hangul syllable has both bytes in 0xA1..0xFE; chardetng's non-EUC Hangul arm (the
-   Windows-949/UHC extension) is therefore unreachable here and omitted. */
-static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u) {
+/* The EUC-KR decoder is Windows-949/UHC, a superset of the EUC (KS X 1001) plane. chardetng distinguishes a Hangul
+   syllable whose byte pair is entirely inside the EUC plane -- both the completing byte (`b`, here in_euc_range) and
+   the byte before it (prev_byte, here prev_was_euc) in 0xA1..0xFE -- which scores the full EUC bonus, from a UHC-only
+   syllable, which scores the far smaller non-EUC value and may be held pending. Collapsing the two made EUC-KR win over
+   windows-1252/Big5/GBK/Shift_JIS across the corpus. */
+static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, unsigned char b) {
+    int in_euc_range = b >= 0xA1 && b <= 0xFE;
+    int prev_was_euc = cand->prev_byte >= 0xA1 && cand->prev_byte <= 0xFE;
     if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
         cand->has_pending = 0;
         if (cand->prev == TH_CJ_CJ || cand->prev == TH_CJ_HANJA) {
@@ -968,7 +1018,12 @@ static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u) {
         cand->word_len = 0;
     } else if (u >= 0xAC00 && u <= 0xD7A3) {
         th_cjk_flush_pending(cand);
-        cand->score += TH_EUCKR_EUC_HANGUL + th_cjk_extra_score(u, th_detect_freq_frequent_hangul);
+        if (prev_was_euc && in_euc_range) {
+            cand->score += TH_EUCKR_EUC_HANGUL + th_cjk_extra_score(u, th_detect_freq_frequent_hangul);
+        } else {
+            cand->score +=
+                th_cjk_maybe_pending(cand, TH_EUCKR_NON_EUC_HANGUL, th_cjk_more_problematic_lead(cand->prev_byte));
+        }
         if (cand->prev == TH_CJ_ASCII) {
             cand->score += TH_CJK_LATIN_ADJ;
         }
@@ -1002,79 +1057,228 @@ static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u) {
     }
 }
 
-/* NOLINTEND(bugprone-branch-clone) */
-
-/* Drive one CPython incremental codec a byte at a time, mirroring chardetng's
-   decode-and-classify loop. A decode error disqualifies the candidate. */
-static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
-    for (Py_ssize_t byte_index = 0; byte_index < len; byte_index++) {
-        unsigned char b = buf[byte_index];
-        PyObject *chunk = PyBytes_FromStringAndSize((const char *)&b, 1);
-        if (chunk == NULL) { /* GCOVR_EXCL_START -- single-byte allocation only fails on OOM */
-            PyErr_Clear();
-            cand->alive = 0;
-            return;
-        } /* GCOVR_EXCL_STOP */
-        PyObject *out = PyObject_CallMethod(cand->decoder, "decode", "O", chunk);
-        Py_DECREF(chunk);
-        if (out == NULL) {
-            PyErr_Clear();
-            cand->alive = 0;
-            return;
-        }
-        Py_ssize_t n = PyUnicode_GET_LENGTH(out);
-        if (n > 0) {
-            /* each one-byte feed completes at most one scalar, so the decoded string is a
-               single code point; an astral one (GB18030 four-byte) maps to written==2 via
-               its UTF-16 high surrogate, mirroring chardetng's encoding_rs output */
-            Py_UCS4 cp0 = PyUnicode_READ_CHAR(out, 0);
-            int written = cp0 > 0xFFFF ? 2 : 1;
-            uint16_t u = cp0 <= 0xFFFF ? (uint16_t)cp0 : (uint16_t)(0xD800 + ((cp0 - 0x10000) >> 10));
-            switch (cand->kind) {
-            case TH_CJK_GBK:
-                th_cjk_score_gbk(cand, written, u, b);
-                break;
-            case TH_CJK_SHIFT_JIS:
-                th_cjk_score_shift_jis(cand, u, b);
-                break;
-            case TH_CJK_EUC_JP:
-                th_cjk_score_euc_jp(cand, u);
-                break;
-            case TH_CJK_BIG5:
-                th_cjk_score_big5(cand, u);
-                break;
-            default: /* TH_CJK_EUC_KR */
-                th_cjk_score_euc_kr(cand, u);
-                break;
+/* A malformed sequence does not always end a candidate: chardetng recognizes the Shift_JIS-2004/MacJapanese,
+   MacKorean, MacChinese, and unmapped Big5/GBK/EUC-KR byte pairs from `b` (the byte that failed), prev_byte, EUC-JP's
+   prev_prev_byte, and malformed_len (the bytes the failed sequence consumed), applies a large penalty, and keeps
+   scoring. An unrecognized sequence returns 0 to end the candidate. The single-byte-extension arms clear pending, since
+   chardetng discards it (and reinitializes the decoder to clear its pending-ASCII state, which decode.h lacks). */
+static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t malformed_len) {
+    unsigned char prev = cand->prev_byte;
+    switch (cand->kind) {
+    case TH_CJK_GBK:
+        if ((prev == 0xA0 || prev == 0xFE || prev == 0xFD) && (b < 0x80 || b == 0xFF)) {
+            cand->has_pending = 0;
+            cand->score += TH_GBK_SINGLE_BYTE_EXTENSION_PENALTY;
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) {
+                cand->prev = TH_CJ_ASCII;
+            } else if (b == 0xFF) {
+                cand->score += TH_GBK_SINGLE_BYTE_EXTENSION_PENALTY;
+                cand->prev = TH_CJ_OTHER;
+            } else {
+                cand->prev = TH_CJ_OTHER;
             }
+            return 1;
         }
-        Py_DECREF(out);
-        cand->prev_prev_byte = cand->prev_byte;
-        cand->prev_byte = b;
+        if (malformed_len == 1 && b == 0xFF) {
+            cand->has_pending = 0;
+            cand->score += TH_GBK_SINGLE_BYTE_EXTENSION_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+            return 1;
+        }
+        return 0;
+    case TH_CJK_SHIFT_JIS: {
+        int lead_range = (prev >= 0x81 && prev <= 0x9F) || (prev >= 0xE0 && prev <= 0xFC);
+        int trail_range = (b >= 0x40 && b <= 0x7E) || (b >= 0x80 && b <= 0xFC);
+        int excluded = (prev == 0x82 && b >= 0xFA) || (prev == 0x84 && ((b >= 0xDD && b <= 0xE4) || b >= 0xFB)) ||
+                       (prev == 0x86 && b >= 0xF2 && b <= 0xFA) || (prev == 0x87 && b >= 0x77 && b <= 0x7D) ||
+                       (prev == 0xFC && b >= 0xF5);
+        if (lead_range && trail_range && !excluded) {
+            th_cjk_flush_pending(cand);
+            cand->score += TH_SJIS_EXTENSION_PENALTY;
+            if (prev < 0x87) { /* chardetng's approximate kana/kanji boundary for the extension block */
+                cand->prev = TH_CJ_OTHER;
+            } else {
+                if (cand->prev == TH_CJ_ASCII) {
+                    cand->score += TH_CJK_LATIN_ADJ;
+                }
+                cand->prev = TH_CJ_CJ;
+            }
+            return 1;
+        }
+        if (malformed_len == 1 && (b == 0xA0 || b >= 0xFD)) {
+            cand->has_pending = 0;
+            cand->score += TH_SJIS_SINGLE_BYTE_EXTENSION_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+            return 1;
+        }
+        return 0;
     }
-    PyObject *flush = PyObject_CallMethod(cand->decoder, "decode", "y#i", "", (Py_ssize_t)0, 1);
-    if (flush == NULL) {
-        PyErr_Clear();
-        cand->alive = 0;
-        return;
+    case TH_CJK_EUC_JP: {
+        unsigned char prev_prev = cand->prev_prev_byte;
+        int in_pair = b >= 0xA1 && b <= 0xFE && prev >= 0xA1 && prev <= 0xFE;
+        int plane_1 = prev_prev != 0x8F && !(prev == 0xA8 && b >= 0xDF && b <= 0xE6) &&
+                      !(prev == 0xAC && b >= 0xF4 && b <= 0xFC) && !(prev == 0xAD && b >= 0xD8 && b <= 0xDE);
+        int plane_2 = prev_prev == 0x8F && prev != 0xA2 && prev != 0xA6 && prev != 0xA7 && prev != 0xA9 &&
+                      prev != 0xAA && prev != 0xAB && prev != 0xED && !(prev == 0xFE && b >= 0xF7);
+        if (in_pair && (plane_1 || plane_2)) {
+            cand->score += TH_EUCJP_EXTENSION_PENALTY;
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+            return 1;
+        }
+        return 0;
     }
-    Py_DECREF(flush);
+    case TH_CJK_BIG5:
+        if (prev >= 0x81 && prev <= 0xFE && ((b >= 0x40 && b <= 0x7E) || (b >= 0xA1 && b <= 0xFE))) {
+            th_cjk_flush_pending(cand);
+            cand->score += TH_BIG5_PUA_PENALTY;
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            }
+            cand->prev = TH_CJ_CJ;
+            return 1;
+        }
+        if ((prev == 0xA0 || prev == 0xFD || prev == 0xFE) && (b < 0x80 || b == 0xFF)) {
+            cand->has_pending = 0;
+            cand->score += TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY;
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) {
+                cand->prev = TH_CJ_ASCII;
+            } else if (b == 0xFF) {
+                cand->score += TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY;
+                cand->prev = TH_CJ_OTHER;
+            } else {
+                cand->prev = TH_CJ_OTHER;
+            }
+            return 1;
+        }
+        if (malformed_len == 1 && b == 0xFF) {
+            cand->has_pending = 0;
+            cand->score += TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+            return 1;
+        }
+        return 0;
+    default: /* TH_CJK_EUC_KR */
+        if ((prev == 0xC9 || prev == 0xFE) && b >= 0xA1 && b <= 0xFE) {
+            th_cjk_flush_pending(cand);
+            cand->score += TH_EUCKR_PUA_PENALTY;
+            if (cand->prev == TH_CJ_ASCII) {
+                cand->score += TH_CJK_LATIN_ADJ;
+            } else if (cand->prev == TH_CJ_CJ) {
+                cand->score += TH_EUCKR_HANJA_AFTER_HANGUL_PENALTY;
+            }
+            cand->prev = TH_CJ_HANJA;
+            cand->word_len++;
+            if (cand->word_len > 5) {
+                cand->score += TH_EUCKR_LONG_WORD_PENALTY;
+            }
+            return 1;
+        }
+        if ((prev == 0xA1 || (prev >= 0xA3 && prev <= 0xA8) || (prev >= 0xAA && prev <= 0xAD)) &&
+            (b >= 0x7B && b <= 0x7D)) {
+            th_cjk_flush_pending(cand);
+            cand->score += TH_EUCKR_MAC_KOREAN_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+            cand->word_len = 0;
+            return 1;
+        }
+        if (prev >= 0x81 && prev <= 0x84 && (b <= 0x80 || b == 0xFF)) {
+            cand->has_pending = 0;
+            cand->score += TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY;
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) {
+                cand->prev = TH_CJ_ASCII;
+            } else if (b == 0x80 || b == 0xFF) {
+                cand->score += TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY;
+                cand->prev = TH_CJ_OTHER;
+            } else {
+                cand->prev = TH_CJ_OTHER;
+            }
+            cand->word_len = 0;
+            return 1;
+        }
+        if (malformed_len == 1 && (b == 0x80 || b == 0xFF)) {
+            cand->has_pending = 0;
+            cand->score += TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY;
+            cand->prev = TH_CJ_OTHER;
+            cand->word_len = 0;
+            return 1;
+        }
+        return 0;
+    }
 }
 
-/* Run one CJK candidate end to end against the strict CPython codec named by entry,
-   recording a survivor's score and updating *winner and *max when it beats the
-   running best. */
+/* NOLINTEND(bugprone-branch-clone) */
+
+/* Decode the whole buffer with the candidate's native WHATWG decoder and score each scalar the way chardetng scores the
+   scalars encoding_rs hands it. On a malformed sequence th_cjk_malformed decides whether to penalize and continue, or
+   end the candidate; an incomplete sequence flushed at end of stream (error_at == -1) always ends it. The scorers want
+   the byte that completed a scalar and its two predecessors, which is the decoder position minus one; a malformed one
+   instead reports the failing byte through error_at. A Big5 combination's second scalar consumes no byte, so its base
+   reuses the trail byte and the mark is drained unscored. */
+static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
+    th_decoder dec;
+    th_decode_init(&dec, cand->entry, buf, len);
+    for (;;) {
+        Py_ssize_t before = dec.pos;
+        Py_UCS4 point = 0;
+        int status = th_decode_step(&dec, &point);
+        if (status == TH_DEC_FINISHED) {
+            return;
+        }
+        if (status == TH_DEC_ERROR) {
+            if (dec.error_at < 0) {
+                cand->alive = 0;
+                return;
+            }
+            cand->prev_byte = dec.error_at >= 1 ? buf[dec.error_at - 1] : 0;
+            cand->prev_prev_byte = dec.error_at >= 2 ? buf[dec.error_at - 2] : 0;
+            if (!th_cjk_malformed(cand, buf[dec.error_at], dec.pos - before)) {
+                cand->alive = 0;
+                return;
+            }
+            continue;
+        }
+        int combining = cand->kind == TH_CJK_BIG5 && dec.has_pending;
+        if (combining) {
+            Py_UCS4 mark = 0;
+            th_decode_step(&dec, &mark);
+        }
+        Py_ssize_t at = (dec.pos > before ? dec.pos : before) - 1;
+        unsigned char b = buf[at];
+        cand->prev_byte = at >= 1 ? buf[at - 1] : 0;
+        cand->prev_prev_byte = at >= 2 ? buf[at - 2] : 0;
+        /* an astral scalar (a gb18030 or Big5 four-byte sequence) reaches chardetng as its UTF-16 high surrogate */
+        int written = combining || point > 0xFFFF ? 2 : 1;
+        uint16_t u = point <= 0xFFFF ? (uint16_t)point : (uint16_t)(0xD800 + ((point - 0x10000) >> 10));
+        switch (cand->kind) {
+        case TH_CJK_GBK:
+            th_cjk_score_gbk(cand, written, u, b);
+            break;
+        case TH_CJK_SHIFT_JIS:
+            th_cjk_score_shift_jis(cand, u, b);
+            break;
+        case TH_CJK_EUC_JP:
+            th_cjk_score_euc_jp(cand, u);
+            break;
+        case TH_CJK_BIG5:
+            th_cjk_score_big5(cand, written, u);
+            break;
+        default: /* TH_CJK_EUC_KR */
+            th_cjk_score_euc_kr(cand, u, b);
+            break;
+        }
+    }
+}
+
+/* Run one CJK candidate end to end against its native WHATWG decoder, recording a survivor's score and updating
+ *winner and *max when it beats the running best. */
 static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
-                       th_detect_scores *scores, const char **winner, long *max) {
-    const th_encoding_entry *entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
-    PyObject *decoder = PyCodec_IncrementalDecoder(entry->codec, "strict");
-    if (decoder == NULL) { /* GCOVR_EXCL_START -- every CJK codec name is a built-in codec */
-        PyErr_Clear();
-        return;
-    } /* GCOVR_EXCL_STOP */
-    th_cjk_candidate cand = {.decoder = decoder, .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
+                       th_detect_scores *scores, const char **winner, int64_t *max) {
+    th_cjk_candidate cand = {
+        .entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label)), .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
     th_cjk_feed(&cand, buf, len);
-    Py_DECREF(decoder);
     if (cand.alive) {
         scores->items[scores->count].label = label;
         scores->items[scores->count].score = cand.score;
@@ -1099,14 +1303,18 @@ static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
     if (!esc) {
         return 0;
     }
-    const th_encoding_entry *entry = th_encoding_lookup("iso-2022-jp", 11);
-    PyObject *decoded = PyUnicode_Decode((const char *)buf, len, entry->codec, "strict");
-    if (decoded == NULL) {
-        PyErr_Clear();
-        return 0;
+    th_decoder dec;
+    th_decode_init(&dec, th_encoding_lookup("iso-2022-jp", 11), buf, len);
+    for (;;) {
+        Py_UCS4 point = 0;
+        int status = th_decode_step(&dec, &point);
+        if (status == TH_DEC_FINISHED) {
+            return 1;
+        }
+        if (status == TH_DEC_ERROR) {
+            return 0;
+        }
     }
-    Py_DECREF(decoded);
-    return 1;
 }
 
 /* Guess the encoding of a declaration-less byte stream, or NULL when it is pure
@@ -1134,7 +1342,7 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
     }
 
     const char *winner = "windows-1252";
-    long max = 0;
+    int64_t max = 0;
 
     /* CJK candidates run first, matching chardetng's index order so the strict ">"
        below resolves ties the same way (an earlier candidate keeps a tie). */
@@ -1149,13 +1357,15 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
         th_sb_init(&candidates[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
                    th_sb_candidate_table[slot].kind);
         th_sb_feed(&candidates[slot], buf, len);
+        th_sb_feed_eof(&candidates[slot]);
     }
     th_sb_candidate visual;
     th_sb_init(&visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
     th_sb_feed(&visual, buf, len);
+    th_sb_feed_eof(&visual);
 
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        long score;
+        int64_t score;
         if (th_sb_final_score(&candidates[slot], &score)) {
             scores->items[scores->count].label = candidates[slot].data->label;
             scores->items[scores->count].score = score;
@@ -1171,7 +1381,7 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
        so the visual order can only ever tie windows-1255, never outscore the field;
        chardetng's visual_score > max test is dead here and dropped. The branches are
        fully nested so each decision is counted on its own. */
-    long visual_score;
+    int64_t visual_score;
     if (th_sb_final_score(&visual, &visual_score)) {
         scores->items[scores->count].label = visual.data->label;
         scores->items[scores->count].score = visual_score;

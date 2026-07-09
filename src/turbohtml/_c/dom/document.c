@@ -4,6 +4,7 @@
 #include "dom/nodes.h"
 
 #include "encoding/encoding.h"
+#include "encoding/decode.h"
 #include "encoding/detect.h"
 #include "encoding/language.h"
 #include "url/url.h"
@@ -628,54 +629,9 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
     return -1;
 }
 
-/* Decode windows-1252 per the WHATWG index. CPython's cp1252 leaves 0x81, 0x8D,
-   0x8F, 0x90, and 0x9D undefined, so "replace" maps them to U+FFFD, but the WHATWG
-   windows-1252 index defines them as the matching C1 controls (codepoint equals the
-   byte). Those five bytes are cp1252's only source of U+FFFD, so every U+FFFD in the
-   decoded string is one of them; a single-byte codec emits one char per byte, so the
-   output index is the byte index. Rebuild only when one is present, since removing
-   the U+FFFD may lower the string's kind. */
-static PyObject *decode_windows_1252(const unsigned char *bytes, Py_ssize_t len) {
-    PyObject *decoded = PyUnicode_Decode((const char *)bytes, len, "cp1252", "replace");
-    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: cp1252 with the replace handler never fails */
-        return NULL;       /* GCOVR_EXCL_LINE: decode failure */
-    }
-    Py_ssize_t count = PyUnicode_GET_LENGTH(decoded);
-    int kind = PyUnicode_KIND(decoded);
-    const void *data = PyUnicode_DATA(decoded);
-    Py_UCS4 maxchar = 0;
-    int restored = 0;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
-        if (ch == 0xFFFD) {
-            ch = bytes[index];
-            restored = 1;
-        }
-        if (ch > maxchar) {
-            maxchar = ch;
-        }
-    }
-    if (!restored) {
-        return decoded;
-    }
-    PyObject *fixed = PyUnicode_New(count, maxchar);
-    if (fixed == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_DECREF(decoded); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    int out_kind = PyUnicode_KIND(fixed);
-    void *out = PyUnicode_DATA(fixed);
-    for (Py_ssize_t index = 0; index < count; index++) {
-        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
-        PyUnicode_WRITE(out_kind, out, index, ch == 0xFFFD ? (Py_UCS4)bytes[index] : ch);
-    }
-    Py_DECREF(decoded);
-    return fixed;
-}
-
-/* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta>
-   prescan, then windows-1252), decode with that codec replacing malformed bytes,
-   and parse the resulting str. The decoded str is retained as the tree's source. */
+/* Parse bytes: sniff the encoding (BOM, then the encoding argument, then a <meta> prescan, then windows-1252), decode
+   it with the WHATWG decoder in encoding/decode.h, which turns every malformed sequence into U+FFFD, and parse the
+   resulting str. The decoded str is retained as the tree's source. */
 static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *enc_arg, Py_ssize_t enc_len, int strict,
                              int detect, int positions, int locations, int scripting, int declarative) {
     Py_buffer view;
@@ -710,31 +666,9 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     if (entry == NULL) {
         entry = th_encoding_lookup("windows-1252", 12);
     }
-    PyObject *decoded;
-    if (strcmp(entry->codec, "x-user-defined") == 0) {
-        /* x-user-defined has no CPython codec: ASCII bytes stay, 0x80-0xFF map to the
-           private-use block U+F780-U+F7FF, per the WHATWG Encoding Standard */
-        Py_ssize_t count = len - skip;
-        decoded = PyUnicode_New(count, 0xF7FF);
-        if (decoded != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            void *out = PyUnicode_DATA(decoded);
-            for (Py_ssize_t index = 0; index < count; index++) {
-                unsigned char byte = bytes[skip + index];
-                PyUnicode_WRITE(PyUnicode_2BYTE_KIND, out, index, byte < 0x80 ? byte : (Py_UCS4)(0xF700 + byte));
-            }
-        }
-    } else if (strcmp(entry->codec, "replacement") == 0) {
-        /* the WHATWG replacement encoding refuses the stateful ISO-2022/HZ byte streams,
-           which can smuggle markup past a sanitizer: a non-empty input decodes to a
-           single U+FFFD and an empty input to nothing */
-        decoded = len - skip > 0 ? PyUnicode_FromOrdinal(0xFFFD) : PyUnicode_New(0, 0);
-    } else if (strcmp(entry->codec, "cp1252") == 0) {
-        decoded = decode_windows_1252(bytes + skip, len - skip);
-    } else {
-        decoded = PyUnicode_Decode((const char *)bytes + skip, len - skip, entry->codec, "replace");
-    }
+    PyObject *decoded = th_decode(entry, bytes + skip, len - skip);
     PyBuffer_Release(&view);
-    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: the codec is from the table and the replace handler never fails */
+    if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: only an allocation failure returns NULL */
         return NULL;       /* GCOVR_EXCL_LINE: decode failure */
     }
     th_tree *tree = th_tree_parse(PyUnicode_KIND(decoded), PyUnicode_DATA(decoded), PyUnicode_GET_LENGTH(decoded),
@@ -767,6 +701,27 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
    (canonical name, raw score) pairs, and whether a leading byte-order mark decided it.
    The BOM step uses th_detect_bom, which reports UTF-8-SIG and the UTF-32 marks the
    spec-locked parse path does not; the parse path's th_encoding_bom is untouched. */
+/* _decode(data, label) -> str: decode bytes with the WHATWG decoder the label names, the way parse(bytes) would. A
+   byte-order mark is not stripped; the label decides, as the spec's "decode" entry point does. */
+PyObject *turbohtml_decode(PyObject *module, PyObject *args) {
+    (void)module;
+    Py_buffer view;
+    const char *label = NULL;
+    Py_ssize_t label_len = 0;
+    if (!PyArg_ParseTuple(args, "y*s#", &view, &label, &label_len)) {
+        return NULL;
+    }
+    const th_encoding_entry *entry = th_encoding_lookup(label, label_len);
+    if (entry == NULL) {
+        PyBuffer_Release(&view);
+        PyErr_Format(PyExc_LookupError, "unknown encoding: %s", label);
+        return NULL;
+    }
+    PyObject *decoded = th_decode(entry, view.buf, view.len);
+    PyBuffer_Release(&view);
+    return decoded;
+}
+
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     (void)module;
     Py_buffer view;
@@ -797,7 +752,7 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     for (int index = 0; index < scores.count; index++) {
         const char *label = scores.items[index].label;
         const th_encoding_entry *item = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
-        PyObject *pair = Py_BuildValue("(sl)", item->canonical, scores.items[index].score);
+        PyObject *pair = Py_BuildValue("(sL)", item->canonical, (long long)scores.items[index].score);
         if (pair == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(ranked); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
