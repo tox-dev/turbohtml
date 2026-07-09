@@ -82,13 +82,16 @@ _BIG5_PLANE: Final = 0x20000
 _REPLACEMENT: Final = 0xFFFD
 
 
-def _fetch_indexes() -> dict[str, list[int | None] | list[list[int]]]:
-    """Return the spec's parsed index tables, aborting if the served bytes are not the pinned ones."""
+def _fetch_indexes() -> tuple[dict[str, list[int | None]], list[tuple[int, int]]]:
+    """Return the spec's pointer tables and the gb18030 range list, aborting if the bytes are not the pinned ones."""
     raw = fetch_bytes(_INDEXES_URL)
     if (digest := hashlib.sha256(raw).hexdigest()) != _INDEXES_SHA256:
         msg = f"{_INDEXES_URL} has sha256 {digest}, not the pinned {_INDEXES_SHA256}; review, then bump the pin"
         raise SystemExit(msg)
-    return json.loads(raw)
+    parsed = json.loads(raw)  # json.loads is Any; the spec's shape is a pointer table per name, plus one range list
+    ranges = [(pointer, point) for pointer, point in parsed["gb18030-ranges"]]
+    indexes = {name: table for name, table in parsed.items() if name != "gb18030-ranges"}
+    return indexes, ranges
 
 
 def _rows(values: Iterable[int], per_row: int = 16) -> str:
@@ -159,7 +162,7 @@ def _gb18030_ranges(ranges: Sequence[Sequence[int]]) -> str:
 
 def generate(out_path: Path) -> None:
     """Write the generated WHATWG decode-table header to *out_path*."""
-    indexes = _fetch_indexes()
+    indexes, ranges = _fetch_indexes()
     sb_slots, sb_table = _single_byte_tables(indexes)
     parts = [
         (
@@ -182,7 +185,7 @@ def generate(out_path: Path) -> None:
         _flat_table("gb18030", indexes["gb18030"]),
         _flat_table("jis0208", indexes["jis0208"]),
         _flat_table("jis0212", indexes["jis0212"]),
-        _gb18030_ranges(indexes["gb18030-ranges"]),
+        _gb18030_ranges(ranges),
         "#endif /* TURBOHTML_ENCODING_TABLES_H */\n",
     ]
     out_path.write_text("\n".join(parts), encoding="utf-8")

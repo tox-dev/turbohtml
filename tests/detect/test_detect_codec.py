@@ -35,6 +35,7 @@ def test_codec_names_a_registered_decoder(data: bytes, encoding: str, codec: str
 def test_the_whatwg_name_alone_cannot_be_decoded(data: bytes, text: str) -> None:
     match = detect(data)
     assert match.encoding is not None
+    assert match.codec is not None
     with pytest.raises(LookupError):
         data.decode(match.encoding)
     assert data.decode(match.codec).endswith(text)  # the codec always can, and decodes as the parser does
@@ -50,7 +51,22 @@ def test_the_whatwg_name_alone_cannot_be_decoded(data: bytes, text: str) -> None
 )
 def test_decoding_through_codec_reproduces_what_the_parser_saw(data: bytes, text: str) -> None:
     match = detect(data)
+    assert match.codec is not None
     assert data.decode(match.codec).endswith(text)
+
+
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"\xef\xbb\xbfhi", "hi", id="utf-8-sig-strips-the-mark"),
+        pytest.param(b"\xff\xfeh\x00", "\ufeffh", id="utf-16le-keeps-the-mark"),
+    ],
+)
+def test_a_byte_order_mark_codec_delegates_to_cpython(data: bytes, text: str) -> None:
+    # CPython's UTF-8 and UTF-16 decoders match the spec, so the whatwg-* name resolves straight to them
+    match = detect(data)
+    assert match.codec is not None
+    assert data.decode(match.codec) == text
 
 
 def test_a_whatwg_codec_refuses_to_encode() -> None:

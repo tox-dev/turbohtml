@@ -33,9 +33,12 @@ from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 from ._html import _decode, _detect, _detect_language, _is_normalized, _normalize
+
+if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer
 
 __all__ = [
     "Detection",
@@ -67,7 +70,7 @@ _BOM_CODECS: Final[dict[str, str]] = {
 }
 
 
-def _refuse_encode(text: str, errors: str = "strict") -> tuple[bytes, int]:  # noqa: ARG001
+def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # noqa: ARG001
     """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
     msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
     raise UnicodeError(msg)
@@ -91,8 +94,9 @@ def _search(name: str) -> codecs.CodecInfo | None:
     if label is None:
         return None
 
-    def decode(data: bytes, errors: str = "strict") -> tuple[str, int]:  # noqa: ARG001
-        return _decode(bytes(data), label), len(data)
+    def decode(input: ReadableBuffer, errors: str = "strict", /) -> tuple[str, int]:  # noqa: A002, ARG001
+        data = bytes(input)
+        return _decode(data, label), len(data)
 
     return codecs.CodecInfo(_refuse_encode, decode, name=name)
 
