@@ -68,9 +68,10 @@ def test_gbk_euro_and_pua() -> None:
 
 
 def test_gbk_pua_ideograph() -> None:
-    # The GB18030-required PUA mappings chardetng treats as ideographs, not private use. The GBK scorer
-    # runs its PUA-ideograph arm here; the four-scalar corpus is too short to lift GBK past Big5.
-    assert _detected("\ue78d\ue816\ue81e\u7684".encode("gb18030")) == "Big5"
+    # The GB18030-required PUA mappings chardetng treats as ideographs, not private use, in the bytes the WHATWG
+    # gb18030 decoder actually emits them from (U+E816, U+E831, U+E83B, U+E855), preceded by an ASCII letter for the
+    # Latin-adjacency arm and followed by a non-ideograph PUA scalar (U+E4C6) for the else arm.
+    assert _detected(b"a\xfe\x51\xfe\x6c\xfe\x76\xfe\x91\xa1\x40") == "windows-1252"
 
 
 @pytest.mark.parametrize(
@@ -222,3 +223,138 @@ def test_windows_1252_ordinal_state_machine() -> None:
     ]
     raw = (" " + "  ".join(segments) + " ").encode("cp1252")
     assert _detected(raw) == "windows-1252"
+
+
+def test_big5_written_two_combining_base() -> None:
+    # Big5's written==2 path for the four pointers that decode to U+00CA/U+00EA plus a combining mark: the base letter
+    # scores as CJK_OTHER and the drained mark is not scored again, alongside an astral scalar for the else arm.
+    assert _detected(b"\x88\x62\x88\xa3\x98\x40") == "Big5"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\x81\x30\xfe\x41" * 4, "windows-1252", id="uppercase-letter-after-a-lead"),
+        pytest.param(b"\x81\x30\xfe\x61" * 4, "windows-1252", id="lowercase-letter-after-a-lead"),
+        pytest.param(b"a\xfe\xff" * 3, "windows-1254", id="trailing-0xff"),
+        pytest.param(b"\x81\x30\xfe\x80" * 4, "windows-1252", id="high-byte-that-is-not-0xff"),
+        pytest.param(b"\xfe\x20" * 4, "windows-1252", id="other-byte-after-0xfe"),
+        pytest.param(b"\xa0\xff" * 4, "IBM866", id="single-byte-extension-after-0xa0"),
+        pytest.param(b"\xfd\xff" * 4, "windows-1251", id="single-byte-extension-after-0xfd"),
+    ],
+)
+def test_gbk_malformed_single_byte_extension(raw: bytes, expected: str) -> None:
+    # chardetng's GBK single-byte-extension arms: a 0xA0/0xFD/0xFE lead followed by an ASCII letter, 0xFF, another
+    # high byte, or another byte, reached through the four-byte-interrupted decode that lets a letter be the failing
+    # byte. Each pins the label chardetng reports.
+    assert _detected(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\x81\xad" * 4, "GBK", id="hole-in-the-lead-and-trail-range"),
+        pytest.param(b"\x82\x40" * 4, "GBK", id="excluded-0x82-below-0xfa"),
+        pytest.param(b"\x82\xfa" * 4, "GBK", id="excluded-0x82-at-0xfa"),
+        pytest.param(b"\x84\xdd" * 4, "windows-1254", id="excluded-0x84-in-0xdd-0xe4"),
+        pytest.param(b"\x84\xfb" * 4, "GBK", id="excluded-0x84-at-0xfb"),
+        pytest.param(b"\x84\x61" * 4, "GBK", id="excluded-0x84-below-0xdd"),
+        pytest.param(b"\x86\xf2" * 4, "GBK", id="excluded-0x86-in-0xf2-0xfa"),
+        pytest.param(b"\x86\x40" * 4, "GBK", id="excluded-0x86-below-0xf2"),
+        pytest.param(b"\x86\xfb" * 4, "GBK", id="excluded-0x86-above-0xfa"),
+        pytest.param(b"\x87\x77" * 4, "Big5", id="excluded-0x87-in-0x77-0x7d"),
+        pytest.param(b"\x87\x5e" * 4, "Big5", id="excluded-0x87-below-0x77"),
+        pytest.param(b"\x87\x7f" * 4, "windows-1252", id="excluded-0x87-above-0x7d"),
+        pytest.param(b"\xfc\xf5" * 4, "windows-1251", id="excluded-0xfc-at-0xf5"),
+        pytest.param(b"\xfc\x4c" * 4, "Big5", id="excluded-0xfc-below-0xf5"),
+        pytest.param(b"\xa0" * 4, "GBK", id="single-byte-0xa0"),
+        pytest.param(b"\xfd" * 4, "windows-1254", id="single-byte-0xfd-or-above"),
+    ],
+)
+def test_shift_jis_malformed_extension(raw: bytes, expected: str) -> None:
+    # chardetng's Shift_JIS extension penalty: a lead/trail pair the decoder rejects but that is in range and not one
+    # of the excluded MacJapanese boundary pairs (which end the candidate instead), plus the single-byte 0xA0/0xFD+.
+    assert _detected(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\xa2\xaf" * 4, "IBM866", id="plane-1-general"),
+        pytest.param(b"\xa8\xdf" * 4, "Big5", id="plane-1-excluded-0xa8-in-range"),
+        pytest.param(b"\xa8\xe7" * 4, "Big5", id="plane-1-0xa8-above-range"),
+        pytest.param(b"\xac\xf4" * 4, "Big5", id="plane-1-excluded-0xac-in-range"),
+        pytest.param(b"\xac\xfd" * 4, "Big5", id="plane-1-0xac-above-range"),
+        pytest.param(b"\xac\xa1" * 4, "Big5", id="plane-1-0xac-below-range"),
+        pytest.param(b"\xad\xd8" * 4, "Big5", id="plane-1-excluded-0xad-in-range"),
+        pytest.param(b"\xad\xfd" * 4, "Big5", id="plane-1-0xad-above-range"),
+        pytest.param(b"\xad\xbf" * 4, "Big5", id="plane-1-0xad-below-range"),
+        pytest.param(b"\x8f\xa1\xa1" * 4, "Shift_JIS", id="plane-2-general"),
+        pytest.param(b"\x8f\xa2\xa1" * 4, "Shift_JIS", id="plane-2-excluded-0xa2"),
+        pytest.param(b"\x8f\xa6\xa1" * 4, "Shift_JIS", id="plane-2-excluded-0xa6"),
+        pytest.param(b"\x8f\xa7\xa1" * 4, "Shift_JIS", id="plane-2-excluded-0xa7"),
+        pytest.param(b"\x8f\xa9\xa3" * 4, "Shift_JIS", id="plane-2-excluded-0xa9"),
+        pytest.param(b"\x8f\xaa\xb9" * 4, "Shift_JIS", id="plane-2-excluded-0xaa"),
+        pytest.param(b"\x8f\xab\xbc" * 4, "Shift_JIS", id="plane-2-excluded-0xab"),
+        pytest.param(b"\x8f\xed\xe4" * 4, "Shift_JIS", id="plane-2-excluded-0xed"),
+        pytest.param(b"\x8f\xfe\xf7" * 4, "windows-1252", id="plane-2-0xfe-at-or-above-0xf7"),
+        pytest.param(b"\x8f\xfe\xa1" * 4, "windows-1252", id="plane-2-0xfe-below-0xf7"),
+        pytest.param(b"\x8e\xe0" * 4, "Shift_JIS", id="in-pair-prev-below-0xa1"),
+    ],
+)
+def test_euc_jp_malformed_planes(raw: bytes, expected: str) -> None:
+    # chardetng's EUC-JP extension penalty: the JIS X 0208 plane-1 and JIS X 0212 plane-2 recognition tests, including
+    # every prev-byte exclusion and its in-range/out-of-range edges, plus a single-shift 0x8E lead whose failing pair
+    # has a prev byte below 0xA1.
+    assert _detected(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\xa1\xa4" * 6, "windows-874", id="scalar-at-or-above-0xfb00"),
+        pytest.param(b"\xf9\xd4" * 6, "EUC-JP", id="compatibility-ideograph-0xf900-0xfaff"),
+    ],
+)
+def test_euc_jp_other_kanji_scalar_ranges(raw: bytes, expected: str) -> None:
+    # the EUC-JP "other kanji" arm's upper edge: a fullwidth scalar at or above U+FB00 and a compatibility
+    # ideograph inside U+F900..U+FAFF, the two sides of the range test.
+    assert _detected(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\x81\xa1" * 4, "GBK", id="pua-penalty-trail-in-0xa1-0xfe"),
+        pytest.param(b"\x81\x40" * 4, "Shift_JIS", id="pua-penalty-trail-in-0x40-0x7e"),
+        pytest.param(b"\xff\xff" * 4, "windows-1256", id="pua-penalty-prev-0xff"),
+        pytest.param(b"z\xfe\xff" * 3, "windows-1252", id="single-byte-extension-0xff"),
+        pytest.param(b"\xa0\x20" * 4, "windows-1252", id="single-byte-extension-other"),
+        pytest.param(b"\xfd\x20" * 4, "windows-1254", id="single-byte-extension-after-0xfd"),
+    ],
+)
+def test_big5_malformed(raw: bytes, expected: str) -> None:
+    # chardetng's Big5 PUA penalty (an in-range unmapped pair, on both trail ranges and a 0xFF prev byte) and the
+    # single-byte-extension arms after a 0xA0/0xFD/0xFE lead.
+    assert _detected(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(b"\xfe\xa1" * 4, "Big5", id="pua-penalty-prev-0xfe"),
+        pytest.param(b"\xc9\xa1" * 4 + b"\xff", "windows-1252", id="pua-penalty-prev-0xc9"),
+        pytest.param(b"\x41\xfe\xa1" * 3, "windows-1252", id="pua-penalty-after-ascii"),
+        pytest.param(b"\xb0\xa1\xfe\xa1" * 3, "Big5", id="pua-penalty-after-hangul"),
+        pytest.param(b"\xff\x41" * 3, "windows-1252", id="scored-scalar-with-prev-byte-0xff"),
+        pytest.param(b"\xa1\x7b" * 4, "ISO-8859-2", id="mac-korean-prev-0xa1"),
+        pytest.param(b"\xa3\x7c" * 4, "windows-1250", id="mac-korean-prev-0xa3"),
+        pytest.param(b"\x81\x80" * 4, "IBM866", id="single-byte-extension-0x80"),
+        pytest.param(b"\x81\xff" * 4, "windows-1256", id="single-byte-extension-0xff"),
+        pytest.param(b"\x81\x20" * 4, "windows-1252", id="single-byte-extension-other"),
+    ],
+)
+def test_euc_kr_malformed(raw: bytes, expected: str) -> None:
+    # chardetng's EUC-KR PUA penalty (prev 0xC9/0xFE, after ASCII and after Hangul), the MacKorean recognition, the
+    # single-byte-extension arms, and a scored scalar whose preceding byte is 0xFF.
+    assert _detected(raw) == expected

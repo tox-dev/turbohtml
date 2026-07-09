@@ -730,12 +730,12 @@ static int th_cj_punct9(uint16_t u) {
     return th_cj_punct5(u) || u == 0xFF01 || u == 0xFF0C || u == 0xFF1B || u == 0xFF1F;
 }
 
-/* The GB18030-required PUA mappings that chardetng treats as ideographs rather than
-   penalizing as private-use. */
+/* The GB18030-required PUA mappings that chardetng treats as ideographs rather than penalizing as private-use, narrowed
+   to the scalars the WHATWG gb18030 decoder can actually emit. Its two-byte index maps only these six, and its
+   four-byte range index reaches no PUA ideograph, so chardetng's other listed scalars (U+E78D..U+E796, U+E81E,
+   U+E826..U+E82C, U+E832, U+E843, U+E854, U+E864) never occur here and their tests are dropped. */
 static int th_gbk_pua_ideograph(uint16_t u) {
-    return (u >= 0xE78D && u <= 0xE796) || (u >= 0xE816 && u <= 0xE818) || u == 0xE81E || u == 0xE826 || u == 0xE82B ||
-           u == 0xE82C || u == 0xE831 || u == 0xE832 || u == 0xE83B || u == 0xE843 || u == 0xE854 || u == 0xE855 ||
-           u == 0xE864;
+    return (u >= 0xE816 && u <= 0xE818) || u == 0xE831 || u == 0xE83B || u == 0xE855;
 }
 
 /* NOLINTBEGIN(bugprone-branch-clone) */
@@ -1007,7 +1007,7 @@ static void th_cjk_score_big5(th_cjk_candidate *cand, int written, uint16_t u) {
    syllable, which scores the far smaller non-EUC value and may be held pending. Collapsing the two made EUC-KR win over
    windows-1252/Big5/GBK/Shift_JIS across the corpus. */
 static void th_cjk_score_euc_kr(th_cjk_candidate *cand, uint16_t u, unsigned char b) {
-    int in_euc_range = b >= 0xA1 && b <= 0xFE;
+    int in_euc_range = b >= 0xA1 && b <= 0xFE; /* GCOVR_EXCL_BR_LINE: a scored scalar's byte is never 0xFF */
     int prev_was_euc = cand->prev_byte >= 0xA1 && cand->prev_byte <= 0xFE;
     if ((u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')) {
         cand->has_pending = 0;
@@ -1115,7 +1115,8 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
     }
     case TH_CJK_EUC_JP: {
         unsigned char prev_prev = cand->prev_prev_byte;
-        int in_pair = b >= 0xA1 && b <= 0xFE && prev >= 0xA1 && prev <= 0xFE;
+        int in_pair =
+            b >= 0xA1 && b <= 0xFE && prev >= 0xA1 && prev <= 0xFE; /* GCOVR_EXCL_BR_LINE: a lead is never 0xFF */
         int plane_1 = prev_prev != 0x8F && !(prev == 0xA8 && b >= 0xDF && b <= 0xE6) &&
                       !(prev == 0xAC && b >= 0xF4 && b <= 0xFC) && !(prev == 0xAD && b >= 0xD8 && b <= 0xDE);
         int plane_2 = prev_prev == 0x8F && prev != 0xA2 && prev != 0xA6 && prev != 0xA7 && prev != 0xA9 &&
@@ -1143,8 +1144,10 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
         if ((prev == 0xA0 || prev == 0xFD || prev == 0xFE) && (b < 0x80 || b == 0xFF)) {
             cand->has_pending = 0;
             cand->score += TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY;
-            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) {
-                cand->prev = TH_CJ_ASCII;
+            /* every ASCII letter is in 0x40..0x7E, which the in-range PUA check above already claimed, so this
+               single-byte arm only ever sees non-letters and chardetng's letter case is unreachable here */
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) { /* GCOVR_EXCL_BR_LINE */
+                cand->prev = TH_CJ_ASCII;                           /* GCOVR_EXCL_LINE */
             } else if (b == 0xFF) {
                 cand->score += TH_BIG5_SINGLE_BYTE_EXTENSION_PENALTY;
                 cand->prev = TH_CJ_OTHER;
@@ -1184,11 +1187,13 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
             cand->word_len = 0;
             return 1;
         }
-        if (prev >= 0x81 && prev <= 0x84 && (b <= 0x80 || b == 0xFF)) {
+        /* a euc-kr lead in 0x81..0x84 maps every 0x81..0xFE trail, so a malformed pair there only ever fails on a byte
+           <= 0x80 or == 0xFF -- b is never in 0x81..0xFE, and no letter trail errors, so the letter case is dead */
+        if (prev >= 0x81 && prev <= 0x84 && (b <= 0x80 || b == 0xFF)) { /* GCOVR_EXCL_BR_LINE */
             cand->has_pending = 0;
             cand->score += TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY;
-            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) {
-                cand->prev = TH_CJ_ASCII;
+            if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')) { /* GCOVR_EXCL_BR_LINE */
+                cand->prev = TH_CJ_ASCII;                           /* GCOVR_EXCL_LINE */
             } else if (b == 0x80 || b == 0xFF) {
                 cand->score += TH_EUCKR_SINGLE_BYTE_EXTENSION_PENALTY;
                 cand->prev = TH_CJ_OTHER;
@@ -1245,7 +1250,8 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
             Py_UCS4 mark = 0;
             th_decode_step(&dec, &mark);
         }
-        Py_ssize_t at = (dec.pos > before ? dec.pos : before) - 1;
+        Py_ssize_t at =
+            (dec.pos > before ? dec.pos : before) - 1; /* GCOVR_EXCL_BR_LINE: a scalar always advances pos */
         unsigned char b = buf[at];
         cand->prev_byte = at >= 1 ? buf[at - 1] : 0;
         cand->prev_prev_byte = at >= 2 ? buf[at - 2] : 0;
