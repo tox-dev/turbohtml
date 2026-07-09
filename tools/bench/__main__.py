@@ -1,7 +1,8 @@
 """
 CLI entry point: ``python -m bench [--pgo] <command>``.
 
-Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), an operation name
+Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), ``interpreters`` (the
+same turbohtml under each interpreter it supports, written straight to its docs feed), an operation name
 (cross-package table), or a package name (that package's own report). Anything after the command is forwarded verbatim
 to pyperf in every worker (e.g. ``--rigorous``, ``--affinity=2``). ``--pgo``, before the command so pyperf never sees
 it, builds the turbohtml ``core`` baseline with the shipped release recipe -- the two-phase profile-guided,
@@ -30,7 +31,10 @@ def main() -> None:
     if pgo:
         arguments.remove("--pgo")
     if not arguments:
-        msg = "usage: python -m bench [--table-json DIR] [--pgo] <core|all|operation|package> [pyperf options...]"
+        msg = (
+            "usage: python -m bench [--table-json DIR] [--pgo] <core|all|interpreters|operation|package> "
+            "[pyperf options...]"
+        )
         raise SystemExit(msg)
     orchestrator.run(arguments[0], tuple(arguments[1:]), pgo=pgo)
 

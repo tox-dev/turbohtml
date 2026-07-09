@@ -1,0 +1,205 @@
+{
+  "label": "operation",
+  "parties": [
+    "turbohtml on CPython 3.14",
+    "turbohtml on PyPy 3.11"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "parse to a tree — wpt tiny (0.6 kB)",
+      1.8160549264104968e-06,
+      3.299525069344611e-06
+    ],
+    [
+      "parse to a tree — wpt small (4 kB)",
+      1.2964961409996553e-05,
+      1.7237267726481302e-05
+    ],
+    [
+      "parse to a tree — wpt medium (9.6 kB)",
+      3.150469190416061e-05,
+      4.321205815263814e-05
+    ],
+    [
+      "parse to a tree — wpt large (92 kB)",
+      0.0002844415175256169,
+      0.000327108204525454
+    ],
+    [
+      "parse to a tree — wpt CJK (124 kB)",
+      0.0005775339786850964,
+      0.0006576096545359178
+    ],
+    [
+      "parse to a tree — whatwg spec (235 kB)",
+      0.0005403873942820307,
+      0.0007296421273925564
+    ],
+    [
+      "escape — tiny plain (64 B)",
+      6.828457183027936e-08,
+      2.505380431117032e-07
+    ],
+    [
+      "escape — medium markup (4 KiB)",
+      2.5415868869060885e-06,
+      8.165669123864442e-06
+    ],
+    [
+      "escape — no-op prose (4 MiB)",
+      0.00012950227452392937,
+      0.002200463529576761
+    ],
+    [
+      "escape — book text (3 MiB)",
+      0.000660945567157493,
+      0.00377932109562001
+    ],
+    [
+      "escape — book HTML (4 MiB)",
+      0.0014308940701691123,
+      0.011259946398665004
+    ],
+    [
+      "escape — spec HTML, dense (4 MiB)",
+      0.00540990151882094,
+      0.025796923695209747
+    ],
+    [
+      "escape — UCS-2 plain (4 MiB)",
+      0.0009356884002803175,
+      0.002672294358126237
+    ],
+    [
+      "escape — UCS-2 markup (4 MiB)",
+      0.004059570638249473,
+      0.02836048872268293
+    ],
+    [
+      "escape — UCS-4 plain (4 MiB)",
+      0.0012262545852839443,
+      0.001440745621403039
+    ],
+    [
+      "escape — UCS-4 markup (4 MiB)",
+      0.004294444162345219,
+      0.021261597656121012
+    ],
+    [
+      "unescape — tiny plain (64 B)",
+      4.0059680089798985e-08,
+      2.1800457753832583e-07
+    ],
+    [
+      "unescape — medium dense refs (4 KiB)",
+      8.75087377612734e-06,
+      1.8585289009346676e-05
+    ],
+    [
+      "unescape — numeric refs (4 KiB)",
+      6.03913514728068e-06,
+      1.5051512650643418e-05
+    ],
+    [
+      "unescape — book HTML, real refs (4 MiB)",
+      0.0028521083023103225,
+      0.013763589703012257
+    ],
+    [
+      "unescape — escaped book HTML (5 MiB)",
+      0.0020155035495918127,
+      0.004436386042652884
+    ],
+    [
+      "unescape — dense refs (4 MiB)",
+      0.010659917927114293,
+      0.020425393924233502
+    ],
+    [
+      "unescape — UCS-2 refs (4 MiB)",
+      0.0030242201610841827,
+      0.014407056073347727
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      9.057465272140537e-06,
+      0.00011277061425592667
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      4.947485389455627e-05,
+      0.0006424718914028442
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      0.00010802062375129633,
+      0.0010965116365393138
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0002711944919534896,
+      0.002778453459419931
+    ],
+    [
+      "collect visible text — daring fireball (10 kB)",
+      2.9388095856101395e-06,
+      6.299138046680733e-05
+    ],
+    [
+      "collect visible text — ars technica (56 kB)",
+      1.458136876427337e-05,
+      0.0003442731296445345
+    ],
+    [
+      "collect visible text — mozilla blog (95 kB)",
+      2.583849519908199e-05,
+      0.00047889207086579215
+    ],
+    [
+      "collect visible text — whatwg spec (235 kB)",
+      8.96547522908501e-05,
+      0.0018867518128293645
+    ],
+    [
+      "select div a[href] — daring fireball (10 kB)",
+      7.598523832067865e-07,
+      3.74988218752037e-06
+    ],
+    [
+      "select div a[href] — ars technica (56 kB)",
+      1.8189967352810754e-06,
+      8.873802227545488e-06
+    ],
+    [
+      "select div a[href] — mozilla blog (95 kB)",
+      2.552165687674801e-06,
+      1.254958708519401e-05
+    ],
+    [
+      "select div a[href] — whatwg spec (235 kB)",
+      2.2247194618666793e-06,
+      9.12357652917232e-06
+    ],
+    [
+      "walk every descendant — daring fireball (10 kB)",
+      3.488743846228696e-06,
+      3.240355039129857e-05
+    ],
+    [
+      "walk every descendant — ars technica (56 kB)",
+      1.3942484199939524e-05,
+      0.0001488851411863834
+    ],
+    [
+      "walk every descendant — mozilla blog (95 kB)",
+      2.9589536180196773e-05,
+      0.000320730476899674
+    ],
+    [
+      "walk every descendant — whatwg spec (235 kB)",
+      0.00010236824077007138,
+      0.0010926485834716003
+    ]
+  ]
+}

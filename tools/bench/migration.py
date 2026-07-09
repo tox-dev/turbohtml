@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Final
 
 from bench import operations
+from bench.report import rst_safe
 
 _SIZE_OPS: Final = frozenset({"minify", "minify-css", "minify-js"})
 
@@ -73,11 +74,6 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
     return names
 
 
-def _rst_safe(label: str) -> str:
-    """Escape the RST inline-markup starters (an XPath case can carry ``*`` or ``|``); the directive parses labels."""
-    return label.replace("\\", "\\\\").replace("*", "\\*").replace("|", "\\|").replace("`", "\\`")
-
-
 def _rows(op_labels: dict[str, str], stats: dict[str, dict[str, float]]) -> list[list[str | float | None]]:
     """Build a library's rows across every shared operation-case; prefix the label with the op title if it spans ops."""
     prefixed = len(op_labels) > 1
@@ -89,7 +85,7 @@ def _rows(op_labels: dict[str, str], stats: dict[str, dict[str, float]]) -> list
             other = stats.get(f"{operation}|{case}|{label}")
             if turbo is None or other is None:
                 continue
-            row_label = _rst_safe(f"{meta.title} — {case}" if prefixed else case)
+            row_label = rst_safe(f"{meta.title} — {case}" if prefixed else case)
             if operation in _SIZE_OPS:
                 rows.append([row_label, turbo["size"], turbo["mean"], other["size"], other["mean"]])
             else:

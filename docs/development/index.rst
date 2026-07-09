@@ -7,12 +7,13 @@ Claude Opus 4.8, with some help from Fable, across close to 300 pull requests an
 See :doc:`/how-this-was-built` for the full acknowledgment and the libraries and specifications turbohtml stands on.
 
 This page covers how we build, test, and maintain turbohtml; the :doc:`performance` page collects the benchmark tables
-the rest of the docs link into.
+the rest of the docs link into, and :doc:`cpyext` covers what running the C core on PyPy costs the codebase.
 
 .. toctree::
     :hidden:
 
     performance
+    cpyext
 
 ***************************
  AI-assisted contributions

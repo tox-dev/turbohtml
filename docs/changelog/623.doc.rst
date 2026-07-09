@@ -1,0 +1,3 @@
+Explain what running the C core on PyPy costs, in :doc:`/explanation/interpreters`, from a table the benchmark harness
+generates (``tox -e bench -- interpreters``) rather than from figures typed into prose. How the core adapts to
+``cpyext`` moved to :doc:`/development/cpyext`, alongside the invariant that keeps CPython's machine code unchanged.

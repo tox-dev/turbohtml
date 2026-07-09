@@ -123,6 +123,11 @@ def _cells(stat: _Stat | None, *, extra: str | None) -> list[float | str | None]
     return [stat[extra], stat["mean"]] if extra else [stat["mean"]]
 
 
+def rst_safe(label: str) -> str:
+    """Escape the RST inline-markup starters (an XPath case can carry ``*`` or ``|``); the directive parses labels."""
+    return label.replace("\\", "\\\\").replace("*", "\\*").replace("|", "\\|").replace("`", "\\`")
+
+
 def _emit_table_json(operation: str, stats: dict[str, _Stat], directory: Path) -> None:
     """Write one operation's raw means (plus size or peak memory) as the docs' bench-table feed DIR/<op>.json."""
     competitors = _labels(operation, stats)[1:]

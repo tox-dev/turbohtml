@@ -22,7 +22,7 @@ import tomllib
 
 from bench import corpus, operations, report
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOOLS_DIR = Path(__file__).resolve().parents[1]
 _COMPETITOR_DIR = Path(__file__).resolve().parent / "competitors"
 _COMPETITOR_TIMEOUT = 900.0  # seconds for one competitor's whole operation; past it the library is hanging, not slow
@@ -72,13 +72,22 @@ def _uv(*args: str) -> None:
 
 def _build_wheel(workdir: Path) -> Path:
     """Build the turbohtml wheel once; only the core baseline venv installs it."""
-    _uv("build", "--wheel", "--out-dir", str(workdir), str(_REPO_ROOT))
+    _uv("build", "--wheel", "--out-dir", str(workdir), str(REPO_ROOT))
     return next(workdir.glob("*.whl"))
 
 
-def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...], pip_options: tuple[str, ...] = ()) -> Path:
+def venv_python(
+    workdir: Path,
+    name: str,
+    reqs: tuple[str, ...],
+    pip_options: tuple[str, ...] = (),
+    interpreter: str | None = None,
+) -> Path:
     """
     Provision an isolated venv holding pyperf and the given requirements; return its interpreter.
+
+    ``interpreter`` names the uv Python spec to build the venv on, for the interpreter comparison that runs the same
+    turbohtml under several of them; the default takes whichever Python uv resolves.
 
     Idempotent within one workdir: a target that already has its venv (a competitor appearing in several operations of
     an ``all`` sweep, or the core baseline shared across every operation) is provisioned once and reused, so the whole
@@ -88,7 +97,7 @@ def _venv_python(workdir: Path, name: str, reqs: tuple[str, ...], pip_options: t
     python = venv / ("Scripts" if os.name == "nt" else "bin") / "python"
     if python.exists():
         return python
-    _uv("venv", str(venv))
+    _uv("venv", *(("--python", interpreter) if interpreter else ()), str(venv))
     _uv("pip", "install", "--python", str(python), "pyperf>=2.10", *pip_options, *reqs)
     return python
 
@@ -103,15 +112,15 @@ def _core_python(workdir: Path, *, pgo: bool) -> Path:
     venv), leaving the baseline measured against a release-representative binary.
     """
     if not pgo:
-        return _venv_python(workdir, "core", (str(_build_wheel(workdir)),))
-    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        return venv_python(workdir, "core", (str(_build_wheel(workdir)),))
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     build_backend = tuple(pyproject["build-system"]["requires"])
-    python = _venv_python(workdir, "core", build_backend)
-    pgo_build.build(str(python), workdir / "core-pgo-build", _REPO_ROOT, "full", system=False)
+    python = venv_python(workdir, "core", build_backend)
+    pgo_build.build(str(python), workdir / "core-pgo-build", REPO_ROOT, "full", system=False)
     return python
 
 
-def _run_worker(
+def run_worker(
     python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float | str]]:
     """
@@ -166,12 +175,12 @@ def _try_competitor(
     library or input cannot stall the whole sweep.
     """
     try:
-        python = _venv_python(workdir, competitor, COMPETITORS[competitor][0], COMPETITORS[competitor][2])
+        python = venv_python(workdir, competitor, COMPETITORS[competitor][0], COMPETITORS[competitor][2])
     except subprocess.CalledProcessError:
         print(f"skipping {competitor}: it did not install in its isolated venv", file=sys.stderr)
         return {}
     try:
-        return _run_worker(python, competitor, operation, workdir, pyperf_args)
+        return run_worker(python, competitor, operation, workdir, pyperf_args)
     except subprocess.TimeoutExpired:
         print(
             f"skipping {competitor}: it did not finish {operation} within {_COMPETITOR_TIMEOUT:.0f}s", file=sys.stderr
@@ -186,7 +195,7 @@ def _try_competitor(
 
 def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
-    stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
+    stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
     for competitor in _packages_for(operation):
         stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
     report.render(operation, stats)
@@ -195,17 +204,17 @@ def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: P
 def report_package(competitor: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render one competitor's report: it against the turbohtml baseline across every operation it implements."""
     reqs, operation_names, pip_options = COMPETITORS[competitor]
-    competitor_python = _venv_python(workdir, competitor, reqs, pip_options)
+    competitor_python = venv_python(workdir, competitor, reqs, pip_options)
     for operation in operation_names:
-        stats = _run_worker(core_python, "core", operation, workdir, pyperf_args)
-        stats.update(_run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
+        stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
+        stats.update(run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
         report.render(operation, stats)
 
 
 def report_core(pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render turbohtml's own baseline for every operation in a turbohtml-only venv."""
     for operation in operations.OPERATIONS:
-        report.render(operation, _run_worker(core_python, "core", operation, workdir, pyperf_args))
+        report.render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
 
 
 def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -> None:
@@ -227,6 +236,10 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
             report_package(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         elif command == "core":
             report_core(pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
+        elif command == "interpreters":
+            from bench import interpreters  # noqa: PLC0415  # imports orchestrator, so bind it once the command asks
+
+            interpreters.build(workdir, pyperf_args)
         elif command == "all":
             core_python = _core_python(workdir, pgo=pgo)
             for operation in operations.OPERATIONS:
@@ -234,6 +247,6 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
         elif command in operations.OPERATIONS:
             report_operation(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         else:
-            choices = ", ".join(["core", "all", *operations.OPERATIONS, *COMPETITORS])
+            choices = ", ".join(["core", "all", "interpreters", *operations.OPERATIONS, *COMPETITORS])
             msg = f"unknown command {command!r}; choose one of: {choices}"
             raise SystemExit(msg)
