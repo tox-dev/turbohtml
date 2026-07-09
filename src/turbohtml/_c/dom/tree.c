@@ -4170,6 +4170,10 @@ struct th_stream {
     th_tree *tree;
     th_tokenizer *sm;
     th_run_state run_state;
+    /* The preprocessing errors, swept per chunk because no chunk outlives the feed that brought it, and merged into
+       the tree's tokenizer errors at finish the way th_tree_ensure_input_errors does for a whole buffer. */
+    th_error_sink preprocessing;
+    th_input_scan scan;
 };
 
 th_stream *th_stream_new(int positions, int locations) {
@@ -4184,6 +4188,8 @@ th_stream *th_stream_new(int positions, int locations) {
         return NULL;                                  /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     stream->tree->declarative_shadow = 1; /* a streaming document parse navigates like the browser */
+    th_tok_set_error_sink(stream->sm, &stream->tree->errors);
+    th_input_scan_init(&stream->scan);
     th_tok_capture_locations(stream->sm, locations);
     run_state_init(&stream->run_state, M_INITIAL);
     return stream;
@@ -4223,6 +4229,7 @@ static int chunk_has_nul(int kind, const void *data, Py_ssize_t length) {
 
 int th_stream_feed(th_stream *stream, int kind, const void *data, Py_ssize_t length) {
     stream->tree->has_nul |= chunk_has_nul(kind, data, length);
+    th_input_stream_errors_chunk(&stream->scan, kind, data, length, &stream->preprocessing);
     th_tok_feed(stream->sm, kind, data, length);
     stream_sync_input(stream);
     run_drain(stream->tree, stream->sm, &stream->run_state);
@@ -4238,6 +4245,8 @@ th_tree *th_stream_finish(th_stream *stream) {
     run_drain(stream->tree, stream->sm, &stream->run_state);
     run_close(stream->tree);
     finalize_document(stream->tree);
+    stream->tree->failed |= th_error_sink_merge(&stream->tree->errors, &stream->preprocessing) < 0;
+    th_error_sink_free(&stream->preprocessing);
     if (stream->tree->failed) { /* GCOVR_EXCL_BR_LINE: only an allocation failure sets failed */
         return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -4247,6 +4256,7 @@ th_tree *th_stream_finish(th_stream *stream) {
 }
 
 void th_stream_free(th_stream *stream) {
+    th_error_sink_free(&stream->preprocessing); /* a stream abandoned before finish still owns the errors it swept */
     if (stream->sm != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on a partially-built stream from th_stream_new */
         th_tok_free(stream->sm);
     }

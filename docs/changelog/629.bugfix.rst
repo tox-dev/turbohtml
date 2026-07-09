@@ -1,0 +1,3 @@
+Report parse errors from :class:`turbohtml.IncrementalParser`, which collected none: the streaming tokenizer never
+attached an error sink, and the preprocessing errors were found by a pass over a source no stream keeps. Each chunk is
+now swept as it arrives.

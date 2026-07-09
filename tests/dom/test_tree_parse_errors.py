@@ -184,6 +184,64 @@ def test_reading_errors_twice_reports_the_same_list() -> None:
     assert [error.code for error in document.errors] == first
 
 
+def _streamed(markup: str, chunk: int = 1) -> list[tuple[str, int, int]]:
+    parser = IncrementalParser()
+    for start in range(0, len(markup), chunk):
+        parser.feed(markup[start : start + chunk])
+    return [(error.code, error.line, error.col) for error in parser.close().errors]
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<div", id="tokenizer-eof-in-tag"),
+        pytest.param("<a b b>", id="tokenizer-duplicate-attribute"),
+        pytest.param("a\x01b", id="preprocessing-control"),
+        pytest.param("<p>￾</p>", id="preprocessing-noncharacter"),
+        pytest.param("<p>\ud800</p>", id="preprocessing-surrogate"),
+        pytest.param("<p a=1 a=2>\x02", id="both-kinds-interleaved"),
+        pytest.param("a\r\n\x01b", id="control-after-a-crlf"),
+        pytest.param("a\r\x01b", id="control-after-a-lone-cr"),
+    ],
+)
+def test_a_streamed_document_reports_the_errors_parse_reports(markup: str) -> None:
+    # the streaming tokenizer collects into the tree's sink, and each chunk is swept for the preprocessing errors the
+    # states never see, so one byte at a time yields exactly what the whole buffer does, positions included
+    expected = [(error.code, error.line, error.col) for error in parse(markup).errors]
+    assert _streamed(markup) == expected
+    assert expected != []
+
+
+def test_a_crlf_split_across_a_feed_counts_one_line_break() -> None:
+    # the tokenizer reads a newline-normalized stream: the U+000A that opens the second chunk finishes the break the
+    # first chunk's U+000D opened, so the control character that follows is on line 2, not line 3
+    parser = IncrementalParser()
+    parser.feed("a\r")
+    parser.feed("\n\x01b")
+    assert [(error.code, error.line, error.col) for error in parser.close().errors] == [
+        ("control-character-in-input-stream", 2, 0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("chunks", "line", "col"),
+    [
+        pytest.param(["a\r", "", "\n\x01b"], 2, 0, id="empty-chunk-between-cr-and-lf"),
+        pytest.param(["a\r", "日\x01"], 2, 1, id="wide-chunk-after-a-cr"),
+        pytest.param(["a\r", "\x01b"], 2, 0, id="chunk-after-a-lone-cr"),
+    ],
+)
+def test_a_pending_cr_survives_the_chunk_that_follows(chunks: list[str], line: int, col: int) -> None:
+    # an empty chunk decides nothing, so the U+000D still awaits a U+000A; a chunk of wider code points resumes the
+    # same way the byte-sized one does
+    parser = IncrementalParser()
+    for chunk in chunks:
+        parser.feed(chunk)
+    assert [(error.code, error.line, error.col) for error in parser.close().errors] == [
+        ("control-character-in-input-stream", line, col),
+    ]
+
+
 @pytest.mark.parametrize(
     "markup",
     [
@@ -199,11 +257,22 @@ def test_a_control_beside_an_ordinary_low_byte_is_still_reported(markup: str) ->
     assert "control-character-in-input-stream" in codes
 
 
-def test_a_streamed_tree_keeps_no_source_to_scan() -> None:
-    # IncrementalParser copies its chunks and drops them, so there is no input left to walk
-    parser = IncrementalParser()
-    parser.feed("a\x01b")
-    assert parser.close().errors == []
+def test_a_streamed_preprocessing_error_precedes_a_tokenizer_error_at_one_position() -> None:
+    # th_error_sink_merge orders a preprocessing error before a tokenizer error at the same position, because the spec
+    # raises it as the character is read rather than as a state consumes it
+    assert _streamed("<a\x01") == [("control-character-in-input-stream", 1, 2), ("eof-in-tag", 1, 3)]
+
+
+def test_a_streamed_byte_document_reports_the_errors_parse_reports() -> None:
+    # the chunk the decoder hands the tokenizer is what gets swept, so a sequence split across a feed still lands its
+    # error at the position the whole-buffer parse gives it
+    raw = "<p>\x01日</p>".encode("cp932")
+    parser = IncrementalParser(encoding="shift_jis")
+    for start in range(0, len(raw), 2):
+        parser.feed(raw[start : start + 2])
+    streamed = [(error.code, error.line, error.col) for error in parser.close().errors]
+    assert streamed == [(error.code, error.line, error.col) for error in parse(raw, encoding="shift_jis").errors]
+    assert streamed == [("control-character-in-input-stream", 1, 3)]
 
 
 def test_xml_reports_its_own_error_set() -> None:

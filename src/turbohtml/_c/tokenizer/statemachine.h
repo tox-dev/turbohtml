@@ -145,6 +145,23 @@ void th_error_sink_free(th_error_sink *sink);
    never see these: the spec raises them as the input stream is read. */
 void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink);
 
+/* Where the preprocessing scan stands, so a streamed input can be swept a chunk at a time.
+   after_cr remembers that the last chunk ended on U+000D: the tokenizer reads a
+   newline-normalized stream, so a U+000A opening the next chunk finishes that one break
+   rather than starting another. */
+typedef struct {
+    Py_ssize_t line;
+    Py_ssize_t col;
+    int after_cr;
+} th_input_scan;
+
+/* Seed a scan at the first code point of a document: line 1, column 0. */
+void th_input_scan_init(th_input_scan *scan);
+
+/* Sweep one chunk, appending its preprocessing errors to sink and advancing scan across the
+   chunk boundary. th_input_stream_errors is this over a whole document. */
+void th_input_stream_errors_chunk(th_input_scan *scan, int kind, const void *data, Py_ssize_t len, th_error_sink *sink);
+
 /* Fold src's preprocessing errors into dst's tokenizer errors by source position. Returns
    -1 only on allocation failure, leaving dst untouched. */
 int th_error_sink_merge(th_error_sink *dst, const th_error_sink *src);

@@ -1063,23 +1063,20 @@ static const char *input_stream_error(Py_UCS4 cp) {
 
 #define TH_LOW7 UINT64_C(0x7F7F7F7F7F7F7F7F)
 
-/* The high bit set in exactly the lanes whose byte is zero. TH_HASZERO answers whether any lane
-   is one, but the borrow it relies on can light a neighbor's high bit too, so its result is a
-   predicate and never a per-lane mask. */
+/* The high bit set in exactly the lanes whose byte is zero. TH_HASZERO answers whether any lane is one, but the borrow
+   it relies on can light a neighbor's high bit too, so its result is a predicate and never a per-lane mask. */
 static uint64_t bytes_zero(uint64_t word) {
     return ~(((word & TH_LOW7) + TH_LOW7) | word) & TH_HIGHS;
 }
 
 #define TH_BYTES_EQ(word, byte) bytes_zero((word) ^ (TH_ONES * (byte)))
 
-/* Whether eight 1-byte code points can be stepped over whole: none raises a preprocessing error,
-   and none breaks the line, so the column simply advances by eight. A byte below U+0020 has its
-   top three bits clear, which is the test here; the tab, the form feed, and the NUL every state
-   reports for itself are the three that are ordinary text, so they are masked back out. U+000A
-   and U+000D stay in, because a block carrying one has to walk the characters that count the
-   line. The C1 test matches a byte whose top three bits are 100 (U+0080..U+009F), and U+007F
-   stands on its own. Latin-1 accents (U+00A0 and above) are not errors, so a page full of them
-   still skips. */
+/* Whether eight 1-byte code points can be stepped over whole: none raises a preprocessing error, and none breaks the
+   line, so the column simply advances by eight. A byte below U+0020 has its top three bits clear, which is the test
+   here; the tab, form feed, and the NUL every state reports for itself are the three that are ordinary text and so are
+   masked back out. U+000A and U+000D stay in, because a block carrying one has to walk the characters that count the
+   line. The C1 test matches a byte whose top three bits are 100 (U+0080..U+009F), and U+007F stands on its own.
+   Latin-1 accents (U+00A0 and above) are not errors, so a page full of them still skips. */
 static int block_skippable(uint64_t word) {
     uint64_t high_bits = word & (TH_ONES * 0xE0);
     uint64_t below_space = bytes_zero(high_bits);
@@ -1088,67 +1085,97 @@ static int block_skippable(uint64_t word) {
     return !((below_space & ~ordinary) | c1 | TH_BYTES_EQ(word, 0x7F));
 }
 
+void th_input_scan_init(th_input_scan *scan) {
+    scan->line = 1;
+    scan->col = 0;
+    scan->after_cr = 0;
+}
+
+/* The offset the sweep starts at: past a U+000A that finishes the line break the previous chunk's
+   trailing U+000D opened. */
+static Py_ssize_t scan_resume(th_input_scan *scan, Py_UCS4 first) {
+    if (!scan->after_cr) {
+        return 0;
+    }
+    scan->after_cr = 0;
+    return first == '\n';
+}
+
 /* The preprocessing errors over 1-byte input, where the corpora live. */
-static void input_errors_ucs1(const Py_UCS1 *bytes, Py_ssize_t len, th_error_sink *sink) {
-    Py_ssize_t line = 1;
-    Py_ssize_t col = 0;
-    Py_ssize_t index = 0;
+static void input_errors_ucs1(th_input_scan *scan, const Py_UCS1 *bytes, Py_ssize_t len, th_error_sink *sink) {
+    Py_ssize_t index = scan_resume(scan, bytes[0]);
     while (index < len) {
         if (index + 8 <= len) {
             uint64_t word;
             memcpy(&word, bytes + index, sizeof(word));
             if (block_skippable(word)) {
                 index += 8;
-                col += 8;
+                scan->col += 8;
                 continue;
             }
         }
         unsigned char byte = bytes[index];
         const char *code = input_stream_error(byte);
         if (code != NULL) {
-            th_error_sink_push(sink, code, line, col);
+            th_error_sink_push(sink, code, scan->line, scan->col);
         }
         /* the tokenizer reads a newline-normalized stream, so CRLF and a lone CR are one */
         if (byte == '\r') {
-            index += index + 1 < len && bytes[index + 1] == '\n';
+            if (index + 1 < len) {
+                index += bytes[index + 1] == '\n';
+            } else {
+                scan->after_cr = 1; /* the U+000A that would pair with it can only arrive in the next chunk */
+            }
             byte = '\n';
         }
         if (byte == '\n') {
-            line++;
-            col = 0;
+            scan->line++;
+            scan->col = 0;
         } else {
-            col++;
+            scan->col++;
+        }
+        index++;
+    }
+}
+
+void th_input_stream_errors_chunk(th_input_scan *scan, int kind, const void *data, Py_ssize_t len,
+                                  th_error_sink *sink) {
+    if (len == 0) { /* an empty chunk decides nothing: a pending U+000D still awaits the next chunk's first byte */
+        return;
+    }
+    if (kind == PyUnicode_1BYTE_KIND) {
+        input_errors_ucs1(scan, data, len, sink);
+        return;
+    }
+    Py_ssize_t index = scan_resume(scan, PyUnicode_READ(kind, data, 0));
+    while (index < len) {
+        Py_UCS4 cp = PyUnicode_READ(kind, data, index);
+        const char *code = input_stream_error(cp);
+        if (code != NULL) {
+            th_error_sink_push(sink, code, scan->line, scan->col);
+        }
+        if (cp == '\r') {
+            if (index + 1 < len) {
+                index += PyUnicode_READ(kind, data, index + 1) == '\n';
+            } else {
+                scan->after_cr = 1;
+            }
+            cp = '\n';
+        }
+        if (cp == '\n') {
+            scan->line++;
+            scan->col = 0;
+        } else {
+            scan->col++;
         }
         index++;
     }
 }
 
 void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink) {
-    if (kind == PyUnicode_1BYTE_KIND) {
-        input_errors_ucs1(data, len, sink);
-        return;
-    }
-    Py_ssize_t line = 1;
-    Py_ssize_t col = 0;
-    Py_ssize_t index = 0;
-    while (index < len) {
-        Py_UCS4 cp = PyUnicode_READ(kind, data, index);
-        const char *code = input_stream_error(cp);
-        if (code != NULL) {
-            th_error_sink_push(sink, code, line, col);
-        }
-        if (cp == '\r') {
-            index += index + 1 < len && PyUnicode_READ(kind, data, index + 1) == '\n';
-            cp = '\n';
-        }
-        if (cp == '\n') {
-            line++;
-            col = 0;
-        } else {
-            col++;
-        }
-        index++;
-    }
+    th_input_scan scan;
+    th_input_scan_init(&scan);
+    th_input_stream_errors_chunk(&scan, kind, data, len, sink);
 }
 
 /* Merge the preprocessing errors into the tokenizer's, both already in document order. A
