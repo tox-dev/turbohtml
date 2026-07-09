@@ -699,20 +699,14 @@ def _encoding_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _decode_page(text: str) -> str:
-    """Wrap prose in tags, so the bytes are mostly ASCII markup: the shape of a real page in a legacy encoding."""
-    rows = "".join(f'<p class="line" id="l{index}">{text}</p>' for index in range(60))
-    return f"<html><body>{rows}</body></html>"
-
-
 def _decode_cases() -> tuple[tuple[str, object], ...]:
     """
-    Return the byte streams the WHATWG decoders turn into str, keyed by the label that names the decoder.
+    Return the byte streams the WHATWG decoders turn into str, each paired with the label that names its decoder.
 
     windows-1252 covers the single-byte tables, shift_jis and gb18030 the two- and four-byte state machines, and
-    iso-2022-jp the stateful escapes, which are the one encoding whose ASCII bytes a run cannot copy past the decoder.
-    Each case is encoded with the CPython codec whose table matches the spec's, so the bytes decode to the prose rather
-    than to a page of U+FFFD.
+    iso-2022-jp the stateful escapes. Every case encodes with the CPython codec the spec's decoder maps back to the
+    prose, so a case times decoding rather than error recovery. Shift_JIS leads because CodSpeed gates the first case,
+    and it is the state machine an inlined decoder regressed.
     """
     japanese = _decode_page(_ENCODING_JAPANESE)
     return (
@@ -721,6 +715,12 @@ def _decode_cases() -> tuple[tuple[str, object], ...]:
         ("gb18030 japanese (8 kB)", ("gb18030", japanese.encode("gb18030"))),
         ("iso-2022-jp japanese (8 kB)", ("iso-2022-jp", japanese.encode("iso2022_jp"))),
     )
+
+
+def _decode_page(text: str) -> str:
+    """Wrap prose in tags, so the bytes are mostly ASCII markup: the shape of a real page in a legacy encoding."""
+    rows = "".join(f'<p class="line" id="l{index}">{text}</p>' for index in range(60))
+    return f"<html><body>{rows}</body></html>"
 
 
 def _normalize_cases() -> tuple[tuple[str, object], ...]:
