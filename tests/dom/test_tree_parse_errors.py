@@ -139,6 +139,30 @@ def test_a_name_longer_than_the_table_without_a_semicolon_is_literal(prefix: str
     assert parse(prefix + "&" + "a1" * 40 + tail).errors == []
 
 
+@pytest.mark.parametrize("prefix", _WIDTHS[1:])
+@pytest.mark.parametrize(
+    ("newline", "expected_line"),
+    [
+        pytest.param("\r\n", 2, id="crlf"),
+        pytest.param("\r", 2, id="lone-cr"),
+        pytest.param("", 1, id="no-newline"),
+    ],
+)
+def test_wide_input_normalizes_newlines_when_locating_errors(prefix: str, newline: str, expected_line: int) -> None:
+    # the preprocessing walk counts lines over the newline-normalized stream the tokenizer reads
+    errors = parse(prefix + "\x01" + newline + "\x02").errors
+    assert [(error.code, error.line) for error in errors] == [
+        ("control-character-in-input-stream", 1),
+        ("control-character-in-input-stream", expected_line),
+    ]
+
+
+@pytest.mark.parametrize("prefix", _WIDTHS[1:])
+def test_wide_input_ending_in_a_carriage_return(prefix: str) -> None:
+    # the CR has no character after it to pair with, so the lookahead must not read past the end
+    assert [error.code for error in parse(prefix + "\x01\r").errors] == ["control-character-in-input-stream"]
+
+
 def test_a_long_text_run_still_reports_a_null() -> None:
     # the run scanners are vectorized, so the NUL must stop a block, not only a scalar tail
     assert [error.code for error in parse("a" * 64 + "\x00").errors] == ["unexpected-null-character"]

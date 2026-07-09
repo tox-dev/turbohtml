@@ -1061,40 +1061,79 @@ static const char *input_stream_error(Py_UCS4 cp) {
     return NULL;
 }
 
-/* Whether eight 1-byte code points are all printable ASCII, so the scan can skip the block
-   whole: nothing below U+0020 (which covers the newlines), nothing at U+007F, and nothing
-   above it. Ordinary markup skips, costing a fraction of a compare per character; accented
-   Latin-1 text drops to the per-character loop, which is correct either way. */
-static int plain_ascii_block(uint64_t word) {
+#define TH_HASVALUE(word, byte) TH_HASZERO((word) ^ (TH_ONES * (byte)))
+
+/* Which of eight 1-byte code points raise a preprocessing error. Newlines and tabs sit below
+   U+0020 and are ordinary text, so testing "below space" alone would drop every line of real
+   markup into the per-character walk; the ASCII whitespace and the NUL every state reports
+   for itself are masked out. The C1 test matches a byte whose top three bits are 100
+   (U+0080..U+009F), and U+007F stands on its own. Latin-1 accents (U+00A0 and above) are not
+   errors, so a page full of them still skips. */
+static uint64_t block_input_error(uint64_t word) {
     uint64_t below_space = (word - TH_ONES * 0x20) & ~word & TH_HIGHS;
-    uint64_t high_bit = word & TH_HIGHS;
-    return !(below_space | high_bit | TH_HASZERO(word ^ (TH_ONES * 0x7F)));
+    uint64_t ignored = TH_HASVALUE(word, 0x00) | TH_HASVALUE(word, 0x09) | TH_HASVALUE(word, 0x0A) |
+                       TH_HASVALUE(word, 0x0C) | TH_HASVALUE(word, 0x0D);
+    uint64_t c1 = TH_HASZERO((word & (TH_ONES * 0xE0)) ^ (TH_ONES * 0x80));
+    return (below_space & ~ignored) | c1 | TH_HASVALUE(word, 0x7F);
 }
 
-void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink) {
+/* Whether the block can be stepped over whole: it raises no error, and it carries no line
+   break, so the column simply advances by eight. */
+static int block_skippable(uint64_t word) {
+    return !(block_input_error(word) | TH_HASVALUE(word, '\n') | TH_HASVALUE(word, '\r'));
+}
+
+/* The preprocessing errors over 1-byte input, where the corpora live. */
+static void input_errors_ucs1(const Py_UCS1 *bytes, Py_ssize_t len, th_error_sink *sink) {
     Py_ssize_t line = 1;
     Py_ssize_t col = 0;
     Py_ssize_t index = 0;
     while (index < len) {
-        if (kind == PyUnicode_1BYTE_KIND && index + 8 <= len) {
+        if (index + 8 <= len) {
             uint64_t word;
-            memcpy(&word, (const Py_UCS1 *)data + index, sizeof(word));
-            if (plain_ascii_block(word)) {
+            memcpy(&word, bytes + index, sizeof(word));
+            if (block_skippable(word)) {
                 index += 8;
                 col += 8;
                 continue;
             }
         }
+        unsigned char byte = bytes[index];
+        const char *code = input_stream_error(byte);
+        if (code != NULL) {
+            th_error_sink_push(sink, code, line, col);
+        }
+        /* the tokenizer reads a newline-normalized stream, so CRLF and a lone CR are one */
+        if (byte == '\r') {
+            index += index + 1 < len && bytes[index + 1] == '\n';
+            byte = '\n';
+        }
+        if (byte == '\n') {
+            line++;
+            col = 0;
+        } else {
+            col++;
+        }
+        index++;
+    }
+}
+
+void th_input_stream_errors(int kind, const void *data, Py_ssize_t len, th_error_sink *sink) {
+    if (kind == PyUnicode_1BYTE_KIND) {
+        input_errors_ucs1(data, len, sink);
+        return;
+    }
+    Py_ssize_t line = 1;
+    Py_ssize_t col = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
         Py_UCS4 cp = PyUnicode_READ(kind, data, index);
         const char *code = input_stream_error(cp);
         if (code != NULL) {
             th_error_sink_push(sink, code, line, col);
         }
-        /* the tokenizer reads a newline-normalized stream, so CRLF and a lone CR are one */
         if (cp == '\r') {
-            if (index + 1 < len && PyUnicode_READ(kind, data, index + 1) == '\n') {
-                index++;
-            }
+            index += index + 1 < len && PyUnicode_READ(kind, data, index + 1) == '\n';
             cp = '\n';
         }
         if (cp == '\n') {

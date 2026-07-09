@@ -3953,7 +3953,7 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
     th_input_stream_errors(kind, data, length, &preprocessing);
     if (th_error_sink_merge(&tree->errors, &preprocessing) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         tree->failed = 1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+    } /* GCOVR_EXCL_BR_LINE: clang counts the fall-through of the allocation guard as its own branch */
     th_error_sink_free(&preprocessing);
     th_tok_free(sm);
     finalize_document(tree);
