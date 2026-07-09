@@ -1,0 +1,3 @@
+Resume the ISO-2022-JP escape state across a :class:`turbohtml.IncrementalParser` chunk boundary. A chunk ending on an
+incomplete escape sequence dropped back to the output state, so the next chunk read the escape's first byte as content
+and lost one ``U+FFFD``.

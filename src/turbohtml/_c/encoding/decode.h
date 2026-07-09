@@ -574,9 +574,13 @@ static int th_decode_step(th_decoder *dec, Py_UCS4 *point) {
    compiler specializes this body per encoding; an indirect call for every code point costs more than the decoding. */
 static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final, Py_ssize_t *consumed, Py_UCS4 *maxchar,
                                        th_decode_fn step) {
+    /* Copied once so the guarded update below cannot read an uninitialized state; a final chunk never rewinds. */
+    th_decoder rewind = *dec;
     Py_ssize_t count = 0;
     for (;;) {
-        Py_ssize_t start = dec->pos;
+        if (!final) {
+            rewind = *dec;
+        }
         Py_UCS4 point = 0;
         int status = step(dec, &point);
         if (status == TH_DEC_FINISHED) {
@@ -584,7 +588,12 @@ static inline Py_ssize_t th_decode_run(th_decoder *dec, Py_UCS4 *out, int final,
             return count;
         }
         if (status == TH_DEC_ERROR && !final && dec->error_at == -1) {
-            *consumed = start; /* an incomplete tail: the next chunk re-reads it with the state it left behind */
+            /* An incomplete tail: hand the bytes to the next chunk, and the state they were read in with them. The
+               end-of-stream probe that found them incomplete has already moved on -- ISO-2022-JP leaves its escape
+               state for output_state, and its trail state for lead -- so rewinding the position alone loses the mode
+               those bytes belong to. */
+            *dec = rewind;
+            *consumed = dec->pos;
             return count;
         }
         point = status == TH_DEC_ERROR ? 0xFFFD : point;

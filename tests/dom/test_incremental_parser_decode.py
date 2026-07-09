@@ -56,6 +56,17 @@ def test_the_replacement_encoding_yields_one_replacement_char_for_the_whole_stre
     assert parser.close().text == "�"
 
 
+def test_an_escape_that_ends_a_chunk_keeps_the_mode_it_interrupted() -> None:
+    # 0x1B abandons the pair 0x24 opened, and lands the decoder in the escape state with nothing left in the chunk. The
+    # end-of-stream probe that finds the escape incomplete falls back to the output state, so the next chunk has to
+    # resume in the escape state rather than read 0x38 as a lead byte.
+    raw = b"\x1b$B$\x1b8M"
+    parser = IncrementalParser(encoding="iso-2022-jp")
+    parser.feed(raw[:5])
+    parser.feed(raw[5:])
+    assert parser.close().text == "��戸"
+
+
 def test_a_chunk_past_the_scratch_capacity_grows_it_geometrically() -> None:
     # the held-back tail makes each chunk a byte or two longer than the last, so the decode scratch grows by doubling
     # rather than reallocating on every feed; drive the first growth from nothing and a second from a live buffer
