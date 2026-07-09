@@ -29,10 +29,11 @@ def test_utf8_chunked_matches_decoded_str(chunk: int) -> None:
 
 
 def test_bytes_parse_reports_its_encoding() -> None:
-    parser = IncrementalParser(encoding="latin-1")
+    # an alias resolves to its WHATWG canonical name, the same one parse(bytes) reports
+    parser = IncrementalParser(encoding="iso-8859-1")
     parser.feed("héllo".encode("latin-1"))
     document = parser.close()
-    assert document.encoding == "latin-1"
+    assert document.encoding == "windows-1252"
     paragraph = document.find("body")
     assert paragraph is not None
     assert "héllo" in paragraph.text
@@ -41,7 +42,7 @@ def test_bytes_parse_reports_its_encoding() -> None:
 def test_explicit_encoding_decodes_each_chunk() -> None:
     text = "<p>naïve façade</p>"
     raw = text.encode("latin-1")
-    parser = IncrementalParser(encoding="latin-1")
+    parser = IncrementalParser(encoding="iso-8859-1")
     for byte in raw:
         parser.feed(bytes([byte]))
     assert parser.close().html == parse(text).html
@@ -56,7 +57,7 @@ def test_mixed_str_and_bytes_chunks() -> None:
     paragraph = document.find("p")
     assert paragraph is not None
     assert paragraph.text == "café"
-    assert document.encoding == "utf-8"  # a bytes chunk created the decoder
+    assert document.encoding == "UTF-8"  # a bytes chunk resolved the label
 
 
 def test_bytearray_and_memoryview_are_accepted() -> None:

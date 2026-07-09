@@ -61,5 +61,5 @@ def test_parser_discarded_without_close() -> None:
 
 def test_default_encoding_is_utf8() -> None:
     parser = IncrementalParser()
-    parser.feed("é".encode())  # decoded via the default utf-8 codec
-    assert parser.close().encoding == "utf-8"
+    parser.feed("é".encode())  # decoded via the default utf-8 label
+    assert parser.close().encoding == "UTF-8"
