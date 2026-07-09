@@ -1,52 +1,46 @@
 /* Where CPython's C API and PyPy's cpyext differ, for the calls this core depends on.
 
-   Most of the surface needs no adaptation. cpyext emulates the whole PEP 393 layout --
-   PyASCIIObject.state.kind, the compact/non-compact data pointer, and with them PyUnicode_KIND /
-   PyUnicode_DATA / PyUnicode_READ / PyUnicode_WRITE -- by transcoding a str's UTF-8 storage into a
-   UCS1/2/4 buffer the first time it crosses into C and caching that buffer on the PyObject. So the
-   SWAR scanners are correct there; they pay a one-time O(len) materialization per string, which a
-   whole-document parse amortizes. The heap types, module state, multi-phase init, and GC slots this
-   module is built on are all supported, and Py_BEGIN_CRITICAL_SECTION already collapses to a brace
-   no-op through tokenizer/binding.h's `#ifndef` -- the same shim CPython 3.10-3.12 take, and
-   correct for the same reason: cpyext holds the GIL across every call into this extension.
+   Most of the surface needs no adaptation. cpyext emulates the PEP 393 layout -- PyASCIIObject's
+   kind and data pointer, and with them PyUnicode_KIND / DATA / READ / WRITE -- by transcoding a
+   str's UTF-8 storage into a UCS1/2/4 buffer the first time it crosses into C and caching it on the
+   PyObject, so the SWAR scanners are correct there and pay one O(len) materialization per string.
+   Heap types, module state, multi-phase init, and the GC slots all work, and
+   Py_BEGIN_CRITICAL_SECTION already collapses to a brace no-op through tokenizer/binding.h's
+   `#ifndef`, correct because cpyext holds the GIL across every call into this extension.
 
-   Four things differ.
+   Four things differ. Each name below expands to the CPython spelling on CPython, so a CPython
+   translation unit's preprocessed token stream is unchanged by this file and its codegen cannot
+   shift. dom/node.c handles a fifth difference where it bites, cpyext handing sq_item a raw negative
+   index: https://github.com/pypy/pypy/issues/5526
 
-   Py_TPFLAGS_DISALLOW_INSTANTIATION is a no-op in cpyext until PyPy 7.3.21, so the sealed types
-   would construct with no tree attached and segfault on first use -- pure Python code taking the
-   interpreter down. 7.3.21 honors the flag and prints a debug line to stdout for every type that
-   sets it. Both cost nothing to avoid: cpyext seals a type through an explicit tp_new (the
-   `elif pto.c_tp_new` arm the flag would otherwise shadow), so on PyPy the flag comes off and
-   th_disallow_new goes on. Every sealed spec pairs TH_SEALED in its flags with TH_SEALED_NEW in its
-   slots. A subtype that declares its own tp_new overrides the inherited one, as it does on CPython.
+   Sealing. cpyext ignored Py_TPFLAGS_DISALLOW_INSTANTIATION before PyPy 7.3.21, so the sealed types
+   constructed with no tree attached and segfaulted on first use, and 7.3.21 prints a debug line to
+   stdout for every type that sets it (https://github.com/pypy/pypy/issues/5318, .../5388). cpyext
+   also seals through an explicit tp_new, the arm the flag would otherwise shadow, so on PyPy
+   TH_SEALED drops the flag and TH_SEALED_END adds th_disallow_new. Both are needed together. A
+   subtype declaring its own tp_new overrides the inherited one, as it does on CPython.
 
    PyUnicode_CopyCharacters does not exist in cpyext at all, so it gets the READ/WRITE loop below.
 
-   PyUnicode_FromFormat is the one constructor whose cpyext result is not in canonical form: it is
-   built through the legacy wstr representation and returned without _PyUnicode_Ready, so
-   PyUnicode_KIND, PyUnicode_DATA, and PyUnicode_GET_LENGTH are all undefined on it -- and with
-   NDEBUG their asserts are gone, so GET_LENGTH silently returns the wstr length, one past the code
-   point count. Every other constructor this core uses (FromString, FromStringAndSize,
-   FromKindAndData, New, Concat, Substring, FromOrdinal, DecodeUTF8, InternFromString, Join, Replace,
-   Py_BuildValue) returns a ready string. Call th_str_format, never PyUnicode_FromFormat directly.
+   PyUnicode_FromFormat returns a string cpyext left in the legacy wstr representation, so
+   PyUnicode_KIND, PyUnicode_DATA and PyUnicode_GET_LENGTH are all undefined on it, and with NDEBUG
+   their asserts are gone so GET_LENGTH answers one past the code point count
+   (https://github.com/pypy/pypy/issues/5524). Every other constructor this core uses returns a ready
+   string. Call th_str_format, never PyUnicode_FromFormat directly; tests/core/test_c_api_portability
+   pins that.
 
-   A 2-byte buffer cannot be handed to cpyext at all. It realizes one by decoding it as UTF-16, so a
-   leading U+FEFF is eaten as a byte-order mark, a leading U+FFFE byte-swaps the rest, a surrogate
-   pair folds into the one code point it encodes, and a lone surrogate -- which a CPython str carries
-   fine, and which HTML input and the WHATWG tokenizer must both preserve -- aborts the interpreter
-   outright through the strict error handler. Its 1-byte (Latin-1) and 4-byte (UTF-32, surrogates
-   allowed) paths are exact. So on PyPy any result too wide for Latin-1 is built at 4-byte kind:
-   th_str_maxchar widens the PyUnicode_New bin and th_str_from_kind widens the buffer. CPython must
-   keep the narrowest kind instead, because its str equality compares kind before content and would
-   report a too-wide str as unequal to its own value, so both are identities there.
+   A 2-byte buffer cannot be handed to cpyext at all (https://github.com/pypy/pypy/issues/5525). It
+   decodes one as UTF-16, eating a leading U+FEFF, byte-swapping the rest after a leading U+FFFE,
+   folding a surrogate pair into the code point it encodes, and aborting the interpreter outright on
+   a lone surrogate, which a CPython str carries fine and which the WHATWG tokenizer must preserve.
+   Its 1-byte (Latin-1) and 4-byte (UTF-32) paths are exact, so on PyPy any result too wide for
+   Latin-1 is built at 4-byte kind: th_str_maxchar widens the PyUnicode_New bin and th_str_from_kind
+   widens the buffer. CPython keeps the narrowest kind instead, because its str equality compares
+   kind before content and would report a too-wide str as unequal to its own value.
 
-   encoding/decode.h builds its results with PyUnicode_New directly and deliberately: every WHATWG
-   decoder replaces an ill-formed sequence with U+FFFD and no legacy encoding maps a byte to a
-   surrogate, so its 2-byte results hold no surrogate, and PyUnicode_New (unlike FromKindAndData)
-   pins the byte order, leaving U+FEFF and U+FFFE intact.
-
-   Each name is a macro expanding to the CPython spelling on CPython, so a CPython translation unit's
-   preprocessed token stream is unchanged by this file and its codegen cannot shift. */
+   encoding/decode.h calls PyUnicode_New directly and deliberately: every WHATWG decoder replaces an
+   ill-formed sequence with U+FFFD and no legacy encoding maps a byte to a surrogate, so its 2-byte
+   results hold no surrogate, and PyUnicode_New pins the byte order where FromKindAndData does not. */
 
 #ifndef TURBOHTML_CORE_PYCOMPAT_H
 #define TURBOHTML_CORE_PYCOMPAT_H
@@ -78,9 +72,9 @@ static inline Py_ssize_t th_copy_characters(PyObject *to, Py_ssize_t to_start, P
     return how_many;
 }
 
-/* Canonicalize a cpyext PyUnicode_FromFormat[V] result, freeing it on the one failure
-   _PyUnicode_Ready reports (a code point outside U+0000..U+10FFFF, which no format string here can
-   produce) so the caller's existing NULL check covers this too. */
+/* Canonicalize a cpyext PyUnicode_FromFormat[V] result. _PyUnicode_Ready transcodes into a fresh
+   UCS buffer, so it can fail on allocation; free the string then, letting the caller's NULL check
+   cover it. */
 static inline PyObject *th_str_ready(PyObject *str) {
     if (str != NULL && PyUnicode_READY(str) < 0) {
         Py_CLEAR(str);
@@ -110,7 +104,10 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
 #define th_str_format_v(format, args) th_str_ready(PyUnicode_FromFormatV((format), (args)))
 #define th_str_maxchar(maxchar) ((maxchar) > 0xFF ? (Py_UCS4)0x10FFFF : (Py_UCS4)(maxchar))
 #define TH_SEALED 0
-#define TH_SEALED_NEW {Py_tp_new, th_disallow_new},
+#define TH_SEALED_END                                                                                                  \
+    {Py_tp_new, th_disallow_new}, {                                                                                    \
+        0, NULL                                                                                                        \
+    }
 
 #else
 
@@ -120,7 +117,7 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
 #define th_str_format_v(format, args) PyUnicode_FromFormatV((format), (args))
 #define th_str_maxchar(maxchar) (maxchar)
 #define TH_SEALED Py_TPFLAGS_DISALLOW_INSTANTIATION
-#define TH_SEALED_NEW
+#define TH_SEALED_END {0, NULL}
 
 #endif /* PYPY_VERSION */
 

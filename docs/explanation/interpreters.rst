@@ -10,8 +10,8 @@ it differs enough to be worth understanding before you choose PyPy for an HTML w
  What cpyext costs you
 ***********************
 
-PyPy runs C extensions through ``cpyext``, an emulation of CPython's C API. PyPy's own objects are moved by a compacting
-garbage collector and its strings are stored as UTF-8; a C extension expects neither. So the first time a Python object
+PyPy runs C extensions through ``cpyext``, an emulation of CPython's C API. A compacting garbage collector moves PyPy's
+own objects, and PyPy stores its strings as UTF-8. A C extension expects neither. So the first time a Python object
 crosses into C, cpyext allocates a non-moving ``PyObject`` shell for it and keeps the two views in sync, and the first
 time a ``str`` is read through the PEP 393 buffer macros, cpyext transcodes its UTF-8 storage into the UCS1/2/4 buffer
 those macros hand out and caches it on the shell.
@@ -53,8 +53,8 @@ crosses per node pays it per node. Measured on a 142 KB document against CPython
       - 653 µs
       - 5.0x slower
 
-Parsing a whole document is nearly free, because it is one string in and one tree out. Walking that tree from Python is
-the worst case, because every node visited materializes a wrapper across the boundary. If your program parses and then
+Parsing a whole document costs 1.1x, because it is one string in and one tree out. Walking that tree from Python is the
+worst case, because every node visited materializes a wrapper across the boundary. If your program parses and then
 queries with CSS or XPath -- work that stays inside C -- PyPy costs you little. If it walks the DOM node by node in a
 Python loop, expect it to be several times slower than CPython, and note that the JIT cannot recover the difference: the
 time is spent in cpyext, not in your bytecode.
@@ -66,12 +66,12 @@ your program is Python that the JIT speeds up, and accept that the HTML layer is
  Behavior that differs on PyPy
 *******************************
 
-The public API behaves identically on both interpreters; the conformance suites, the tokenizer state machine, the
-selector and XPath engines, and every serializer produce byte-identical output. Three things do not carry over.
+The public API behaves the same on both interpreters. The conformance suites, the tokenizer state machine, the selector
+and XPath engines, and every serializer produce byte-identical output. Three things do not carry over.
 
 **Reference cycles through a C object are never collected.** cpyext does not break a cycle that runs through both a
 Python object and a C extension object, even though every turbohtml type implements ``tp_traverse`` and ``tp_clear``. A
-cycle like ``document -> your callback -> document`` leaks on PyPy and is reclaimed on CPython. Break such cycles
+cycle like ``document -> your callback -> document`` leaks on PyPy, where CPython reclaims it. Break such cycles
 yourself, or hold the C object through a :mod:`weakref`.
 
 **Deep recursion may raise** :exc:`SystemError`. The schema validator, the XSLT processor, and the XPath engine cap
@@ -89,9 +89,10 @@ and methods are unaffected. :func:`gc.is_tracked` does not exist on PyPy at all.
 
 ``Document()``, ``Node()``, ``Token()`` and eleven siblings raise :exc:`TypeError`: only a parse builds them, and one
 constructed by hand carries no tree. CPython enforces that with ``Py_TPFLAGS_DISALLOW_INSTANTIATION``. cpyext ignored
-that flag until PyPy 7.3.21, so those types would construct with no tree attached and segfault on first use, letting
-pure Python code take the interpreter down. 7.3.21 honors the flag and prints a debug line to stdout for every type that
-sets it, which corrupts anything reading the CLI's output.
+that flag until PyPy 7.3.21 (`pypy#5318 <https://github.com/pypy/pypy/issues/5318>`_), so those types would construct
+with no tree attached and segfault on first use, letting pure Python code take the interpreter down. 7.3.21 honors the
+flag and prints a debug line to stdout for every type that sets it (`pypy#5388
+<https://github.com/pypy/pypy/issues/5388>`_), which corrupts anything reading the CLI's output.
 
 Neither costs anything to avoid. cpyext also seals a type through an explicit ``tp_new``, the branch the flag would
 otherwise shadow, so on PyPy the flag comes off and a ``tp_new`` that raises goes on. Every supported PyPy then refuses
@@ -105,18 +106,22 @@ do on CPython.
 
 ``src/turbohtml/_c/core/pycompat.h`` holds every adaptation, and each one is an identity macro on CPython, so a CPython
 build's preprocessed token stream is unchanged and its machine code cannot shift. Besides the sealing above, three calls
-need it.
+need the header, and ``dom/node.c`` handles a fourth difference where it bites.
 
 ``PyUnicode_CopyCharacters`` does not exist in cpyext, so it gets a ``PyUnicode_READ``/``PyUnicode_WRITE`` loop.
 
 ``PyUnicode_FromFormat`` returns a string cpyext has not put in canonical form, so ``PyUnicode_KIND``,
-``PyUnicode_DATA``, and ``PyUnicode_GET_LENGTH`` are all undefined on it -- and with ``NDEBUG`` their assertions are
-compiled out, so ``GET_LENGTH`` silently answers one past the code point count. Every result is readied before use.
+``PyUnicode_DATA``, and ``PyUnicode_GET_LENGTH`` are all undefined on it, and with ``NDEBUG`` their assertions are
+compiled out, so ``GET_LENGTH`` answers one past the code point count (`pypy#5524
+<https://github.com/pypy/pypy/issues/5524>`_). The core readies every result before touching it.
 
-A 2-byte buffer cannot be handed to cpyext at all. It materializes one by decoding it as UTF-16, so a leading U+FEFF is
-eaten as a byte-order mark, a leading U+FFFE byte-swaps the rest of the string, a surrogate pair collapses into the one
-code point it encodes, and a lone surrogate -- which a CPython ``str`` carries fine, and which HTML input and the WHATWG
-tokenizer must both preserve -- aborts the interpreter through the strict error handler. cpyext's 1-byte and 4-byte
-paths are exact, so on PyPy any result too wide for Latin-1 is built at 4-byte kind. CPython keeps the narrowest kind,
-because its ``str`` equality compares kind before content and would report a too-wide string as unequal to its own
-value.
+cpyext cannot take a 2-byte buffer at all (`pypy#5525 <https://github.com/pypy/pypy/issues/5525>`_). It materializes one
+by decoding it as UTF-16, so it eats a leading U+FEFF as a byte-order mark, byte-swaps the rest of the string after a
+leading U+FFFE, collapses a surrogate pair into the one code point it encodes, and aborts the interpreter on a lone
+surrogate through the strict error handler. A CPython ``str`` carries a lone surrogate fine, and both HTML input and the
+WHATWG tokenizer have to preserve one. cpyext's 1-byte and 4-byte paths are exact, so on PyPy any result too wide for
+Latin-1 is built at 4-byte kind. CPython keeps the narrowest kind, because its ``str`` equality compares kind before
+content and would report a too-wide string as unequal to its own value.
+
+A negative subscript reaches ``sq_item`` unadjusted (`pypy#5526 <https://github.com/pypy/pypy/issues/5526>`_), where
+CPython adds the sequence length first, so ``dom/node.c`` does that adjustment itself.

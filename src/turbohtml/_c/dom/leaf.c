@@ -311,7 +311,7 @@ PyDoc_STRVAR(doctype_doc, "A document type declaration.");
 static PyType_Slot doctype_slots[] = {
     {Py_tp_doc, (void *)doctype_doc},
     {Py_tp_getset, doctype_getset},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec doctype_spec = {
@@ -414,7 +414,7 @@ static PyType_Slot parse_error_slots[] = {
     {Py_tp_hash, parse_error_hash},
     {Py_tp_richcompare, parse_error_richcompare},
     {Py_tp_getset, parse_error_getset},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec parse_error_spec = {

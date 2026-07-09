@@ -237,7 +237,7 @@ static PyType_Slot sax_iter_slots[] = {
     {Py_tp_clear, sax_clear},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, sax_iter_next},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 static PyType_Spec sax_iter_spec = {

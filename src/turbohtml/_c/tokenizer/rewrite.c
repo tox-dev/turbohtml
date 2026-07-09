@@ -902,7 +902,7 @@ static PyType_Slot rw_handle_slots[] = {
     {Py_tp_dealloc, rw_handle_dealloc},
     {Py_tp_methods, rw_handle_methods},
     {Py_tp_getset, rw_handle_getset},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 static PyType_Spec rw_handle_spec = {

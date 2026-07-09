@@ -303,7 +303,7 @@ static PyType_Slot attrs_slots[] = {
     {Py_sq_contains, attrs_contains},
     {Py_tp_iter, attrs_iter},
     {Py_tp_methods, attrs_methods},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec attrs_spec = {

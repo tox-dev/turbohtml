@@ -187,7 +187,7 @@ static PyType_Slot walker_slots[] = {
     {Py_tp_dealloc, walker_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, walker_next},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec walker_spec = {
@@ -256,7 +256,7 @@ static PyType_Slot string_walker_slots[] = {
     {Py_tp_dealloc, string_walker_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, string_walker_next},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec string_walker_spec = {
@@ -330,7 +330,7 @@ static PyType_Slot serialize_iter_slots[] = {
     {Py_tp_dealloc, serialize_iter_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
     {Py_tp_iternext, serialize_iter_next},
-    TH_SEALED_NEW{0, NULL},
+    TH_SEALED_END,
 };
 
 PyType_Spec serialize_iter_spec = {
@@ -1337,7 +1337,7 @@ static PyObject *node_item(PyObject *self, Py_ssize_t index) {
 #ifdef PYPY_VERSION
     /* CPython's PySequence_GetItem adds sq_length to a negative subscript before dispatching here;
        cpyext hands sq_item the raw index, so node[-1] would walk zero steps and answer the first
-       child. Do the adjustment cpyext skips. */
+       child. Do the adjustment cpyext skips: https://github.com/pypy/pypy/issues/5526 */
     if (index < 0) {
         index += node_length(self);
     }
@@ -1769,7 +1769,7 @@ static PyType_Slot node_slots[] = {
     {Py_tp_hash, node_hash},       {Py_tp_getset, node_getset},
     {Py_tp_methods, node_methods}, {Py_tp_iter, node_iter},
     {Py_sq_length, node_length},   {Py_sq_item, node_item},
-    {Py_nb_bool, node_bool},       TH_SEALED_NEW{0, NULL},
+    {Py_nb_bool, node_bool},       TH_SEALED_END,
 };
 
 PyType_Spec node_spec = {

@@ -203,6 +203,37 @@ commands = [
   ],
 ]
 
+# tox cannot resolve a `ref` into a dotted environment name, so the shared body lives in an
+# environment with a plain one and both PyPy environments splice it in.
+[env._pypy]
+description = "shared body of the PyPy environments; not run on its own"
+# gcovr reaches cpyext through lxml, which publishes no PyPy wheels, and a cpyext build has no gcov
+# to feed it anyway. The C and Python coverage gates both run on the CPython matrix.
+deps = []
+commands_pre = [
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+  ],
+]
+commands = [
+  [
+    "pytest",
+    "--durations",
+    "10",
+    "--no-cov",
+    "--ignore={tox_root}{/}tests{/}conformance",
+    { replace = "posargs", default = [ "tests" ], extend = true },
+  ],
+]
+
 [env.asan-js]
 description = "compile the JS minifier engine standalone and fuzz the corpus under ASan/UBSan (+LSan on Linux)"
 package = "skip"
@@ -446,57 +477,13 @@ commands = [
 [env."pypy3.10"]
 description = "run the test suite under PyPy 3.10 through cpyext"
 base_python = [ "pypy3.10" ]
-deps = []
-commands_pre = [
-  [
-    "uv",
-    "pip",
-    "install",
-    "--reinstall",
-    "--no-deps",
-    "--no-build-isolation",
-    "--editable",
-    "{tox_root}",
-    "--config-settings=build-dir={env_dir}{/}cbuild",
-  ],
-]
-commands = [
-  [
-    "pytest",
-    "--durations",
-    "10",
-    "--no-cov",
-    "--ignore={tox_root}{/}tests{/}conformance",
-    { replace = "posargs", default = [ "tests" ], extend = true },
-  ],
-]
+deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
+commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
+commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]
 
 [env."pypy3.11"]
 description = "run the test suite under PyPy 3.11 through cpyext"
 base_python = [ "pypy3.11" ]
-# gcovr reaches cpyext through lxml, which publishes no PyPy wheels, and there is no gcov for a cpyext build
-# to feed it anyway. The C and Python coverage gates both run on the CPython matrix; these envs prove behavior.
-deps = []
-commands_pre = [
-  [
-    "uv",
-    "pip",
-    "install",
-    "--reinstall",
-    "--no-deps",
-    "--no-build-isolation",
-    "--editable",
-    "{tox_root}",
-    "--config-settings=build-dir={env_dir}{/}cbuild",
-  ],
-]
-commands = [
-  [
-    "pytest",
-    "--durations",
-    "10",
-    "--no-cov",
-    "--ignore={tox_root}{/}tests{/}conformance",
-    { replace = "posargs", default = [ "tests" ], extend = true },
-  ],
-]
+deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
+commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
+commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]

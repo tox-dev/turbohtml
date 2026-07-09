@@ -406,7 +406,7 @@ PyDoc_STRVAR(token_doc, "An HTML token produced by Tokenizer or tokenize(). Immu
    collector: no tracking on creation, nothing to traverse on collection. */
 static PyType_Slot token_slots[] = {
     {Py_tp_doc, (void *)token_doc}, {Py_tp_dealloc, token_dealloc}, {Py_tp_repr, token_repr},
-    {Py_tp_getset, token_getset},   {Py_tp_methods, token_methods}, TH_SEALED_NEW{0, NULL},
+    {Py_tp_getset, token_getset},   {Py_tp_methods, token_methods}, TH_SEALED_END,
 };
 
 static PyType_Spec token_spec = {
