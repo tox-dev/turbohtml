@@ -33,12 +33,9 @@ from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal
+from typing import Final, Literal
 
 from ._html import _decode, _detect, _detect_language, _is_normalized, _normalize
-
-if TYPE_CHECKING:
-    from _typeshed import ReadableBuffer
 
 __all__ = [
     "Detection",
@@ -94,11 +91,12 @@ def _search(name: str) -> codecs.CodecInfo | None:
     if label is None:
         return None
 
-    def decode(input: ReadableBuffer, errors: str = "strict", /) -> tuple[str, int]:  # noqa: A002, ARG001
-        data = bytes(input)
+    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # noqa: ARG001
         return _decode(data, label), len(data)
 
-    return codecs.CodecInfo(_refuse_encode, decode, name=name)
+    # CodecInfo's decoder is typed against _typeshed.ReadableBuffer, which Sphinx cannot import when it walks the
+    # annotations at doc-build time; bytes is what the codecs machinery ever passes a decode function.
+    return codecs.CodecInfo(_refuse_encode, decode, name=name)  # ty: ignore[invalid-argument-type]
 
 
 def _decodable(label: str) -> bool:

@@ -88,7 +88,8 @@ A malformed CSS selector raises :class:`~turbohtml.SelectorSyntaxError`, and a m
 :func:`turbohtml.parse` treats a ``str`` as already decoded and never sniffs it. When the bytes came off a socket or a
 file with an unknown encoding, pass the ``bytes`` so the parser runs the WHATWG sniff, or call
 :func:`turbohtml.detect.detect` to learn the encoding first. Decoding a stream yourself with the wrong codec before
-handing turbohtml a ``str`` is the usual cause of mojibake. See :doc:`encoding`.
+handing turbohtml a ``str`` is the usual cause of mojibake, and passing ``match.encoding`` to :meth:`bytes.decode` is
+one way to pick the wrong one: decode with ``match.codec`` instead. See :doc:`encoding`.
 
 *************************************
  Streaming rewrite cannot look ahead

@@ -135,9 +135,9 @@ Bytes work too; pass the raw response and read the resolved encoding back from :
 
 .. testcode::
 
-    doc = parse(b'<meta charset="latin-1"><p>caf\xe9</p>')
+    doc = parse(b'<meta charset="latin1"><p>caf\xe9</p>')
     print(doc.find("p").text)
-    print(doc.encoding)  # the WHATWG label latin-1 resolves to
+    print(doc.encoding)  # the encoding the WHATWG label latin1 names
 
 .. testoutput::
 

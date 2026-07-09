@@ -91,10 +91,12 @@ What html5lib has that turbohtml does not
   layout; for optional-tag omission there is no equivalent.
 - **A (deprecated) sanitizer.** html5lib ships ``html5lib.filters.sanitizer``, deprecated since 1.1. turbohtml has no
   sanitizer. Workaround: use a dedicated sanitizer such as ``nh3`` or ``bleach`` (see :doc:`nh3` and :doc:`bleach`).
-- **Optional statistical encoding detection.** With ``chardet`` installed, html5lib's input stream can guess an encoding
-  from byte frequency when there is no BOM or ``<meta charset>``. turbohtml sniffs only what the WHATWG algorithm reads,
-  then falls back to ``windows-1252``. Workaround: detect with ``charset-normalizer`` first and hand turbohtml the
-  decoded ``str`` (or bytes with an explicit ``encoding=``).
+- **Statistical encoding detection is opt-in, not automatic.** With ``chardet`` installed, html5lib's input stream
+  guesses an encoding from byte frequency whenever there is no BOM or ``<meta charset>``. turbohtml runs the WHATWG
+  algorithm and falls back to ``windows-1252`` unless you ask for the guess. Workaround: pass ``parse(data,
+  detect_encoding=True)``, which runs turbohtml's own chardetng port, or call :func:`turbohtml.detect.detect` and decode
+  through its ``codec``. Decoding with ``chardet`` or ``charset-normalizer`` first hands those libraries' CPython codecs
+  the bytes, which is not what the WHATWG decoders would produce for Big5, EUC-KR, Shift_JIS, gb18030 or KOI8-U.
 
 Performance
 ===========
