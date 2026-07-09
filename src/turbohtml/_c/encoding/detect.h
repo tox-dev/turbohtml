@@ -44,57 +44,79 @@ typedef struct {
     int structural;
 } th_detect_scores;
 
-/* Validate a byte run as well-formed UTF-8, setting *has_non_ascii when it holds
-   at least one multi-byte sequence. Returns 1 for valid UTF-8, 0 on the first
-   malformed, overlong, surrogate, or truncated sequence -- a single error
-   disqualifies UTF-8, as in chardetng. Pure ASCII is valid UTF-8 but leaves
-   *has_non_ascii 0, since ASCII decodes identically under the windows-1252
-   fallback and carries no evidence either way. */
-static int th_detect_is_utf8(const unsigned char *buf, Py_ssize_t len, int *has_non_ascii) {
-    *has_non_ascii = 0;
-    Py_ssize_t index = 0;
-    while (index < len) {
-        unsigned char lead = buf[index];
-        if (lead < 0x80) {
-            index++;
+/* Incremental UTF-8 validation. A stream is valid until the first malformed, overlong,
+   surrogate, or truncated sequence -- one error disqualifies UTF-8, as in chardetng. Pure
+   ASCII validates but leaves has_non_ascii clear, since ASCII decodes identically under the
+   windows-1252 fallback and carries no evidence either way. trailing counts the continuation
+   bytes still owed, so a sequence split across a feed survives the boundary; low/high carry
+   the bounds the first of them must satisfy, which is what rejects an overlong form, a
+   surrogate, and anything above U+10FFFF. */
+typedef struct {
+    int valid;
+    int has_non_ascii;
+    int trailing;
+    unsigned char low;
+    unsigned char high;
+} th_utf8_scan;
+
+static void th_utf8_scan_init(th_utf8_scan *scan) {
+    scan->valid = 1;
+    scan->has_non_ascii = 0;
+    scan->trailing = 0;
+    scan->low = 0x80;
+    scan->high = 0xBF;
+}
+
+static void th_utf8_scan_feed(th_utf8_scan *scan, const unsigned char *buf, Py_ssize_t len) {
+    if (!scan->valid) {
+        return;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        unsigned char byte = buf[index];
+        if (scan->trailing > 0) {
+            if (byte < scan->low || byte > scan->high) {
+                scan->valid = 0;
+                return;
+            }
+            scan->low = 0x80;
+            scan->high = 0xBF;
+            scan->trailing--;
             continue;
         }
-        *has_non_ascii = 1;
-        Py_ssize_t trailing;
-        unsigned char first_low;
-        unsigned char first_high;
-        /* the first continuation byte carries the lower bound that rejects an overlong
-           form and the upper bound that rejects surrogates / values above U+10FFFF; the
-           rest of the continuation bytes are the full 0x80..0xBF */
-        if (lead >= 0xC2 && lead <= 0xDF) {
-            trailing = 1;
-            first_low = 0x80;
-            first_high = 0xBF;
-        } else if (lead >= 0xE0 && lead <= 0xEF) {
-            trailing = 2;
-            first_low = lead == 0xE0 ? 0xA0 : 0x80;  /* E0: no overlong 80..9F */
-            first_high = lead == 0xED ? 0x9F : 0xBF; /* ED: no surrogate A0..BF */
-        } else if (lead >= 0xF0 && lead <= 0xF4) {
-            trailing = 3;
-            first_low = lead == 0xF0 ? 0x90 : 0x80;  /* F0: no overlong 80..8F */
-            first_high = lead == 0xF4 ? 0x8F : 0xBF; /* F4: nothing above U+10FFFF */
+        if (byte < 0x80) {
+            continue;
+        }
+        scan->has_non_ascii = 1;
+        if (byte >= 0xC2 && byte <= 0xDF) {
+            scan->trailing = 1;
+        } else if (byte >= 0xE0 && byte <= 0xEF) {
+            scan->trailing = 2;
+            scan->low = byte == 0xE0 ? 0xA0 : 0x80;  /* E0: no overlong 80..9F */
+            scan->high = byte == 0xED ? 0x9F : 0xBF; /* ED: no surrogate A0..BF */
+        } else if (byte >= 0xF0 && byte <= 0xF4) {
+            scan->trailing = 3;
+            scan->low = byte == 0xF0 ? 0x90 : 0x80;  /* F0: no overlong 80..8F */
+            scan->high = byte == 0xF4 ? 0x8F : 0xBF; /* F4: nothing above U+10FFFF */
         } else {
-            return 0; /* C0/C1, F5..FF, or a stray continuation byte as lead */
+            scan->valid = 0; /* C0/C1, F5..FF, or a stray continuation byte as lead */
+            return;
         }
-        if (index + trailing >= len) {
-            return 0; /* truncated trailing sequence */
-        }
-        if (buf[index + 1] < first_low || buf[index + 1] > first_high) {
-            return 0;
-        }
-        for (Py_ssize_t offset = 2; offset <= trailing; offset++) {
-            if (buf[index + offset] < 0x80 || buf[index + offset] > 0xBF) {
-                return 0;
-            }
-        }
-        index += trailing + 1;
     }
-    return 1;
+}
+
+/* A truncated tail at end of stream is malformed, so the sequence has to have closed. */
+static int th_utf8_scan_done(const th_utf8_scan *scan) {
+    return scan->valid && scan->trailing == 0;
+}
+
+/* Whole-buffer UTF-8 validity, the one-shot form the sniff in dom/document.c runs before it
+   reaches the windows-1252 fallback. */
+static int th_detect_is_utf8(const unsigned char *buf, Py_ssize_t len, int *has_non_ascii) {
+    th_utf8_scan scan;
+    th_utf8_scan_init(&scan);
+    th_utf8_scan_feed(&scan, buf, len);
+    *has_non_ascii = scan.has_non_ascii;
+    return th_utf8_scan_done(&scan);
 }
 
 /* The byte class for a byte under a candidate encoding: bytes 0..127 index the
@@ -662,6 +684,16 @@ typedef struct {
     int hwk_seen;
     int non_ascii_seen;
     unsigned long word_len;
+    /* Feeding the candidate in chunks. dec keeps the decoder's mode state across feeds. A
+       sequence straddling a boundary leaves its bytes in carry, which the next feed reads
+       again from the start of the sequence, the way th_decode_run's caller re-reads an
+       incomplete tail. tail is the last two bytes fed, which chardetng's scoring looks back
+       at when an error lands on the first byte of a chunk. */
+    th_decoder dec;
+    unsigned char carry[8];
+    int carry_len;
+    unsigned char tail[2];
+    int tail_len;
 } th_cjk_candidate;
 
 /* chardetng's cjk_extra_score: a frequency bonus that is larger the earlier the
@@ -1222,114 +1254,337 @@ static int th_cjk_malformed(th_cjk_candidate *cand, unsigned char b, Py_ssize_t 
    the byte that completed a scalar and its two predecessors, which is the decoder position minus one; a malformed one
    instead reports the failing byte through error_at. A Big5 combination's second scalar consumes no byte, so its base
    reuses the trail byte and the mark is drained unscored. */
-static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
-    th_decoder dec;
-    th_decode_init(&dec, cand->entry, buf, len);
+static void th_cjk_init(th_cjk_candidate *cand, th_cjk_kind kind, const char *label) {
+    memset(cand, 0, sizeof(*cand));
+    cand->entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+    cand->kind = kind;
+    cand->alive = 1;
+    cand->prev = TH_CJ_OTHER;
+    th_decode_init(&cand->dec, cand->entry, NULL, 0);
+}
+
+/* The byte `back` positions before index `at`, reaching into the previous feed's tail when
+   the index falls off the front of this one. chardetng reads the stream a byte at a time and
+   so always has these; feeding in chunks is what makes them need a home. */
+static unsigned char th_cjk_byte_before(const th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t at,
+                                        Py_ssize_t back) {
+    Py_ssize_t index = at - back;
+    if (index >= 0) {
+        return buf[index];
+    }
+    Py_ssize_t from_end = -index; /* 1 or 2 positions before this buffer began */
+    return cand->tail_len >= from_end ? cand->tail[cand->tail_len - from_end] : 0;
+}
+
+/* Feed one chunk. final marks the end of the stream, where an unfinished sequence is an
+   error rather than a boundary. A candidate the decoder has already killed reads nothing. */
+static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssize_t len, int final) {
+    if (!cand->alive) {
+        return;
+    }
+    const unsigned char *data = buf;
+    Py_ssize_t data_len = len;
+    unsigned char *spliced = NULL;
+    if (cand->carry_len > 0) {
+        spliced = PyMem_Malloc((size_t)cand->carry_len + (size_t)len + 1);
+        if (spliced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            cand->alive = 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memcpy(spliced, cand->carry, (size_t)cand->carry_len);
+        memcpy(spliced + cand->carry_len, buf, (size_t)len);
+        data = spliced;
+        data_len = cand->carry_len + len;
+        cand->carry_len = 0;
+    }
+    cand->dec.buf = data;
+    cand->dec.len = data_len;
+    cand->dec.pos = 0;
     for (;;) {
-        Py_ssize_t before = dec.pos;
+        Py_ssize_t before = cand->dec.pos;
         Py_UCS4 point = 0;
-        int status = th_decode_step(&dec, &point);
+        int status = th_decode_step(&cand->dec, &point);
         if (status == TH_DEC_FINISHED) {
-            return;
+            break;
         }
         if (status == TH_DEC_ERROR) {
-            if (dec.error_at < 0) {
-                cand->alive = 0;
-                return;
+            if (cand->dec.error_at < 0) {
+                /* an incomplete sequence: at end of stream chardetng scores it as death, and
+                   mid-stream it waits for the bytes that finish it */
+                if (final) {
+                    cand->alive = 0;
+                } else {
+                    /* a sequence is four bytes at most, so the carry always fits */
+                    cand->carry_len = (int)(data_len - before);
+                    memcpy(cand->carry, data + before, (size_t)cand->carry_len);
+                }
+                break;
             }
-            cand->prev_byte = dec.error_at >= 1 ? buf[dec.error_at - 1] : 0;
-            cand->prev_prev_byte = dec.error_at >= 2 ? buf[dec.error_at - 2] : 0;
-            if (!th_cjk_malformed(cand, buf[dec.error_at], dec.pos - before)) {
+            cand->prev_byte = th_cjk_byte_before(cand, data, cand->dec.error_at, 1);
+            cand->prev_prev_byte = th_cjk_byte_before(cand, data, cand->dec.error_at, 2);
+            if (!th_cjk_malformed(cand, data[cand->dec.error_at], cand->dec.pos - before)) {
                 cand->alive = 0;
-                return;
+                break;
             }
             continue;
         }
-        int combining = cand->kind == TH_CJK_BIG5 && dec.has_pending;
+        int combining = cand->kind == TH_CJK_BIG5 && cand->dec.has_pending;
         if (combining) {
             Py_UCS4 mark = 0;
-            th_decode_step(&dec, &mark);
+            th_decode_step(&cand->dec, &mark);
         }
-        Py_ssize_t at =
-            (dec.pos > before ? dec.pos : before) - 1; /* GCOVR_EXCL_BR_LINE: a scalar always advances pos */
-        unsigned char b = buf[at];
-        cand->prev_byte = at >= 1 ? buf[at - 1] : 0;
-        cand->prev_prev_byte = at >= 2 ? buf[at - 2] : 0;
+        Py_ssize_t at = (cand->dec.pos > before ? cand->dec.pos : before) -
+                        1; /* GCOVR_EXCL_BR_LINE: a scalar always advances pos */
+        unsigned char last = data[at];
+        cand->prev_byte = th_cjk_byte_before(cand, data, at, 1);
+        cand->prev_prev_byte = th_cjk_byte_before(cand, data, at, 2);
         /* an astral scalar (a gb18030 or Big5 four-byte sequence) reaches chardetng as its UTF-16 high surrogate */
         int written = combining || point > 0xFFFF ? 2 : 1;
-        uint16_t u = point <= 0xFFFF ? (uint16_t)point : (uint16_t)(0xD800 + ((point - 0x10000) >> 10));
+        uint16_t unit = point <= 0xFFFF ? (uint16_t)point : (uint16_t)(0xD800 + ((point - 0x10000) >> 10));
         switch (cand->kind) {
         case TH_CJK_GBK:
-            th_cjk_score_gbk(cand, written, u, b);
+            th_cjk_score_gbk(cand, written, unit, last);
             break;
         case TH_CJK_SHIFT_JIS:
-            th_cjk_score_shift_jis(cand, u, b);
+            th_cjk_score_shift_jis(cand, unit, last);
             break;
         case TH_CJK_EUC_JP:
-            th_cjk_score_euc_jp(cand, u);
+            th_cjk_score_euc_jp(cand, unit);
             break;
         case TH_CJK_BIG5:
-            th_cjk_score_big5(cand, written, u);
+            th_cjk_score_big5(cand, written, unit);
             break;
         default: /* TH_CJK_EUC_KR */
-            th_cjk_score_euc_kr(cand, u, b);
+            th_cjk_score_euc_kr(cand, unit, last);
             break;
         }
     }
-}
-
-/* Run one CJK candidate end to end against its native WHATWG decoder, recording a survivor's score and updating
- *winner and *max when it beats the running best. */
-static void th_cjk_run(th_cjk_kind kind, const char *label, const unsigned char *buf, Py_ssize_t len,
-                       th_detect_scores *scores, const char **winner, int64_t *max) {
-    th_cjk_candidate cand = {
-        .entry = th_encoding_lookup(label, (Py_ssize_t)strlen(label)), .kind = kind, .alive = 1, .prev = TH_CJ_OTHER};
-    th_cjk_feed(&cand, buf, len);
-    if (cand.alive) {
-        scores->items[scores->count].label = label;
-        scores->items[scores->count].score = cand.score;
-        scores->count++;
-        if (cand.score > *max) {
-            *max = cand.score;
-            *winner = label;
-        }
+    /* The lookback remembers the last two bytes the decoder actually consumed. Bytes left in
+       carry have not been read yet, so counting them here would show the next feed a byte
+       twice: once as its own data[0], once as the byte before it. */
+    Py_ssize_t consumed = data_len - cand->carry_len;
+    if (consumed >= 2) {
+        cand->tail[0] = data[consumed - 2];
+        cand->tail[1] = data[consumed - 1];
+        cand->tail_len = 2;
+    } else if (consumed == 1) {
+        cand->tail[0] = cand->tail_len >= 2 ? cand->tail[1] : 0;
+        cand->tail[1] = data[0];
+        cand->tail_len = 2;
     }
+    cand->dec.buf = NULL;
+    cand->dec.len = 0;
+    cand->dec.pos = 0;
+    PyMem_Free(spliced);
 }
 
 /* ISO-2022-JP is 7-bit and escape-driven: chardetng returns it when the stream has
-   no high byte, contains an escape, and decodes cleanly as ISO-2022-JP. */
-static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
-    int esc = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (buf[index] == 0x1B) {
-            esc = 1;
+   no high byte, contains an escape, and decodes cleanly as ISO-2022-JP. The decoder carries
+   its shift state between characters, so it lives on the scan rather than on the stack, and
+   an escape split across a feed leaves its bytes in carry. */
+typedef struct {
+    th_decoder dec;
+    int esc_seen;
+    int alive;
+    unsigned char carry[8];
+    int carry_len;
+} th_jp_scan;
+
+static void th_jp_scan_init(th_jp_scan *scan) {
+    th_decode_init(&scan->dec, th_encoding_lookup("iso-2022-jp", 11), NULL, 0);
+    scan->esc_seen = 0;
+    scan->alive = 1;
+    scan->carry_len = 0;
+}
+
+static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize_t len, int final) {
+    if (!scan->alive) {
+        return;
+    }
+    for (Py_ssize_t index = 0; index < len && !scan->esc_seen; index++) {
+        scan->esc_seen = buf[index] == 0x1B;
+    }
+    const unsigned char *data = buf;
+    Py_ssize_t data_len = len;
+    unsigned char *spliced = NULL;
+    if (scan->carry_len > 0) {
+        spliced = PyMem_Malloc((size_t)scan->carry_len + (size_t)len + 1);
+        if (spliced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            scan->alive = 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memcpy(spliced, scan->carry, (size_t)scan->carry_len);
+        memcpy(spliced + scan->carry_len, buf, (size_t)len);
+        data = spliced;
+        data_len = scan->carry_len + len;
+        scan->carry_len = 0;
+    }
+    scan->dec.buf = data;
+    scan->dec.len = data_len;
+    scan->dec.pos = 0;
+    for (;;) {
+        Py_ssize_t before = scan->dec.pos;
+        Py_UCS4 point = 0;
+        int status = th_decode_step(&scan->dec, &point);
+        if (status == TH_DEC_FINISHED) {
+            break;
+        }
+        if (status == TH_DEC_ERROR) {
+            if (scan->dec.error_at < 0 && !final) {
+                scan->carry_len = (int)(data_len - before);
+                memcpy(scan->carry, data + before, (size_t)scan->carry_len);
+            } else {
+                scan->alive = 0;
+            }
             break;
         }
     }
-    if (!esc) {
-        return 0;
+    scan->dec.buf = NULL;
+    scan->dec.len = 0;
+    scan->dec.pos = 0;
+    PyMem_Free(spliced);
+}
+
+static int th_jp_scan_done(const th_jp_scan *scan) {
+    return scan->alive && scan->esc_seen;
+}
+
+/* Whole-buffer ISO-2022-JP liveness, the one-shot form. */
+static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
+    th_jp_scan scan;
+    th_jp_scan_init(&scan);
+    th_jp_scan_feed(&scan, buf, len, 1);
+    return th_jp_scan_done(&scan);
+}
+
+/* Every candidate chardetng scores, fed byte by byte and read once at the end. The stream is
+   the only implementation: th_encoding_detect drives it with a single feed, so the
+   differential test against chardetng covers the same scoring the chunked path uses. */
+typedef struct {
+    th_utf8_scan utf8;
+    th_jp_scan jp;
+    th_cjk_candidate cjk[5];
+    th_sb_candidate sb[TH_SB_COUNT];
+    th_sb_candidate visual;
+} th_detect_stream;
+
+/* chardetng's candidate order, which the strict ">" in the winner loop needs: an earlier
+   candidate keeps a tie. */
+static const struct {
+    th_cjk_kind kind;
+    const char *label;
+} th_cjk_slots[5] = {
+    {TH_CJK_GBK, "gbk"},   {TH_CJK_EUC_JP, "euc-jp"}, {TH_CJK_EUC_KR, "euc-kr"}, {TH_CJK_SHIFT_JIS, "shift_jis"},
+    {TH_CJK_BIG5, "big5"},
+};
+
+static void th_detect_stream_init(th_detect_stream *stream) {
+    th_utf8_scan_init(&stream->utf8);
+    th_jp_scan_init(&stream->jp);
+    for (int slot = 0; slot < 5; slot++) {
+        th_cjk_init(&stream->cjk[slot], th_cjk_slots[slot].kind, th_cjk_slots[slot].label);
     }
-    th_decoder dec;
-    th_decode_init(&dec, th_encoding_lookup("iso-2022-jp", 11), buf, len);
-    for (;;) {
-        Py_UCS4 point = 0;
-        int status = th_decode_step(&dec, &point);
-        if (status == TH_DEC_FINISHED) {
-            return 1;
+    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+        th_sb_init(&stream->sb[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
+                   th_sb_candidate_table[slot].kind);
+    }
+    th_sb_init(&stream->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
+}
+
+/* Feed the scored candidates only. th_encoding_detect calls this directly, having already
+   ruled out the pure-ASCII and valid-UTF-8 answers that need no scoring at all. */
+static void th_detect_candidates_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
+    for (int slot = 0; slot < 5; slot++) {
+        th_cjk_feed(&stream->cjk[slot], buf, len, final);
+    }
+    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+        th_sb_feed(&stream->sb[slot], buf, len);
+    }
+    th_sb_feed(&stream->visual, buf, len);
+    if (final) {
+        for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+            th_sb_feed_eof(&stream->sb[slot]);
         }
-        if (status == TH_DEC_ERROR) {
-            return 0;
-        }
+        th_sb_feed_eof(&stream->visual);
     }
 }
 
-/* Guess the encoding of a declaration-less byte stream, or NULL when it is pure
-   ASCII (the caller then keeps the windows-1252 fallback, which decodes ASCII
-   identically). ISO-2022-JP and UTF-8 are resolved structurally; otherwise the CJK
-   and single-byte candidates compete in chardetng's strict-max, defaulting to
-   windows-1252, with the Hebrew visual/logical tiebreak applied last. Every
-   surviving candidate lands in *scores so detect() can rank alternatives; the
-   parse path fills a scratch struct it never reads. */
+static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
+    th_utf8_scan_feed(&stream->utf8, buf, len);
+    th_jp_scan_feed(&stream->jp, buf, len, final);
+    th_detect_candidates_feed(stream, buf, len, final);
+}
+
+/* The scored answer: the surviving CJK and single-byte candidates compete in chardetng's
+   strict-max, defaulting to windows-1252, with the Hebrew visual/logical tiebreak last.
+   Every survivor lands in *scores so detect() can rank alternatives. */
+static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *stream, th_detect_scores *scores) {
+    const char *winner = "windows-1252";
+    int64_t max = 0;
+    for (int slot = 0; slot < 5; slot++) {
+        if (stream->cjk[slot].alive) {
+            scores->items[scores->count].label = th_cjk_slots[slot].label;
+            scores->items[scores->count].score = stream->cjk[slot].score;
+            scores->count++;
+            if (stream->cjk[slot].score > max) {
+                max = stream->cjk[slot].score;
+                winner = th_cjk_slots[slot].label;
+            }
+        }
+    }
+    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+        int64_t score;
+        if (th_sb_final_score(&stream->sb[slot], &score)) {
+            scores->items[scores->count].label = stream->sb[slot].data->label;
+            scores->items[scores->count].score = score;
+            scores->count++;
+            if (score > max) {
+                max = score;
+                winner = stream->sb[slot].data->label;
+            }
+        }
+    }
+    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
+       score Hebrew text identically -- they differ only in punctuation plausibility --
+       so the visual order can only ever tie windows-1255, never outscore the field;
+       chardetng's visual_score > max test is dead here and dropped. The branches are
+       fully nested so each decision is counted on its own. */
+    int64_t visual_score;
+    if (th_sb_final_score(&stream->visual, &visual_score)) {
+        scores->items[scores->count].label = stream->visual.data->label;
+        scores->items[scores->count].score = visual_score;
+        scores->count++;
+        if (strcmp(winner, "windows-1255") == 0) {
+            if (stream->visual.plausible_punctuation > stream->sb[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
+                winner = "iso-8859-8";
+            }
+        }
+    }
+    return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
+}
+
+/* The stream's answer once every byte has been fed, or NULL when the stream is pure ASCII
+   (the caller then keeps the windows-1252 fallback, which decodes ASCII identically).
+   ISO-2022-JP and UTF-8 are resolved structurally and need no scoring. */
+static const th_encoding_entry *th_detect_stream_finish(const th_detect_stream *stream, th_detect_scores *scores) {
+    scores->count = 0;
+    scores->structural = 0;
+    if (!stream->utf8.has_non_ascii) {
+        if (th_jp_scan_done(&stream->jp)) {
+            scores->structural = 1;
+            return th_encoding_lookup("iso-2022-jp", 11);
+        }
+        return NULL;
+    }
+    if (th_utf8_scan_done(&stream->utf8)) {
+        scores->structural = 1;
+        return th_encoding_lookup("utf-8", 5);
+    }
+    return th_detect_pick_winner(stream, scores);
+}
+
+/* Guess the encoding of a declaration-less byte stream in one shot. The two structural
+   answers come first, so an ASCII or UTF-8 document never pays for candidate scoring. */
 static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len, th_detect_scores *scores) {
     scores->count = 0;
     scores->structural = 0;
@@ -1346,57 +1601,8 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
         scores->structural = 1;
         return th_encoding_lookup("utf-8", 5);
     }
-
-    const char *winner = "windows-1252";
-    int64_t max = 0;
-
-    /* CJK candidates run first, matching chardetng's index order so the strict ">"
-       below resolves ties the same way (an earlier candidate keeps a tie). */
-    th_cjk_run(TH_CJK_GBK, "gbk", buf, len, scores, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_JP, "euc-jp", buf, len, scores, &winner, &max);
-    th_cjk_run(TH_CJK_EUC_KR, "euc-kr", buf, len, scores, &winner, &max);
-    th_cjk_run(TH_CJK_SHIFT_JIS, "shift_jis", buf, len, scores, &winner, &max);
-    th_cjk_run(TH_CJK_BIG5, "big5", buf, len, scores, &winner, &max);
-
-    th_sb_candidate candidates[TH_SB_COUNT];
-    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        th_sb_init(&candidates[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
-                   th_sb_candidate_table[slot].kind);
-        th_sb_feed(&candidates[slot], buf, len);
-        th_sb_feed_eof(&candidates[slot]);
-    }
-    th_sb_candidate visual;
-    th_sb_init(&visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
-    th_sb_feed(&visual, buf, len);
-    th_sb_feed_eof(&visual);
-
-    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        int64_t score;
-        if (th_sb_final_score(&candidates[slot], &score)) {
-            scores->items[scores->count].label = candidates[slot].data->label;
-            scores->items[scores->count].score = score;
-            scores->count++;
-            if (score > max) {
-                max = score;
-                winner = candidates[slot].data->label;
-            }
-        }
-    }
-    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
-       score Hebrew text identically -- they differ only in punctuation plausibility --
-       so the visual order can only ever tie windows-1255, never outscore the field;
-       chardetng's visual_score > max test is dead here and dropped. The branches are
-       fully nested so each decision is counted on its own. */
-    int64_t visual_score;
-    if (th_sb_final_score(&visual, &visual_score)) {
-        scores->items[scores->count].label = visual.data->label;
-        scores->items[scores->count].score = visual_score;
-        scores->count++;
-        if (strcmp(winner, "windows-1255") == 0) {
-            if (visual.plausible_punctuation > candidates[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
-                winner = "iso-8859-8";
-            }
-        }
-    }
-    return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
+    th_detect_stream stream;
+    th_detect_stream_init(&stream);
+    th_detect_candidates_feed(&stream, buf, len, 1);
+    return th_detect_pick_winner(&stream, scores);
 }

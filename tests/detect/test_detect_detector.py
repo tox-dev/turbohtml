@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from turbohtml import _html
 from turbohtml.detect import Detection, EncodingDetector, EncodingMatch, detect
 
 _RUSSIAN_1251 = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
@@ -88,3 +89,81 @@ def test_detector_honors_its_options() -> None:
     detector = EncodingDetector(Detection.chardet())
     detector.feed(b"\x81\n")
     assert detector.close() == EncodingMatch(None, 0.0, None)
+
+
+# The samples exercise every structural answer the stream can reach: an escape-driven
+# ISO-2022-JP run, a multi-byte UTF-8 run, a CJK run whose sequences straddle the feeds, and a
+# pure-ASCII run that carries no evidence at all.
+_SAMPLES = [
+    pytest.param("日本語のテキスト".encode("iso-2022-jp"), id="iso-2022-jp"),
+    pytest.param("café naïve 日本語".encode(), id="utf-8"),
+    pytest.param(b"plain ascii only", id="ascii"),
+    pytest.param("中文简体测试".encode("gbk"), id="gbk"),
+    pytest.param("日本語のテキスト".encode("shift_jis"), id="shift_jis"),
+    pytest.param("한국어 텍스트".encode("euc-kr"), id="euc-kr"),
+    pytest.param("中文字元測試".encode("big5"), id="big5"),
+    pytest.param("Příliš žluťoučký kůň".encode("windows-1250"), id="windows-1250"),
+    pytest.param("Съешь же ещё этих".encode("windows-1251"), id="windows-1251"),
+]
+
+
+@pytest.mark.parametrize("raw", _SAMPLES)
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in (1, 2, 3, 5, 8)])
+def test_chunk_boundaries_never_change_the_answer(raw: bytes, size: int) -> None:
+    # a multi-byte sequence, an escape, and the two bytes the scoring looks back at all straddle
+    # these boundaries; the detector carries each across the feed
+    detector = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close() == detect(raw)
+
+
+def test_a_long_stream_still_answers_what_one_shot_does() -> None:
+    # the candidates carry state, not bytes, so 4096 feeds cost what one does and answer the same
+    chunk = "Съешь же ещё этих мягких".encode("windows-1251")
+    detector = EncodingDetector()
+    for _ in range(4096):
+        detector.feed(chunk)
+    assert detector.close() == detect(chunk * 4096)
+
+
+def test_feeding_a_closed_stream_is_an_error() -> None:
+    stream = _html._DetectStream()
+    stream.feed(b"caf\xe9")
+    stream.close()
+    with pytest.raises(ValueError, match="closed"):
+        stream.feed(b"more")
+
+
+def test_closing_a_closed_stream_is_an_error() -> None:
+    stream = _html._DetectStream()
+    stream.close()
+    with pytest.raises(ValueError, match="closed"):
+        stream.close()
+
+
+def test_the_stream_takes_no_arguments() -> None:
+    with pytest.raises(TypeError):
+        _html._DetectStream("utf-8")  # ty: ignore[too-many-positional-arguments]  # rejected at runtime
+
+
+def test_the_stream_feeds_only_bytes() -> None:
+    with pytest.raises(TypeError):
+        _html._DetectStream().feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(b"\x1b", id="escape-alone"),
+        pytest.param(b"\x1b$", id="escape-truncated"),
+        pytest.param(b"text\x1b(", id="escape-truncated-after-text"),
+    ],
+)
+def test_a_stream_ending_mid_escape_is_not_iso_2022_jp(raw: bytes) -> None:
+    # the escape never completes, so the structural ISO-2022-JP answer is off the table
+    detector = EncodingDetector()
+    for byte in raw:
+        detector.feed(bytes([byte]))
+    assert detector.close() == detect(raw)
+    assert detect(raw).encoding != "ISO-2022-JP"

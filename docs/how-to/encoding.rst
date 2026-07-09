@@ -55,7 +55,8 @@ codec at all. ``match.codec`` names a ``whatwg-*`` codec :mod:`turbohtml.detect`
 
 Rank the alternatives with :func:`~turbohtml.detect.detect_all`, constrain or threshold them with a
 :class:`~turbohtml.detect.Detection` config, and feed a stream chunk by chunk with a
-:class:`~turbohtml.detect.EncodingDetector`:
+:class:`~turbohtml.detect.EncodingDetector`, which scores each chunk as it arrives and holds a fixed amount of memory
+whatever the stream's length. Where the chunks fall never changes the answer:
 
 .. testcode::
 

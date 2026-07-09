@@ -722,6 +722,44 @@ PyObject *turbohtml_decode(PyObject *module, PyObject *args) {
     return decoded;
 }
 
+/* Build the (winner, certain, ranked, bom) tuple both the one-shot detect() and the streaming
+   detector answer with, so the two cannot describe the same bytes differently. */
+static PyObject *detect_result(const char *winner, int certain, const th_detect_scores *scores, int bom) {
+    PyObject *ranked = PyList_New(scores->count);
+    if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (int index = 0; index < scores->count; index++) {
+        const char *label = scores->items[index].label;
+        const th_encoding_entry *item = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
+        PyObject *pair = Py_BuildValue("(sL)", item->canonical, (long long)scores->items[index].score);
+        if (pair == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(ranked); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyList_SET_ITEM(ranked, index, pair);
+    }
+    return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom ? Py_True : Py_False);
+}
+
+/* Resolve a byte-order mark, then a <meta> prescan, over the stream's leading bytes; the
+   caller supplies the detector's answer for when neither decides. */
+static const char *detect_declared(const unsigned char *prefix, Py_ssize_t prefix_len, int *certain, int *bom) {
+    const char *mark = th_detect_bom(prefix, prefix_len);
+    *bom = mark != NULL;
+    if (mark != NULL) {
+        *certain = 1;
+        return mark;
+    }
+    const th_encoding_entry *entry = th_encoding_prescan(prefix, prefix_len);
+    if (entry != NULL) {
+        *certain = 1;
+        return entry->canonical;
+    }
+    *certain = 0;
+    return NULL;
+}
+
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     (void)module;
     Py_buffer view;
@@ -730,37 +768,115 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     }
     const unsigned char *bytes = view.buf;
     Py_ssize_t len = view.len;
-    const char *bom = th_detect_bom(bytes, len);
-    const char *winner = bom;
-    int certain = bom != NULL;
+    int certain, bom;
+    const char *winner = detect_declared(bytes, len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};
-    if (bom == NULL) {
-        const th_encoding_entry *entry = th_encoding_prescan(bytes, len);
-        if (entry == NULL) {
-            entry = th_encoding_detect(bytes, len, &scores);
-            certain = scores.structural;
-        } else {
-            certain = 1;
-        }
+    if (winner == NULL) {
+        const th_encoding_entry *entry = th_encoding_detect(bytes, len, &scores);
+        certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;
     }
     PyBuffer_Release(&view);
-    PyObject *ranked = PyList_New(scores.count);
-    if (ranked == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (int index = 0; index < scores.count; index++) {
-        const char *label = scores.items[index].label;
-        const th_encoding_entry *item = th_encoding_lookup(label, (Py_ssize_t)strlen(label));
-        PyObject *pair = Py_BuildValue("(sL)", item->canonical, (long long)scores.items[index].score);
-        if (pair == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(ranked); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyList_SET_ITEM(ranked, index, pair);
-    }
-    return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom != NULL ? Py_True : Py_False);
+    return detect_result(winner, certain, &scores, bom);
 }
+
+/* The streaming detector behind turbohtml.detect.EncodingDetector. It holds one
+   th_detect_stream, whose candidates carry their own state between feeds, plus the leading
+   bytes the byte-order-mark check and the <meta> prescan need -- the spec bounds that window
+   at 1024 bytes, so the object's memory does not grow with the stream. */
+typedef struct {
+    PyObject_HEAD th_detect_stream stream;
+    unsigned char prefix[1024];
+    Py_ssize_t prefix_len;
+    int closed;
+} DetectStreamObject;
+
+static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, ":_DetectStream", keywords)) {
+        return NULL;
+    }
+    DetectStreamObject *self = (DetectStreamObject *)type->tp_alloc(type, 0);
+    if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_detect_stream_init(&self->stream);
+    self->prefix_len = 0;
+    self->closed = 0;
+    return (PyObject *)self;
+}
+
+static void detect_stream_dealloc(PyObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+static PyObject *detect_stream_feed(PyObject *self, PyObject *arg) {
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    if (detector->closed) {
+        PyErr_SetString(PyExc_ValueError, "the detector is closed");
+        return NULL;
+    }
+    Py_buffer view;
+    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
+        return NULL;
+    }
+    Py_ssize_t room = (Py_ssize_t)sizeof(detector->prefix) - detector->prefix_len;
+    Py_ssize_t take = view.len < room ? view.len : room;
+    memcpy(detector->prefix + detector->prefix_len, view.buf, (size_t)take);
+    detector->prefix_len += take;
+    th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
+}
+
+static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    if (detector->closed) {
+        PyErr_SetString(PyExc_ValueError, "the detector is closed");
+        return NULL;
+    }
+    detector->closed = 1;
+    th_detect_stream_feed(&detector->stream, NULL, 0, 1);
+    int certain, bom;
+    const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
+    th_detect_scores scores = {.count = 0, .structural = 0};
+    if (winner == NULL) {
+        const th_encoding_entry *entry = th_detect_stream_finish(&detector->stream, &scores);
+        certain = scores.structural;
+        winner = entry == NULL ? NULL : entry->canonical;
+    }
+    return detect_result(winner, certain, &scores, bom);
+}
+
+PyDoc_STRVAR(detect_stream_feed_doc, "feed(data, /)\n--\n\n"
+                                     "Score the next chunk of the stream.\n\n"
+                                     ":param data: the next bytes.");
+
+PyDoc_STRVAR(detect_stream_close_doc, "close()\n--\n\n"
+                                      "End the stream and return (encoding, certain, ranked, bom).\n\n"
+                                      ":raises ValueError: if the detector is already closed.");
+
+static PyMethodDef detect_stream_methods[] = {
+    {"feed", detect_stream_feed, METH_O, detect_stream_feed_doc},
+    {"close", detect_stream_close, METH_NOARGS, detect_stream_close_doc},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot detect_stream_slots[] = {
+    {Py_tp_new, detect_stream_new},
+    {Py_tp_dealloc, detect_stream_dealloc},
+    {Py_tp_methods, detect_stream_methods},
+    {0, NULL},
+};
+
+PyType_Spec detect_stream_spec = {
+    .name = "turbohtml._html._DetectStream",
+    .basicsize = sizeof(DetectStreamObject),
+    .flags = Py_TPFLAGS_DEFAULT,
+    .slots = detect_stream_slots,
+};
 
 /* Resolve the caller's language constraints (frozensets of ISO 639-3 codes, or None for allowed)
    into a per-language allow flag. The shim always passes sets, so membership never raises. */
@@ -1592,6 +1708,11 @@ int tree_register(PyObject *module, module_state *state) {
     state->string_walker_type = PyType_FromModuleAndSpec(module, &string_walker_spec, NULL);
     state->serialize_iter_type = PyType_FromModuleAndSpec(module, &serialize_iter_spec, NULL);
     state->handle_type = PyType_FromModuleAndSpec(module, &handle_spec, NULL);
+    state->detect_stream_type = PyType_FromModuleAndSpec(module, &detect_stream_spec, NULL);
+    if (state->detect_stream_type == NULL ||                                             /* GCOVR_EXCL_BR_LINE */
+        PyModule_AddObjectRef(module, "_DetectStream", state->detect_stream_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     state->attrs_type = PyType_FromModuleAndSpec(module, &attrs_spec, NULL);
     /* allocation failure cannot be forced from a test */
     if (state->walker_type == NULL || state->string_walker_type == NULL || /* GCOVR_EXCL_BR_LINE */

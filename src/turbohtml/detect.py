@@ -35,7 +35,7 @@ import codecs
 from dataclasses import dataclass
 from typing import Final, Literal
 
-from ._html import _decode, _detect, _detect_language, _is_normalized, _normalize
+from ._html import _decode, _detect, _detect_language, _DetectStream, _is_normalized, _normalize
 
 __all__ = [
     "Detection",
@@ -247,9 +247,11 @@ class EncodingDetector:
 
     Call :meth:`feed` with each chunk, :meth:`close` for the result, and :meth:`reset` to reuse the instance on
     another stream. :attr:`done` turns true as soon as the result cannot change (a leading byte-order mark, or
-    :meth:`close`), so a reader loop can stop early. Feeding buffers the chunks and :meth:`close` detects once over
-    the whole stream, so the result always equals :func:`detect` of the concatenated bytes. An instance is not
-    thread-safe; use one per stream.
+    :meth:`close`), so a reader loop can stop early. Every candidate carries its own state across feeds, so the
+    detector holds a fixed amount of memory whatever the stream's length; the one buffer it keeps is the leading
+    1024 bytes the byte-order-mark check and the ``<meta>`` prescan read, which the spec bounds. The result equals
+    :func:`detect` of the concatenated bytes, whatever the chunk boundaries. An instance is not thread-safe; use one
+    per stream.
 
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
     """
@@ -260,7 +262,9 @@ class EncodingDetector:
     def __init__(self, options: Detection | None = None, /) -> None:
         """Start an empty stream with the given options."""
         self._options = options or _DEFAULT
-        self._buffer = bytearray()
+        self._stream = _DetectStream()
+        self._head = b""
+        self._fed = False
         self._result: EncodingMatch | None = None
         self.done = False
 
@@ -271,36 +275,46 @@ class EncodingDetector:
 
     def feed(self, data: bytes) -> None:
         """
-        Buffer one chunk of the stream; ignored once :attr:`done`.
+        Detect over one chunk of the stream; ignored once :attr:`done`.
 
         :param data: the next bytes of the stream.
         """
-        if self.done:
+        if self.done or not data:
             return
-        self._buffer += data
-        head = self._buffer
-        if head.startswith((b"\xef\xbb\xbf", b"\xfe\xff", b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00")):
+        self._fed = True
+        self._stream.feed(data)
+        if len(self._head) < 4:
+            self._head = (self._head + bytes(data))[:4]
+        if self._head.startswith((b"\xef\xbb\xbf", b"\xfe\xff", b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00")):
             self.done = True  # a fully-resolved byte-order mark decides the stream, whatever follows
-        elif head.startswith(b"\xff\xfe") and len(head) >= 4:
+        elif self._head.startswith(b"\xff\xfe") and len(self._head) >= 4:
             self.done = True  # FF FE is UTF-16LE now that the next pair rules out the FF FE 00 00 UTF-32LE mark
 
     def close(self) -> EncodingMatch:
-        """Detect over everything fed so far, cache the result, and return it."""
+        """Read the detector's answer, cache it, and return it."""
         if self._result is None:
-            self._result = detect(bytes(self._buffer), self._options)
+            shaped = _shape(self._stream.close()) if self._fed else ([], False)
+            self._result = _rank(shaped, self._options)[0]
             self.done = True
         return self._result
 
     def reset(self) -> None:
         """Forget the stream and the result so the instance can start over."""
-        self._buffer.clear()
+        self._stream = _DetectStream()
+        self._head = b""
+        self._fed = False
         self._result = None
         self.done = False
 
 
 def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
     """Rank the candidates for ``data``, apply the options, and always return at least the no-match sentinel."""
-    ranked, had_bom = _candidates(data)
+    return _rank(_candidates(data), options)
+
+
+def _rank(shaped: tuple[list[tuple[str, float]], bool], options: Detection) -> list[EncodingMatch]:
+    """Apply the options to shaped candidates, and always return at least the no-match sentinel."""
+    ranked, had_bom = shaped
     if (allowed := options.allowed) is not None:
         permitted = {name.casefold() for name in allowed}
         ranked = [(name, confidence) for name, confidence in ranked if name.casefold() in permitted]
@@ -330,9 +344,12 @@ def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
     per name wins. A stream with no non-ASCII byte carries no evidence, so it takes the spec's windows-1252 fallback,
     which decodes ASCII identically -- the answer ``parse(detect_encoding=True)`` reaches for the same bytes.
     """
-    if not data:
-        return [], False
-    winner, certain, scored, bom = _detect(data)
+    return _shape(_detect(data)) if data else ([], False)
+
+
+def _shape(result: tuple[str | None, bool, list[tuple[str, int]], bool]) -> tuple[list[tuple[str, float]], bool]:
+    """Shape one C sniff result, from either the one-shot detect or the streaming detector."""
+    winner, certain, scored, bom = result
     if certain or winner is None:
         return [(winner or "windows-1252", 1.0)], bom
     unique: dict[str, int] = {}

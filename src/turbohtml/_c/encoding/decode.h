@@ -346,7 +346,14 @@ static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
                                ((uint32_t)(dec->second - 0x30) * 10 * 126) + ((uint32_t)(dec->third - 0x81) * 10) +
                                (uint32_t)(byte - 0x30);
             dec->first = dec->second = dec->third = 0;
-            return th_dec_gb18030_range(pointer, point) ? TH_DEC_POINT : TH_DEC_ERROR;
+            if (th_dec_gb18030_range(pointer, point)) {
+                return TH_DEC_POINT;
+            }
+            /* the four-byte form resolved to no code point. Naming the offending byte matters:
+               a stale error_at would read as the -1 an incomplete tail sets, which is how a
+               resumed decoder tells "wait for more input" from "this input is wrong". */
+            dec->error_at = dec->pos - 1;
+            return TH_DEC_ERROR;
         }
         if (dec->second != 0) {
             if (byte >= 0x81 && byte <= 0xFE) {

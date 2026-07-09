@@ -42,6 +42,7 @@ typedef struct {
     PyObject *parse_error_type;       /* ParseError (a collected WHATWG parse error) */
     PyObject *parse_error_exc;        /* HTMLParseError (raised by parse(strict=True)) */
     PyObject *handle_type;            /* _TreeHandle (owns th_tree + the input str) */
+    PyObject *detect_stream_type;     /* _DetectStream (the streaming encoding detector) */
     PyObject *attrs_type;             /* _Attrs (the live mutable view of an element's attributes) */
     PyObject *walker_type;            /* _NodeIterator (descendants / ancestors / siblings) */
     PyObject *tree_walker_type;       /* TreeWalker (the DOM cursor traversal object) */

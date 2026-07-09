@@ -72,6 +72,9 @@ from ._stubs.dom import (
     _detect_language as _detect_language,
 )
 from ._stubs.dom import (
+    _DetectStream as _DetectStream,
+)
+from ._stubs.dom import (
     _Filter as _Filter,
 )
 from ._stubs.dom import (

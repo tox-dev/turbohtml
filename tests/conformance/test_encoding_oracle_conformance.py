@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml.detect import detect
+from turbohtml.detect import EncodingDetector, detect
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -41,6 +41,9 @@ _ORACLES: Final = Path(__file__).parent / "oracles"
 # The sweeps below are deterministic; pinning their size keeps a refactor from quietly narrowing the differential.
 _DECODE_CASES: Final = 442176
 _DETECT_CASES: Final = 39932
+
+# The chunk boundaries the streaming detector is driven at; a seed keeps the sweep reproducible.
+_STREAM_SEED: Final = 20260709
 
 # The legacy multi-byte encodings, whose one- and two-byte sequences are swept exhaustively.
 _MULTI_BYTE: Final[tuple[str, ...]] = ("big5", "euc-kr", "shift_jis", "euc-jp", "gbk", "gb18030")
@@ -200,3 +203,27 @@ def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
         if (detect(raw).encoding or "").casefold() != want.casefold()
     ]
     assert not divergent, f"{len(divergent)} of {len(cases)} inputs detect differently, first: {divergent[0]}"
+
+
+def test_the_streaming_detector_matches_the_one_shot() -> None:
+    # Where the chunks fall must not change the answer: a multi-byte sequence split across a feed, and the two bytes
+    # chardetng's scoring looks back at, both have to survive the boundary. The corpus is the one the differential
+    # above runs on, so what chardetng proves about the one-shot answer this carries to the chunked path.
+    rng = random.Random(_STREAM_SEED)  # noqa: S311  # a chunking seed, not a security decision
+    divergent = []
+    swept = 0
+    for raw in _detect_cases():
+        swept += 1
+        expected = detect(raw)
+        for _ in range(2):
+            detector = EncodingDetector()
+            position = 0
+            while position < len(raw):
+                step = rng.randint(1, 6)
+                detector.feed(raw[position : position + step])
+                position += step
+            if detector.close() != expected:
+                divergent.append(raw.hex())
+                break
+    assert swept > _DETECT_CASES, "the corpus shrank; a sweep that stops covering an input proves nothing"
+    assert not divergent, f"{len(divergent)} inputs detect differently when fed in chunks, first: {divergent[0]}"

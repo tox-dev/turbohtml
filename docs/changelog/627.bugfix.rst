@@ -1,0 +1,12 @@
+:class:`turbohtml.detect.EncodingDetector` no longer buffers the stream. It appended every chunk to a ``bytearray`` and
+detected once over the concatenation at :meth:`~turbohtml.detect.EncodingDetector.close`, so a caller streaming a large
+file paid its length in memory, in a class documented as mirroring chardet's ``UniversalDetector``. Each candidate now
+carries its own state between feeds, and the only bytes the detector keeps are the leading 1024 the byte-order-mark
+check and the ``<meta>`` prescan read, which the spec bounds. Where the chunks fall does not change the answer: the
+stateful detector is the only implementation, so :func:`turbohtml.detect.detect` drives it with a single feed and the
+differential test against chardetng covers the scoring both paths share.
+
+A four-byte gb18030 sequence that resolved to no code point returned an error without naming the byte that caused it,
+leaving ``error_at`` at whatever the previous error had set. Reading a whole buffer at once never noticed, because the
+value that means "the input ended mid-sequence" is only ever set at the end. A resumed decoder did notice, and so would
+:class:`turbohtml.IncrementalParser`, which tells "wait for more input" from "this input is wrong" by that same value.
