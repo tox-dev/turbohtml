@@ -1333,8 +1333,9 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
             Py_UCS4 mark = 0;
             th_decode_step(&cand->dec, &mark);
         }
-        Py_ssize_t at = (cand->dec.pos > before ? cand->dec.pos : before) -
-                        1; /* GCOVR_EXCL_BR_LINE: a scalar always advances pos */
+        /* a scalar consumes at least one byte, and Big5's pending combining mark is drained
+           above rather than reaching the loop, so the cursor has moved past `before` */
+        Py_ssize_t at = cand->dec.pos - 1;
         unsigned char last = data[at];
         cand->prev_byte = th_cjk_byte_before(cand, data, at, 1);
         cand->prev_prev_byte = th_cjk_byte_before(cand, data, at, 2);
@@ -1401,9 +1402,29 @@ static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize
     if (!scan->alive) {
         return;
     }
-    for (Py_ssize_t index = 0; index < len && !scan->esc_seen; index++) {
-        scan->esc_seen = buf[index] == 0x1B;
+    Py_ssize_t start = 0;
+    if (!scan->esc_seen) {
+        /* A stream with no escape is not ISO-2022-JP whatever else it holds, so the decoder never
+           reads it: finding the escape with memchr is what keeps detect() on an ASCII document
+           cheap. Until one arrives the decoder sits in its ASCII state, which accepts every byte
+           but the two shift codes and leaves nothing to remember, so the bytes before the escape
+           need one pass for those. A byte at or above 0x80 makes the caller ignore this scan. */
+        const unsigned char *escape = memchr(buf, 0x1B, (size_t)len);
+        Py_ssize_t prefix = escape == NULL ? len : escape - buf;
+        /* 0x0E and 0x0F are the two bytes the ASCII state rejects, and a chunk that carries one
+           before the escape kills the candidate whether or not the escape ever arrives */
+        if (memchr(buf, 0x0E, (size_t)prefix) != NULL || memchr(buf, 0x0F, (size_t)prefix) != NULL) {
+            scan->alive = 0;
+            return;
+        }
+        if (escape == NULL) {
+            return;
+        }
+        start = prefix;
+        scan->esc_seen = 1;
     }
+    buf += start;
+    len -= start;
     const unsigned char *data = buf;
     Py_ssize_t data_len = len;
     unsigned char *spliced = NULL;

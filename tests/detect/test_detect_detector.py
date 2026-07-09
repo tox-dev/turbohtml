@@ -167,3 +167,15 @@ def test_a_stream_ending_mid_escape_is_not_iso_2022_jp(raw: bytes) -> None:
         detector.feed(bytes([byte]))
     assert detector.close() == detect(raw)
     assert detect(raw).encoding != "ISO-2022-JP"
+
+
+@pytest.mark.parametrize("shift", [pytest.param(0x0E, id="shift-out"), pytest.param(0x0F, id="shift-in")])
+def test_a_shift_code_before_the_escape_rules_out_iso_2022_jp(shift: int) -> None:
+    # the decoder's ASCII state rejects both shift codes, so the escape that follows cannot
+    # rescue the stream, and the scan stays dead through every later feed
+    raw = bytes([ord("a"), shift, ord("b")]) + "日本語".encode("iso-2022-jp")
+    assert detect(raw).encoding != "ISO-2022-JP"
+    detector = EncodingDetector()
+    for byte in raw:
+        detector.feed(bytes([byte]))
+    assert detector.close() == detect(raw)
