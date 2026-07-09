@@ -1,0 +1,14 @@
+# Reads one hex byte string per line and writes chardetng's guessed encoding name, one line per case.
+# The configuration mirrors turbohtml's detector: ISO-2022-JP allowed, UTF-8 allowed, no TLD hint.
+[package]
+name = "detector-oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+chardetng = { path = "../../chardetng" }
+
+[[bin]]
+name = "detector-oracle"
+path = "src/main.rs"

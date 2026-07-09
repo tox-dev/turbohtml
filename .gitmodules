@@ -56,3 +56,9 @@
 	path = tests/conformance/qt3tests
 	url = https://github.com/w3c/qt3tests
 	shallow = true
+[submodule "tests/conformance/encoding_rs"]
+	path = tests/conformance/encoding_rs
+	url = https://github.com/hsivonen/encoding_rs
+[submodule "tests/conformance/chardetng"]
+	path = tests/conformance/chardetng
+	url = https://github.com/hsivonen/chardetng

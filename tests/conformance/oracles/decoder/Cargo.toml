@@ -1,0 +1,14 @@
+# Reads "<label>\t<hex bytes>" lines and writes the hex of encoding_rs's decoded UTF-8, one line per case.
+# decode_without_bom_handling is the Encoding Standard's "decode" entry point: every error becomes U+FFFD.
+[package]
+name = "decoder-oracle"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+encoding_rs = { path = "../../encoding_rs" }
+
+[[bin]]
+name = "decoder-oracle"
+path = "src/main.rs"

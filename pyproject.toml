@@ -230,6 +230,8 @@ windows.config-settings.setup-args = [ "--vsenv", "-Dstrip=true" ]
 [tool.ruff]
 line-length = 120
 extend-exclude = [
+  "tests/conformance/chardetng",
+  "tests/conformance/encoding_rs",
   "tests/conformance/unicodetools",
   "tests/html5lib-tests",
   "tools/html5lib-python"
@@ -327,6 +329,8 @@ ini_options.addopts = [
   "--ignore=tests/conformance/qt3tests",              # vendored W3C QT3 XQuery/XPath suite data, not our test modules
   "--ignore=tests/conformance/DOMPurify",             # vendored DOMPurify repo (JS oracle + fixtures), not our test modules
   "--ignore=tests/conformance/parse5",                # vendored parse5 repo + its nested html5lib-tests data, not our test modules
+  "--ignore=tests/conformance/encoding_rs",           # vendored encoding_rs crate (the decoder oracle), not our test modules
+  "--ignore=tests/conformance/chardetng",             # vendored chardetng crate (the detector oracle), not our test modules
   "--ignore=tests/html5lib-tests",                    # vendored conformance data, not our test modules
   "--import-mode=importlib",                          # tests mirror the source tree in nested dirs without __init__.py
 ]
