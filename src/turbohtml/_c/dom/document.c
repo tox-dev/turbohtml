@@ -722,9 +722,10 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
     }
     if (entry == NULL) {
         if (detect) {
-            /* opt-in content-based detection, strictly after the spec sniffing steps */
+            /* opt-in content-based detection, strictly after the spec sniffing steps. parse() takes
+               bytes, never the URL they came from, so no TLD is available to hint with. */
             th_detect_scores scores;
-            entry = th_encoding_detect(bytes, len, &scores);
+            entry = th_encoding_detect(bytes, len, TH_TLD_GENERIC, &scores);
         } else {
             /* The detector's first step on its own: UTF-8 validity is a structural proof,
                not a frequency guess, so it costs none of the opt-in model's candidate
@@ -862,10 +863,21 @@ static const char *detect_declared(const unsigned char *prefix, Py_ssize_t prefi
     return NULL;
 }
 
-PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
+/* The rightmost DNS label of the host the bytes came from, or NULL for no hint. The shim has already
+   checked the label is lower-case ASCII, the form chardetng's key tables hold. */
+static th_tld tld_argument(const char *label) {
+    return label == NULL ? TH_TLD_GENERIC : th_tld_classify(label, (Py_ssize_t)strlen(label));
+}
+
+PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args) {
     (void)module;
+    const char *label = NULL;
+    PyObject *data;
+    if (!PyArg_ParseTuple(args, "Oz:_detect", &data, &label)) {
+        return NULL;
+    }
     Py_buffer view;
-    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
+    if (PyObject_GetBuffer(data, &view, PyBUF_SIMPLE) < 0) {
         return NULL;
     }
     const unsigned char *bytes = view.buf;
@@ -874,7 +886,7 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *arg) {
     const char *winner = detect_declared(bytes, len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
-        const th_encoding_entry *entry = th_encoding_detect(bytes, len, &scores);
+        const th_encoding_entry *entry = th_encoding_detect(bytes, len, tld_argument(label), &scores);
         certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;
     }
@@ -890,12 +902,14 @@ typedef struct {
     PyObject_HEAD th_detect_stream stream;
     unsigned char prefix[1024];
     Py_ssize_t prefix_len;
+    th_tld tld;
     int closed;
 } DetectStreamObject;
 
 static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, ":_DetectStream", keywords)) {
+    static char *keywords[] = {"", NULL};
+    const char *label = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "z:_DetectStream", keywords, &label)) {
         return NULL;
     }
     DetectStreamObject *self = (DetectStreamObject *)type->tp_alloc(type, 0);
@@ -904,6 +918,7 @@ static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject 
     }
     th_detect_stream_init(&self->stream);
     self->prefix_len = 0;
+    self->tld = tld_argument(label);
     self->closed = 0;
     return (PyObject *)self;
 }
@@ -945,12 +960,16 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
     const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
-        const th_encoding_entry *entry = th_detect_stream_finish(&detector->stream, &scores);
+        const th_encoding_entry *entry = th_detect_stream_finish(&detector->stream, detector->tld, &scores);
         certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;
     }
     return detect_result(winner, certain, &scores, bom);
 }
+
+PyDoc_STRVAR(detect_stream_doc, "_DetectStream(tld, /)\n--\n\n"
+                                "Score a byte stream chunk by chunk.\n\n"
+                                ":param tld: the rightmost DNS label of the host, lower-case ASCII, or None.");
 
 PyDoc_STRVAR(detect_stream_feed_doc, "feed(data, /)\n--\n\n"
                                      "Score the next chunk of the stream.\n\n"
@@ -967,6 +986,7 @@ static PyMethodDef detect_stream_methods[] = {
 };
 
 static PyType_Slot detect_stream_slots[] = {
+    {Py_tp_doc, (void *)detect_stream_doc},
     {Py_tp_new, detect_stream_new},
     {Py_tp_dealloc, detect_stream_dealloc},
     {Py_tp_methods, detect_stream_methods},

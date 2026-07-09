@@ -210,7 +210,7 @@ static PyMethodDef html_methods[] = {
     {"_minify_js_tokens", turbohtml_minify_js_tokens, METH_O, NULL},
     {"_minify_js_parse", turbohtml_minify_js_parse, METH_O, NULL},
     {"_decode", turbohtml_decode, METH_VARARGS, NULL},
-    {"_detect", turbohtml_detect_encoding, METH_O, NULL},
+    {"_detect", turbohtml_detect_encoding, METH_VARARGS, NULL},
     {"_detect_language", turbohtml_detect_language, METH_VARARGS, NULL},
     {"_normalize", turbohtml_normalize, METH_VARARGS, NULL},
     {"_is_normalized", turbohtml_is_normalized, METH_VARARGS, NULL},

@@ -34,6 +34,7 @@ floor and language constraints.
 from __future__ import annotations
 
 import codecs
+import string
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -178,6 +179,10 @@ class EncodingMatch:
 _NO_MATCH: Final = EncodingMatch(None, 0.0, None)
 
 
+# Every character a DNS label may hold once it is lower-cased and Punycode-encoded (RFC 1123, plus RFC 3492's "xn--").
+_TLD_ALPHABET: Final[frozenset[str]] = frozenset(string.ascii_lowercase + string.digits + "-")
+
+
 @dataclass(frozen=True, slots=True)
 class Detection:
     """
@@ -190,20 +195,30 @@ class Detection:
         positively.
     :param allowed: when set, only these encodings (WHATWG names, any case) may be returned.
     :param excluded: these encodings are never returned; mutually exclusive with ``allowed``.
+    :param tld: the rightmost DNS label of the host that served the bytes (``"jp"``, ``"ru"``, ``"xn--p1ai"``), which
+        narrows the candidates the way a browser does. Give it in lower-case ASCII, without the leading dot, and in
+        Punycode for an internationalized domain. A two-letter label the classifier does not carry reads as Western
+        European; a generic label such as ``"com"`` carries no hint, and neither does the default ``None``.
     """
 
     threshold: float = 0.0
     language: str | None = None
     allowed: frozenset[str] | None = None
     excluded: frozenset[str] = frozenset()
+    tld: str | None = None
 
     def __post_init__(self) -> None:
-        """Reject an out-of-range threshold and the contradictory allowed+excluded combination."""
+        """Reject an out-of-range threshold, the contradictory allowed+excluded combination, and a malformed TLD."""
         if not 0.0 <= self.threshold <= 1.0:
             msg = f"threshold must be within [0.0, 1.0], got {self.threshold}"
             raise ValueError(msg)
         if self.allowed is not None and self.excluded:
             msg = "allowed and excluded are mutually exclusive"
+            raise ValueError(msg)
+        # a whole hostname, a leading dot, or an upper-case letter would otherwise read as no hint at all rather
+        # than as the mistake it is; chardetng panics on the same labels rather than classify them
+        if self.tld is not None and not (self.tld and set(self.tld) <= _TLD_ALPHABET):
+            msg = f"tld must be the rightmost DNS label in lower-case ASCII, got {self.tld!r}"
             raise ValueError(msg)
 
     @classmethod
@@ -264,7 +279,7 @@ class EncodingDetector:
     def __init__(self, options: Detection | None = None, /) -> None:
         """Start an empty stream with the given options."""
         self._options = options or _DEFAULT
-        self._stream = _DetectStream()
+        self._stream = _DetectStream(self._options.tld)
         self._head = b""
         self._fed = False
         self._result: EncodingMatch | None = None
@@ -302,7 +317,7 @@ class EncodingDetector:
 
     def reset(self) -> None:
         """Forget the stream and the result so the instance can start over."""
-        self._stream = _DetectStream()
+        self._stream = _DetectStream(self._options.tld)
         self._head = b""
         self._fed = False
         self._result = None
@@ -311,7 +326,7 @@ class EncodingDetector:
 
 def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
     """Rank the candidates for ``data``, apply the options, and always return at least the no-match sentinel."""
-    return _rank(_candidates(data), options)
+    return _rank(_candidates(data, options.tld), options)
 
 
 def _rank(shaped: tuple[list[tuple[str, float]], bool], options: Detection) -> list[EncodingMatch]:
@@ -333,7 +348,7 @@ def _rank(shaped: tuple[list[tuple[str, float]], bool], options: Detection) -> l
     return matches or [_NO_MATCH]
 
 
-def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
+def _candidates(data: bytes, tld: str | None) -> tuple[list[tuple[str, float]], bool]:
     """
     Run the C sniff and shape its output into (canonical name, confidence) pairs plus the byte-order-mark flag.
 
@@ -346,7 +361,7 @@ def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
     per name wins. A stream with no non-ASCII byte carries no evidence, so it takes the spec's windows-1252 fallback,
     which decodes ASCII identically -- the answer ``parse(detect_encoding=True)`` reaches for the same bytes.
     """
-    return _shape(_detect(data)) if data else ([], False)
+    return _shape(_detect(data, tld)) if data else ([], False)
 
 
 def _shape(result: tuple[str | None, bool, list[tuple[str, int]], bool]) -> tuple[list[tuple[str, float]], bool]:

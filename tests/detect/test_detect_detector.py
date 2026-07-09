@@ -128,7 +128,7 @@ def test_a_long_stream_still_answers_what_one_shot_does() -> None:
 
 
 def test_feeding_a_closed_stream_is_an_error() -> None:
-    stream = _html._DetectStream()
+    stream = _html._DetectStream(None)
     stream.feed(b"caf\xe9")
     stream.close()
     with pytest.raises(ValueError, match="closed"):
@@ -136,20 +136,25 @@ def test_feeding_a_closed_stream_is_an_error() -> None:
 
 
 def test_closing_a_closed_stream_is_an_error() -> None:
-    stream = _html._DetectStream()
+    stream = _html._DetectStream(None)
     stream.close()
     with pytest.raises(ValueError, match="closed"):
         stream.close()
 
 
-def test_the_stream_takes_no_arguments() -> None:
+def test_the_stream_takes_only_a_tld() -> None:
     with pytest.raises(TypeError):
-        _html._DetectStream("utf-8")  # ty: ignore[too-many-positional-arguments]  # rejected at runtime
+        _html._DetectStream(None, "extra")  # ty: ignore[too-many-positional-arguments]  # rejected at runtime
+
+
+def test_the_stream_rejects_a_non_string_tld() -> None:
+    with pytest.raises(TypeError):
+        _html._DetectStream(7)  # ty: ignore[invalid-argument-type]  # rejected at runtime
 
 
 def test_the_stream_feeds_only_bytes() -> None:
     with pytest.raises(TypeError):
-        _html._DetectStream().feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime
+        _html._DetectStream(None).feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime
 
 
 @pytest.mark.parametrize(

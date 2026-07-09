@@ -106,6 +106,42 @@ whatever the stream's length. Where the chunks fall never changes the answer:
 
     UTF-8-SIG
 
+*********************************************
+ Tell the detector where the bytes came from
+*********************************************
+
+Frequency scoring has little to work with on short text, where several encodings of one script score alike. The host
+that served the page is evidence a browser already uses. Pass the hostname's rightmost DNS label as ``tld`` and the
+detector weighs the candidates the way Firefox does: the encoding that domain expects gains a point, the ones native to
+it keep their score, and the rest pay a penalty.
+
+.. testcode::
+
+    from turbohtml.detect import Detection, detect
+
+    raw = "Příliš žluťoučký kůň úpěl ďábelské ódy".encode("iso-8859-2")
+    print(detect(raw).encoding)
+    print(detect(raw, Detection(tld="cz")).encoding)
+    print(detect(raw, Detection(tld="ru")).encoding)
+
+.. testoutput::
+
+    ISO-8859-2
+    ISO-8859-2
+    windows-1252
+
+Give the label alone, lower-case, with no leading dot: ``"cz"``, not ``"example.cz"``. Use the Punycode form for an
+internationalized domain, so ``"xn--p1ai"`` and not ``"рф"``. Anything else raises :exc:`ValueError`, since a misspelled
+label would otherwise read as no hint at all. A generic label such as ``"com"`` says nothing about script and changes
+nothing, and neither does the default ``None``.
+
+A two-letter label the classifier does not carry reads as Western European, which is still a hint. Above, ``.ru`` rules
+out the Central European candidates and leaves windows-1252 standing. A ``.th`` label would rule out nothing, because
+the bytes hold no Thai for its expectation to rest on.
+
+The hint reaches frequency scoring and stops there. A byte-order mark, a ``<meta>`` charset, and structurally valid
+UTF-8 are proofs rather than guesses, and no domain outvotes them.
+
 Normalize decoded text to a Unicode normalization form
 ======================================================
 

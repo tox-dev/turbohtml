@@ -25,13 +25,14 @@ conformance suite that silently no-ops is worse than none. Check the oracles out
 from __future__ import annotations
 
 import random
+import re
 import subprocess  # noqa: S404  # the oracles are two vendored Rust binaries this suite builds and drives
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml.detect import EncodingDetector, detect
+from turbohtml.detect import Detection, EncodingDetector, detect
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -44,6 +45,43 @@ _DETECT_CASES: Final = 39932
 
 # The chunk boundaries the streaming detector is driven at; a seed keeps the sweep reproducible.
 _STREAM_SEED: Final = 20260709
+
+# Labels chardetng's tables do not carry, which classify by shape alone: two generic three-letter domains, the three
+# read as Western, an unlisted country code (Western), and three shapes that fall through to generic.
+_UNLISTED_TLDS: Final[tuple[str, ...]] = (
+    "com",
+    "org",
+    "edu",
+    "gov",
+    "mil",
+    "zz",
+    "xn--unlisted",
+    "xn--p1a",
+    "longlabel",
+)
+
+# The byte-order marks turbohtml honors and chardetng does not model; no differential runs on an input carrying one.
+_BOMS: Final[tuple[bytes, ...]] = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")
+
+# One text per modeled encoding. The TLD sweeps reuse them, since a hint only discriminates real text.
+_SAMPLES: Final[dict[str, str]] = {
+    "cp1251": "Съешь же ещё этих мягких французских булок",
+    "koi8-r": "Широкая электрификация южных губерний",
+    "cp1252": "Précédemment, la créativité française",
+    "iso-8859-2": "Příliš žluťoučký kůň úpěl ďábelské ódy",
+    "iso-8859-7": "Καλημέρα κόσμε, θέλει αρετή και τόλμη",
+    "cp1255": "דג סקרן שט בים מאוכזב",
+    "cp1256": "نص حكيم له سر قاطع",
+    "cp1254": "Pijamalı hasta yağız şoföre çabucak güvendi",
+    "cp874": "เป็นมนุษย์สุดประเสริฐเลิศคุณค่า",
+    "cp866": "Съешь же ещё этих мягких булок",
+    "shift_jis": "吾輩は猫である。名前はまだ無い。",
+    "euc_jp": "吾輩は猫である。名前はまだ無い。",
+    "cp949": "동해물과 백두산이 마르고 닳도록",
+    "big5": "繁體中文字元測試內容",
+    "gb18030": "天地玄黄宇宙洪荒日月盈昃",
+    "utf-8": "日本語のテキストです",
+}
 
 # The legacy multi-byte encodings, whose one- and two-byte sequences are swept exhaustively.
 _MULTI_BYTE: Final[tuple[str, ...]] = ("big5", "euc-kr", "shift_jis", "euc-jp", "gbk", "gb18030")
@@ -153,25 +191,7 @@ def test_every_decoder_agrees_with_encoding_rs(decoder_oracle: Path) -> None:
 
 def _detect_cases() -> Iterator[bytes]:
     """Real text in each encoding the detector models, plus adversarial byte soup and lead-seeded sequences."""
-    samples = {
-        "cp1251": "Съешь же ещё этих мягких французских булок",
-        "koi8-r": "Широкая электрификация южных губерний",
-        "cp1252": "Précédemment, la créativité française",
-        "iso-8859-2": "Příliš žluťoučký kůň úpěl ďábelské ódy",
-        "iso-8859-7": "Καλημέρα κόσμε, θέλει αρετή και τόλμη",
-        "cp1255": "דג סקרן שט בים מאוכזב",
-        "cp1256": "نص حكيم له سر قاطع",
-        "cp1254": "Pijamalı hasta yağız şoföre çabucak güvendi",
-        "cp874": "เป็นมนุษย์สุดประเสริฐเลิศคุณค่า",
-        "cp866": "Съешь же ещё этих мягких булок",
-        "shift_jis": "吾輩は猫である。名前はまだ無い。",
-        "euc_jp": "吾輩は猫である。名前はまだ無い。",
-        "cp949": "동해물과 백두산이 마르고 닳도록",
-        "big5": "繁體中文字元測試內容",
-        "gb18030": "天地玄黄宇宙洪荒日月盈昃",
-        "utf-8": "日本語のテキストです",
-    }
-    for codec, text in samples.items():
+    for codec, text in _SAMPLES.items():
         for pad in ("", " ", "\n", " abc", "ZZ "):
             yield (text + pad).encode(codec)
     rng = random.Random(20260709)  # noqa: S311  # a corpus seed, not a security decision
@@ -184,17 +204,15 @@ def _detect_cases() -> Iterator[bytes]:
         yield bytes(rng.randrange(256) for _ in range(rng.randrange(2, 40)))
 
 
+def _content_cases() -> list[bytes]:
+    """The corpus chardetng and turbohtml must agree on: a byte-order mark or a pure-ASCII stream is not one."""
+    return [raw for raw in _detect_cases() if any(byte >= 0x80 for byte in raw) and not raw.startswith(_BOMS)]
+
+
 def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
     # chardetng does content detection only; a byte-order mark or a pure-ASCII stream is turbohtml's own documented
     # divergence (it honors the mark, and takes the spec's windows-1252 fallback where chardetng answers UTF-8)
-    cases = [
-        raw
-        for raw in _detect_cases()
-        if raw
-        and any(byte >= 0x80 for byte in raw)
-        and raw[:2] not in {b"\xff\xfe", b"\xfe\xff"}
-        and raw[:3] != b"\xef\xbb\xbf"
-    ]
+    cases = _content_cases()
     assert len(cases) == _DETECT_CASES, "the corpus shrank; a differential that stops covering an input proves nothing"
     expected = _run(detector_oracle, "".join(f"{raw.hex()}\n" for raw in cases), len(cases))
     divergent = [
@@ -205,18 +223,68 @@ def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
     assert not divergent, f"{len(divergent)} of {len(cases)} inputs detect differently, first: {divergent[0]}"
 
 
+def _tld_labels() -> list[str]:
+    """
+    Every DNS label chardetng's classifier carries, plus the unlisted shapes, lower-cased.
+
+    Reading them out of ``tld.rs`` rather than restating them ties the sweep to the pinned revision. Two Punycode keys
+    carry an upper-case ``S`` upstream, which no real label matches and which ``guess`` panics on, so lower-casing them
+    here drives both implementations down their not-found path.
+    """
+    source = (_ORACLES.parent / "chardetng" / "src" / "tld.rs").read_text(encoding="utf-8")
+    two_letter = re.findall(r"\[b'(.)', b'(.)'\]", source)
+    punycode = re.findall(r'b"([^"]+)"', source)
+    listed = [first + second for first, second in two_letter] + [f"xn--{key.lower()}" for key in punycode]
+    return listed + list(_UNLISTED_TLDS)
+
+
+def _tld_samples() -> list[bytes]:
+    """Text in each modeled encoding, which is what a TLD hint discriminates; byte soup is swept separately below."""
+    return [(text + pad).encode(codec) for codec, text in _SAMPLES.items() for pad in ("", " abc")]
+
+
+def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, str]]) -> None:
+    """Drive both implementations over (bytes, label) pairs and report every pair whose answers differ."""
+    expected = _run(detector_oracle, "".join(f"{raw.hex()}\t{tld}\n" for raw, tld in cases), len(cases))
+    divergent = [
+        (raw.hex(), tld, got, want)
+        for (raw, tld), want in zip(cases, expected, strict=True)
+        if ((got := detect(raw, Detection(tld=tld)).encoding) or "").casefold() != want.casefold()
+    ]
+    assert not divergent, f"{len(divergent)} of {len(cases)} (bytes, tld) pairs detect differently: {divergent[:3]}"
+
+
+def test_the_tld_hint_agrees_with_chardetng(detector_oracle: Path) -> None:
+    # every label the classifier knows, against text in each encoding it models. The hint reaches three places in
+    # chardetng's scoring: the TLD's own encoding, the encodings native to it, and the penalty the rest pay. A label
+    # that classifies one script too far moves the answer without failing anything on its own.
+    _assert_agrees_under_tlds(detector_oracle, [(raw, tld) for tld in _tld_labels() for raw in _tld_samples()])
+
+
+def test_the_tld_hint_agrees_with_chardetng_on_byte_soup(detector_oracle: Path) -> None:
+    # the adversarial corpus, each case under a different label, so the penalty arithmetic meets negative scores,
+    # dead candidates, and the Simplified/Traditional and Central flips on inputs nobody picked to suit them
+    labels = _tld_labels()
+    cases = [(raw, labels[index % len(labels)]) for index, raw in enumerate(_content_cases())]
+    assert len(cases) == _DETECT_CASES, "the corpus shrank; a differential that stops covering an input proves nothing"
+    _assert_agrees_under_tlds(detector_oracle, cases)
+
+
 def test_the_streaming_detector_matches_the_one_shot() -> None:
     # Where the chunks fall must not change the answer: a multi-byte sequence split across a feed, and the two bytes
     # chardetng's scoring looks back at, both have to survive the boundary. The corpus is the one the differential
-    # above runs on, so what chardetng proves about the one-shot answer this carries to the chunked path.
+    # above runs on, so what chardetng proves about the one-shot answer this carries to the chunked path. Half the
+    # sweep carries a TLD, whose scoring runs at close() over state that every feed contributed to.
     rng = random.Random(_STREAM_SEED)  # noqa: S311  # a chunking seed, not a security decision
+    labels = _tld_labels()
     divergent = []
     swept = 0
     for raw in _detect_cases():
         swept += 1
-        expected = detect(raw)
+        options = Detection(tld=labels[swept % len(labels)]) if swept % 2 else Detection()
+        expected = detect(raw, options)
         for _ in range(2):
-            detector = EncodingDetector()
+            detector = EncodingDetector(options)
             position = 0
             while position < len(raw):
                 step = rng.randint(1, 6)

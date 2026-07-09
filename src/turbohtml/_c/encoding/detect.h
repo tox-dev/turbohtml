@@ -557,19 +557,6 @@ static void th_sb_feed_eof(th_sb_candidate *cand) {
     th_sb_feed(cand, (const unsigned char *)" ", 1);
 }
 
-/* The candidate's final score, or 0 (not scored) when it is disqualified or, for a
-   non-Latin script, has not seen a word of at least two non-Latin letters. */
-static int th_sb_final_score(const th_sb_candidate *cand, int64_t *out) {
-    if (!cand->alive) {
-        return 0;
-    }
-    if (cand->kind != TH_SB_LATIN && cand->longest_word < 2) {
-        return 0;
-    }
-    *out = cand->score;
-    return 1;
-}
-
 /* The single-byte candidate set, in chardetng's index order so ties resolve the
    same way (the strict ">" below keeps the earliest, windows-1252 first). Each row
    is an index into th_detect_single_byte_data plus the candidate kind. */
@@ -600,7 +587,97 @@ static const struct {
 
 #define TH_SB_COUNT ((int)(sizeof(th_sb_candidate_table) / sizeof(th_sb_candidate_table[0])))
 #define TH_SB_LOGICAL_SLOT 8 /* the windows-1255 row above, for the Hebrew tiebreak */
-#define TH_DETECT_ISO_8859_8_INDEX 13
+#define TH_DETECT_ISO_8859_8_ROW 13
+
+static int th_tld_two_letter_cmp(const void *label, const void *row) {
+    return memcmp(label, row, 2);
+}
+
+static int th_tld_punycode_cmp(const void *label, const void *row) {
+    return strcmp((const char *)label, *(const char *const *)row);
+}
+
+/* The rightmost DNS label of the host the bytes came from, classified into the script it
+   suggests (chardetng's classify_tld). The label arrives lower-case ASCII, Punycode for an
+   internationalized domain, which is what the two sorted key tables hold; anything else, and
+   any label the tables do not carry, is TH_TLD_GENERIC, the no-hint answer. */
+static th_tld th_tld_classify(const char *label, Py_ssize_t len) {
+    if (len == 2) {
+        const char *row = bsearch(label, th_tld_two_letter_keys, sizeof(th_tld_two_letter_keys) / 2,
+                                  sizeof(th_tld_two_letter_keys[0]), th_tld_two_letter_cmp);
+        /* an unlisted country-code domain is a Western one, not a hintless one */
+        if (row == NULL) {
+            return TH_TLD_WESTERN;
+        }
+        return (th_tld)th_tld_two_letter_values[(row - &th_tld_two_letter_keys[0][0]) / 2];
+    }
+    if (len == 3) {
+        static const char *const western[] = {"edu", "gov", "mil"};
+        for (int row = 0; row < (int)(sizeof(western) / sizeof(western[0])); row++) {
+            if (memcmp(label, western[row], 3) == 0) {
+                return TH_TLD_WESTERN;
+            }
+        }
+        return TH_TLD_GENERIC;
+    }
+    if (len >= 8 && memcmp(label, "xn--", 4) == 0) {
+        const char *const *row =
+            bsearch(label + 4, th_tld_punycode_keys, sizeof(th_tld_punycode_keys) / sizeof(th_tld_punycode_keys[0]),
+                    sizeof(th_tld_punycode_keys[0]), th_tld_punycode_cmp);
+        if (row != NULL) {
+            return (th_tld)th_tld_punycode_values[row - th_tld_punycode_keys];
+        }
+    }
+    return TH_TLD_GENERIC;
+}
+
+static int th_tld_is_native(th_tld tld, int index) {
+    return (th_tld_native[tld] & TH_DETECT_BIT(index)) != 0;
+}
+
+/* chardetng's score_adjustment: what a non-native candidate gives up on this TLD. */
+static int64_t th_tld_penalty(int64_t score, int index, th_tld tld) {
+    if (score < 1) {
+        return 0;
+    }
+    if (th_tld_zeroed[tld] & TH_DETECT_BIT(index)) {
+        return score;
+    }
+    return score / 50 + 60;
+}
+
+/* chardetng's Candidate::score, minus the per-kind word gate its callers apply first: the TLD's
+   own encoding edges ahead by one, another encoding native to it keeps its score untouched, and
+   anything else pays th_tld_penalty. The penalty applies only while some native candidate still
+   scores; a TLD whose script never appeared is no evidence about the candidates that did. */
+static int64_t th_tld_adjust(int64_t score, int index, th_tld tld, int expectation_is_valid) {
+    if (tld == TH_TLD_GENERIC) {
+        return score;
+    }
+    if (index == th_tld_default_encoding[tld]) {
+        return score + 1;
+    }
+    if (th_tld_is_native(tld, index) || !expectation_is_valid) {
+        return score;
+    }
+    return score - th_tld_penalty(score, index, tld);
+}
+
+/* The candidate's final score, or 0 (not scored) when it is disqualified or has seen no word of at
+   least two letters in its own script. A bicameral non-Latin script owes that word even on its native
+   TLD; the caseless, Arabic-French, and Hebrew candidates are excused there. */
+static int th_sb_score(const th_sb_candidate *cand, int index, th_tld tld, int expectation_is_valid, int64_t *out) {
+    if (!cand->alive) {
+        return 0;
+    }
+    if (cand->kind != TH_SB_LATIN && cand->longest_word < 2) {
+        if (cand->kind == TH_SB_NON_LATIN_CASED || !th_tld_is_native(tld, index)) {
+            return 0;
+        }
+    }
+    *out = th_tld_adjust(cand->score, index, tld, expectation_is_valid);
+    return 1;
+}
 
 /* CJK multi-byte candidates (issue #182, phase 3).
 
@@ -1509,7 +1586,54 @@ static void th_detect_stream_init(th_detect_stream *stream) {
         th_sb_init(&stream->sb[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
                    th_sb_candidate_table[slot].kind);
     }
-    th_sb_init(&stream->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_INDEX], TH_SB_VISUAL);
+    th_sb_init(&stream->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_ROW], TH_SB_VISUAL);
+}
+
+/* The two candidate arrays laid end to end under chardetng's indices, so one number addresses any
+   candidate the TLD tables name. Index 3..8 is a CJK slot; 8..27 a single-byte one. */
+static int th_detect_alive(const th_detect_stream *stream, int index) {
+    if (index < TH_DETECT_WESTERN_INDEX) {
+        return stream->cjk[index - TH_DETECT_GBK_INDEX].alive;
+    }
+    return stream->sb[index - TH_DETECT_WESTERN_INDEX].alive;
+}
+
+static const char *th_detect_label(int index) {
+    if (index < TH_DETECT_WESTERN_INDEX) {
+        return th_cjk_slots[index - TH_DETECT_GBK_INDEX].label;
+    }
+    return th_detect_single_byte_data[th_sb_candidate_table[index - TH_DETECT_WESTERN_INDEX].data_index].label;
+}
+
+/* Whether the TLD's expectation survived the bytes: some encoding native to it still scores. When none
+   does, chardetng reads the TLD as mistaken rather than as evidence and stops penalizing the candidates
+   that did score. A Chinese or Central European TLD tries its sibling script first, since the two share
+   a domain; *tld takes that sibling. */
+static int th_detect_expectation(const th_detect_stream *stream, th_tld *tld) {
+    if (*tld != TH_TLD_GENERIC) {
+        for (int index = TH_DETECT_GBK_INDEX; index <= TH_DETECT_CYRILLIC_ISO_INDEX; index++) {
+            if (th_tld_is_native(*tld, index) && th_detect_alive(stream, index)) {
+                return 1;
+            }
+        }
+    }
+    static const struct {
+        th_tld from;
+        th_tld to;
+        int index;
+    } siblings[] = {
+        {TH_TLD_SIMPLIFIED, TH_TLD_TRADITIONAL, TH_DETECT_BIG5_INDEX},
+        {TH_TLD_TRADITIONAL, TH_TLD_SIMPLIFIED, TH_DETECT_GBK_INDEX},
+        {TH_TLD_CENTRAL_WINDOWS, TH_TLD_CENTRAL_ISO, TH_DETECT_CENTRAL_ISO_INDEX},
+        {TH_TLD_CENTRAL_ISO, TH_TLD_CENTRAL_WINDOWS, TH_DETECT_CENTRAL_WINDOWS_INDEX},
+    };
+    for (int row = 0; row < (int)(sizeof(siblings) / sizeof(siblings[0])); row++) {
+        if (*tld == siblings[row].from && th_detect_alive(stream, siblings[row].index)) {
+            *tld = siblings[row].to;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* Feed the scored candidates only. th_encoding_detect calls this directly, having already
@@ -1537,25 +1661,31 @@ static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char 
 }
 
 /* The scored answer: the surviving CJK and single-byte candidates compete in chardetng's
-   strict-max, defaulting to windows-1252, with the Hebrew visual/logical tiebreak last.
-   Every survivor lands in *scores so detect() can rank alternatives. */
-static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *stream, th_detect_scores *scores) {
-    const char *winner = "windows-1252";
+   strict-max, defaulting to the TLD's own encoding, with the Hebrew visual/logical tiebreak
+   last. Every survivor lands in *scores so detect() can rank alternatives. */
+static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *stream, th_tld tld,
+                                                      th_detect_scores *scores) {
+    /* even a TLD the bytes contradict names the fallback: chardetng reads the default before
+       th_detect_expectation moves tld to its sibling script */
+    const char *winner = th_detect_label(th_tld_default_encoding[tld]);
     int64_t max = 0;
+    int expectation_is_valid = th_detect_expectation(stream, &tld);
     for (int slot = 0; slot < 5; slot++) {
         if (stream->cjk[slot].alive) {
+            int64_t score =
+                th_tld_adjust(stream->cjk[slot].score, TH_DETECT_GBK_INDEX + slot, tld, expectation_is_valid);
             scores->items[scores->count].label = th_cjk_slots[slot].label;
-            scores->items[scores->count].score = stream->cjk[slot].score;
+            scores->items[scores->count].score = score;
             scores->count++;
-            if (stream->cjk[slot].score > max) {
-                max = stream->cjk[slot].score;
+            if (score > max) {
+                max = score;
                 winner = th_cjk_slots[slot].label;
             }
         }
     }
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
         int64_t score;
-        if (th_sb_final_score(&stream->sb[slot], &score)) {
+        if (th_sb_score(&stream->sb[slot], TH_DETECT_WESTERN_INDEX + slot, tld, expectation_is_valid, &score)) {
             scores->items[scores->count].label = stream->sb[slot].data->label;
             scores->items[scores->count].score = score;
             scores->count++;
@@ -1565,20 +1695,19 @@ static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *st
             }
         }
     }
-    /* Hebrew tiebreak. The visual (ISO-8859-8) and logical (windows-1255) candidates
-       score Hebrew text identically -- they differ only in punctuation plausibility --
-       so the visual order can only ever tie windows-1255, never outscore the field;
-       chardetng's visual_score > max test is dead here and dropped. The branches are
-       fully nested so each decision is counted on its own. */
+    /* Hebrew tiebreak. The visual candidate scores off the ISO-8859-8 tables and never enters the loop
+       above, so it can outscore the whole field as well as tie windows-1255; the order the punctuation
+       suits wins. Outscoring the field takes an input where windows-1255 is disqualified for want of a
+       two-letter word, which no corpus here reaches, so the two ways in fold bitwise rather than
+       short-circuit, leaving no branch a test cannot take. */
     int64_t visual_score;
-    if (th_sb_final_score(&stream->visual, &visual_score)) {
+    if (th_sb_score(&stream->visual, TH_DETECT_VISUAL_INDEX, tld, expectation_is_valid, &visual_score)) {
         scores->items[scores->count].label = stream->visual.data->label;
         scores->items[scores->count].score = visual_score;
         scores->count++;
-        if (strcmp(winner, "windows-1255") == 0) {
-            if (stream->visual.plausible_punctuation > stream->sb[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
-                winner = "iso-8859-8";
-            }
+        int contends = (visual_score > max) | (strcmp(winner, "windows-1255") == 0);
+        if (contends && stream->visual.plausible_punctuation > stream->sb[TH_SB_LOGICAL_SLOT].plausible_punctuation) {
+            winner = "iso-8859-8";
         }
     }
     return th_encoding_lookup(winner, (Py_ssize_t)strlen(winner));
@@ -1586,8 +1715,10 @@ static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *st
 
 /* The stream's answer once every byte has been fed, or NULL when the stream is pure ASCII
    (the caller then keeps the windows-1252 fallback, which decodes ASCII identically).
-   ISO-2022-JP and UTF-8 are resolved structurally and need no scoring. */
-static const th_encoding_entry *th_detect_stream_finish(const th_detect_stream *stream, th_detect_scores *scores) {
+   ISO-2022-JP and UTF-8 are resolved structurally and need no scoring, so a TLD cannot
+   overrule them any more than it can overrule a byte-order mark. */
+static const th_encoding_entry *th_detect_stream_finish(const th_detect_stream *stream, th_tld tld,
+                                                        th_detect_scores *scores) {
     scores->count = 0;
     scores->structural = 0;
     if (!stream->utf8.has_non_ascii) {
@@ -1601,12 +1732,13 @@ static const th_encoding_entry *th_detect_stream_finish(const th_detect_stream *
         scores->structural = 1;
         return th_encoding_lookup("utf-8", 5);
     }
-    return th_detect_pick_winner(stream, scores);
+    return th_detect_pick_winner(stream, tld, scores);
 }
 
 /* Guess the encoding of a declaration-less byte stream in one shot. The two structural
    answers come first, so an ASCII or UTF-8 document never pays for candidate scoring. */
-static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len, th_detect_scores *scores) {
+static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_ssize_t len, th_tld tld,
+                                                   th_detect_scores *scores) {
     scores->count = 0;
     scores->structural = 0;
     int has_non_ascii;
@@ -1625,5 +1757,5 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
     th_detect_stream stream;
     th_detect_stream_init(&stream);
     th_detect_candidates_feed(&stream, buf, len, 1);
-    return th_detect_pick_winner(&stream, scores);
+    return th_detect_pick_winner(&stream, tld, scores);
 }
