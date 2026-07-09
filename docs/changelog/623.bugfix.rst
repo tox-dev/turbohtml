@@ -1,0 +1,2 @@
+Raise :exc:`IndexError` for a negative subscript further back than a node's child count; ``node[-len - 1]`` answered the
+first child, where :class:`list` raises.

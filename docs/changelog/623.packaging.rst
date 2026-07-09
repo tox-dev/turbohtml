@@ -1,0 +1,3 @@
+Publish PyPy 3.11 wheels (``pp311``) for Linux, macOS, and Windows. They carry LTO but skip the profile-guided
+optimization the CPython Linux wheels use, since a profile trained under PyPy measures ``cpyext`` rather than the C hot
+paths.
