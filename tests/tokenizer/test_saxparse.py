@@ -11,6 +11,7 @@ documents.
 from __future__ import annotations
 
 import gc
+import sys
 import weakref
 from types import GeneratorType
 from typing import cast
@@ -223,6 +224,11 @@ def test_iter_events_is_lazy() -> None:
     assert isinstance(next(events), StartElement)
 
 
+@pytest.mark.skipif(
+    sys.implementation.name == "pypy",
+    reason="cpyext never breaks a cycle that runs through both a C extension object and a Python one, "
+    "so this cycle leaks there; see docs/explanation/interpreters.rst",
+)
 def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
     class _Cyclic(str):  # noqa: FURB189  # a real str subclass: _sax_events requires str, and the slots let it cycle
         __slots__ = ("loop", "sentinel")

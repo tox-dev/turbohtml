@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -206,5 +207,15 @@ def test_runtime_signature_skips_a_signature_inspect_cannot_build(mocker: Mocker
 
 def test_the_parity_check_covers_the_public_surface() -> None:
     # a stub-parsing regression that silently dropped entries would drop these simple, every-version signatures too
-    assert {"parse", "escape", "Minify", "Document.opengraph"} <= set(_COMPARABLE)
+    assert {"parse", "escape", "Document.opengraph"} <= set(_COMPARABLE)
     assert len(_COMPARABLE) > 40
+
+
+@pytest.mark.skipif(
+    sys.implementation.name == "pypy",
+    reason="PyPy's inspect builds no signature from a heap type's __text_signature__, so _runtime_signature "
+    "drops every C type and there is nothing to compare its stub against",
+)
+def test_the_parity_check_covers_a_c_type() -> None:
+    # the C types reach _COMPARABLE by a different runtime path than the functions above
+    assert "Minify" in _COMPARABLE

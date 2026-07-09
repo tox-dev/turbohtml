@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import gc
 import threading
-import tracemalloc
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 
@@ -576,6 +575,9 @@ def test_tag_names_are_lowercased() -> None:
 def test_streaming_tokenizer_reclaims_consumed_input() -> None:
     # feed() compacts the consumed prefix, so a long-lived streaming tokenizer stays memory
     # bounded instead of growing its input buffer with every chunk (issue #80).
+    # PyPy ships no _tracemalloc, and its GC frees the buffer on its own schedule, so there is
+    # no peak to assert there; the compaction itself is C and covered by the CPython run.
+    tracemalloc = pytest.importorskip("tracemalloc")
     tokenizer = Tokenizer()
     for _ in range(200):  # warm up so one-time allocations settle out of the measurement
         list(tokenizer.feed("<p>hello world</p>"))

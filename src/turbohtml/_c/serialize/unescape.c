@@ -338,7 +338,7 @@ PyObject *turbohtml_unescape(PyObject *Py_UNUSED(module), PyObject *arg) {
     }
     /* the OR accumulator can exceed 0x10FFFF only when an astral character was
        emitted, and everything above 0xFFFF lands in the same PyUnicode_New bin */
-    PyObject *result = PyUnicode_New(count, seen > 0xFFFF ? 0x10FFFF : seen);
+    PyObject *result = PyUnicode_New(count, th_str_maxchar(seen > 0xFFFF ? 0x10FFFF : seen));
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(out);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */

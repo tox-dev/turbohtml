@@ -213,24 +213,23 @@ static Py_hash_t minify_hash(PyObject *self) {
 static PyObject *minify_repr(PyObject *self) {
     MinifyObject *minify = (MinifyObject *)self;
     /* mirror JSMinify's own repr (field order mangle, fold) rather than build the object */
-    PyObject *js = minify->minify_js ? PyUnicode_FromFormat("JSMinify(mangle=%s, fold=%s)",
-                                                            minify->minify_js_mangle ? "True" : "False",
-                                                            minify->minify_js_fold ? "True" : "False")
-                                     : PyUnicode_FromString("None");
+    PyObject *js = minify->minify_js
+                       ? th_str_format("JSMinify(mangle=%s, fold=%s)", minify->minify_js_mangle ? "True" : "False",
+                                       minify->minify_js_fold ? "True" : "False")
+                       : PyUnicode_FromString("None");
     if (js == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return NULL;  /* GCOVR_EXCL_LINE */
     }
     /* mirror CSSMinify's own dataclass repr (baseline None when the year is 0) */
-    PyObject *css =
-        minify->minify_css
-            ? (minify->minify_css_baseline ? PyUnicode_FromFormat("CSSMinify(baseline=%d)", minify->minify_css_baseline)
-                                           : PyUnicode_FromString("CSSMinify(baseline=None)"))
-            : PyUnicode_FromString("None");
+    PyObject *css = minify->minify_css ? (minify->minify_css_baseline
+                                              ? th_str_format("CSSMinify(baseline=%d)", minify->minify_css_baseline)
+                                              : PyUnicode_FromString("CSSMinify(baseline=None)"))
+                                       : PyUnicode_FromString("None");
     if (css == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         Py_DECREF(js); /* GCOVR_EXCL_LINE */
         return NULL;   /* GCOVR_EXCL_LINE */
     }
-    PyObject *repr = PyUnicode_FromFormat(
+    PyObject *repr = th_str_format(
         "Minify(collapse_whitespace=%s, omit_optional_tags=%s, unquote_attributes=%s, "
         "strip_comments=%s, minify_js=%U, minify_css=%U)",
         minify->collapse_whitespace ? "True" : "False", minify->omit_optional_tags ? "True" : "False",
@@ -367,7 +366,7 @@ static PyObject *indent_repr(PyObject *self) {
     if (unit == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *repr = PyUnicode_FromFormat("Indent(%R)", unit);
+    PyObject *repr = th_str_format("Indent(%R)", unit);
     Py_DECREF(unit);
     return repr;
 }

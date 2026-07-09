@@ -12,12 +12,14 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include "core/pycompat.h"
 #include "tokenizer/statemachine.h"
 
 /* Py_BEGIN_CRITICAL_SECTION arrived in 3.13 for the free-threaded build; on a GIL
    build it is a brace no-op, and before 3.13 (always GIL) we define the same no-op,
    so the tokenizer's per-object locking compiles on every supported interpreter
-   while only the free-threaded build pays for a real lock. */
+   while only the free-threaded build pays for a real lock. PyPy's cpyext defines
+   neither, and takes the same no-op for the same reason: it holds the GIL. */
 #ifndef Py_BEGIN_CRITICAL_SECTION
 #define Py_BEGIN_CRITICAL_SECTION(op) {
 #define Py_END_CRITICAL_SECTION() }

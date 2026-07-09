@@ -216,7 +216,7 @@ static PyObject *markup_escape_str(PyObject *markup_type, PyObject *text) {
     }
 
     Py_UCS4 maxchar = PyUnicode_MAX_CHAR_VALUE(text);
-    PyObject *escaped = PyUnicode_New(length + extra, maxchar);
+    PyObject *escaped = PyUnicode_New(length + extra, th_str_maxchar(maxchar));
     if (escaped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }

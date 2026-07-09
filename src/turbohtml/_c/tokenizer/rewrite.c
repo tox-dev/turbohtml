@@ -788,9 +788,9 @@ static PyObject *rw_text_get(rw_handle *self, void *Py_UNUSED(closure)) {
            filled buffer; realize it from the tokenizer's input storage */
         int kind;
         const char *base = th_tok_input_data(self->ctx->sm, &kind);
-        return PyUnicode_FromKindAndData(kind, base + self->token->src_start * kind, self->token->src_len);
+        return th_str_from_kind(kind, base + self->token->src_start * kind, self->token->src_len);
     }
-    return PyUnicode_FromKindAndData(self->token->text.kind, self->token->text.data, self->token->text.len);
+    return th_str_from_kind(self->token->text.kind, self->token->text.data, self->token->text.len);
 }
 
 static PyObject *rw_set_text(rw_handle *self, PyObject *value) {
@@ -817,7 +817,7 @@ static PyObject *rw_doctype_name_get(rw_handle *self, void *Py_UNUSED(closure)) 
     if (self->token->name.len == 0) {
         Py_RETURN_NONE;
     }
-    return PyUnicode_FromKindAndData(self->token->name.kind, self->token->name.data, self->token->name.len);
+    return th_str_from_kind(self->token->name.kind, self->token->name.data, self->token->name.len);
 }
 
 static PyObject *rw_doctype_public_get(rw_handle *self, void *Py_UNUSED(closure)) {
@@ -827,8 +827,7 @@ static PyObject *rw_doctype_public_get(rw_handle *self, void *Py_UNUSED(closure)
     if (!self->token->has_public_id) {
         Py_RETURN_NONE;
     }
-    return PyUnicode_FromKindAndData(self->token->public_id.kind, self->token->public_id.data,
-                                     self->token->public_id.len);
+    return th_str_from_kind(self->token->public_id.kind, self->token->public_id.data, self->token->public_id.len);
 }
 
 static PyObject *rw_doctype_system_get(rw_handle *self, void *Py_UNUSED(closure)) {
@@ -838,8 +837,7 @@ static PyObject *rw_doctype_system_get(rw_handle *self, void *Py_UNUSED(closure)
     if (!self->token->has_system_id) {
         Py_RETURN_NONE;
     }
-    return PyUnicode_FromKindAndData(self->token->system_id.kind, self->token->system_id.data,
-                                     self->token->system_id.len);
+    return th_str_from_kind(self->token->system_id.kind, self->token->system_id.data, self->token->system_id.len);
 }
 
 static PyObject *rw_kind_get(rw_handle *self, void *Py_UNUSED(closure)) {

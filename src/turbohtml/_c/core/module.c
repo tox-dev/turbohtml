@@ -229,7 +229,54 @@ static PyMethodDef html_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
+#ifdef PYPY_VERSION
+/* cpyext first honored Py_TPFLAGS_DISALLOW_INSTANTIATION in PyPy 7.3.21, and 7.3.21 itself printed a
+   debug line to stdout for every type that sets it. Below 7.3.21 the flag is ignored, so Document()
+   and its siblings construct with a NULL tree handle and segfault on first use -- pure Python code
+   crashing the interpreter. The wheel tag (pp311_pp73) cannot express a PyPy floor, so refuse the
+   import here rather than let that happen. */
+static int html_check_interpreter(void) {
+    PyObject *sys_module = PyImport_ImportModule("sys");
+    if (sys_module == NULL) {
+        return -1;
+    }
+    PyObject *version = PyObject_GetAttrString(sys_module, "pypy_version_info");
+    Py_DECREF(sys_module);
+    if (version == NULL) {
+        return -1;
+    }
+    PyObject *running = PySequence_GetSlice(version, 0, 3);
+    Py_DECREF(version);
+    if (running == NULL) {
+        return -1;
+    }
+    PyObject *floor = Py_BuildValue("(iii)", 7, 3, 22);
+    if (floor == NULL) {
+        Py_DECREF(running);
+        return -1;
+    }
+    int too_old = PyObject_RichCompareBool(running, floor, Py_LT); /* two int tuples: cannot fail */
+    Py_DECREF(floor);
+    if (too_old) {
+        PyErr_Format(PyExc_ImportError,
+                     "turbohtml needs PyPy 7.3.22 or newer, found %R: earlier cpyext versions ignore "
+                     "Py_TPFLAGS_DISALLOW_INSTANTIATION, which lets the C types be constructed without a tree "
+                     "and segfault on first use",
+                     running);
+        Py_DECREF(running);
+        return -1;
+    }
+    Py_DECREF(running);
+    return 0;
+}
+#endif
+
 static int html_exec(PyObject *module) {
+#ifdef PYPY_VERSION
+    if (html_check_interpreter() < 0) {
+        return -1;
+    }
+#endif
     module_state *state = PyModule_GetState(module);
     if (token_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -408,12 +455,16 @@ static void html_free(void *module) {
     (void)html_clear((PyObject *)module);
 }
 
+/* Both slots below are CPython concepts: cpyext knows only Py_mod_create and Py_mod_exec, rejects
+   any other slot ID at import, and defines neither macro. PyPy reports PY_VERSION_HEX as 3.11
+   today, so the version guards alone already exclude them -- the PYPY_VERSION test is what keeps a
+   future PyPy that reports 3.12+ compiling. */
 static PyModuleDef_Slot html_slots[] = {
     {Py_mod_exec, html_exec},
-#if PY_VERSION_HEX >= 0x030C0000
+#if PY_VERSION_HEX >= 0x030C0000 && !defined(PYPY_VERSION)
     {Py_mod_multiple_interpreters, Py_MOD_PER_INTERPRETER_GIL_SUPPORTED},
 #endif
-#if PY_VERSION_HEX >= 0x030D0000
+#if PY_VERSION_HEX >= 0x030D0000 && !defined(PYPY_VERSION)
     {Py_mod_gil, Py_MOD_GIL_NOT_USED},
 #endif
     {0, NULL},

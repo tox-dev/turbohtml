@@ -31,7 +31,7 @@ static PyObject *buf_to_str(const th_buf *buf) {
     if (buf->len == 0) {
         return PyUnicode_New(0, 0);
     }
-    return PyUnicode_FromKindAndData(buf->kind, buf->data, buf->len);
+    return th_str_from_kind(buf->kind, buf->data, buf->len);
 }
 
 /* Copy src into dst with every buffer packed into one arena allocation, so a
@@ -104,7 +104,7 @@ PyObject *token_from_record(module_state *state, const th_tokenizer *sm, PyObjec
             /* the machine owns the storage and a later feed may move it */
             int kind;
             const char *data = th_tok_input_data(sm, &kind);
-            self->data_str = PyUnicode_FromKindAndData(kind, data + record->src_start * kind, record->src_len);
+            self->data_str = th_str_from_kind(kind, data + record->src_start * kind, record->src_len);
             if (self->data_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_DECREF(self);          /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -137,7 +137,7 @@ PyObject *token_from_record(module_state *state, const th_tokenizer *sm, PyObjec
                so resolve the span now while it is still valid */
             int kind;
             const char *data = th_tok_input_data(sm, &kind);
-            self->src_str = PyUnicode_FromKindAndData(kind, data + record->src_off * kind, record->src_span);
+            self->src_str = th_str_from_kind(kind, data + record->src_off * kind, record->src_span);
             if (self->src_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_DECREF(self);         /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -372,7 +372,7 @@ static PyObject *token_repr(PyObject *self) {
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *repr = PyUnicode_FromFormat("Token(%s, tag=%R)", kind, name);
+        PyObject *repr = th_str_format("Token(%s, tag=%R)", kind, name);
         Py_DECREF(name);
         return repr;
     }
@@ -381,7 +381,7 @@ static PyObject *token_repr(PyObject *self) {
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *repr = PyUnicode_FromFormat("Token(DOCTYPE, name=%R)", name);
+        PyObject *repr = th_str_format("Token(DOCTYPE, name=%R)", name);
         Py_DECREF(name);
         return repr;
     }
@@ -389,7 +389,7 @@ static PyObject *token_repr(PyObject *self) {
     if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *repr = PyUnicode_FromFormat("Token(%s, data=%R)", kind, data);
+    PyObject *repr = th_str_format("Token(%s, data=%R)", kind, data);
     Py_DECREF(data);
     return repr;
 }

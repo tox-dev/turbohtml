@@ -369,7 +369,7 @@ static PyObject *parse_error_repr(PyObject *self) {
     if (code == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *repr = PyUnicode_FromFormat("ParseError(code=%R, line=%zd, col=%zd)", code, error->line, error->col);
+    PyObject *repr = th_str_format("ParseError(code=%R, line=%zd, col=%zd)", code, error->line, error->col);
     Py_DECREF(code);
     return repr;
 }

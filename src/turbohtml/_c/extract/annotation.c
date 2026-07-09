@@ -190,7 +190,7 @@ static Py_ssize_t annotation_write_tag(PyObject *out, Py_ssize_t written, PyObje
         PyUnicode_WRITE(kind, data, written++, '/');
     }
     Py_ssize_t label_len = PyUnicode_GET_LENGTH(label);
-    PyUnicode_CopyCharacters(out, written, label, 0, label_len); /* out's kind covers label: cannot fail */
+    th_copy_characters(out, written, label, 0, label_len); /* out's kind covers label: cannot fail */
     written += label_len;
     PyUnicode_WRITE(kind, data, written++, '>');
     return written;
@@ -225,7 +225,7 @@ PyObject *turbohtml_annotation_tags(PyObject *Py_UNUSED(module), PyObject *args)
         events[2 * index + 1] = (annotation_event){items[index].end, 0, items[index].start, index, items[index].label};
     }
     qsort(events, (size_t)(2 * count), sizeof(annotation_event), annotation_event_cmp);
-    PyObject *out = PyUnicode_New(out_len, maxchar);
+    PyObject *out = PyUnicode_New(out_len, th_str_maxchar(maxchar));
     if (out == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         PyMem_Free(events); /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(items);  /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -234,14 +234,14 @@ PyObject *turbohtml_annotation_tags(PyObject *Py_UNUSED(module), PyObject *args)
     Py_ssize_t cursor = 0, written = 0;
     for (Py_ssize_t index = 0; index < 2 * count; index++) {
         if (events[index].pos > cursor) {
-            PyUnicode_CopyCharacters(out, written, text, cursor, events[index].pos - cursor);
+            th_copy_characters(out, written, text, cursor, events[index].pos - cursor);
             written += events[index].pos - cursor;
             cursor = events[index].pos;
         }
         written = annotation_write_tag(out, written, events[index].label, events[index].is_open);
     }
     if (text_len > cursor) {
-        PyUnicode_CopyCharacters(out, written, text, cursor, text_len - cursor);
+        th_copy_characters(out, written, text, cursor, text_len - cursor);
     }
     PyMem_Free(events);
     PyMem_Free(items);

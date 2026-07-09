@@ -316,7 +316,7 @@ static void report(confctx *ctx, th_node *node, const char *code, const char *se
     }
     va_list args;
     va_start(args, fmt);
-    PyObject *message = PyUnicode_FromFormatV(fmt, args);
+    PyObject *message = th_str_format_v(fmt, args);
     va_end(args);
     Py_ssize_t line = 0, col = 0;
     th_node_source_position(ctx->tree, node, &line, &col);

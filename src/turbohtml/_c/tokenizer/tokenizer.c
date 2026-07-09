@@ -342,28 +342,28 @@ static PyObject *record_as_test_tuple(const th_tokenizer *sm, const th_token *re
     if (record->is_slice) {
         int kind;
         const char *data = th_tok_input_data(sm, &kind);
-        PyObject *text = PyUnicode_FromKindAndData(kind, data + record->src_start * kind, record->src_len);
+        PyObject *text = th_str_from_kind(kind, data + record->src_start * kind, record->src_len);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         return Py_BuildValue("(sN)", "Character", text);
     }
     if (record->kind == TH_TEXT || record->kind == TH_COMMENT) {
-        PyObject *data = PyUnicode_FromKindAndData(record->text.kind, record->text.data, record->text.len);
+        PyObject *data = th_str_from_kind(record->text.kind, record->text.data, record->text.len);
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         return Py_BuildValue("(sN)", record->kind == TH_TEXT ? "Character" : "Comment", data);
     }
     if (record->kind == TH_END_TAG) {
-        PyObject *name = PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len);
+        PyObject *name = th_str_from_kind(record->name.kind, record->name.data, record->name.len);
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         return Py_BuildValue("(sN)", "EndTag", name);
     }
     if (record->kind == TH_START_TAG) {
-        PyObject *name = PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len);
+        PyObject *name = th_str_from_kind(record->name.kind, record->name.data, record->name.len);
         PyObject *attrs = PyDict_New();
         if (name == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_XDECREF(name);                /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -372,14 +372,14 @@ static PyObject *record_as_test_tuple(const th_tokenizer *sm, const th_token *re
         }
         for (Py_ssize_t index = 0; index < record->attr_count; index++) {
             const th_attr *attr = &record->attrs[index];
-            PyObject *key = PyUnicode_FromKindAndData(attr->name.kind, attr->name.data, attr->name.len);
+            PyObject *key = th_str_from_kind(attr->name.kind, attr->name.data, attr->name.len);
             if (key == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_DECREF(name);  /* GCOVR_EXCL_LINE: allocation-failure path */
                 Py_DECREF(attrs); /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             /* the tokenizer already dropped duplicate attribute names, so each key is unique */
-            PyObject *value = PyUnicode_FromKindAndData(attr->value.kind, attr->value.data, attr->value.len);
+            PyObject *value = th_str_from_kind(attr->value.kind, attr->value.data, attr->value.len);
             /* allocation failure cannot be forced from a test */
             if (value == NULL || PyDict_SetItem(attrs, key, value) < 0) { /* GCOVR_EXCL_BR_LINE */
                 Py_XDECREF(value);                                        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -397,17 +397,14 @@ static PyObject *record_as_test_tuple(const th_tokenizer *sm, const th_token *re
         return Py_BuildValue("(sNN)", "StartTag", name, attrs);
     }
     /* DOCTYPE */
-    PyObject *name = record->name.len
-                         ? PyUnicode_FromKindAndData(record->name.kind, record->name.data, record->name.len)
-                         : Py_NewRef(Py_None);
-    PyObject *public_id =
-        record->has_public_id
-            ? PyUnicode_FromKindAndData(record->public_id.kind, record->public_id.data, record->public_id.len)
-            : Py_NewRef(Py_None);
-    PyObject *system_id =
-        record->has_system_id
-            ? PyUnicode_FromKindAndData(record->system_id.kind, record->system_id.data, record->system_id.len)
-            : Py_NewRef(Py_None);
+    PyObject *name = record->name.len ? th_str_from_kind(record->name.kind, record->name.data, record->name.len)
+                                      : Py_NewRef(Py_None);
+    PyObject *public_id = record->has_public_id
+                              ? th_str_from_kind(record->public_id.kind, record->public_id.data, record->public_id.len)
+                              : Py_NewRef(Py_None);
+    PyObject *system_id = record->has_system_id
+                              ? th_str_from_kind(record->system_id.kind, record->system_id.data, record->system_id.len)
+                              : Py_NewRef(Py_None);
     /* allocation failure cannot be forced from a test */
     if (name == NULL || public_id == NULL || system_id == NULL) { /* GCOVR_EXCL_BR_LINE */
         Py_XDECREF(name);                                         /* GCOVR_EXCL_LINE: allocation-failure path */

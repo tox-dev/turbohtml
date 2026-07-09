@@ -1076,8 +1076,8 @@ static PyObject *range_repr(PyObject *self) {
         Py_XDECREF(end);                /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *result = PyUnicode_FromFormat("<Range start=(%R, %zd) end=(%R, %zd)>", start, range->start_offset, end,
-                                            range->end_offset);
+    PyObject *result =
+        th_str_format("<Range start=(%R, %zd) end=(%R, %zd)>", start, range->start_offset, end, range->end_offset);
     Py_DECREF(start);
     Py_DECREF(end);
     return result;

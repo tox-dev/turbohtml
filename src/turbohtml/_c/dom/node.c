@@ -1334,6 +1334,14 @@ static Py_ssize_t node_length(PyObject *self) {
 
 static PyObject *node_item(PyObject *self, Py_ssize_t index) {
     NodeObject *node = (NodeObject *)self;
+#ifdef PYPY_VERSION
+    /* CPython's PySequence_GetItem adds sq_length to a negative subscript before dispatching here;
+       cpyext hands sq_item the raw index, so node[-1] would walk zero steps and answer the first
+       child. Do the adjustment cpyext skips. */
+    if (index < 0) {
+        index += node_length(self);
+    }
+#endif
     /* CPython's PySequence_GetItem adds sq_length to a negative subscript but never rechecks it, so
        node[-len - 1] still arrives negative. Without this it would walk zero steps and answer the
        first child rather than raise, as list does. */
@@ -1377,7 +1385,7 @@ static PyObject *node_repr(PyObject *self) {
         if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *repr = PyUnicode_FromFormat("Element(%R)", tag);
+        PyObject *repr = th_str_format("Element(%R)", tag);
         Py_DECREF(tag);
         return repr;
     }
@@ -1393,7 +1401,7 @@ static PyObject *node_repr(PyObject *self) {
                             : node->type == TH_NODE_COMMENT ? "Comment"
                             : node->type == TH_NODE_CDATA   ? "CData"
                                                             : "Doctype";
-        PyObject *repr = PyUnicode_FromFormat("%s(%R)", label, data);
+        PyObject *repr = th_str_format("%s(%R)", label, data);
         Py_DECREF(data);
         return repr;
     }
@@ -1405,7 +1413,7 @@ static PyObject *node_repr(PyObject *self) {
             Py_XDECREF(data);                 /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *repr = PyUnicode_FromFormat("ProcessingInstruction(%R, %R)", target, data);
+        PyObject *repr = th_str_format("ProcessingInstruction(%R, %R)", target, data);
         Py_DECREF(target);
         Py_DECREF(data);
         return repr;

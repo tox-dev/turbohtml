@@ -255,7 +255,7 @@ static PyObject *build_result(const Py_UCS4 *buf, Py_ssize_t len) {
             maxchar = buf[index];
         }
     }
-    PyObject *result = PyUnicode_New(len, maxchar);
+    PyObject *result = PyUnicode_New(len, th_str_maxchar(maxchar));
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }

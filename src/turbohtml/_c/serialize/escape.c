@@ -326,6 +326,27 @@ PyObject *turbohtml_escape(PyObject *Py_UNUSED(module), PyObject *args, PyObject
         return PyUnicode_FromObject(text);
     }
 
+#ifdef PYPY_VERSION
+    /* cpyext cannot realize a 2-byte buffer (core/pycompat.h): a lone surrogate in one aborts the
+       interpreter, and a str reaching escape() may hold one. Build the result at 4-byte kind and
+       fill it code point by code point -- the block copies below copy at the input's width, which
+       only holds while the output kind matches it. A Latin-1 or 4-byte input keeps its own kind and
+       falls through to its fast path. */
+    if (kind == PyUnicode_2BYTE_KIND) {
+        PyObject *wide = PyUnicode_New(length + extra, 0x10FFFF);
+        if (wide == NULL) {
+            return NULL;
+        }
+        void *wide_data = PyUnicode_DATA(wide);
+        const uint16_t *input = (const uint16_t *)data;
+        Py_ssize_t written = 0;
+        for (Py_ssize_t pos = 0; pos < length; pos++) {
+            written += write_escaped(PyUnicode_4BYTE_KIND, wide_data, written, input[pos], quote);
+        }
+        return wide;
+    }
+#endif
+
     /* maxchar comes from the input and escapes are ASCII, so the output kind
        always matches the input kind and clean blocks can be copied bytewise */
     Py_UCS4 maxchar = PyUnicode_MAX_CHAR_VALUE(text);

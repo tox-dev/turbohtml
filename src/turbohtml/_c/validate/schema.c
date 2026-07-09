@@ -300,7 +300,7 @@ static void report(valctx *ctx, th_node *node, const char *type, const char *fmt
     }
     va_list args;
     va_start(args, fmt);
-    PyObject *message = PyUnicode_FromFormatV(fmt, args);
+    PyObject *message = th_str_format_v(fmt, args);
     va_end(args);
     Py_ssize_t line = 0, col = 0;
     if (node != NULL) { /* GCOVR_EXCL_BR_LINE: every report call site passes a real node */

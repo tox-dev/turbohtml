@@ -10,6 +10,8 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include "core/pycompat.h"
+
 #include <stdint.h>
 
 /* Mark an intentional switch fall-through. gcc turns on -Wimplicit-fallthrough with

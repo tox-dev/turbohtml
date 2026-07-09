@@ -313,8 +313,8 @@ def test_justify_keeps_markup(op: Callable[[Markup], Markup], expected: str) -> 
 )
 def test_justify_escapes_fill_then_str_rejects_it(op: Callable[[Markup], Markup]) -> None:
     # The fill character is escaped for safety, so a special expands past one character and str rejects it; this
-    # matches markupsafe's behavior.
-    with pytest.raises(TypeError, match="fill character"):
+    # matches markupsafe's behavior. CPython and PyPy word the same TypeError differently.
+    with pytest.raises(TypeError, match=r"fill character|single character"):
         op(Markup("ab"))
 
 

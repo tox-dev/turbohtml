@@ -604,8 +604,7 @@ static int strict_raise(module_state *state, th_tree *tree, int strict) {
         return 0;
     }
     PyObject *error = parse_error_new(state, &errors[0]);
-    PyObject *message =
-        PyUnicode_FromFormat("%s at line %zd, column %zd", errors[0].code, errors[0].line, errors[0].col);
+    PyObject *message = th_str_format("%s at line %zd, column %zd", errors[0].code, errors[0].line, errors[0].col);
     /* allocation failure cannot be forced from a test */
     if (error == NULL || message == NULL) { /* GCOVR_EXCL_BR_LINE */
         Py_XDECREF(error);                  /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1314,8 +1313,8 @@ static PyObject *reconstruct_doctype(module_state *state, PyObject *data) {
         if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: the empty string is interned and cannot fail */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        packed = PyUnicode_FromFormat("%U \"%U\" \"%U\"", name, has_public ? public_id : empty,
-                                      has_system ? system_id : empty);
+        packed =
+            th_str_format("%U \"%U\" \"%U\"", name, has_public ? public_id : empty, has_system ? system_id : empty);
         Py_DECREF(empty);
     }
     if (packed == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

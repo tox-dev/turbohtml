@@ -1233,7 +1233,7 @@ static PyGetSetDef xpath_compiled_getset[] = {
 };
 
 static PyObject *xpath_compiled_repr(PyObject *self) {
-    return PyUnicode_FromFormat("XPath(%R)", ((XPathObject *)self)->expression);
+    return th_str_format("XPath(%R)", ((XPathObject *)self)->expression);
 }
 
 PyDoc_STRVAR(xpath_compiled_doc, "XPath(expression, *, smart_strings=False, extensions=None)\n--\n\n"

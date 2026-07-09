@@ -1318,7 +1318,7 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *out = PyUnicode_FromFormat("<%U", tag);
+    PyObject *out = th_str_format("<%U", tag);
     Py_DECREF(tag);
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1334,7 +1334,7 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
         }
         PyObject *piece;
         if (attr->value == NULL) {
-            piece = PyUnicode_FromFormat(" %U", name_str);
+            piece = th_str_format(" %U", name_str);
         } else {
             PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
             if (value == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1342,7 +1342,7 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
                 Py_DECREF(out);      /* GCOVR_EXCL_LINE */
                 return NULL;         /* GCOVR_EXCL_LINE */
             }
-            piece = PyUnicode_FromFormat(" %U=\"%U\"", name_str, value);
+            piece = th_str_format(" %U=\"%U\"", name_str, value);
             Py_DECREF(value);
         }
         Py_DECREF(name_str);
@@ -1356,7 +1356,7 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    Py_SETREF(out, PyUnicode_FromFormat("%U>", out));
+    Py_SETREF(out, th_str_format("%U>", out));
     return out; /* NULL on allocation failure; the caller checks */
 }
 
@@ -1398,7 +1398,7 @@ static int escape_element(sanitizer *s, th_node *element) {
         if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *closing = PyUnicode_FromFormat("</%U>", tag);
+        PyObject *closing = th_str_format("</%U>", tag);
         Py_DECREF(tag);
         if (closing == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */

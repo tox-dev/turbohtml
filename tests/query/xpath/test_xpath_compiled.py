@@ -10,8 +10,11 @@ garbage collection. The evaluation-semantics tests live in ``test_xpath_eval.py`
 from __future__ import annotations
 
 import gc
+import sys
 import threading
 from typing import TYPE_CHECKING
+
+import pytest
 
 import turbohtml
 from turbohtml import Element, XPath
@@ -66,6 +69,7 @@ def test_concurrent_evaluation_on_one_document_is_memory_safe() -> None:
     assert counts == [100] * 200
 
 
+@pytest.mark.skipif(sys.implementation.name == "pypy", reason="PyPy's gc exposes no is_tracked")
 def test_object_is_gc_tracked() -> None:
     selector = XPath("//a")
     assert gc.is_tracked(selector)
@@ -84,6 +88,11 @@ def test_collect_with_live_objects_traverses_them() -> None:
     assert with_extensions(doc) == "x"
 
 
+@pytest.mark.skipif(
+    sys.implementation.name == "pypy",
+    reason="cpyext never breaks a cycle that runs through both a C extension object and a Python one, "
+    "so this cycle leaks there; see docs/explanation/interpreters.rst",
+)
 def test_extension_reference_cycle_is_collected() -> None:
     class Holder:
         ref: XPath | None = None
