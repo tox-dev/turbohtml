@@ -40,8 +40,8 @@ call path, and returns a typed :class:`~turbohtml.detect.EncodingMatch` in place
       - ``detect``, ``detect_all``, ``UniversalDetector`` with a ``lang_filter``; no allow/exclude set, no language
         hint.
     - - Performance
-      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 40x to 2000x ahead; legacy
-        single-byte text runs about 3x ahead. See the table below.
+      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 37x to 1700x ahead; legacy
+        single-byte text runs 3.0x to 3.9x ahead. See the table below.
       - Prober ensemble runs every model on every input; no fast path for clean UTF-8 or ASCII.
     - - Typing
       - Fully typed: ``EncodingMatch``, ``Detection``, ``EncodingDetector`` are annotated dataclasses/classes with
@@ -89,8 +89,9 @@ What chardet has that turbohtml does not
   resolve to the closest WHATWG candidate instead. No equivalent when you need one of those exact labels. A UTF-16 or
   UTF-32 stream that *does* carry a mark now reports its exact label (see below).
 - A raw CJK speed edge on the C fork. On CJK-heavy byte streams (the Shift_JIS row), ``cchardet``'s uchardet engine
-  outruns turbohtml, whose CJK scoring drives a CPython incremental codec per candidate. Workaround: keep
-  ``faust-cchardet`` for that one workload if it dominates; turbohtml leads on every other row.
+  stays about 2.5x ahead of turbohtml, which decodes each candidate encoding to score it and a CJK stream leaves several
+  candidates standing. Workaround: keep ``faust-cchardet`` for that one workload if it dominates; turbohtml leads
+  chardet on every row.
 
 Performance
 ===========

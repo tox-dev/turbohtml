@@ -651,12 +651,12 @@ what ``requests`` uses), `faust-cchardet <https://github.com/faust-streaming/cCh
 uchardet; the original cchardet stops compiling at Python 3.11), `resiliparse <https://resiliparse.chatnoir.eu/>`_'s
 ``detect_encoding``, and BeautifulSoup's ``UnicodeDammit``, benchmarked with the ``chardet`` backend it only sniffs
 with. turbohtml resolves certain input -- a byte-order mark, a ``<meta>`` declaration, valid UTF-8, pure ASCII --
-structurally before any scoring, which is where the 20x-1900x rows come from, and its chardetng frequency scoring keeps
-declaration-less single-byte text 2.7x-3.7x ahead of chardet.
+structurally before any scoring, which is where the 14x-1800x rows come from, and its chardetng frequency scoring keeps
+declaration-less single-byte text 3.0x-3.9x ahead of chardet.
 
 The two native C detectors, faust-cchardet and resiliparse, win two workloads. On a kilobyte of ASCII or UTF-8 all three
 native detectors finish inside five microseconds, where the winner is whoever has less to set up rather than whoever
-scans faster. On CJK-heavy bytes uchardet's tables stay about 3x ahead, because turbohtml decodes each candidate
+scans faster. On CJK-heavy bytes uchardet's tables stay about 2.5x ahead, because turbohtml decodes each candidate
 encoding to score it and a CJK stream leaves several candidates standing.
 
 .. bench-table::
