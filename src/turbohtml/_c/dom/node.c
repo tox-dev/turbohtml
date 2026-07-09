@@ -1334,6 +1334,13 @@ static Py_ssize_t node_length(PyObject *self) {
 
 static PyObject *node_item(PyObject *self, Py_ssize_t index) {
     NodeObject *node = (NodeObject *)self;
+    /* CPython's PySequence_GetItem adds sq_length to a negative subscript but never rechecks it, so
+       node[-len - 1] still arrives negative. Without this it would walk zero steps and answer the
+       first child rather than raise, as list does. */
+    if (index < 0) {
+        PyErr_SetString(PyExc_IndexError, "node child index out of range");
+        return NULL;
+    }
     th_node *child;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
     child = node->node->first_child;

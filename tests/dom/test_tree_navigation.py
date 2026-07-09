@@ -98,6 +98,12 @@ def test_index_out_of_range(body: Element) -> None:
         _ = body[0][5]
 
 
+def test_negative_index_out_of_range(body: Element) -> None:
+    # a negative subscript past the start is out of range, as it is for a list, rather than the first child
+    with pytest.raises(IndexError):
+        _ = body[0][-3]
+
+
 def test_iteration_yields_children(body: Element) -> None:
     paragraph = body[0]
     assert list(paragraph) == list(paragraph.children)
