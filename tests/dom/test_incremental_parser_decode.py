@@ -54,3 +54,13 @@ def test_the_replacement_encoding_yields_one_replacement_char_for_the_whole_stre
     parser.feed(b"<p>abc")
     parser.feed(b"def")
     assert parser.close().text == "�"
+
+
+def test_a_chunk_past_the_scratch_capacity_grows_it_geometrically() -> None:
+    # the held-back tail makes each chunk a byte or two longer than the last, so the decode scratch grows by doubling
+    # rather than reallocating on every feed; drive the first growth from nothing and a second from a live buffer
+    parser = IncrementalParser(encoding="shift_jis")
+    first, second = "あ" * 100, "い" * 500
+    parser.feed(first.encode("shift_jis"))
+    parser.feed(second.encode("shift_jis"))
+    assert parser.close().text == first + second

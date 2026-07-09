@@ -23,6 +23,18 @@
 
 #include <stdint.h>
 
+/* A decoder is called once per code point, and the call costs more than the decoding: forcing it into the specialized
+   loop th_decode_chunk builds per encoding is worth about 1.4x on Shift_JIS and Big5. The coverage build compiles at
+   -O0, where an inlined copy still lands in every call site and gcc counts its branches once per copy, so leave the
+   decoders standing there -- the gate measures reachability, not speed. */
+#if defined(_MSC_VER)
+#define TH_HOT __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_HOT inline __attribute__((always_inline))
+#else
+#define TH_HOT
+#endif
+
 #define TH_DEC_EOF (-1)
 #define TH_DEC_ERROR (-1)
 #define TH_DEC_FINISHED 0
@@ -78,7 +90,7 @@ static void th_decode_init(th_decoder *dec, const th_encoding_entry *entry, cons
 }
 
 /* The next byte, or TH_DEC_EOF past the end. An error path rewinds pos to "prepend" the bytes it did not consume. */
-static int th_dec_next(th_decoder *dec) {
+static TH_HOT int th_dec_next(th_decoder *dec) {
     return dec->pos < dec->len ? dec->buf[dec->pos++] : TH_DEC_EOF;
 }
 
@@ -94,12 +106,12 @@ _Static_assert((0xFE - 0xA1) * 94 + (0xFE - 0xA1) < TH_ENTRIES(th_jis0208), "euc
 _Static_assert((0xFE - 0x81) * 190 + (0xFE - 0x41) < TH_ENTRIES(th_gb18030), "gb18030 pointer overruns");
 _Static_assert((0x7E - 0x21) * 94 + (0x7E - 0x21) < TH_ENTRIES(th_jis0208), "iso-2022-jp pointer overruns");
 
-static int th_dec_ascii(int byte) {
+static TH_HOT int th_dec_ascii(int byte) {
     return byte >= 0x00 && byte <= 0x7F;
 }
 
 /* ASCII bytes stay put, 0x80..0xFF map to the private-use block U+F780..U+F7FF. */
-static int th_dec_x_user_defined(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_x_user_defined(th_decoder *dec, Py_UCS4 *point) {
     int byte = th_dec_next(dec);
     if (byte == TH_DEC_EOF) {
         return TH_DEC_FINISHED;
@@ -108,7 +120,7 @@ static int th_dec_x_user_defined(th_decoder *dec, Py_UCS4 *point) {
     return TH_DEC_POINT;
 }
 
-static int th_dec_big5(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_big5(th_decoder *dec, Py_UCS4 *point) {
     if (dec->has_pending) {
         dec->has_pending = 0;
         *point = dec->pending;
@@ -168,7 +180,7 @@ static int th_dec_big5(th_decoder *dec, Py_UCS4 *point) {
     }
 }
 
-static int th_dec_euc_kr(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_euc_kr(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         if (dec->lead != 0) {
@@ -203,7 +215,7 @@ static int th_dec_euc_kr(th_decoder *dec, Py_UCS4 *point) {
     }
 }
 
-static int th_dec_shift_jis(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_shift_jis(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         if (dec->lead != 0) {
@@ -253,7 +265,7 @@ static int th_dec_shift_jis(th_decoder *dec, Py_UCS4 *point) {
     }
 }
 
-static int th_dec_euc_jp(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_euc_jp(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         if (dec->lead == 0x8E && byte >= 0xA1 && byte <= 0xDF) {
@@ -324,7 +336,7 @@ static int th_dec_gb18030_range(uint32_t pointer, Py_UCS4 *point) {
     return 1;
 }
 
-static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         if (byte == TH_DEC_EOF) {
@@ -394,7 +406,7 @@ static int th_dec_gb18030(th_decoder *dec, Py_UCS4 *point) {
     }
 }
 
-static int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
+static TH_HOT int th_dec_iso_2022_jp(th_decoder *dec, Py_UCS4 *point) {
     for (;;) {
         int byte = th_dec_next(dec);
         switch (dec->state) {

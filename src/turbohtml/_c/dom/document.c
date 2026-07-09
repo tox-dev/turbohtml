@@ -910,7 +910,9 @@ typedef struct {
     PyObject *unicode_decoder;      /* a CPython incremental decoder for UTF-8 and UTF-16; NULL for the rest */
     const th_encoding_entry *entry; /* resolved on the first bytes feed; NULL while only str has been fed */
     th_decoder decoder;             /* carries ISO-2022-JP's mode across a chunk boundary */
-    unsigned char tail[4];          /* the incomplete sequence a chunk ended on; gb18030 needs the most, four bytes */
+    Py_UCS4 *scratch;               /* grown to the largest chunk seen, so a chunked decode allocates once */
+    Py_ssize_t scratch_len;
+    unsigned char tail[4]; /* the incomplete sequence a chunk ended on; gb18030 needs the most, four bytes */
     Py_ssize_t tail_len;
     int replaced; /* the replacement encoding owes the stream exactly one U+FFFD, however many chunks arrive */
 } StreamObject;
@@ -930,6 +932,8 @@ static PyObject *stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
     }
     self->entry = NULL;
     self->unicode_decoder = NULL;
+    self->scratch = NULL;
+    self->scratch_len = 0;
     self->tail_len = 0;
     self->replaced = 0;
     self->encoding = encoding != NULL ? Py_NewRef(encoding) : PyUnicode_FromString("utf-8");
@@ -953,6 +957,7 @@ static void stream_dealloc(PyObject *self) {
     }
     Py_XDECREF(parser->encoding);
     Py_XDECREF(parser->unicode_decoder);
+    PyMem_Free(parser->scratch);
     type->tp_free(self);
     Py_DECREF(type);
 }
@@ -973,11 +978,22 @@ static PyObject *stream_decode_legacy(StreamObject *parser, const unsigned char 
         memcpy(spliced + parser->tail_len, chunk, (size_t)chunk_len);
         joined = spliced;
     }
-    Py_UCS4 *scratch = PyMem_Malloc((size_t)(len > 0 ? len : 1) * sizeof(Py_UCS4));
-    if (scratch == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(spliced);     /* GCOVR_EXCL_LINE: allocation-failure path */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (len > parser->scratch_len) {
+        /* the held-back tail makes every chunk a byte or two longer than the last, so grow geometrically rather than
+           reallocate on each feed */
+        Py_ssize_t capacity = parser->scratch_len > 0 ? parser->scratch_len : 64;
+        while (capacity < len) {
+            capacity *= 2;
+        }
+        Py_UCS4 *grown = PyMem_Realloc(parser->scratch, (size_t)capacity * sizeof(Py_UCS4));
+        if (grown == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyMem_Free(spliced);     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        parser->scratch = grown;
+        parser->scratch_len = capacity;
     }
+    Py_UCS4 *scratch = parser->scratch;
     parser->decoder.buf = joined;
     parser->decoder.len = len;
     parser->decoder.pos = 0;
@@ -987,9 +1003,7 @@ static PyObject *stream_decode_legacy(StreamObject *parser, const unsigned char 
     parser->tail_len = len - consumed;
     memcpy(parser->tail, joined + consumed, (size_t)parser->tail_len);
     PyMem_Free(spliced);
-    PyObject *decoded = th_points_to_str(scratch, count, maxchar);
-    PyMem_Free(scratch);
-    return decoded;
+    return th_points_to_str(scratch, count, maxchar);
 }
 
 /* Resolve the label on the first bytes feed, so an unsupported one raises LookupError there rather than at close. */
