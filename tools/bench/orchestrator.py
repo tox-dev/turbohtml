@@ -16,11 +16,15 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pgo_build
 import tomllib
 
 from bench import corpus, operations, report
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _TOOLS_DIR = Path(__file__).resolve().parents[1]
@@ -193,6 +197,18 @@ def _try_competitor(
         return {}
 
 
+def _warm_corpus(operation_names: Iterable[str]) -> None:
+    """
+    Build each operation's cases here, before any worker starts.
+
+    A worker runs in an isolated venv holding pyperf, turbohtml and one competitor, and nothing else. Building a case
+    can download a corpus document, so do it in this process, which carries the HTTP client, and let the workers read
+    the cache it leaves behind.
+    """
+    for name in operation_names:
+        operations.INPUTS[name]()
+
+
 def report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     """Render one operation: the turbohtml baseline against every competitor that implements it, each isolated."""
     stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
@@ -233,18 +249,22 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         if command in COMPETITORS:
+            _warm_corpus(COMPETITORS[command][1])
             report_package(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         elif command == "core":
+            _warm_corpus(operations.OPERATIONS)
             report_core(pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         elif command == "interpreters":
             from bench import interpreters  # noqa: PLC0415  # imports orchestrator, so bind it once the command asks
 
             interpreters.build(workdir, pyperf_args)
         elif command == "all":
+            _warm_corpus(operations.OPERATIONS)
             core_python = _core_python(workdir, pgo=pgo)
             for operation in operations.OPERATIONS:
                 report_operation(operation, pyperf_args, workdir=workdir, core_python=core_python)
         elif command in operations.OPERATIONS:
+            _warm_corpus([command])
             report_operation(command, pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         else:
             choices = ", ".join(["core", "all", "interpreters", *operations.OPERATIONS, *COMPETITORS])
