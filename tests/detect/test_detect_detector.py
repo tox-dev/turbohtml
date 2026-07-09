@@ -24,7 +24,7 @@ def test_a_leading_bom_finishes_the_stream_early() -> None:
     detector.feed(b"\xef\xbb\xbf")
     assert detector.done
     detector.feed("Ω".encode("cp1253"))  # ignored: the mark already decided the stream
-    assert detector.close() == EncodingMatch("UTF-8-SIG", 1.0, None, bom=True)
+    assert detector.close() == EncodingMatch("UTF-8-SIG", 1.0, None, bom=True, codec="whatwg-utf-8-sig")
 
 
 def test_a_bom_split_across_feeds_still_finishes_early() -> None:
@@ -43,7 +43,7 @@ def test_utf_32le_mark_waits_for_the_pair_that_rules_out_utf_16le() -> None:
     assert not detector.done
     detector.feed(b"\x00\x00")
     assert detector.done
-    assert detector.close() == EncodingMatch("UTF-32LE", 1.0, None, bom=True)
+    assert detector.close() == EncodingMatch("UTF-32LE", 1.0, None, bom=True, codec="whatwg-utf-32le")
 
 
 @pytest.mark.parametrize(
@@ -59,14 +59,14 @@ def test_a_resolved_mark_finishes_early(chunk: bytes, encoding: str) -> None:
     detector = EncodingDetector()
     detector.feed(chunk)
     assert detector.done
-    assert detector.close() == EncodingMatch(encoding, 1.0, None, bom=True)
+    assert detector.close() == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")
 
 
 def test_close_caches_its_result() -> None:
     detector = EncodingDetector()
     detector.feed(b"plain ascii")
     assert detector.close() is detector.close()
-    assert detector.result == EncodingMatch("ascii", 1.0, None)
+    assert detector.result == EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252")
 
 
 def test_close_without_a_feed_reports_no_encoding() -> None:

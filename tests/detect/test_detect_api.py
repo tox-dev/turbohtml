@@ -24,11 +24,13 @@ def test_empty_input_has_no_encoding() -> None:
 
 
 def test_pure_ascii_is_certain() -> None:
-    assert detect(b"<p>hello world</p>") == EncodingMatch("ascii", 1.0, None)
+    assert detect(b"<p>hello world</p>") == EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252")
 
 
 def test_meta_prescan_is_certain_without_a_bom() -> None:
-    assert detect(b"<meta charset=iso-8859-2><p>x</p>") == EncodingMatch("ISO-8859-2", 1.0, None, bom=False)
+    assert detect(b"<meta charset=iso-8859-2><p>x</p>") == EncodingMatch(
+        "ISO-8859-2", 1.0, None, bom=False, codec="whatwg-iso-8859-2"
+    )
 
 
 @pytest.mark.parametrize(
@@ -45,7 +47,7 @@ def test_meta_prescan_is_certain_without_a_bom() -> None:
 def test_byte_order_mark_reports_its_label_and_flag(raw: bytes, encoding: str) -> None:
     # a mark identifies the encoding unambiguously: UTF-8 reports UTF-8-SIG so a caller can strip it,
     # and the UTF-16/UTF-32 marks report their exact label; every marked result carries bom=True
-    assert detect(raw) == EncodingMatch(encoding, 1.0, None, bom=True)
+    assert detect(raw) == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")
 
 
 def test_bom_precedence_utf_32le_beats_the_utf_16le_prefix() -> None:
@@ -72,12 +74,12 @@ def test_bom_labels_do_not_reach_the_whatwg_parse_path(raw: bytes) -> None:
 
 
 def test_valid_utf8_is_certain() -> None:
-    assert detect("café résumé Москва 日本語".encode()) == EncodingMatch("UTF-8", 1.0, None)
+    assert detect("café résumé Москва 日本語".encode()) == EncodingMatch("UTF-8", 1.0, None, codec="whatwg-utf-8")
 
 
 def test_iso_2022_jp_is_certain() -> None:
     raw = "こんにちは世界".encode("iso-2022-jp")
-    assert detect(raw) == EncodingMatch("ISO-2022-JP", 1.0, "Japanese")
+    assert detect(raw) == EncodingMatch("ISO-2022-JP", 1.0, "Japanese", codec="whatwg-iso-2022-jp")
 
 
 @pytest.mark.parametrize(
@@ -163,7 +165,9 @@ def test_agrees_with_parse_detect_encoding(raw: bytes) -> None:
 
 def test_detect_all_on_a_bom_is_a_single_marked_match() -> None:
     # a mark is certain, so it collapses the ranking to one entry that carries the bom flag
-    assert detect_all(b"\xef\xbb\xbfhello") == [EncodingMatch("UTF-8-SIG", 1.0, None, bom=True)]
+    assert detect_all(b"\xef\xbb\xbfhello") == [
+        EncodingMatch("UTF-8-SIG", 1.0, None, bom=True, codec="whatwg-utf-8-sig")
+    ]
 
 
 def test_scored_result_is_not_marked() -> None:
@@ -206,7 +210,7 @@ def test_hebrew_visual_tiebreak_leads_the_ranking() -> None:
 def test_undecodable_bytes_fall_back_to_windows_1252_with_no_confidence() -> None:
     # 0x81 followed by a newline disqualifies every candidate, so the WHATWG windows-1252 default
     # is returned with confidence 0.0: there is no positive evidence for it
-    assert detect(b"\x81\n") == EncodingMatch("windows-1252", 0.0, None)
+    assert detect(b"\x81\n") == EncodingMatch("windows-1252", 0.0, None, codec="whatwg-windows-1252")
 
 
 def test_non_bytes_input_is_rejected() -> None:

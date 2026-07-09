@@ -31,10 +31,11 @@ floor and language constraints.
 
 from __future__ import annotations
 
+import codecs
 from dataclasses import dataclass
 from typing import Final, Literal
 
-from ._html import _detect, _detect_language, _is_normalized, _normalize
+from ._html import _decode, _detect, _detect_language, _is_normalized, _normalize
 
 __all__ = [
     "Detection",
@@ -53,6 +54,60 @@ __all__ = [
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
 _FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
+
+# The names a byte-order mark reports, keyed the way CPython normalizes a codec name (lowercased, every non-alphanumeric
+# byte an underscore). The spec's label table does not carry them, and CPython's UTF-8 and UTF-16 decoders already agree
+# with it byte for byte, so these delegate rather than going through the native decoders.
+_BOM_CODECS: Final[dict[str, str]] = {
+    "utf_8_sig": "utf-8-sig",
+    "utf_16le": "utf-16-le",
+    "utf_16be": "utf-16-be",
+    "utf_32le": "utf-32-le",
+    "utf_32be": "utf-32-be",
+}
+
+
+def _refuse_encode(text: str, errors: str = "strict") -> tuple[bytes, int]:  # noqa: ARG001
+    """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
+    msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
+    raise UnicodeError(msg)
+
+
+def _search(name: str) -> codecs.CodecInfo | None:
+    """
+    Resolve a ``whatwg-*`` codec name, which CPython has already lowercased and underscored before handing it here.
+
+    These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
+    subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
+    codec at all. Underscoring is lossy -- ``shift_jis`` and ``shift-jis`` normalize alike -- so both spellings of the
+    label are offered to the C lookup, which knows every spec alias.
+    """
+    if not name.startswith("whatwg_"):
+        return None
+    normalized = name.removeprefix("whatwg_")
+    if (delegate := _BOM_CODECS.get(normalized)) is not None:
+        return codecs.CodecInfo(_refuse_encode, codecs.lookup(delegate).decode, name=name)
+    label = next((form for form in (normalized, normalized.replace("_", "-")) if _decodable(form)), None)
+    if label is None:
+        return None
+
+    def decode(data: bytes, errors: str = "strict") -> tuple[str, int]:  # noqa: ARG001
+        return _decode(bytes(data), label), len(data)
+
+    return codecs.CodecInfo(_refuse_encode, decode, name=name)
+
+
+def _decodable(label: str) -> bool:
+    """Report whether the C label table knows *label*, so the native decoder can be reached through it."""
+    try:
+        _decode(b"", label)
+    except LookupError:
+        return False
+    return True
+
+
+codecs.register(_search)
+
 
 _LANGUAGES: Final[dict[str, str]] = {
     "big5": "Chinese",
@@ -87,19 +142,29 @@ class EncodingMatch:
     ``None`` when the input is empty or every candidate was ruled out. A leading byte-order mark reports the mark's own
     label instead: ``"UTF-8-SIG"`` for a UTF-8 mark (so a caller can decode with the ``utf-8-sig`` codec to strip it),
     and ``"UTF-16LE"`` / ``"UTF-16BE"`` / ``"UTF-32LE"`` / ``"UTF-32BE"`` for the UTF-16 and UTF-32 marks, which a mark
-    identifies unambiguously with no heuristic. ``confidence`` is 1.0 for a certain result (a byte-order mark, a
-    ``<meta>`` declaration, structurally valid UTF-8, escape-driven ISO-2022-JP, or pure ASCII), the candidate's share
-    of the positive frequency scores for a content-scored result, and 0.0 for the windows-1252 fallback chosen with no
-    positive evidence. ``language`` names the language the winning frequency model targets (``"Russian"`` for
-    windows-1251, ``"Japanese"`` for Shift_JIS, ...); it is ``None`` for UTF-8, ASCII, and the Latin encodings whose
-    model spans several languages. ``bom`` is true only when a byte-order mark decided the result, telling a caller the
-    decoded text still carries the mark unless the codec strips it.
+    identifies unambiguously with no heuristic.
+
+    ``codec`` is the name to hand :meth:`bytes.decode`; ``encoding`` is not. A WHATWG name and the CPython codec that
+    answers to it are different encodings: ``bytes.decode("big5")`` reaches a strict subset of the spec's Big5,
+    ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no codec at all. So
+    ``codec`` names a ``whatwg-*`` codec this module registers, whose decoder is the one :func:`turbohtml.parse`
+    uses, and ``data.decode(match.codec)`` reproduces the parser's text. It is ``None`` with a ``None`` encoding.
+    Those codecs decode only: encoding to a legacy charset is a separate spec algorithm turbohtml omits.
+
+    ``confidence`` is 1.0 for a certain result (a byte-order mark, a ``<meta>`` declaration, structurally valid UTF-8,
+    escape-driven ISO-2022-JP, or pure ASCII), the candidate's share of the positive frequency scores for a
+    content-scored result, and 0.0 for the windows-1252 fallback chosen with no positive evidence. ``language`` names
+    the language the winning frequency model targets (``"Russian"`` for windows-1251, ``"Japanese"`` for Shift_JIS,
+    ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
+    when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
+    codec strips it.
     """
 
     encoding: str | None
     confidence: float
     language: str | None
     bom: bool = False
+    codec: str | None = None
 
 
 _NO_MATCH: Final = EncodingMatch(None, 0.0, None)
@@ -239,7 +304,7 @@ def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
         preferred = [pair for pair in ranked if pair[1] > 0.0 and _LANGUAGES.get(pair[0].casefold()) == hint]
         ranked = preferred + [pair for pair in ranked if pair not in preferred]
     matches = [
-        EncodingMatch(name, confidence, _LANGUAGES.get(name.casefold()), had_bom)
+        EncodingMatch(name, confidence, _LANGUAGES.get(name.casefold()), had_bom, f"whatwg-{name.casefold()}")
         for name, confidence in ranked
         if confidence >= options.threshold
     ]
@@ -256,13 +321,14 @@ def _candidates(data: bytes) -> tuple[list[tuple[str, float]], bool]:
     score-descending with the C emission order breaking ties exactly as the engine's strict-max does, and the engine's
     winner moved to the front so index 0 always matches what ``parse(detect_encoding=True)`` would decode with. Two
     candidates can share one encoding (the windows-1252 model runs once per language family), so the best-scored entry
-    per name wins.
+    per name wins. A stream with no non-ASCII byte carries no evidence, so it takes the spec's windows-1252 fallback,
+    which decodes ASCII identically -- the answer ``parse(detect_encoding=True)`` reaches for the same bytes.
     """
     if not data:
         return [], False
     winner, certain, scored, bom = _detect(data)
     if certain or winner is None:
-        return [(winner or "ascii", 1.0)], bom
+        return [(winner or "windows-1252", 1.0)], bom
     unique: dict[str, int] = {}
     for name, score in sorted(scored, key=lambda pair: -pair[1]):
         unique.setdefault(name, score)
