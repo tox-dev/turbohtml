@@ -28,6 +28,7 @@ keywords = [
 license = "MIT"
 license-files = [
   "LICENSE",
+  "licenses/LICENSE-WHATWG",
 ]
 maintainers = [
   { name = "Bernát Gábor", email = "gaborjbernat@gmail.com" },

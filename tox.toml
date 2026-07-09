@@ -391,6 +391,11 @@ commands = [
     "{tox_root}{/}tools{/}generate_css_colors.py",
     "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}css_colors.h"
   ],
+  [
+    "python",
+    "{tox_root}{/}tools{/}generate_encoding_tables.py",
+    "{tox_root}{/}src{/}turbohtml{/}_c{/}data{/}encoding_tables.h",
+  ],
 ]
 
 [env.release]
