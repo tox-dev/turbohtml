@@ -1,0 +1,36 @@
+name: ✨ Feature request
+description: Suggest a capability turbohtml does not have yet
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For "how do I ...?" and open-ended design talk, [Discussions](https://github.com/tox-dev/turbohtml/discussions) is the better place. Use this form when you have a concrete capability in mind.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that turbohtml cannot do today? Describe the task, not the API you have in mind for it.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: The solution you'd like
+      description: What the feature does, with a real input and the output you expect from it.
+    validations:
+      required: true
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art
+      description: A library that already does this (bs4, lxml, html5lib, a JS or Rust parser) and how it behaves. turbohtml follows the WHATWG spec, so a spec section that supports the behavior carries the most weight.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've tried
+      description: Workarounds you use now, and why they fall short.
+    validations:
+      required: false

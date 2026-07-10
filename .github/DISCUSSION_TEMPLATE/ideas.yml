@@ -1,0 +1,16 @@
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: A direction for turbohtml worth talking through before it becomes a concrete feature request. What it would enable, and roughly how it might fit.
+    validations:
+      required: true
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art
+      description: Where you've seen this done (another parser, a spec, a language's toolkit) and how it worked out there.
+    validations:
+      required: false

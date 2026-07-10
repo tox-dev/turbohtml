@@ -1,0 +1,53 @@
+name: 🐛 Bug report
+description: Report incorrect output, a crash, or a mismatch with the WHATWG spec or the stdlib
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A runnable reproducer is what gets a bug fixed fastest.
+        For a security issue, follow [SECURITY.md](https://github.com/tox-dev/turbohtml/blob/main/.github/SECURITY.md) instead of filing here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The output you got and the output you expected. Where it applies, show what the stdlib (`html.escape`, `html.unescape`, `html.parser`) returns for the same input, since turbohtml aims to match it.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: The smallest input that shows the bug. Paste the exact bytes or string; a link to a live page is not enough, since pages change between loads.
+      render: pycon
+      placeholder: |
+        >>> import turbohtml
+        >>> turbohtml.parse("<p>...").to_html()
+        '...'
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: turbohtml version
+      description: The output of `python -c "import turbohtml; print(turbohtml.__version__)"`.
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: The output of `python --version`, including the implementation (CPython, PyPy) and whether it is free-threaded.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other (state it below)
+    validations:
+      required: true

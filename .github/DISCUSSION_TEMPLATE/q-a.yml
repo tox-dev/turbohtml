@@ -1,0 +1,28 @@
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a reproducible bug or a concrete feature, open an [issue](https://github.com/tox-dev/turbohtml/issues/new/choose) instead. This is for usage questions.
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: The task, and where turbohtml is not behaving the way you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: attempt
+    attributes:
+      label: What you've tried
+      description: The code you ran and what it produced. A runnable snippet gets a faster answer than a description.
+      render: pycon
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: turbohtml version
+      description: The output of `python -c "import turbohtml; print(turbohtml.__version__)"`, if it is relevant.
+    validations:
+      required: false

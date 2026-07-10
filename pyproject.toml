@@ -59,10 +59,15 @@ classifiers = [
 dynamic = [
   "version",
 ]
+urls.Changelog = "https://turbohtml.readthedocs.io/en/stable/changelog.html"
+urls.CI = "https://github.com/tox-dev/turbohtml/actions/workflows/check.yaml"
+urls.Discussions = "https://github.com/tox-dev/turbohtml/discussions"
 urls.Documentation = "https://turbohtml.readthedocs.io"
+urls.Funding = "https://github.com/sponsors/gaborbernat"
 urls.Homepage = "https://github.com/tox-dev/turbohtml"
+urls.Issues = "https://github.com/tox-dev/turbohtml/issues"
+urls.Releases = "https://github.com/tox-dev/turbohtml/releases"
 urls.Source = "https://github.com/tox-dev/turbohtml"
-urls.Tracker = "https://github.com/tox-dev/turbohtml/issues"
 scripts.turbohtml = "turbohtml.__main__:main"
 
 [dependency-groups]
