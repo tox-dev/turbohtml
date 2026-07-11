@@ -208,6 +208,7 @@ struct th_tokenizer {
     int resolve_references; /* fold references into text (1) or split them into
                                TH_CHARREF tokens (0) */
     int capture_source;     /* record the verbatim source span of markup tokens */
+    int capture_attributes; /* retain tag attributes for emitted tokens */
     int capture_locations;  /* stamp the granular tag/attribute source spans */
     int building;           /* a markup token is mid-construction, so its source
                                span's opening '<' must survive input compaction */
@@ -233,7 +234,9 @@ struct th_tokenizer {
 
     th_token tok;     /* tag/comment/doctype under construction */
     th_attr *attr;    /* attribute under construction (points into tok.attrs) */
+    th_attr_loc *attr_loc;
     th_attr oom_attr; /* writable sink for attribute data after an allocation failure */
+    th_attr_loc oom_attr_loc;
 
     th_attr_slot *attr_seen;  /* per-tag open-addressing set of kept attribute names */
     Py_ssize_t attr_seen_cap; /* power-of-two slot count, 0 until the first attribute */
@@ -307,6 +310,8 @@ static void token_free(th_token *tok) {
     }
     PyMem_Free(tok->attrs);
     tok->attrs = NULL;
+    PyMem_Free(tok->attr_locs);
+    tok->attr_locs = NULL;
     tok->attr_cap = 0;
     tok->attr_count = 0;
     buf_free(&tok->public_id);
@@ -321,13 +326,15 @@ th_tokenizer *th_tok_new(void) {
     memset(self, 0, sizeof(*self));
     self->resolve_references = 1;
     self->capture_source = 0;
+    self->capture_attributes = 1;
     th_tok_reset(self);
     return self;
 }
 
-void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source) {
+void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source, int capture_attributes) {
     self->resolve_references = resolve_references;
     self->capture_source = capture_source;
+    self->capture_attributes = capture_attributes;
 }
 
 void th_tok_capture_locations(th_tokenizer *self, int on) {
@@ -394,6 +401,7 @@ void th_tok_reset(th_tokenizer *self) {
     self->state = ST_DATA;
     self->oom = 0;
     self->attr = NULL;
+    self->attr_loc = NULL;
     buf_reset(&self->input);
     self->pos = 0;
     self->last_cr = 0;
@@ -701,6 +709,11 @@ static void start_tag(th_tokenizer *self, int end_tag, Py_UCS4 first) {
    oom_attr sink keeps subsequent appends writing into valid storage until the
    sticky flag is reported. */
 static void new_attr(th_tokenizer *self) {
+    if (!self->capture_attributes) {
+        self->attr = &self->oom_attr;
+        self->attr_loc = &self->oom_attr_loc;
+        return;
+    }
     th_token *tok = &self->tok;
     if (tok->attr_count == tok->attr_cap) {
         size_t cap;
@@ -709,12 +722,14 @@ static void new_attr(th_tokenizer *self) {
         if (!grew) {       /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
             self->oom = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
             self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: size-overflow path */
             return;                       /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
         }
         th_attr *grown = PyMem_Realloc(tok->attrs, bytes);
         if (grown == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             self->oom = 1;                /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
             self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
+            self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: out-of-memory path */
             return;                       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         for (Py_ssize_t index = tok->attr_cap; index < (Py_ssize_t)cap; index++) {
@@ -723,6 +738,16 @@ static void new_attr(th_tokenizer *self) {
             grown[index].has_value = 0;
         }
         tok->attrs = grown;
+        if (self->capture_locations) {
+            th_attr_loc *grown_locs = PyMem_Realloc(tok->attr_locs, cap * sizeof(th_attr_loc));
+            if (grown_locs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                self->oom = 1;        /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
+                self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: out-of-memory path */
+                self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: out-of-memory path */
+                return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            tok->attr_locs = grown_locs;
+        }
         tok->attr_cap = cap;
     }
     th_attr *attr = &tok->attrs[tok->attr_count++];
@@ -732,9 +757,11 @@ static void new_attr(th_tokenizer *self) {
     if (self->capture_locations) {
         /* the cursor sits on the first name code point (or the '=' a name may open
            with); the end span is filled as the name and any value complete */
-        attr->name_line = self->line;
-        attr->name_col = self->col;
-        attr->name_off = self->pos;
+        th_attr_loc *loc = &tok->attr_locs[tok->attr_count - 1];
+        loc->name_line = self->line;
+        loc->name_col = self->col;
+        loc->name_off = self->pos;
+        self->attr_loc = loc;
     }
     self->attr = attr;
 }
@@ -817,9 +844,9 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
    value delimiter, so the span ends past the last name or value code point. */
 static void attr_end_here(th_tokenizer *self) {
     if (self->capture_locations) {
-        self->attr->end_line = self->line;
-        self->attr->end_col = self->col;
-        self->attr->end_off = self->pos;
+        self->attr_loc->end_line = self->line;
+        self->attr_loc->end_col = self->col;
+        self->attr_loc->end_off = self->pos;
     }
 }
 
@@ -830,6 +857,9 @@ static void attr_end_here(th_tokenizer *self) {
    storage. The first attribute of each tag bumps the epoch, which clears the
    duplicate index in O(1) without walking the table. */
 static void finish_attr_name(th_tokenizer *self) {
+    if (!self->capture_attributes) {
+        return;
+    }
     attr_end_here(self); /* a valueless attribute ends here; a value overwrites it */
     th_token *tok = &self->tok;
     Py_ssize_t cur = tok->attr_count - 1;
@@ -843,6 +873,7 @@ static void finish_attr_name(th_tokenizer *self) {
         tok_error(self, "duplicate-attribute");
         tok->attr_count = cur;
         self->attr = &self->oom_attr;
+        self->attr_loc = &self->oom_attr_loc;
     }
 }
 

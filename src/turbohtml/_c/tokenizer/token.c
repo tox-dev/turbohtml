@@ -64,6 +64,7 @@ static char *token_pack(th_token *dst, const th_token *src) {
     }
     *dst = *src;
     dst->attr_cap = src->attr_count;
+    dst->attr_locs = NULL;
     char *cursor = arena;
     dst->attrs = (th_attr *)cursor;
     cursor += src->attr_count * (Py_ssize_t)sizeof(th_attr);

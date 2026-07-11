@@ -501,7 +501,7 @@ static int consume_text(xml_parser *parser) {
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        text->attr_count = start; /* zero-copy span: input[start .. start+text_len] */
+        text_set_span(text, start);
         text->text_len = scan - start;
         node_append(current(parser), text);
         parser->pos = scan;

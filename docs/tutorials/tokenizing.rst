@@ -70,6 +70,19 @@ remains:
 
 The incomplete ``<sp`` stayed buffered until the rest of the tag arrived.
 
+If a stream consumer only needs tag names and text, pass ``capture_attributes=False``. The tokenizer still applies the
+HTML syntax and error-recovery rules, but skips allocating and copying attribute names and values:
+
+.. testcode::
+
+    tokenizer = turbohtml.Tokenizer(capture_attributes=False)
+    start = next(tokenizer.feed('<a href="/tea">'))
+    print(start.tag, start.attrs)
+
+.. testoutput::
+
+    a []
+
 The tokenizer tracks the offset of every construct as it runs, and :func:`turbohtml.parse` can carry those offsets onto
 the tree it builds. Pass ``source_locations=True`` and each element's :attr:`~turbohtml.Node.source_location` gives the
 span of its start tag, its end tag, and each attribute -- the same information as parse5's ``sourceCodeLocationInfo``,

@@ -1401,7 +1401,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         rw_ctx_clear(&ctx);      /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_tok_set_options(ctx.sm, 0, 1);
+    th_tok_set_options(ctx.sm, 0, 1, 1);
     Py_ssize_t length = PyUnicode_GET_LENGTH(source);
     th_tok_feed(ctx.sm, PyUnicode_KIND(source), PyUnicode_DATA(source), length);
     th_tok_close(ctx.sm);

@@ -25,16 +25,7 @@
 #include "dom/quirks.h"
 #include "dom/foreign.h"
 
-/* Copy a th_buf's code points into an arena UCS4 array. */
-static Py_UCS4 *buf_to_ucs4(th_tree *tree, const th_buf *buf, Py_ssize_t *out_len) {
-    *out_len = buf->len;
-    if (buf->len == 0) {
-        return NULL;
-    }
-    Py_UCS4 *out = arena_alloc(tree, buf->len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
+static void buf_write_ucs4(Py_UCS4 *out, const th_buf *buf) {
     /* Hoist the width dispatch out of the loop: a 1-byte buffer (every ASCII tag
        name) widens in a tight loop, a 4-byte one is a memcpy. */
     if (buf->kind == PyUnicode_1BYTE_KIND) {
@@ -50,6 +41,19 @@ static Py_UCS4 *buf_to_ucs4(th_tree *tree, const th_buf *buf, Py_ssize_t *out_le
             out[index] = units[index];
         }
     }
+}
+
+/* Copy a th_buf's code points into an arena UCS4 array. */
+static Py_UCS4 *buf_to_ucs4(th_tree *tree, const th_buf *buf, Py_ssize_t *out_len) {
+    *out_len = buf->len;
+    if (buf->len == 0) {
+        return NULL;
+    }
+    Py_UCS4 *out = arena_alloc(tree, buf->len * (Py_ssize_t)sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    buf_write_ucs4(out, buf);
     return out;
 }
 
@@ -648,7 +652,9 @@ static void insertion_location(th_tree *tree, th_node **parent, th_node **before
    left absent until the source closes the element (record_end_tag_location). NULL
    on allocation failure. */
 static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_token *token) {
-    th_src_loc *loc = arena_alloc(tree, (Py_ssize_t)sizeof(th_src_loc));
+    th_src_loc *loc = arena_alloc(
+        tree, (Py_ssize_t)sizeof(th_src_loc) + token->attr_count * (Py_ssize_t)sizeof(th_src_attr)
+    );
     if (loc == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
@@ -658,17 +664,15 @@ static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_
     loc->has_end_tag = 0;
     loc->start_dirty = 0;
     loc->attr_count = token->attr_count;
-    loc->attrs = NULL;
+    loc->attrs = token->attr_count > 0 ? (th_src_attr *)(loc + 1) : NULL;
     if (token->attr_count > 0) {
-        loc->attrs = arena_alloc(tree, token->attr_count * (Py_ssize_t)sizeof(th_src_attr));
-        if (loc->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-        }
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *src = &token->attrs[index];
+            const th_attr_loc *src_loc = &token->attr_locs[index];
             loc->attrs[index].name_atom = intern_attr(tree, &src->name); /* idempotent with insert_element's */
             loc->attrs[index].span =
-                (th_src_span){src->name_line, src->name_col, src->name_off, src->end_line, src->end_col, src->end_off};
+                (th_src_span){src_loc->name_line, src_loc->name_col, src_loc->name_off, src_loc->end_line,
+                              src_loc->end_col, src_loc->end_off};
         }
     }
     *node_loc(node) = loc;
@@ -698,20 +702,33 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
             return NULL;                                        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    node->text = buf_to_ucs4(tree, &token->name, &node->text_len);
+    if (node->atom == TH_TAG_UNKNOWN) {
+        node->text = buf_to_ucs4(tree, &token->name, &node->text_len);
+    } else {
+        node->text = (Py_UCS4 *)th_tag_wide_name(node->atom);
+        node->text_len = th_tag_table[node->atom - 1].name_len;
+    }
     if (token->attr_count > 0) {
-        node->attrs = arena_alloc(tree, token->attr_count * (Py_ssize_t)sizeof(th_node_attr));
+        Py_ssize_t value_len = 0;
+        for (Py_ssize_t index = 0; index < token->attr_count; index++) {
+            value_len += token->attrs[index].has_value ? token->attrs[index].value.len : 0;
+        }
+        Py_ssize_t attrs_size = token->attr_count * (Py_ssize_t)sizeof(th_node_attr);
+        node->attrs = arena_alloc(tree, attrs_size + value_len * (Py_ssize_t)sizeof(Py_UCS4));
         if (node->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
+        Py_UCS4 *value = (Py_UCS4 *)((char *)node->attrs + attrs_size);
         node->attr_count = token->attr_count;
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *src = &token->attrs[index];
             th_node_attr *dst = &node->attrs[index];
             dst->name_atom = intern_attr(tree, &src->name);
-            dst->value = src->has_value ? buf_to_ucs4(tree, &src->value, &dst->value_len) : NULL;
-            if (!src->has_value) {
-                dst->value_len = 0;
+            dst->value_len = src->has_value ? src->value.len : 0;
+            dst->value = dst->value_len > 0 ? value : NULL;
+            if (dst->value != NULL) {
+                buf_write_ucs4(value, &src->value);
+                value += dst->value_len;
             }
         }
     }
@@ -1180,9 +1197,8 @@ static void insert_text_span(th_tree *tree, Py_ssize_t off, Py_ssize_t len) {
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    node->text = NULL; /* span marker */
+    text_set_span(node, off);
     node->text_len = len;
-    node->attr_count = off; /* the span's start offset into the input */
     node_insert_before(parent, node, before);
 }
 
@@ -1999,22 +2015,15 @@ static int content_model_for(uint16_t atom, uint8_t flags, int scripting) {
 }
 
 /* Forward declaration: a fabricated start tag for implicit html/head/body. */
-static th_node *insert_implicit(th_tree *tree, const char *name, uint16_t atom, uint8_t flags);
+static th_node *insert_implicit(th_tree *tree, uint16_t atom, uint8_t flags);
 
-static th_node *insert_implicit(th_tree *tree, const char *name, uint16_t atom, uint8_t flags) {
+static th_node *insert_implicit(th_tree *tree, uint16_t atom, uint8_t flags) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    Py_ssize_t len = (Py_ssize_t)strlen(name);
-    node->text = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (node->text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        node->text[index] = (Py_UCS4)name[index];
-    }
-    node->text_len = len;
+    node->text = (Py_UCS4 *)th_tag_wide_name(atom);
+    node->text_len = th_tag_table[atom - 1].name_len;
     node->atom = atom;
     node->tag_flags = flags;
     th_node *parent, *before;
@@ -2119,7 +2128,7 @@ static enum th_drain drain_before_html(th_tree *tree, th_token *tok, th_insert *
         }
     }
     {
-        th_node *html = insert_implicit(tree, "html", TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
+        th_node *html = insert_implicit(tree, TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
         if (html != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
             stack_push(tree, html);
         }
@@ -2169,7 +2178,7 @@ static enum th_drain drain_before_head(th_tree *tree, th_token *tok, th_insert *
             return TH_DRAIN_NEXT; /* any other end tag before head is a parse error and ignored */
         }
     }
-    tree->head = insert_implicit(tree, "head", TH_TAG_HEAD, TH_TAG_SPECIAL);
+    tree->head = insert_implicit(tree, TH_TAG_HEAD, TH_TAG_SPECIAL);
     stack_push(tree, tree->head);
     dc->mode = M_IN_HEAD;
     return TH_DRAIN_REPROCESS;
@@ -2420,7 +2429,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
         }
     }
     {
-        th_node *body = insert_implicit(tree, "body", TH_TAG_BODY, TH_TAG_SPECIAL);
+        th_node *body = insert_implicit(tree, TH_TAG_BODY, TH_TAG_SPECIAL);
         if (body != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
             stack_push(tree, body);
         }
@@ -2862,14 +2871,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 node->atom = TH_TAG_IMG;
-                static const char img[] = "img";
-                node->text = arena_alloc(tree, 3 * (Py_ssize_t)sizeof(Py_UCS4));
-                if (node->text != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                    for (int index = 0; index < 3; index++) {
-                        node->text[index] = (Py_UCS4)img[index];
-                    }
-                    node->text_len = 3;
-                }
+                node->text = (Py_UCS4 *)th_tag_wide_name(TH_TAG_IMG);
+                node->text_len = th_tag_table[TH_TAG_IMG - 1].name_len;
             }
             return TH_DRAIN_NEXT; /* img is void */
         }
@@ -2999,7 +3002,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_P) {
             if (!has_in_button_scope(tree, TH_TAG_P)) {
-                insert_implicit(tree, "p", TH_TAG_P, TH_TAG_SPECIAL); /* empty p, immediately closed */
+                insert_implicit(tree, TH_TAG_P, TH_TAG_SPECIAL); /* empty p, immediately closed */
             } else {
                 generate_implied_end_tags(tree, TH_TAG_P);
                 pop_until_atom(tree, TH_TAG_P);
@@ -3096,7 +3099,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_BR) {
             /* </br> acts as a <br> start tag (attributes dropped) */
             reconstruct_afe(tree);
-            insert_implicit(tree, "br", TH_TAG_BR, TH_TAG_SPECIAL);
+            insert_implicit(tree, TH_TAG_BR, TH_TAG_SPECIAL);
             tree->frameset_ok = 0;
             return TH_DRAIN_NEXT;
         }
@@ -3184,7 +3187,7 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_COL) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             {
-                th_node *cg = insert_implicit(tree, "colgroup", TH_TAG_COLGROUP, TH_TAG_SPECIAL);
+                th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
                 if (cg != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                     stack_push(tree, cg);
                 }
@@ -3204,7 +3207,7 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_TD || atom == TH_TAG_TH || atom == TH_TAG_TR) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             {
-                th_node *tb = insert_implicit(tree, "tbody", TH_TAG_TBODY, TH_TAG_SPECIAL);
+                th_node *tb = insert_implicit(tree, TH_TAG_TBODY, TH_TAG_SPECIAL);
                 if (tb != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                     stack_push(tree, tb);
                 }
@@ -3379,7 +3382,7 @@ static enum th_drain drain_in_table_body(th_tree *tree, th_token *tok, th_insert
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TBODY, TH_TAG_TFOOT, TH_TAG_THEAD);
             {
-                th_node *row = insert_implicit(tree, "tr", TH_TAG_TR, TH_TAG_SPECIAL);
+                th_node *row = insert_implicit(tree, TH_TAG_TR, TH_TAG_SPECIAL);
                 if (row != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                     stack_push(tree, row);
                 }
@@ -3861,21 +3864,15 @@ static th_node *child_with_atom(th_node *parent, uint16_t atom) {
 }
 
 /* Create a fabricated structural element with the given lowercase name/atom. */
-static th_node *make_named(th_tree *tree, const char *name, Py_ssize_t len, uint16_t atom, uint8_t flags) {
+static th_node *make_named(th_tree *tree, uint16_t atom, uint8_t flags) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
     node->atom = atom;
     node->tag_flags = flags;
-    node->text = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (node->text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        node->text[index] = (Py_UCS4)name[index];
-    }
-    node->text_len = len;
+    node->text = (Py_UCS4 *)th_tag_wide_name(atom);
+    node->text_len = th_tag_table[atom - 1].name_len;
     return node;
 }
 
@@ -3889,7 +3886,7 @@ static void ensure_head_body(th_tree *tree, th_node *html) {
     }
     th_node *head = child_with_atom(html, TH_TAG_HEAD);
     if (head == NULL) {
-        head = make_named(tree, "head", 4, TH_TAG_HEAD, TH_TAG_SPECIAL);
+        head = make_named(tree, TH_TAG_HEAD, TH_TAG_SPECIAL);
         if (head == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
@@ -3897,7 +3894,7 @@ static void ensure_head_body(th_tree *tree, th_node *html) {
         node_append(html, head);
     }
     if (child_with_atom(html, TH_TAG_BODY) == NULL) {
-        th_node *body = make_named(tree, "body", 4, TH_TAG_BODY, TH_TAG_SPECIAL);
+        th_node *body = make_named(tree, TH_TAG_BODY, TH_TAG_SPECIAL);
         if (body == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
@@ -3910,7 +3907,7 @@ static void ensure_head_body(th_tree *tree, th_node *html) {
 static void finalize_document(th_tree *tree) {
     th_node *html = child_with_atom(tree->document, TH_TAG_HTML);
     if (html == NULL) {
-        html = make_named(tree, "html", 4, TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
+        html = make_named(tree, TH_TAG_HTML, TH_TAG_SPECIAL | TH_TAG_SCOPING);
         if (html == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }

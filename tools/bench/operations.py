@@ -847,6 +847,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("meta_refresh / get_meta_refresh", ("refresh", _URL_HINT_HTML)),
     ),
     "htmlparser": _readpath_cases,
+    "sax": _readpath_cases,
     "treebuild": _readpath_cases,
     "rewrite": _readpath_cases,
     "path": _readpath_cases,

@@ -1863,19 +1863,6 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
         Py_XDECREF(keys);        /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_UCS4 *tag_points = PyUnicode_AsUCS4Copy(tag);
-    if (tag_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        th_tree_free(tree);   /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(keys);     /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    /* tag and attribute names are ASCII-lowercased to match what the parser
-       stores, so a constructed and a parsed element compare and serialize alike */
-    for (Py_ssize_t index = 0; index < tag_len; index++) {
-        if (tag_points[index] >= 'A' && tag_points[index] <= 'Z') {
-            tag_points[index] += 32;
-        }
-    }
     Py_ssize_t utf8_len;
     const char *utf8 = PyUnicode_AsUTF8AndSize(tag, &utf8_len);
     uint16_t atom = TH_TAG_UNKNOWN;
@@ -1887,6 +1874,19 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
         atom = th_tag_lookup(stack, utf8_len);
     } else {
         PyErr_Clear(); /* a surrogate or very long custom tag is not in the table */
+    }
+    Py_UCS4 *tag_points = atom == TH_TAG_UNKNOWN ? PyUnicode_AsUCS4Copy(tag) : NULL;
+    if (atom == TH_TAG_UNKNOWN && tag_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        th_tree_free(tree);                            /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(keys);                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* Unknown tag names are ASCII-lowercased to match what the parser stores.
+       Known names already point at their lowercase generated entry. */
+    for (Py_ssize_t index = 0; index < tag_len && tag_points != NULL; index++) {
+        if (tag_points[index] >= 'A' && tag_points[index] <= 'Z') {
+            tag_points[index] += 32;
+        }
     }
     th_node *node = th_tree_make_element(tree, tag_points, tag_len, atom, attr_count);
     PyMem_Free(tag_points);

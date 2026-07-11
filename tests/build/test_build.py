@@ -154,6 +154,10 @@ def test_constructor_accepts_a_children_tuple() -> None:
     assert Element("div", None, (Text("a"), Text("b"))).serialize() == "<div>ab</div>"
 
 
+def test_constructor_lowercases_a_custom_tag() -> None:
+    assert Element("CUSTOM-TAG").tag == "custom-tag"
+
+
 def test_constructor_children_must_be_iterable() -> None:
     with pytest.raises(TypeError, match="children must be iterable"):
         Element("div", None, 42)  # ty: ignore[invalid-argument-type]  # children must be an iterable of nodes

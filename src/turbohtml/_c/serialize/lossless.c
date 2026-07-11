@@ -48,20 +48,21 @@ static const th_serialize_opts lossless_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0,
    the parse left (character references and raw ampersands preserved), or the WHATWG
    escaping of its current code points once a read realized it or an edit replaced it. */
 static void lossless_put_text(sbuf *out, th_tree *tree, th_node *node) {
-    if (node->text == NULL && node->text_len > 0) {
-        sbuf_put_source(out, tree, node->attr_count, node->attr_count + node->text_len);
+    if (text_is_span(node)) {
+        Py_ssize_t offset = text_span_offset(node);
+        sbuf_put_source(out, tree, offset, offset + node->text_len);
     } else {
         sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
     }
 }
 
 /* Emit a raw-text element's child: its verbatim source span while it is still the
-   zero-copy slice the parse left (text NULL implies a positive-length span, since the
-   builder never inserts an empty text node), else its current code points literally
+   zero-copy slice the parse left, else its current code points literally
    (raw-text content is never escaped, so both paths emit the bytes unchanged). */
 static void lossless_put_rawtext(sbuf *out, th_tree *tree, th_node *node) {
-    if (node->text == NULL) {
-        sbuf_put_source(out, tree, node->attr_count, node->attr_count + node->text_len);
+    if (text_is_span(node)) {
+        Py_ssize_t offset = text_span_offset(node);
+        sbuf_put_source(out, tree, offset, offset + node->text_len);
     } else {
         sbuf_put_ucs4(out, node->text, node->text_len);
     }

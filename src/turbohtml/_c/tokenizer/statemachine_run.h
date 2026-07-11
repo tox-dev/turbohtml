@@ -7,6 +7,12 @@
 
 #define TH_READ(i) ((Py_UCS4)((const TH_CHAR *)self->input.data)[(i)])
 
+static inline void TH_NAME(charref_push)(th_tokenizer *self, th_buf *dest, Py_UCS4 ch) {
+    if (dest != NULL) {
+        push(self, dest, ch);
+    }
+}
+
 /* Resolve a character reference starting at the '&' under self->pos, appending
    the decoded code points to dest. in_attr selects the legacy attribute rule
    (a named reference without a trailing ';' is left literal when followed by
@@ -30,7 +36,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (!self->eof) {
             return -1;
         }
-        push(self, dest, '&');
+        TH_NAME(charref_push)(self, dest, '&');
         return 1;
     }
 
@@ -74,10 +80,10 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (cursor == first_digit) {
             /* "&#" or "&#x" with no digits is not a reference: emit it literally */
             tok_error_at(self, "absence-of-digits-in-numeric-character-reference", self->col + (hex ? 3 : 2));
-            push(self, dest, '&');
-            push(self, dest, '#');
+            TH_NAME(charref_push)(self, dest, '&');
+            TH_NAME(charref_push)(self, dest, '#');
             if (hex) {
-                push(self, dest, TH_READ(after_amp + 1));
+                TH_NAME(charref_push)(self, dest, TH_READ(after_amp + 1));
             }
             return hex ? 3 : 2;
         }
@@ -94,13 +100,13 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         Py_UCS4 replacement;
         if (num == 0) {
             tok_error_at(self, "null-character-reference", end_col);
-            push(self, dest, REPLACEMENT);
+            TH_NAME(charref_push)(self, dest, REPLACEMENT);
         } else if (overflow || num > 0x10FFFF) {
             tok_error_at(self, "character-reference-outside-unicode-range", end_col);
-            push(self, dest, REPLACEMENT);
+            TH_NAME(charref_push)(self, dest, REPLACEMENT);
         } else if (num >= 0xD800 && num <= 0xDFFF) {
             tok_error_at(self, "surrogate-character-reference", end_col);
-            push(self, dest, REPLACEMENT);
+            TH_NAME(charref_push)(self, dest, REPLACEMENT);
         } else {
             if ((num >= 0xFDD0 && num <= 0xFDEF) || (num & 0xFFFE) == 0xFFFE) {
                 tok_error_at(self, "noncharacter-character-reference", end_col);
@@ -110,9 +116,9 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
                 tok_error_at(self, "control-character-reference", end_col);
             }
             if (charref_find_invalid(num, &replacement)) {
-                push(self, dest, replacement);
+                TH_NAME(charref_push)(self, dest, replacement);
             } else {
-                push(self, dest, num);
+                TH_NAME(charref_push)(self, dest, num);
             }
         }
         if (is_reference != NULL) {
@@ -123,7 +129,7 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
 
     if (!is_ascii_alpha(first) && !(first >= '0' && first <= '9')) {
         /* "&" not followed by '#' or a name start is a literal ampersand */
-        push(self, dest, '&');
+        TH_NAME(charref_push)(self, dest, '&');
         return 1;
     }
 
@@ -191,9 +197,9 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (named_semicolon) {
             tok_error_at(self, "unknown-named-character-reference", self->col + (ambiguous_end - amp));
         }
-        push(self, dest, '&');
+        TH_NAME(charref_push)(self, dest, '&');
         for (int index = 0; index < name_len; index++) {
-            push(self, dest, chars[index]);
+            TH_NAME(charref_push)(self, dest, chars[index]);
         }
         return 1 + name_len;
     }
@@ -202,9 +208,9 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         Py_UCS4 after = (match_len < name_len) ? chars[match_len] : (cursor < len ? TH_READ(cursor) : 0);
         if (after == '=' || is_ascii_alpha(after) || (after >= '0' && after <= '9')) {
             /* legacy rule: leave the reference literal inside an attribute */
-            push(self, dest, '&');
+            TH_NAME(charref_push)(self, dest, '&');
             for (int index = 0; index < name_len; index++) {
-                push(self, dest, chars[index]);
+                TH_NAME(charref_push)(self, dest, chars[index]);
             }
             return 1 + name_len;
         }
@@ -213,13 +219,13 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
     if (!match_semicolon) {
         tok_error_at(self, "missing-semicolon-after-character-reference", self->col + 1 + match_len);
     }
-    push(self, dest, entity->cp0);
+    TH_NAME(charref_push)(self, dest, entity->cp0);
     if (entity->cp1) {
-        push(self, dest, entity->cp1);
+        TH_NAME(charref_push)(self, dest, entity->cp1);
     }
     /* characters consumed past the matched name are emitted literally */
     for (int index = match_len; index < name_len; index++) {
-        push(self, dest, chars[index]);
+        TH_NAME(charref_push)(self, dest, chars[index]);
     }
     if (is_reference != NULL) {
         *is_reference = 1;
@@ -1033,7 +1039,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             new_attr(self);
             if (ch == '=') {
                 tok_error(self, "unexpected-equals-sign-before-attribute-name");
-                push(self, &self->attr->name, ch);
+                if (self->capture_attributes) {
+                    push(self, &self->attr->name, ch);
+                }
                 CONSUME();
             }
             self->state = ST_ATTR_NAME;
@@ -1056,7 +1064,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             } else if (ch == 0) {
                 tok_error(self, "unexpected-null-character");
             }
-            push(self, &self->attr->name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
+            if (self->capture_attributes) {
+                push(self, &self->attr->name, ch == 0 ? REPLACEMENT : lower_ascii(ch));
+            }
             CONSUME();
             continue;
 
@@ -1092,7 +1102,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 CONSUME();
                 continue;
             }
-            self->attr->has_value = 1;
+            if (self->capture_attributes) {
+                self->attr->has_value = 1;
+            }
             if (!at_eof && ch == '"') {
                 CONSUME();
                 self->state = ST_ATTR_VALUE_DQ;
@@ -1120,7 +1132,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 /* bulk-copy the ordinary value run; '\n' is a stop so line/col
                    stay accurate, and &/" /NUL keep their dedicated handling */
                 Py_ssize_t stop = TH_SCAN(self, self->pos, '"', '&', '\n', 0);
-                buf_append_input(self, &self->attr->value, self->pos, stop - self->pos);
+                if (self->capture_attributes) {
+                    buf_append_input(self, &self->attr->value, self->pos, stop - self->pos);
+                }
                 self->col += stop - self->pos;
                 self->pos = stop;
                 continue;
@@ -1132,7 +1146,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(self, &self->attr->value, 1, NULL);
+                Py_ssize_t consumed = TH_NAME(consume_charref)(
+                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
+                );
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }
@@ -1143,7 +1159,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (ch == 0) {
                 tok_error(self, "unexpected-null-character");
             }
-            push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            if (self->capture_attributes) {
+                push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            }
             CONSUME();
             continue;
 
@@ -1153,7 +1171,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             }
             if (ch != '\'' && ch != '&' && ch != '\n' && ch != 0) {
                 Py_ssize_t stop = TH_SCAN(self, self->pos, '\'', '&', '\n', 0);
-                buf_append_input(self, &self->attr->value, self->pos, stop - self->pos);
+                if (self->capture_attributes) {
+                    buf_append_input(self, &self->attr->value, self->pos, stop - self->pos);
+                }
                 self->col += stop - self->pos;
                 self->pos = stop;
                 continue;
@@ -1165,7 +1185,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(self, &self->attr->value, 1, NULL);
+                Py_ssize_t consumed = TH_NAME(consume_charref)(
+                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
+                );
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }
@@ -1176,7 +1198,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             if (ch == 0) {
                 tok_error(self, "unexpected-null-character");
             }
-            push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            if (self->capture_attributes) {
+                push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            }
             CONSUME();
             continue;
 
@@ -1191,7 +1215,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(self, &self->attr->value, 1, NULL);
+                Py_ssize_t consumed = TH_NAME(consume_charref)(
+                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
+                );
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }
@@ -1210,7 +1236,9 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             } else if (ch == 0) {
                 tok_error(self, "unexpected-null-character");
             }
-            push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            if (self->capture_attributes) {
+                push(self, &self->attr->value, ch == 0 ? REPLACEMENT : ch);
+            }
             CONSUME();
             continue;
 

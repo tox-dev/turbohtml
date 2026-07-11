@@ -63,13 +63,16 @@ PyDoc_STRVAR(markup_soft_str_doc, "soft_str(s, /)\n--\n\n"
                                   ":param s: value to coerce to text.\n"
                                   ":returns: s unchanged when it is already a str, otherwise str(s).");
 
-PyDoc_STRVAR(tokenize_doc, "tokenize(s, /, *, resolve_references=True, capture_source=False)\n--\n\n"
+PyDoc_STRVAR(tokenize_doc,
+             "tokenize(s, /, *, resolve_references=True, capture_source=False, capture_attributes=True)\n--\n\n"
                            "Tokenize a whole HTML string following the WHATWG tokenization algorithm.\n\n"
                            ":param s: the HTML to tokenize.\n"
                            ":param resolve_references: fold character references into the surrounding text\n"
                            "    run; when False each one becomes its own CHARACTER_REFERENCE token.\n"
                            ":param capture_source: record each markup token's verbatim source on\n"
                            "    Token.source.\n"
+                           ":param capture_attributes: retain tag attributes; disable this when only tag names and\n"
+                           "    text are needed.\n"
                            ":returns: an iterator of Token objects in document order.\n"
                            ":raises TypeError: if s is not a str.");
 

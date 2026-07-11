@@ -17,6 +17,8 @@ void handle_clear_caches(HandleObject *handle) {
         xp_free(handle->xpath_cache[index].prog);
         Py_DECREF(handle->xpath_cache[index].key);
     }
+    PyMem_Free(handle->sel_cache);
+    PyMem_Free(handle->xpath_cache);
 }
 
 /* The tag atom every alternative of compiled selects as its subject (rightmost
@@ -81,6 +83,14 @@ static sel_compiled *cached_compile(PyObject *selector_error, HandleObject *hand
     sel_compiled *compiled = selector_compile(selector_error, handle->tree, arg);
     if (compiled == NULL) {
         return NULL;
+    }
+    if (handle->sel_cache == NULL) {
+        handle->sel_cache = PyMem_New(sel_cache_entry, SEL_CACHE_CAP);
+        if (handle->sel_cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            selector_free(compiled);     /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();            /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     if (handle->sel_cache_len == SEL_CACHE_CAP) {
         sel_cache_entry *evicted = &handle->sel_cache[SEL_CACHE_CAP - 1];
@@ -577,6 +587,14 @@ static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg) {
     if (prog == NULL) {
         PyErr_SetString(PyExc_ValueError, err);
         return NULL;
+    }
+    if (handle->xpath_cache == NULL) {
+        handle->xpath_cache = PyMem_New(xpath_cache_entry, XPATH_CACHE_CAP);
+        if (handle->xpath_cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            xp_free(prog);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();              /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     if (handle->xpath_cache_len == XPATH_CACHE_CAP) {
         xpath_cache_entry *evicted = &handle->xpath_cache[XPATH_CACHE_CAP - 1];

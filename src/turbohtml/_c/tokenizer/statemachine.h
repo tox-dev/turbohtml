@@ -59,13 +59,13 @@ typedef struct {
     th_buf value;
     int has_value;      /* 0 for a valueless attribute (maps to None in Python) */
     uint32_t name_hash; /* FNV-1a of the name, for O(1) duplicate detection */
-    /* Source span of the whole attribute -- the first name code point through the
-       last value code point (the name's end for a valueless one) -- filled only
-       while capture_locations is on. Line is 1-based, col 0-based, and off a
-       code-point index into the newline-normalized input, matching th_token.line/col. */
+} th_attr;
+
+/* Source span of one attribute, allocated only while capture_locations is on. */
+typedef struct {
     Py_ssize_t name_line, name_col, name_off;
     Py_ssize_t end_line, end_col, end_off;
-} th_attr;
+} th_attr_loc;
 
 /* One completed token. Buffers are owned and reused across tokens via reset;
    the Python layer copies what it needs out of them when it builds a Token.
@@ -86,6 +86,7 @@ typedef struct {
     uint8_t tag_flags;
     th_buf text; /* TEXT run or COMMENT data */
     th_attr *attrs;
+    th_attr_loc *attr_locs;
     Py_ssize_t attr_count;
     Py_ssize_t attr_cap;
     int self_closing;
@@ -191,11 +192,10 @@ void th_tok_free(th_tokenizer *self);
 void th_tok_reset(th_tokenizer *self);
 
 /* Select the output surface. resolve_references off splits each character
-   reference in text into a TH_CHARREF token; capture_source on records the
-   verbatim source span of every markup token. Both default off-equivalent
-   (resolve on, capture off) and survive th_tok_reset, since they are
-   configuration rather than input state. */
-void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source);
+   reference in text into a TH_CHARREF token; capture_source records each markup
+   token's verbatim span; capture_attributes retains tag attributes. The options
+   survive th_tok_reset because they are configuration rather than input state. */
+void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source, int capture_attributes);
 
 /* Record the granular source spans parse5's sourceCodeLocationInfo exposes: each
    tag's end position (past its '>') and each attribute's name/value span. Off by

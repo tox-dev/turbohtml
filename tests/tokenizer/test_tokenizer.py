@@ -95,6 +95,31 @@ def test_tag_attrs(document: str, tag_name: str, attrs: list[tuple[str, str | No
     assert tag.attrs == attrs
 
 
+@pytest.mark.parametrize("mode", ["whole", "streaming"])
+def test_capture_attributes_can_be_disabled(mode: str) -> None:
+    document = '<a href="a&amp;b" download>text</a>'
+    if mode == "streaming":
+        tokenizer = Tokenizer(capture_attributes=False)
+        tokens = [token for char in document for token in tokenizer.feed(char)]
+        tokens += list(tokenizer.close())
+    else:
+        tokens = list(tokenize(document, capture_attributes=False))
+
+    start, text, end = tokens
+    assert (start.tag, start.attrs, start.attr("href")) == ("a", [], None)
+    assert (text.data, end.tag) == ("text", "a")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param("x", id="ascii"), pytest.param("ő", id="ucs2"), pytest.param("🎉", id="ucs4")],
+)
+def test_capture_attributes_disabled_handles_every_value_form(text: str) -> None:
+    document = f"<a =bad dq=\"a&ouml;\0\" sq='b&ouml;\0' uq=c&ouml;\0>{text}</a>"
+    start, content, end = tokenize(document, capture_attributes=False)
+    assert (start.attrs, content.data, end.tag) == ([], text, "a")
+
+
 def test_non_latin1_tag_name() -> None:
     tokens = list(tokenize("<xmő>x</xmő>"))
     assert [token.tag for token in tokens if token.tag] == ["xmő", "xmő"]

@@ -142,12 +142,14 @@ static PyType_Spec iter_spec = {
 };
 
 static PyObject *tokenizer_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"resolve_references", "capture_source", NULL};
+    static char *keywords[] = {"resolve_references", "capture_source", "capture_attributes", NULL};
     int resolve_references = 1;
     int capture_source = 0;
-    /* a streaming tokenizer starts empty; the two options are keyword-only and
+    int capture_attributes = 1;
+    /* a streaming tokenizer starts empty; its options are keyword-only and
        reject any other positional or keyword argument */
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$pp:Tokenizer", keywords, &resolve_references, &capture_source)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|$ppp:Tokenizer", keywords, &resolve_references, &capture_source,
+                                     &capture_attributes)) {
         return NULL;
     }
     TokenizerObject *self = (TokenizerObject *)type->tp_alloc(type, 0);
@@ -161,7 +163,7 @@ static PyObject *tokenizer_new(PyTypeObject *type, PyObject *args, PyObject *kwd
         Py_DECREF(self);         /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_tok_set_options(self->sm, resolve_references, capture_source);
+    th_tok_set_options(self->sm, resolve_references, capture_source, capture_attributes);
     return (PyObject *)self;
 }
 
@@ -270,7 +272,7 @@ static PyMethodDef tokenizer_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
-PyDoc_STRVAR(tokenizer_doc, "Tokenizer(*, resolve_references=True, capture_source=False)\n--\n\n"
+PyDoc_STRVAR(tokenizer_doc, "Tokenizer(*, resolve_references=True, capture_source=False, capture_attributes=True)\n--\n\n"
                             "Streaming HTML tokenizer. Feed markup with feed() and iterate the\n"
                             "returned iterators; call close() at the end, or use the tokenizer as a\n"
                             "context manager so leaving the with block signals end of input, then\n"
@@ -281,7 +283,9 @@ PyDoc_STRVAR(tokenizer_doc, "Tokenizer(*, resolve_references=True, capture_sourc
                             "    token (its data the resolved value, its source the verbatim reference).\n"
                             "    Attribute-value references are always resolved.\n"
                             ":param capture_source: record each markup token's verbatim source slice,\n"
-                            "    available as Token.source.");
+                            "    available as Token.source.\n"
+                            ":param capture_attributes: retain tag attributes; disable this when only tag names and\n"
+                            "    text are needed to skip attribute storage and copying.");
 
 static PyType_Slot tokenizer_slots[] = {
     {Py_tp_doc, (void *)tokenizer_doc},
@@ -302,12 +306,13 @@ static PyType_Spec tokenizer_spec = {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage): declared in core/common.h and called from core/module.c
 PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs) {
-    static char *keywords[] = {"", "resolve_references", "capture_source", NULL};
+    static char *keywords[] = {"", "resolve_references", "capture_source", "capture_attributes", NULL};
     PyObject *arg;
     int resolve_references = 1;
     int capture_source = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$pp:tokenize", keywords, &arg, &resolve_references,
-                                     &capture_source)) {
+    int capture_attributes = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ppp:tokenize", keywords, &arg, &resolve_references,
+                                     &capture_source, &capture_attributes)) {
         return NULL;
     }
     if (!PyUnicode_Check(arg)) {
@@ -320,7 +325,7 @@ PyObject *turbohtml_tokenize(PyObject *module, PyObject *args, PyObject *kwargs)
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_tokenizer *sm = ((TokenizerObject *)tokenizer)->sm;
-    th_tok_set_options(sm, resolve_references, capture_source);
+    th_tok_set_options(sm, resolve_references, capture_source, capture_attributes);
     Py_ssize_t length = PyUnicode_GET_LENGTH(arg);
     if (PyUnicode_FindChar(arg, '\r', 0, length, 1) == -1) {
         /* nothing to normalize: borrow the string's storage instead of

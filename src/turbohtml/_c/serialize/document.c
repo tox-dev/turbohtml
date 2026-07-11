@@ -89,8 +89,7 @@ static void serialize_node_line(sbuf *out, th_tree *tree, th_node *node, int dep
     }
     sbuf_putc(out, '\n');
     /* attributes: each on its own deeper line, output in lexicographic name
-       order (the html5lib #document format sorts them). Only elements have
-       attributes; a text node's attr_count field holds a span offset. */
+       order (the html5lib #document format sorts them). */
     Py_ssize_t order[MAX_SORTED_ATTRS];
     Py_ssize_t count =
         node->type == TH_NODE_ELEMENT ? (node->attr_count < MAX_SORTED_ATTRS ? node->attr_count : MAX_SORTED_ATTRS) : 0;

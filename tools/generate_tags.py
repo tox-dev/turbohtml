@@ -218,9 +218,11 @@ def generate(out_path: Path) -> None:
     enum_lines = "\n".join(f"    {atom}," for atom in atoms)
 
     table_lines = []
+    wide_names = []
     for name, atom in zip(names, atoms, strict=True):
         flags = " | ".join(flag for flag, members in CATEGORY_FLAGS.items() if name in members) or "0"
-        table_lines.append(f'    {{"{name}", {len(name)}u, {atom}, {flags}}},')
+        table_lines.append(f'    {{"{name}", {len(name)}u, {atom}, {flags}, {len(wide_names)}u}},')
+        wide_names.extend(map(ord, name))
 
     # Names are sorted, so entries sharing a first byte are contiguous.
     # first_index[b] holds the offset of the first entry whose name starts with a
@@ -256,11 +258,18 @@ def generate(out_path: Path) -> None:
         "    uint8_t name_len;\n"
         "    uint16_t atom;\n"
         "    uint8_t flags;\n"
+        "    uint16_t wide_offset;\n"
         "} th_tag_entry;\n\n"
         f"static const int th_tag_count = {len(names)};\n"
         "static const th_tag_entry th_tag_table[] = {\n"
         f"{chr(10).join(table_lines)}\n"
         "};\n\n"
+        "static const uint32_t th_tag_wide_names[] = {\n"
+        f"    {', '.join(f'{char}u' for char in wide_names)}\n"
+        "};\n\n"
+        "static inline const uint32_t *th_tag_wide_name(uint16_t atom) {\n"
+        "    return th_tag_wide_names + th_tag_table[atom - 1].wide_offset;\n"
+        "}\n\n"
         "/* th_tag_first[c] is the first table index whose name starts with a byte\n"
         "   >= c, so the entries beginning with byte c are\n"
         "   [th_tag_first[c], th_tag_first[c + 1]). */\n"

@@ -85,9 +85,9 @@ typedef struct {
        and always 0, when encoding is None. */
     int encoding_certain;
     int index_built;
-    sel_cache_entry sel_cache[SEL_CACHE_CAP];
+    sel_cache_entry *sel_cache;
     int sel_cache_len;
-    xpath_cache_entry xpath_cache[XPATH_CACHE_CAP];
+    xpath_cache_entry *xpath_cache;
     int xpath_cache_len;
 } HandleObject;
 

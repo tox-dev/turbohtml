@@ -147,8 +147,8 @@ static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t
     return intern_attr_dynamic(tree, bytes, len);
 }
 
-/* Construct an element node owning a copy of the tag name, with attr_count empty
-   attribute slots to fill with th_tree_set_attr. */
+/* Construct an element node, with attr_count empty attribute slots to fill with
+   th_tree_set_attr. A NULL known tag selects the generated immutable spelling. */
 th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_len, uint16_t atom,
                               Py_ssize_t attr_count) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);
@@ -157,13 +157,20 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
     }
     node->atom = atom;
     node->tag_flags = th_tag_flags(atom); /* so a constructed/unpickled raw-text element serializes literally */
-    Py_UCS4 *owned = arena_alloc(tree, tag_len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (atom == TH_TAG_UNKNOWN || tag != NULL) {
+        if (tag_len > 0) {
+            Py_UCS4 *owned = arena_alloc(tree, tag_len * (Py_ssize_t)sizeof(Py_UCS4));
+            if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            memcpy(owned, tag, (size_t)tag_len * sizeof(Py_UCS4));
+            node->text = owned;
+        }
+        node->text_len = tag_len;
+    } else {
+        node->text = (Py_UCS4 *)th_tag_wide_name(atom);
+        node->text_len = th_tag_table[atom - 1].name_len;
     }
-    memcpy(owned, tag, (size_t)tag_len * sizeof(Py_UCS4));
-    node->text = owned;
-    node->text_len = tag_len;
     if (attr_count > 0) {
         node->attrs = arena_alloc(tree, attr_count * (Py_ssize_t)sizeof(th_node_attr));
         if (node->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

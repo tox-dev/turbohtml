@@ -9,6 +9,7 @@
 
 #include "dom/tree.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #define ARENA_BLOCK ((Py_ssize_t)64 * 1024)
@@ -155,12 +156,23 @@ static inline Py_UCS4 *copy_input_span(th_tree *tree, Py_ssize_t off, Py_ssize_t
     return out;
 }
 
-/* A TEXT node is a zero-copy span when text == NULL && text_len > 0: its content
-   is input[attr_count .. attr_count + text_len] (the attr_count field is unused
-   on text nodes). Realize it into the arena on first read. */
+/* A parsed TEXT node tags its source offset into the otherwise-aligned text
+   pointer. This leaves the element-only attrs fields outside its allocation. */
+static inline int text_is_span(const th_node *node) {
+    return node->type == TH_NODE_TEXT && ((uintptr_t)node->text & 1u) != 0;
+}
+
+static inline Py_ssize_t text_span_offset(const th_node *node) {
+    return (Py_ssize_t)((uintptr_t)node->text >> 1);
+}
+
+static inline void text_set_span(th_node *node, Py_ssize_t offset) {
+    node->text = (Py_UCS4 *)(((uintptr_t)offset << 1) | 1u);
+}
+
 static inline Py_UCS4 *need_text(th_tree *tree, th_node *node) {
-    if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: a text span always has positive length */
-        node->text = copy_input_span(tree, node->attr_count, node->text_len);
+    if (text_is_span(node)) {
+        node->text = copy_input_span(tree, text_span_offset(node), node->text_len);
     }
     return node->text;
 }
@@ -213,13 +225,14 @@ static inline th_src_loc **node_loc(th_node *node) {
 static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     int positioned = tree->track_positions && type == TH_NODE_ELEMENT;
     int located = tree->track_locations && type == TH_NODE_ELEMENT;
-    Py_ssize_t size = (Py_ssize_t)sizeof(th_node) + (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0) +
-                      (located ? (Py_ssize_t)sizeof(th_src_loc *) : 0);
+    Py_ssize_t size = type == TH_NODE_TEXT ? (Py_ssize_t)offsetof(th_node, attrs) : (Py_ssize_t)sizeof(th_node);
+    size += (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0) +
+            (located ? (Py_ssize_t)sizeof(th_src_loc *) : 0);
     th_node *node = arena_alloc(tree, size);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    memset(node, 0, sizeof(*node));
+    memset(node, 0, (size_t)size);
     if (positioned) {
         node_pos(node)[0] = 0; /* line; 0 = no source until insert_element sets it */
         node_pos(node)[1] = 0; /* col */
