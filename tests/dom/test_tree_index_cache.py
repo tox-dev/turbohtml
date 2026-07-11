@@ -102,10 +102,11 @@ def test_cache_hit_on_equal_distinct_string() -> None:
     # the cache matches by identity first, then by string value, so a second call
     # with an equal but distinct selector object reuses the first compile
     doc = parse(_DOC)
-    assert [element.text for element in doc.select("div p")] == ["nested"]
+    selector = "div p"
+    assert [element.text for element in doc.select(selector)] == ["nested"]
     descendant = "p"
     rebuilt = f"div {descendant}"  # an f-string is built at runtime: equal content, a distinct object
-    assert rebuilt is not "div p"  # noqa: F632  # a content match, not an identity match, is the point
+    assert rebuilt is not selector
     assert [element.text for element in doc.select(rebuilt)] == ["nested"]
 
 
