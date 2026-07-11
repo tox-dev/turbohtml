@@ -1,0 +1,1 @@
+Raise :exc:`ValueError` with the import chain for circular ``xsl:import`` references.

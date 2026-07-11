@@ -1,0 +1,2 @@
+Recognize XSLT instructions by namespace URI and local name, including stylesheets with a default XSLT namespace or
+rebound prefix.

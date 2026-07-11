@@ -1,0 +1,2 @@
+Return :meth:`turbohtml.query.Query.find` results in document order across connected roots; retain root input order
+across disconnected trees.

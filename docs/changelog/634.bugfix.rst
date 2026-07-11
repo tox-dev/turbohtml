@@ -1,0 +1,1 @@
+Keep a :class:`turbohtml.Node` hash stable across cross-document adoption so sets and dictionaries can still find it.
