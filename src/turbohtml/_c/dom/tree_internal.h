@@ -167,7 +167,9 @@ static inline Py_ssize_t text_span_offset(const th_node *node) {
 }
 
 static inline void text_set_span(th_node *node, Py_ssize_t offset) {
-    node->text = (Py_UCS4 *)(((uintptr_t)offset << 1) | 1u);
+    uintptr_t encoded = ((uintptr_t)offset << 1) | 1u;
+    _Static_assert(sizeof(node->text) == sizeof(encoded), "tagged text spans require uintptr_t-sized pointers");
+    memcpy(&node->text, &encoded, sizeof(encoded));
 }
 
 static inline Py_UCS4 *need_text(th_tree *tree, th_node *node) {

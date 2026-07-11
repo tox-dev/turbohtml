@@ -85,7 +85,7 @@ static sel_compiled *cached_compile(PyObject *selector_error, HandleObject *hand
         return NULL;
     }
     if (handle->sel_cache == NULL) {
-        handle->sel_cache = PyMem_New(sel_cache_entry, SEL_CACHE_CAP);
+        handle->sel_cache = PyMem_Malloc(sizeof(sel_cache_entry) * SEL_CACHE_CAP);
         if (handle->sel_cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             selector_free(compiled);     /* GCOVR_EXCL_LINE: allocation-failure path */
             PyErr_NoMemory();            /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -589,7 +589,7 @@ static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg) {
         return NULL;
     }
     if (handle->xpath_cache == NULL) {
-        handle->xpath_cache = PyMem_New(xpath_cache_entry, XPATH_CACHE_CAP);
+        handle->xpath_cache = PyMem_Malloc(sizeof(xpath_cache_entry) * XPATH_CACHE_CAP);
         if (handle->xpath_cache == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             xp_free(prog);                 /* GCOVR_EXCL_LINE: allocation-failure path */
             PyErr_NoMemory();              /* GCOVR_EXCL_LINE: allocation-failure path */
