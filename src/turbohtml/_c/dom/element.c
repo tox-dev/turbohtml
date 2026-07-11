@@ -1877,9 +1877,9 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs) {
     }
     Py_UCS4 *tag_points = atom == TH_TAG_UNKNOWN ? PyUnicode_AsUCS4Copy(tag) : NULL;
     if (atom == TH_TAG_UNKNOWN && tag_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        th_tree_free(tree);                            /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(keys);                              /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        th_tree_free(tree);                             /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(keys);                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* Unknown tag names are ASCII-lowercased to match what the parser stores.
        Known names already point at their lowercase generated entry. */

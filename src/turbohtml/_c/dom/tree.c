@@ -652,9 +652,8 @@ static void insertion_location(th_tree *tree, th_node **parent, th_node **before
    left absent until the source closes the element (record_end_tag_location). NULL
    on allocation failure. */
 static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_token *token) {
-    th_src_loc *loc = arena_alloc(
-        tree, (Py_ssize_t)sizeof(th_src_loc) + token->attr_count * (Py_ssize_t)sizeof(th_src_attr)
-    );
+    th_src_loc *loc =
+        arena_alloc(tree, (Py_ssize_t)sizeof(th_src_loc) + token->attr_count * (Py_ssize_t)sizeof(th_src_attr));
     if (loc == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
@@ -670,9 +669,8 @@ static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_
             const th_attr *src = &token->attrs[index];
             const th_attr_loc *src_loc = &token->attr_locs[index];
             loc->attrs[index].name_atom = intern_attr(tree, &src->name); /* idempotent with insert_element's */
-            loc->attrs[index].span =
-                (th_src_span){src_loc->name_line, src_loc->name_col, src_loc->name_off, src_loc->end_line,
-                              src_loc->end_col, src_loc->end_off};
+            loc->attrs[index].span = (th_src_span){src_loc->name_line, src_loc->name_col, src_loc->name_off,
+                                                   src_loc->end_line,  src_loc->end_col,  src_loc->end_off};
         }
     }
     *node_loc(node) = loc;

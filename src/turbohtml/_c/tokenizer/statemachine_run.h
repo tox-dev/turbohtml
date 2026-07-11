@@ -1146,9 +1146,8 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(
-                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
-                );
+                Py_ssize_t consumed =
+                    TH_NAME(consume_charref)(self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL);
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }
@@ -1185,9 +1184,8 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(
-                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
-                );
+                Py_ssize_t consumed =
+                    TH_NAME(consume_charref)(self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL);
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }
@@ -1215,9 +1213,8 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '&') {
-                Py_ssize_t consumed = TH_NAME(consume_charref)(
-                    self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL
-                );
+                Py_ssize_t consumed =
+                    TH_NAME(consume_charref)(self, self->capture_attributes ? &self->attr->value : NULL, 1, NULL);
                 if (consumed == -1) {
                     return RUN_NEED_MORE;
                 }

@@ -232,8 +232,8 @@ struct th_tokenizer {
     Py_ssize_t slice_len;
     int input_borrowed; /* input.data is caller-owned storage, never freed here */
 
-    th_token tok;     /* tag/comment/doctype under construction */
-    th_attr *attr;    /* attribute under construction (points into tok.attrs) */
+    th_token tok;  /* tag/comment/doctype under construction */
+    th_attr *attr; /* attribute under construction (points into tok.attrs) */
     th_attr_loc *attr_loc;
     th_attr oom_attr; /* writable sink for attribute data after an allocation failure */
     th_attr_loc oom_attr_loc;
@@ -721,16 +721,16 @@ static void new_attr(th_tokenizer *self) {
         int grew = th_grow_cap((size_t)(tok->attr_cap + 1), (size_t)tok->attr_cap, 4, sizeof(th_attr), &cap, &bytes);
         if (!grew) {       /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
             self->oom = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-            self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            self->attr = &self->oom_attr;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
             self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: size-overflow path */
-            return;                       /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;                               /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
         }
         th_attr *grown = PyMem_Realloc(tok->attrs, bytes);
         if (grown == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             self->oom = 1;                /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
             self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
             self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: out-of-memory path */
-            return;                       /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
         }
         for (Py_ssize_t index = tok->attr_cap; index < (Py_ssize_t)cap; index++) {
             buf_init(&grown[index].name);
@@ -740,11 +740,11 @@ static void new_attr(th_tokenizer *self) {
         tok->attrs = grown;
         if (self->capture_locations) {
             th_attr_loc *grown_locs = PyMem_Realloc(tok->attr_locs, cap * sizeof(th_attr_loc));
-            if (grown_locs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                self->oom = 1;        /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
+            if (grown_locs == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                self->oom = 1;                /* GCOVR_EXCL_LINE: out-of-memory path, unreachable from a test */
                 self->attr = &self->oom_attr; /* GCOVR_EXCL_LINE: out-of-memory path */
                 self->attr_loc = &self->oom_attr_loc; /* GCOVR_EXCL_LINE: out-of-memory path */
-                return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+                return;                               /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             tok->attr_locs = grown_locs;
         }

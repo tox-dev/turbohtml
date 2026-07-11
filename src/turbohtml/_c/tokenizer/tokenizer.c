@@ -272,20 +272,21 @@ static PyMethodDef tokenizer_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
-PyDoc_STRVAR(tokenizer_doc, "Tokenizer(*, resolve_references=True, capture_source=False, capture_attributes=True)\n--\n\n"
-                            "Streaming HTML tokenizer. Feed markup with feed() and iterate the\n"
-                            "returned iterators; call close() at the end, or use the tokenizer as a\n"
-                            "context manager so leaving the with block signals end of input, then\n"
-                            "iterate the tokenizer itself for the remaining tokens. For a whole\n"
-                            "string at once use tokenize().\n\n"
-                            ":param resolve_references: fold character references into the surrounding\n"
-                            "    text run; when False each one is emitted as its own CHARACTER_REFERENCE\n"
-                            "    token (its data the resolved value, its source the verbatim reference).\n"
-                            "    Attribute-value references are always resolved.\n"
-                            ":param capture_source: record each markup token's verbatim source slice,\n"
-                            "    available as Token.source.\n"
-                            ":param capture_attributes: retain tag attributes; disable this when only tag names and\n"
-                            "    text are needed to skip attribute storage and copying.");
+PyDoc_STRVAR(tokenizer_doc,
+             "Tokenizer(*, resolve_references=True, capture_source=False, capture_attributes=True)\n--\n\n"
+             "Streaming HTML tokenizer. Feed markup with feed() and iterate the\n"
+             "returned iterators; call close() at the end, or use the tokenizer as a\n"
+             "context manager so leaving the with block signals end of input, then\n"
+             "iterate the tokenizer itself for the remaining tokens. For a whole\n"
+             "string at once use tokenize().\n\n"
+             ":param resolve_references: fold character references into the surrounding\n"
+             "    text run; when False each one is emitted as its own CHARACTER_REFERENCE\n"
+             "    token (its data the resolved value, its source the verbatim reference).\n"
+             "    Attribute-value references are always resolved.\n"
+             ":param capture_source: record each markup token's verbatim source slice,\n"
+             "    available as Token.source.\n"
+             ":param capture_attributes: retain tag attributes; disable this when only tag names and\n"
+             "    text are needed to skip attribute storage and copying.");
 
 static PyType_Slot tokenizer_slots[] = {
     {Py_tp_doc, (void *)tokenizer_doc},

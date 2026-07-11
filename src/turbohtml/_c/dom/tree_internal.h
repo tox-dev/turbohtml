@@ -226,8 +226,7 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     int positioned = tree->track_positions && type == TH_NODE_ELEMENT;
     int located = tree->track_locations && type == TH_NODE_ELEMENT;
     Py_ssize_t size = type == TH_NODE_TEXT ? (Py_ssize_t)offsetof(th_node, attrs) : (Py_ssize_t)sizeof(th_node);
-    size += (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0) +
-            (located ? (Py_ssize_t)sizeof(th_src_loc *) : 0);
+    size += (positioned ? 2 * (Py_ssize_t)sizeof(uint32_t) : 0) + (located ? (Py_ssize_t)sizeof(th_src_loc *) : 0);
     th_node *node = arena_alloc(tree, size);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
