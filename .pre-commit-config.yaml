@@ -23,17 +23,17 @@ repos:
     hooks:
       - id: tox-toml-fmt
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.25.1" # v2.23.0
+    rev: "v2.25.2" # v2.23.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: "v22.1.5" # v22.1.5
+    rev: "v22.1.8" # v22.1.5
     hooks:
       - id: clang-format
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table|idna_table|normalize_table|encoding_tables)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.15.20" # v0.15.16
+    rev: "v0.15.21" # v0.15.16
     hooks:
       - id: ruff-format
       - id: ruff-check
@@ -88,7 +88,7 @@ repos:
         types_or: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/sphinx-contrib/sphinx-lint
-    rev: "v1.0.0" # v1.0.0
+    rev: "v1.0.2" # v1.0.0
     hooks:
       - id: sphinx-lint
         types: [rst]
