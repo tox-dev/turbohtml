@@ -44,7 +44,7 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
       - name: 🚀 Run benchmarks
-        uses: CodSpeedHQ/action@9f3a37ece7abc84992501a7fcd54d1704f3458fa # v4.18.4
+        uses: CodSpeedHQ/action@f99becdce5e5d51fd556489ebef684f4ecfd6286 # v4.18.5
         env:
           # GitHub hands each run a different physical CPU (Intel Xeon with AVX-512, or AMD EPYC without), and glibc
           # dispatches a different SIMD memcpy/memmove per CPU, so Callgrind counts different instructions for the same
