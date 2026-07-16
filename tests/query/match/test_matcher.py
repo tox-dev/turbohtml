@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from turbohtml import Element, parse
@@ -69,6 +71,34 @@ def test_match_is_false_for_a_non_match() -> None:
 def test_filter_keeps_matching_members_of_an_iterable() -> None:
     anchors = _root().select("a")
     assert [node.attr("href") for node in compile("[href]").filter(anchors)] == ["x", "y"]
+
+
+def test_filter_accepts_a_generator() -> None:
+    anchors = _root().select("a")
+    assert [node.attr("href") for node in compile("[href]").filter(node for node in anchors)] == ["x", "y"]
+
+
+def test_filter_preserves_order_and_duplicates_across_trees() -> None:
+    first = parse("<a id=first class=hit></a><a id=miss></a>").select("a")
+    second = parse("<a id=second class=hit></a>").select_one("a")
+    assert second is not None
+    assert [node.attr("id") for node in compile(".hit").filter([second, first[1], first[0], second])] == [
+        "second",
+        "first",
+        "second",
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        pytest.param([1], id="first"),
+        pytest.param([_root(), 1], id="later"),
+    ],
+)
+def test_filter_rejects_non_elements(candidates: list[object]) -> None:
+    with pytest.raises(TypeError, match="filter candidates must be Element instances"):
+        compile("*").filter(cast("list[Element]", candidates))
 
 
 def test_filter_on_an_element_tests_its_direct_children() -> None:

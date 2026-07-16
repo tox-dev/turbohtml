@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
-from turbohtml._html import Document, Element, parse
+from turbohtml._html import Document, Element, _matches_many, parse
 from turbohtml._internal._selectors import SelectorSyntaxError
 
 if TYPE_CHECKING:
@@ -183,11 +183,11 @@ class Matcher:
             (soupsieve's rule for a single node).
         :returns: the members that match.
         """
+        if isinstance(iterable, list):
+            return _matches_many(cast("list[Element]", iterable), self._selector)
         if isinstance(iterable, (Element, Document)):
-            candidates: Iterable[Element] = (child for child in iterable.children if isinstance(child, Element))
-        else:
-            candidates = iterable
-        return [node for node in candidates if node.matches(self._selector)]
+            iterable = (child for child in iterable.children if isinstance(child, Element))
+        return [node for node in iterable if node.matches(self._selector)]
 
     def closest(self, node: Element) -> Element | None:
         """

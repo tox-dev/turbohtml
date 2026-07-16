@@ -68,6 +68,7 @@ PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
    equivalent XPath 1.0 expression; matches METH_VARARGS. */
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
+PyObject *turbohtml_matches_many(PyObject *module, PyObject *args);
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args);
 PyObject *turbohtml_xslt_resolve_imports(PyObject *module, PyObject *args);
 

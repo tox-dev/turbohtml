@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast, overload
 
-from turbohtml._html import Document, Element, _select_many, parse
+from turbohtml._html import Document, Element, _matches_many, _select_many, parse
 
 from ._match import (
     DEBUG,
@@ -134,7 +134,7 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
         :param selector: the CSS selector.
         :returns: a query over the elements that match.
         """
-        return Query([node for node in self._nodes if node.matches(selector)])
+        return Query._wrap(_matches_many(self._nodes, selector))
 
     def eq(self, index: int) -> Query:
         """

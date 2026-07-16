@@ -186,6 +186,72 @@ typedef struct {
     int processed;
 } multi_root;
 
+PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
+    PyObject *nodes;
+    PyObject *selector;
+    if (!PyArg_ParseTuple(args, "O!U:_matches_many", &PyList_Type, &nodes, &selector)) {
+        return NULL;
+    }
+    Py_ssize_t count = PyList_GET_SIZE(nodes);
+    if (count == 0) {
+        return PyList_New(0);
+    }
+    unsigned char *results = PyMem_Calloc((size_t)count, sizeof(unsigned char));
+    if (results == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+    }
+    module_state *state = PyModule_GetState(module);
+    Py_ssize_t matched_count = 0;
+    int error = 0;
+    for (Py_ssize_t first = 0; first < count;) {
+        PyObject *item = PyList_GET_ITEM(nodes, first);
+        if (!PyObject_TypeCheck(item, (PyTypeObject *)state->element_type)) {
+            PyErr_SetString(PyExc_TypeError, "filter candidates must be Element instances");
+            error = 1;
+            break;
+        }
+        NodeObject *anchor = (NodeObject *)item;
+        Py_ssize_t index = first;
+        Py_BEGIN_CRITICAL_SECTION(anchor->handle);
+        sel_compiled *compiled = cached_compile(state->selector_error, (HandleObject *)anchor->handle, selector);
+        if (compiled == NULL) {
+            error = 1;
+        } else {
+            for (; index < count; index++) {
+                item = PyList_GET_ITEM(nodes, index);
+                if (!PyObject_TypeCheck(item, (PyTypeObject *)state->element_type)) {
+                    PyErr_SetString(PyExc_TypeError, "filter candidates must be Element instances");
+                    error = 1;
+                    break;
+                }
+                NodeObject *candidate = (NodeObject *)item;
+                if (candidate->handle != anchor->handle) {
+                    break;
+                }
+                int matched = selector_matches(candidate->node, compiled, candidate->node);
+                results[index] = (unsigned char)matched;
+                matched_count += matched;
+            }
+        }
+        Py_END_CRITICAL_SECTION();
+        if (error) {
+            break;
+        }
+        first = index;
+    }
+    PyObject *out = NULL;
+    if (!error && (out = PyList_New(matched_count)) != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_ssize_t position = 0;
+        for (Py_ssize_t index = 0; index < count; index++) {
+            if (results[index] != 0) {
+                PyList_SET_ITEM(out, position++, Py_NewRef(PyList_GET_ITEM(nodes, index)));
+            }
+        }
+    }
+    PyMem_Free(results);
+    return out;
+}
+
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
     PyObject *roots_obj;
     PyObject *selector;

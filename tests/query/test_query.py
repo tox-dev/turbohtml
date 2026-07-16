@@ -115,6 +115,19 @@ def test_filter_keeps_matching_elements() -> None:
     assert [e.text for e in Query(_DOC)("li").filter(".on")] == ["b"]
 
 
+def test_filter_empty_query_is_empty() -> None:
+    assert len(Query([]).filter("[")) == 0
+
+
+@pytest.mark.parametrize(
+    ("selector", "error"),
+    [pytest.param("[", SelectorSyntaxError, id="syntax"), pytest.param(cast("str", 1), TypeError, id="type")],
+)
+def test_filter_rejects_invalid_selector(selector: str, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        Query(_DOC)("li").filter(selector)
+
+
 def test_eq_selects_one_or_empty() -> None:
     items = Query(_DOC)("li")
     assert items.eq(1)[0].text == "b"

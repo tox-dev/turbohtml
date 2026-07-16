@@ -189,6 +189,9 @@ from ._stubs.query import (
     _css_to_xpath as _css_to_xpath,
 )
 from ._stubs.query import (
+    _matches_many as _matches_many,
+)
+from ._stubs.query import (
     _register_selector_error as _register_selector_error,
 )
 from ._stubs.query import (
