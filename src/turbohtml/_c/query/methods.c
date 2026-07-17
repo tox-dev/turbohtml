@@ -205,7 +205,7 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
     int error = 0;
     for (Py_ssize_t first = 0; first < count;) {
         PyObject *item = PyList_GET_ITEM(nodes, first);
-        if (!PyObject_TypeCheck(item, (PyTypeObject *)state->element_type)) {
+        if (!Py_IS_TYPE(item, (PyTypeObject *)state->element_type)) {
             PyErr_SetString(PyExc_TypeError, "filter candidates must be Element instances");
             error = 1;
             break;
@@ -219,7 +219,7 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
         } else {
             for (; index < count; index++) {
                 item = PyList_GET_ITEM(nodes, index);
-                if (!PyObject_TypeCheck(item, (PyTypeObject *)state->element_type)) {
+                if (!Py_IS_TYPE(item, (PyTypeObject *)state->element_type)) {
                     PyErr_SetString(PyExc_TypeError, "filter candidates must be Element instances");
                     error = 1;
                     break;
