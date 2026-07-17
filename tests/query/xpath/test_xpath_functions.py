@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Final
 from xml.etree import ElementTree as ET  # noqa: S405
 
 import pytest
@@ -27,6 +28,8 @@ HTML = (
     "<ul><li>1</li><li>2</li><li>3</li></ul>"
     "<a href='/y'>L</a><input disabled><!--note--></body></html>"
 )
+_LONG_NEEDLE: Final = "a" * 65 + "ba"
+_LATE_HAY: Final = "a" * 200 + _LONG_NEEDLE
 
 
 @pytest.fixture
@@ -180,6 +183,40 @@ def doc() -> turbohtml.Node:
 )
 def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) -> None:
     assert doc.xpath(expr) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "hay", "needle", "expected"),
+    [
+        pytest.param("contains($hay, $needle)", "a" * 400, "a" * 65 + "b", False, id="prefilter-miss"),
+        pytest.param(
+            "contains($hay, $needle)",
+            _LATE_HAY,
+            _LONG_NEEDLE,
+            True,
+            id="late-match",
+        ),
+        pytest.param("contains($hay, $needle)", "a" * 200 + "c" + "a" * 199, _LONG_NEEDLE, False, id="kmp-miss"),
+        pytest.param(
+            "substring-before($hay, $needle)",
+            _LATE_HAY,
+            _LONG_NEEDLE,
+            "a" * 200,
+            id="substring-before",
+        ),
+        pytest.param(
+            "substring-after($hay, $needle)",
+            _LATE_HAY + "z",
+            _LONG_NEEDLE,
+            "z",
+            id="substring-after",
+        ),
+        pytest.param("contains($hay, $needle)", "a" * 65, _LONG_NEEDLE, False, id="needle-longer"),
+        pytest.param("contains($hay, $needle)", _LONG_NEEDLE, _LONG_NEEDLE, True, id="short-hay"),
+    ],
+)
+def test_long_string_search(doc: turbohtml.Node, expression: str, hay: str, needle: str, expected: object) -> None:
+    assert doc.xpath(expression, hay=hay, needle=needle) == expected
 
 
 def test_number_parse_edge_cases(doc: turbohtml.Node) -> None:

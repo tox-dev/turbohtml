@@ -39,13 +39,67 @@ static int func_is(const xn *fn, const char *kw) {
     return index == fn->str_len;
 }
 
+static Py_ssize_t ucs4_find_kmp(const Py_UCS4 *hay, Py_ssize_t hlen, const Py_UCS4 *needle, Py_ssize_t nlen,
+                                Py_ssize_t offset) {
+    Py_ssize_t *prefix = PyMem_Malloc((size_t)nlen * sizeof(*prefix));
+    if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -2;        /* GCOVR_EXCL_LINE */
+    }
+    prefix[0] = 0;
+    for (Py_ssize_t index = 1, matched = 0; index < nlen; index++) {
+        while (matched > 0 && needle[index] != needle[matched]) {
+            matched = prefix[matched - 1];
+        }
+        if (needle[index] == needle[matched]) {
+            matched++;
+        }
+        prefix[index] = matched;
+    }
+    Py_ssize_t matched = 0;
+    for (Py_ssize_t index = offset; index < hlen; index++) {
+        while (matched > 0 && hay[index] != needle[matched]) {
+            matched = prefix[matched - 1];
+        }
+        if (hay[index] == needle[matched]) {
+            matched++;
+            if (matched == nlen) {
+                PyMem_Free(prefix);
+                return index - nlen + 1;
+            }
+        }
+    }
+    PyMem_Free(prefix);
+    return -1;
+}
+
 static Py_ssize_t ucs4_find(const Py_UCS4 *hay, Py_ssize_t hlen, const Py_UCS4 *needle, Py_ssize_t nlen) {
     if (nlen == 0) {
         return 0;
     }
-    for (Py_ssize_t index = 0; index + nlen <= hlen; index++) {
+    if (nlen > hlen) {
+        return -1;
+    }
+    if (memcmp(hay, needle, (size_t)nlen * sizeof(Py_UCS4)) == 0) {
+        return 0;
+    }
+    size_t candidates = nlen > 64 && hlen >= 256 ? 64 : SIZE_MAX;
+    Py_ssize_t last = nlen - 1;
+    for (Py_ssize_t index = 1; index + nlen <= hlen; index++) {
+        if (hay[index + last] != needle[last]) {
+            continue;
+        }
         if (memcmp(hay + index, needle, (size_t)nlen * sizeof(Py_UCS4)) == 0) {
             return index;
+        }
+        if (candidates != SIZE_MAX) {
+            candidates--;
+            if (candidates == 0) {
+                Py_ssize_t found = ucs4_find_kmp(hay, hlen, needle, nlen, index + 1);
+                if (found != -2) { /* GCOVR_EXCL_BR_LINE: -2 only after unforceable allocation failure */
+                    return found;
+                }
+                candidates = SIZE_MAX; /* GCOVR_EXCL_LINE: retain the allocation-free scan */
+            } /* GCOVR_EXCL_LINE: brace of the allocation-failure fallback */
         }
     }
     return -1;
