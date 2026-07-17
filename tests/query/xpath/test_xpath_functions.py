@@ -213,6 +213,7 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) ->
         ),
         pytest.param("contains($hay, $needle)", "a" * 65, _LONG_NEEDLE, False, id="needle-longer"),
         pytest.param("contains($hay, $needle)", _LONG_NEEDLE, _LONG_NEEDLE, True, id="short-hay"),
+        pytest.param("contains($hay, $needle)", "x" + "a" * 65 + "ca", _LONG_NEEDLE, False, id="short-hay-miss"),
     ],
 )
 def test_long_string_search(doc: turbohtml.Node, expression: str, hay: str, needle: str, expected: object) -> None:
