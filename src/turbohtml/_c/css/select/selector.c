@@ -243,6 +243,42 @@ static int sel_attr_default_ci(const Py_UCS4 *name, Py_ssize_t len) {
     return 0;
 }
 
+Py_UCS4 sel_fold(Py_UCS4 ch, int ci) {
+    return ci ? lower_ascii(ch) : ch;
+}
+
+static void sel_kmp_prefix(const Py_UCS4 *want, Py_ssize_t want_len, int ci, Py_ssize_t *prefix) {
+    prefix[0] = 0;
+    for (Py_ssize_t index = 1, matched = 0; index < want_len; index++) {
+        while (matched > 0 && sel_fold(want[index], ci) != sel_fold(want[matched], ci)) {
+            matched = prefix[matched - 1];
+        }
+        if (sel_fold(want[index], ci) == sel_fold(want[matched], ci)) {
+            matched++;
+        }
+        prefix[index] = matched;
+    }
+}
+
+static int sel_substr_overlaps(const Py_UCS4 *want, Py_ssize_t want_len, int ci) {
+    if (want_len <= 64) {
+        return 0;
+    }
+    Py_ssize_t *prefix = PyMem_Malloc((size_t)want_len * sizeof(*prefix));
+    if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return 1;         /* GCOVR_EXCL_LINE: retain the bounded matcher when classification runs out of memory */
+    }
+    sel_kmp_prefix(want, want_len, ci, prefix);
+    for (Py_ssize_t index = 64; index < want_len; index++) {
+        if (prefix[index] >= 64) {
+            PyMem_Free(prefix);
+            return 1;
+        }
+    }
+    PyMem_Free(prefix);
+    return 0;
+}
+
 /* Parse a bracketed attribute selector (the leading '[' already consumed). */
 static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     simple->kind = '[';
@@ -332,6 +368,11 @@ static void sel_attribute(sel_parser *parser, sel_simple *simple) {
     if (parser->pos >= parser->len || parser->src[parser->pos] != ']') {
         sel_fail(parser, "expected ']'");
         return;
+    }
+    if (parser->tree != NULL && simple->op == OP_SUBSTR &&
+        sel_substr_overlaps(simple->value, simple->value_len, simple->ci || simple->ci_default)) {
+        simple->kind = ':';
+        simple->pseudo = PSEUDO_SUBSTR_LONG;
     }
     parser->pos++;
 }
@@ -1066,10 +1107,6 @@ static int sel_match_compound(th_node *node, const sel_compound *compound, const
 static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx);
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx);
 
-Py_UCS4 sel_fold(Py_UCS4 ch, int ci) {
-    return ci ? lower_ascii(ch) : ch;
-}
-
 int sel_eq(const Py_UCS4 *left, Py_ssize_t alen, const Py_UCS4 *right, Py_ssize_t blen, int ci) {
     if (alen != blen) {
         return 0;
@@ -1096,6 +1133,69 @@ static int contains_ws_token(const Py_UCS4 *value, Py_ssize_t value_len, const P
         }
         if (cursor > start && sel_eq(value + start, cursor - start, want, want_len, ci)) {
             return 1;
+        }
+    }
+    return 0;
+}
+
+static int sel_substr_kmp(const Py_UCS4 *value, Py_ssize_t value_len, const Py_UCS4 *want, Py_ssize_t want_len,
+                          Py_ssize_t offset, int ci) {
+    Py_ssize_t *prefix = PyMem_Malloc((size_t)want_len * sizeof(*prefix));
+    if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE: the caller retains the allocation-free scan */
+    }
+    sel_kmp_prefix(want, want_len, ci, prefix);
+    Py_ssize_t matched = 0;
+    for (Py_ssize_t index = offset; index < value_len; index++) {
+        while (matched > 0 && sel_fold(value[index], ci) != sel_fold(want[matched], ci)) {
+            matched = prefix[matched - 1];
+        }
+        if (sel_fold(value[index], ci) == sel_fold(want[matched], ci)) {
+            matched++;
+            if (matched == want_len) {
+                PyMem_Free(prefix);
+                return 1;
+            }
+        }
+    }
+    PyMem_Free(prefix);
+    return 0;
+}
+
+static int sel_substr_long(const Py_UCS4 *value, Py_ssize_t value_len, const Py_UCS4 *want, Py_ssize_t want_len,
+                           int ci) {
+    if (want_len > value_len) {
+        return 0;
+    }
+    if (value_len < 256) {
+        for (Py_ssize_t start = 0; start + want_len <= value_len; start++) {
+            if (sel_eq(value + start, want_len, want, want_len, ci)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    size_t candidates = 64;
+    Py_ssize_t last = want_len - 1;
+    Py_UCS4 last_ch = sel_fold(want[last], ci);
+    for (Py_ssize_t start = 0; start + want_len <= value_len; start++) {
+        if (sel_fold(value[start + last], ci) != last_ch) {
+            continue;
+        }
+        if (sel_eq(value + start, want_len, want, want_len, ci)) {
+            return 1;
+        }
+        if (candidates != SIZE_MAX) { /* GCOVR_EXCL_BR_LINE: SIZE_MAX only after unforceable allocation failure */
+            candidates--;
+            if (candidates == 0) {
+                int found = sel_substr_kmp(value, value_len, want, want_len, start + 1, ci);
+                if (found >= 0) { /* GCOVR_EXCL_BR_LINE: negative only on unforceable allocation failure */
+                    return found;
+                }
+                /* GCOVR_EXCL_START: retain the allocation-free scan after an unforceable allocation failure */
+                candidates = SIZE_MAX;
+            }
+            /* GCOVR_EXCL_STOP */
         }
     }
     return 0;
@@ -1619,6 +1719,20 @@ static int sel_direction(th_tree *tree, th_node *node) {
     return 1;
 }
 
+static int sel_match_substr_attr(th_node *node, const sel_simple *simple) {
+    if (simple->attr_atom == UINT32_MAX) {
+        return 0;
+    }
+    const th_node_attr *attr = sel_find_attr(node, simple->attr_atom);
+    if (attr == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *value = attr->value != NULL ? attr->value : simple->value;
+    Py_ssize_t value_len = attr->value != NULL ? attr->value_len : 0;
+    int ci = simple->ci || (simple->ci_default && node->ns == TH_NS_HTML);
+    return sel_substr_long(value, value_len, simple->value, simple->value_len, ci);
+}
+
 static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
     switch (simple->pseudo) { /* GCOVR_EXCL_BR_LINE: the parser only stores known pseudo ids */
     case PSEUDO_ROOT:
@@ -1689,6 +1803,8 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     /* live UA/interaction or navigation state a static tree cannot express */
     case PSEUDO_NEVER:
         return 0;
+    case PSEUDO_SUBSTR_LONG:
+        return sel_match_substr_attr(node, simple);
     /* the functional pseudo-classes: :is()/:where() match the element against the
        nested list; :not() is its negation; :has() searches for a relative match
        anchored at it */

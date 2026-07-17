@@ -58,6 +58,7 @@ enum sel_pseudo {
     /* live UA/interaction or navigation state a static tree cannot express: these
        parse as valid selectors but match nothing (so :is()/:not() still compose) */
     PSEUDO_NEVER,
+    PSEUDO_SUBSTR_LONG,
 };
 
 typedef struct {

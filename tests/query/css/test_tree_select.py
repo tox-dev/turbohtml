@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
@@ -20,6 +20,7 @@ _DOC = (
     '<my-widget data-k="v" lang="en-US">w</my-widget>'
     "</section>"
 )
+_NON_OVERLAPPING_NEEDLE: Final = "".join(chr(0x100 + index) for index in range(70))
 
 
 def _sel(html: str, selector: str) -> list[str]:
@@ -103,6 +104,44 @@ def _sel(html: str, selector: str) -> list[str]:
 )
 def test_select_over_doc(selector: str, tags: list[str]) -> None:
     assert _sel(_DOC, selector) == tags
+
+
+@pytest.mark.parametrize(
+    ("value", "needle", "flag", "tags"),
+    [
+        pytest.param("a" * 400, "a" * 65 + "b", "", [], id="prefilter-miss"),
+        pytest.param("a" * 200 + "a" * 65 + "ba", "a" * 65 + "ba", "", ["div"], id="kmp-late-match"),
+        pytest.param("a" * 200 + "c" + "a" * 199, "a" * 65 + "ba", "", [], id="kmp-miss"),
+        pytest.param("a" * 200 + "a" * 65 + "ba", "A" * 65 + "BA", " i", ["div"], id="kmp-folded-match"),
+        pytest.param("a" * 65 + "ba", "a" * 65 + "ba", "", ["div"], id="short-value-match"),
+        pytest.param("a" * 66 + "c", "a" * 65 + "ba", "", [], id="short-value-miss"),
+        pytest.param("a" * 65, "a" * 65 + "ba", "", [], id="needle-longer-than-value"),
+        pytest.param("a" * 65 + "ba" + "z" * 300, "a" * 65 + "ba", "", ["div"], id="large-exact-match"),
+        pytest.param(
+            "x" * 100 + _NON_OVERLAPPING_NEEDLE,
+            _NON_OVERLAPPING_NEEDLE,
+            "",
+            ["div"],
+            id="no-overlap",
+        ),
+    ],
+)
+def test_long_substring(value: str, needle: str, flag: str, tags: list[str]) -> None:
+    assert _sel(f'<div data-value="{value}"></div>', f'[data-value*="{needle}"{flag}]') == tags
+
+
+def test_long_substring_missing_attribute() -> None:
+    needle: Final = "a" * 65 + "ba"
+    assert _sel(f'<div data-value="{needle}"></div><p></p>', f'[data-value*="{needle}"]') == ["div"]
+    assert _sel("<div data-value></div>", f'[data-value*="{needle}"]') == []
+    assert _sel("<div></div>", f'[missing*="{needle}"]') == []
+
+
+def test_long_substring_default_case_folding() -> None:
+    value: Final = "a" * 65 + "ba"
+    needle: Final = "A" * 65 + "BA"
+    assert _sel(f'<input type="{value}">', f'[type*="{needle}"]') == ["input"]
+    assert _sel(f'<svg><g type="{value}"></g></svg>', f'[type*="{needle}"]') == []
 
 
 @pytest.mark.parametrize(
