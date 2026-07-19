@@ -1,5 +1,5 @@
 {
-  "label": "input",
+  "label": "operation",
   "parties": [
     "turbohtml",
     "sanitize-html"
@@ -8,8 +8,8 @@
   "rows": [
     [
       "legacy 4 KiB",
-      5.40419714525342e-05,
-      0.0564835419645533
+      4.458844501039986e-05,
+      0.04240924373783249
     ]
   ]
 }

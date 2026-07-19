@@ -1,0 +1,20 @@
+{
+  "label": "structured-data extraction",
+  "parties": [
+    "turbohtml",
+    "extruct"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "product",
+      5.376538574116315e-06,
+      5.821607940437919e-05
+    ],
+    [
+      "catalog 8 KiB",
+      5.33387291852705e-05,
+      0.0005110883627139629
+    ]
+  ]
+}

@@ -34,7 +34,7 @@ and file/data-URI plumbing stays outside turbohtml's scope.
       - Broader on HTML: real tree, ``strip_tags``, ``remove``, document URL hints, sanitizing ``clean``
       - Broader on transport: HTTP headers, file/data URIs, in-place query-parameter mutation
     - - Performance
-      - C extension; 1.5x-4.6x on the shared URL batch, several times faster on entity-heavy text
+      - C extension; 2.4x-6.0x on the shared URL batch, several times faster on entity-heavy text
       - Pure-Python regex and ``urllib`` re-encoding
     - - Typing
       - Fully annotated with bundled ``.pyi`` stubs for the C extension
@@ -96,7 +96,7 @@ What w3lib has that turbohtml does not
 Performance
 ===========
 
-The URL surface is 1.5x-4.6x faster over a shared 100-URL batch, and the entity and tag helpers each run a
+The URL surface is 2.4x-6.0x faster over a shared 100-URL batch, and the entity and tag helpers each run a
 structure-aware C pass that still beats w3lib's regex on entity-heavy input:
 
 .. bench-table::

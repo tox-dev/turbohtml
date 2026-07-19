@@ -102,7 +102,7 @@ Performance
 Both libraries start from the raw HTML string, so each parses before it reads the tags: ``metadata_parser`` builds its
 own tree and maps the meta block in Python, where :meth:`~turbohtml.Document.opengraph` parses to the WHATWG tree and
 gathers the ``og:``/``twitter:`` tags in one C walk. On a social-card head, and on an 8 KiB article carrying that head,
-the single pass runs 55x faster on the head and 108x on the article:
+the single pass runs 55x faster on the head and 102x on the article:
 
 .. bench-table::
     :file: bench/metadata_parser.json

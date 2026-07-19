@@ -140,7 +140,7 @@ The :doc:`/development/performance` page benchmarks the full serializer, builder
 surface against lxml directly, and sweeps the node-path generators across every page size. Compiling a hot expression
 once with :class:`~turbohtml.XPath` (the parse happens at construction, so the call site only supplies the context node
 and any ``$name`` variables) stays ahead of lxml per evaluation, as the precompiled ``//a[@href]`` row shows. On the
-EXSLT cases, a ``re:test`` predicate runs nearly twenty times ahead of lxml even though ``re:`` dispatches to Python's
+EXSLT cases, a ``re:test`` predicate runs over fourteen times ahead of lxml even though ``re:`` dispatches to Python's
 :mod:`re` where lxml uses C ``libexslt``, because it skips the per-call namespace resolution; lxml's streaming
 evaluation narrows the node-set reductions on the multi-megabyte inputs.
 
@@ -179,9 +179,10 @@ with lxml.
     - - ``etree.XMLSyntaxError`` on malformed input
       - :exc:`~turbohtml.HTMLParseError` (its ``error`` is a :class:`~turbohtml.ParseError`)
 
-libxml2 leads on raw XML throughput -- it is a decade-tuned C parser, and the ``parse XML to a tree`` row shows it ahead
-on the catalog document. turbohtml's XML mode trades that for the same native, fully typed, dependency-free node API its
-HTML path uses, so an XML feed and an HTML page navigate, query, and serialize through one surface.
+turbohtml holds its own on raw XML throughput -- the ``parse XML to a tree`` row runs about 1.6 times faster than
+libxml2's decade-tuned C parser on the catalog document, and gives the same native, fully typed, dependency-free node
+API its HTML path uses, so an XML feed and an HTML page navigate, query, and serialize through one surface. libxml2's
+streaming evaluation still narrows on multi-megabyte inputs.
 
 ************************
  Transforming with XSLT
@@ -227,10 +228,9 @@ the imported declarations enter conflict resolution at lower import precedence.
 
 Two limits to plan for. Only ``xsl:import`` loads other files (pass ``base_url``); ``xsl:include`` and ``document()``
 load nothing, and locale-aware ``xsl:sort`` collation and ``id()`` over DTD-declared IDs are out of reach for want of a
-collation and DTD layer. And libxslt leads on transform throughput -- it is a decade-tuned C engine, and the ``XSLT
-transform`` row reflects that; turbohtml trades the raw speed for a stylesheet processor that ships in the same pure,
-dependency-free wheel as the parser, over one typed node API. A pipeline that lives inside libxslt's wider XSLT/EXSLT
-surface stays with lxml.
+collation and DTD layer. On transform throughput turbohtml runs about 1.3 times faster than libxslt's decade-tuned C
+engine on the ``XSLT transform`` row, and ships its stylesheet processor in the same pure, dependency-free wheel as the
+parser, over one typed node API. A pipeline that lives inside libxslt's wider XSLT/EXSLT surface stays with lxml.
 
 ****************
  How to migrate

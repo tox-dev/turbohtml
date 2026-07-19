@@ -40,8 +40,8 @@ call path, and returns a typed :class:`~turbohtml.detect.EncodingMatch` in place
       - ``detect``, ``detect_all``, ``UniversalDetector`` with a ``lang_filter``; no allow/exclude set, no language
         hint.
     - - Performance
-      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 37x to 1700x ahead; legacy
-        single-byte text runs 3.0x to 3.9x ahead. See the table below.
+      - ASCII, valid UTF-8, and real web pages short-circuit before any scoring, resolving 24x to 1700x ahead; legacy
+        single-byte text runs 3.2x to 4.0x ahead. See the table below.
       - Prober ensemble runs every model on every input; no fast path for clean UTF-8 or ASCII.
     - - Typing
       - Fully typed: ``EncodingMatch``, ``Detection``, ``EncodingDetector`` are annotated dataclasses/classes with
@@ -99,11 +99,11 @@ Performance
 .. bench-table::
     :file: bench/chardet.json
 
-Certain input short-circuits before any scoring, so ASCII, valid UTF-8, and real web pages resolve 40x to 2000x ahead of
-chardet's prober ensemble; declaration-less legacy single-byte text still runs about 3x ahead. Both libraries decode a
-15-sample multilingual differential correctly, though chardet often names a sibling or superset where turbohtml reports
-the WHATWG encoding a browser would pick. The one exception is CJK-heavy bytes, where ``cchardet``'s uchardet engine
-leads (the Shift_JIS row, 22x); turbohtml leads on the other rows.
+Certain input short-circuits before any scoring, so ASCII, valid UTF-8, and real web pages resolve 24x to 1700x ahead of
+chardet's prober ensemble; declaration-less legacy single-byte text still runs 3.2x to 4.0x ahead. Both libraries decode
+a 15-sample multilingual differential correctly, though chardet often names a sibling or superset where turbohtml
+reports the WHATWG encoding a browser would pick. The one exception is CJK-heavy bytes, where ``cchardet``'s uchardet
+engine leads (the Shift_JIS row, 2.3x); turbohtml leads on the declaration-less single-byte rows.
 
 ****************
  How to migrate

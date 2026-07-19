@@ -1,5 +1,5 @@
 {
-  "label": "input",
+  "label": "operation",
   "parties": [
     "turbohtml",
     "boilerpy3"
@@ -8,18 +8,18 @@
   "rows": [
     [
       "paragraph boilerplate classification — post (4 KiB)",
-      2.4708028159163103e-05,
-      0.0002487291120966499
+      2.494949084521636e-05,
+      0.0002498102945367009
     ],
     [
       "paragraph boilerplate classification — longform (16 KiB)",
-      9.308272982859005e-05,
-      0.0008669299037743864
+      9.409539932126639e-05,
+      0.0008658799368580125
     ],
     [
       "main-content text — main (4 KiB)",
-      3.4586474117285584e-06,
-      0.00017255453811534002
+      3.36329582921735e-06,
+      0.0001719192593564382
     ]
   ]
 }

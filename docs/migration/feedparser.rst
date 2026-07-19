@@ -39,7 +39,7 @@ jobs.
       - Frozen, fully typed :class:`~turbohtml.extract.Feed`/:class:`~turbohtml.extract.Entry` (``NamedTuple``)
       - ``FeedParserDict`` with attribute-or-key access and permissive fallbacks
     - - Performance
-      - One C walk of the parsed tree; over 12x faster on a 30-item feed
+      - One C walk of the parsed tree; over 60x faster on a 30-item feed
       - Python SAX-style scanner with per-element handlers
     - - Dependencies
       - Zero runtime deps (self-contained C extension)
@@ -66,7 +66,7 @@ What turbohtml adds
 
 - A frozen, fully typed result: :class:`~turbohtml.extract.Feed` and :class:`~turbohtml.extract.Entry` are
   ``NamedTuple``\ s with ``py.typed`` coverage, where feedparser returns an untyped ``FeedParserDict``.
-- One C walk under the per-tree critical section, over 12x faster than feedparser's Python scanner.
+- One C walk under the per-tree critical section, over 60x faster than feedparser's Python scanner.
 - Records that hold no reference back into the tree, so they outlive the document they came from.
 - The rest of the read path on the same string: query, main-content, and structured-data extraction, so a feed and the
   pages it links are handled by one library.
@@ -91,7 +91,7 @@ Performance
 ===========
 
 Both start from the raw feed string and parse before they read it. On a 30-item RSS feed carrying titles, links, guids,
-dates, ``dc:creator``, and ``content:encoded`` bodies, the C walk runs over 12 times faster than feedparser's scanner:
+dates, ``dc:creator``, and ``content:encoded`` bodies, the C walk runs over 60 times faster than feedparser's scanner:
 
 .. bench-table::
     :file: bench/feedparser.json

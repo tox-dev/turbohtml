@@ -1,5 +1,5 @@
 {
-  "label": "input",
+  "label": "operation",
   "parties": [
     "turbohtml",
     "justext"
@@ -8,18 +8,18 @@
   "rows": [
     [
       "paragraph boilerplate classification — post (4 KiB)",
-      2.4708028159163103e-05,
-      0.0008025319008690227
+      2.494949084521636e-05,
+      0.0007950866592485302
     ],
     [
       "paragraph boilerplate classification — longform (16 KiB)",
-      9.308272982859005e-05,
-      0.0032870972184658362
+      9.409539932126639e-05,
+      0.003269659397210489
     ],
     [
       "main-content text — main (4 KiB)",
-      3.4586474117285584e-06,
-      0.0005312970377720679
+      3.36329582921735e-06,
+      0.0005364752574337217
     ]
   ]
 }

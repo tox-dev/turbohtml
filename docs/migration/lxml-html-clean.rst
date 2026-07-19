@@ -96,8 +96,8 @@ Performance
 ===========
 
 ``turbohtml.clean`` runs the filtering walk in C rather than over an lxml tree, sanitizing about 13x faster than the
-blocklist cleaner. lxml-html-clean also ships ``autolink_html``, benchmarked here as the linkify op: turbohtml runs 2.1x
-faster on the comment case and 1.1x on markup, and about half the speed on plain prose (0.5x).
+blocklist cleaner. lxml-html-clean also ships ``autolink_html``, benchmarked here as the linkify op: turbohtml runs 2.4x
+faster on the comment case and 1.3x on markup, and about half the speed on plain prose (0.6x).
 
 .. bench-table::
     :file: bench/lxml-html-clean.json

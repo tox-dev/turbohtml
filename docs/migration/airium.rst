@@ -33,7 +33,7 @@ query, edit, re-serialize, or convert -- not a one-way string.
         layout
       - Context-manager tag authoring, auto-indented pretty-print, void-tag handling, reverse codegen
     - - Performance
-      - Builds in a C arena and serializes in C (about 5x to 6x faster on the bench below)
+      - Builds in a C arena and serializes in C (about 5x to 7x faster on the bench below)
       - Pure-Python string assembly with running indentation bookkeeping
     - - Typing
       - Ships ``.pyi`` stubs for the element, query, and serialize surface
@@ -68,7 +68,7 @@ What turbohtml adds
   :meth:`~turbohtml.Node.find`/``find_all`` -- airium has no query surface over what it emits.
 - Convert with :meth:`~turbohtml.Node.to_markdown` and :meth:`~turbohtml.Node.to_text`.
 - Round-trip: the same tree type parses arbitrary HTML back in, so generation and parsing share one API.
-- The arena build and C serializer run about five to six times faster than airium's Python assembly (see below).
+- The arena build and C serializer run about five to seven times faster than airium's Python assembly (see below).
 
 What airium has that turbohtml does not
 =======================================
@@ -86,7 +86,7 @@ Performance
 .. bench-table::
     :file: bench/airium.json
 
-``E`` is roughly five to six times faster than airium, and it hands back a real :class:`~turbohtml.Element`, not a
+``E`` is roughly five to seven times faster than airium, and it hands back a real :class:`~turbohtml.Element`, not a
 string, so the call that builds the markup also leaves a tree you can query, edit, and
 re-:meth:`~turbohtml.Node.serialize`.
 

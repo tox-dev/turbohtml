@@ -613,7 +613,7 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
     _name, relative, encoding = corpus.CORPUS_FILES[2]
     text = corpus.corpus_text(relative, encoding)
-    structural = tuple((feature, (feature, text)) for feature in _XPATH_FEATURES)
+    structural = tuple((f"``{feature}``", (feature, text)) for feature in _XPATH_FEATURES)
     parity = tuple(
         (label, (kind, text + _SVG_FRAGMENT if kind == "namespaces" else text)) for label, kind in _XPATH_PARITY
     )

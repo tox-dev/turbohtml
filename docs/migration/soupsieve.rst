@@ -99,8 +99,8 @@ Performance
 ===========
 
 soupsieve interprets each selector in Python per element; turbohtml compiles it against the tree once and matches by
-comparing interned integer atoms in C, so a compiled ``select`` runs 196 to 1,456 times faster across real pages and
-per-element ``match`` 79 to 148 times faster:
+comparing interned integer atoms in C, so a compiled ``select`` runs 196 to 1,480 times faster across real pages and
+per-element ``match`` 78 to 145 times faster:
 
 .. bench-table::
     :file: bench/soupsieve.json

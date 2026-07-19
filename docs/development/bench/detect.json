@@ -1,0 +1,30 @@
+{
+  "label": "detect links in text",
+  "parties": [
+    "turbohtml",
+    "linkify-it-py"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "find comment (1 link, 1 email)",
+      5.752625253448625e-07,
+      2.9201133898955807e-05
+    ],
+    [
+      "find prose (1 KiB)",
+      8.332848994759463e-06,
+      0.00030940569661386995
+    ],
+    [
+      "has_link comment",
+      2.309135490041747e-07,
+      2.14010235273084e-05
+    ],
+    [
+      "has_link prose (1 KiB)",
+      2.326366953534868e-06,
+      4.850744523003196e-06
+    ]
+  ]
+}

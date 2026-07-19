@@ -1,0 +1,15 @@
+{
+  "label": "collapsed word stream",
+  "parties": [
+    "turbohtml",
+    "html-text"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "collapsed (2 KiB)",
+      1.969680531092403e-06,
+      9.495287443665272e-05
+    ]
+  ]
+}

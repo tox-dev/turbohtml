@@ -82,7 +82,7 @@ What jsmin has that turbohtml does not
 Performance
 ===========
 
-On the library ladder (``python -m bench minify-js``) turbohtml runs about two to six times faster than jsmin and its
+On the library ladder (``python -m bench minify-js``) turbohtml runs about two to five times faster than jsmin and its
 output is up to half the size, because jsmin only deletes whitespace where turbohtml renames every local binding and
 runs the structural folds. Each ratio is against turbohtml:
 

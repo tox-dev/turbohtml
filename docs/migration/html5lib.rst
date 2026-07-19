@@ -35,7 +35,7 @@ serialization built in, so there is no foreign tree behind a treebuilder choice 
         serialization formatters
       - etree/DOM/lxml treebuilders, treewalkers, serializer filters, deprecated sanitizer; no built-in query API
     - - Performance
-      - C core; parse, tokenize, and fragment parse run 23x to 270x faster
+      - C core; parse, tokenize, and fragment parse run 23x to 240x faster
       - Pure Python; the reference implementation, tuned for correctness not speed
     - - Typing
       - Ships ``py.typed``; every public method annotated
@@ -63,7 +63,7 @@ These port one-to-one; the calls differ only in name (see the mapping table unde
 What turbohtml adds
 ===================
 
-- **A C engine.** Parsing, tokenizing, fragment parsing, and serialization all run in C, 23x to 270x faster than the
+- **A C engine.** Parsing, tokenizing, fragment parsing, and serialization all run in C, 23x to 240x faster than the
   pure-Python reference.
 - **A built-in query API.** html5lib hands back a tree and stops; you navigate etree/DOM yourself. turbohtml carries
   :meth:`~turbohtml.Node.find` / :meth:`~turbohtml.Node.find_all`, CSS :meth:`~turbohtml.Node.select`, and
@@ -101,7 +101,7 @@ What html5lib has that turbohtml does not
 Performance
 ===========
 
-The algorithm runs in C, so parsing, tokenizing, and fragment parsing run 23x to 270x faster than the pure-Python
+The algorithm runs in C, so parsing, tokenizing, and fragment parsing run 23x to 240x faster than the pure-Python
 implementation (:func:`turbohtml.parse_fragment` parses an ``innerHTML``-style snippet in its container context, the
 same WHATWG fragment algorithm html5lib's :func:`~html5lib.html5parser.parseFragment` runs):
 

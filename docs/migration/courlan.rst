@@ -37,7 +37,7 @@ probing) stays out of scope by design.
       - clean, normalize, and link-extract over the parsed DOM, one frozen config
       - clean/scrub/normalize/check, regex link extraction, ``UrlStore``, spam and navigation heuristics, a CLI
     - - Performance
-      - ~2x per URL on cleaning, 1.9x-3.5x on link extraction including the parse (see below)
+      - ~2x per URL on cleaning, 2.0x-3.3x on link extraction including the parse (see below)
       - baseline
     - - Typing
       - fully typed, ships ``py.typed`` and stubs
@@ -108,7 +108,7 @@ serialization a browser's address bar would show) and layer courlan's crawl cano
 removal, the strict allowlist, the language filter) on top, about 2x faster per URL.
 :func:`~turbohtml.extract.extract_links` reads anchors from the real WHATWG DOM instead of regex-scanning the markup, so
 links inside comments or scripts never leak in, a ``<base href>`` is honored, and pages whose navigation repeats the
-same targets clean each spelling once, 1.9x-3.5x ahead over real saved pages even with the parse in the loop:
+same targets clean each spelling once, 2.0x-3.3x ahead over real saved pages even with the parse in the loop:
 
 .. bench-table::
     :file: bench/courlan.json

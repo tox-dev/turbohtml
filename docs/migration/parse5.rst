@@ -78,8 +78,8 @@ position that stays available on every parse.
 Performance
 ===========
 
-turbohtml records the same spans in its C engine, so parsing the same document with locations on runs 1.5x to 3.5x
-faster than parse5 measured in-process (Node startup excluded):
+turbohtml records the same spans in its C engine and stays in-process, while parse5 runs in a Node subprocess whose
+startup dominates each call, so parsing the same document with locations on lands 146x to 2100x faster:
 
 .. bench-table::
     :file: bench/parse5.json

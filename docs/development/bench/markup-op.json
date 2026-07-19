@@ -1,0 +1,30 @@
+{
+  "label": "Markup operations",
+  "parties": [
+    "turbohtml",
+    "markupsafe"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "striptags",
+      1.1059042240191274e-06,
+      2.223077277670645e-06
+    ],
+    [
+      "unescape",
+      1.8616479635265767e-07,
+      9.318906355693102e-07
+    ],
+    [
+      "format (escapes operands)",
+      1.631925073238468e-06,
+      1.9302145220242058e-06
+    ],
+    [
+      "join (escapes operands)",
+      5.968347045359756e-07,
+      1.1427871864440795e-06
+    ]
+  ]
+}

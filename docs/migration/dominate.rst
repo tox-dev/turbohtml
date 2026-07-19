@@ -68,7 +68,8 @@ What turbohtml adds
   XPath.
 - The markup serializes by exactly the WHATWG rules that parse it back, so a fragment round-trips; dominate hand-renders
   its own string.
-- ``E`` assembles the fragment in turbohtml's arena and serializes it in C, about three times faster than dominate.
+- ``E`` assembles the fragment in turbohtml's arena and serializes it in C, about three to four times faster than
+  dominate.
 - A :class:`~turbohtml.Minify` layout (whitespace collapse, optional-tag omission, JS/CSS minify) on top of the compact
   and :class:`~turbohtml.Indent` layouts; dominate pretty-prints but does not minify.
 - Full type annotations with a ``py.typed`` marker.
@@ -95,8 +96,8 @@ What dominate has that turbohtml does not
 Performance
 ===========
 
-``E`` is about three times faster than dominate. The same ``<ul>`` of rows -- a class, a ``data`` attribute, and a text
-child apiece -- built both ways:
+``E`` is about three to four times faster than dominate. The same ``<ul>`` of rows -- a class, a ``data`` attribute, and
+a text child apiece -- built both ways:
 
 .. bench-table::
     :file: bench/dominate.json

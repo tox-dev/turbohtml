@@ -100,7 +100,7 @@ Performance
 
 The corpus benches nh3's allowlist sanitizer against :func:`turbohtml.clean.sanitize` and nh3's ``clean_text`` HTML
 escaper against :func:`turbohtml.escape`. turbohtml stays in the same native tier as the Rust binding and leads it on
-both: sanitizing runs nearly 4x faster, and escaping runs 2.4x to 65x faster depending on how much of the input needs
+both: sanitizing runs nearly 4x faster, and escaping runs 2.5x to 65x faster depending on how much of the input needs
 rewriting.
 
 ****************

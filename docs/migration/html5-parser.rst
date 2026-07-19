@@ -96,7 +96,7 @@ Performance
 ===========
 
 html5-parser builds its tree through gumbo into ``libxml2``, where turbohtml runs its own C engine straight into the
-native tree, so parsing the same document runs 6x to 12x faster:
+native tree, so parsing the same document runs 5x to 13x faster:
 
 .. bench-table::
     :file: bench/html5-parser.json

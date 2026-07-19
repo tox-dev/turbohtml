@@ -34,7 +34,7 @@ common case of declared or structurally certain input resolves without running a
       - ``detect``, ``detect_all``, streaming ``EncodingDetector``, allow/exclude and language constraints
       - Rich match objects (chaos, coherence, alphabets, multiple languages), file/stream helpers, CLI, explain logging
     - - Performance
-      - C, short-circuits certain input in microseconds; 24x-1280x ahead on declared/UTF-8/ASCII bytes (see table)
+      - C, short-circuits certain input in microseconds; 23x-760x ahead on declared/UTF-8/ASCII bytes (see table)
       - Pure Python, always runs its per-codec decode and scoring passes
     - - Typing
       - Fully typed; frozen ``EncodingMatch`` / ``Detection`` records with shipped stubs
@@ -109,8 +109,8 @@ Performance
     :file: bench/charset-normalizer.json
 
 Declared or structurally certain input short-circuits, so ASCII, UTF-8, and real web pages resolve in microseconds --
-24x to 1280x ahead of charset-normalizer, which always runs its scoring passes. On declaration-less legacy bytes the two
-trade wins (see the table).
+23x to 760x ahead of charset-normalizer, which always runs its scoring passes. On declaration-less legacy bytes
+turbohtml stays 1.7x to 5.8x ahead (see the table).
 
 ****************
  How to migrate

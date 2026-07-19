@@ -67,7 +67,7 @@ What turbohtml adds
 ===================
 
 - The escape and every ``Markup`` operation run in C, so autoescaping stays a single C call and the small-string escape
-  runs 2-3x faster than markupsafe's own C escape.
+  runs roughly 3x faster than markupsafe's own C escape.
 - :meth:`~turbohtml.migration.markupsafe.Markup.striptags` parses with the WHATWG tokenizer instead of scanning for
   ``<``, so a comment containing ``<`` cannot end tag removal early and references resolve during stripping.
 - :meth:`~turbohtml.migration.markupsafe.Markup.unescape` uses the full HTML5 named-reference table, resolving

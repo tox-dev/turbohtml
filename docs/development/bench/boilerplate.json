@@ -1,0 +1,23 @@
+{
+  "label": "paragraph boilerplate classification",
+  "parties": [
+    "turbohtml",
+    "boilerpy3",
+    "justext"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "post (4 KiB)",
+      2.494949084521636e-05,
+      0.0002498102945367009,
+      0.0007950866592485302
+    ],
+    [
+      "longform (16 KiB)",
+      9.409539932126639e-05,
+      0.0008658799368580125,
+      0.003269659397210489
+    ]
+  ]
+}

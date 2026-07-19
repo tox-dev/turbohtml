@@ -1,5 +1,5 @@
 {
-  "label": "CSS selector to XPath 1.0",
+  "label": "operation",
   "parties": [
     "turbohtml",
     "cssselect"
@@ -7,29 +7,54 @@
   "metrics": [],
   "rows": [
     [
-      "type",
-      2.393057085085341e-07,
-      9.773965405912577e-07
+      "CSS selector to XPath 1.0 — type",
+      1.8616995281680223e-07,
+      9.949885680778555e-07
     ],
     [
-      "compound",
-      3.7205648362181876e-07,
-      1.2771348754843833e-05
+      "CSS selector to XPath 1.0 — compound",
+      3.4401216115568606e-07,
+      1.2666957932339074e-05
     ],
     [
-      "structural",
-      2.9607746321325124e-07,
-      1.1874946612996004e-05
+      "CSS selector to XPath 1.0 — structural",
+      3.052952526672037e-07,
+      1.1849318144877922e-05
     ],
     [
-      "complex",
-      5.668301582180865e-07,
-      2.3090601563543107e-05
+      "CSS selector to XPath 1.0 — complex",
+      6.064761611875487e-07,
+      2.255418047951707e-05
     ],
     [
-      "group",
-      4.5242961140464405e-07,
-      1.4577852051426513e-05
+      "CSS selector to XPath 1.0 — group",
+      5.318798094030205e-07,
+      1.4593709823884638e-05
+    ],
+    [
+      "CSS selector specificity — type",
+      1.394371350419791e-07,
+      3.5463776452138165e-07
+    ],
+    [
+      "CSS selector specificity — compound",
+      2.3750970493489435e-07,
+      9.814858285513614e-06
+    ],
+    [
+      "CSS selector specificity — structural",
+      1.9259749178731262e-07,
+      8.903917186605288e-06
+    ],
+    [
+      "CSS selector specificity — complex",
+      3.7307245070450355e-07,
+      1.747633963849656e-05
+    ],
+    [
+      "CSS selector specificity — group",
+      4.0044596730052596e-07,
+      1.1070693795763495e-05
     ]
   ]
 }

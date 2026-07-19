@@ -100,8 +100,8 @@ Performance
 
 linkify-it-py only locates link spans in plain text; it never rewrites HTML, so the comparison is on detection alone.
 The primitives outrun the Python scanner: :meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>` against
-``LinkifyIt().match`` runs 38x to 48x faster, and :meth:`~turbohtml.clean.LinkDetector.has_link` against
-``LinkifyIt().test`` up to 83x. The one close row is ``has_link`` on prose (2x), where ``test`` short-circuits on the
+``LinkifyIt().match`` runs 37x to 51x faster, and :meth:`~turbohtml.clean.LinkDetector.has_link` against
+``LinkifyIt().test`` up to 93x. The one close row is ``has_link`` on prose (2x), where ``test`` short-circuits on the
 first link near the start.
 
 ****************

@@ -1,0 +1,27 @@
+{
+  "label": "main-content text",
+  "parties": [
+    "turbohtml",
+    "boilerpy3",
+    "goose3",
+    "justext",
+    "news-please",
+    "newspaper3k",
+    "resiliparse",
+    "trafilatura"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "main (4 KiB)",
+      3.36329582921735e-06,
+      0.0001719192593564382,
+      0.0016162344299573306,
+      0.0005364752574337217,
+      0.005170894380110743,
+      0.00152267323645295,
+      2.001226823710548e-05,
+      0.00040725585964764834
+    ]
+  ]
+}

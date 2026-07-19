@@ -115,11 +115,11 @@ the parse, the table now covers the whole shared surface. CSS selection runs up 
 (``extract_plain_text`` against :meth:`~turbohtml.Node.to_text`, and its ``main_content=True`` mode against
 :meth:`~turbohtml.Node.main_text`) walks the WHATWG tree once in C where resiliparse renders off the lexbor tree in a
 second pass, so layout-aware text runs 5 to 15x faster. The mutable-DOM operations resiliparse exposes bench too:
-rel-tagging, class edits, and subtree removal run up to ~8x faster, and social-card extraction and link rewriting land a
+rel-tagging, class edits, and subtree removal run up to ~6x faster, and social-card extraction and link rewriting land a
 few times ahead. A handful of cheap passes trade the lead -- raw text concatenation, flat link extraction, and URL
 absolutization sit within a small factor either way -- and standalone encoding detection (``resiliparse.parse.encoding``
-against :func:`turbohtml.detect.detect`) swings with the byte stream, from an order of magnitude slower on a short
-Shift-JIS sample to ~97x faster on a large UTF-8 page:
+against :func:`turbohtml.detect.detect`) swings with the byte stream, from about 2x slower on a short Shift-JIS sample
+to ~77x faster on a large UTF-8 page:
 
 .. bench-table::
     :file: bench/resiliparse.json

@@ -1,0 +1,15 @@
+{
+  "label": "Google Docs export to Markdown",
+  "parties": [
+    "turbohtml",
+    "html2text"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "google_doc (4 KiB)",
+      9.909010482841059e-06,
+      0.0005534039466776145
+    ]
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "label": "parse a fragment",
+  "parties": [
+    "turbohtml",
+    "html5lib",
+    "lxml"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "table-row fragment (2 kB)",
+      9.619130326695332e-06,
+      0.0008218845543069619,
+      3.4871010694340994e-05
+    ]
+  ]
+}
