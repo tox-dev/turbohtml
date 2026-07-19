@@ -1,1 +1,2 @@
-Refresh every benchmark comparison table in the performance and migration guides from a full profile-guided run, widen the read-path tables to the competitors the suites gained, and rewrite the surrounding prose to the measured numbers.
+Refresh every benchmark comparison table in the performance and migration guides from a full profile-guided run, widen
+the read-path tables to the competitors the suites gained, and rewrite the surrounding prose to the measured numbers.
