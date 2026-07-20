@@ -5,7 +5,7 @@ from __future__ import annotations
 from turbohtml import Element, parse
 from turbohtml.query import (  # the soupsieve names
     closest,
-    filter,
+    filter,  # ruff:ignore[builtin-import-shadowing]  # the soupsieve name
     iselect,
     match,
     select,

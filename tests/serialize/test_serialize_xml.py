@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from xml.etree import (
-    ElementTree as ET,  # parsing turbohtml's own serialized output, not untrusted input
+from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
+    ElementTree as ET,
 )
 
 import pytest
@@ -214,8 +214,8 @@ def _parsed_inner_xml(markup: str) -> str:
 
 
 def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
-    from turbohtml import (
-        Comment,  # local: only this raw-vs-well-formed contrast needs the leaf
+    from turbohtml import (  # ruff:ignore[import-outside-top-level]  # only this raw-vs-well-formed contrast needs it
+        Comment,
     )
 
     node = Element("doc", children=[Comment("a--b")])
@@ -234,8 +234,8 @@ def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
     ],
 )
 def test_inner_xml_comment_is_made_well_formed(body: str, expected: str) -> None:
-    from turbohtml import (
-        Comment,  # local: only this comment-body suite needs the leaf type
+    from turbohtml import (  # ruff:ignore[import-outside-top-level]  # only this comment-body suite needs the leaf type
+        Comment,
     )
 
     out = _inner_xml(Comment(body))

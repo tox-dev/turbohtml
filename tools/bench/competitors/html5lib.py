@@ -40,8 +40,8 @@ def fragment(text: str) -> None:
 
 def tokenize(text: str) -> None:
     """Drive html5lib's tokenizer over the input."""
-    from html5lib._tokenizer import (
-        HTMLTokenizer,  # html5lib's tokenizer is internal API
+    from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # internal API
+        HTMLTokenizer,
     )
 
     for _ in HTMLTokenizer(text):

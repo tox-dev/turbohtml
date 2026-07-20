@@ -842,8 +842,8 @@ def test_strip_propagates_a_child_filter_error() -> None:
 
 
 def test_sanitize_rejects_non_element() -> None:
-    from turbohtml._html import (
-        _sanitize,  # exercising the C argument guard directly
+    from turbohtml._html import (  # ruff:ignore[import-outside-top-level]  # exercising the C argument guard directly
+        _sanitize,
     )
 
     # the policy arguments after the element; only the non-element first argument matters to this guard
@@ -856,8 +856,8 @@ def test_sanitize_rejects_non_element() -> None:
 
 
 def test_sanitize_rejects_wrong_arguments() -> None:
-    from turbohtml._html import (
-        _sanitize,  # exercising the C argument parsing directly
+    from turbohtml._html import (  # ruff:ignore[import-outside-top-level]  # exercising the C argument parsing directly
+        _sanitize,
     )
 
     with pytest.raises(TypeError):

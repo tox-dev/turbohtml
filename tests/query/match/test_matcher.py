@@ -7,10 +7,10 @@ from typing import cast
 import pytest
 
 from turbohtml import Element, parse
-from turbohtml.query import (  # the soupsieve entry-point name
+from turbohtml.query import (
     Matching,
     SelectorSyntaxError,
-    compile,
+    compile,  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
     css,
 )
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from xml.etree import (
+from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catalogs are trusted, pinned vendored fixtures
     ElementTree as ET,
 )
 
