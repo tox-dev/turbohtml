@@ -55,7 +55,7 @@ def _load_cases() -> list[Any]:
             expected = [
                 _decode_token(token) if double_escaped else list(token)
                 for token in test["output"]
-                if token != "ParseError"  # noqa: S105  # a token-stream marker, not a password
+                if token != "ParseError"  # ruff:ignore[hardcoded-password-string]  # a token-stream marker, not a password
             ]
             errors = [(error["code"], error["line"], error["col"]) for error in test.get("errors", [])]
             last_start_tag = test.get("lastStartTag")

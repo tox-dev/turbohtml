@@ -178,7 +178,7 @@ def test_element_attrs_must_be_a_mapping(attrs: object) -> None:
 
 def test_element_mapping_getitem_failure_propagates() -> None:
     class BadMapping:
-        def keys(self) -> list[str]:  # noqa: PLR6301  # a mapping protocol method must be an instance method
+        def keys(self) -> list[str]:  # ruff:ignore[no-self-use]  # a mapping protocol method must be an instance method
             return ["x"]
 
         def __getitem__(self, key: str) -> str:
@@ -190,7 +190,7 @@ def test_element_mapping_getitem_failure_propagates() -> None:
 
 def test_element_mapping_keys_failure_is_not_masked() -> None:
     class RaisingKeys:
-        def keys(self) -> list[str]:  # noqa: PLR6301  # a mapping protocol method must be an instance method
+        def keys(self) -> list[str]:  # ruff:ignore[no-self-use]  # a mapping protocol method must be an instance method
             msg = "boom"
             raise RuntimeError(msg)
 

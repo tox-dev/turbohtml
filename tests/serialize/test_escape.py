@@ -112,7 +112,7 @@ def test_escape_wide_lookalike_codepoints() -> None:
 
 
 def test_escape_str_subclass_returns_true_str() -> None:
-    class StrSubclass(str):  # noqa: FURB189  # subclassing str is the behavior under test
+    class StrSubclass(str):  # ruff:ignore[subclass-builtin]  # subclassing str is the behavior under test
         __slots__ = ()
 
     result = turbohtml.escape(StrSubclass("a & b"))

@@ -192,7 +192,7 @@ def test_linkify_email_keeps_non_ascii_local_part() -> None:
 
 
 def test_linkify_veto_callback_keeps_plain_text() -> None:
-    assert linkify("http://x.com", Linkify(callbacks=[lambda link: None])) == "http://x.com"  # noqa: ARG005
+    assert linkify("http://x.com", Linkify(callbacks=[lambda link: None])) == "http://x.com"  # ruff:ignore[unused-lambda-argument]
 
 
 def test_linkify_callback_can_change_text() -> None:
@@ -360,8 +360,8 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
 )
 def test_scanner_spans(
     text: str,
-    parse_email: bool,  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
-    bare_domains: bool,  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+    parse_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    bare_domains: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     spans: list[tuple[int, int, int]],
 ) -> None:
     assert _linkify_scan(text, parse_email, bare_domains) == spans
@@ -383,18 +383,18 @@ def test_scanner_url_schemes_restrict_authority(
     spans: list[tuple[int, int, int]],
 ) -> None:
     # a non-None url_schemes tuple restricts scheme://host matching to that allowlist; omitting it matches any scheme
-    assert _linkify_scan(text, False, False, (), url_schemes) == spans  # noqa: FBT003  # positional-only C binding
+    assert _linkify_scan(text, False, False, (), url_schemes) == spans  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding
 
 
 def test_scanner_omitting_url_schemes_matches_any_scheme() -> None:
-    assert _linkify_scan("xyzzy://example.com", False, False) == [(0, 19, 0)]  # noqa: FBT003  # positional C binding
+    assert _linkify_scan("xyzzy://example.com", False, False) == [(0, 19, 0)]  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
 
 
 def test_scanner_rejects_non_str_text() -> None:
     with pytest.raises(TypeError):
-        _linkify_scan(123, False, False)  # noqa: FBT003  # ty: ignore[invalid-argument-type]  # the C arg check is the point
+        _linkify_scan(123, False, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # the C arg check is the point
 
 
 def test_scanner_rejects_non_tuple_url_schemes() -> None:
     with pytest.raises(TypeError):
-        _linkify_scan("http://x.com", False, False, (), ["http"])  # noqa: FBT003  # ty: ignore[invalid-argument-type]
+        _linkify_scan("http://x.com", False, False, (), ["http"])  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]

@@ -21,4 +21,4 @@ _PYTHON_BLOCKS = re.findall(
 def test_readme_examples_run() -> None:
     namespace: dict[str, object] = {}
     for block in _PYTHON_BLOCKS:
-        exec(block, namespace)  # noqa: S102  # our own README, run as one continuous script
+        exec(block, namespace)  # ruff:ignore[exec-builtin]  # our own README, run as one continuous script

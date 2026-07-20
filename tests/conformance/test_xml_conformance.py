@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from xml.etree import ElementTree as ET  # noqa: S405 -- the catalogs are trusted, pinned vendored fixtures
+from xml.etree import (
+    ElementTree as ET,
+)
 
 import pytest
 
@@ -114,7 +116,7 @@ def _clean(text: str) -> str:
 
 def _catalog_tests(catalog: str) -> list[tuple[dict[str, str], Path]]:
     path = _DATA / catalog
-    root = ET.fromstring(f"<WRAP>{_clean(path.read_text(encoding='utf-8', errors='replace'))}</WRAP>")  # noqa: S314
+    root = ET.fromstring(f"<WRAP>{_clean(path.read_text(encoding='utf-8', errors='replace'))}</WRAP>")  # ruff:ignore[suspicious-xml-element-tree-usage]
     out: list[tuple[dict[str, str], Path]] = []
     for test in root.iter("TEST"):
         base = path.parent / xml_base if (xml_base := test.get(_XMLNS)) else path.parent
@@ -182,7 +184,7 @@ def _load() -> list[object]:
                 marks.append(pytest.mark.xfail(reason=reason, strict=False))
             counts["skip" if skip else "xfail" if reason else "assert"] += 1
             params.append(pytest.param(source, expect_raise, id=attrib["ID"], marks=marks))
-    print(  # noqa: T201 -- surface the breakdown in the test log
+    print(  # ruff:ignore[print] -- surface the breakdown in the test log
         f"\nxmlconf: {len(params)} cases -- {counts['assert']} hard assertions, "
         f"{counts['xfail']} xfail (documented deviations), {counts['skip']} skipped (optional)"
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pickle  # noqa: S403  # round-tripping our own trusted payloads
+import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
 
 import pytest
 
@@ -11,7 +11,7 @@ from turbohtml._html import _reconstruct  # the private pickle hook
 
 
 def _roundtrip(node: Node) -> Node:
-    return pickle.loads(pickle.dumps(node))  # noqa: S301  # our own trusted payload
+    return pickle.loads(pickle.dumps(node))  # ruff:ignore[suspicious-pickle-usage]  # our own trusted payload
 
 
 @pytest.mark.parametrize(

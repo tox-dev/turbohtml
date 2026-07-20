@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._html import MutationObserver as MutationObserver  # noqa: PLC0414  # re-export the C type
+from ._html import MutationObserver as MutationObserver  # ruff:ignore[useless-import-alias]  # re-export the C type
 from ._html import Node, _register_mutation_record
 
 

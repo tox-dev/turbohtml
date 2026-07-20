@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # noqa: S404  # drives the committed parse5 Node runner over a fixed argv, not external input
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # drives the committed parse5 Node runner over a fixed argv, not external input
 from operator import itemgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
@@ -83,8 +83,8 @@ def _p5_span(raw: list[int] | None) -> Span | None:
 def _parse5(html: str) -> dict[int, _Located]:
     """Run the document through parse5, one record per located element; skips if parse5 is not installed."""
     try:
-        proc = subprocess.run(  # noqa: S603  # fixed argv, not external input; the stdin is test corpus
-            ["node", str(_RUNNER)],  # noqa: S607  # node is resolved from PATH, the committed runner from the repo
+        proc = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, not external input; the stdin is test corpus
+            ["node", str(_RUNNER)],  # ruff:ignore[start-process-with-partial-path]  # node is resolved from PATH, the committed runner from the repo
             input=html,
             capture_output=True,
             text=True,

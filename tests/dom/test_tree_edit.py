@@ -68,8 +68,8 @@ def test_append_adopts_every_attribute_shape() -> None:
     box.append(source)
     held = _found(box, "x")
     assert held.attrs["data-custom-xyz"] == "1"
-    assert held.attrs["disabled"] == ""  # noqa: PLC1901  # exactly "" (valueless reads empty), not None
-    assert held.attrs["value"] == ""  # noqa: PLC1901  # exactly ""
+    assert held.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "" (valueless reads empty), not None
+    assert held.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
 
 
 def test_append_adopts_an_empty_data_node() -> None:

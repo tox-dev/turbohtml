@@ -65,7 +65,7 @@ def grammar(body: str, *, attrs: str = "") -> str:
         pytest.param("<notAllowed/>", "<doc/>", False, id="notAllowed"),
     ],
 )
-def test_pattern(body: str, xml: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_pattern(body: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert check(wrap(body), xml).valid is ok
 
 
@@ -184,7 +184,7 @@ def test_combine_interleave() -> None:
         pytest.param("<choice><name>a</name><name>b</name></choice>", "<doc><b>x</b></doc>", True, id="name-choice"),
     ],
 )
-def test_name_classes(nameclass: str, xml: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_name_classes(nameclass: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = wrap(f"<oneOrMore><element>{nameclass}<text/></element></oneOrMore>")
     assert check(schema, xml).valid is ok
 

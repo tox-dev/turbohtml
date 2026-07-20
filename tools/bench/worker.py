@@ -91,7 +91,7 @@ def main() -> None:
         name = f"{operation}|{case_name}|{label}"
         try:  # a stricter competitor parser (lightningcss rejects media queries the WHATWG rules recover) errors on
             func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)  # that one input, not the whole op
-        except Exception as exc:  # noqa: BLE001  # record the thrown message so the table can name why the cell is empty
+        except Exception as exc:  # ruff:ignore[blind-except]  # record the thrown message so the table can name why the cell is empty
             stats[name] = {"error": " ".join(str(exc).split())[:200] or type(exc).__name__}
             continue
         if (result := _bench(runner, name, func, arg)) is not None and result.get_nvalue() > 1:

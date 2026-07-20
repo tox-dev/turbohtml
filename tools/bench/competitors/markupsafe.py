@@ -21,7 +21,7 @@ def markup(text: str) -> None:
 @functools.cache
 def _markup_of(text: str) -> markupsafe.Markup:
     """Return a Markup wrapping the text, cached so the operations time only the method call."""
-    return markupsafe.Markup(text)  # noqa: S704  # fixed benchmark fixture, not untrusted input
+    return markupsafe.Markup(text)  # ruff:ignore[unsafe-markup-use]  # fixed benchmark fixture, not untrusted input
 
 
 def markup_op(case: tuple[str, object]) -> None:

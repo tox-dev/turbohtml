@@ -32,13 +32,13 @@ _BleachAttributes = (
 )
 
 
-def clean(  # noqa: PLR0913, PLR0917  # this is bleach.clean's signature, kept verbatim for drop-in compatibility
+def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # this is bleach.clean's signature, kept verbatim for drop-in compatibility
     text: str,
     tags: Iterable[str] | None = None,
     attributes: object = None,
     protocols: Iterable[str] | None = None,
-    strip: bool = False,  # noqa: FBT001, FBT002  # bleach keeps strip a positional flag
-    strip_comments: bool = True,  # noqa: FBT001, FBT002  # bleach keeps strip_comments a positional flag
+    strip: bool = False,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip a positional flag
+    strip_comments: bool = True,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip_comments a positional flag
     css_sanitizer: object = None,
 ) -> str:
     """

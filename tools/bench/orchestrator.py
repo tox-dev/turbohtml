@@ -238,7 +238,9 @@ def run(command: str, pyperf_args: tuple[str, ...] = (), *, pgo: bool = False) -
         elif command == "core":
             report_core(pyperf_args, workdir=workdir, core_python=_core_python(workdir, pgo=pgo))
         elif command == "interpreters":
-            from bench import interpreters  # noqa: PLC0415  # imports orchestrator, so bind it once the command asks
+            from bench import (
+                interpreters,  # imports orchestrator, so bind it once the command asks
+            )
 
             interpreters.build(workdir, pyperf_args)
         elif command == "all":

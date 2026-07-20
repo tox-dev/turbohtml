@@ -52,7 +52,7 @@ _REGRESSION_TOLERANCE: Final = 0.02  # a held-out op slower than this fraction i
 def _measure() -> dict[str, float]:
     """Time each hot operation over the held-out pages under the currently installed build; return seconds per batch."""
     # imported lazily: bench.core binds the installed extension, which only the measured worker process has
-    from bench.core import OPERATIONS  # noqa: PLC0415
+    from bench.core import OPERATIONS  # ruff:ignore[import-outside-top-level]
 
     pages = real_pages(_HELD_OUT_PAGES)
     timings: dict[str, float] = {}

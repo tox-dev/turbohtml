@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import string
-import subprocess  # noqa: S404  # the migration test runs jinja2 in a clean interpreter; the command is fixed, not input
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the migration test runs jinja2 in a clean interpreter; the command is fixed, not input
 import sys
 from textwrap import dedent
 from typing import TYPE_CHECKING, cast
@@ -100,7 +100,7 @@ def test_escape_stringifies_other_objects() -> None:
     ],
 )
 def test_escape_propagates_errors(factory: Callable[[], object]) -> None:
-    with pytest.raises(ValueError):  # noqa: PT011  # the path raises a bare ValueError with no message to match
+    with pytest.raises(ValueError):  # ruff:ignore[pytest-raises-too-broad]  # the path raises a bare ValueError with no message to match
         escape(factory())
 
 
@@ -406,7 +406,7 @@ _MIGRATION_SCRIPT = dedent(
 def test_jinja2_migrates_to_turbohtml_markup() -> None:
     # Run in a clean interpreter so markupsafe can be swapped for turbohtml.migration.markupsafe before jinja2
     # imports it; this proves a jinja2-based project migrates by changing only the import.
-    result = subprocess.run(  # noqa: S603  # fixed argv (this interpreter + a literal script), no external input
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv (this interpreter + a literal script), no external input
         [sys.executable, "-c", _MIGRATION_SCRIPT],
         capture_output=True,
         text=True,

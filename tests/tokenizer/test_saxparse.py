@@ -230,7 +230,7 @@ def test_iter_events_is_lazy() -> None:
     "so this cycle leaks there; see docs/explanation/interpreters.rst",
 )
 def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
-    class _Cyclic(str):  # noqa: FURB189  # a real str subclass: _sax_events requires str, and the slots let it cycle
+    class _Cyclic(str):  # ruff:ignore[subclass-builtin]  # a real str subclass: _sax_events requires str, and the slots let it cycle
         __slots__ = ("loop", "sentinel")
         loop: object
         sentinel: object

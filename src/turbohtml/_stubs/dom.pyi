@@ -277,7 +277,7 @@ class TreeWalker:
         self,
         root: Node,
         what_to_show: int = ...,
-        filter: Callable[[Node], int] | None = ...,  # noqa: A002  # the DOM constructor's argument name
+        filter: Callable[[Node], int] | None = ...,  # ruff:ignore[builtin-argument-shadowing]  # the DOM constructor's argument name
     ) -> None: ...
     @property
     def root(self) -> Node: ...
@@ -303,7 +303,7 @@ class NodeIterator:
         self,
         root: Node,
         what_to_show: int = ...,
-        filter: Callable[[Node], int] | None = ...,  # noqa: A002  # the DOM constructor's argument name
+        filter: Callable[[Node], int] | None = ...,  # ruff:ignore[builtin-argument-shadowing]  # the DOM constructor's argument name
     ) -> None: ...
     @property
     def root(self) -> Node: ...

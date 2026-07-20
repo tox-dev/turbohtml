@@ -228,12 +228,12 @@ def test_dir_auto_descends_for_strong_character() -> None:
     ("first_char", "direction"),
     [
         pytest.param("א", "rtl", id="hebrew"),  # main RTL block
-        pytest.param("ا", "rtl", id="arabic"),  # noqa: RUF001  # main RTL block
+        pytest.param("ا", "rtl", id="arabic"),  # ruff:ignore[ambiguous-unicode-character-string]  # main RTL block
         pytest.param("יִ", "rtl", id="hebrew-presentation-form"),  # presentation-form range
         pytest.param("a", "ltr", id="ascii-letter"),
         pytest.param("À", "ltr", id="latin1-letter"),  # strong L above U+00C0
         pytest.param("中", "ltr", id="cjk"),  # >U+08FF, not an RTL range
-        pytest.param("Ａ", "ltr", id="fullwidth-latin"),  # noqa: RUF001  # >U+FEFF, not an RTL range
+        pytest.param("Ａ", "ltr", id="fullwidth-latin"),  # ruff:ignore[ambiguous-unicode-character-string]  # >U+FEFF, not an RTL range
         pytest.param("5", "ltr", id="digit-is-neutral-defaults-ltr"),
     ],
 )

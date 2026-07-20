@@ -26,10 +26,10 @@ from ._match import (
     Matching,
     SelectorSyntaxError,
     closest,
-    compile,  # noqa: A004  # the soupsieve entry-point name
+    compile,  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
     css,
     escape_identifier,
-    filter,  # noqa: A004  # the soupsieve entry-point name
+    filter,  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
     iselect,
     match,
     select,
@@ -80,7 +80,7 @@ def _class_list(element: Element) -> list[str]:
     return list(value) if isinstance(value, list) else []
 
 
-class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chainable method set
+class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors pyquery's broad chainable method set
     """
     An ordered, duplicate-free set of elements with chainable traversal and mutation.
 
@@ -103,7 +103,7 @@ class Query:  # noqa: PLR0904  # a fluent wrapper mirrors pyquery's broad chaina
     def _wrap(cls, nodes: list[Element]) -> Query:
         """Build a query around an already-unique, document-ordered node list, skipping the dedupe."""
         query = cls.__new__(cls)
-        query._nodes = nodes  # noqa: SLF001  # a same-class factory setting its own private attribute
+        query._nodes = nodes  # ruff:ignore[private-member-access]  # a same-class factory setting its own private attribute
         return query
 
     def __call__(self, selector: str) -> Query:

@@ -107,7 +107,7 @@ def test_iso_2022_jp_is_certain() -> None:
             id="russian-koi8",
         ),
         pytest.param(
-            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # noqa: RUF001
+            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]
             "cp1253",
             "windows-1253",
             "Greek",
@@ -234,8 +234,8 @@ _LANGUAGE_CASES: list[tuple[str, str, str]] = [
     ("Programmering hjælper med at forstå strukturen af moderne beregningssystemer i dag.", "dan", "Latin"),
     ("Programmering hjelper oss med å forstå strukturen til beregningssystemer bedre nå.", "nob", "Latin"),
     ("Программирование помогает понять структуру вычислительных систем сегодня здесь.", "rus", "Cyrillic"),
-    ("Та нічого, все нормально. А в тебе як справи сьогодні зранку, дорогий друже мій?", "ukr", "Cyrillic"),  # noqa: RUF001
-    ("Η γλώσσα μας είναι πολύ όμορφη και έχει πλούσια και μεγάλη ιστορία στον κόσμο.", "ell", "Greek"),  # noqa: RUF001
+    ("Та нічого, все нормально. А в тебе як справи сьогодні зранку, дорогий друже мій?", "ukr", "Cyrillic"),  # ruff:ignore[ambiguous-unicode-character-string]
+    ("Η γλώσσα μας είναι πολύ όμορφη και έχει πλούσια και μεγάλη ιστορία στον κόσμο.", "ell", "Greek"),  # ruff:ignore[ambiguous-unicode-character-string]
     ("האקדמיה ללשון העברית היא המוסד העליון למדע הלשון העברית שנמצא היום בירושלים.", "heb", "Hebrew"),
     ("ككل حوالي ومعظم الناس يتحدثون هذه اللغة الجميلة في جميع أنحاء العالم اليوم بسعادة.", "ara", "Arabic"),
     ("हिमालयी वन में रहने वाली यह चिड़िया बहुत सुंदर होती है और यहाँ बहुत आम पाई जाती है।", "hin", "Devanagari"),
@@ -318,7 +318,7 @@ def test_excluding_every_language_of_a_script_yields_no_match() -> None:
 
 def test_excluded_applies_to_a_single_language_script() -> None:
     # a single-language script still honors the constraint: excluding Greek leaves the Greek text unresolved
-    text = "Η γλώσσα μας είναι όμορφη"  # noqa: RUF001
+    text = "Η γλώσσα μας είναι όμορφη"  # ruff:ignore[ambiguous-unicode-character-string]
     assert detect_language(text, LanguageDetection(excluded=frozenset({"ell"}))).language is None
 
 

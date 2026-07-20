@@ -127,7 +127,7 @@ def test_builtin_datatype_invalid(type_name: str, value: str) -> None:
         pytest.param('<xs:whiteSpace value="collapse"/>', "xs:string", "  a  ", True, id="whiteSpace-collapse"),
     ],
 )
-def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert check(restricted(facets, base), f"<v>{value}</v>").valid is ok
 
 
@@ -153,7 +153,7 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # noqa: 
         pytest.param(r"a\.b", "a.b", True, id="escaped-dot"),
     ],
 )
-def test_regex_pattern(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_regex_pattern(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert check(restricted(f'<xs:pattern value="{pattern}"/>'), f"<v>{value}</v>").valid is ok
 
 

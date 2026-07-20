@@ -83,12 +83,12 @@ def test_schemes_registers_a_custom_scheme() -> None:
 )
 def test_scanner_extra_tlds(
     text: str,
-    parse_email: bool,  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+    parse_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     extra_tlds: tuple[str, ...],
     spans: list[tuple[int, int, int]],
 ) -> None:
-    assert _linkify_scan(text, parse_email, True, extra_tlds) == spans  # noqa: FBT003  # positional-only C binding under test
+    assert _linkify_scan(text, parse_email, True, extra_tlds) == spans  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding under test
 
 
 def test_scanner_extra_tlds_defaults_to_none() -> None:
-    assert _linkify_scan("foo.internal", False, True) == []  # noqa: FBT003  # positional-only C binding under test
+    assert _linkify_scan("foo.internal", False, True) == []  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding under test

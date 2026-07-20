@@ -70,7 +70,7 @@ _BOM_CODECS: Final[dict[str, str]] = {
 }
 
 
-def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # noqa: ARG001
+def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]
     """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
     msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
     raise UnicodeError(msg)
@@ -98,7 +98,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
     if label is None:
         return None
 
-    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # noqa: ARG001
+    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
         return _decode(data, label), len(data)
 
     # CodecInfo's decoder is typed against _typeshed.ReadableBuffer, which Sphinx cannot import when it walks the

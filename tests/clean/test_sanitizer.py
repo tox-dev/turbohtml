@@ -348,7 +348,7 @@ def test_style_double_quoted_css_string() -> None:
         pytest.param("color: a-b_1c", True, id="value-identifier-punctuation"),
     ],
 )
-def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # noqa: FBT001
+def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     # a kept property still has its value scrubbed: expression() and url(disallowed-scheme) drop the whole declaration
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert ("style=" in out) is kept
@@ -580,7 +580,7 @@ def test_style_element_removed_with_content_when_named() -> None:
         pytest.param("java\x7fscript:alert(1)", False, id="del-byte-in-scheme"),
     ],
 )
-def test_url_scheme_allowlist(url: str, kept: bool) -> None:  # noqa: FBT001  # kept is the pytest expectation, not a flag
+def test_url_scheme_allowlist(url: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # kept is the pytest expectation, not a flag
     out = sanitize(f'<a href="{url}">x</a>')
     assert ("href=" in out) is kept
 
@@ -607,7 +607,7 @@ def test_every_url_attribute_is_scheme_checked(attr: str) -> None:
         pytest.param("https://ok/a.jpg 1x, vbscript:msgbox(1) 2x", False, id="later-candidate-vbscript"),
     ],
 )
-def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # noqa: FBT001
+def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     # a srcset is a comma-separated list of "URL descriptor" candidates; every candidate's scheme is
     # checked and the whole attribute is dropped if any candidate carries a disallowed scheme.
     out = sanitize(f'<img {attr}="{value}">', _allow_all({"img"}, {attr}))
@@ -842,7 +842,9 @@ def test_strip_propagates_a_child_filter_error() -> None:
 
 
 def test_sanitize_rejects_non_element() -> None:
-    from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument guard directly
+    from turbohtml._html import (
+        _sanitize,  # exercising the C argument guard directly
+    )
 
     # the policy arguments after the element; only the non-element first argument matters to this guard
     policy_args = (
@@ -854,7 +856,9 @@ def test_sanitize_rejects_non_element() -> None:
 
 
 def test_sanitize_rejects_wrong_arguments() -> None:
-    from turbohtml._html import _sanitize  # noqa: PLC0415  # exercising the C argument parsing directly
+    from turbohtml._html import (
+        _sanitize,  # exercising the C argument parsing directly
+    )
 
     with pytest.raises(TypeError):
         _sanitize()  # ty: ignore[missing-argument]  # too few arguments
@@ -949,7 +953,7 @@ def _value_policy() -> Policy:
     ("value", "kept"),
     [pytest.param("_blank", True, id="allowed"), pytest.param("_top", False, id="disallowed")],
 )
-def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # noqa: FBT001
+def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     out = sanitize(f'<a href="http://x" target="{value}">y</a>', _value_policy())
     assert (f'target="{value}"' in out) is kept
 
@@ -1010,7 +1014,7 @@ def test_media_host_allowlist_keeps_allowed_host(tag: str) -> None:
         pytest.param("https:/x", False, id="allowed-scheme-one-slash"),
     ],
 )
-def test_media_host_allowlist_gates_src(src: str, kept: bool) -> None:  # noqa: FBT001
+def test_media_host_allowlist_gates_src(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))
     assert ("src=" in out) is kept
 
@@ -1066,7 +1070,7 @@ def test_media_host_default_policy_leaves_src_unrestricted() -> None:
         pytest.param("https://user@[dead::beef]/x", False, id="ipv6-with-userinfo-blocked"),
     ],
 )
-def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # noqa: FBT001
+def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     # host-confusion parity: userinfo tricks resolve to the real host (the last '@' wins), a suffixed or
     # whitespace-obfuscated host never masquerades as the listed one, and an IPv6 literal is always rejected
     policy = _media_policy(frozenset({"youtube.com", "youtube.com."}))

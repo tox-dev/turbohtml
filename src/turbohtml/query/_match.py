@@ -199,7 +199,7 @@ class Matcher:
         return node.closest(self._selector)
 
 
-def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # noqa: A001  # the soupsieve entry-point name
+def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # ruff:ignore[builtin-variable-shadowing]  # the soupsieve entry-point name
     """
     Compile a CSS selector into a reusable :class:`Matcher`, like ``soupsieve.compile``.
 
@@ -278,7 +278,7 @@ def iselect(
     return Matcher(selector, options).iselect(node, limit)
 
 
-def filter(  # noqa: A001  # the soupsieve entry-point name
+def filter(  # ruff:ignore[builtin-variable-shadowing]  # the soupsieve entry-point name
     selector: str, iterable: Element | Document | Iterable[Element], options: Matching | None = None, /
 ) -> list[Element]:
     """

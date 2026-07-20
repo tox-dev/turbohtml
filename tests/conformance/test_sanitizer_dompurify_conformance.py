@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # noqa: S404  # drives the DOMPurify Node oracle: fixed argv, vendored test-data inputs
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # drives the DOMPurify Node oracle: fixed argv, vendored test-data inputs
 from dataclasses import replace
 from functools import cache
 from pathlib import Path
@@ -90,7 +90,7 @@ _IDS = [f"{position:03d}" for position in range(len(_PAYLOADS))]
 def _dompurify(mode: str) -> tuple[str, ...]:
     """DOMPurify's output for the whole corpus under ``mode``, one Node process per mode (cached for the session)."""
     request = json.dumps({"mode": mode, "inputs": _PAYLOADS})
-    result = subprocess.run(  # noqa: S603  # fixed argv, node is the absolute path from shutil.which
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
         [_NODE_BIN, str(_RUNNER)],
         input=request,
         capture_output=True,
@@ -104,7 +104,7 @@ def _dompurify(mode: str) -> tuple[str, ...]:
 def _dompurify_one(mode: str, html: str) -> str:
     """DOMPurify's output for a single ad-hoc input (curated corpora that are not part of the fixture)."""
     request = json.dumps({"mode": mode, "inputs": [html]})
-    result = subprocess.run(  # noqa: S603  # fixed argv, node is the absolute path from shutil.which
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
         [_NODE_BIN, str(_RUNNER)],
         input=request,
         capture_output=True,

@@ -40,7 +40,9 @@ def fragment(text: str) -> None:
 
 def tokenize(text: str) -> None:
     """Drive html5lib's tokenizer over the input."""
-    from html5lib._tokenizer import HTMLTokenizer  # noqa: PLC0415, PLC2701  # html5lib's tokenizer is internal API
+    from html5lib._tokenizer import (
+        HTMLTokenizer,  # html5lib's tokenizer is internal API
+    )
 
     for _ in HTMLTokenizer(text):
         pass

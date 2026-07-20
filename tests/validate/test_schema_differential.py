@@ -122,12 +122,12 @@ _RNG_CASES = [
 ]
 
 
-def _lxml_xsd_valid(etree: Any, schema: str, doc: str) -> bool:  # noqa: ANN401  # lxml.etree is an untyped third-party module
+def _lxml_xsd_valid(etree: Any, schema: str, doc: str) -> bool:  # ruff:ignore[any-type]  # lxml.etree is an untyped third-party module
     validator = etree.XMLSchema(etree.fromstring(schema.encode()))
     return bool(validator.validate(etree.fromstring(doc.encode())))
 
 
-def _lxml_rng_valid(etree: Any, schema: str, doc: str) -> bool:  # noqa: ANN401  # lxml.etree is an untyped third-party module
+def _lxml_rng_valid(etree: Any, schema: str, doc: str) -> bool:  # ruff:ignore[any-type]  # lxml.etree is an untyped third-party module
     validator = etree.RelaxNG(etree.fromstring(schema.encode()))
     return bool(validator.validate(etree.fromstring(doc.encode())))
 

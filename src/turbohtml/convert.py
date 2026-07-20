@@ -83,7 +83,7 @@ class GenericTranslator:
     compares values case-insensitively.
     """
 
-    def css_to_xpath(self, css: str, prefix: str = "descendant-or-self::") -> str:  # noqa: PLR6301  # cssselect shape needs an instance method
+    def css_to_xpath(self, css: str, prefix: str = "descendant-or-self::") -> str:  # ruff:ignore[no-self-use]  # cssselect shape needs an instance method
         """
         Translate a CSS selector list to an equivalent XPath 1.0 expression.
 
@@ -104,6 +104,6 @@ class HTMLTranslator(GenericTranslator):
         rules either way, because that is what turbohtml's parser and selector engine do.
     """
 
-    def __init__(self, xhtml: bool = False) -> None:  # noqa: FBT001, FBT002  # positional bool mirrors cssselect
+    def __init__(self, xhtml: bool = False) -> None:  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # positional bool mirrors cssselect
         """Record the cssselect-compatible ``xhtml`` flag."""
         self.xhtml = xhtml

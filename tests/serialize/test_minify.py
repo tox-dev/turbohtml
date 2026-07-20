@@ -93,7 +93,7 @@ def test_minify_rejects_unknown_keyword() -> None:
 
 def test_minify_rejects_positional() -> None:
     with pytest.raises(TypeError):
-        Minify(True)  # ty: ignore[too-many-positional-arguments]  # noqa: FBT003  # keyword-only
+        Minify(True)  # ty: ignore[too-many-positional-arguments]  # ruff:ignore[boolean-positional-value-in-call]  # keyword-only
 
 
 def test_serialize_without_minify_is_unchanged() -> None:

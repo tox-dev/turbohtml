@@ -10,7 +10,7 @@ its minified form under Node and asserts identical output.
 from __future__ import annotations
 
 import shutil
-import subprocess  # noqa: S404
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
 
 import pytest
 
@@ -760,7 +760,7 @@ def test_compresses(source: str, expected: str) -> None:
 
 def _run(code: str) -> str:
     assert _NODE is not None  # the callers are skipped when node is unavailable
-    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
+    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=60, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
     return result.stdout + result.stderr
 
 

@@ -222,7 +222,7 @@ class Linker:
     def _linkify_text(self, node: Text) -> None:
         """Replace a text node with the text and anchors that the link spans in it imply."""
         data = node.data
-        spans = _linkify_scan(data, self.parse_email, True, self.extra_tlds, self.url_schemes)  # noqa: FBT003  # True enables bare domains
+        spans = _linkify_scan(data, self.parse_email, True, self.extra_tlds, self.url_schemes)  # ruff:ignore[boolean-positional-value-in-call]  # True enables bare domains
         if not spans:
             return
         pieces: list[Element | Text] = []
@@ -286,7 +286,7 @@ class LinkSpan:
 
     __slots__ = ("end", "is_email", "start", "text", "url")
 
-    def __init__(self, start: int, end: int, text: str, url: str, is_email: bool) -> None:  # noqa: FBT001
+    def __init__(self, start: int, end: int, text: str, url: str, is_email: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
         """Create a link span."""
         self.start = start
         self.end = end

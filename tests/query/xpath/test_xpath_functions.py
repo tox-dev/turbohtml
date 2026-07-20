@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import re
 from typing import Final
-from xml.etree import ElementTree as ET  # noqa: S405
+from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]
 
 import pytest
 
@@ -427,6 +427,6 @@ def test_number_to_string_round_trips(value: float) -> None:
 def test_string_functions_agree_with_elementpath(expr: str) -> None:
     elementpath = pytest.importorskip("elementpath")
     markup = "<div><p>One</p><p>Two</p><p>Three</p></div>"
-    root = ET.fromstring(markup)  # noqa: S314
+    root = ET.fromstring(markup)  # ruff:ignore[suspicious-xml-element-tree-usage]
     want = elementpath.select(root, expr, parser=elementpath.XPath2Parser)
     assert turbohtml.parse(markup).xpath(expr) == want

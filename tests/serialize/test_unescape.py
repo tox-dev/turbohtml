@@ -83,7 +83,7 @@ def test_unescape_long_text_with_sparse_refs() -> None:
 
 
 def test_unescape_str_subclass() -> None:
-    class StrSubclass(str):  # noqa: FURB189  # subclassing str is the behavior under test
+    class StrSubclass(str):  # ruff:ignore[subclass-builtin]  # subclassing str is the behavior under test
         __slots__ = ()
 
     assert turbohtml.unescape(StrSubclass("a &amp; b")) == "a & b"
@@ -95,7 +95,7 @@ def test_unescape_rejects_non_str() -> None:
 
 
 def test_unescape_matches_stdlib_fuzz() -> None:
-    rng = random.Random(1234)  # noqa: S311  # fuzz corpus, not for security
+    rng = random.Random(1234)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # fuzz corpus, not for security
     alphabet = [*"&<>#;xX0123456789abcAF gtltampcopyfjlignotin\t\né☃", "&amp;", "&#62;", "&notit", "&#0;", "&copy;"]
     for _ in range(5000):
         text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 40)))

@@ -39,14 +39,14 @@ def test_attrs_set_valueless_and_empty() -> None:
     element.attrs["value"] = ""
     assert element.html == '<input disabled="" value="">'
     # a valueless or empty attribute reads back as the empty string, like getAttribute
-    assert element.attrs["disabled"] == ""  # noqa: PLC1901  # exactly "", not None
-    assert element.attrs["value"] == ""  # noqa: PLC1901  # exactly ""
+    assert element.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "", not None
+    assert element.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
 
 
 def test_attrs_set_existing_to_empty() -> None:
     element = _div('<div id="a">')
     element.attrs["id"] = None  # None clears an existing value to empty
-    assert element.attrs["id"] == ""  # noqa: PLC1901  # exactly "", not None
+    assert element.attrs["id"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "", not None
     assert element.html == '<div id=""></div>'
 
 

@@ -55,7 +55,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess  # noqa: S404 -- the runner is invoked with a fixed argv and no shell
+import subprocess  # ruff:ignore[suspicious-subprocess-import] -- the runner is invoked with a fixed argv and no shell
 from functools import cache
 from pathlib import Path
 from typing import NamedTuple
@@ -473,7 +473,7 @@ def _jsdom_available() -> bool:
     node = shutil.which("node")
     if node is None or not _RUNNER.exists():
         return False
-    probe = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+    probe = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
         [node, "-e", "require('jsdom')"], cwd=_RUNNER.parent, capture_output=True, check=False
     )
     return probe.returncode == 0
@@ -494,7 +494,7 @@ def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
         })
     node = shutil.which("node")
     assert node is not None
-    completed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
         [node, str(_RUNNER)], input=json.dumps(payload), cwd=_RUNNER.parent, capture_output=True, text=True, check=True
     )
     return json.loads(completed.stdout)

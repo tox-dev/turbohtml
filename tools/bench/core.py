@@ -654,25 +654,25 @@ class _Node:
 class _NodeBuilder:
     """Retarget the parser at :class:`_Node`; parse_into binds each method per instance, hence the PLR6301 waivers."""
 
-    def create_document(self) -> _Node:  # noqa: PLR6301
+    def create_document(self) -> _Node:  # ruff:ignore[no-self-use]
         return _Node("#document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _Node:  # noqa: ARG002, PLR6301
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#doctype")
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:  # noqa: ARG002, PLR6301
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node(name)
 
-    def create_text(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+    def create_text(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#text")
 
-    def create_comment(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+    def create_comment(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#comment")
 
-    def create_pi(self, data: str) -> _Node:  # noqa: ARG002, PLR6301
+    def create_pi(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#pi")
 
-    def append(self, parent: _Node, child: _Node) -> None:  # noqa: PLR6301
+    def append(self, parent: _Node, child: _Node) -> None:  # ruff:ignore[no-self-use]
         parent.children.append(child)
 
 

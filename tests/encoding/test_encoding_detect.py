@@ -80,7 +80,7 @@ def test_encoding_argument_wins_over_detection() -> None:
         pytest.param(b"\xe1\x80\xc0", False, id="bad-later-continuation-high"),
     ],
 )
-def test_utf8_validator(raw: bytes, is_utf8: bool) -> None:  # noqa: FBT001  # parametrized expectation flag
+def test_utf8_validator(raw: bytes, is_utf8: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrized expectation flag
     # wrap so the document is non-trivial; detection runs on the whole byte buffer.
     # invalid UTF-8 resolves to some single-byte encoding (Phase 2), never UTF-8
     result = detected(b"<p>" + raw + b"</p>")
@@ -128,7 +128,7 @@ def test_truncated_sequence_at_eof_is_not_utf8() -> None:
             id="russian-koi8",
         ),
         pytest.param(
-            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # noqa: RUF001
+            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]
             "cp1253",
             "windows-1253",
             id="greek-1253",
@@ -146,7 +146,7 @@ def test_truncated_sequence_at_eof_is_not_utf8() -> None:
             id="czech-iso2",
         ),
         pytest.param(
-            "Çok güzel bir gün bugün İstanbul şehrinde yağmur yağıyor ve sıcaklık çok düşük.",  # noqa: RUF001
+            "Çok güzel bir gün bugün İstanbul şehrinde yağmur yağıyor ve sıcaklık çok düşük.",  # ruff:ignore[ambiguous-unicode-character-string]
             "cp1254",
             "windows-1254",
             id="turkish-1254",

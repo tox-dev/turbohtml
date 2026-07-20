@@ -49,28 +49,28 @@ class _LxmlNode(Protocol):
 class LxmlBuilder:
     """Retarget the parser at real lxml nodes; parse_into binds each method per instance, hence the PLR6301 waivers."""
 
-    def create_document(self) -> object:  # noqa: PLR6301
+    def create_document(self) -> object:  # ruff:ignore[no-self-use]
         return etree.Element("document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # noqa: ARG002, PLR6301
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # ruff:ignore[unused-method-argument, no-self-use]
         return ("doctype",)
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # noqa: ARG002, PLR6301
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # ruff:ignore[unused-method-argument, no-self-use]
         node = etree.Element(name)
         for attr_name, value in attrs:
             node.set(attr_name, value or "")
         return node
 
-    def create_text(self, data: str) -> object:  # noqa: PLR6301
+    def create_text(self, data: str) -> object:  # ruff:ignore[no-self-use]
         return ("text", data)
 
-    def create_comment(self, data: str) -> object:  # noqa: PLR6301
+    def create_comment(self, data: str) -> object:  # ruff:ignore[no-self-use]
         return etree.Comment(data)
 
-    def create_pi(self, data: str) -> object:  # noqa: PLR6301
+    def create_pi(self, data: str) -> object:  # ruff:ignore[no-self-use]
         return etree.Comment(data)
 
-    def append(self, parent: object, child: object) -> None:  # noqa: PLR6301
+    def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]
         node = cast("_LxmlNode", parent)
         if isinstance(child, tuple):
             if child[0] == "text":

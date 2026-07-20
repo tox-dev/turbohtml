@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # noqa: S404
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -1339,7 +1339,7 @@ _ALL_DIFF_CASES = RANGE_CASES + TRAVERSAL_CASES + SHADOW_CASES
 def jsdom_results() -> dict[str, dict[str, Any]]:
     assert _NODE is not None
     payload = json.dumps(_ALL_DIFF_CASES)
-    completed = subprocess.run(  # noqa: S603
+    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
         [_NODE, str(_RUNNER)], input=payload, capture_output=True, text=True, timeout=120, check=True
     )
     return {entry["id"]: entry for entry in json.loads(completed.stdout)}

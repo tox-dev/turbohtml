@@ -195,7 +195,7 @@ _REFERENCES = (
 def _corpus() -> list[tuple[str, str]]:
     pairs = [(base, reference) for base in _BASES for reference in _REFERENCES]
     alphabet = "abc/.?#=&%:@;+"
-    generator = random.Random(20260704)  # noqa: S311  # fuzz corpus, not for security
+    generator = random.Random(20260704)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # fuzz corpus, not for security
     for _ in range(3000):
         reference = "".join(generator.choice(alphabet) for _ in range(generator.randint(0, 10)))
         pairs.append((generator.choice(_BASES), reference))

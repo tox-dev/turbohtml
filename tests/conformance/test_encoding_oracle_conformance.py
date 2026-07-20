@@ -20,13 +20,13 @@ conformance suite that silently no-ops is worse than none. Check the oracles out
 ``git submodule update --init tests/conformance/encoding_rs tests/conformance/chardetng``.
 """
 
-# ruff: noqa: RUF001  # the sample text is deliberately Greek, Cyrillic and Turkish; that is the point
+# ruff:file-ignore[ambiguous-unicode-character-string]  # the sample text is deliberately Greek, Cyrillic and Turkish; that is the point
 
 from __future__ import annotations
 
 import random
 import re
-import subprocess  # noqa: S404  # the oracles are two vendored Rust binaries this suite builds and drives
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the oracles are two vendored Rust binaries this suite builds and drives
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -126,13 +126,13 @@ def _oracle(name: str) -> Path:
     if not (crate.parent.parent / ("encoding_rs" if name == "decoder" else "chardetng") / "Cargo.toml").exists():
         msg = f"submodule tests/conformance/{'encoding_rs' if name == 'decoder' else 'chardetng'} not checked out"
         raise RuntimeError(msg)
-    subprocess.run(["cargo", "build", "--release", "--quiet"], cwd=crate, check=True)  # noqa: S607
+    subprocess.run(["cargo", "build", "--release", "--quiet"], cwd=crate, check=True)  # ruff:ignore[start-process-with-partial-path]
     return crate / "target" / "release" / f"{name}-oracle"
 
 
 def _run(binary: Path, stdin: str, count: int) -> list[str]:
     """Feed *stdin* to *binary* and return its lines, one per case."""
-    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # noqa: S603
+    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]
     lines = result.stdout.splitlines()
     assert len(lines) == count, f"{binary.name} answered {len(lines)} of {count} cases"
     return lines
@@ -150,7 +150,7 @@ def detector_oracle() -> Path:
 
 def _decode_cases() -> Iterator[tuple[str, bytes]]:
     """Every one- and two-byte sequence of each encoding, plus seeded four-byte and escape-shaped sequences."""
-    rng = random.Random(20260709)  # noqa: S311  # a corpus seed, not a security decision
+    rng = random.Random(20260709)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed, not a security decision
     for label in (*_SINGLE_BYTE, *_MULTI_BYTE):
         for first in range(256):
             yield label, bytes([first])
@@ -194,7 +194,7 @@ def _detect_cases() -> Iterator[bytes]:
     for codec, text in _SAMPLES.items():
         for pad in ("", " ", "\n", " abc", "ZZ "):
             yield (text + pad).encode(codec)
-    rng = random.Random(20260709)  # noqa: S311  # a corpus seed, not a security decision
+    rng = random.Random(20260709)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed, not a security decision
     for _ in range(15000):
         lead = rng.choice([0x81, 0x8E, 0x8F, 0xA1, 0xC9, 0xFE, 0xF0, 0xA0, 0xFD])
         yield bytes([lead, *(rng.randrange(256) for _ in range(rng.randrange(1, 14)))])
@@ -279,7 +279,7 @@ def test_the_streaming_detector_matches_the_one_shot() -> None:
     # chardetng's scoring looks back at, both have to survive the boundary. The corpus is the one the differential
     # above runs on, so what chardetng proves about the one-shot answer this carries to the chunked path. Half the
     # sweep carries a TLD, whose scoring runs at close() over state that every feed contributed to.
-    rng = random.Random(_STREAM_SEED)  # noqa: S311  # a chunking seed, not a security decision
+    rng = random.Random(_STREAM_SEED)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a chunking seed, not a security decision
     labels = _tld_labels()
     divergent = []
     swept = 0

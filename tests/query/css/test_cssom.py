@@ -60,7 +60,7 @@ def test_declaration_iteration_and_text_and_repr() -> None:
         pytest.param('content: "important"', False, id="important-inside-string"),
     ],
 )
-def test_declaration_important_flag(text: str, expected: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_declaration_important_flag(text: str, expected: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     name = text.split(":", 1)[0].strip()
     assert StyleDeclaration.parse(text).important(name) is expected
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # noqa: S404  # drives the vnu.jar oracle: fixed argv, in-repo string inputs
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # drives the vnu.jar oracle: fixed argv, in-repo string inputs
 from pathlib import Path
 
 import pytest
@@ -33,7 +33,7 @@ pytestmark = pytest.mark.skipif(_JAVA is None or not _VNU_JAR.is_file(), reason=
 
 def vnu_has_error(markup: str) -> bool:
     assert _JAVA is not None  # the skipif guarantees it; narrows the argv type for the checker
-    completed = subprocess.run(  # noqa: S603  # fixed argv, string stdin
+    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, string stdin
         [_JAVA, "-jar", str(_VNU_JAR), "--format", "json", "--stdin", "-"],
         input=markup.encode(),
         capture_output=True,

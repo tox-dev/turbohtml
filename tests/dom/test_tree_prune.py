@@ -108,7 +108,7 @@ def test_keeps_a_deep_match_through_its_ancestor_chain() -> None:
 def test_rejects_a_non_str_selector() -> None:
     document = parse("<p>x</p>")
     with pytest.raises(TypeError):
-        getattr(document, "prune")(123)  # noqa: B009  # getattr keeps the bad arg from the type checker
+        getattr(document, "prune")(123)  # ruff:ignore[get-attr-with-constant]  # getattr keeps the bad arg from the type checker
 
 
 def test_rejects_an_invalid_selector() -> None:

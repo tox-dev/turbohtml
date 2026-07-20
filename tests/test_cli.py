@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-import subprocess  # noqa: S404  # the entry-point test runs turbohtml in a clean interpreter; the command is fixed, not input
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the entry-point test runs turbohtml in a clean interpreter; the command is fixed, not input
 import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING

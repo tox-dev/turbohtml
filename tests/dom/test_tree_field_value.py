@@ -41,7 +41,7 @@ def test_button_field_value() -> None:
 
 
 def test_button_field_value_defaults_empty() -> None:
-    assert _control("<button>Go</button>", "button").field_value == ""  # noqa: PLC1901
+    assert _control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]
 
 
 @pytest.mark.parametrize(
@@ -148,7 +148,7 @@ def test_set_textarea_value_replaces_text() -> None:
 def test_set_textarea_value_to_none_clears_it() -> None:
     field = _control("<textarea>old</textarea>", "textarea")
     field.field_value = None
-    assert field.field_value == ""  # noqa: PLC1901
+    assert field.field_value == ""  # ruff:ignore[compare-to-empty-string]
     assert field.html == "<textarea></textarea>"
 
 
@@ -230,7 +230,7 @@ def test_unusual_input_type_is_text_like(markup: str, expected: str) -> None:
 
 def test_option_value_strips_whitespace_only_text() -> None:
     select = _control("<select><option selected>   </option></select>", "select")
-    assert select.field_value == ""  # noqa: PLC1901
+    assert select.field_value == ""  # ruff:ignore[compare-to-empty-string]
 
 
 def test_select_skips_an_optgroup_wrapper() -> None:

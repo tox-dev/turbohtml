@@ -128,7 +128,7 @@ def test_non_latin1_tag_name() -> None:
 def test_attr_lookup() -> None:
     (tag,) = list(tokenize("<a href='u' download>"))
     assert tag.attr("href") == "u"
-    assert tag.attr("download") == ""  # noqa: PLC1901  # exactly "" (valueless), distinct from None (missing)
+    assert tag.attr("download") == ""  # ruff:ignore[compare-to-empty-string]  # exactly "" (valueless), distinct from None (missing)
     assert tag.attr("missing") is None  # a missing attribute yields the default
     assert tag.attr("missing", "fallback") == "fallback"
     assert tag.attr("href2", "fallback") == "fallback"
@@ -526,16 +526,16 @@ def test_positions_match_html_parser() -> None:
             super().__init__(convert_charrefs=True)
             self.positions: list[tuple[int, int]] = []
 
-        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # noqa: ARG002
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
             self.positions.append(self.getpos())
 
-        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # noqa: ARG002
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
             self.positions.append(self.getpos())
 
-        def handle_data(self, data: str) -> None:  # noqa: ARG002
+        def handle_data(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
             self.positions.append(self.getpos())
 
-        def handle_comment(self, data: str) -> None:  # noqa: ARG002
+        def handle_comment(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
             self.positions.append(self.getpos())
 
     recorder = Recorder()

@@ -48,25 +48,25 @@ class Recorder:
     off the instance, so ``self`` is never referenced -- hence the per-method PLR6301 waivers.
     """
 
-    def create_document(self) -> Built:  # noqa: PLR6301
+    def create_document(self) -> Built:  # ruff:ignore[no-self-use]
         return Built("document", ())
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # noqa: PLR6301
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]
         return Built("doctype", (name, public_id, system_id))
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # noqa: PLR6301
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]
         return Built("element", (name, namespace, attrs))
 
-    def create_text(self, data: str) -> Built:  # noqa: PLR6301
+    def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]
         return Built("text", (data,))
 
-    def create_comment(self, data: str) -> Built:  # noqa: PLR6301
+    def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]
         return Built("comment", (data,))
 
-    def create_pi(self, data: str) -> Built:  # noqa: PLR6301
+    def create_pi(self, data: str) -> Built:  # ruff:ignore[no-self-use]
         return Built("pi", (data,))
 
-    def append(self, parent: Built, child: Built) -> None:  # noqa: PLR6301
+    def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]
         parent.children.append(child)
 
 

@@ -120,7 +120,7 @@ def test_many_dynamic_attribute_names_grow_the_table(find: Callable[[str, str], 
     names = [f"data-x{index}" for index in range(20)]
     element = find(f"<div {' '.join(names)}>", "div")
     assert sorted(element.attrs) == sorted(names)
-    assert all(element.attrs[name] == "" for name in names)  # noqa: PLC1901  # exactly "", not None
+    assert all(element.attrs[name] == "" for name in names)  # ruff:ignore[compare-to-empty-string]  # exactly "", not None
 
 
 def test_repeated_dynamic_attribute_name_reuses_atom(find: Callable[[str, str], Element]) -> None:

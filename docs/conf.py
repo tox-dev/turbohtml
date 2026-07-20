@@ -226,7 +226,7 @@ def _render_signature(
     ast.fix_missing_locations(dummy)
     header = ast.unparse(dummy).splitlines()[0]
     matched = re.match(r"^def _(\(.*\))(?: -> (.*))?:$", header)
-    assert matched is not None  # noqa: S101 -- a one-line ``def`` header always matches
+    assert matched is not None  # ruff:ignore[assert] -- a one-line ``def`` header always matches
     return matched.group(1), matched.group(2)
 
 
@@ -308,14 +308,14 @@ def _patch_autodoc_engine() -> None:
     _loader._make_props_from_imported_object = _make_props
 
 
-def _stub_signature_for_alias(  # noqa: PLR0913, PLR0917 -- the signature is fixed by the autodoc-process-signature event
-    app: Sphinx,  # noqa: ARG001
-    what: str,  # noqa: ARG001
+def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-positional-arguments] -- the signature is fixed by the autodoc-process-signature event
+    app: Sphinx,  # ruff:ignore[unused-function-argument]
+    what: str,  # ruff:ignore[unused-function-argument]
     name: str,
-    obj: object,  # noqa: ARG001
-    options: Any,  # noqa: ARG001
-    signature: str | None,  # noqa: ARG001
-    return_annotation: str | None,  # noqa: ARG001
+    obj: object,  # ruff:ignore[unused-function-argument]
+    options: Any,  # ruff:ignore[unused-function-argument]
+    signature: str | None,  # ruff:ignore[unused-function-argument]
+    return_annotation: str | None,  # ruff:ignore[unused-function-argument]
 ) -> tuple[str, str] | None:
     """
     Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
@@ -407,9 +407,9 @@ _DESCRIPTION_LIMIT = 160
 
 
 def _add_page_description(
-    app: Sphinx,  # noqa: ARG001
-    pagename: str,  # noqa: ARG001
-    templatename: str,  # noqa: ARG001
+    app: Sphinx,  # ruff:ignore[unused-function-argument]
+    pagename: str,  # ruff:ignore[unused-function-argument]
+    templatename: str,  # ruff:ignore[unused-function-argument]
     context: dict[str, Any],
     doctree: nodes.document | None,
 ) -> None:

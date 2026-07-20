@@ -170,7 +170,7 @@ _SCHEME_PARITY = [
 
 
 @pytest.mark.parametrize(("url", "kept"), _SCHEME_PARITY)
-def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # noqa: FBT001
+def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     assert ("href=" in sanitize(f'<a href="{url}">x</a>', Policy())) is kept
 
 

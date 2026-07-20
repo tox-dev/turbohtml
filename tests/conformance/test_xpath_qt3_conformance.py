@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from math import isinf, isnan
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from xml.etree import ElementTree as ET  # noqa: S405  # trusted pinned QT3 fixture
+from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # trusted pinned QT3 fixture
 
 import pytest
 
@@ -246,7 +246,7 @@ class Environment:
 
 
 def load_environments() -> dict[str, Environment]:
-    catalog = ET.parse(CATALOG).getroot()  # noqa: S314  # trusted pinned QT3 fixture
+    catalog = ET.parse(CATALOG).getroot()  # ruff:ignore[suspicious-xml-element-tree-usage]  # trusted pinned QT3 fixture
     environments: dict[str, Environment] = {}
     for element in catalog.findall(f"{QT3}environment"):
         sources = element.findall(f"{QT3}source")
@@ -304,7 +304,7 @@ def environment_reason(env: str | None) -> str | None:
     return None
 
 
-def exclusion_reason(family: str, case: ET.Element, query: str) -> str | None:  # noqa: PLR0911  # one return per out-of-scope marker reads clearest
+def exclusion_reason(family: str, case: ET.Element, query: str) -> str | None:  # ruff:ignore[too-many-return-statements]  # one return per out-of-scope marker reads clearest
     """Return why a supported-family case is out of turbohtml's XPath scope, or None if in scope."""
     reason = dependency_reason(case)
     if reason is not None:
@@ -341,7 +341,7 @@ UNMODELED_ASSERTIONS = frozenset({
 })
 
 
-def expected_result(result: ET.Element) -> tuple[str, object]:  # noqa: PLR0911  # one return per QT3 assertion tag reads clearest
+def expected_result(result: ET.Element) -> tuple[str, object]:  # ruff:ignore[too-many-return-statements]  # one return per QT3 assertion tag reads clearest
     for child in result:
         tag = child.tag.removeprefix(QT3)
         if tag in CONSTANT_ASSERTIONS:
@@ -392,7 +392,7 @@ def string_value(result: object) -> str | None:
     return None
 
 
-def matches_expected(expected: tuple[str, object], result: object) -> bool:  # noqa: PLR0911  # one return per expected-result kind reads clearest
+def matches_expected(expected: tuple[str, object], result: object) -> bool:  # ruff:ignore[too-many-return-statements]  # one return per expected-result kind reads clearest
     kind, value = expected
     if kind == "bool":
         return isinstance(result, bool) and result == value
@@ -408,7 +408,7 @@ def matches_expected(expected: tuple[str, object], result: object) -> bool:  # n
             return value.lower() in (("true", "true()") if result else ("false", "false()"))
         if isinstance(result, float):
             try:
-                return float(value) == result  # noqa: RUF069  # exact equality is the QT3 oracle's contract
+                return float(value) == result  # ruff:ignore[float-equality-comparison]  # exact equality is the QT3 oracle's contract
             except ValueError:
                 return False
         if isinstance(result, str):
@@ -418,7 +418,7 @@ def matches_expected(expected: tuple[str, object], result: object) -> bool:  # n
 
 def collect() -> Iterator[ParameterSet]:
     for family in FAMILIES:
-        catalog = ET.parse(ROOT / "fn" / f"{family}.xml").getroot()  # noqa: S314  # trusted pinned QT3 fixture
+        catalog = ET.parse(ROOT / "fn" / f"{family}.xml").getroot()  # ruff:ignore[suspicious-xml-element-tree-usage]  # trusted pinned QT3 fixture
         for element in catalog.findall(f"{QT3}test-case"):
             case_id = f"{family}::{element.get('name')}"
             reference = element.find(f"{QT3}environment")
@@ -456,7 +456,7 @@ def collect() -> Iterator[ParameterSet]:
 def test_qt3_fn(case: Case) -> None:
     context = context_for(case.environment)
     if case.expected[0] == "error":
-        with pytest.raises(Exception):  # noqa: B017, PT011  # QT3 asserts an error code; turbohtml maps all to exceptions
+        with pytest.raises(Exception):  # ruff:ignore[assert-raises-exception, pytest-raises-too-broad]  # QT3 asserts an error code; turbohtml maps all to exceptions
             context.xpath(case.query)
         return
     try:

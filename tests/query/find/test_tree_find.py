@@ -63,7 +63,7 @@ def test_tag_matches_a_custom_element() -> None:
 
 def test_tag_true_matches_every_element() -> None:
     # tag is positional-only, so the bool filter must be passed positionally
-    assert len(parse(_DOC).find_all(True)) == 8  # noqa: FBT003
+    assert len(parse(_DOC).find_all(True)) == 8  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_find_known_tag_absent_returns_none() -> None:
@@ -247,7 +247,7 @@ def test_negative_limit_is_rejected() -> None:
 
 def test_limit_on_the_general_path() -> None:
     # a bool filter uses the general matcher, where the limit applies the same way
-    assert len(parse(_DOC).find_all(True, limit=1)) == 1  # noqa: FBT003
+    assert len(parse(_DOC).find_all(True, limit=1)) == 1  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_dynamic_attr_name() -> None:

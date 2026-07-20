@@ -1,12 +1,12 @@
 """The WHATWG decoders: the byte-to-code-point tables, and the spec's error handling."""
 
-# ruff: noqa: RUF001  # the expected text is deliberately fullwidth or Cyrillic; that is what these bytes decode to
+# ruff:file-ignore[ambiguous-unicode-character-string]  # the expected text is deliberately fullwidth or Cyrillic; that is what these bytes decode to
 
 from __future__ import annotations
 
 import pytest
 
-import turbohtml.detect  # noqa: F401  # importing registers the whatwg-* codecs these tests decode through
+import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the whatwg-* codecs these tests decode through
 from turbohtml._html import _decode as _decode_binding
 
 

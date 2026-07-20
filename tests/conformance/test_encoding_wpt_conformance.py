@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-import turbohtml.detect  # noqa: F401  # importing registers the whatwg-* codecs the cases decode through
+import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the whatwg-* codecs the cases decode through
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

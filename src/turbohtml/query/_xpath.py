@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 # isinstance(result, str) must hold for callers, and the C core builds the value
 # through str.__new__, so this stays a real str subclass (FURB189 suppressed).
-class XPathString(str):  # noqa: FURB189
+class XPathString(str):  # ruff:ignore[subclass-builtin]
     """
     A string xpath result that remembers the element it came from.
 
@@ -43,7 +43,7 @@ class XPathString(str):  # noqa: FURB189
     attrname: str | None
     """The attribute name the value came from, or None for a text value."""
 
-    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # noqa: FBT001
+    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # ruff:ignore[boolean-type-hint-positional-argument]
         self = str.__new__(cls, value)
         self._parent = parent
         self.is_attribute = is_attribute

@@ -307,7 +307,7 @@ def xpath(case: tuple[str, str]) -> None:
 
 
 @functools.cache
-def _xslt_compiled(sheet: str, source: str):  # noqa: ANN202  # lxml.etree is untyped, so the compiled types are inferred
+def _xslt_compiled(sheet: str, source: str):  # ruff:ignore[missing-return-type-private-function]  # lxml.etree is untyped, so the compiled types are inferred
     """Compile the stylesheet and parse the source once, so the op times only the transformation."""
     transform = lxml_etree.XSLT(lxml_etree.fromstring(sheet.encode()))
     return transform, lxml_etree.fromstring(source.encode())

@@ -227,7 +227,7 @@ def test_select_node_contents_rejects_doctype() -> None:
     ("to_start", "expected"),
     [pytest.param(True, (0, 0), id="to-start"), pytest.param(False, (2, 2), id="to-end")],
 )
-def test_collapse(to_start: bool, expected: tuple[int, int]) -> None:  # noqa: FBT001  # pytest case, not a flag
+def test_collapse(to_start: bool, expected: tuple[int, int]) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest case, not a flag
     doc = parse("<div id=a><p>a</p><p>b</p></div>")
     div = _by_id(doc, "a")
     boundary = Range(div, 0)
@@ -314,7 +314,7 @@ def test_compare_point_rejects_bad_offset() -> None:
     ("offset", "expected"),
     [pytest.param(0, False, id="before"), pytest.param(1, True, id="inside"), pytest.param(3, False, id="after")],
 )
-def test_is_point_in_range(offset: int, expected: bool) -> None:  # noqa: FBT001  # pytest expectation, not a flag
+def test_is_point_in_range(offset: int, expected: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest expectation, not a flag
     doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
     div = _by_id(doc, "a")
     boundary = Range(div, 1)
@@ -775,7 +775,7 @@ def test_select_node_contents_rejects_non_node() -> None:
 
 def test_collapse_rejects_extra_arguments() -> None:
     with pytest.raises(TypeError):
-        Range(Element("div")).collapse(True, True)  # noqa: FBT003  # ty: ignore[too-many-positional-arguments]
+        Range(Element("div")).collapse(True, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[too-many-positional-arguments]
 
 
 def test_compare_point_requires_integer_offset() -> None:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from xml.etree import ElementTree as ET  # noqa: S405  # parsing turbohtml's own serialized output, not untrusted input
+from xml.etree import (
+    ElementTree as ET,  # parsing turbohtml's own serialized output, not untrusted input
+)
 
 import pytest
 
@@ -189,7 +191,7 @@ def test_minify_layout_stays_html_under_xml() -> None:
 def test_output_is_well_formed_xml(markup: str) -> None:
     node = parse(markup).select_one("div,svg,math,script,p")
     assert node is not None
-    ET.fromstring(node.serialize(_XML))  # noqa: S314  # our own serialized output, parsed only to assert well-formedness
+    ET.fromstring(node.serialize(_XML))  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own serialized output, parsed only to assert well-formedness
 
 
 def test_round_trip_reparses_to_same_html() -> None:
@@ -212,7 +214,9 @@ def _parsed_inner_xml(markup: str) -> str:
 
 
 def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
-    from turbohtml import Comment  # noqa: PLC0415  # local: only this raw-vs-well-formed contrast needs the leaf
+    from turbohtml import (
+        Comment,  # local: only this raw-vs-well-formed contrast needs the leaf
+    )
 
     node = Element("doc", children=[Comment("a--b")])
     assert node.serialize(_XML) == "<doc><!--a--b--></doc>"
@@ -230,11 +234,13 @@ def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
     ],
 )
 def test_inner_xml_comment_is_made_well_formed(body: str, expected: str) -> None:
-    from turbohtml import Comment  # noqa: PLC0415  # local: only this comment-body suite needs the leaf type
+    from turbohtml import (
+        Comment,  # local: only this comment-body suite needs the leaf type
+    )
 
     out = _inner_xml(Comment(body))
     assert out == expected
-    ET.fromstring(f"<doc>{out}</doc>")  # noqa: S314  # our own output, parsed to assert the neutralized comment reparses
+    ET.fromstring(f"<doc>{out}</doc>")  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own output, parsed to assert the neutralized comment reparses
 
 
 @pytest.mark.parametrize(
@@ -272,7 +278,7 @@ def test_inner_xml_does_not_duplicate_a_stored_xmlns() -> None:
 def test_inner_xml_does_not_duplicate_a_stored_xmlns_prefix() -> None:
     out = _parsed_inner_xml('<svg xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x"></svg>')
     assert out.count("xmlns:xlink=") == 1
-    ET.fromstring(out)  # noqa: S314  # our own output, parsed to assert the single declaration is well-formed
+    ET.fromstring(out)  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own output, parsed to assert the single declaration is well-formed
 
 
 @pytest.mark.parametrize(
@@ -285,7 +291,7 @@ def test_inner_xml_does_not_duplicate_a_stored_xmlns_prefix() -> None:
 def test_inner_xml_drops_attributes_with_invalid_names(markup: str, expected: str) -> None:
     out = _parsed_inner_xml(markup)
     assert out == expected
-    ET.fromstring(out)  # noqa: S314  # our own output, parsed to assert dropping the bad name left it well-formed
+    ET.fromstring(out)  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own output, parsed to assert dropping the bad name left it well-formed
 
 
 @pytest.mark.parametrize(

@@ -34,7 +34,7 @@ _NS = {"s": "http://www.w3.org/2000/svg", "m": "http://www.w3.org/1998/Math/Math
         pytest.param("<svg xlink:href=x><g><rect/></g></svg>", True, False, id="exclusive-doc"),
     ],
 )
-def test_whole_document_matches_lxml(html: str, exclusive: bool, with_comments: bool) -> None:  # noqa: FBT001
+def test_whole_document_matches_lxml(html: str, exclusive: bool, with_comments: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     etree = pytest.importorskip("lxml.etree")
     tree = parse(html)
     ours = tree.canonicalize(Canonical(exclusive=exclusive, with_comments=with_comments))
@@ -53,7 +53,7 @@ def test_whole_document_matches_lxml(html: str, exclusive: bool, with_comments: 
         pytest.param("svg", ".//s:svg", True, None, id="subtree-exclusive-renders-on-user"),
     ],
 )
-def test_subtree_matches_lxml(selector: str, xpath: str, exclusive: bool, prefixes: list[str] | None) -> None:  # noqa: FBT001
+def test_subtree_matches_lxml(selector: str, xpath: str, exclusive: bool, prefixes: list[str] | None) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     etree = pytest.importorskip("lxml.etree")
     tree = parse("<svg xlink:href=x><g><rect/></g></svg>")
     node = tree.select_one(selector)

@@ -20,7 +20,7 @@ from bench.timing import Mutating
 
 def _peak_bytes() -> int:
     """Return this process's peak resident set size in bytes; ``ru_maxrss`` reports bytes on macOS, KiB on Linux."""
-    import resource  # noqa: PLC0415  # POSIX-only; imported here so a Windows import of the module stays clean
+    import resource  # ruff:ignore[import-outside-top-level]  # POSIX-only; imported here so a Windows import of the module stays clean
 
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return peak if sys.platform == "darwin" else peak * 1024

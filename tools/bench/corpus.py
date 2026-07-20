@@ -107,7 +107,7 @@ def _cached(filename: str, url: str) -> Path:
     target = _LARGE_DIR / filename
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        from httpfetch import fetch_bytes  # noqa: PLC0415  # see the docstring above
+        from httpfetch import fetch_bytes  # ruff:ignore[import-outside-top-level]  # see the docstring above
 
         target.write_bytes(fetch_bytes(url))
     return target

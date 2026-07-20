@@ -71,7 +71,7 @@ def pattern_ok(pattern: str, value: str) -> bool:
         pytest.param("xs:NCName", "a b", False, id="ncname-space"),
     ],
 )
-def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -94,7 +94,7 @@ def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # noqa: 
         pytest.param("(a|)b", "b", True, id="empty-alternative"),
     ],
 )
-def test_regex_edges(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_regex_edges(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert pattern_ok(pattern, value) is ok
 
 
@@ -336,7 +336,7 @@ def test_validate_rejects_non_node() -> None:
         schema.validate("not a node")  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # noqa: RUF001
+@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]
 def test_error_path_non_ascii_names(name: str) -> None:
     schema = f'<xs:schema {XS}><xs:element name="{name}" type="xs:int"/></xs:schema>'
     result = XMLSchema(schema).validate(parse_xml(f"<{name}>bad</{name}>"))
@@ -344,7 +344,7 @@ def test_error_path_non_ascii_names(name: str) -> None:
     assert result.errors[0].path == f"/{name}"
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # noqa: RUF001
+@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]
 def test_rng_non_ascii_attribute_name(name: str) -> None:
     schema = rwrap(f'<attribute name="{name}"><text/></attribute><text/>')
     assert rng_ok(schema, f'<doc {name}="1">x</doc>')
@@ -388,7 +388,7 @@ def test_instance_comment_before_root() -> None:
         pytest.param("xs:base64Binary", "$$$$", False, id="base64-bad-char"),
     ],
 )
-def test_datatype_boundary_edges(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_datatype_boundary_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -398,7 +398,7 @@ def test_datatype_boundary_edges(type_name: str, value: str, ok: bool) -> None: 
     [
         pytest.param("xs:int", "café", id="int-two-byte-value"),
         pytest.param("xs:int", "中文", id="int-three-byte-value"),
-        pytest.param("xs:int", "𝔸", id="int-four-byte-value"),  # noqa: RUF001
+        pytest.param("xs:int", "𝔸", id="int-four-byte-value"),  # ruff:ignore[ambiguous-unicode-character-string]
     ],
 )
 def test_datatype_error_message_non_ascii_value(type_name: str, value: str) -> None:
@@ -416,7 +416,7 @@ def test_datatype_error_message_non_ascii_value(type_name: str, value: str) -> N
         pytest.param("(x)?y", "y", True, id="optional-group"),
     ],
 )
-def test_regex_more(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_regex_more(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert pattern_ok(pattern, value) is ok
 
 
@@ -460,7 +460,7 @@ def test_rng_nullable_ref_and_text_ref() -> None:
         pytest.param("xs:duration", "P1DT2H", True, id="duration-day-and-time"),
     ],
 )
-def test_datatype_sign_and_tz(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # a pytest parametrize value, not a boolean-trap call site
+def test_datatype_sign_and_tz(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -741,7 +741,7 @@ def test_rng_forbidden_text_recursion_is_guarded() -> None:
         pytest.param("xs:base64Binary", "AB=C", False, id="base64-char-after-pad"),
     ],
 )
-def test_datatype_condition_boundaries(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_datatype_condition_boundaries(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -764,7 +764,7 @@ def test_ncname_char_past_z() -> None:
         pytest.param('<xs:whatever value="x"/>', "xs:string", "anything", True, id="unknown-facet-ignored"),
     ],
 )
-def test_facet_condition_boundaries(facets: str, base: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize
+def test_facet_condition_boundaries(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize
     assert xsd_ok(restricted(facets, base), f"<v>{value}</v>") is ok
 
 
@@ -781,7 +781,7 @@ def test_facet_condition_boundaries(facets: str, base: str, value: str, ok: bool
         pytest.param("xs:integer", "-0", True, id="integer-neg-zero"),
     ],
 )
-def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -806,7 +806,7 @@ def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:
         pytest.param(r"\w+", "a-b", False, id="word-excludes-dash"),
     ],
 )
-def test_regex_parser_boundaries(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_regex_parser_boundaries(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     assert pattern_ok(pattern, value) is ok
 
 
@@ -862,7 +862,7 @@ def test_datatype_all_subtypes_valid(type_name: str, value: str) -> None:
         pytest.param(r"[\S]", " ", False, id="class-not-space-vs-space"),
     ],
 )
-def test_regex_more_boundaries(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_regex_more_boundaries(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     assert pattern_ok(pattern, value) is ok
 
 
@@ -1063,7 +1063,7 @@ def test_long_numeric_value_for_digit_facet() -> None:
         pytest.param("xs:language", "en-a1b2", True, id="language-alnum-subtag"),
     ],
 )
-def test_more_datatype_ranges(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_more_datatype_ranges(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
 
@@ -1127,7 +1127,7 @@ def test_group_with_annotation_before_model() -> None:
         pytest.param("[\\s]", "x", False, id="class-space-vs-nonspace"),
     ],
 )
-def test_regex_parser_edge_boundaries(pattern: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_regex_parser_edge_boundaries(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     assert pattern_ok(pattern, value) is ok
 
 
@@ -1398,6 +1398,6 @@ def test_rng_define_dedup_finds_on_later_iteration() -> None:
         pytest.param("xs:double", "1e5z", False, id="double-exp-trailing-nondigit"),
     ],
 )
-def test_datatype_final_boundaries(type_name: str, value: str, ok: bool) -> None:  # noqa: FBT001  # parametrize value
+def test_datatype_final_boundaries(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrize value
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok

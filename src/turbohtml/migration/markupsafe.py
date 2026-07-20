@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     class _HasHtmlFormat(Protocol):
         """An object that renders itself safely under a format spec."""
 
-        def __html_format__(self, format_spec: str, /) -> str: ...  # noqa: PLW3201  # markupsafe render protocol
+        def __html_format__(self, format_spec: str, /) -> str: ...  # ruff:ignore[bad-dunder-method-name]  # markupsafe render protocol
 
     class _SupportsGetItem(Protocol):
         """Any object supporting subscript, the shape a ``%`` mapping operand needs."""
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 # isinstance(value, str) must hold for the template stack, so FURB189 is suppressed. PLR0904 is suppressed because the
 # class mirrors str's full method surface on purpose: any text-returning method that fell back to str would have its
 # already-safe result escaped a second time under autoescaping.
-class Markup(str):  # noqa: FURB189, PLR0904
+class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
     """
     Text that is already safe to embed in HTML and is not escaped again.
 
@@ -138,7 +138,7 @@ class Markup(str):  # noqa: FURB189, PLR0904
         """Split from the right into parts that each stay a Markup."""
         return [self.__class__(part) for part in str.rsplit(self, sep, maxsplit)]
 
-    def splitlines(self, keepends: bool = False) -> list[str]:  # noqa: FBT001, FBT002  # keepends is str's own flag
+    def splitlines(self, keepends: bool = False) -> list[str]:  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # keepends is str's own flag
         """Split into lines that each stay a Markup."""
         return [self.__class__(line) for line in str.splitlines(self, keepends)]
 
@@ -274,7 +274,7 @@ class Markup(str):  # noqa: FURB189, PLR0904
         """Format from a mapping, escaping each field the way :meth:`format` does."""
         return self.__class__(EscapeFormatter(self.escape).vformat(self, (), cast("Mapping[str, object]", mapping)))
 
-    def __html_format__(self, format_spec: str, /) -> Markup:  # noqa: PLW3201  # markupsafe format protocol, not a dunder
+    def __html_format__(self, format_spec: str, /) -> Markup:  # ruff:ignore[bad-dunder-method-name]  # markupsafe format protocol, not a dunder
         """Render under ``format()``: a Markup ignores an empty spec and rejects any other."""
         if format_spec:
             msg = "Unsupported format specification for Markup."
@@ -318,7 +318,7 @@ class EscapeFormatter(string.Formatter):
                     "A class that defines __html__ must define __html_format__ to work with format specifiers."
                 )
                 raise ValueError(msg)
-            rendered = cast("_HasHtml", value).__html__()  # noqa: PLC2801  # __html__ is a render protocol, not an operator
+            rendered = cast("_HasHtml", value).__html__()  # ruff:ignore[unnecessary-dunder-call]  # __html__ is a render protocol, not an operator
         else:
             rendered = super().format_field(value, str(format_spec))
         return str(self.escape(rendered))

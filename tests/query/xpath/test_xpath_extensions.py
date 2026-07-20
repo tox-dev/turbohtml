@@ -33,7 +33,7 @@ def shout(_context: SimpleNamespace, text: str) -> str:
     return text.upper()
 
 
-def echo(_context: SimpleNamespace, value: float | bool) -> float | bool:  # noqa: FBT001  # positional by convention
+def echo(_context: SimpleNamespace, value: float | bool) -> float | bool:  # ruff:ignore[boolean-type-hint-positional-argument]  # positional by convention
     return value
 
 
