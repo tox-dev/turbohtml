@@ -28,7 +28,7 @@ jobs:
           - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
           - {os: "windows-2025", label: Windows, cov: ""}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           submodules: true # html5lib-tests data for the conformance test
@@ -52,7 +52,7 @@ jobs:
       matrix:
         py: ["pypy3.11", "pypy3.10"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           submodules: true # html5lib-tests data for the conformance test
@@ -73,7 +73,7 @@ jobs:
       matrix:
         tox_env: ["type", "docs", "pkg_meta"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -96,7 +96,7 @@ jobs:
     # without the oracle. This is a pass/fail correctness gate, not a coverage gate -- the 100% line/branch gate stays
     # on the matrix (env_run_base), deliberately not bolted on here.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           submodules: recursive # every conformance oracle plus the html5lib-tests data; shallow submodules init here too
@@ -135,7 +135,7 @@ jobs:
           - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
           - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
@@ -163,7 +163,7 @@ jobs:
           - {os: "windows-2025", label: "MSVC · Windows x64", arm: false}
           - {os: "windows-11-arm", label: "MSVC · Windows arm64", arm: true}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
@@ -200,7 +200,7 @@ jobs:
           - {os: "ubuntu-24.04", arch: "x64"}
           - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
@@ -220,7 +220,7 @@ jobs:
       image: ghcr.io/nascheme/cpython-tsan:3.14t
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false

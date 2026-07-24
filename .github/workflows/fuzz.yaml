@@ -19,7 +19,7 @@ jobs:
     # the per-PR gate: build every harness under -fsanitize=address,undefined and replay the benign seed corpus. It is
     # fast and deterministic, so a red run means a real regression, not a flaky fuzz find. The deep hunt is the job below.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
@@ -38,7 +38,7 @@ jobs:
     # the continuous hunt: mutation and escalating-depth probes for a wall-clock budget per target. It is not a PR gate
     # and is allowed to surface a fault (which fails the job by design), so a maintainer triages new finds from the log.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
