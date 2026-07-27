@@ -23,7 +23,7 @@ repos:
     hooks:
       - id: tox-toml-fmt
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.25.3" # v2.23.0
+    rev: "v2.26.0" # v2.23.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -33,13 +33,13 @@ repos:
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table|idna_table|normalize_table|encoding_tables)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.15.22" # v0.15.16
+    rev: "v0.16.0" # v0.15.16
     hooks:
       - id: ruff-format
       - id: ruff-check
         args: ["--fix", "--unsafe-fixes", "--exit-non-zero-on-fix"]
   - repo: https://github.com/pre-commit/sync-pre-commit-deps
-    rev: "v0.0.4" # v0.0.4
+    rev: "v0.0.5" # v0.0.4
     hooks:
       - id: sync-pre-commit-deps
   - repo: https://github.com/google/yamlfmt
@@ -94,7 +94,7 @@ repos:
         types: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: "v1.27.0" # v1.25.2
+    rev: "v1.28.0" # v1.25.2
     hooks:
       - id: zizmor
   - repo: meta
