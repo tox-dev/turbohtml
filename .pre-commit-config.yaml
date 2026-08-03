@@ -33,7 +33,7 @@ repos:
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table|idna_table|normalize_table|encoding_tables)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.16.0" # v0.15.16
+    rev: "v0.16.1" # v0.15.16
     hooks:
       - id: ruff-format
       - id: ruff-check
@@ -94,7 +94,7 @@ repos:
         types: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: "v1.28.0" # v1.25.2
+    rev: "v1.29.0" # v1.25.2
     hooks:
       - id: zizmor
   - repo: meta
