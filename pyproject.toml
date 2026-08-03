@@ -370,6 +370,10 @@ ini_options.filterwarnings = [
 ]
 
 [tool.coverage]
+# coverage defaults to the sysmon core on 3.14+, which cannot record the per-test dynamic
+# contexts pytest-cov sets via --cov-context (7.15.2 dropped them silently, 7.15.3 warns,
+# and filterwarnings=error turns that into a failure); ctrace supports them
+run.core = "ctrace"
 # The differential suites diff against oracle libraries that are bench, not test, dependencies
 # (lxml additionally ships no wheels for 3.15, the free-threaded builds, or Windows), so each
 # module importorskips itself where its oracle is absent; measuring them would make the gate
