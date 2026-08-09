@@ -4391,7 +4391,7 @@ static th_node *stylesheet_root(th_node *node) {
     return NULL; /* GCOVR_EXCL_LINE: an XML document always has a root element */
 }
 
-static PyObject *stylesheet_import_hrefs(PyObject *module, PyObject *stylesheet, PyObject *base) {
+static PyObject *stylesheet_import_hrefs(PyObject *module, PyObject *stylesheet, PyObject *base, int allow_imports) {
     PyObject *hrefs = PyList_New(0);
     if (hrefs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;     /* GCOVR_EXCL_LINE */
@@ -4417,6 +4417,11 @@ static PyObject *stylesheet_import_hrefs(PyObject *module, PyObject *stylesheet,
             const Py_UCS4 *local = qname_local(child, &local_len, &prefix_len);
             if (!ucs4_ascii_eq(local, local_len, "import") || !node_prefix_is_xsl(tree, child, prefix_len)) {
                 continue;
+            }
+            if (!allow_imports) {
+                PyErr_SetString(PyExc_ValueError, "xsl:import is disabled");
+                error = 1;
+                break;
             }
             if (base == Py_None) {
                 PyErr_SetString(PyExc_ValueError,
@@ -4446,6 +4451,207 @@ static PyObject *stylesheet_import_hrefs(PyObject *module, PyObject *stylesheet,
         return NULL;
     }
     return hrefs;
+}
+
+typedef struct {
+    PyObject *path_type;
+    PyObject *urlparse;
+    PyObject *url2pathname;
+    PyObject *root;
+    int allow_imports;
+} import_policy;
+
+static void import_policy_clear(import_policy *policy) {
+    Py_XDECREF(policy->path_type);
+    Py_XDECREF(policy->urlparse);
+    Py_XDECREF(policy->url2pathname);
+    Py_XDECREF(policy->root);
+}
+
+static PyObject *import_path_from_url(import_policy *policy, PyObject *value, const char *name) {
+    if (!PyUnicode_Check(value)) {
+        return PyObject_CallOneArg(policy->path_type, value);
+    }
+    PyObject *parsed = PyObject_CallOneArg(policy->urlparse, value);
+    if (parsed == NULL) {
+        return NULL;
+    }
+    PyObject *scheme = PyObject_GetAttrString(parsed, "scheme");
+    PyObject *netloc = PyObject_GetAttrString(parsed, "netloc");
+    PyObject *url_path = PyObject_GetAttrString(parsed, "path");
+    /* GCOVR_EXCL_BR_START: ParseResult guarantees the scheme, netloc and path attributes. */
+    if (scheme == NULL || netloc == NULL || url_path == NULL) {
+        Py_XDECREF(scheme);   /* GCOVR_EXCL_LINE */
+        Py_XDECREF(netloc);   /* GCOVR_EXCL_LINE */
+        Py_XDECREF(url_path); /* GCOVR_EXCL_LINE */
+        Py_DECREF(parsed);    /* GCOVR_EXCL_LINE */
+        return NULL;          /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    int is_file = PyUnicode_CompareWithASCIIString(scheme, "file") == 0;
+    int has_scheme = PyUnicode_GET_LENGTH(scheme) != 0;
+    int windows_drive = PyUnicode_GET_LENGTH(value) > 2 && PyUnicode_ReadChar(value, 1) == ':' &&
+                        (PyUnicode_ReadChar(value, 2) == '\\' || PyUnicode_ReadChar(value, 2) == '/');
+    PyObject *local = NULL;
+    if (is_file) {
+        int local_host =
+            PyUnicode_GET_LENGTH(netloc) == 0 || PyUnicode_CompareWithASCIIString(netloc, "localhost") == 0;
+        if (!local_host) {
+            PyErr_Format(PyExc_ValueError, "xsl:import %s file URL must point to a local path", name);
+        } else {
+            local = PyObject_CallOneArg(policy->url2pathname, url_path);
+        }
+    } else if ((has_scheme && !windows_drive) || PyUnicode_GET_LENGTH(netloc) != 0) {
+        PyErr_Format(PyExc_ValueError, "xsl:import %s must be a local path or file URL", name);
+    } else {
+        local = PyObject_CallOneArg(policy->url2pathname, value);
+    }
+    Py_DECREF(url_path);
+    Py_DECREF(netloc);
+    Py_DECREF(scheme);
+    Py_DECREF(parsed);
+    if (local == NULL) {
+        return NULL;
+    }
+    PyObject *path = PyObject_CallOneArg(policy->path_type, local);
+    Py_DECREF(local);
+    return path;
+}
+
+static PyObject *import_resolve(PyObject *path) {
+    return PyObject_CallMethod(path, "resolve", NULL);
+}
+
+static int import_check_root(import_policy *policy, PyObject *path) {
+    if (policy->root == NULL) {
+        return 0;
+    }
+    PyObject *inside = PyObject_CallMethod(path, "is_relative_to", "O", policy->root);
+    if (inside == NULL) { /* GCOVR_EXCL_BR_LINE: Path.is_relative_to returns bool or allocates */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    int allowed = PyObject_IsTrue(inside);
+    Py_DECREF(inside);
+    if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: bool truth testing cannot fail */
+        return -1;     /* GCOVR_EXCL_LINE */
+    }
+    if (!allowed) {
+        PyErr_Format(PyExc_ValueError, "xsl:import path escapes import_root: %S", path);
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *load_stylesheet_import(PyObject *module, import_policy *policy, PyObject *base, PyObject *href) {
+    PyObject *current_path = import_path_from_url(policy, base, "base_url");
+    if (current_path == NULL) {
+        return NULL;
+    }
+    PyObject *current = import_resolve(current_path);
+    Py_DECREF(current_path);
+    if (current == NULL) { /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    PyObject *parent = PyObject_GetAttrString(current, "parent");
+    PyObject *href_path = import_path_from_url(policy, href, "href");
+    if (parent == NULL) {      /* GCOVR_EXCL_BR_LINE: pathlib paths expose parent */
+        Py_XDECREF(href_path); /* GCOVR_EXCL_LINE */
+        Py_DECREF(current);    /* GCOVR_EXCL_LINE */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
+    if (href_path == NULL) {
+        Py_DECREF(parent);
+        Py_DECREF(current);
+        return NULL;
+    }
+    PyObject *joined = PyNumber_TrueDivide(parent, href_path);
+    Py_DECREF(href_path);
+    Py_DECREF(parent);
+    if (joined == NULL) {   /* GCOVR_EXCL_BR_LINE: pathlib joins fail only on allocation */
+        Py_DECREF(current); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    PyObject *path = import_resolve(joined);
+    Py_DECREF(joined);
+    if (path == NULL) {     /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
+        Py_DECREF(current); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    if (import_check_root(policy, path) < 0) {
+        Py_DECREF(path);
+        Py_DECREF(current);
+        return NULL;
+    }
+    PyObject *text = PyObject_CallMethod(path, "read_text", "s", "utf-8");
+    if (text == NULL) {
+        Py_DECREF(path);
+        Py_DECREF(current);
+        return NULL;
+    }
+    PyObject *parse_xml = PyObject_GetAttrString(module, "parse_xml");
+    if (parse_xml == NULL) { /* GCOVR_EXCL_BR_LINE: the extension module exposes parse_xml */
+        Py_DECREF(text);     /* GCOVR_EXCL_LINE */
+        Py_DECREF(path);     /* GCOVR_EXCL_LINE */
+        Py_DECREF(current);  /* GCOVR_EXCL_LINE */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    PyObject *stylesheet = PyObject_CallOneArg(parse_xml, text);
+    Py_DECREF(parse_xml);
+    Py_DECREF(text);
+    if (stylesheet == NULL) {
+        Py_DECREF(path);
+        Py_DECREF(current);
+        return NULL;
+    }
+    PyObject *loaded = PyTuple_Pack(3, stylesheet, path, current);
+    Py_DECREF(stylesheet);
+    Py_DECREF(path);
+    Py_DECREF(current);
+    return loaded;
+}
+
+static int import_policy_init(import_policy *policy, int allow_imports, PyObject *import_root) {
+    memset(policy, 0, sizeof(*policy));
+    policy->allow_imports = allow_imports;
+    PyObject *pathlib = PyImport_ImportModule("pathlib");
+    PyObject *parse = PyImport_ImportModule("urllib.parse");
+    PyObject *request = PyImport_ImportModule("urllib.request");
+    /* Bundled standard-library imports fail only on allocation. */
+    /* GCOVR_EXCL_BR_START */
+    if (pathlib == NULL || parse == NULL || request == NULL) {
+        Py_XDECREF(pathlib); /* GCOVR_EXCL_LINE */
+        Py_XDECREF(parse);   /* GCOVR_EXCL_LINE */
+        Py_XDECREF(request); /* GCOVR_EXCL_LINE */
+        return -1;           /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    policy->path_type = PyObject_GetAttrString(pathlib, "Path");
+    policy->urlparse = PyObject_GetAttrString(parse, "urlparse");
+    policy->url2pathname = PyObject_GetAttrString(request, "url2pathname");
+    Py_DECREF(request);
+    Py_DECREF(parse);
+    Py_DECREF(pathlib);
+    /* Bundled modules expose these attributes. */
+    /* GCOVR_EXCL_BR_START */
+    if (policy->path_type == NULL || policy->urlparse == NULL || policy->url2pathname == NULL) {
+        import_policy_clear(policy); /* GCOVR_EXCL_LINE */
+        return -1;                   /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    if (import_root != Py_None) {
+        PyObject *root_path = PyObject_CallOneArg(policy->path_type, import_root);
+        if (root_path == NULL) {
+            import_policy_clear(policy);
+            return -1;
+        }
+        policy->root = import_resolve(root_path);
+        Py_DECREF(root_path);
+        if (policy->root == NULL) {      /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
+            import_policy_clear(policy); /* GCOVR_EXCL_LINE */
+            return -1;                   /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
 }
 
 static int raise_import_cycle(PyObject *active, PyObject *path) {
@@ -4484,25 +4690,19 @@ static int raise_import_cycle(PyObject *active, PyObject *path) {
     return -1;
 }
 
-static int resolve_stylesheet_imports(PyObject *module, PyObject *stylesheet, PyObject *base, PyObject *loader,
+static int resolve_stylesheet_imports(PyObject *module, PyObject *stylesheet, PyObject *base, import_policy *policy,
                                       PyObject *imports, PyObject *active, PyObject *active_set) {
-    PyObject *hrefs = stylesheet_import_hrefs(module, stylesheet, base);
+    PyObject *hrefs = stylesheet_import_hrefs(module, stylesheet, base, policy->allow_imports);
     if (hrefs == NULL) {
         return -1;
     }
     Py_ssize_t count = PyList_GET_SIZE(hrefs);
     for (Py_ssize_t index = 0; index < count; index++) {
-        PyObject *loaded = PyObject_CallFunctionObjArgs(loader, base, PyList_GET_ITEM(hrefs, index), NULL);
+        PyObject *loaded = load_stylesheet_import(module, policy, base, PyList_GET_ITEM(hrefs, index));
         if (loaded == NULL) {
             Py_DECREF(hrefs);
             return -1;
         }
-        if (!PyTuple_Check(loaded) || PyTuple_GET_SIZE(loaded) != 3) { /* GCOVR_EXCL_START: private loader invariant */
-            Py_DECREF(loaded);
-            Py_DECREF(hrefs);
-            PyErr_SetString(PyExc_TypeError, "xslt: import loader must return (stylesheet, path, current_path)");
-            return -1;
-        } /* GCOVR_EXCL_STOP */
         PyObject *imported = PyTuple_GET_ITEM(loaded, 0);
         PyObject *next_base = PyTuple_GET_ITEM(loaded, 1);
         if (PyList_GET_SIZE(active) == 0) {
@@ -4545,7 +4745,7 @@ static int resolve_stylesheet_imports(PyObject *module, PyObject *stylesheet, Py
             Py_DECREF(hrefs);
             return -1;
         } /* GCOVR_EXCL_STOP */
-        int status = resolve_stylesheet_imports(module, imported, next_base, loader, imports, active, active_set);
+        int status = resolve_stylesheet_imports(module, imported, next_base, policy, imports, active, active_set);
         Py_LeaveRecursiveCall();
         if (status == 0) {
             (void)PyDict_DelItem(active_set, next_base);
@@ -4564,10 +4764,26 @@ static int resolve_stylesheet_imports(PyObject *module, PyObject *stylesheet, Py
 
 PyObject *turbohtml_xslt_resolve_imports(PyObject *module, PyObject *args) {
     PyObject *stylesheet;
-    PyObject *base;
-    PyObject *loader;
-    if (!PyArg_ParseTuple(args, "OOO:_xslt_resolve_imports", &stylesheet, &base, &loader)) { /* GCOVR_EXCL_BR_LINE */
+    PyObject *base = Py_None;
+    PyObject *import_root = Py_None;
+    int allow_imports = 1;
+    /* GCOVR_EXCL_BR_START */
+    if (!PyArg_ParseTuple(args, "O|OpO:_xslt_resolve_imports", &stylesheet, &base, &allow_imports, &import_root)) {
         return NULL; /* GCOVR_EXCL_LINE: private typed boundary */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    PyObject *hrefs = stylesheet_import_hrefs(module, stylesheet, base, allow_imports);
+    if (hrefs == NULL) {
+        return NULL;
+    }
+    if (PyList_GET_SIZE(hrefs) == 0) {
+        Py_DECREF(hrefs);
+        Py_RETURN_NONE;
+    }
+    Py_DECREF(hrefs);
+    import_policy policy;
+    if (import_policy_init(&policy, allow_imports, import_root) < 0) {
+        return NULL;
     }
     PyObject *imports = PyList_New(0);
     PyObject *active = PyList_New(0);
@@ -4576,18 +4792,16 @@ PyObject *turbohtml_xslt_resolve_imports(PyObject *module, PyObject *args) {
         Py_XDECREF(imports);                                       /* GCOVR_EXCL_LINE */
         Py_XDECREF(active);                                        /* GCOVR_EXCL_LINE */
         Py_XDECREF(active_set);                                    /* GCOVR_EXCL_LINE */
+        import_policy_clear(&policy);                              /* GCOVR_EXCL_LINE */
         return NULL;                                               /* GCOVR_EXCL_LINE */
     }
-    int status = resolve_stylesheet_imports(module, stylesheet, base, loader, imports, active, active_set);
+    int status = resolve_stylesheet_imports(module, stylesheet, base, &policy, imports, active, active_set);
+    import_policy_clear(&policy);
     Py_DECREF(active_set);
     Py_DECREF(active);
     if (status < 0) {
         Py_DECREF(imports);
         return NULL;
-    }
-    if (PyList_GET_SIZE(imports) == 0) {
-        Py_DECREF(imports);
-        Py_RETURN_NONE;
     }
     return imports;
 }

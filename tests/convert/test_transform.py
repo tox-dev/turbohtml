@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING, cast
 
@@ -2362,8 +2363,121 @@ def test_transform_import_loads_external_templates(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
-    result = transform(sheet, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(main))
+    result = transform(sheet, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(main), import_root=tmp_path)
     assert _canon(result) == "[x]"
+
+
+def test_transform_import_can_be_disabled(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="xsl:import is disabled"):
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), allow_imports=False)
+
+
+def test_transform_import_disabled_allows_self_contained_stylesheet() -> None:
+    result = Transform(_sheet('<xsl:template match="/">ok</xsl:template>'), allow_imports=False)(
+        turbohtml.parse_xml("<r/>")
+    )
+    assert result == "ok"
+
+
+@pytest.mark.parametrize(
+    "href_kind",
+    [
+        pytest.param("parent", id="parent traversal"),
+        pytest.param("absolute", id="absolute path"),
+        pytest.param("file_url", id="file URL"),
+    ],
+)
+def test_transform_import_root_rejects_path_escape(tmp_path: Path, href_kind: str) -> None:
+    root = tmp_path / "styles"
+    root.mkdir()
+    outside = tmp_path / "outside.xsl"
+    outside.write_text('<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"/>', encoding="utf-8")
+    href = {"parent": "../outside.xsl", "absolute": str(outside), "file_url": outside.as_uri()}[href_kind]
+    with pytest.raises(ValueError, match="path escapes import_root"):
+        transform(
+            _import_sheet(href),
+            turbohtml.parse_xml("<r/>"),
+            base_url=str(root / "main.xsl"),
+            import_root=root,
+        )
+
+
+def test_transform_import_root_rejects_symlink_escape(tmp_path: Path) -> None:
+    root = tmp_path / "styles"
+    root.mkdir()
+    outside = tmp_path / "outside.xsl"
+    outside.write_text('<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"/>', encoding="utf-8")
+    link = root / "linked.xsl"
+    try:
+        link.symlink_to(outside)
+    except OSError as error:  # pragma: no cover - Windows may deny symlink creation
+        pytest.skip(f"symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="path escapes import_root"):
+        transform(
+            _import_sheet("linked.xsl"), turbohtml.parse_xml("<r/>"), base_url=str(root / "main.xsl"), import_root=root
+        )
+
+
+@pytest.mark.parametrize(
+    ("href", "content", "error", "match"),
+    [
+        pytest.param("x", None, FileNotFoundError, r"[/\\]x", id="missing file"),
+        pytest.param("imported.xsl", "<broken>", turbohtml.HTMLParseError, "xml-premature-eof", id="malformed XML"),
+    ],
+)
+def test_transform_import_reports_file_error(
+    tmp_path: Path, href: str, content: str | None, error: type[Exception], match: str
+) -> None:
+    if content is not None:
+        (tmp_path / href).write_text(content, encoding="utf-8")
+    with pytest.raises(error, match=match):
+        Transform(_import_sheet(href), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+
+
+def test_transform_import_rejects_malformed_url() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        Transform(_import_sheet(), base_url="http://[")
+
+
+def test_transform_import_rejects_invalid_root(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match=r"os\.PathLike"):
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=cast("str | Path", object()))
+
+
+@pytest.mark.parametrize(
+    ("href", "relative"),
+    [
+        pytest.param("C:/base.xsl", ("C:", "base.xsl"), id="slash"),
+        pytest.param(r"C:\base.xsl", (r"C:\base.xsl",), id="backslash"),
+    ],
+)
+@pytest.mark.skipif(os.name == "nt", reason="Windows drive paths are native on Windows")
+def test_transform_import_accepts_windows_drive_path_on_posix(
+    tmp_path: Path, href: str, relative: tuple[str, ...]
+) -> None:
+    imported = tmp_path.joinpath(*relative)
+    imported.parent.mkdir(exist_ok=True)
+    imported.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/">ok</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    result = Transform(_import_sheet(href), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)(
+        turbohtml.parse_xml("<r/>")
+    )
+    assert _canon(result) == "ok"
+
+
+def test_transform_import_rejects_windows_drive_relative_path(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="href must be a local path or file URL"):
+        Transform(_import_sheet("C:base.xsl"), base_url=str(tmp_path / "main.xsl"))
+
+
+def _import_sheet(href: str = "base.xsl") -> turbohtml.Document:
+    return turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:import href="{href}"/></xsl:stylesheet>'
+    )
 
 
 def test_transform_import_ignores_foreign_same_length_prefix() -> None:
@@ -2576,7 +2690,8 @@ def test_transform_import_nested(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
-    assert _canon(transform(sheet, turbohtml.parse_xml("<r><a/></r>"), base_url=str(main))) == "leaf"
+    result = transform(sheet, turbohtml.parse_xml("<r><a/></r>"), base_url=str(main), import_root=tmp_path)
+    assert _canon(result) == "leaf"
 
 
 def test_transform_import_without_base_url_errors() -> None:

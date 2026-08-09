@@ -26,5 +26,7 @@ adds the XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-nu
 ``function-available()``, and ``element-available()``.
 
 External-document loading is limited. ``xsl:import`` resolves local paths and file URLs against ``base_url``; the
-imported declarations join conflict resolution at lower import precedence. ``xsl:include`` and ``document()`` do not
+imported declarations join conflict resolution at lower import precedence. The compatibility default permits any local
+path. Set ``allow_imports=False`` for an untrusted stylesheet, or set ``import_root`` so parent traversal, absolute
+paths, file URLs, and resolved symlinks must stay inside one directory. ``xsl:include`` and ``document()`` do not
 resolve, and ``document()`` returns an empty node-set.
