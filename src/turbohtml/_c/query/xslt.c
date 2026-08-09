@@ -4462,9 +4462,9 @@ typedef struct {
 } import_policy;
 
 static void import_policy_clear(import_policy *policy) {
-    Py_XDECREF(policy->path_type);
-    Py_XDECREF(policy->urlparse);
-    Py_XDECREF(policy->url2pathname);
+    Py_DECREF(policy->path_type);
+    Py_DECREF(policy->urlparse);
+    Py_DECREF(policy->url2pathname);
     Py_XDECREF(policy->root);
 }
 
@@ -4634,8 +4634,10 @@ static int import_policy_init(import_policy *policy, int allow_imports, PyObject
     /* Bundled modules expose these attributes. */
     /* GCOVR_EXCL_BR_START */
     if (policy->path_type == NULL || policy->urlparse == NULL || policy->url2pathname == NULL) {
-        import_policy_clear(policy); /* GCOVR_EXCL_LINE */
-        return -1;                   /* GCOVR_EXCL_LINE */
+        Py_XDECREF(policy->path_type);    /* GCOVR_EXCL_LINE */
+        Py_XDECREF(policy->urlparse);     /* GCOVR_EXCL_LINE */
+        Py_XDECREF(policy->url2pathname); /* GCOVR_EXCL_LINE */
+        return -1;                        /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
     if (import_root != Py_None) {

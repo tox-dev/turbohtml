@@ -2454,7 +2454,7 @@ def test_transform_import_rejects_invalid_root(tmp_path: Path) -> None:
 @pytest.mark.skipif(os.name == "nt", reason="Windows drive paths are native on Windows")
 def test_transform_import_accepts_windows_drive_path_on_posix(
     tmp_path: Path, href: str, relative: tuple[str, ...]
-) -> None:
+) -> None:  # pragma: no cover - Windows treats drive paths as native
     imported = tmp_path.joinpath(*relative)
     imported.parent.mkdir(exist_ok=True)
     imported.write_text(
