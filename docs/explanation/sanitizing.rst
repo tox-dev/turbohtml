@@ -68,6 +68,11 @@ event-handler and URL baseline unconditional, so a custom-element policy is safe
 ``style`` policy is. Only basic custom-element names reach the matcher -- a hyphenated name clear of the reserved
 ``annotation-xml``/``font-face`` set -- so a matcher cannot be tricked into keeping a real foreign element by its name.
 
+SVG animation needs an element rule in addition to direct attribute checks. ``animate``, ``set``, ``animateMotion``,
+``animateTransform``, and ``animateColor`` can assign the attribute named by ``attributeName`` at runtime. A value in
+``from``, ``to``, or ``values`` can write a script URL or event handler without placing that value in a direct URL or
+``on*`` attribute. The baseline blocks these animation elements under custom SVG allowlists.
+
 The string API parses into the private tree that the native walk mutates. The internal Element entrypoint snapshots its
 input under the tree's critical section, then releases the shared tree before invoking a policy callback. Callback code
 may retain or mutate the original tree without racing the sanitizer's private copy.

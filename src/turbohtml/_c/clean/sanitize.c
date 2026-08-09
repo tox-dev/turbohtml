@@ -101,6 +101,27 @@ static int is_unsafe_tag(uint16_t atom) {
     }
 }
 
+static int is_unsafe_svg_animation(const th_node *element) {
+    if (element->ns != TH_NS_SVG) {
+        return 0;
+    }
+    static const char *const names[] = {"animate", "animateColor", "animateMotion", "animateTransform", "set"};
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
+        size_t len = strlen(names[index]);
+        if (element->text_len != (Py_ssize_t)len) {
+            continue;
+        }
+        size_t position = 0;
+        while (position < len && element->text[position] == (Py_UCS4)names[index][position]) {
+            position++;
+        }
+        if (position == len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Attributes whose value is a URL, so its scheme is checked against the allowlist. Matched on the interned name bytes.
  */
 static int is_url_attr(const char *name, Py_ssize_t len) {
@@ -1688,7 +1709,9 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
        the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
        against css_properties (like a `style` attribute), rather than dropping its CSS. */
     int style_element = element->atom == TH_TAG_STYLE && is_html;
-    int allowed = (is_unsafe_tag(element->atom) && !style_element) ? 0 : PySet_Contains(s->tags, tag);
+    int allowed = ((is_unsafe_tag(element->atom) && !style_element) || is_unsafe_svg_animation(element))
+                      ? 0
+                      : PySet_Contains(s->tags, tag);
     /* USE_PROFILES: a policy enables the HTML, SVG, and MathML namespaces independently, so a whole namespace can be
        dropped regardless of the tag allowlist (an SVG-only policy keeps <svg> and drops <math>, or the reverse) */
     int ns_allowed = element->ns == TH_NS_HTML  ? s->allow_html
