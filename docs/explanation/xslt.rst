@@ -52,10 +52,10 @@ the caller's tree is a read-only participant that survives the call unchanged --
 concurrently. A strip/preserve conflict on one element is resolved by import precedence then NameTest specificity, and
 ``xml:space="preserve"`` on an ancestor overrides both.
 
-``xsl:import`` (`section 2.6.2 <https://www.w3.org/TR/xslt-10/#import>`_) does load other files. The native resolver checks
-``allow_imports`` and ``import_root`` before each read, then parses the imported sheets. The C engine deep-copies every
-sheet into one private tree so their declarations share an atom table, then walks them from low import precedence to
-high. Import precedence becomes the first key of the section 5.5 conflict resolution above. ``document()`` loads
+``xsl:import`` (`section 2.6.2 <https://www.w3.org/TR/xslt-10/#import>`_) does load other files. The native resolver
+checks ``allow_imports`` and ``import_root`` before each read, then parses the imported sheets. The C engine deep-copies
+every sheet into one private tree so their declarations share an atom table, then walks them from low import precedence
+to high. Import precedence becomes the first key of the section 5.5 conflict resolution above. ``document()`` loads
 nothing, avoiding an arbitrary-URL fetch surface.
 
 ****************
