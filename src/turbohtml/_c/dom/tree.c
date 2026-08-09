@@ -2903,9 +2903,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             }
             return TH_DRAIN_NEXT;
         }
-        if (atom == TH_TAG_INPUT || atom == TH_TAG_KEYGEN) {
-            /* an input or keygen closes an open select entirely (and is
-               ignored outright in a select-context fragment) */
+        if (atom == TH_TAG_INPUT) {
             if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
                 return TH_DRAIN_NEXT;
             }
