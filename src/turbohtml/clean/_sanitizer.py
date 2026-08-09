@@ -199,7 +199,8 @@ class Policy:
         ``USE_PROFILES.html``. Independent of the tag allowlist, so it composes with ``allow_svg``/``allow_mathml`` to
         select which content languages a policy admits.
     :param allow_svg: keep SVG-namespace elements, DOMPurify's ``USE_PROFILES.svg``. Off drops every SVG element even
-        when its tag is in ``tags``.
+        when its tag is in ``tags``. The baseline rejects SVG animation elements because they can assign event handlers
+        or script URLs at runtime; an allowlist cannot keep them.
     :param allow_mathml: keep MathML-namespace elements, DOMPurify's ``USE_PROFILES.mathMl``. Off drops every MathML
         element even when its tag is in ``tags``.
     :param xml: emit well-formed XML/XHTML instead of HTML, DOMPurify's ``RETURN_DOM`` served through the XML

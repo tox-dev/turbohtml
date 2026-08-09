@@ -75,10 +75,11 @@ _IDS = [
 _PERMISSIVE_TAGS = frozenset({
     "a", "abbr", "b", "blockquote", "br", "button", "caption", "cite", "code", "col", "colgroup", "dd", "del", "div",
     "dl", "dt", "em", "figcaption", "figure", "form", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "input",
-    "ins", "label", "li", "mark", "ol", "option", "p", "pre", "q", "s", "select", "small", "span", "strong", "style",
+    "ins", "label", "li", "mark", "ol", "option", "p", "pre", "q", "s", "script", "select", "small", "span",
+    "strong", "style",
     "sub", "sup", "table", "tbody", "td", "textarea", "tfoot", "th", "thead", "tr", "u", "ul",
     "svg", "g", "rect", "circle", "path", "defs", "filter", "fegaussianblur", "image", "title", "desc",
-    "foreignobject", "text", "use", "animate", "set",
+    "foreignobject", "text", "use", "animate", "animateColor", "animateMotion", "animateTransform", "set",
     "math", "mi", "mo", "mn", "ms", "mtext", "mrow", "mglyph", "annotation-xml",
 })  # fmt: skip
 _PERMISSIVE = Policy(
@@ -97,6 +98,7 @@ _POLICIES = [
 _DANGER_TAGS = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
 _DANGER_SCHEMES = ("javascript:", "data:", "vbscript:")
 _URL_ATTRS = frozenset({"href", "src", "action", "xlink:href", "formaction", "poster", "background", "cite", "ping"})
+_SVG_ANIMATION_TAGS = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
 # CSS constructs that execute or fetch when a kept <style> body or style attribute survives the property scrub.
 _CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
 
@@ -120,12 +122,23 @@ def _bad_scheme(value: str) -> bool:
 
 
 def _dangerous_element(node: Element) -> str | None:
-    """A label for a scriptable element kept in the HTML namespace (a kept ``<style>`` only if its body survived)."""
-    if node.tag not in _DANGER_TAGS or node.namespace.value != "html":
+    namespace = node.namespace.value
+    if namespace == "svg" and node.tag in _SVG_ANIMATION_TAGS:
+        attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
+        target = attrs.get("attributename", "")
+        if target.startswith("on"):
+            return f"<{node.tag}>->{target}"
+        if target in _URL_ATTRS:
+            for name in ("from", "to", "values"):
+                if any(_bad_scheme(value) for value in attrs.get(name, "").split(";")):
+                    return f"<{node.tag}>->{target}"
+    if node.tag == "script" and namespace in {"html", "svg"}:
+        return "<script>"
+    if node.tag == "style" and namespace in {"html", "svg"}:
+        return "style-body" if any(token in _style_body(node) for token in _CSS_DANGER) else None
+    if node.tag not in _DANGER_TAGS or namespace != "html":
         return None
-    if node.tag != "style":
-        return f"<{node.tag}>"
-    return "style-body" if any(token in _style_body(node) for token in _CSS_DANGER) else None
+    return f"<{node.tag}>"
 
 
 def _dangerous_attribute(name: str, value: str) -> str | None:
@@ -184,14 +197,52 @@ def test_attr_value_normalizes_every_shape() -> None:
     ("html", "survived"),
     [
         pytest.param("<script>alert(1)</script>", ["<script>"], id="scriptable-element"),
-        pytest.param("<svg><script>alert(1)</script></svg>", [], id="scriptable-element-in-svg-namespace-inert"),
+        pytest.param("<svg><script>alert(1)</script></svg>", ["<script>"], id="svg-script"),
         pytest.param("<style>a{background:url(javascript:alert(1))}</style>", ["style-body"], id="style-body-danger"),
         pytest.param("<style>a{color:red}</style>", [], id="style-body-benign"),
+        pytest.param("<svg><style>a{behavior:url(#x)}</style></svg>", ["style-body"], id="svg-style-danger"),
+        pytest.param("<svg><style>a{fill:red}</style></svg>", [], id="svg-style-benign"),
         pytest.param('<img src=x onerror="alert(1)">', ["@onerror"], id="event-handler"),
         pytest.param('<p style="behavior:url(#x)">x</p>', ["@style"], id="style-attr-danger"),
         pytest.param('<p style="color:red">x</p>', [], id="style-attr-benign"),
         pytest.param('<a href="javascript:alert(1)">x</a>', ["href=javascript:alert(1)"], id="url-danger"),
         pytest.param('<a href="https://example.com">x</a>', [], id="url-benign"),
+        pytest.param(
+            '<svg><animate attributeName="xlink:href" from="javascript:x"></animate></svg>',
+            ["<animate>->xlink:href"],
+            id="svg-animation-from",
+        ),
+        pytest.param(
+            '<svg><set attributeName="XLINK:HREF" to="JAVASCRIPT:x"></set></svg>',
+            ["<set>->xlink:href"],
+            id="svg-animation-to-case",
+        ),
+        pytest.param(
+            '<svg><animateTransform attributeName="xlink:href" values="https://safe;javascript:x"></animateTransform></svg>',
+            ["<animateTransform>->xlink:href"],
+            id="svg-animation-values",
+        ),
+        pytest.param(
+            '<svg><animate attributeName="onload" to="alert(1)"></animate></svg>',
+            ["<animate>->onload"],
+            id="svg-animation-handler",
+        ),
+        pytest.param(
+            '<svg><animate attributeName="fill" to="red"></animate></svg>',
+            [],
+            id="svg-animation-non-url-target",
+        ),
+        pytest.param(
+            '<svg><animate attributeName="xlink:href" from="https://example.com"></animate></svg>',
+            [],
+            id="svg-animation-safe-url",
+        ),
+        pytest.param(
+            '<animate attributeName="xlink:href" from="javascript:x"></animate>',
+            [],
+            id="html-animation-name-inert",
+        ),
+        pytest.param("<iframe></iframe>", ["<iframe>"], id="dangerous-html-element"),
     ],
 )
 def test_live_danger_labels_every_executable_construct(html: str, survived: list[str]) -> None:

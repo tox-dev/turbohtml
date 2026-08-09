@@ -119,7 +119,8 @@ element. The safety baseline still runs on whatever the matcher keeps, so an ``o
 
 ``Policy.allow_html``, ``Policy.allow_svg``, and ``Policy.allow_mathml`` gate each namespace independently, DOMPurify's
 ``USE_PROFILES``. All default on; turning one off drops that whole namespace even when its tags are allowlisted, so a
-policy can keep SVG but not MathML:
+policy can keep SVG but not MathML. The baseline blocks SVG animation elements under an SVG policy because they can
+assign event handlers or script URLs at runtime.
 
 .. testcode::
 
