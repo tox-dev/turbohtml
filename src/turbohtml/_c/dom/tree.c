@@ -2983,7 +2983,9 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_NOBR) {
             reconstruct_afe(tree);
             if (has_in_scope(tree, TH_TAG_NOBR)) {
-                adoption_agency(tree, TH_TAG_NOBR);
+                if (!adoption_agency(tree, TH_TAG_NOBR)) {
+                    any_other_end_tag(tree, TH_TAG_NOBR, tok);
+                }
                 reconstruct_afe(tree);
             }
             th_node *node = insert_element(tree, tok);
@@ -3134,8 +3136,9 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (flags & TH_TAG_FORMATTING) {
-            adoption_agency(tree, atom);
-            return TH_DRAIN_NEXT;
+            if (adoption_agency(tree, atom)) {
+                return TH_DRAIN_NEXT;
+            }
         }
         if (atom == TH_TAG_APPLET || atom == TH_TAG_MARQUEE || atom == TH_TAG_OBJECT) {
             if (has_in_scope(tree, atom)) {
