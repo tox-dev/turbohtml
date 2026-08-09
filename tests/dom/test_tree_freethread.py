@@ -14,10 +14,14 @@ runs each test in one thread per core at once, multiplying the contention.
 from __future__ import annotations
 
 import threading
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import turbohtml
 from turbohtml.query import Query
+from turbohtml.transform import Transform
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _doc(divs: int) -> turbohtml.Document:
@@ -31,6 +35,36 @@ def _run(*targets: object) -> None:
         thread.start()
     for thread in threads:
         thread.join()
+
+
+def test_concurrent_transform_import_resolution_and_mutation_is_memory_safe(tmp_path: Path) -> None:
+    namespace = 'version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+    for name in ("base", "other"):
+        (tmp_path / f"{name}.xsl").write_text(
+            f'<xsl:stylesheet {namespace}><xsl:output method="text"/>'
+            f'<xsl:template match="/">{name}</xsl:template></xsl:stylesheet>',
+            encoding="utf-8",
+        )
+    stylesheet = turbohtml.parse_xml(f'<xsl:stylesheet {namespace}><xsl:import href="base.xsl"/></xsl:stylesheet>')
+    imported = stylesheet.find("xsl:import")
+    assert imported is not None
+    start = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(200):
+            Transform(stylesheet, base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+
+    def mutator() -> None:
+        start.wait()
+        for index in range(200):
+            imported.attrs["href"] = "base.xsl" if index % 2 == 0 else "other.xsl"
+
+    _run(reader, mutator)
+    result = Transform(stylesheet, base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)(
+        turbohtml.parse_xml("<r/>")
+    )
+    assert result in {"base", "other"}
 
 
 def test_concurrent_find_all_and_extract_is_memory_safe() -> None:

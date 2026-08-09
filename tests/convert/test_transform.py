@@ -39,7 +39,7 @@ def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = 
 
 def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", **params: str) -> str:
     """Parse a source document and body stylesheet and return the transform result."""
-    return transform(_sheet(body, method=method, prefix=prefix), turbohtml.parse_xml(source), **params)
+    return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
 
 
 def _collapse(text: str) -> str:
