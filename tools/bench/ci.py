@@ -156,7 +156,13 @@ _RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
     "normalize": ("normalize-decomposed", lambda: INPUTS["normalize"]()[2][1]),
     "decode": ("decode-gb18030-ranges", lambda: INPUTS["decode"]()[1][1]),
 }
-_ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {"idna-varied": ("idna", 1)}
+_ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
+    "idna-varied": ("idna", 1),
+    "linkify-traversal-small-nodes": ("linkify-traversal", 1),
+    "linkify-traversal-skipped": ("linkify-traversal", 2),
+    "linkify-traversal-callbacks": ("linkify-traversal", 3),
+    "linkify-traversal-empty-nodes": ("linkify-traversal", 4),
+}
 
 
 def _inline(operation: str, case_index: int = 0) -> object:

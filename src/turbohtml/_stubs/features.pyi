@@ -34,6 +34,17 @@ def _linkify_has(
     url_schemes: tuple[str, ...] = ...,
     /,
 ) -> bool: ...
+def _linkify_apply(
+    root: Element,
+    callbacks: tuple[Callable[..., object], ...],
+    parse_email: bool,
+    extra_tlds: tuple[str, ...],
+    url_schemes: tuple[str, ...],
+    process_existing: bool,
+    skip_tags: tuple[str, ...],
+    candidate_type: type,
+    /,
+) -> None: ...
 def _registrable_domain(host: str, /) -> str: ...
 def _date_scan(text: str, current_year: int, /) -> tuple[int, int, int] | None: ...
 def _date_scan_all(text: str, current_year: int, /) -> list[tuple[int, int, int]]: ...

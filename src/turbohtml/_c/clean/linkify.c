@@ -1,8 +1,8 @@
-/* URL and email detection for linkify, the hot scan kept in C.
+/* URL and email detection plus linkification.
 
-   The Python layer (turbohtml/linkify.py) walks the parsed tree and hands each
-   eligible text run here; this file finds the link spans in it. The algorithm
-   is the trigger-then-expand model the Rust `linkify` crate uses, not a regex:
+   C snapshots eligible nodes, scans text runs, and applies completed rewrites.
+   Python runs for configured callbacks. Detection uses the trigger-then-expand
+   model from the Rust `linkify` crate, not a regex:
    scan for the few bytes that can begin a link (`:` for a scheme, `@` for an
    email, `.` for a bare domain), then expand left and right from the trigger to
    the link's bounds. A bare domain counts as a link only when its last label is
@@ -12,6 +12,8 @@
 
 #include "core/ascii.h"
 #include "core/common.h"
+#include "dom/tree.h"
+#include "tokenizer/binding.h"
 #include "url/url.h"
 
 #include "data/tld_table.h"
@@ -557,4 +559,596 @@ PyObject *turbohtml_linkify_has(PyObject *Py_UNUSED(module), PyObject *args) {
         return NULL;
     }
     return PyBool_FromLong(scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL));
+}
+
+static int tag_matches_str(const th_node *node, PyObject *tag) {
+    Py_ssize_t len = PyUnicode_GET_LENGTH(tag);
+    if (node->text_len != len) {
+        return 0;
+    }
+    int kind = PyUnicode_KIND(tag);
+    const void *data = PyUnicode_DATA(tag);
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (node->text[index] != PyUnicode_READ(kind, data, index)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int tag_in_tuple(const th_node *node, PyObject *tags) {
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(tags); index++) {
+        if (tag_matches_str(node, PyTuple_GET_ITEM(tags, index))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static th_node *after_subtree(th_node *node, th_node *root) {
+    while (node != root) {
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+    }
+    return NULL;
+}
+
+static int append_target(PyObject *targets, PyObject *owner, th_node *node) {
+    PyObject *wrapped = turbohtml_node_wrap_in(owner, node);
+    if (wrapped == NULL || PyList_Append(targets, wrapped) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
+        Py_XDECREF(wrapped);                                      /* GCOVR_EXCL_LINE */
+        return -1;                                                /* GCOVR_EXCL_LINE */
+    }
+    Py_DECREF(wrapped);
+    return 0;
+}
+
+static PyObject *collect_targets(PyObject *module, PyObject *owner, int process_existing, PyObject *skip_tags) {
+    PyObject *targets = PyList_New(0);
+    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list allocation cannot be forced from a test */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    int error = 0;
+    PyObject *handle = turbohtml_node_handle(owner);
+    (void)handle;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    th_tree *tree;
+    th_node *root;
+    (void)turbohtml_node_borrow(module, owner, &tree, &root);
+    (void)tree;
+    th_node *node = root->first_child;
+    while (node != NULL) {
+        if (node->type == TH_NODE_TEXT) {
+            if (append_target(targets, owner, node) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
+                error = 1;                                 /* GCOVR_EXCL_LINE */
+                break;                                     /* GCOVR_EXCL_LINE */
+            }
+        } else if (node->type == TH_NODE_ELEMENT && (node->atom == TH_TAG_A || node->atom == TH_TAG_SCRIPT ||
+                                                     node->atom == TH_TAG_STYLE || tag_in_tuple(node, skip_tags))) {
+            if (process_existing && node->atom == TH_TAG_A) {
+                if (append_target(targets, owner, node) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
+                    error = 1;                                 /* GCOVR_EXCL_LINE */
+                    break;                                     /* GCOVR_EXCL_LINE */
+                }
+            }
+            node = after_subtree(node, root);
+            continue;
+        }
+        node = node->first_child != NULL ? node->first_child : after_subtree(node, root);
+    }
+    Py_END_CRITICAL_SECTION();
+    if (error) {            /* GCOVR_EXCL_BR_LINE: target wrapper/list allocation cannot be forced from a test */
+        Py_DECREF(targets); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    return targets;
+}
+
+static PyObject *attr_text(const th_node_attr *attr) {
+    return attr == NULL || attr->value == NULL
+               ? PyUnicode_FromString("")
+               : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+}
+
+static PyObject *anchor_attrs(th_tree *tree, th_node *anchor) {
+    PyObject *attrs = PyDict_New();
+    if (attrs == NULL) { /* GCOVR_EXCL_BR_LINE: attribute dict allocation cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < anchor->attr_count; index++) {
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, anchor->attrs[index].name_atom, &name_len);
+        if (name_len == 4 && memcmp(name, "href", 4) == 0) {
+            continue;
+        }
+        PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *value = attr_text(&anchor->attrs[index]);
+        if (key == NULL || value == NULL || /* GCOVR_EXCL_BR_LINE: attribute string allocation cannot be forced */
+            PyDict_SetItem(attrs, key, value) < 0) { /* GCOVR_EXCL_BR_LINE: attribute dict insertion allocation */
+            Py_XDECREF(key);                         /* GCOVR_EXCL_LINE */
+            Py_XDECREF(value);                       /* GCOVR_EXCL_LINE */
+            Py_DECREF(attrs);                        /* GCOVR_EXCL_LINE */
+            return NULL;                             /* GCOVR_EXCL_LINE */
+        }
+        Py_DECREF(key);
+        Py_DECREF(value);
+    }
+    return attrs;
+}
+
+static PyObject *new_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing) {
+    PyObject *candidate = PyObject_CallFunctionObjArgs(candidate_type, url, text, attrs, NULL);
+    if (candidate != NULL && existing) { /* GCOVR_EXCL_BR_LINE: LinkCandidate allocation failure */
+        if (PyObject_SetAttrString(candidate, "existing", Py_True) < 0) { /* GCOVR_EXCL_BR_LINE: fixed writable field */
+            Py_CLEAR(candidate);                                          /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+    }
+    return candidate;
+}
+
+static int run_callbacks(PyObject *callbacks, PyObject **candidate) {
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(callbacks); index++) {
+        PyObject *result = PyObject_CallOneArg(PyTuple_GET_ITEM(callbacks, index), *candidate);
+        if (result == NULL) {
+            return -1;
+        }
+        Py_SETREF(*candidate, result);
+        if (result == Py_None) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+typedef struct {
+    PyObject *url;
+    PyObject *text;
+    PyObject *attrs;
+    int vetoed;
+} candidate_result;
+
+static void clear_candidate_result(candidate_result *result) {
+    Py_CLEAR(result->url);
+    Py_CLEAR(result->text);
+    Py_CLEAR(result->attrs);
+}
+
+static int prepare_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing,
+                             PyObject *callbacks, candidate_result *result) {
+    PyObject *candidate = new_candidate(candidate_type, url, text, attrs, existing);
+    if (candidate == NULL) { /* GCOVR_EXCL_BR_LINE: LinkCandidate allocation failure */
+        return -1;           /* GCOVR_EXCL_LINE */
+    }
+    int status = run_callbacks(callbacks, &candidate);
+    if (status != 0) {
+        Py_DECREF(candidate);
+        if (status > 0) {
+            result->vetoed = 1;
+            return 0;
+        }
+        return -1;
+    }
+    result->url = PyObject_GetAttrString(candidate, "url");
+    result->text = PyObject_GetAttrString(candidate, "text");
+    PyObject *candidate_attrs = PyObject_GetAttrString(candidate, "attrs");
+    Py_DECREF(candidate);
+    if (result->url == NULL || result->text == NULL || candidate_attrs == NULL) {
+        Py_XDECREF(candidate_attrs);
+        clear_candidate_result(result);
+        return -1;
+    }
+    if (!PyUnicode_Check(result->url) || !PyUnicode_Check(result->text) || !PyDict_Check(candidate_attrs)) {
+        Py_DECREF(candidate_attrs);
+        clear_candidate_result(result);
+        PyErr_SetString(PyExc_TypeError, "a link callback must return string fields and a dict of attributes");
+        return -1;
+    }
+    result->attrs = PyDict_Copy(candidate_attrs);
+    Py_DECREF(candidate_attrs);
+    if (result->attrs == NULL) {        /* GCOVR_EXCL_BR_LINE: attribute dict copy cannot be forced from a test */
+        clear_candidate_result(result); /* GCOVR_EXCL_LINE */
+        return -1;                      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *name;
+    PyObject *value;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(result->attrs, &pos, &name, &value)) {
+        if (!PyUnicode_Check(name) || !PyUnicode_Check(value)) {
+            clear_candidate_result(result);
+            PyErr_SetString(PyExc_TypeError, "link attribute names and values must be str");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int set_candidate_attrs(th_tree *tree, th_node *anchor, PyObject *url, PyObject *attrs, int include_empty_url) {
+    anchor->attr_count = 0;
+    PyObject *name;
+    PyObject *value;
+    Py_ssize_t pos = 0;
+    int status = 0;
+    if (include_empty_url || PyUnicode_GET_LENGTH(url) > 0) {
+        Py_UCS4 *url_points = PyUnicode_AsUCS4Copy(url);
+        if (url_points == NULL) { /* GCOVR_EXCL_BR_LINE: URL UCS4 allocation cannot be forced from a test */
+            return -1;            /* GCOVR_EXCL_LINE */
+        }
+        status = th_node_attr_set(tree, anchor, "href", 4, url_points, PyUnicode_GET_LENGTH(url), 1);
+        PyMem_Free(url_points);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: attribute arena allocation cannot be forced from a test */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    while (PyDict_Next(attrs, &pos, &name, &value)) {
+        Py_ssize_t name_len;
+        const char *name_bytes = PyUnicode_AsUTF8AndSize(name, &name_len);
+        Py_UCS4 *value_points = PyUnicode_AsUCS4Copy(value);
+        if (name_bytes == NULL || value_points == NULL) { /* GCOVR_EXCL_BR_LINE: UTF-8/UCS4 allocation */
+            PyMem_Free(value_points);                     /* GCOVR_EXCL_LINE */
+            return -1;                                    /* GCOVR_EXCL_LINE */
+        }
+        status = th_node_attr_set(tree, anchor, name_bytes, name_len, value_points, PyUnicode_GET_LENGTH(value), 1);
+        PyMem_Free(value_points);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: attribute arena allocation cannot be forced from a test */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+static int replace_anchor_text(th_tree *tree, th_node *anchor, PyObject *text) {
+    Py_UCS4 *points = PyUnicode_AsUCS4Copy(text);
+    if (points == NULL) { /* GCOVR_EXCL_BR_LINE: text UCS4 allocation cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    while (anchor->first_child != NULL) {
+        th_node_remove(anchor->first_child);
+    }
+    Py_ssize_t text_len = PyUnicode_GET_LENGTH(text);
+    th_node *child = text_len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, text_len) : NULL;
+    PyMem_Free(points);
+    if (text_len > 0 && child == NULL) { /* GCOVR_EXCL_BR_LINE: text-node arena allocation */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    if (child != NULL) {
+        th_node_append_child(anchor, child);
+    }
+    return 0;
+}
+
+static void unwrap_anchor(th_node *anchor) {
+    th_node *parent = anchor->parent;
+    while (anchor->first_child != NULL) {
+        th_node *child = anchor->first_child;
+        th_node_remove(child);
+        th_node_insert_before(parent, child, anchor);
+    }
+    th_node_remove(anchor);
+}
+
+static int snapshot_existing(PyObject *module, PyObject *target, PyObject **text_out, PyObject **url_out,
+                             PyObject **attrs_out) {
+    PyObject *handle = turbohtml_node_handle(target);
+    (void)handle;
+    th_tree *tree;
+    th_node *anchor;
+    PyObject *text;
+    PyObject *url;
+    PyObject *attrs;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    (void)turbohtml_node_borrow(module, target, &tree, &anchor);
+    Py_ssize_t text_len;
+    Py_UCS4 *points = th_node_text(tree, anchor, &text_len);
+    if (text_len == 0) {
+        text = PyUnicode_FromString("");
+    } else if (points == NULL) { /* GCOVR_EXCL_BR_LINE: flattened-text allocation */
+        text = NULL;             /* GCOVR_EXCL_LINE */
+    } else {                     /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
+        text = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, points, text_len);
+    }
+    PyMem_Free(points);
+    Py_ssize_t href_index = th_node_attr_find(tree, anchor, "href", 4);
+    url = attr_text(href_index < 0 ? NULL : &anchor->attrs[href_index]);
+    attrs = anchor_attrs(tree, anchor);
+    Py_END_CRITICAL_SECTION();
+    if (text == NULL || url == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: text/URL/attribute snapshot allocation */
+        Py_XDECREF(text);                               /* GCOVR_EXCL_LINE */
+        Py_XDECREF(url);                                /* GCOVR_EXCL_LINE */
+        Py_XDECREF(attrs);                              /* GCOVR_EXCL_LINE */
+        return -1;                                      /* GCOVR_EXCL_LINE */
+    }
+    *text_out = text;
+    *url_out = url;
+    *attrs_out = attrs;
+    return 0;
+}
+
+static int apply_existing(PyObject *module, PyObject *target, const candidate_result *result, int replace_text) {
+    PyObject *handle = turbohtml_node_handle(target);
+    (void)handle;
+    th_tree *tree;
+    th_node *anchor;
+    int status = 0;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    (void)turbohtml_node_borrow(module, target, &tree, &anchor);
+    if (result->vetoed) {
+        unwrap_anchor(anchor);
+    } else {
+        status = set_candidate_attrs(tree, anchor, result->url, result->attrs, 0);
+        if (status == 0 && replace_text) { /* GCOVR_EXCL_BR_LINE: attribute encoding/arena allocation */
+            status = replace_anchor_text(tree, anchor, result->text);
+        }
+    }
+    Py_END_CRITICAL_SECTION();
+    return status;
+}
+
+static int process_existing(PyObject *module, PyObject *target, PyObject *callbacks, PyObject *candidate_type) {
+    PyObject *text;
+    PyObject *url;
+    PyObject *attrs;
+    if (snapshot_existing(module, target, &text, &url, &attrs) < 0) { /* GCOVR_EXCL_BR_LINE: snapshot allocation */
+        return -1;                                                    /* GCOVR_EXCL_LINE */
+    }
+    candidate_result result = {NULL, NULL, NULL, 0};
+    int status = prepare_candidate(candidate_type, url, text, attrs, 1, callbacks, &result);
+    Py_DECREF(url);
+    Py_DECREF(attrs);
+    if (status == 0) {
+        int replace_text = 0;
+        if (!result.vetoed) {
+            int equal = PyObject_RichCompareBool(text, result.text, Py_EQ);
+            if (equal < 0) {
+                status = -1;
+            } else {
+                replace_text = equal == 0;
+            }
+        }
+        if (status == 0) {
+            status = apply_existing(module, target, &result, replace_text);
+        }
+    }
+    clear_candidate_result(&result);
+    Py_DECREF(text);
+    return status;
+}
+
+static PyObject *matched_url(PyObject *matched, int kind) {
+    if (kind == TH_LINK_EMAIL) {
+        PyObject *prefix = PyUnicode_FromString("mailto:");
+        /* GCOVR_EXCL_BR_START: prefix/concatenation allocation cannot be forced */
+        PyObject *url = prefix == NULL ? NULL : PyUnicode_Concat(prefix, matched);
+        /* GCOVR_EXCL_BR_STOP */
+        Py_XDECREF(prefix);
+        return url;
+    }
+    if (kind == TH_LINK_URL) {
+        PyObject *prefix = PyUnicode_FromString("http://");
+        /* GCOVR_EXCL_BR_START: prefix/concatenation allocation cannot be forced */
+        PyObject *url = prefix == NULL ? NULL : PyUnicode_Concat(prefix, matched);
+        /* GCOVR_EXCL_BR_STOP */
+        Py_XDECREF(prefix);
+        return url;
+    }
+    return Py_NewRef(matched);
+}
+
+static int append_data_slice(th_tree *tree, th_node *fragment, const Py_UCS4 *points, Py_ssize_t start,
+                             Py_ssize_t end) {
+    if (end <= start) {
+        return 0;
+    }
+    th_node *text = th_tree_make_data_node(tree, TH_NODE_TEXT, points + start, end - start);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text-node arena allocation cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    th_node_append_child(fragment, text);
+    return 0;
+}
+
+static int prepare_detected(PyObject *matched, int kind, PyObject *callbacks, PyObject *candidate_type,
+                            candidate_result *result) {
+    PyObject *url = matched_url(matched, kind);
+    PyObject *attrs = PyDict_New();
+    if (url == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: URL/dict allocation cannot be forced from a test */
+        Py_XDECREF(url);                /* GCOVR_EXCL_LINE */
+        Py_XDECREF(attrs);              /* GCOVR_EXCL_LINE */
+        return -1;                      /* GCOVR_EXCL_LINE */
+    }
+    int status = prepare_candidate(candidate_type, url, matched, attrs, 0, callbacks, result);
+    Py_DECREF(url);
+    Py_DECREF(attrs);
+    return status;
+}
+
+static int append_result(th_tree *tree, th_node *fragment, const Py_UCS4 *points, Py_ssize_t start, Py_ssize_t end,
+                         const candidate_result *result) {
+    if (result->vetoed) {
+        return append_data_slice(tree, fragment, points, start, end);
+    }
+    static const Py_UCS4 anchor_tag[] = {'a'};
+    th_node *anchor = th_tree_make_element(tree, anchor_tag, 1, TH_TAG_A, 0);
+    /* GCOVR_EXCL_BR_START: anchor arena allocation cannot be forced */
+    int status = anchor == NULL ? -1 : set_candidate_attrs(tree, anchor, result->url, result->attrs, 1);
+    /* GCOVR_EXCL_BR_STOP */
+    if (status == 0) { /* GCOVR_EXCL_BR_LINE: attribute encoding/arena allocation */
+        status = replace_anchor_text(tree, anchor, result->text);
+    }
+    if (status == 0) { /* GCOVR_EXCL_BR_LINE: text encoding/arena allocation */
+        th_node_append_child(fragment, anchor);
+    }
+    return status;
+}
+
+static PyObject *snapshot_text(PyObject *module, PyObject *target) {
+    PyObject *handle = turbohtml_node_handle(target);
+    (void)handle;
+    th_tree *tree;
+    th_node *node;
+    PyObject *text;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    (void)turbohtml_node_borrow(module, target, &tree, &node);
+    const Py_UCS4 *points = th_node_realize_text(tree, node);
+    /* GCOVR_EXCL_BR_START: text realization and Unicode snapshot allocation cannot be forced */
+    text = points == NULL ? NULL : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, points, node->text_len);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_END_CRITICAL_SECTION();
+    return text;
+}
+
+static int apply_text(PyObject *module, PyObject *target, PyObject *text, PyObject *spans,
+                      const candidate_result *results) {
+    Py_UCS4 *points = PyUnicode_AsUCS4Copy(text);
+    if (points == NULL) { /* GCOVR_EXCL_BR_LINE: UCS4 input copy cannot be forced from a test */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    PyObject *handle = turbohtml_node_handle(target);
+    (void)handle;
+    th_tree *tree;
+    th_node *node;
+    int status = 0;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    (void)turbohtml_node_borrow(module, target, &tree, &node);
+    th_node *fragment = th_tree_make_fragment(tree);
+    if (fragment == NULL) { /* GCOVR_EXCL_BR_LINE: fragment arena allocation cannot be forced from a test */
+        status = -1;        /* GCOVR_EXCL_LINE */
+    } else {                /* GCOVR_EXCL_LINE: brace of the allocation-failure branch */
+        Py_ssize_t cursor = 0;
+        /* GCOVR_EXCL_BR_START: child allocation failure short-circuits the loop */
+        for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(spans); index++) {
+            /* GCOVR_EXCL_BR_STOP */
+            PyObject *span = PyList_GET_ITEM(spans, index);
+            Py_ssize_t start = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 0));
+            Py_ssize_t end = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 1));
+            status = append_data_slice(tree, fragment, points, cursor, start);
+            if (status == 0) { /* GCOVR_EXCL_BR_LINE: leading text-node allocation */
+                status = append_result(tree, fragment, points, start, end, &results[index]);
+            }
+            cursor = end;
+        }
+        if (status == 0) { /* GCOVR_EXCL_BR_LINE: prior child allocation */
+            status = append_data_slice(tree, fragment, points, cursor, PyUnicode_GET_LENGTH(text));
+        }
+        if (status == 0) { /* GCOVR_EXCL_BR_LINE: fragment child allocation */
+            th_node *parent = node->parent;
+            while (fragment->first_child != NULL) {
+                th_node *child = fragment->first_child;
+                th_node_remove(child);
+                th_node_insert_before(parent, child, node);
+            }
+            th_node_remove(node);
+        }
+    }
+    Py_END_CRITICAL_SECTION();
+    PyMem_Free(points);
+    return status;
+}
+
+static int process_text(PyObject *module, PyObject *target, int parse_email, PyObject *extra_tlds,
+                        PyObject *url_schemes, PyObject *callbacks, PyObject *candidate_type) {
+    PyObject *text = snapshot_text(module, target);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text snapshot allocation cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *spans = collect_matches(text, parse_email, 1, extra_tlds, NULL, url_schemes);
+    if (spans == NULL) { /* GCOVR_EXCL_BR_LINE: span list/tuple allocation cannot be forced from a test */
+        Py_DECREF(text); /* GCOVR_EXCL_LINE */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    if (PyList_GET_SIZE(spans) == 0) {
+        Py_DECREF(spans);
+        Py_DECREF(text);
+        return 0;
+    }
+    Py_ssize_t count = PyList_GET_SIZE(spans);
+    candidate_result *results = PyMem_Calloc((size_t)count, sizeof(candidate_result));
+    if (results == NULL) { /* GCOVR_EXCL_BR_LINE: candidate result array allocation cannot be forced from a test */
+        Py_DECREF(spans);  /* GCOVR_EXCL_LINE */
+        Py_DECREF(text);   /* GCOVR_EXCL_LINE */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    int status = 0;
+    Py_ssize_t prepared = 0;
+    for (; prepared < count; prepared++) {
+        PyObject *span = PyList_GET_ITEM(spans, prepared);
+        Py_ssize_t start = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 0));
+        Py_ssize_t end = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 1));
+        int kind = (int)PyLong_AsLong(PyTuple_GET_ITEM(span, 2));
+        PyObject *matched = PyUnicode_Substring(text, start, end);
+        if (matched == NULL) { /* GCOVR_EXCL_BR_LINE: matched substring allocation */
+            status = -1;       /* GCOVR_EXCL_LINE */
+            break;             /* GCOVR_EXCL_LINE */
+        }
+        if (prepare_detected(matched, kind, callbacks, candidate_type, &results[prepared]) < 0) {
+            Py_DECREF(matched);
+            status = -1;
+            break;
+        }
+        Py_DECREF(matched);
+    }
+    if (status == 0) {
+        status = apply_text(module, target, text, spans, results);
+    }
+    for (Py_ssize_t index = 0; index < prepared; index++) {
+        clear_candidate_result(&results[index]);
+    }
+    PyMem_Free(results);
+    Py_DECREF(spans);
+    Py_DECREF(text);
+    return status;
+}
+
+PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
+    PyObject *owner;
+    PyObject *callbacks;
+    int parse_email;
+    PyObject *extra_tlds;
+    PyObject *url_schemes;
+    int process_existing_flag;
+    PyObject *skip_tags;
+    PyObject *candidate_type;
+    /* GCOVR_EXCL_BR_START: Linker passes tuple-backed compiled fields */
+    if (!PyArg_ParseTuple(args, "OO!pO!O!pO!O:_linkify_apply", &owner, &PyTuple_Type, &callbacks, &parse_email,
+                          &PyTuple_Type, &extra_tlds, &PyTuple_Type, &url_schemes, &process_existing_flag,
+                          &PyTuple_Type, &skip_tags, &candidate_type)) {
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    th_tree *tree;
+    th_node *root;
+    if (turbohtml_node_borrow(module, owner, &tree, &root) < 0) { /* GCOVR_EXCL_BR_LINE: Linker supplies a fragment */
+        return NULL;                                              /* GCOVR_EXCL_LINE */
+    }
+    (void)tree;
+    (void)root;
+    PyObject *targets = collect_targets(module, owner, process_existing_flag, skip_tags);
+    if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list/wrapper allocation */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    int status = 0;
+    for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
+        PyObject *target = PyList_GET_ITEM(targets, index);
+        PyObject *handle = turbohtml_node_handle(target);
+        (void)handle;
+        th_node *node;
+        th_tree *target_tree;
+        int text_target;
+        Py_BEGIN_CRITICAL_SECTION(handle);
+        (void)turbohtml_node_borrow(module, target, &target_tree, &node);
+        (void)target_tree;
+        text_target = node->type == TH_NODE_TEXT;
+        Py_END_CRITICAL_SECTION();
+        if (text_target) {
+            status = process_text(module, target, parse_email, extra_tlds, url_schemes, callbacks, candidate_type);
+        } else {
+            status = process_existing(module, target, callbacks, candidate_type);
+        }
+    }
+    Py_DECREF(targets);
+    if (status < 0) {
+        return NULL;
+    }
+    Py_RETURN_NONE;
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from typing import TYPE_CHECKING
 
 import pytest
@@ -133,6 +135,10 @@ def test_linkify_default_callback_adds_nofollow() -> None:
     assert linkify("see http://example.com") == 'see <a href="http://example.com" rel="nofollow">http://example.com</a>'
 
 
+def test_linkify_single_url() -> None:
+    assert linkify("x.com") == '<a href="http://x.com" rel="nofollow">x.com</a>'
+
+
 def test_linkify_leaves_existing_anchor_untouched() -> None:
     html = '<a href="http://x.com">http://y.com</a> and http://z.com'
     assert linkify(html, Linkify(callbacks=_no_callbacks())) == (
@@ -158,6 +164,17 @@ def test_linkify_skip_tags(skip_tag: str) -> None:
 def test_linkify_nested_skip_tag_stays_skipped() -> None:
     html = "<code><span>http://x.com</span></code>"
     assert linkify(html, Linkify(skip_tags=["code"], callbacks=_no_callbacks())) == html
+
+
+def test_linkify_checks_each_skip_tag_by_exact_name() -> None:
+    out = linkify("<code>http://x.com</code>", Linkify(skip_tags=["pre", "samp", "coder"], callbacks=_no_callbacks()))
+    assert out == '<code><a href="http://x.com">http://x.com</a></code>'
+
+
+def test_linkify_walk_does_not_depend_on_python_recursion_limit() -> None:
+    html = "<div>" * 1_200 + "http://x.com" + "</div>" * 1_200
+    out = linkify(html, Linkify(callbacks=_no_callbacks()))
+    assert out.count('<a href="http://x.com">') == 1
 
 
 def test_linkify_leaves_comment_nodes_untouched() -> None:
@@ -203,6 +220,14 @@ def test_linkify_callback_can_change_text() -> None:
     assert linkify("http://x.com", Linkify(callbacks=[shorten])) == '<a href="http://x.com">link</a>'
 
 
+def test_linkify_callback_can_clear_text() -> None:
+    def clear(link: LinkCandidate) -> LinkCandidate:
+        link.text = ""
+        return link
+
+    assert linkify("http://x.com", Linkify(callbacks=[clear])) == '<a href="http://x.com"></a>'
+
+
 def test_linkify_callback_can_add_attribute() -> None:
     def add_class(link: LinkCandidate) -> LinkCandidate:
         link.attrs["class"] = "ext"
@@ -217,10 +242,117 @@ def test_linkify_callback_chain_runs_in_order() -> None:
     assert out == '<a href="http://x.com" rel="nofollow" target="_blank">http://x.com</a>'
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        pytest.param("url", 1, id="url"),
+        pytest.param("text", 1, id="text"),
+        pytest.param("attrs", [], id="attrs"),
+    ],
+)
+def test_linkify_rejects_invalid_callback_field(field: str, value: object) -> None:
+    def invalidate(link: LinkCandidate) -> LinkCandidate:
+        setattr(link, field, value)
+        return link
+
+    with pytest.raises(TypeError):
+        linkify("http://x.com", Linkify(callbacks=[invalidate]))
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [pytest.param({1: "value"}, id="name"), pytest.param({"name": 1}, id="value")],
+)
+def test_linkify_rejects_invalid_callback_attribute(attrs: dict[object, object]) -> None:
+    def invalidate(link: LinkCandidate) -> LinkCandidate:
+        link.attrs = attrs  # ty: ignore[invalid-assignment]  # callback validation requires an invalid attrs mapping
+        return link
+
+    with pytest.raises(TypeError):
+        linkify("http://x.com", Linkify(callbacks=[invalidate]))
+
+
+@pytest.mark.parametrize(
+    ("html", "process_existing"),
+    [
+        pytest.param("http://x.com", False, id="detected"),
+        pytest.param('<a href="http://x.com">x</a>', True, id="existing"),
+    ],
+)
+def test_linkify_propagates_callback_exception(
+    html: str,
+    *,
+    process_existing: bool,
+) -> None:
+    def fail(_link: LinkCandidate) -> LinkCandidate:
+        msg = "callback failed"
+        raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError, match="callback failed"):
+        linkify(html, Linkify(callbacks=[fail], process_existing=process_existing))
+
+
+@pytest.mark.parametrize(
+    ("html", "process_existing"),
+    [
+        pytest.param("http://x.com", False, id="detected"),
+        pytest.param('<a href="http://x.com">x</a>', True, id="existing"),
+    ],
+)
+def test_linkify_rejects_non_candidate_callback_result(
+    html: str,
+    *,
+    process_existing: bool,
+) -> None:
+    def replace(_link: LinkCandidate) -> LinkCandidate:
+        return object()  # ty: ignore[invalid-return-type]  # callback validation requires an invalid result type
+
+    with pytest.raises(AttributeError):
+        linkify(html, Linkify(callbacks=[replace], process_existing=process_existing))
+
+
+@pytest.mark.parametrize("field", ["text", "attrs"])
+@pytest.mark.parametrize(
+    ("html", "process_existing"),
+    [
+        pytest.param("http://x.com", False, id="detected"),
+        pytest.param('<a href="http://x.com">x</a>', True, id="existing"),
+    ],
+)
+def test_linkify_rejects_callback_result_with_missing_field(
+    field: str,
+    html: str,
+    *,
+    process_existing: bool,
+) -> None:
+    def remove(link: LinkCandidate) -> LinkCandidate:
+        delattr(link, field)
+        return link
+
+    with pytest.raises(AttributeError):
+        linkify(html, Linkify(callbacks=[remove], process_existing=process_existing))
+
+
 def test_linker_is_reusable() -> None:
     linker = Linker(Linkify(callbacks=_no_callbacks()))
     assert linker.linkify("http://a.example.com") == '<a href="http://a.example.com">http://a.example.com</a>'
     assert linker.linkify("http://b.example.com") == '<a href="http://b.example.com">http://b.example.com</a>'
+
+
+def test_linker_is_reusable_across_concurrent_callbacks() -> None:
+    callback_start = Barrier(4)
+
+    def annotate(link: LinkCandidate) -> LinkCandidate:
+        callback_start.wait()
+        link.attrs["data-url"] = link.url
+        link.text = link.text.upper()
+        return link
+
+    linker = Linker(Linkify(callbacks=[annotate]))
+    urls = [f"http://x{index}.com" for index in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(linker.linkify, urls))
+    assert results == [f'<a href="{url}" data-url="{url}">{url.upper()}</a>' for url in urls]
 
 
 def test_default_callbacks_is_nofollow() -> None:

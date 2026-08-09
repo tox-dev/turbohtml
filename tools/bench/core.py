@@ -108,6 +108,11 @@ _STRIP = "code, a, q"  # a bulk set of tags to drop or unwrap
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
 _DETECTOR = _LinkDetector()
+_LINKER: Final[_clean.Linker] = _clean.Linker()
+_LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
+_LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(
+    _clean.Linkify(callbacks=(_clean.nofollow, _clean.target_blank), process_existing=True)
+)
 _ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
 _XML = turbohtml.Html(xml=True)  # the XML/XHTML serialization config, reused across the timed calls
 
@@ -519,6 +524,17 @@ def markup_op(case: tuple[str, object]) -> None:
 def linkify(text: str) -> None:
     """Auto-link URLs and emails in HTML with turbohtml, parsing and rewriting the tree."""
     _linkify(text)
+
+
+def linkify_traversal(case: tuple[str, str]) -> None:
+    """Reuse compiled options so the benchmark isolates traversal."""
+    kind, text = case
+    if kind == "skip":
+        _LINKER_SKIP.linkify(text)
+    elif kind == "callbacks":
+        _LINKER_CALLBACKS.linkify(text)
+    else:
+        _LINKER.linkify(text)
 
 
 def detect(case: tuple[str, str]) -> None:
@@ -980,6 +996,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),
+    "linkify-traversal": (linkify_traversal, "turbohtml"),
     "detect": (detect, "turbohtml"),
     "normalize": (normalize, "turbohtml"),
     "escape-identifier": (escape_identifier, "turbohtml"),

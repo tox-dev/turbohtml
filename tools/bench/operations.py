@@ -332,6 +332,7 @@ OPERATIONS: dict[str, Operation] = {
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
+    "linkify-traversal": Operation("linkify with native tree traversal", "us"),
     "detect": Operation("detect links in text", "us"),
     "markdown": Operation("HTML to Markdown", "us"),
     "markdown-google": Operation("Google Docs export to Markdown", "us"),
@@ -448,6 +449,17 @@ _LINKIFY_CASES = (
     ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
     ("prose (1 KiB)", "See https://example.com/path?q=1 and visit www.example.org for more. " * 15),
     ("markup (4 KiB)", '<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
+)
+
+_LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
+    ("text-heavy tree", ("default", "<article><p>" + "plain prose " * 8_000 + "https://example.com</p></article>")),
+    ("2,000 small text nodes", ("default", "<div>" + "<span>plain</span>" * 2_000 + "</div>")),
+    ("2,000 skipped nodes", ("skip", "<code><span>https://example.com</span></code>" * 2_000)),
+    (
+        "400 callback links",
+        ("callbacks", '<a href="https://kept.example">kept</a> https://example.com ' * 200),
+    ),
+    ("2,000 nodes without text", ("default", "<div></div>" * 2_000)),
 )
 
 _MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
@@ -952,6 +964,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("join (escapes operands)", ("join", _MARKUP_JOIN_PARTS)),
     ),
     "linkify": lambda: _LINKIFY_CASES,
+    "linkify-traversal": lambda: _LINKIFY_TRAVERSAL_CASES,
     "detect": lambda: (
         ("find comment (1 link, 1 email)", ("find", _LINKIFY_CASES[0][1])),
         ("find prose (1 KiB)", ("find", _LINKIFY_CASES[1][1])),

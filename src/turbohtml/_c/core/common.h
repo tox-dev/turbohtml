@@ -89,12 +89,12 @@ PyObject *turbohtml_css_escape_identifier(PyObject *module, PyObject *arg);
    registers it on import. */
 PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
 
-/* Implemented in linkify.c. _linkify_scan finds URL/email spans in a text run;
-   _linkify_find adds the detector's custom TLD and scheme-less scheme config.
-   Both signatures match METH_VARARGS. */
+/* Implemented in linkify.c. The scan methods find URL/email spans in text runs;
+   _linkify_apply snapshots targets and rewrites them around callback invocations. */
 PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args);
+PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args);
 
 /* Implemented in url/url.c. _url_split(url) breaks a URL into (scheme, netloc,
    path, query, fragment, userinfo, host, port, has_port, host_kind) the way the

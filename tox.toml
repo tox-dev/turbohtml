@@ -120,6 +120,7 @@ commands = [
   { replace = "if", condition = "factor['3.14t'] or factor['3.15t']", then = [
     "pytest",
     "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
+    "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
     "--no-cov",
     "--parallel-threads=auto",
     "--iterations=20",
@@ -471,12 +472,14 @@ commands_pre = [
 ]
 commands = [
   [
+    # let TSan reports reach the console; pytest otherwise captures them
     "pytest",
-    "-s",                                                 # let TSan reports reach the console; pytest otherwise captures them
+    "-s",
     "--no-cov",
     "--parallel-threads=auto",
     "--iterations=20",
     "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
+    "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
   ],
 ]
 

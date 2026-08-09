@@ -120,6 +120,9 @@ from ._stubs.features import (
     _date_url as _date_url,
 )
 from ._stubs.features import (
+    _linkify_apply as _linkify_apply,
+)
+from ._stubs.features import (
     _linkify_find as _linkify_find,
 )
 from ._stubs.features import (

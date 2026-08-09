@@ -1,0 +1,1 @@
+Move HTML-aware linkifier traversal and mutation into one native operation.

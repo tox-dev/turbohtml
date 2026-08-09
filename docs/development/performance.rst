@@ -86,6 +86,10 @@ thirty. Its figure there is the cost of finding nothing.
 .. bench-table::
     :file: bench/linkify.json
 
+A single C walk creates wrappers only for eligible text and anchor targets; Python no longer visits every node. CodSpeed
+tracks a text-heavy tree, 2,000 small text nodes, and 2,000 empty elements. Separate cases cover skip-tag pruning and
+callback-heavy HTML. Callbacks run in document order after target collection releases the tree lock.
+
 The detection primitive on its own, :meth:`turbohtml.clean.LinkDetector.find` against ``LinkifyIt().match`` and
 :meth:`~turbohtml.clean.LinkDetector.has_link` against ``LinkifyIt().test``, scans a run of plain text without rewriting
 HTML. Both libraries stop on the first valid match; turbohtml allocates no span list. The large-tail case starts with a

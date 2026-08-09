@@ -255,7 +255,9 @@ int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    if (node->attr_count > 0) {
+        memcpy(grown, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    }
     grown[node->attr_count].name_atom = atom;
     grown[node->attr_count].value = owned;
     grown[node->attr_count].value_len = has_value ? value_len : 0;

@@ -1,12 +1,10 @@
 """
 Turn URLs and email addresses in HTML into links, the way bleach.linkify did.
 
-bleach is the only library that shipped an HTML-aware linkifier, and it is end of life, so this is its replacement. The
-work splits in two: :mod:`turbohtml._html` finds the link spans in a text run in C, and this module does the HTML-aware
-part. It parses the input with turbohtml's WHATWG tree builder, walks the text nodes, and leaves alone any text inside
-an existing ``<a>`` (so links never nest), inside a raw-text element (``<script>``/``<style>``, whose content is not
-prose), or inside a caller's ``skip_tags``. Each found link becomes a :class:`LinkCandidate` that a chain of
-``callbacks`` can mutate or veto before it is written as an ``<a>``, and the tree serializes back to HTML.
+bleach is the only library that shipped an HTML-aware linkifier, and it is end of life, so this is its replacement.
+The typed layer compiles the options and parses the input with turbohtml's WHATWG tree builder. The C core snapshots
+eligible text and anchors, scans each text run, invokes callbacks in document order, and mutates the tree. Text inside
+an existing ``<a>``, a raw-text element (``<script>``/``<style>``), or a caller's ``skip_tags`` stays unchanged.
 """
 
 from __future__ import annotations
@@ -14,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from turbohtml._html import Element, Text, _linkify_find, _linkify_has, _linkify_scan, parse_fragment
+from turbohtml._html import _linkify_apply, _linkify_find, _linkify_has, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -34,10 +32,6 @@ _HAS_SCHEME_KIND: Final = 3
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
 # a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
 _DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
-
-# Text inside these never becomes a link: an existing anchor (no nested links) and the raw-text elements whose content
-# is not markup. A caller's skip_tags is added on top.
-_NEVER_LINKIFY: Final = frozenset({"a", "script", "style"})
 
 
 class LinkCandidate:
@@ -73,15 +67,6 @@ class LinkCandidate:
 # A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
 # text bare.
 Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
-
-
-def _attr_str(value: str | list[str] | None) -> str:
-    """Flatten an attribute value to a string for a callback: a token list joins, a bare name is empty."""
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        return " ".join(value)
-    return value
 
 
 def _is_web_url(url: str) -> bool:
@@ -157,9 +142,9 @@ class Linker:
     def __init__(self, options: Linkify | None = None) -> None:
         """Compile a configuration into the form the walk consumes."""
         config = options if options is not None else Linkify()
-        self.callbacks = list(config.callbacks)
+        self.callbacks = tuple(config.callbacks)
         self.skip_tags = (
-            frozenset(tag.lower() for tag in config.skip_tags) if config.skip_tags is not None else frozenset()
+            tuple(sorted({tag.lower() for tag in config.skip_tags})) if config.skip_tags is not None else ()
         )
         self.parse_email = config.parse_email
         self.process_existing = config.process_existing
@@ -178,86 +163,17 @@ class Linker:
         :returns: the linkified HTML.
         """
         root = parse_fragment(text)
-        self._walk(root, linkifiable=True)
+        _linkify_apply(
+            root,
+            self.callbacks,
+            self.parse_email,
+            self.extra_tlds,
+            self.url_schemes,
+            self.process_existing,
+            self.skip_tags,
+            LinkCandidate,
+        )
         return root.inner_html
-
-    def _walk(self, element: Element, *, linkifiable: bool) -> None:
-        """Recurse, linkifying text only where it is not inside an anchor, raw-text element, or skip tag."""
-        for child in list(element.children):
-            if isinstance(child, Text):
-                if linkifiable:
-                    self._linkify_text(child)
-            elif isinstance(child, Element):
-                if linkifiable and child.tag == "a" and self.process_existing:
-                    self._process_existing_anchor(child)
-                else:
-                    nested = linkifiable and child.tag not in _NEVER_LINKIFY and child.tag not in self.skip_tags
-                    self._walk(child, linkifiable=nested)
-
-    def _process_existing_anchor(self, anchor: Element) -> None:
-        """Run the callbacks over an ``<a>`` already in the input; unwrap it if one vetoes, else rewrite its attrs."""
-        original_text = anchor.text
-        href = anchor.attrs.get("href")
-        attrs = {name: _attr_str(value) for name, value in anchor.attrs.items() if name != "href"}
-        link = LinkCandidate(_attr_str(href), original_text, attrs, existing=True)
-        for callback in self.callbacks:
-            result = callback(link)
-            if result is None:
-                anchor.unwrap()
-                return
-            link = result
-        merged: dict[str, str] = {"href": link.url} if link.url else {}
-        merged.update(link.attrs)
-        anchor_attrs = anchor.attrs
-        for name in list(anchor_attrs):
-            if name not in merged:
-                del anchor_attrs[name]
-        for name, value in merged.items():
-            anchor_attrs[name] = value
-        if link.text != original_text:
-            anchor.clear()
-            anchor.append(Text(link.text))
-
-    def _linkify_text(self, node: Text) -> None:
-        """Replace a text node with the text and anchors that the link spans in it imply."""
-        data = node.data
-        spans = _linkify_scan(data, self.parse_email, True, self.extra_tlds, self.url_schemes)  # ruff:ignore[boolean-positional-value-in-call]  # True enables bare domains
-        if not spans:
-            return
-        pieces: list[Element | Text] = []
-        pos = 0
-        for start, end, kind in spans:
-            if start > pos:
-                pieces.append(Text(data[pos:start]))
-            anchor = self._build_anchor(data[start:end], kind)
-            pieces.append(anchor if anchor is not None else Text(data[start:end]))
-            pos = end
-        if pos < len(data):
-            pieces.append(Text(data[pos:]))
-        node.replace_with(*pieces)
-
-    def _build_anchor(self, matched: str, kind: int) -> Element | None:
-        """Build the ``<a>`` for one matched link, running the callbacks; return ``None`` if a callback vetoes it."""
-        if kind == _EMAIL_KIND:
-            url = "mailto:" + matched
-        elif kind == _HAS_SCHEME_KIND:  # the scanner flagged a ``scheme://`` URL, kept with its own scheme
-            url = matched
-        else:
-            url = "http://" + matched
-        if len(self.callbacks) == 1 and self.callbacks[0] is nofollow:
-            attrs = {"href": url}
-            if _is_web_url(url):
-                attrs["rel"] = "nofollow"
-            return Element("a", attrs, [Text(matched)])
-        link = LinkCandidate(url, matched)
-        for callback in self.callbacks:
-            result = callback(link)
-            if result is None:
-                return None
-            link = result
-        anchor = Element("a", {"href": link.url, **link.attrs})
-        anchor.append(Text(link.text))
-        return anchor
 
 
 def linkify(text: str, options: Linkify | None = None) -> str:
