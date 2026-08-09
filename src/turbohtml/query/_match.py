@@ -167,7 +167,7 @@ class Matcher:
         :returns: the members that match.
         """
         if isinstance(iterable, list):
-            return _matches_many(cast("list[Element]", iterable), self._selector)
+            return _matches_many(iterable, self._selector)
         if isinstance(iterable, (Element, Document)):
             iterable = (child for child in iterable.children if isinstance(child, Element))
         return [node for node in iterable if node.matches(self._selector)]
