@@ -937,6 +937,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("find prose (1 KiB)", ("find", _LINKIFY_CASES[1][1])),
         ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
         ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
+        ("has_link early (220 KiB tail)", ("has", "https://example.com " + "tail " * 45_000)),
     ),
     "markdown": lambda: (
         ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
