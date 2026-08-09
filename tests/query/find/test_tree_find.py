@@ -232,6 +232,7 @@ def test_axis_preceding_excludes_ancestors() -> None:
     ("limit", "count"),
     [
         pytest.param(None, 2, id="none"),
+        pytest.param(9, 2, id="larger-than-walk-threshold"),
         pytest.param(1, 1, id="one"),
         pytest.param(0, 0, id="zero"),
     ],
@@ -277,12 +278,70 @@ def test_callable_error_propagates(id_filter: Filter) -> None:
         parse("<p>").find(id=id_filter)
 
 
-# a known-tag + attribute query rooted at the document reaches the matcher through the
-# atom-index bucket, so its error path is distinct from the general descendant walk's
 @pytest.mark.parametrize("query", [lambda doc: doc.find("p", id=_raise), lambda doc: doc.find_all("p", id=_raise)])
 def test_indexed_tag_filter_error_propagates(query: Callable[[Document], object]) -> None:
+    document = parse("<p>x</p>")
+    document.find_all("p")
     with pytest.raises(ZeroDivisionError):
-        query(parse("<p>x</p>"))
+        query(document)
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [pytest.param("target", "target", id="match"), pytest.param("missing", None, id="miss")],
+)
+def test_find_filtered_on_warm_tree(target: str, expected: str | None) -> None:
+    document = parse("<p id='first'/><p id='target'/>")
+    document.find_all("p")
+    match = document.find("p", id=target)
+    assert (match.attrs["id"] if match is not None else None) == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "tag", "expected"),
+    [
+        pytest.param("<custom id='target'/>", "custom", "target", id="unknown-tag"),
+        pytest.param("<div/>", "p", None, id="empty-known-tag-bucket"),
+    ],
+)
+def test_find_without_warm_index_bucket(markup: str, tag: str, expected: str | None) -> None:
+    document = parse(markup)
+    document.find_all("div")
+    match = document.find(tag)
+    assert (match.attrs["id"] if match is not None else None) == expected
+
+
+def test_find_on_warm_subtree() -> None:
+    document = parse("<section><p id='inside'/></section><p id='outside'/>")
+    document.find_all("p")
+    assert (section := document.find("section")) is not None
+    assert (match := section.find("p")) is not None
+    assert match.attrs["id"] == "inside"
+
+
+@pytest.mark.parametrize(
+    ("markup", "prime_tag", "tag"),
+    [
+        pytest.param("<p id='first'/><p id='second'/>", "p", "p", id="known-tag"),
+        pytest.param("<custom id='first'/><custom id='second'/>", "div", "custom", id="unknown-tag"),
+    ],
+)
+def test_find_all_limit_on_warm_tree(markup: str, prime_tag: str, tag: str) -> None:
+    document = parse(markup)
+    document.find_all(prime_tag)
+    assert [element.attrs["id"] for element in document.find_all(tag, limit=1)] == ["first"]
+
+
+def test_find_all_limit_on_warm_subtree() -> None:
+    document = parse("<section><p id='inside'/></section><p id='outside'/>")
+    document.find_all("p")
+    assert (section := document.find("section")) is not None
+    assert [element.attrs["id"] for element in section.find_all("p", limit=1)] == ["inside"]
+
+
+def test_limited_tag_filter_error_propagates_on_cold_tree() -> None:
+    with pytest.raises(ZeroDivisionError):
+        parse("<p>x</p>").find_all("p", id=_raise, limit=1)
 
 
 @pytest.mark.parametrize(

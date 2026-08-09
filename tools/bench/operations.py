@@ -263,7 +263,7 @@ class Operation:
 SIZE_OPS: Final[frozenset[str]] = frozenset({"minify", "minify-css", "minify-js"})
 
 # Peak RSS runs in a fresh process so allocator reuse from pyperf's timed loops cannot hide the retained tree or buffer.
-MEMORY_OPS: Final[frozenset[str]] = frozenset({"parse-dense", "rewrite"})
+MEMORY_OPS: Final[frozenset[str]] = frozenset({"find-cold", "parse-dense", "rewrite"})
 
 
 OPERATIONS: dict[str, Operation] = {
@@ -287,6 +287,7 @@ OPERATIONS: dict[str, Operation] = {
     "unescape": Operation("unescape", "us"),
     "tokenize": Operation("tokenize", "us"),
     "find": Operation("find every anchor", "us"),
+    "find-cold": Operation("query a cold 10,000-element tree", "us"),
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
     "computed-style": Operation("computed style for every element", "us"),
@@ -460,6 +461,15 @@ _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
         ("callbacks", '<a href="https://kept.example">kept</a> https://example.com ' * 200),
     ),
     ("2,000 nodes without text", ("default", "<div></div>" * 2_000)),
+)
+
+_FIND_COLD_BODY: Final[str] = "<span>x</span>" * 10_000
+_FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
+    ("find early hit", ("find", "<a>x</a>" + _FIND_COLD_BODY)),
+    ("find late hit", ("find", _FIND_COLD_BODY + "<a>x</a>")),
+    ("find miss", ("find", _FIND_COLD_BODY)),
+    ("find_all", ("all", "<a>x</a>" + _FIND_COLD_BODY)),
+    ("find_all limit=1", ("limit", "<a>x</a>" + _FIND_COLD_BODY)),
 )
 
 _MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
@@ -922,6 +932,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "links-absolutize": _readpath_cases,
     "links-rewrite": _readpath_cases,
     "find": _readpath_cases,
+    "find-cold": lambda: _FIND_COLD_CASES,
     "select": _readpath_cases,
     "select-has": _readpath_cases,
     "computed-style": lambda: (("styled page (3 kB)", _styled_page(8)), ("styled page (11 kB)", _styled_page(40))),

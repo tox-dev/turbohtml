@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 _SIZE_OPS: Final = frozenset({"minify", "minify-css", "minify-js"})
 # a memory op leads with peak resident bytes, so its rows are two cells wide like a size op's
-_MEMORY_OPS: Final = frozenset({"parse-dense", "rewrite"})
+_MEMORY_OPS: Final = frozenset({"find-cold", "parse-dense", "rewrite"})
 _WIDE_OPS: Final = _SIZE_OPS | _MEMORY_OPS
 
 # Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the

@@ -901,7 +901,7 @@ PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (handle_use_index(handle_obj, origin, query_is_indexed_tag(&query))) {
+    if (handle_obj->index_built && handle_index_usable(handle_obj, origin) && query_is_indexed_tag(&query)) {
         Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom];
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         if (query_is_simple_tag(&query)) {
@@ -976,7 +976,11 @@ PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
     HandleObject *handle_obj = (HandleObject *)handle;
-    if (handle_use_index(handle_obj, origin, query_is_indexed_tag(&query))) {
+    int use_index =
+        query.limit >= 0 && query.limit <= 8
+            ? handle_obj->index_built && handle_index_usable(handle_obj, origin) && query_is_indexed_tag(&query)
+            : handle_use_index(handle_obj, origin, query_is_indexed_tag(&query));
+    if (use_index) {
         int simple = query_is_simple_tag(&query);
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {

@@ -1,0 +1,1 @@
+Avoid building a whole-tree tag index for first-result and small-limit queries.

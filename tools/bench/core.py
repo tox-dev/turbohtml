@@ -270,6 +270,21 @@ def find(text: str) -> None:
     _parsed(text).find_all("a")
 
 
+def _find_cold(case: tuple[str, turbohtml.Document]) -> None:
+    query_kind, document = case
+    if query_kind == "find":
+        document.find("a")
+    elif query_kind == "all":
+        document.find_all("a")
+    else:
+        document.find_all("a", limit=1)
+
+
+def _find_cold_setup(case: tuple[str, str]) -> tuple[str, turbohtml.Document]:
+    query_kind, source = case
+    return query_kind, turbohtml.parse(source)
+
+
 def select(text: str) -> None:
     """Run the CSS selector with turbohtml's select."""
     _parsed(text).select(_CSS)
@@ -951,6 +966,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "unescape": (unescape, "turbohtml"),
     "tokenize": (tokenize, "turbohtml"),
     "find": (find, "turbohtml"),
+    "find-cold": (Mutating(_find_cold_setup, _find_cold), "turbohtml"),
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
     "computed-style": (computed_style, "turbohtml"),

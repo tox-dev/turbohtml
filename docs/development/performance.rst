@@ -298,6 +298,10 @@ string built and no matcher dispatch. It stays ahead of resiliparse's lexbor pas
 widening to 22 times on the spec, leads lxml's C XPath engine by 14 to 24 times, and runs 12 to over 1,400 times ahead
 of pyquery, selectolax, parsel, BeautifulSoup, and soupsieve.
 
+A first-result query walks until its match when the document has no tag index. An uncapped ``find_all`` builds the
+whole-document index for later queries; ``find`` and ``find_all(..., limit=1)`` reuse it after that point. The cold-tree
+benchmark records hit positions and misses. It measures uncapped and limited collection, plus peak resident memory.
+
 .. bench-table::
     :file: bench/querying.json
 
