@@ -87,6 +87,20 @@ def test_transform_target_never_bypasses_on_handler_scrub() -> None:
     assert sanitize("<b>x</b>", policy) == "<div>x</div>"
 
 
+def test_transform_canonicalizes_html_names_before_safety_checks() -> None:
+    policy = Policy(
+        tags=frozenset({"a"}),
+        attributes={"a": frozenset({"href", "onclick", "title"})},
+        transform_tags={"b": Transform("A", {"HREF": "javascript:x", "OnClick": "steal()", "TITLE": "safe"})},
+    )
+    assert sanitize("<b>x</b>", policy) == '<a title="safe">x</a>'
+
+
+def test_transform_canonicalizes_unsafe_html_target() -> None:
+    policy = Policy(tags=frozenset({"script"}), transform_tags={"b": "SCRIPT"})
+    assert sanitize("<b>x</b>", policy) == "&lt;script&gt;x&lt;/script&gt;"
+
+
 def test_transform_reports_target_name() -> None:
     policy = Policy(tags=frozenset({"strong"}), transform_tags={"b": "script"})
     html, removed = sanitize_report("<b>e</b>", policy)

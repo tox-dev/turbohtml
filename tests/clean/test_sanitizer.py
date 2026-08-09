@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from turbohtml import Element, parse, parse_fragment
 from turbohtml.clean import (
     DEFAULT_ATTRIBUTES,
     DEFAULT_CSS_PROPERTIES,
@@ -189,10 +190,95 @@ def test_set_attributes_only_touches_named_tag() -> None:
     assert out.count("rel=") == 1
 
 
+def test_empty_set_attributes_rule_leaves_element_unchanged() -> None:
+    policy = Policy(tags=frozenset({"a"}), set_attributes={"a": {}})
+    assert sanitize("<a>x</a>", policy) == "<a>x</a>"
+
+
 def test_set_attributes_skips_disallowed_elements() -> None:
     # a disallowed tag is escaped, so its set_attributes entry is never applied
     policy = Policy(tags=frozenset({"a"}), set_attributes={"script": {"rel": "x"}})
     assert "rel=" not in sanitize("<a>t</a><script>z</script>", policy)
+
+
+def test_set_attributes_pass_through_final_safety_checks() -> None:
+    policy = Policy(
+        tags=frozenset({"a"}),
+        attribute_values={"a": {"title": frozenset({"safe"})}},
+        css_properties=frozenset({"color"}),
+        strip_template_markers=True,
+        isolate_named_props=True,
+        set_attributes={
+            "a": {
+                "href": "javascript:alert(1)",
+                "onclick": "alert(2)",
+                "style": "color: url(javascript:alert(3))",
+                "srcset": "safe.png 1x, javascript:alert(4) 2x",
+                "title": "unsafe",
+                "data-note": "{{secret}}",
+                "id": "location",
+                "x": "safe",
+            }
+        },
+    )
+    element = parse_fragment(sanitize("<a>x</a>", policy)).find("a")
+    assert isinstance(element, Element)
+    assert dict(element.attrs) == {"data-note": " ", "id": "user-content-location", "x": "safe"}
+
+
+def test_set_attributes_canonicalizes_html_names_before_safety_checks() -> None:
+    policy = Policy(
+        tags=frozenset({"a"}),
+        css_properties=frozenset({"color"}),
+        set_attributes={
+            "a": {
+                "HREF": "javascript:alert(1)",
+                "OnClick": "alert(2)",
+                "STYLE": "color:url(javascript:alert(3))",
+                "TITLE": "safe",
+            }
+        },
+    )
+    element = parse_fragment(sanitize("<a>x</a>", policy)).find("a")
+    assert isinstance(element, Element)
+    assert dict(element.attrs) == {"title": "safe"}
+
+
+def test_set_attributes_preserves_foreign_attribute_case() -> None:
+    policy = Policy(tags=frozenset({"svg"}), set_attributes={"svg": {"viewBox": "0 0 10 10"}})
+    assert sanitize("<svg></svg>", policy) == '<svg viewBox="0 0 10 10"></svg>'
+
+
+def test_set_attributes_pass_through_media_host_check() -> None:
+    policy = Policy(
+        tags=frozenset({"p", "video"}),
+        media_hosts=frozenset({"media.example"}),
+        set_attributes={
+            "p": {"title": "text"},
+            "video": {"alt": "clip", "src": "https://attacker.example/movie.mp4", "title": "movie"},
+        },
+    )
+    root = parse_fragment(sanitize("<p></p><video></video>", policy))
+    paragraph = root.find("p")
+    video = root.find("video")
+    assert isinstance(paragraph, Element)
+    assert isinstance(video, Element)
+    assert dict(paragraph.attrs) == {"title": "text"}
+    assert dict(video.attrs) == {"alt": "clip", "title": "movie"}
+
+
+def test_final_safety_pass_keeps_non_event_o_attribute() -> None:
+    policy = Policy(tags=frozenset({"details"}), set_attributes={"details": {"open": ""}})
+    assert sanitize("<details>x</details>", policy) == '<details open="">x</details>'
+
+
+def test_final_safety_pass_keeps_safe_style() -> None:
+    policy = Policy(
+        tags=frozenset({"p"}),
+        css_properties=frozenset({"color"}),
+        set_attributes={"p": {"style": "color: red"}},
+    )
+    assert sanitize("<p>x</p>", policy) == '<p style="color: red">x</p>'
 
 
 def test_script_text_leaks_without_remove_with_content() -> None:
@@ -704,6 +790,83 @@ def test_attribute_filter_rewrites_value() -> None:
     assert sanitize('<a href="http://x">y</a>', policy) == '<a href="HTTP://X">y</a>'
 
 
+@pytest.mark.parametrize(
+    ("tag", "html", "policy"),
+    [
+        pytest.param(
+            "a",
+            '<a href="/safe">x</a>',
+            Policy(
+                tags=frozenset({"a"}),
+                attributes={"a": frozenset({"href"})},
+                attribute_filter=lambda _tag, _name, _value: "javascript:alert(1)",
+            ),
+            id="url",
+        ),
+        pytest.param(
+            "img",
+            '<img srcset="safe.png 1x">',
+            Policy(
+                tags=frozenset({"img"}),
+                attributes={"img": frozenset({"srcset"})},
+                attribute_filter=lambda _tag, _name, _value: "safe.png 1x, javascript:alert(1) 2x",
+            ),
+            id="srcset",
+        ),
+        pytest.param(
+            "p",
+            '<p style="color: red">x</p>',
+            Policy(
+                tags=frozenset({"p"}),
+                attributes={"p": frozenset({"style"})},
+                css_properties=frozenset({"color"}),
+                attribute_filter=lambda _tag, _name, _value: "color: url(javascript:alert(1))",
+            ),
+            id="style",
+        ),
+        pytest.param(
+            "a",
+            '<a title="safe">x</a>',
+            Policy(
+                tags=frozenset({"a"}),
+                attributes={"a": frozenset({"title"})},
+                attribute_values={"a": {"title": frozenset({"safe"})}},
+                attribute_filter=lambda _tag, _name, _value: "unsafe",
+            ),
+            id="configured-value",
+        ),
+        pytest.param(
+            "video",
+            '<video src="https://media.example/movie.mp4"></video>',
+            Policy(
+                tags=frozenset({"video"}),
+                attributes={"video": frozenset({"src"})},
+                media_hosts=frozenset({"media.example"}),
+                attribute_filter=lambda _tag, _name, _value: "https://attacker.example/movie.mp4",
+            ),
+            id="media-host",
+        ),
+    ],
+)
+def test_attribute_filter_replacement_passes_through_final_safety_checks(tag: str, html: str, policy: Policy) -> None:
+    element = parse_fragment(sanitize(html, policy)).find(tag)
+    assert isinstance(element, Element)
+    assert dict(element.attrs) == {}
+
+
+def test_attribute_filter_replacement_passes_through_final_rewrites() -> None:
+    policy = Policy(
+        tags=frozenset({"a"}),
+        attributes={"a": frozenset({"id", "title"})},
+        strip_template_markers=True,
+        isolate_named_props=True,
+        attribute_filter=lambda _tag, name, _value: "location" if name == "id" else "{{secret}}",
+    )
+    element = parse_fragment(sanitize('<a id="safe" title="safe">x</a>', policy)).find("a")
+    assert isinstance(element, Element)
+    assert dict(element.attrs) == {"id": "user-content-location", "title": " "}
+
+
 def test_attribute_filter_drops_with_none() -> None:
     policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href", "title"})},
                     attribute_filter=lambda _t, n, v: None if n == "title" else v)  # fmt: skip
@@ -851,8 +1014,8 @@ def test_sanitize_rejects_non_element() -> None:
         frozenset(), {}, frozenset(), True, 0, True, None, None, {}, frozenset(), frozenset(), frozenset(), {},
         frozenset(), False, None, {}, {}, False, None, None, False, True, True, True,
     )  # fmt: skip
-    with pytest.raises(TypeError):
-        _sanitize("not an element", *policy_args)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="requires HTML text or an Element"):
+        _sanitize(cast("Element", parse("<p>x</p>")), *policy_args)
 
 
 def test_sanitize_rejects_wrong_arguments() -> None:

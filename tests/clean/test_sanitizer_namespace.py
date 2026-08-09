@@ -35,19 +35,20 @@ def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
 
 
 def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
-    """Run the C sanitizer in place over a pre-built tree, removing every disallowed node's subtree."""
     # named to keep the boolean positional arguments off the FBT003 lint, not to document them
     allow_relative = strip_comments = True
     strip_templates = isolate_named_props = allow_customized_builtins = False
     allow_html = allow_svg = allow_mathml = True
     empty: frozenset[str] = frozenset()
     schemes = frozenset({"http", "https", "mailto"})
-    _sanitize(
+    original = root.inner_html
+    sanitized = _sanitize(
         root, tags, {}, schemes, allow_relative, OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
         allow_customized_builtins, allow_html, allow_svg, allow_mathml,
     )  # fmt: skip
-    return root.inner_html
+    assert root.inner_html == original
+    return sanitized.inner_html
 
 
 def test_find_helper_reports_a_missing_element() -> None:
