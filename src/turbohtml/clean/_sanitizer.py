@@ -150,8 +150,10 @@ class Policy:
         escaped or stripped, so their text never leaks into the output.
     :param css_properties: the CSS property allowlist. A kept ``style`` attribute and, when ``style`` is in ``tags``,
         the ``<style>`` element's stylesheet body are both scrubbed against it: any declaration whose property name is
-        not in the set (or whose value smuggles ``expression()`` or a ``url()`` with a disallowed scheme) is dropped,
-        while selectors and block nesting are kept, so dangerous CSS cannot ride in on a kept ``style``.
+        not in the set (or whose value smuggles ``expression()`` or a ``url()`` with a disallowed scheme) is dropped.
+        The non-configurable baseline also drops ``behavior`` and ``-moz-binding``. CSS escapes are decoded before
+        these checks, while function-like text inside strings and comments remains inert. Selectors and block nesting
+        remain.
     :param attribute_prefixes: allow any attribute whose name starts with one of these prefixes (e.g. ``"data-"`` for
         every ``data-*``), on top of the exact-name and ``"*"`` matches in ``attributes``.
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;

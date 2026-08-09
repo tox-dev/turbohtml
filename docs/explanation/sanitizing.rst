@@ -6,11 +6,11 @@ Sanitizing is subtractive and layered: each configurable allowlist can only *rem
 under all of them sits a baseline no policy can reach. The order matters, so read a kept ``style`` attribute as the
 worked example.
 
-A style declaration passes through three gates in turn. First the non-configurable safety baseline: ``expression()``
-runs script in old IE, and ``url(javascript:...)`` carries a disallowed scheme, so either drops the whole declaration no
-matter what the policy says. Then ``css_properties``, the property-*name* allowlist: a property outside the set is gone
-even if its value is harmless. Only a declaration that clears both reaches ``allowed_styles``, the property-*value*
-allowlist, which keeps it only when its value matches one of the patterns listed for the element's tag (or ``"*"``).
+A style declaration passes through three gates in turn. The non-configurable safety baseline drops ``expression()``,
+``url(javascript:...)``, ``behavior``, and ``-moz-binding``. It decodes CSS escapes before matching tokens, while text
+inside strings and comments stays inert. Then ``css_properties`` drops names outside the property allowlist. A
+declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for the element's
+tag or ``"*"``.
 
 The layering is deliberately one-directional. ``allowed_styles`` *narrows* -- it can reject a value the earlier layers
 would have kept, but it can never re-admit one they dropped. A caller who writes ``{"color": [r".*"]}`` has not opened a

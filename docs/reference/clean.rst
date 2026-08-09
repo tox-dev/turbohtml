@@ -30,8 +30,10 @@ element or stripped attribute, the way DOMPurify populates ``DOMPurify.removed``
 way sanitize-html's ``allowedStyles`` does. Key it ``{tag: {property: [pattern, ...]}}`` (``"*"`` matches every tag); a
 ``style`` declaration survives only when its property is listed for the element's tag or ``"*"`` and its value matches
 one of the patterns via an unanchored :func:`re.search`. It runs on top of ``css_properties`` and the dangerous-value
-baseline -- the property must still be in ``css_properties``, and ``expression()`` or a disallowed-scheme ``url()`` is
-dropped even when a pattern would admit it:
+baseline. The property must still be in ``css_properties``. The baseline drops ``expression()`` and disallowed-scheme
+``url()`` values even when a pattern admits them, including function names and URL schemes written with CSS escapes. It
+also rejects ``behavior`` and ``-moz-binding`` even if ``css_properties`` lists them. The scanner treats strings and
+comments as inert content instead of executable functions.
 
 .. testcode::
 

@@ -519,6 +519,8 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
     return mutated;
 }
 
+static int css_decode_escape(const Py_UCS4 *value, Py_ssize_t *pos, Py_ssize_t end, Py_UCS4 *decoded);
+
 /* A CSS property name is ASCII letters, digits, and '-', so an ASCII lowercase key is enough to look it up. Callers
    guarantee 0 < len < 64 (a real property name), so the fixed buffer never overflows. Returns a new str, or NULL on
    allocation failure. */
@@ -530,9 +532,32 @@ static PyObject *css_property_key(const Py_UCS4 *name, Py_ssize_t len) {
     return PyUnicode_FromStringAndSize(lowered, len);
 }
 
+/* Legacy engines execute these properties independently of their values. Decode escapes before comparing so an
+   allowlist cannot admit an obfuscated spelling. */
+static int css_property_blocked(const Py_UCS4 *name, Py_ssize_t len) {
+    char decoded[64];
+    Py_ssize_t decoded_len = 0;
+    for (Py_ssize_t pos = 0; pos < len;) {
+        Py_UCS4 codepoint = name[pos];
+        if (codepoint == '\\') {
+            if (!css_decode_escape(name, &pos, len, &codepoint)) {
+                return 1;
+            }
+        } else {
+            pos++;
+        }
+        if (codepoint > 0x7F) {
+            return 1;
+        }
+        decoded[decoded_len++] = (char)lower_ascii(codepoint);
+    }
+    return (decoded_len == 8 && memcmp(decoded, "behavior", 8) == 0) ||
+           (decoded_len == 12 && memcmp(decoded, "-moz-binding", 12) == 0);
+}
+
 /* Is the CSS property `name[0:len]` in the name allowlist? Returns 1 allow, 0 drop, -1 error. */
 static int css_property_allowed(sanitizer *s, const Py_UCS4 *name, Py_ssize_t len) {
-    if (len == 0 || len >= 64) {
+    if (len == 0 || len >= 64 || css_property_blocked(name, len)) {
         return 0; /* empty, or longer than any real property name */
     }
     PyObject *key = css_property_key(name, len);
@@ -603,19 +628,58 @@ static int css_style_declaration_allowed(sanitizer *s, const style_allowlist *st
    (`background:curl(x)` is not a `url()`). */
 static int is_css_ident_char(Py_UCS4 c) {
     Py_UCS4 lower = c | 0x20;
-    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+    return (lower >= 'a' && lower <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c >= 0x80;
 }
 
-/* Does the lowercase ASCII `keyword` sit at value[pos:]? Returns the index just past it, or -1. */
-static Py_ssize_t css_match_keyword(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, const char *keyword) {
-    Py_ssize_t index = 0;
-    while (keyword[index] != '\0') {
-        if (pos + index >= end || (value[pos + index] | 0x20) != (Py_UCS4)keyword[index]) {
-            return -1;
-        }
-        index++;
+static int is_css_hex(Py_UCS4 codepoint) {
+    Py_UCS4 lower = codepoint | 0x20;
+    return (codepoint >= '0' && codepoint <= '9') || (lower >= 'a' && lower <= 'f');
+}
+
+static int is_css_newline(Py_UCS4 codepoint) {
+    switch (codepoint) {
+    case '\n':
+    case '\r':
+    case '\f':
+        return 1;
+    default:
+        return 0;
     }
-    return pos + index;
+}
+
+/* Decode one CSS escape at `*pos`, which points at its backslash. CSS consumes one to six hexadecimal digits and one
+   optional whitespace terminator, or one escaped code point. Returns 1 and advances `*pos`, or 0 for a trailing
+   backslash or escaped newline. */
+static int css_decode_escape(const Py_UCS4 *value, Py_ssize_t *pos, Py_ssize_t end, Py_UCS4 *decoded) {
+    Py_ssize_t index = *pos + 1;
+    if (index >= end || is_css_newline(value[index])) {
+        return 0;
+    }
+    if (!is_css_hex(value[index])) {
+        *decoded = value[index];
+        *pos = index + 1;
+        return 1;
+    }
+    Py_UCS4 point = 0;
+    int digits = 0;
+    while (index < end && digits < 6 && is_css_hex(value[index])) {
+        Py_UCS4 digit = value[index++] | 0x20;
+        point = (point << 4) + (digit <= '9' ? digit - '0' : digit - 'a' + 10);
+        digits++;
+    }
+    if (index < end && is_space(value[index])) {
+        if (value[index] == '\r') {
+            index++;
+            if (index < end && value[index] == '\n') {
+                index++;
+            }
+        } else {
+            index++;
+        }
+    }
+    *decoded = point == 0 || point > 0x10FFFF || (point >= 0xD800 && point <= 0xDFFF) ? 0xFFFD : point;
+    *pos = index;
+    return 1;
 }
 
 /* Skip the whitespace and CSS comments a browser ignores between a function name and its opening paren, so a comment
@@ -641,41 +705,186 @@ static Py_ssize_t css_skip_ws_comments(const Py_UCS4 *value, Py_ssize_t pos, Py_
    the same scan the URL-attribute path uses, after stripping an optional surrounding quote so `url("javascript:...")`
    cannot smuggle a scheme past the check. Returns 1 allow, 0 drop, -1 error. */
 static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
+    enum { SCHEME_UNDECIDED = -2 };
     pos = css_skip_ws_comments(value, pos, end);
     Py_UCS4 quote = 0;
     if (pos < end && (value[pos] == '"' || value[pos] == '\'')) {
         quote = value[pos++];
     }
-    Py_ssize_t url_start = pos;
+    char inline_scheme[40];
+    char *scheme = inline_scheme;
+    size_t scheme_len = 0;
+    size_t scheme_capacity = sizeof(inline_scheme);
+    int scheme_started = 0;
+    int allowed = SCHEME_UNDECIDED;
+    int result = 0;
     while (pos < end && value[pos] != ')' && (quote ? value[pos] != quote : !is_space(value[pos]))) {
+        Py_UCS4 codepoint = value[pos];
+        if (codepoint == '\\') {
+            if (!css_decode_escape(value, &pos, end, &codepoint)) {
+                goto done;
+            }
+        } else {
+            if (!quote &&
+                (codepoint == '"' || codepoint == '\'' || codepoint == '(' || codepoint < 0x20 || codepoint == 0x7F)) {
+                goto done;
+            }
+            if (quote && is_css_newline(codepoint)) {
+                goto done;
+            }
+            pos++;
+        }
+        if (allowed != SCHEME_UNDECIDED || is_url_ignorable(codepoint)) {
+            continue;
+        }
+        if (codepoint == ':' && scheme_started) {
+            PyObject *name = PyUnicode_FromStringAndSize(scheme, (Py_ssize_t)scheme_len);
+            if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                result = -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+                goto done;      /* GCOVR_EXCL_LINE */
+            }
+            allowed = PySet_Contains(s->url_schemes, name);
+            Py_DECREF(name);
+            continue;
+        }
+        int is_scheme_letter = th_scheme_start(codepoint);
+        if (scheme_started ? !th_scheme_char(codepoint) : !is_scheme_letter) {
+            allowed = s->allow_relative;
+            continue;
+        }
+        if (scheme_len == scheme_capacity) {
+            size_t grown_capacity;
+            size_t bytes;
+            int fits = th_grow_cap(scheme_len + 1, scheme_capacity, sizeof(inline_scheme), sizeof(*scheme),
+                                   &grown_capacity, &bytes);
+            if (!fits) {          /* GCOVR_EXCL_BR_LINE: a CSS token cannot exhaust size_t */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
+                result = -1;      /* GCOVR_EXCL_LINE */
+                goto done;        /* GCOVR_EXCL_LINE */
+            }
+            char *grown = PyMem_Malloc(bytes);
+            if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                result = -1;      /* GCOVR_EXCL_LINE */
+                goto done;        /* GCOVR_EXCL_LINE */
+            }
+            memcpy(grown, scheme, scheme_len);
+            if (scheme != inline_scheme) {
+                PyMem_Free(scheme);
+            }
+            scheme = grown;
+            scheme_capacity = grown_capacity;
+        }
+        scheme[scheme_len++] = (char)(is_scheme_letter ? (codepoint | 0x20) : codepoint);
+        scheme_started = 1;
+    }
+    if (quote) {
+        if (pos >= end) { /* GCOVR_EXCL_BR_LINE: the declaration splitter rejects an unterminated quoted URL */
+            goto done;    /* GCOVR_EXCL_LINE: rejected-declaration path */
+        }
+        if (value[pos] != quote) {
+            goto done;
+        }
         pos++;
     }
-    return scheme_allowed(s, value + url_start, pos - url_start);
+    pos = css_skip_ws_comments(value, pos, end);
+    if (pos < end && value[pos] == ')') {
+        result = allowed == SCHEME_UNDECIDED ? s->allow_relative : allowed;
+    }
+done:
+    if (scheme != inline_scheme) {
+        PyMem_Free(scheme);
+    }
+    return result;
+}
+
+/* Consume one identifier token, decoding escapes and classifying the exact token as url, expression, or neither.
+   Matching the whole token avoids treating an escaped space inside `safe\\ url(...)` as a token boundary. */
+static int css_identifier_kind(const Py_UCS4 *value, Py_ssize_t *pos, Py_ssize_t end) {
+    char token[11];
+    Py_ssize_t length = 0;
+    int overflow = 0;
+    while (*pos < end && (is_css_ident_char(value[*pos]) || value[*pos] == '\\')) {
+        Py_UCS4 codepoint = value[*pos];
+        if (codepoint == '\\') {
+            if (!css_decode_escape(value, pos, end, &codepoint)) {
+                return -1;
+            }
+        } else {
+            (*pos)++;
+        }
+        if (length < (Py_ssize_t)sizeof(token)) {
+            token[length++] = codepoint <= 0x7F ? (char)lower_ascii(codepoint) : '\0';
+        } else {
+            overflow = 1;
+        }
+    }
+    if (overflow) {
+        return 0;
+    }
+    if (length == 3 && memcmp(token, "url", 3) == 0) {
+        return 1;
+    }
+    return length == 10 && memcmp(token, "expression", 10) == 0 ? 2 : 0;
+}
+
+/* Skip a quoted CSS string. Function-like text inside it is data, not a token. */
+static Py_ssize_t css_skip_string(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
+    Py_UCS4 quote = value[pos++];
+    while (pos < end) {
+        if (value[pos] == quote) {
+            return pos + 1;
+        }
+        if (value[pos] != '\\') {
+            pos++;
+            continue;
+        }
+        pos++;
+        if (pos >= end) { /* GCOVR_EXCL_BR_LINE: the declaration splitter rejects a terminal string escape */
+            continue;     /* GCOVR_EXCL_LINE: rejected-declaration path */
+        }
+        if (value[pos] == '\r') {
+            pos++;
+            if (pos < end && value[pos] == '\n') { /* GCOVR_EXCL_BR_LINE: a terminal CR is rejected upstream */
+                pos++;
+            }
+        } else {
+            pos++;
+        }
+    }
+    return end;
 }
 
 /* A declaration whose property name is allowlisted can still carry a dangerous value: IE's `expression(...)` runs
-   script, and `url(javascript:...)` a disallowed scheme. Reject the whole declaration in either case. Returns 1 allow,
-   0 drop, -1 error. */
+   script, and `url(javascript:...)` a disallowed scheme. Scan CSS tokens so inert strings, comments, and longer
+   identifiers do not trigger the executable-function checks. Returns 1 allow, 0 drop, -1 error. */
 static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
-    for (Py_ssize_t pos = start; pos < end; pos++) {
-        if (pos > start && is_css_ident_char(value[pos - 1])) {
-            continue; /* mid-identifier: not a function-name boundary */
+    Py_ssize_t pos = start;
+    while (pos < end) {
+        if (value[pos] == '/' && pos + 1 < end && value[pos + 1] == '*') {
+            pos = css_skip_ws_comments(value, pos, end);
+            continue;
         }
-        Py_ssize_t after_expr = css_match_keyword(value, pos, end, "expression");
-        if (after_expr >= 0) {
-            Py_ssize_t paren = css_skip_ws_comments(value, after_expr, end);
-            if (paren < end && value[paren] == '(') {
-                return 0;
-            }
+        if (value[pos] == '\'' || value[pos] == '"') {
+            pos = css_skip_string(value, pos, end);
+            continue;
         }
-        Py_ssize_t after_url = css_match_keyword(value, pos, end, "url");
-        if (after_url >= 0) {
-            Py_ssize_t paren = css_skip_ws_comments(value, after_url, end);
-            if (paren < end && value[paren] == '(') {
-                int ok = css_url_scheme_allowed(s, value, paren + 1, end);
-                if (ok <= 0) {
-                    return ok;
-                }
+        if (!is_css_ident_char(value[pos]) && value[pos] != '\\') {
+            pos++;
+            continue;
+        }
+        int identifier_kind = css_identifier_kind(value, &pos, end);
+        if (identifier_kind < 0) {
+            return 0;
+        }
+        Py_ssize_t paren = css_skip_ws_comments(value, pos, end);
+        if (identifier_kind == 2 && paren < end && value[paren] == '(') {
+            return 0;
+        }
+        if (identifier_kind == 1 && paren < end && value[paren] == '(') {
+            int url_allowed = css_url_scheme_allowed(s, value, paren + 1, end);
+            if (url_allowed <= 0) {
+                return url_allowed;
             }
         }
     }

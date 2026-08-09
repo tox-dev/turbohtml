@@ -389,6 +389,7 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param(";;; color: red ;;;", 'style="color: red"', id="extra-semicolons"),
         pytest.param("position: fixed; z-index: 9", None, id="all-dropped-removes-attribute"),
         pytest.param(("a" * 70) + ": red; color: blue", 'style="color: blue"', id="property-name-too-long"),
+        pytest.param("é: red", None, id="non-ascii-property-name"),
     ],
 )
 def test_style_scrubbing(style: str, expected: str | None) -> None:
@@ -461,7 +462,7 @@ def test_style_double_quoted_css_string() -> None:
         pytest.param("color: url( javascript:x )", False, id="url-javascript-spaced"),
         pytest.param("color: url/* c */(javascript:x)", False, id="url-comment-before-paren"),
         pytest.param("color: url(http://x/a.png)", True, id="url-http-allowed"),
-        pytest.param("color: url(http://x y)", True, id="url-allowed-then-space"),
+        pytest.param("color: url(http://x y)", False, id="url-unquoted-whitespace"),
         pytest.param("color: url/* c */(http://x)", True, id="url-comment-then-allowed"),
         pytest.param("color: url(/rel.png)", True, id="url-relative-allowed"),
         pytest.param("color: url()", True, id="url-empty"),
@@ -473,18 +474,134 @@ def test_style_double_quoted_css_string() -> None:
         pytest.param("cursor: curl(x)", True, id="url-mid-identifier"),
         pytest.param("color: url/x", True, id="url-slash-not-comment"),
         pytest.param("color: url/", True, id="url-trailing-slash"),
-        pytest.param("color: url(", True, id="url-open-paren-at-end"),
-        pytest.param("color: url(http://x", True, id="url-unterminated-allowed"),
+        pytest.param("color: url(", False, id="url-open-paren-at-end"),
+        pytest.param("color: url(http://x", False, id="url-unterminated"),
         pytest.param("color: url/* unterminated", True, id="url-unterminated-comment"),
         pytest.param("color: url/* x*", True, id="url-comment-trailing-asterisk"),
         pytest.param("color: url/* a*b */(http://x)", True, id="url-comment-lone-asterisk-then-allowed"),
         pytest.param("color: a-b_1c", True, id="value-identifier-punctuation"),
+        pytest.param("cursor: identifierlong(javascript:alert(1))", True, id="long-identifier"),
+        pytest.param("cursor: url(#fragment)", True, id="fragment-url"),
+        pytest.param("cursor: url(java\u200bscript:alert(1))", False, id="ignorable-format-character"),
+        pytest.param("cursor: url(:relative)", True, id="colon-before-scheme"),
+        pytest.param("cursor: url(h1:opaque)", False, id="scheme-with-digit"),
+        pytest.param(f"cursor: url({'h' * 41}:opaque)", False, id="overlong-scheme"),
+        pytest.param("cursor: url(https://example.com/(x)", False, id="open-paren-in-unquoted-url"),
+        pytest.param("cursor: url(https://example.com/'x)", False, id="single-quote-in-unquoted-url"),
+        pytest.param("cursor: url(https://example.com/\x7fx)", False, id="delete-in-unquoted-url"),
+        pytest.param("cursor: url(https://example.com/\x01x)", False, id="control-in-unquoted-url"),
+        pytest.param('cursor: url("https://example.com/\fpath")', False, id="form-feed-in-quoted-url"),
     ],
 )
 def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     # a kept property still has its value scrubbed: expression() and url(disallowed-scheme) drop the whole declaration
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert ("style=" in out) is kept
+
+
+@pytest.mark.parametrize(
+    ("style", "kept"),
+    [
+        pytest.param(r"cursor: u\72l(javascript:alert(1))", False, id="escaped-function-hex"),
+        pytest.param(r"cursor: u\72 l(javascript:alert(1))", False, id="escaped-function-hex-terminator"),
+        pytest.param(r"cursor: u\rl(javascript:alert(1))", False, id="escaped-function-simple"),
+        pytest.param(r"cursor: U\000052L(JaVaScRiPt:alert(1))", False, id="escaped-function-mixed-case"),
+        pytest.param(r"cursor: url(jav\61script:alert(1))", False, id="escaped-scheme"),
+        pytest.param(r'cursor: u\72l("jav\61script:alert(1)")', False, id="escaped-quoted-url"),
+        pytest.param("cursor: u\\\nrl(javascript:alert(1))", False, id="escaped-newline"),
+        pytest.param("cursor: \\", False, id="trailing-escape"),
+        pytest.param(r"width: expr\65ssion(alert(1))", False, id="escaped-expression"),
+        pytest.param(r"cursor: url(https://example.com/a), u\72l(jav\61script:alert(1))", False, id="multiple-urls"),
+        pytest.param(r"cursor: url(jav\110000-script:x)", True, id="invalid-code-point-is-not-script"),
+        pytest.param(r"cursor: url(jav\0 -script:x)", True, id="null-escape-is-not-script"),
+        pytest.param(r"cursor: url(jav\d800 -script:x)", True, id="surrogate-escape-is-not-script"),
+        pytest.param(r"cursor: url(jav\1f642 -script:x)", True, id="non-bmp-code-point-is-not-script"),
+        pytest.param(r"cursor: abcdefghijk\0000612", True, id="six-digit-escape-before-hex"),
+        pytest.param("cursor: url(jav\\\nascript:alert(1))", False, id="escaped-newline-in-url"),
+        pytest.param(r'cursor: url("https://example.com" trailing)', False, id="garbage-after-quoted-url"),
+        pytest.param(r'cursor: url("https://example.com)', False, id="unterminated-quoted-url"),
+        pytest.param('cursor: url("https://example.com\npath")', False, id="newline-in-quoted-url"),
+        pytest.param(r'cursor: url(https://example.com/"x)', False, id="quote-in-unquoted-url"),
+    ],
+)
+def test_style_value_decodes_css_escapes(style: str, *, kept: bool) -> None:
+    assert ("style=" in sanitize(f'<p style="{style}">x</p>', _style_policy())) is kept
+
+
+@pytest.mark.parametrize(
+    "prefix_length",
+    [pytest.param(40, id="inline-buffer"), pytest.param(96, id="grown-buffer")],
+)
+def test_style_url_scheme_lookup_does_not_truncate_long_names(prefix_length: int) -> None:
+    allowed_prefix = "h" * prefix_length
+    policy = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=frozenset({"cursor"}),
+        url_schemes=frozenset({allowed_prefix}),
+    )
+    assert "style=" not in sanitize(f'<p style="cursor: url({allowed_prefix}h:opaque)">x</p>', policy)
+
+
+@pytest.mark.parametrize(
+    ("style", "kept"),
+    [
+        pytest.param("content: 'a\\\rb'", True, id="carriage-return"),
+        pytest.param("content: 'a\\\r\nb'", True, id="crlf"),
+        pytest.param("content: 'a\\", False, id="trailing-string-escape"),
+        pytest.param("content: 'a\\zb'", True, id="simple-string-escape"),
+        pytest.param("content: \\61", True, id="hex-escape-at-end"),
+        pytest.param("content: \\61\r", True, id="hex-escape-carriage-return-at-end"),
+        pytest.param("content: \\61\rblue", True, id="hex-escape-carriage-return-terminator"),
+        pytest.param("content: \\61\r\nblue", True, id="hex-escape-crlf-terminator"),
+    ],
+)
+def test_set_style_scanner_handles_escape_boundaries(style: str, *, kept: bool) -> None:
+    policy = Policy(
+        tags=frozenset({"p"}),
+        css_properties=frozenset({"content", "cursor"}),
+        set_attributes={"p": {"style": style}},
+    )
+    assert ("style=" in sanitize("<p>x</p>", policy)) is kept
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param("behavior: url(#x)", id="behavior"),
+        pytest.param("BEHAVIOR: url(#x)", id="behavior-case"),
+        pytest.param(r"beha\76ior: url(#x)", id="behavior-escape"),
+        pytest.param("beha\\\nvior: url(#x)", id="invalid-property-escape"),
+        pytest.param("-moz-binding: url(#x)", id="moz-binding"),
+        pytest.param(r"-moz-b\69nding: url(#x)", id="moz-binding-escape"),
+    ],
+)
+def test_legacy_executable_css_properties_cannot_be_allowlisted(style: str) -> None:
+    policy = _style_policy(
+        css_properties=frozenset({"behavior", "BEHAVIOR", r"beha\76ior", "-moz-binding", r"-moz-b\69nding"})
+    )
+    assert "style=" not in sanitize(f'<p style="{style}">x</p>', policy)
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param("content: 'url(javascript:alert(1))'", id="string"),
+        pytest.param("color: /* url(javascript:alert(1)) */ red", id="comment"),
+        pytest.param(r"cursor: safe\ url(javascript:alert(1))", id="escaped-identifier-space"),
+        pytest.param("cursor: urlish(javascript:alert(1))", id="longer-identifier"),
+    ],
+)
+def test_css_safety_scanner_ignores_inert_tokens(style: str) -> None:
+    policy = _style_policy(css_properties=frozenset({"color", "content", "cursor"}))
+    assert "style=" in sanitize(f'<p style="{style}">x</p>', policy)
+
+
+def test_css_safety_scanner_keeps_url_text_inside_non_ascii_identifier() -> None:
+    policy = _style_policy(css_properties=frozenset({"cursor"}))
+    assert 'style="cursor: \u00e9url(javascript:alert(1))"' in sanitize(
+        '<p style="cursor: \u00e9url(javascript:alert(1))">x</p>', policy
+    )
 
 
 def test_style_double_quoted_url_scheme_is_stripped() -> None:
@@ -631,6 +748,19 @@ def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPER
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
     # an allowlisted <style> keeps its element and structure; each declaration is vetted like a style attribute
     assert sanitize(f"<style>{css}</style>", _style_element_policy()) == f"<style>{expected_body}</style>"
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param(r"cursor:u\72l(javascript:alert(1))", id="escaped-function"),
+        pytest.param(r"cursor:url(jav\61script:alert(1))", id="escaped-scheme"),
+    ],
+)
+def test_style_element_body_decodes_css_escapes(style: str) -> None:
+    policy = _style_element_policy(css_properties=frozenset({"cursor"}))
+    once = sanitize(f"<style>p{{{style}}}</style>", policy)
+    assert (once, sanitize(once, policy)) == ("<style>p{}</style>", once)
 
 
 def test_allowed_styles_does_not_narrow_style_element_body() -> None:
@@ -870,6 +1000,17 @@ def test_attribute_filter_rewrites_value() -> None:
                 attribute_filter=lambda _tag, _name, _value: "color: url(javascript:alert(1))",
             ),
             id="style",
+        ),
+        pytest.param(
+            "p",
+            '<p style="cursor: auto">x</p>',
+            Policy(
+                tags=frozenset({"p"}),
+                attributes={"p": frozenset({"style"})},
+                css_properties=frozenset({"cursor"}),
+                attribute_filter=lambda _tag, _name, _value: "cursor: u\\72\r\nl(javascript:alert(1))",
+            ),
+            id="style-escaped-crlf-terminator",
         ),
         pytest.param(
             "a",

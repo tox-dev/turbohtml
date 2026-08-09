@@ -1,0 +1,1 @@
+Decode CSS escapes when checking sanitizer function names and URL schemes.
