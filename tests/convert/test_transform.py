@@ -2604,7 +2604,8 @@ def test_transform_import_resolves_file_url_base(tmp_path: Path) -> None:
     assert _canon(result) == "[x]"
 
 
-def test_transform_import_resolves_file_url_href(tmp_path: Path) -> None:
+@pytest.mark.parametrize("authority", ["", "localhost"], ids=["empty host", "localhost"])
+def test_transform_import_resolves_file_url_href(tmp_path: Path, authority: str) -> None:
     base = tmp_path / "base.xsl"
     base.write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -2614,7 +2615,7 @@ def test_transform_import_resolves_file_url_href(tmp_path: Path) -> None:
     main = tmp_path / "main.xsl"
     main.write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        f'<xsl:import href="{base.as_uri()}"/>'
+        f'<xsl:import href="{base.as_uri().replace("file://", "file://" + authority)}"/>'
         '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
         encoding="utf-8",
     )
@@ -2632,11 +2633,12 @@ def test_transform_import_rejects_remote_base_url() -> None:
         transform(sheet, turbohtml.parse_xml("<r/>"), base_url="https://example.com/main.xsl")
 
 
-def test_transform_import_rejects_remote_href(tmp_path: Path) -> None:
+@pytest.mark.parametrize("href", ["https://example.com/base.xsl", "//example.com/base.xsl"], ids=["URL", "authority"])
+def test_transform_import_rejects_remote_href(tmp_path: Path, href: str) -> None:
     main = tmp_path / "main.xsl"
     main.write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:import href="https://example.com/base.xsl"/></xsl:stylesheet>',
+        f'<xsl:import href="{href}"/></xsl:stylesheet>',
         encoding="utf-8",
     )
     sheet = turbohtml.parse_xml(main.read_text(encoding="utf-8"))
