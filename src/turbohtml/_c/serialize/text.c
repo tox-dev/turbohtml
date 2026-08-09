@@ -782,6 +782,9 @@ static void text_render_root(text_ctx *ctx, th_node *node) {
 }
 
 Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt, Py_ssize_t *out_len) {
+    if (ser_check_recursive_depth(node, "to_text()") < 0) {
+        return NULL;
+    }
     text_ctx ctx = {0};
     ctx.tree = tree;
     ctx.opt = opt;
@@ -795,6 +798,9 @@ Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt,
 Py_UCS4 *th_node_annotated_text(th_tree *tree, th_node *node, const text_opts *opt, const text_rule *rules,
                                 Py_ssize_t n_rules, text_span **out_spans, Py_ssize_t *out_span_count,
                                 Py_ssize_t *out_len) {
+    if (ser_check_recursive_depth(node, "to_annotated_text()") < 0) {
+        return NULL;
+    }
     text_ctx ctx = {0};
     ctx.tree = tree;
     ctx.opt = opt;

@@ -327,7 +327,6 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
 }
 
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl);
-static void xsd_validate_element_inner(valctx *ctx, th_node *instance, th_node *decl);
 
 /* Validate an `all` group: each child element matches a distinct particle by name,
    with its per-particle occurs honored and order ignored. */
@@ -806,19 +805,7 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
 
 /* ---- element ---- */
 
-/* Bound the per-element recursion so a pathologically deep document cannot overflow the
-   thread stack; report once and stop descending past the cap. */
 static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) {
-    if (ctx->depth >= TH_VALIDATE_MAX_DEPTH) {
-        report(ctx, instance, "structure", "maximum element nesting depth exceeded");
-        return;
-    }
-    ctx->depth++;
-    xsd_validate_element_inner(ctx, instance, decl);
-    ctx->depth--;
-}
-
-static void xsd_validate_element_inner(valctx *ctx, th_node *instance, th_node *decl) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     qname name = node_qname(ctx->tree, instance, instance->text, instance->text_len, 0);

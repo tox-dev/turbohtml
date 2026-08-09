@@ -68,6 +68,9 @@ choice about which content languages an application accepts at all. Keeping the 
 statement about intent, not a relaxation of the mutation-XSS defense that still governs how a MathML node may be
 reached.
 
+The policy walk uses an explicit checked stack rather than C recursion. It reaches the final safety pass at all depths
+that fits in memory; nesting cannot truncate the sanitized result or skip a descendant's checks.
+
 The ``xml`` flag sits outside the subtractive stack entirely: it changes how the surviving tree is *serialized*, not
 what survives. The walk is identical, and the safety baseline is unchanged, so an XML-mode policy is exactly as safe as
 its HTML-mode twin -- serializing more strictly cannot make a safe tree unsafe. What the XML serializer adds is

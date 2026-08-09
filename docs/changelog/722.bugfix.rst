@@ -1,0 +1,1 @@
+Complete deep XML and programmatic-tree operations without silent truncation or C stack exhaustion.

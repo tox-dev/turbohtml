@@ -35,11 +35,9 @@ static const char XSD_DT_NS[] = "http://www.w3.org/2001/XMLSchema-datatypes";
 static const char RNG_NS[] = "http://relaxng.org/ns/structure/1.0";
 static const char XML_URI[] = "http://www.w3.org/XML/1998/namespace";
 
-/* Instance element nesting the validator recurses into per level. A document can nest
-   arbitrarily deep (the XML parser has no depth cap), and each level costs a C call
-   chain, so the recursion is bounded to keep a pathological document from overflowing
-   the ~1 MB thread stack of a Windows free-threaded worker. */
-#define TH_VALIDATE_MAX_DEPTH 1000
+/* Schema compilation and instance validation still have recursive grammar walks. Preflight the tree far enough below
+   the smallest supported thread stack that those walks cannot exhaust it. */
+#define TH_VALIDATE_MAX_DEPTH 400
 
 /* ======================= bump arena ======================= */
 
@@ -320,7 +318,6 @@ typedef struct {
     struct th_schema *schema;
     pathbuf path;
     int failed;
-    int depth; /* current instance element nesting depth, capped at TH_VALIDATE_MAX_DEPTH */
 } valctx;
 
 static void report(valctx *ctx, th_node *node, const char *type, const char *fmt, ...) {
@@ -804,6 +801,10 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     if (tree == NULL) {
         return NULL;
     }
+    if (th_node_check_max_depth(th_tree_document(tree), TH_VALIDATE_MAX_DEPTH, "schema compilation") < 0) {
+        th_tree_free(tree);
+        return NULL;
+    }
     th_schema *schema = PyMem_Calloc(1, sizeof(th_schema));
     if (schema == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree);      /* GCOVR_EXCL_LINE */
@@ -851,11 +852,13 @@ PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args) {
     if (errors == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE */
     }
-    valctx ctx = {errors, tree, schema, {NULL, 0, 0}, 0, 0};
+    valctx ctx = {errors, tree, schema, {NULL, 0, 0}, 0};
     th_node *root = node->type == TH_NODE_DOCUMENT ? document_root(tree) : node;
     Py_BEGIN_CRITICAL_SECTION(turbohtml_node_handle(node_obj));
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: parse_xml rejects a rootless document, so the shim never passes one */
         report(&ctx, node, "structure", "document has no root element"); /* GCOVR_EXCL_LINE */
+    } else if (th_node_check_max_depth(root, TH_VALIDATE_MAX_DEPTH, "schema validation") < 0) {
+        ctx.failed = 1;
     } else if (schema->kind == 0) {
         xsd_validate_root(&ctx, root);
     } else {
@@ -863,9 +866,9 @@ PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args) {
     }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(ctx.path.data);
-    if (ctx.failed) {      /* GCOVR_EXCL_BR_LINE: only set on an unforceable allocation failure */
-        Py_DECREF(errors); /* GCOVR_EXCL_LINE */
-        return NULL;       /* GCOVR_EXCL_LINE */
+    if (ctx.failed) {
+        Py_DECREF(errors);
+        return NULL;
     }
     int valid = PyList_GET_SIZE(errors) == 0;
     return Py_BuildValue("(ON)", valid ? Py_True : Py_False, errors);

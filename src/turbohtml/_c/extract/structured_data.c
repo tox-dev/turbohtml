@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define STRUCTURED_DATA_MAX_RECURSIVE_DEPTH ((Py_ssize_t)400)
+
 /* The HTML script type that flags a JSON-LD block, matched case-insensitively after trimming. */
 static const char JSON_LD_TYPE[] = "application/ld+json";
 
@@ -555,11 +557,10 @@ done:
     return status;
 }
 
-/* Steal `value` into slot `index` of `tuple`, returning -1 only on the excluded allocation-failure path (a NULL value
-   the section builder could not allocate). */
+/* Steal `value` into slot `index` of `tuple`, returning -1 when its section builder failed. */
 static int tuple_set_or_fail(PyObject *tuple, Py_ssize_t index, PyObject *value) {
-    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: the section is built only from unforceable allocations */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: only allocation failure or a mutation timed between locked passes */
+        return -1;       /* GCOVR_EXCL_LINE: unforceable failure timing */
     }
     PyTuple_SET_ITEM(tuple, index, value);
     return 0;
@@ -712,7 +713,7 @@ static PyObject *gather_opengraph(PyObject *self, PyObject *base) {
 /* Build one MicrodataItem for every top-level Microdata item (an element with itemscope and no itemprop, so it is not a
    property of another item). URL-valued properties are absolutized against `base` when the caller passed one (base is
    NULL otherwise, leaving values verbatim). NULL only on the excluded allocation-failure path. */
-static PyObject *gather_microdata(PyObject *self, PyObject *base) {
+static PyObject *gather_microdata(PyObject *self, PyObject *base, int check_depth) {
     PyObject *items = PyList_New(0);
     if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -722,21 +723,24 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     micro_ctx ctx = {state_of(self), tree, base, {NULL, 0, 0}};
     int failed = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
-        if (node->type != TH_NODE_ELEMENT || find_node_attr(node, TH_ATTR_ITEMSCOPE) == NULL ||
-            find_node_attr(node, TH_ATTR_ITEMPROP) != NULL) {
-            continue;
-        }
-        PyObject *item = build_item(&ctx, node);
-        if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;          /* GCOVR_EXCL_LINE */
-        }
-        int append_failed = PyList_Append(items, item) < 0;
-        Py_DECREF(item);
-        if (append_failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
-            failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;           /* GCOVR_EXCL_LINE */
+    failed = check_depth && th_node_check_max_depth(root, STRUCTURED_DATA_MAX_RECURSIVE_DEPTH, "microdata()") < 0;
+    if (!failed) {
+        for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+            if (node->type != TH_NODE_ELEMENT || find_node_attr(node, TH_ATTR_ITEMSCOPE) == NULL ||
+                find_node_attr(node, TH_ATTR_ITEMPROP) != NULL) {
+                continue;
+            }
+            PyObject *item = build_item(&ctx, node);
+            if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;          /* GCOVR_EXCL_LINE */
+            }
+            int append_failed = PyList_Append(items, item) < 0;
+            Py_DECREF(item);
+            if (append_failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
+                failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;           /* GCOVR_EXCL_LINE */
+            }
         }
     }
     Py_END_CRITICAL_SECTION();
@@ -1265,7 +1269,7 @@ static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_
 
 /* Build one RdfaItem for every top-level RDFa resource, absolutizing IRIs against `base` when the caller passed one.
    NULL only on the excluded allocation-failure path. */
-static PyObject *gather_rdfa(PyObject *self, PyObject *base) {
+static PyObject *gather_rdfa(PyObject *self, PyObject *base, int check_depth) {
     PyObject *items = PyList_New(0);
     if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1277,7 +1281,10 @@ static PyObject *gather_rdfa(PyObject *self, PyObject *base) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     /* A document that never interns a typeof attribute carries no RDFa resource, so skip the walk and the prefix map it
        would need -- this is the whole cost of the RDFa pass on the pages (most of them) that use no RDFa. */
-    if (th_attr_lookup(tree, "typeof", 6) != UINT32_MAX) {
+    int has_rdfa = th_attr_lookup(tree, "typeof", 6) != UINT32_MAX;
+    failed =
+        has_rdfa && check_depth && th_node_check_max_depth(root, STRUCTURED_DATA_MAX_RECURSIVE_DEPTH, "rdfa()") < 0;
+    if (has_rdfa && !failed) {
         PyObject *prefixes = build_default_prefixes();
         failed = prefixes == NULL; /* the build fails only on unforceable allocation */
         if (prefixes != NULL) {    /* GCOVR_EXCL_BR_LINE: the build fails only on unforceable allocation */
@@ -1508,7 +1515,7 @@ PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject 
     if (parse_base_url(self, args, kwargs, "|O:microdata", &base) < 0) {
         return NULL;
     }
-    PyObject *result = gather_microdata(self, base);
+    PyObject *result = gather_microdata(self, base, 1);
     Py_XDECREF(base);
     return result;
 }
@@ -1519,7 +1526,7 @@ PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwar
     if (parse_base_url(self, args, kwargs, "|O:rdfa", &base) < 0) {
         return NULL;
     }
-    PyObject *result = gather_rdfa(self, base);
+    PyObject *result = gather_rdfa(self, base, 1);
     Py_XDECREF(base);
     return result;
 }
@@ -1539,21 +1546,30 @@ PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyO
     if (parse_base_url(self, args, kwargs, "|O:structured_data", &base) < 0) {
         return NULL;
     }
+    int safe;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    safe =
+        th_node_check_max_depth(((NodeObject *)self)->node, STRUCTURED_DATA_MAX_RECURSIVE_DEPTH, "structured_data()");
+    Py_END_CRITICAL_SECTION();
+    if (safe < 0) {
+        Py_XDECREF(base);
+        return NULL;
+    }
     PyObject *sections = PyTuple_New(6);
     if (sections == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_XDECREF(base);   /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    int failed = 0;
-    failed |= tuple_set_or_fail(sections, 0, turbohtml_document_json_ld(self, NULL));
-    failed |= tuple_set_or_fail(sections, 1, gather_microdata(self, base));
-    failed |= tuple_set_or_fail(sections, 2, gather_opengraph(self, base));
-    failed |= tuple_set_or_fail(sections, 3, PyList_New(0));
-    failed |= tuple_set_or_fail(sections, 4, gather_rdfa(self, base));
-    failed |= tuple_set_or_fail(sections, 5, gather_dublin_core(self));
+    /* A section fails only after an allocation failure or a mutation between separately locked passes. */
+    int failed = tuple_set_or_fail(sections, 0, turbohtml_document_json_ld(self, NULL)) < 0 || /* GCOVR_EXCL_BR_LINE */
+                 tuple_set_or_fail(sections, 1, gather_microdata(self, base, 0)) < 0 ||        /* GCOVR_EXCL_BR_LINE */
+                 tuple_set_or_fail(sections, 2, gather_opengraph(self, base)) < 0 ||           /* GCOVR_EXCL_BR_LINE */
+                 tuple_set_or_fail(sections, 3, PyList_New(0)) < 0 ||                          /* GCOVR_EXCL_BR_LINE */
+                 tuple_set_or_fail(sections, 4, gather_rdfa(self, base, 0)) < 0 ||             /* GCOVR_EXCL_BR_LINE */
+                 tuple_set_or_fail(sections, 5, gather_dublin_core(self)) < 0;
     Py_XDECREF(base);
-    if (failed != 0) {       /* GCOVR_EXCL_BR_LINE: a section build fails only on unforceable allocation */
-        Py_DECREF(sections); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (failed) {            /* GCOVR_EXCL_BR_LINE: only allocation failure or concurrent mutation between passes */
+        Py_DECREF(sections); /* GCOVR_EXCL_LINE: unforceable failure timing */
         return NULL;         /* GCOVR_EXCL_LINE */
     }
     PyObject *result = PyObject_Call(state_of(self)->structured_data_type, sections, NULL);

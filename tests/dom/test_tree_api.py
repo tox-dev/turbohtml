@@ -196,6 +196,7 @@ def test_equals_rejects_non_node() -> None:
         pytest.param(Element("a", {"href": "/x"}), Element("a", {"href": "/xyz"}), id="attr-value-length"),
         pytest.param(Element("a", {"href": "/x"}), Element("a"), id="attr-presence"),
         pytest.param(Element("a", {"href": "/x"}), Element("a", {"rel": "/x"}), id="attr-name"),
+        pytest.param(Element("div", None, [Element("a")]), Element("div"), id="child-presence"),
         pytest.param(
             Element("div", None, [Element("a")]),
             Element("div", None, [Element("a"), Element("b")]),

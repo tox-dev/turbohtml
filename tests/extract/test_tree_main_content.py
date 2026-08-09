@@ -249,6 +249,14 @@ def test_methods_exist_on_document_and_element() -> None:
     assert body.main_content() is not None
 
 
+def test_shadow_paragraph_scores_its_element_parent() -> None:
+    root = Element("div").attach_shadow()
+    root.set_inner_html(f"<section><p>{PROSE}</p></section>")
+    found = root.main_content()
+    assert isinstance(found, Element)
+    assert found.tag == "section"
+
+
 def test_div_list_body_without_paragraphs_falls_back_to_article() -> None:
     # #385: an <article> whose text lives in div/ul/li with no scoring <p> must not
     # extract to empty; the semantic-container fallback surfaces the <article>.

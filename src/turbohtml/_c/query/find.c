@@ -636,11 +636,9 @@ static int snapshot_text_candidates(PyObject *self, const query_t *query, th_nod
    span, so a candidate's collected text is sized before it is gathered. */
 static Py_ssize_t subtree_text_len(th_node *node) {
     Py_ssize_t total = 0;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            total += child->text_len;
-        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
-            total += subtree_text_len(child);
+    for (th_node *descendant = node->first_child; descendant != NULL; descendant = preorder_next(descendant, node)) {
+        if (descendant->type == TH_NODE_TEXT) {
+            total += descendant->text_len;
         }
     }
     return total;

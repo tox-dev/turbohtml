@@ -555,7 +555,8 @@ PyDoc_STRVAR(to_markdown_doc, "to_markdown(options=None)\n--\n\n"
                               ":param options: a Markdown configuration object, or None for the defaults. Its\n"
                               "    grouped knobs (headings, links, tables, ...) cover the markdownify and\n"
                               "    html2text configuration surface.\n"
-                              ":returns: the Markdown rendering of this node's subtree.");
+                              ":returns: the Markdown rendering of this node's subtree.\n"
+                              ":raises RecursionError: if the tree is nested 1,024 levels or deeper.");
 
 /* Resolve a string option against its allowed values, writing the matched index
    into *out (an enum), or leave *out untouched when the argument was omitted. */
@@ -871,7 +872,8 @@ PyDoc_STRVAR(to_text_doc, "to_text(options=None)\n--\n\n"
                           "separated by blank lines, lists indented under their bullets, and tables\n"
                           "laid out as a column-aligned grid. The inscriptis role, in C.\n\n"
                           ":param options: a PlainText configuration object, or None for the defaults.\n"
-                          ":returns: the plain-text rendering of this node's subtree.");
+                          ":returns: the plain-text rendering of this node's subtree.\n"
+                          ":raises RecursionError: if the tree is nested 1,024 levels or deeper.");
 
 /* Parse the PlainText keyword options out of spec into opt; spec is a borrowed dict
    of the config's non-default values, or NULL for every default. -1 with an exception
@@ -910,8 +912,8 @@ static PyObject *node_text_render(PyObject *self, PyObject *spec) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     data = th_node_layout_text(tree_of(self), ((NodeObject *)self)->node, &opt, &out_len);
     Py_END_CRITICAL_SECTION();
-    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (data == NULL) {
+        return PyErr_Occurred() ? NULL : PyErr_NoMemory(); /* GCOVR_EXCL_LINE: bare NULL is allocation failure */
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
@@ -987,7 +989,8 @@ PyDoc_STRVAR(to_annotated_text_doc, "to_annotated_text(annotation_rules, options
                                     ":param annotation_rules: maps a selector ('tag', 'tag#attr', 'tag#attr=value',\n"
                                     "    or '#attr') to the list of labels to attach to each matching element.\n"
                                     ":param options: a PlainText configuration object, or None for the defaults.\n"
-                                    ":returns: a (text, spans) pair, where spans is a list of (start, end, label).");
+                                    ":returns: a (text, spans) pair, where spans is a list of (start, end, label).\n"
+                                    ":raises RecursionError: if the tree is nested 1,024 levels or deeper.");
 
 static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyObject *spec) {
     if (!PyDict_Check(rules_dict)) {
@@ -1027,12 +1030,11 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
         data = th_node_annotated_text(tree_of(self), ((NodeObject *)self)->node, &opt, rules, rule_count, &spans,
                                       &span_count, &out_len);
         Py_END_CRITICAL_SECTION();
-        if (data == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        } /* GCOVR_EXCL_LINE: merge of the unreachable alloc-failure block */
-        /* data is NULL only on an alloc failure, so the NULL arms are unreachable */
-        PyObject *text = data != NULL ? ucs4_to_str(data, out_len) : NULL;   /* GCOVR_EXCL_BR_LINE */
-        PyObject *label_list = data != NULL ? PyList_New(span_count) : NULL; /* GCOVR_EXCL_BR_LINE */
+        if (data == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: bare NULL is allocation failure */
+            PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation-failure path */
+        } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+        PyObject *text = data != NULL ? ucs4_to_str(data, out_len) : NULL;
+        PyObject *label_list = data != NULL ? PyList_New(span_count) : NULL;
         if (text != NULL && label_list != NULL) { /* GCOVR_EXCL_BR_LINE: only an alloc failure makes either NULL */
             for (Py_ssize_t span_index = 0; span_index < span_count; span_index++) {
                 PyList_SET_ITEM(
@@ -1151,8 +1153,8 @@ static PyObject *node_main_text(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     if (empty) {
         return ucs4_to_str(NULL, 0);
     }
-    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (data == NULL) {
+        return PyErr_Occurred() ? NULL : PyErr_NoMemory(); /* GCOVR_EXCL_LINE: bare NULL is allocation failure */
     }
     PyObject *result = ucs4_to_str(data, out_len);
     PyMem_Free(data);
@@ -1248,12 +1250,16 @@ static PyObject *node_article(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     if (winner != NULL) {
         text_data = th_node_layout_text(tree, winner, &opt, &text_len);
     }
-    th_article_metadata(tree, th_tree_document(tree), &meta);
+    if (winner == NULL || text_data != NULL) {
+        th_article_metadata(tree, th_tree_document(tree), &meta);
+    }
     Py_END_CRITICAL_SECTION();
+    if (winner != NULL && text_data == NULL) {
+        th_article_meta_clear(&meta);
+        return PyErr_Occurred() ? NULL : PyErr_NoMemory(); /* GCOVR_EXCL_LINE: bare NULL is allocation failure */
+    }
 
     PyObject *element = winner != NULL ? turbohtml_node_wrap_in(self, winner) : Py_NewRef(Py_None);
-    /* th_node_layout_text leaves text_data NULL with text_len 0 only on an
-       (unforceable) allocation failure, which ucs4_to_str renders as empty text. */
     PyObject *text = winner != NULL ? ucs4_to_str(text_data, text_len) : ucs4_to_str(NULL, 0);
     PyMem_Free(text_data);
     PyObject *title = article_field(meta.title, meta.title_len);

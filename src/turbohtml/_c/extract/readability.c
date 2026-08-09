@@ -216,30 +216,62 @@ static int read_should_skip(th_tree *tree, th_node *node, int strip_landmarks) {
     return 0;
 }
 
+static th_node *read_preorder_next(th_node *node, th_node *root) {
+    if (node->type == TH_NODE_ELEMENT && node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
+/* Advance after visiting node, pruning the subtrees the readability scoring walk ignores. */
+static th_node *read_visible_next(th_tree *tree, th_node *node, th_node *root, int strip_landmarks) {
+    if (node->type == TH_NODE_ELEMENT && !read_should_skip(tree, node, strip_landmarks) && node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
 /* Accumulate the text statistics over node's subtree, excluding boilerplate
    subtrees; text inside an <a> also counts toward link_chars. `strip_landmarks`
    mirrors the walk so a retry that keeps landmarks also counts their text. */
 static void read_text_stats(th_tree *tree, th_node *node, int in_anchor, int strip_landmarks, read_stats *stats) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            stats->chars += child->text_len;
-            if (in_anchor) {
-                stats->link_chars += child->text_len;
+    th_node *current = node->first_child;
+    while (current != NULL) {
+        if (current->type == TH_NODE_TEXT) {
+            stats->chars += current->text_len;
+            if (in_anchor > 0) {
+                stats->link_chars += current->text_len;
             }
-            if (child->text_len > 0) {
-                const Py_UCS4 *text = need_text(tree, child);
-                for (Py_ssize_t index = 0; index < child->text_len; index++) {
+            if (current->text_len > 0) {
+                const Py_UCS4 *text = need_text(tree, current);
+                for (Py_ssize_t index = 0; index < current->text_len; index++) {
                     if (text[index] == ',') {
                         stats->commas++;
                     }
                 }
             }
-        } else if (child->type == TH_NODE_ELEMENT) {
-            if (child->ns != TH_NS_HTML || read_is_skip_tag(child->atom, strip_landmarks)) {
-                continue;
-            }
-            read_text_stats(tree, child, in_anchor || child->atom == TH_TAG_A, strip_landmarks, stats);
         }
+        if (current->type == TH_NODE_ELEMENT && current->ns == TH_NS_HTML &&
+            !read_is_skip_tag(current->atom, strip_landmarks) && current->first_child != NULL) {
+            if (current->atom == TH_TAG_A) {
+                in_anchor++;
+            }
+            current = current->first_child;
+            continue;
+        }
+        while (current != node && current->next_sibling == NULL) {
+            current = current->parent;
+            if (current != node && current->atom == TH_TAG_A) {
+                in_anchor--;
+            }
+        }
+        current = current == node ? NULL : current->next_sibling;
     }
 }
 
@@ -302,19 +334,21 @@ static void read_score_paragraph(read_scorer *scorer, th_node *paragraph, th_nod
     }
 }
 
-/* Walk node's element children, scoring paragraphs against their parent (node, when
-   it is an element) and grandparent (the nearest enclosing element above node). */
-static void read_walk(read_scorer *scorer, th_node *node, th_node *grandparent) {
-    int node_is_element = node->type == TH_NODE_ELEMENT;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, child, scorer->strip_landmarks)) {
+static void read_walk(read_scorer *scorer, th_node *root) {
+    for (th_node *node = root->first_child; node != NULL;
+         node = read_visible_next(scorer->tree, node, root, scorer->strip_landmarks)) {
+        if (node->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, node, scorer->strip_landmarks)) {
             continue;
         }
-        if (node_is_element &&
-            read_atom_in(child->atom, read_paragraph_tags, sizeof(read_paragraph_tags) / sizeof(uint16_t))) {
-            read_score_paragraph(scorer, child, node, grandparent);
+        th_node *parent = node->parent;
+        if (parent->type == TH_NODE_ELEMENT &&
+            read_atom_in(node->atom, read_paragraph_tags, sizeof(read_paragraph_tags) / sizeof(uint16_t))) {
+            th_node *grandparent = parent->parent;
+            while (grandparent != NULL && grandparent->type != TH_NODE_ELEMENT) {
+                grandparent = grandparent->parent;
+            }
+            read_score_paragraph(scorer, node, parent, grandparent);
         }
-        read_walk(scorer, child, node_is_element ? node : grandparent);
     }
 }
 
@@ -343,23 +377,22 @@ typedef struct {
     double effective;
 } read_pick;
 
-static void read_scan_containers(read_scorer *scorer, th_node *node, uint16_t wanted, read_pick *pick) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, child, 1)) {
+static void read_scan_containers(read_scorer *scorer, th_node *root, uint16_t wanted, read_pick *pick) {
+    for (th_node *node = root->first_child; node != NULL; node = read_visible_next(scorer->tree, node, root, 1)) {
+        if (node->type != TH_NODE_ELEMENT || read_should_skip(scorer->tree, node, 1)) {
             continue;
         }
-        if (child->atom == wanted) {
+        if (node->atom == wanted) {
             read_stats stats = {0, 0, 0};
-            read_text_stats(scorer->tree, child, 0, 1, &stats);
+            read_text_stats(scorer->tree, node, 0, 1, &stats);
             if (stats.chars >= READ_FALLBACK_MIN_CHARS) {
                 double effective = (double)stats.chars - (double)stats.link_chars;
                 if (effective > pick->effective) {
                     pick->effective = effective;
-                    pick->node = child;
+                    pick->node = node;
                 }
             }
         }
-        read_scan_containers(scorer, child, wanted, pick);
     }
 }
 
@@ -386,12 +419,12 @@ static th_node *read_semantic_fallback(read_scorer *scorer, th_node *root) {
    surface an explicit <article>/<main> body that carries no scoring paragraph. */
 th_node *th_node_main_content(th_tree *tree, th_node *root) {
     read_scorer scorer = {tree, NULL, 0, 0, 1};
-    read_walk(&scorer, root, NULL);
+    read_walk(&scorer, root);
     th_node *best = read_best(&scorer);
     if (best == NULL) {
         scorer.count = 0;
         scorer.strip_landmarks = 0;
-        read_walk(&scorer, root, NULL);
+        read_walk(&scorer, root);
         best = read_best(&scorer);
     }
     if (best == NULL) {
@@ -452,16 +485,12 @@ typedef int (*read_match_fn)(th_tree *tree, th_node *node, const void *ctx);
 /* The first HTML element under root (document order, depth first) the predicate
    accepts, or NULL when none matches. */
 static th_node *read_find(th_tree *tree, th_node *root, read_match_fn match, const void *ctx) {
-    for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+    for (th_node *node = root->first_child; node != NULL; node = read_preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (match(tree, child, ctx)) {
-            return child;
-        }
-        th_node *found = read_find(tree, child, match, ctx);
-        if (found != NULL) {
-            return found;
+        if (match(tree, node, ctx)) {
+            return node;
         }
     }
     return NULL;
@@ -756,22 +785,19 @@ static int read_social_visit_meta(th_tree *tree, th_node *meta, read_social *out
    here keeps it independent of body size. Returns -1 only on the excluded
    allocation-failure path. */
 static int read_walk_social(th_tree *tree, th_node *root, read_social *out) {
-    for (th_node *child = root->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+    for (th_node *node = root->first_child; node != NULL; node = read_preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (child->atom == TH_TAG_META) {
-            if (read_social_visit_meta(tree, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                return -1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (node->atom == TH_TAG_META) {
+            if (read_social_visit_meta(tree, node, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                return -1;                                     /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-        } else if (child->atom == TH_TAG_LINK && out->canonical == NULL) {
-            Py_ssize_t rel = th_node_attr_find(tree, child, "rel", 3);
-            if (rel >= 0 && read_rel_has_token(child->attrs[rel].value, child->attrs[rel].value_len, "canonical")) {
-                out->canonical = read_attr_value(tree, child, "href", 4, &out->canonical_len);
+        } else if (node->atom == TH_TAG_LINK && out->canonical == NULL) {
+            Py_ssize_t rel = th_node_attr_find(tree, node, "rel", 3);
+            if (rel >= 0 && read_rel_has_token(node->attrs[rel].value, node->attrs[rel].value_len, "canonical")) {
+                out->canonical = read_attr_value(tree, node, "href", 4, &out->canonical_len);
             }
-        }
-        if (read_walk_social(tree, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            return -1;                                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     return 0;

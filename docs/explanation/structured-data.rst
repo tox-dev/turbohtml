@@ -11,6 +11,9 @@ record with a stable six-field shape -- ``json_ld``, ``microdata``, ``opengraph`
 ``microformats`` reserved for a later phase -- so code that reads it does not break when that format lands. The records
 hold no reference back into the tree, so they outlive the document they came from.
 
+Nested Microdata and RDFa resources become nested Python records. At 400 levels, the preflight raises
+:exc:`RecursionError` before record construction. The flat metadata helpers remain iterative.
+
 *********************
  Where the work runs
 *********************

@@ -44,6 +44,8 @@ Doing that in the extension -- over the code-point buffers the parser already pr
 matcher for the ``pattern`` facet -- keeps a schema check close to the cost of the parse it follows, rather than a
 second pass in Python. The recursion guards that protect the RELAX NG derivative from schemas whose refs recurse without
 an element in between live there too, so an adversarial schema fails cleanly instead of overflowing the stack.
+Compilation and validation start with an iterative tree-depth scan. A schema or instance nested 400 levels or deeper
+raises :class:`RecursionError` before a recursive grammar walk starts, including on small worker-thread stacks.
 
 ***********************
  What a result carries

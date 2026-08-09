@@ -33,7 +33,8 @@ second dependency and the whole walk in C:
     > Rest 1 hour.
 
 Call it on any node to export just that subtree (``article.to_markdown()``). The output is opinionated GFM: ATX
-headings, ``-`` bullets, fenced code blocks, inline links, and ``*``/``**`` emphasis.
+headings, ``-`` bullets, fenced code blocks, inline links, and ``*``/``**`` emphasis. A tree nested 1,024 levels or
+deeper raises :exc:`RecursionError` before conversion starts instead of returning partial Markdown.
 
 A :class:`~turbohtml.Markdown` configuration object covers the markdownify and html2text surface, so a migration
 reproduces the old output: setext headings, underscore emphasis, reference links, padded tables, alternate escaping, and

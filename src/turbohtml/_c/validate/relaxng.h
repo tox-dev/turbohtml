@@ -852,7 +852,6 @@ static pattern *rng_end_tag_deriv(th_schema *schema, pattern *p) {
 }
 
 static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element);
-static pattern *rng_child_element_inner(valctx *ctx, pattern *p, th_node *element);
 
 /* Derive over an element's child list, ignoring whitespace-only text between elements
    and allowing insignificant whitespace when the content is a single text run. */
@@ -892,20 +891,7 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
 }
 
 /* Derive the pattern over one child element, localizing any failure to it. */
-/* Bound the per-element recursion so a pathologically deep document cannot overflow the
-   thread stack; report once and stop descending past the cap. */
 static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
-    if (ctx->depth >= TH_VALIDATE_MAX_DEPTH) {
-        report(ctx, element, "structure", "maximum element nesting depth exceeded");
-        return ctx->schema->p_notallowed;
-    }
-    ctx->depth++;
-    pattern *result = rng_child_element_inner(ctx, p, element);
-    ctx->depth--;
-    return result;
-}
-
-static pattern *rng_child_element_inner(valctx *ctx, pattern *p, th_node *element) {
     th_schema *schema = ctx->schema;
     th_tree *tree = ctx->tree;
     qname name = node_qname(tree, element, element->text, element->text_len, 0);

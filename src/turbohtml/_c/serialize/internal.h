@@ -27,6 +27,12 @@
 #define MAX_SORTED_ATTRS 64
 #define MAX_ATTR_NAME 128
 
+/* The Markdown and layout-text renderers have paired entry/exit state spread across their recursive dispatch. Reject a
+   tree that cannot enter that renderer safely before converters run or an output buffer is allocated. */
+static inline int ser_check_recursive_depth(th_node *root, const char *operation) {
+    return th_node_check_max_depth(root, TH_MAX_RECURSIVE_RENDER_DEPTH, operation);
+}
+
 /* The escape policy serialize()/encode() expose through the Formatter enum. */
 enum th_formatter {
     TH_FMT_WHATWG,  /* conformant minimal escaping: & < > nbsp in text, & " nbsp in attrs */

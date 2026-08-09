@@ -28,7 +28,7 @@ typedef struct {
 static void nodevec_push(nodevec *vec, th_node *node) {
     if (vec->failed) { /* GCOVR_EXCL_BR_LINE: only set on an unforceable allocation failure */
         return;        /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+    } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
     if (vec->len == vec->cap) {
         size_t cap, bytes;
         /* the requested length cannot overflow size_t, so the grow guard never trips */
@@ -133,37 +133,61 @@ static void collect_slotables(th_tree *tree, th_node *slot, nodevec *vec) {
     }
 }
 
-/* Collect the flattened slotables of slot: its assigned slotables, or -- when it has
-   none -- its own slotable children as fallback, with any nested shadow slot expanded
-   recursively. (DOM: find flattened slotables.) */
-static void collect_flattened(th_tree *tree, th_node *slot, nodevec *vec) {
+/* Collect the assigned slotables or fallback children that one slot contributes. */
+static void collect_flattened_candidates(th_tree *tree, th_node *slot, nodevec *assigned) {
     th_node *root = node_root(slot);
     if (!th_node_is_shadow_root(root)) {
         return;
     }
-    nodevec assigned = {0};
-    collect_slotables(tree, slot, &assigned);
-    if (assigned.failed) {          /* GCOVR_EXCL_BR_LINE: only set on an unforceable allocation failure */
-        vec->failed = 1;            /* GCOVR_EXCL_LINE: allocation-failure path */
-        PyMem_Free(assigned.items); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;                     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (assigned.len == 0) {
+    collect_slotables(tree, slot, assigned);
+    if (assigned->failed) { /* GCOVR_EXCL_BR_LINE: nodevec fails only on allocation failure */
+        return;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+    if (assigned->len == 0) {
         for (th_node *child = slot->first_child; child != NULL; child = child->next_sibling) {
             if (is_slottable(child)) {
-                nodevec_push(&assigned, child);
+                nodevec_push(assigned, child);
             }
         }
     }
-    for (Py_ssize_t index = 0; index < assigned.len; index++) {
-        th_node *node = assigned.items[index];
+}
+
+/* Collect flattened slotables depth first. pending is an explicit checked stack, so nested fallback slots do not
+   consume the C stack. (DOM: find flattened slotables.) */
+static void collect_flattened(th_tree *tree, th_node *slot, nodevec *vec) {
+    nodevec pending = {0};
+    nodevec assigned = {0};
+    collect_flattened_candidates(tree, slot, &assigned);
+    for (Py_ssize_t index = assigned.len; index > 0; index--) {
+        nodevec_push(&pending, assigned.items[index - 1]);
+    }
+    if (assigned.failed) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        pending.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+    PyMem_Free(assigned.items);
+    while (pending.len > 0) {
+        if (pending.failed || vec->failed) { /* GCOVR_EXCL_BR_LINE: nodevec fails only on allocation failure */
+            break;                           /* GCOVR_EXCL_LINE: allocation-failure path */
+        } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+        th_node *node = pending.items[--pending.len];
         if (is_slot(node) && th_node_is_shadow_root(node_root(node))) {
-            collect_flattened(tree, node, vec);
+            assigned = (nodevec){0};
+            collect_flattened_candidates(tree, node, &assigned);
+            for (Py_ssize_t index = assigned.len; index > 0; index--) {
+                nodevec_push(&pending, assigned.items[index - 1]);
+            }
+            if (assigned.failed) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                pending.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+            PyMem_Free(assigned.items);
         } else {
             nodevec_push(vec, node);
         }
     }
-    PyMem_Free(assigned.items);
+    if (pending.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        vec->failed = 1;  /* GCOVR_EXCL_LINE: allocation-failure path */
+    } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
+    PyMem_Free(pending.items);
 }
 
 /* Collect node's flattened-tree children: a shadow host descends into its shadow tree,

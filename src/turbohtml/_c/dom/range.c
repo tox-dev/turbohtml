@@ -19,6 +19,8 @@ typedef struct {
     Py_ssize_t end_offset;
 } RangeObject;
 
+#define RANGE_MAX_RECURSIVE_DEPTH ((Py_ssize_t)400)
+
 /* Character data whose offset indexes code points and which the content operations split in place. */
 static int is_char_data(const th_node *node) {
     switch (node->type) {
@@ -187,6 +189,29 @@ static th_node *common_ancestor(th_node *start_node, th_node *end_node) {
         container = container->parent;
     }
     return container;
+}
+
+/* clone/extract follow the two partially contained boundary paths recursively. Reject an unsafe path before allocating
+   a fragment or mutating the source; contained subtrees use the iterative DOM copy primitive. */
+static int range_check_recursive_depth(RangeObject *range, const char *operation) {
+    if (range->start_node == range->end_node) {
+        return 0;
+    }
+    th_node *common = common_ancestor(range->start_node, range->end_node);
+    Py_ssize_t start_depth = 0;
+    for (th_node *node = range->start_node; node != common; node = node->parent) {
+        start_depth++;
+    }
+    Py_ssize_t end_depth = 0;
+    for (th_node *node = range->end_node; node != common; node = node->parent) {
+        end_depth++;
+    }
+    if (start_depth < RANGE_MAX_RECURSIVE_DEPTH && end_depth < RANGE_MAX_RECURSIVE_DEPTH) {
+        return 0;
+    }
+    PyErr_Format(PyExc_RecursionError, "%s does not support boundary paths %zd levels or deeper", operation,
+                 RANGE_MAX_RECURSIVE_DEPTH);
+    return -1;
 }
 
 /* The first (walking forward) child of common the range partially contains. */
@@ -802,20 +827,23 @@ static PyObject *extract_or_delete(PyObject *self, int discard) {
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
-    handle_drop_index(range->start_handle);
-    th_node *new_node;
-    Py_ssize_t new_offset;
-    int collapsed = range_is_collapsed(range);
-    if (!collapsed) {
-        collapse_point(range->start_node, range->start_offset, range->end_node, &new_node, &new_offset);
-    }
-    th_node *fragment = do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
-    if (fragment != NULL) {
+    if (range_check_recursive_depth(range, discard ? "delete_contents()" : "extract_contents()") == 0) {
+        handle_drop_index(range->start_handle);
+        th_node *new_node;
+        Py_ssize_t new_offset;
+        int collapsed = range_is_collapsed(range);
         if (!collapsed) {
-            store_start(range, range->start_handle, new_node, new_offset);
-            store_end(range, range->start_handle, new_node, new_offset);
+            collapse_point(range->start_node, range->start_offset, range->end_node, &new_node, &new_offset);
         }
-        result = discard ? Py_NewRef(Py_None) : node_wrap(state, range->start_handle, fragment);
+        th_node *fragment =
+            do_extract(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        if (fragment != NULL) {
+            if (!collapsed) {
+                store_start(range, range->start_handle, new_node, new_offset);
+                store_end(range, range->start_handle, new_node, new_offset);
+            }
+            result = discard ? Py_NewRef(Py_None) : node_wrap(state, range->start_handle, fragment);
+        }
     }
     Py_END_CRITICAL_SECTION();
     return result;
@@ -835,9 +863,11 @@ static PyObject *range_clone_contents(PyObject *self, PyObject *Py_UNUSED(ignore
     module_state *state = state_of(self);
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(range->start_handle);
-    th_node *fragment = do_clone(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
-    if (fragment != NULL) {
-        result = node_wrap(state, range->start_handle, fragment);
+    if (range_check_recursive_depth(range, "clone_contents()") == 0) {
+        th_node *fragment = do_clone(tree, range->start_node, range->start_offset, range->end_node, range->end_offset);
+        if (fragment != NULL) {
+            result = node_wrap(state, range->start_handle, fragment);
+        }
     }
     Py_END_CRITICAL_SECTION();
     return result;
@@ -1120,9 +1150,17 @@ PyDoc_STRVAR(compare_point_doc,
 PyDoc_STRVAR(is_point_in_range_doc,
              "is_point_in_range(node, offset, /)\n--\n\nWhether (node, offset) is within the range.");
 PyDoc_STRVAR(intersects_node_doc, "intersects_node(node, /)\n--\n\nWhether node overlaps the range.");
-PyDoc_STRVAR(clone_contents_doc, "clone_contents()\n--\n\nCopy the range's content into a new fragment.");
-PyDoc_STRVAR(extract_contents_doc, "extract_contents()\n--\n\nMove the range's content into a new fragment.");
-PyDoc_STRVAR(delete_contents_doc, "delete_contents()\n--\n\nRemove the range's content from the tree.");
+PyDoc_STRVAR(clone_contents_doc, "clone_contents()\n--\n\n"
+                                 "Copy the range's content into a new fragment.\n\n"
+                                 ":raises RecursionError: if a partial boundary path is 400 levels or deeper.");
+PyDoc_STRVAR(extract_contents_doc,
+             "extract_contents()\n--\n\n"
+             "Move the range's content into a new fragment.\n\n"
+             ":raises RecursionError: if a partial boundary path is 400 levels or deeper; the tree is unchanged.");
+PyDoc_STRVAR(delete_contents_doc,
+             "delete_contents()\n--\n\n"
+             "Remove the range's content from the tree.\n\n"
+             ":raises RecursionError: if a partial boundary path is 400 levels or deeper; the tree is unchanged.");
 PyDoc_STRVAR(insert_node_doc, "insert_node(node, /)\n--\n\nInsert node at the start of the range.");
 PyDoc_STRVAR(surround_contents_doc, "surround_contents(new_parent, /)\n--\n\nWrap the range's content in new_parent.");
 PyDoc_STRVAR(clone_range_doc, "clone_range()\n--\n\nReturn a new Range with the same boundary points.");

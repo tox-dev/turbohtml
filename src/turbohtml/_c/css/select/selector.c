@@ -2151,6 +2151,36 @@ static int sel_rel_uses_scope(const sel_complex *rel) {
    populated deeper node, bounding its work at O(depth) total. */
 #define SEL_HAS_MEMO_MIN_DESCENT 24
 
+static th_node *sel_first_element_child(th_node *node) {
+    th_node *child = node->first_child;
+    while (child != NULL && child->type != TH_NODE_ELEMENT) {
+        child = child->next_sibling;
+    }
+    return child;
+}
+
+static th_node *sel_next_element_sibling(th_node *node) {
+    th_node *sibling = node->next_sibling;
+    while (sibling != NULL && sibling->type != TH_NODE_ELEMENT) {
+        sibling = sibling->next_sibling;
+    }
+    return sibling;
+}
+
+static void sel_has_mark_ancestors(th_node *node, th_node *root, int descent, const sel_complex *rel,
+                                   const sel_ctx *ctx) {
+    th_node *ancestor = node->parent;
+    for (int depth = descent - 1;; depth--) {
+        if (depth >= SEL_HAS_MEMO_MIN_DESCENT) {
+            sel_has_memo_put(ctx->has_memo, rel, ancestor, 1);
+        }
+        if (ancestor == root) {
+            return;
+        }
+        ancestor = ancestor->parent;
+    }
+}
+
 /* Whether node's subtree (its strict descendants) holds an element matching comp, the
    lone compound of a descendant :has() argument such as :has(a). The result is a pure
    function of the subtree, so it is memoized per (rel, node): each node's children are
@@ -2161,38 +2191,72 @@ static int sel_rel_uses_scope(const sel_complex *rel) {
    is no memo, the memo can no longer grow, or the descent is still shallow). */
 static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compound *comp, const sel_ctx *ctx,
                         int descent) {
-    int deep = descent >= SEL_HAS_MEMO_MIN_DESCENT;
-    int cached;
-    if (deep && sel_has_memo_get(ctx->has_memo, rel, node, &cached)) {
-        return cached;
-    }
-    int result = 0;
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+    th_node *current = node;
+    int current_descent = descent;
+    for (;;) {
+        th_node *child = sel_first_element_child(current);
+        if (child != NULL) {
+            current = child;
+            current_descent++;
+        entered:
+            if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
+                int cached;
+                if (sel_has_memo_get(ctx->has_memo, rel, current, &cached)) {
+                    if (cached) {
+                        sel_has_mark_ancestors(current, node, current_descent, rel, ctx);
+                        return 1;
+                    }
+                    goto complete;
+                }
+            }
+            if (sel_match_compound(current, comp, ctx)) {
+                sel_has_mark_ancestors(current, node, current_descent, rel, ctx);
+                return 1;
+            }
             continue;
         }
-        if (sel_match_compound(child, comp, ctx) || sel_has_desc(child, rel, comp, ctx, descent + 1)) {
-            result = 1;
-            break;
+    complete:
+        if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
+            sel_has_memo_put(ctx->has_memo, rel, current, 0);
         }
+        while (current != node) {
+            th_node *sibling = sel_next_element_sibling(current);
+            if (sibling != NULL) {
+                current = sibling;
+                goto entered;
+            }
+            current = current->parent;
+            current_descent--;
+            if (current != node && current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
+                sel_has_memo_put(ctx->has_memo, rel, current, 0);
+            }
+        }
+        return 0;
     }
-    if (deep) {
-        sel_has_memo_put(ctx->has_memo, rel, node, result);
-    }
-    return result;
 }
 
-/* Whether any element in the subtree below node is the subject of rel anchored at
-   anchor (the element :has() is testing), checked recursively in document order. */
 static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
+    th_node *current = sel_first_element_child(node);
+    while (current != NULL) {
+        if (sel_match_compound(current, &rel->compounds[subject], ctx) &&
+            sel_match_from(current, rel, subject, anchor, ctx)) {
+            return 1;
+        }
+        th_node *child = sel_first_element_child(current);
+        if (child != NULL) {
+            current = child;
             continue;
         }
-        if ((sel_match_compound(child, &rel->compounds[subject], ctx) &&
-             sel_match_from(child, rel, subject, anchor, ctx)) ||
-            sel_has_subtree(child, rel, subject, anchor, ctx)) {
-            return 1;
+        for (;;) {
+            th_node *sibling = sel_next_element_sibling(current);
+            if (sibling != NULL) {
+                current = sibling;
+                break;
+            }
+            current = current->parent;
+            if (current == node) {
+                return 0;
+            }
         }
     }
     return 0;
