@@ -124,9 +124,11 @@ def _book_html() -> str:
 # document parsed once and cached, which credited it with a parse no caller gets, and now parses the string it is
 # handed. Reusing the old id would have CodSpeed read the added parse as a regression against a figure that measured
 # less work, so the old identity retires and the new one gates from its own baseline.
+# ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
+# extraction; its old baseline measured six independent reads without the snapshot guarantee.
 _RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
     "socialcard": ("socialcard-spec", _spec),
-    "structured": ("structured-spec", _spec),
+    "structured": ("structured-snapshot-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
     "sanitize-templates": ("sanitize-templates-spec", _spec),
     "sanitize-named-props": ("sanitize-named-props-spec", _spec),
