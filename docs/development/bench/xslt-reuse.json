@@ -1,0 +1,23 @@
+{
+  "label": "apply one compiled 300-template stylesheet ten times",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "300 templates",
+      4.090719147944455e-05,
+      8.11288370606178e-05
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.03778684312381896,
+      0.01712236123070639
+    ]
+  ],
+  "notes": {}
+}

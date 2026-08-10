@@ -318,8 +318,20 @@ def xpath(case: tuple[str, str]) -> None:
 
 
 @functools.cache
-def _xslt_compiled(sheet: str, source: str):  # ruff:ignore[missing-return-type-private-function]  # lxml.etree is untyped, so the compiled types are inferred
-    """Compile the stylesheet and parse the source once, so the op times only the transformation."""
+def _xslt_sheet(sheet: str):  # ruff:ignore[missing-return-type-private-function]  # lxml.etree is untyped
+    """Keep XML parsing outside compile timing."""
+    return lxml_etree.fromstring(sheet.encode())
+
+
+def transform_compile(case: tuple[str, str]) -> None:
+    """Measure libxslt construction without source evaluation."""
+    sheet, _source = case
+    lxml_etree.XSLT(_xslt_sheet(sheet))
+
+
+@functools.cache
+def _xslt_compiled(sheet: str, source: str):  # ruff:ignore[missing-return-type-private-function]  # lxml has no types
+    """Keep construction and source parsing outside application timing."""
     transform = lxml_etree.XSLT(lxml_etree.fromstring(sheet.encode()))
     return transform, lxml_etree.fromstring(source.encode())
 
@@ -329,6 +341,14 @@ def transform(case: tuple[str, str]) -> None:
     sheet, source = case
     compiled, document = _xslt_compiled(sheet, source)
     compiled(document)
+
+
+def transform_reuse(case: tuple[str, str]) -> None:
+    """Match turbohtml's ten-application reuse workload."""
+    sheet, source = case
+    compiled, document = _xslt_compiled(sheet, source)
+    for _ in range(10):
+        compiled(document)
 
 
 class _Counter:
@@ -398,4 +418,6 @@ OPERATIONS = {
     "path-xpath": (getpath, "lxml getpath"),
     "xpath": (xpath, "lxml"),
     "transform": (transform, "lxml.etree"),
+    "transform-compile": (transform_compile, "lxml.etree"),
+    "transform-reuse": (transform_reuse, "lxml.etree"),
 }

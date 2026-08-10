@@ -58,6 +58,9 @@ every sheet into one private tree so their declarations share an atom table, the
 to high. Import precedence becomes the first key of the section 5.5 conflict resolution above. ``document()`` loads
 nothing, avoiding an arbitrary-URL fetch surface.
 
+``Transform.__init__`` creates an immutable stylesheet model with compiled XPath programs. Each call allocates
+source-specific indexes and output state. Calls on one ``Transform`` instance share no writable evaluation state.
+
 ****************
  Where it stops
 ****************

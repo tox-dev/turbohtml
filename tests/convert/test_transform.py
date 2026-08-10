@@ -625,9 +625,10 @@ def test_transform_too_many_union_alternatives_raises() -> None:
         _run("<r/>", body)
 
 
-def test_transform_too_many_sort_keys_raises() -> None:
+@pytest.mark.parametrize("instruction", ["for-each", "apply-templates"])
+def test_transform_too_many_sort_keys_raises(instruction: str) -> None:
     sorts = "".join('<xsl:sort select="."/>' for _ in range(9))
-    body = f'<xsl:template match="/"><xsl:for-each select="r/n">{sorts}x</xsl:for-each></xsl:template>'
+    body = f'<xsl:template match="/"><xsl:{instruction} select="r/n">{sorts}</xsl:{instruction}></xsl:template>'
     with pytest.raises(ValueError, match="too many sort keys"):
         _run("<r><n/></r>", body)
 
@@ -1334,11 +1335,6 @@ def test_transform_top_level_param_bad_expression_raises() -> None:
         _run("<r/>", body, p="@(")
 
 
-def test_transform_bad_arguments_raise_type_error() -> None:
-    with pytest.raises(TypeError):
-        _xslt_transform("not a node", turbohtml.parse_xml("<r/>"))  # ty: ignore[invalid-argument-type]  # wrong type on purpose
-
-
 def test_transform_large_match_and_key_sets_force_hash_collisions() -> None:
     items = "".join(f'<i k="v{index}">{index}</i>' for index in range(100))
     body = (
@@ -1427,19 +1423,20 @@ def test_transform_sort_numeric_two_non_numeric_values() -> None:
 def test_transform_second_with_param_bad_select_raises() -> None:
     body = (
         '<xsl:template match="/"><xsl:call-template name="t">'
-        '<xsl:with-param name="a" select="1"/><xsl:with-param name="b" select="@("/></xsl:call-template></xsl:template>'
+        '<xsl:with-param name="a" select="1"/><xsl:with-param name="b" select="$undef"/>'
+        "</xsl:call-template></xsl:template>"
         '<xsl:template name="t"/>'
     )
-    with pytest.raises(ValueError, match="xslt"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body)
 
 
 def test_transform_param_default_bad_expression_raises() -> None:
     body = (
         '<xsl:template match="/"><xsl:call-template name="t"/></xsl:template>'
-        '<xsl:template name="t"><xsl:param name="p" select="@("/><xsl:value-of select="$p"/></xsl:template>'
+        '<xsl:template name="t"><xsl:param name="p" select="$undef"/><xsl:value-of select="$p"/></xsl:template>'
     )
-    with pytest.raises(ValueError, match="xslt"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body)
 
 
@@ -1503,9 +1500,9 @@ def test_transform_missing_arguments_raise() -> None:
 
 
 def test_transform_non_node_source_raises() -> None:
-    sheet = _sheet('<xsl:template match="/">x</xsl:template>')
+    convert = Transform(_sheet('<xsl:template match="/">x</xsl:template>'))
     with pytest.raises(TypeError):
-        _xslt_transform(sheet, "not a node")  # ty: ignore[invalid-argument-type]  # wrong type on purpose
+        convert("not a node")  # ty: ignore[invalid-argument-type]  # wrong type on purpose
 
 
 def test_transform_unknown_xsl_element_instantiates_nothing() -> None:
@@ -1742,9 +1739,9 @@ def test_transform_element_named_like_a_function(tag: str, expected: str) -> Non
 def test_transform_matched_template_bad_param_default_raises() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates select="//n"/></xsl:template>'
-        '<xsl:template match="n"><xsl:param name="p" select="@("/><xsl:value-of select="$p"/></xsl:template>'
+        '<xsl:template match="n"><xsl:param name="p" select="$undef"/><xsl:value-of select="$p"/></xsl:template>'
     )
-    with pytest.raises(ValueError, match="xslt"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r><n/></r>", body)
 
 
@@ -2879,18 +2876,18 @@ def test_transform_attribute_set_two_names_with_trailing_space() -> None:
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
 
 
-_POISON = '<xsl:attribute-set name="bad"><xsl:attribute name="{">v</xsl:attribute></xsl:attribute-set>'
+_POISON = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
 
 
 def test_transform_attribute_set_error_propagates_through_literal() -> None:
     body = f'{_POISON}<xsl:template match="/"><out xsl:use-attribute-sets="bad"/></xsl:template>'
-    with pytest.raises(ValueError, match="attribute value template"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, method="xml")
 
 
 def test_transform_attribute_set_error_propagates_through_element() -> None:
     body = f'{_POISON}<xsl:template match="/"><xsl:element name="out" use-attribute-sets="bad"/></xsl:template>'
-    with pytest.raises(ValueError, match="attribute value template"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, method="xml")
 
 
@@ -2900,7 +2897,7 @@ def test_transform_attribute_set_error_propagates_through_copy() -> None:
         '<xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
         '<xsl:template match="r"><xsl:copy use-attribute-sets="bad"/></xsl:template>'
     )
-    with pytest.raises(ValueError, match="attribute value template"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, method="xml")
 
 
@@ -2910,7 +2907,7 @@ def test_transform_attribute_set_error_propagates_through_chain() -> None:
         '<xsl:attribute-set name="s" use-attribute-sets="bad"/>'
         '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
     )
-    with pytest.raises(ValueError, match="attribute value template"):
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, method="xml")
 
 
@@ -2923,8 +2920,11 @@ def test_transform_attribute_with_prefixed_name_and_namespace() -> None:
 
 
 def test_transform_attribute_namespace_bad_avt_errors() -> None:
-    body = '<xsl:template match="/"><out><xsl:attribute name="a" namespace="{">v</xsl:attribute></out></xsl:template>'
-    with pytest.raises(ValueError, match="attribute value template"):
+    body = (
+        '<xsl:template match="/"><out><xsl:attribute name="a" namespace="{$undef}">v</xsl:attribute>'
+        "</out></xsl:template>"
+    )
+    with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, method="xml")
 
 
@@ -3020,16 +3020,6 @@ def test_transform_import_with_malformed_declaration_errors(tmp_path: Path) -> N
         transform(sheet, turbohtml.parse_xml("<r/>"), base_url=str(main))
 
 
-def test_transform_import_rejects_non_node_item() -> None:
-    sheet = turbohtml.parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:template match="/">x</xsl:template></xsl:stylesheet>'
-    )
-    with pytest.raises((TypeError, ValueError)):
-        # exercises the C-side node-borrow guard on a non-node import item
-        _xslt_transform(sheet, turbohtml.parse_xml("<r/>"), None, [object()])  # ty: ignore[invalid-argument-type]
-
-
 def test_transform_attribute_namespace_generates_when_element_has_other_attrs() -> None:
     body = (
         '<xsl:template match="/"><out other="1">'
@@ -3040,10 +3030,11 @@ def test_transform_attribute_namespace_generates_when_element_has_other_attrs() 
 
 def test_transform_fallback_body_error_propagates() -> None:
     body = (
-        '<xsl:template match="/"><e:go><xsl:fallback><xsl:value-of select="]["/></xsl:fallback></e:go></xsl:template>'
+        '<xsl:template match="/"><e:go><xsl:fallback><xsl:value-of select="$undef"/></xsl:fallback></e:go>'
+        "</xsl:template>"
     )
     declare = 'xmlns:e="urn:ext" extension-element-prefixes="e"'
-    with pytest.raises(ValueError, match="value-of"):
+    with pytest.raises(ValueError, match="unbound"):
         transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>"))
 
 

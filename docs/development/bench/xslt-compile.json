@@ -1,0 +1,23 @@
+{
+  "label": "compile an XSLT stylesheet with 300 templates",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "300 templates",
+      0.00011624137778447619,
+      0.00046941245859386525
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.02533379995686786,
+      0.022116800346734394
+    ]
+  ],
+  "notes": {}
+}
