@@ -490,7 +490,7 @@ def test_style_double_quoted_css_string() -> None:
         pytest.param("cursor: url(https://example.com/'x)", False, id="single-quote-in-unquoted-url"),
         pytest.param("cursor: url(https://example.com/\x7fx)", False, id="delete-in-unquoted-url"),
         pytest.param("cursor: url(https://example.com/\x01x)", False, id="control-in-unquoted-url"),
-        pytest.param('cursor: url("https://example.com/\fpath")', False, id="form-feed-in-quoted-url"),
+        pytest.param("cursor: url('https://example.com/\fpath')", False, id="form-feed-in-quoted-url"),
     ],
 )
 def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
@@ -525,7 +525,7 @@ def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: boo
     ],
 )
 def test_style_value_decodes_css_escapes(style: str, *, kept: bool) -> None:
-    assert ("style=" in sanitize(f'<p style="{style}">x</p>', _style_policy())) is kept
+    assert ("style=" in sanitize(f"<p style='{style}'>x</p>", _style_policy())) is kept
 
 
 @pytest.mark.parametrize(
