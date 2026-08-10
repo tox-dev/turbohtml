@@ -27,7 +27,6 @@ class _Input(TypedDict):
 class _Case(_Input):
     document: str
     spec_errors: list[_Error] | None
-    spec_document: str
 
 
 class _Decision(_Input):
@@ -46,7 +45,6 @@ class _Corpus(TypedDict):
     files: list[str]
     fixture_counts: dict[str, int]
     applicable_fixture_counts: dict[str, int]
-    normative_adjustments: list[_Decision]
     error_adjustments: list[_Decision]
     exclusions: list[_Exclusion]
     cases: list[_Case]
@@ -76,7 +74,6 @@ def test_wpt_corpus_provenance_and_denominators() -> None:
         "files": len(_CORPUS["files"]),
         "source_cases": sum(_CORPUS["fixture_counts"].values()),
         "applicable_cases": sum(_CORPUS["applicable_fixture_counts"].values()),
-        "adjustments": len(_CORPUS["normative_adjustments"]),
         "error_adjustments": len(_CORPUS["error_adjustments"]),
         "exclusions": len(_CORPUS["exclusions"]),
     } == {
@@ -88,7 +85,6 @@ def test_wpt_corpus_provenance_and_denominators() -> None:
         "files": 61,
         "source_cases": 1_920,
         "applicable_cases": 1_916,
-        "adjustments": 8,
         "error_adjustments": 8,
         "exclusions": 4,
     }
@@ -96,24 +92,10 @@ def test_wpt_corpus_provenance_and_denominators() -> None:
 
 def test_wpt_corpus_records_normative_sources() -> None:
     assert {
-        "tree_specs": {item["spec"] for item in _CORPUS["normative_adjustments"]},
-        "tree_fixtures": {item["fixture"] for item in _CORPUS["normative_adjustments"]},
         "error_specs": {item["spec"] for item in _CORPUS["error_adjustments"]},
         "script_specs": {item["spec"] for item in _CORPUS["exclusions"]},
         "script_fixtures": {item["fixture"] for item in _CORPUS["exclusions"]},
     } == {
-        "tree_specs": {"https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inforeign"},
-        "tree_fixtures": {
-            (
-                "https://github.com/web-platform-tests/wpt/blob/"
-                "4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources/"
-                "foreign-fragment.dat#L565-L612"
-            ),
-            (
-                "https://github.com/web-platform-tests/wpt/blob/"
-                "4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources/tests26.dat#L395-L453"
-            ),
-        },
         "error_specs": {"https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"},
         "script_specs": {"https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"},
         "script_fixtures": {
@@ -145,12 +127,12 @@ def test_wpt_corpus_records_normative_sources() -> None:
     "case",
     tuple(pytest.param(case, id=f"{case['file']}:{index}") for index, case in enumerate(_APPLICABLE)),
 )
-def test_wpt_spec_correct_tree(case: _Case) -> None:
-    assert _tree(case) == case["spec_document"]
+def test_wpt_tree(case: _Case) -> None:
+    assert _tree(case) == case["document"]
 
 
-def test_wpt_raw_tree_count() -> None:
-    assert sum(_tree(case) == case["document"] for case in _APPLICABLE) == 1_908
+def test_wpt_tree_count() -> None:
+    assert sum(_tree(case) == case["document"] for case in _APPLICABLE) == 1_916
 
 
 @pytest.mark.parametrize(

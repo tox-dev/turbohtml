@@ -1,0 +1,2 @@
+Process ``</p>`` and ``</br>`` as foreign-content breakout tokens so the resulting HTML elements follow the foreign
+root, matching the HTML standard and WPT.

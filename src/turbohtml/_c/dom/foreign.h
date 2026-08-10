@@ -327,6 +327,17 @@ static int token_has_attr(const th_token *token, const char *name) {
     return 0;
 }
 
+static void pop_foreign_elements(th_tree *tree) {
+    while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the html root keeps the stack nonempty */
+        th_node *cur = current_node(tree);
+        if (cur->ns == TH_NS_HTML || is_mathml_text_integration(cur) || is_html_integration(cur) ||
+            cur == tree->fragment_root) {
+            return;
+        }
+        stack_pop(tree);
+    }
+}
+
 /* Whether the token is processed by foreign-content rules rather than the
    current HTML insertion mode (the tree-construction dispatcher). */
 static int use_foreign_rules(th_tree *tree, const th_token *token) {
@@ -391,15 +402,7 @@ static int foreign_step(th_tree *tree, th_token *token) {
                        (atom == TH_TAG_FONT && (token_has_attr(token, "color") || token_has_attr(token, "face") ||
                                                 token_has_attr(token, "size")));
         if (breakout) {
-            /* html is never foreign, so the breakout loop never empties the stack */
-            while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE */
-                th_node *cur = current_node(tree);
-                if (cur->ns == TH_NS_HTML || is_mathml_text_integration(cur) || is_html_integration(cur) ||
-                    cur == tree->fragment_root) {
-                    break; /* never pop the fragment's context root */
-                }
-                stack_pop(tree);
-            }
+            pop_foreign_elements(tree);
             return 0; /* reprocess under HTML rules */
         }
         uint8_t ns = current_node(tree)->ns;
@@ -410,11 +413,13 @@ static int foreign_step(th_tree *tree, th_token *token) {
         }
         return 1;
     }
-    /* "any other end tag", which includes </br> and </p>: walk up the stack, stop at
-       the first HTML element and run the HTML rules there (the token is reprocessed
-       with the foreign element still current, so a synthesized <br>/<p> lands inside
-       the foreign root rather than as a sibling), or match a foreign element by
-       (case-insensitive) name and pop to it; never pop the fragment context root */
+    if (token->atom == TH_TAG_BR || token->atom == TH_TAG_P) {
+        pop_foreign_elements(tree);
+        return 0;
+    }
+    /* "any other end tag": walk up the stack, stop at the first HTML element and
+       run the HTML rules there, or match a foreign element by case-insensitive name
+       and pop to it; never pop the fragment context root */
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML) {

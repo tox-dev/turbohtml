@@ -212,12 +212,10 @@ _LONG_NAME = "z" * 130
             "<br>",
             id="breakout-stops-at-html-integration",
         ),
-        # </br> in foreign content is not a breakout tag: like </p> it is "any other
-        # end tag", so the synthesized <br> lands inside the svg (issue #63)
         pytest.param(
             "<math><mtext><svg></br>q</svg></mtext></math>",
-            "<svg svg>\n|           <br>",
-            id="end-br-in-foreign-inserts-svg-child",
+            "<svg svg>\n|         <br>",
+            id="end-br-breaks-out-to-mathml-integration",
         ),
         pytest.param(
             "<math><annotation-xml encoding='application/xhtml+xml'><div>x</div></annotation-xml></math>",
@@ -251,20 +249,14 @@ _LONG_NAME = "z" * 130
         pytest.param("<math><mi><div>x</div></mi></math>", "<div>", id="mathml-mi-not-html-integration"),
         pytest.param("<svg><font face=x>y", "<font>", id="svg-font-face-breakout"),
         pytest.param("<svg><font size=x>y", "<font>", id="svg-font-size-breakout"),
-        # an unmatched </p> in foreign content inserts the implied <p> inside the
-        # foreign root, never as a sibling under <body> (issue #32)
-        pytest.param("<svg></p>", "<svg svg>\n|       <p>", id="end-p-in-svg-inserts-child"),
-        pytest.param("<math></p>", "<math math>\n|       <p>", id="end-p-in-math-inserts-child"),
-        # </br> is likewise "any other end tag": the synthesized <br> lands inside the
-        # foreign root rather than as a sibling under <body> (issue #63)
-        pytest.param("<svg></br>", "<svg svg>\n|       <br>", id="end-br-in-svg-inserts-child"),
-        pytest.param("<math></br>", "<math math>\n|       <br>", id="end-br-in-math-inserts-child"),
-        # </p> in foreign content is not a breakout tag: per the spec's "any other
-        # end tag" rule nothing is popped, so the implied <p> lands inside the svg
+        pytest.param("<svg></p>", "<svg svg>\n|     <p>", id="end-p-breaks-out-of-svg"),
+        pytest.param("<math></p>", "<math math>\n|     <p>", id="end-p-breaks-out-of-math"),
+        pytest.param("<svg></br>", "<svg svg>\n|     <br>", id="end-br-breaks-out-of-svg"),
+        pytest.param("<math></br>", "<math math>\n|     <br>", id="end-br-breaks-out-of-math"),
         pytest.param(
             "<math><mtext><svg></p>q</svg></mtext></math>",
-            "<svg svg>\n|           <p>",
-            id="end-p-in-foreign-inserts-svg-child",
+            "<svg svg>\n|         <p>",
+            id="end-p-breaks-out-to-mathml-integration",
         ),
         pytest.param(
             "<head><base><basefont><bgsound><link><meta><noframes>n</noframes></head>z", "z", id="head-elements"
@@ -393,9 +385,9 @@ _LONG_NAME = "z" * 130
             id="annotation-xml-te-prefix-no-h",
         ),
         pytest.param(
-            "<svg><foreignObject><svg></p>x", "<svg svg>\n|           <p>", id="end-p-in-foreign-not-breakout"
+            "<svg><foreignObject><svg></p>x", "<svg svg>\n|         <p>", id="end-p-breaks-out-to-html-integration"
         ),
-        pytest.param("<svg><desc><svg></br>y", "<svg svg>\n|           <br>", id="end-br-in-foreign-not-breakout"),
+        pytest.param("<svg><desc><svg></br>y", "<svg svg>\n|         <br>", id="end-br-breaks-out-to-html-integration"),
         pytest.param("<p " + _LONG_NAME + "=1 m=2>x", "z" * 40, id="attr-name-fills-sort-buffer"),
         pytest.param("<svg " + _LONG_NAME + "=1 m=2>y</svg>", "z" * 40, id="foreign-attr-name-fills-sort-buffer"),
         # a redundant <html> start tag before/in head keeps the head insertion

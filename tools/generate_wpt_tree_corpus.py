@@ -33,7 +33,6 @@ class _Case(TypedDict):
     scripting: bool | None
     errors: list[_Error] | None
     spec_errors: list[_Error] | None
-    spec_document: str
 
 
 class _Decision(TypedDict):
@@ -51,7 +50,6 @@ class _Exclusion(_Decision):
 
 
 _Key = tuple[str, str, str | None, bool | None]
-_FOREIGN_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inforeign"
 _PI_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"
 _SCRIPT_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"
 _WPT_BASE: Final[str] = (
@@ -62,41 +60,6 @@ _NEW_ERROR: Final[re.Pattern[str]] = re.compile(r"\((\d+):(\d+)(?:-(\d+):(\d+))?
 _SECTION: Final[re.Pattern[str]] = re.compile(
     r"(?m)^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
 )
-
-_FOREIGN_CONTENT_OVERRIDES: Final[dict[_Key, tuple[str, str]]] = {
-    ("tests26.dat", "<svg></p><foo>", None, None): (
-        "| <html>\n|   <head>\n|   <body>\n|     <svg svg>\n|       <p>\n|       <svg foo>",
-        f"{_WPT_BASE}/tests26.dat#L395-L453",
-    ),
-    ("tests26.dat", "<math></p><foo>", None, None): (
-        "| <html>\n|   <head>\n|   <body>\n|     <math math>\n|       <p>\n|       <math foo>",
-        f"{_WPT_BASE}/tests26.dat#L395-L453",
-    ),
-    ("foreign-fragment.dat", "<svg></p><foo>", "div", None): (
-        "| <svg svg>\n|   <p>\n|   <svg foo>",
-        f"{_WPT_BASE}/foreign-fragment.dat#L565-L612",
-    ),
-    ("foreign-fragment.dat", "</p><foo>", "svg svg", None): (
-        "| <svg foo>",
-        f"{_WPT_BASE}/foreign-fragment.dat#L565-L612",
-    ),
-    ("tests26.dat", "<svg></br><foo>", None, None): (
-        "| <html>\n|   <head>\n|   <body>\n|     <svg svg>\n|       <br>\n|       <svg foo>",
-        f"{_WPT_BASE}/tests26.dat#L395-L453",
-    ),
-    ("tests26.dat", "<math></br><foo>", None, None): (
-        "| <html>\n|   <head>\n|   <body>\n|     <math math>\n|       <br>\n|       <math foo>",
-        f"{_WPT_BASE}/tests26.dat#L395-L453",
-    ),
-    ("foreign-fragment.dat", "<svg></br><foo>", "div", None): (
-        "| <svg svg>\n|   <br>\n|   <svg foo>",
-        f"{_WPT_BASE}/foreign-fragment.dat#L565-L612",
-    ),
-    ("foreign-fragment.dat", "</br><foo>", "svg svg", None): (
-        "| <svg foo>",
-        f"{_WPT_BASE}/foreign-fragment.dat#L565-L612",
-    ),
-}
 
 _SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
     (
@@ -234,7 +197,7 @@ def generate(checkout: Path, out_path: Path) -> None:
         raise SystemExit(msg)
     cases = [case for path in files for case in _parse_file(path)]
     revision = _revision(checkout)
-    adjustments, exclusions, error_adjustments = _decisions()
+    exclusions, error_adjustments = _decisions()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(
@@ -252,7 +215,6 @@ def generate(checkout: Path, out_path: Path) -> None:
                     )
                     for path in files
                 },
-                "normative_adjustments": adjustments,
                 "error_adjustments": error_adjustments,
                 "exclusions": exclusions,
                 "cases": cases,
@@ -292,7 +254,6 @@ def _parse_file(path: Path) -> list[_Case]:
             "scripting": scripting,
             "errors": errors,
             "spec_errors": _ERROR_OVERRIDES.get(key, (errors, ""))[0],
-            "spec_document": _FOREIGN_CONTENT_OVERRIDES.get(key, (expected, ""))[0],
         })
     return cases
 
@@ -336,22 +297,7 @@ def _revision(checkout: Path) -> str:
     ).stdout.strip()
 
 
-def _decisions() -> tuple[list[_Decision], list[_Exclusion], list[_Decision]]:
-    adjustment_reason = (
-        "The foreign-content any-other-end-tag rule keeps the foreign root current before the token is reprocessed."
-    )
-    adjustments: list[_Decision] = [
-        {
-            "file": file,
-            "data": data,
-            "context": context,
-            "scripting": scripting,
-            "reason": adjustment_reason,
-            "spec": _FOREIGN_SPEC,
-            "fixture": fixture,
-        }
-        for (file, data, context, scripting), (_, fixture) in _FOREIGN_CONTENT_OVERRIDES.items()
-    ]
+def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
     exclusion_reason = "The expected tree requires JavaScript execution; turbohtml has no JavaScript runtime."
     exclusions: list[_Exclusion] = [
         {
@@ -379,7 +325,7 @@ def _decisions() -> tuple[list[_Decision], list[_Exclusion], list[_Decision]]:
         }
         for (file, data, context, scripting), (_, fixture) in _ERROR_OVERRIDES.items()
     ]
-    return adjustments, exclusions, error_adjustments
+    return exclusions, error_adjustments
 
 
 def _report(cases: list[_Case]) -> None:
@@ -389,8 +335,7 @@ def _report(cases: list[_Case]) -> None:
         if (case["file"], case["data"], case["context"], case["scripting"]) not in _SCRIPT_EXECUTION_EXCLUSIONS
     ]
     results = [(case, _build(case)) for case in applicable]
-    raw_failures = [(case, result) for case, result in results if result != case["document"]]
-    adjusted_failures = [(case, result) for case, result in results if result != case["spec_document"]]
+    failures = [(case, result) for case, result in results if result != case["document"]]
     error_cases = [
         (case, expected)
         for case in applicable
@@ -400,33 +345,27 @@ def _report(cases: list[_Case]) -> None:
         (case, actual) for case, expected in error_cases if not _errors_match(expected, actual := _errors(case))
     ]
     totals = Counter(case["file"] for case in applicable)
-    raw_failure_counts = Counter(case["file"] for case, _ in raw_failures)
-    adjusted_failure_counts = Counter(case["file"] for case, _ in adjusted_failures)
+    failure_counts = Counter(case["file"] for case, _ in failures)
     for filename, total in sorted(totals.items()):
-        print(
-            f"{filename}: raw {total - raw_failure_counts[filename]}/{total}, "
-            f"spec-adjusted {total - adjusted_failure_counts[filename]}/{total}"
-        )
+        print(f"{filename}: {total - failure_counts[filename]}/{total}")
     count = len(applicable)
-    print(f"raw: {count - len(raw_failures)}/{count} ({(count - len(raw_failures)) / count:.2%})")
-    print(f"spec-adjusted: {count - len(adjusted_failures)}/{count} ({(count - len(adjusted_failures)) / count:.2%})")
-    print(f"normative adjustments: {len(_FOREIGN_CONTENT_OVERRIDES)}")
+    print(f"trees: {count - len(failures)}/{count} ({(count - len(failures)) / count:.2%})")
     print(f"unsupported script-execution cases: {len(_SCRIPT_EXECUTION_EXCLUSIONS)}")
     checked_errors = len(error_cases)
     print(f"exact parse errors: {checked_errors - len(error_failures)}/{checked_errors}")
-    failures = [
+    messages = [
         *(
-            f"{case['file']}: tree for {case['data']!r}\nexpected:\n{case['spec_document']}\ngot:\n{result}"
-            for case, result in adjusted_failures
+            f"{case['file']}: tree for {case['data']!r}\nexpected:\n{case['document']}\ngot:\n{result}"
+            for case, result in failures
         ),
         *(
             f"{case['file']}: errors for {case['data']!r}\nexpected: {case['spec_errors']}\ngot: {actual}"
             for case, actual in error_failures
         ),
     ]
-    if failures:
-        print("\n\n".join(failures))
-        msg = f"{len(failures)} applicable WPT cases failed"
+    if messages:
+        print("\n\n".join(messages))
+        msg = f"{len(messages)} applicable WPT cases failed"
         raise SystemExit(msg)
 
 
