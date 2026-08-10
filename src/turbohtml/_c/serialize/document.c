@@ -492,18 +492,20 @@ int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *pu
     return 1;
 }
 
-static void collect_text(sbuf *out, th_tree *tree, th_node *node, int depth) {
-    if (depth >= TH_MAX_WALK_DEPTH) {
-        /* Backstop against a tree built past the parser's depth cap through the
-           mutation API: stop collecting rather than overflow the C stack. A parsed
-           tree never reaches this depth. */
-        return;
+static th_node *text_preorder_next(th_node *node, th_node *root) {
+    if (node->first_child != NULL) {
+        return node->first_child;
     }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
-        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
-            collect_text(out, tree, child, depth + 1);
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
+static void collect_text(sbuf *out, th_tree *tree, th_node *root) {
+    for (th_node *node = root->first_child; node != NULL; node = text_preorder_next(node, root)) {
+        if (node->type == TH_NODE_TEXT) {
+            sbuf_put_ucs4(out, need_text(tree, node), node->text_len);
         }
     }
 }
@@ -513,7 +515,7 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     if (node->type == TH_NODE_TEXT) {
         sbuf_put_ucs4(&out, need_text(tree, node), node->text_len);
     } else {
-        collect_text(&out, tree, node, 0);
+        collect_text(&out, tree, node);
     }
     return sbuf_finish(&out, out_len);
 }
@@ -522,20 +524,18 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
    zero-copy spans on the way; the caller sizes buf to the subtree's text length.
    The find(text=) C scan reuses one buffer across candidates so no per-node str is
    built; a Text or Content child of a content fragment is descended like an element. */
-static Py_ssize_t collect_text_into(th_tree *tree, th_node *node, Py_UCS4 *buf, Py_ssize_t pos) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            memcpy(buf + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
-            pos += child->text_len;
-        } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
-            pos = collect_text_into(tree, child, buf, pos);
+static void collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
+    Py_ssize_t pos = 0;
+    for (th_node *node = root->first_child; node != NULL; node = text_preorder_next(node, root)) {
+        if (node->type == TH_NODE_TEXT) {
+            memcpy(buf + pos, need_text(tree, node), (size_t)node->text_len * sizeof(Py_UCS4));
+            pos += node->text_len;
         }
     }
-    return pos;
 }
 
 void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
-    collect_text_into(tree, node, buf, 0);
+    collect_text_into(tree, node, buf);
 }
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:

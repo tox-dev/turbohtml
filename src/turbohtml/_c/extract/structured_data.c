@@ -3,14 +3,15 @@
 
    Scrapers reach for extruct or metadata_parser to pull JSON-LD, Microdata, and OpenGraph/Twitter metadata out of a
    page. The walk that locates each format runs here in C, under the per-tree critical section so a concurrent mutation
-   cannot relink the tree mid-walk. The gathered values hold no reference back into the tree; the C pass assembles the
-   plain dict/list/str pieces, then hands Microdata items to the MicrodataItem record class and the combined view to the
-   StructuredData record class that the thin Python facade defines and registers on import (turbohtml._structured_data),
-   so the typed result classes live in Python while all extraction stays in C. JSON-LD is the exception that proves the
-   rule: the <script type="application/ld+json"> texts are gathered into a list of str in a pure-C pass, the critical
-   section is released, and the stdlib json parsing runs in the same facade so the JSON grammar is not reinvented here.
+   cannot relink the tree mid-walk. The combined method copies the document under that lock before running its format
+   passes, which gives every section one document version. The gathered values hold no reference back into the tree; C
+   assembles the plain dict/list/str pieces, then hands Microdata items to the MicrodataItem record class. The combined
+   view goes to the StructuredData record class that the thin Python facade defines and registers on import
+   (turbohtml._structured_data), so the typed result classes live in Python while all extraction stays in C. JSON-LD
+   differs: a pure-C pass gathers the <script type="application/ld+json"> texts into a list of str, releases the
+   critical section, and calls the stdlib json parser through the facade instead of reimplementing the JSON grammar.
    RDFa (item-shaped, following the RDFa Core/Lite processing rules for @vocab/@prefix term expansion) and Dublin Core
-   (<meta name="dc.*">) join Microdata and OpenGraph in the same walk; microformats2 remains a documented later phase.
+   (<meta name="dc.*">) join Microdata and OpenGraph in the same result; microformats2 remains a documented later phase.
  */
 
 #include "core/ascii.h"
@@ -22,6 +23,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+#define STRUCTURED_DATA_MAX_ITEM_DEPTH ((Py_ssize_t)400)
 
 /* The HTML script type that flags a JSON-LD block, matched case-insensitively after trimming. */
 static const char JSON_LD_TYPE[] = "application/ld+json";
@@ -160,10 +163,17 @@ typedef struct {
 } micro_id_index;
 
 typedef struct {
+    th_node **items;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} node_stack;
+
+typedef struct {
     module_state *state;
     th_tree *tree;
     PyObject *base;
     micro_id_index ids;
+    node_stack active_items;
 } micro_ctx;
 
 static PyObject *build_item(micro_ctx *ctx, th_node *element);
@@ -271,14 +281,6 @@ error:                 /* GCOVR_EXCL_LINE: shared cleanup for the unreachable al
     Py_DECREF(tokens); /* GCOVR_EXCL_LINE */
     return -1;         /* GCOVR_EXCL_LINE */
 }
-
-/* A growable array of element pointers backing the property crawl's memory, pending, and results lists. A realloc
-   failure is the only failure and cannot be forced from a test. */
-typedef struct {
-    th_node **items;
-    Py_ssize_t len;
-    Py_ssize_t cap;
-} node_stack;
 
 /* Append `node`; -1 only on the excluded allocation-failure path. */
 static int node_stack_push(node_stack *stack, th_node *node) {
@@ -540,8 +542,8 @@ static int collect_properties(micro_ctx *ctx, th_node *element, PyObject *proper
         th_node *property = results.items[index];
         const th_node_attr *itemprop = find_node_attr(property, TH_ATTR_ITEMPROP);
         PyObject *value = microdata_value(ctx, property);
-        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            goto done;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (value == NULL) {
+            goto done;
         }
         int failed = add_property(properties, itemprop->value, itemprop->value_len, value) < 0;
         Py_DECREF(value);
@@ -555,44 +557,54 @@ done:
     return status;
 }
 
-/* Steal `value` into slot `index` of `tuple`, returning -1 only on the excluded allocation-failure path (a NULL value
-   the section builder could not allocate). */
+/* Steal `value` into slot `index` of `tuple`, returning -1 when its section builder failed. */
 static int tuple_set_or_fail(PyObject *tuple, Py_ssize_t index, PyObject *value) {
-    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: the section is built only from unforceable allocations */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (value == NULL) {
+        return -1;
     }
     PyTuple_SET_ITEM(tuple, index, value);
     return 0;
 }
 
-/* Build one MicrodataItem(type, id, properties): the verbatim itemtype / itemid attribute (or None when absent or
-   valueless) and a properties mapping of each itemprop name to its list of values, each value a str or a nested
-   MicrodataItem. NULL only on the excluded allocation-failure path. */
+/* Build one MicrodataItem(type, id, properties), bounding the item graph rather than the DOM depth because itemref can
+   connect shallow elements into a recursive graph. */
 static PyObject *build_item(micro_ctx *ctx, th_node *element) {
+    if (node_stack_contains(&ctx->active_items, element)) {
+        PyErr_SetString(PyExc_RecursionError, "microdata() found a cyclic nested item graph");
+        return NULL;
+    }
+    if (ctx->active_items.len >= STRUCTURED_DATA_MAX_ITEM_DEPTH) {
+        PyErr_Format(PyExc_RecursionError, "microdata() supports at most %zd nested items",
+                     STRUCTURED_DATA_MAX_ITEM_DEPTH);
+        return NULL;
+    }
+    if (node_stack_push(&ctx->active_items, element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return PyErr_NoMemory();                            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *item = NULL;
     PyObject *properties = PyDict_New();
     if (properties == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        goto done;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (collect_properties(ctx, element, properties) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(properties);                              /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                        /* GCOVR_EXCL_LINE */
+    if (collect_properties(ctx, element, properties) < 0) {
+        goto done;
     }
     PyObject *type_obj = attr_value_or_none(find_node_attr(element, TH_ATTR_ITEMTYPE));
-    if (type_obj == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(properties); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;           /* GCOVR_EXCL_LINE */
+    if (type_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        goto done;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t itemid = th_node_attr_find(ctx->tree, element, "itemid", 6);
     PyObject *id_obj = attr_value_or_none(itemid >= 0 ? &element->attrs[itemid] : NULL);
-    if (id_obj == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(type_obj);   /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_DECREF(properties); /* GCOVR_EXCL_LINE */
-        return NULL;           /* GCOVR_EXCL_LINE */
+    if (id_obj == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        Py_DECREF(type_obj); /* GCOVR_EXCL_LINE: allocation-failure path */
+        goto done;           /* GCOVR_EXCL_LINE */
     }
-    PyObject *item = PyObject_CallFunctionObjArgs(ctx->state->microdata_item_type, type_obj, id_obj, properties, NULL);
+    item = PyObject_CallFunctionObjArgs(ctx->state->microdata_item_type, type_obj, id_obj, properties, NULL);
     Py_DECREF(type_obj);
     Py_DECREF(id_obj);
-    Py_DECREF(properties);
+done:
+    ctx->active_items.len--;
+    Py_XDECREF(properties);
     return item;
 }
 
@@ -719,7 +731,7 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     }
     th_tree *tree = tree_of(self);
     th_node *root = ((NodeObject *)self)->node;
-    micro_ctx ctx = {state_of(self), tree, base, {NULL, 0, 0}};
+    micro_ctx ctx = {state_of(self), tree, base, {NULL, 0, 0}, {NULL, 0, 0}};
     int failed = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
@@ -728,9 +740,9 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
             continue;
         }
         PyObject *item = build_item(&ctx, node);
-        if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;          /* GCOVR_EXCL_LINE */
+        if (item == NULL) {
+            failed = 1;
+            break;
         }
         int append_failed = PyList_Append(items, item) < 0;
         Py_DECREF(item);
@@ -741,9 +753,10 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     }
     Py_END_CRITICAL_SECTION();
     PyMem_Free(ctx.ids.slots);
-    if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(items); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;      /* GCOVR_EXCL_LINE */
+    PyMem_Free(ctx.active_items.items);
+    if (failed) {
+        Py_DECREF(items);
+        return NULL;
     }
     return items;
 }
@@ -834,6 +847,7 @@ typedef struct {
     PyObject *vocab;
     PyObject *prefixes;
     PyObject *base;
+    Py_ssize_t item_depth;
 } rdfa_ctx;
 
 /* Expand an RDFa TERMorCURIEorAbsIRI token to its IRI: a bare term (no colon) joins the in-scope @vocab, a prefixed
@@ -985,13 +999,14 @@ static int resolve_child_ctx(th_tree *tree, th_node *child, rdfa_ctx parent, rdf
     PyObject *prefixes = NULL;
     if (resolve_child_prefixes(tree, child, parent.prefixes, &prefixes, prefixes_owned) < 0) { /* GCOVR_EXCL_BR_LINE:
                                                                                         allocation-failure path */
-        rdfa_ctx partial = {vocab, NULL, NULL};       /* GCOVR_EXCL_LINE: allocation-failure path */
-        release_child_ctx(&partial, *vocab_owned, 0); /* GCOVR_EXCL_LINE */
-        return -1;                                    /* GCOVR_EXCL_LINE */
+        rdfa_ctx partial = {vocab, NULL, NULL, parent.item_depth}; /* GCOVR_EXCL_LINE: allocation-failure path */
+        release_child_ctx(&partial, *vocab_owned, 0);              /* GCOVR_EXCL_LINE */
+        return -1;                                                 /* GCOVR_EXCL_LINE */
     }
     child_ctx->vocab = vocab;
     child_ctx->prefixes = prefixes;
     child_ctx->base = parent.base;
+    child_ctx->item_depth = parent.item_depth;
     return 0;
 }
 
@@ -1102,17 +1117,21 @@ static PyObject *rdfa_value(th_tree *tree, module_state *state, th_node *element
     return str_from_accessor(th_node_text, tree, element);
 }
 
-/* Build one RdfaItem(vocab, type, resource, properties) for the typeof element rooted at `element`, its properties
-   collected from the subtree under the element's own evaluation context. NULL only on the excluded allocation-failure
-   path. */
+/* Build one RdfaItem(vocab, type, resource, properties), bounding recursive record construction while the DOM walk
+   itself stays iterative. */
 static PyObject *build_rdfa_item(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx) {
+    if (ctx.item_depth >= STRUCTURED_DATA_MAX_ITEM_DEPTH) {
+        PyErr_Format(PyExc_RecursionError, "rdfa() supports at most %zd nested items", STRUCTURED_DATA_MAX_ITEM_DEPTH);
+        return NULL;
+    }
+    ctx.item_depth++;
     PyObject *properties = PyDict_New();
     if (properties == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (collect_rdfa_properties(tree, state, element, ctx, properties) < 0) { /* GCOVR_EXCL_BR_LINE: alloc-failure */
-        Py_DECREF(properties);                                                /* GCOVR_EXCL_LINE: allocation-failure */
-        return NULL;                                                          /* GCOVR_EXCL_LINE */
+    if (collect_rdfa_properties(tree, state, element, ctx, properties) < 0) {
+        Py_DECREF(properties);
+        return NULL;
     }
     PyObject *type_list = expand_typeof(tree, element, ctx);
     if (type_list == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -1181,86 +1200,130 @@ done:
     return status;
 }
 
-/* Process one child of an item's subtree: record its @property value(s), then descend unless it is itself a @typeof
-   (whose own subtree belongs to the nested item, mirroring microdata's nested itemscope). -1 only on the excluded
-   allocation-failure path. */
-static int collect_rdfa_child(th_tree *tree, module_state *state, th_node *child, rdfa_ctx ctx, PyObject *properties) {
-    Py_ssize_t property = th_node_attr_find(tree, child, "property", 8);
-    if (property >= 0 && child->attrs[property].value != NULL) {
-        PyObject *value = rdfa_value(tree, state, child, ctx);
-        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+typedef struct {
+    th_node *next_child;
+    rdfa_ctx ctx;
+    int vocab_owned;
+    int prefixes_owned;
+} rdfa_frame;
+
+typedef struct {
+    rdfa_frame *items;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} rdfa_stack;
+
+static int rdfa_stack_push(rdfa_stack *stack, rdfa_frame frame) {
+    if (stack->len == stack->cap) {
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)(stack->len + 1), (size_t)stack->cap, 8, sizeof(rdfa_frame), &cap, &bytes);
+        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        rdfa_frame *items = PyMem_Realloc(stack->items, bytes);
+        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        int failed = rdfa_add_property(properties, child->attrs[property].value, child->attrs[property].value_len, ctx,
-                                       value) < 0;
-        Py_DECREF(value);
-        if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
+        stack->items = items;
+        stack->cap = (Py_ssize_t)cap;
     }
-    if (th_node_attr_find(tree, child, "typeof", 6) >= 0) {
-        return 0;
-    }
-    return collect_rdfa_properties(tree, state, child, ctx, properties);
+    stack->items[stack->len++] = frame;
+    return 0;
 }
 
-/* Crawl the descendants of the item rooted at `element`, gathering their @property values under `properties` and
-   threading each child's @vocab/@prefix context. -1 only on the excluded allocation-failure path. */
+static void rdfa_stack_clear(rdfa_stack *stack) {
+    while (stack->len > 0) {
+        rdfa_frame *frame = &stack->items[--stack->len];
+        release_child_ctx(&frame->ctx, frame->vocab_owned, frame->prefixes_owned);
+    }
+    PyMem_Free(stack->items);
+}
+
+enum rdfa_walk_mode { RDFA_WALK_PROPERTIES, RDFA_WALK_ITEMS };
+
+/* Walk DOM depth on a checked heap stack. Nested record construction remains recursive and carries its own
+   bound because its depth follows RDFa resources rather than element ancestry. */
+static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx, PyObject *output,
+                     enum rdfa_walk_mode mode) {
+    rdfa_stack stack = {NULL, 0, 0};
+    if (rdfa_stack_push(&stack, (rdfa_frame){element->first_child, ctx, 0, 0}) < 0) { /* GCOVR_EXCL_BR_LINE */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    int status = -1;
+    while (stack.len > 0) {
+        rdfa_frame *frame = &stack.items[stack.len - 1];
+        th_node *child = frame->next_child;
+        if (child == NULL) {
+            release_child_ctx(&frame->ctx, frame->vocab_owned, frame->prefixes_owned);
+            stack.len--;
+            continue;
+        }
+        frame->next_child = child->next_sibling;
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        rdfa_ctx child_ctx;
+        int vocab_owned;
+        int prefixes_owned;
+        int resolve_failed = resolve_child_ctx(tree, child, frame->ctx, &child_ctx, &vocab_owned, &prefixes_owned) < 0;
+        if (resolve_failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int descend = 1;
+        if (mode == RDFA_WALK_PROPERTIES) {
+            Py_ssize_t property = th_node_attr_find(tree, child, "property", 8);
+            if (property >= 0 && child->attrs[property].value != NULL) {
+                PyObject *value = rdfa_value(tree, state, child, child_ctx);
+                if (value == NULL) {
+                    release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+                    goto done;
+                }
+                int failed = rdfa_add_property(output, child->attrs[property].value, child->attrs[property].value_len,
+                                               child_ctx, value) < 0;
+                Py_DECREF(value);
+                if (failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE */
+                    goto done;                                                  /* GCOVR_EXCL_LINE */
+                }
+            }
+            descend = th_node_attr_find(tree, child, "typeof", 6) < 0;
+        } else if (th_node_attr_find(tree, child, "typeof", 6) >= 0) {
+            PyObject *item = build_rdfa_item(tree, state, child, child_ctx);
+            if (item == NULL) {
+                release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+                goto done;
+            }
+            int failed = PyList_Append(output, item) < 0;
+            Py_DECREF(item);
+            if (failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
+                release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE */
+                goto done;                                                  /* GCOVR_EXCL_LINE */
+            }
+            descend = 0;
+        }
+        if (!descend) {
+            release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+            continue;
+        }
+        int push_failed =
+            rdfa_stack_push(&stack, (rdfa_frame){child->first_child, child_ctx, vocab_owned, prefixes_owned}) < 0;
+        if (push_failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();                                           /* GCOVR_EXCL_LINE */
+            goto done;                                                  /* GCOVR_EXCL_LINE */
+        }
+    }
+    status = 0;
+done:
+    rdfa_stack_clear(&stack);
+    return status;
+}
+
 static int collect_rdfa_properties(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx,
                                    PyObject *properties) {
-    for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        rdfa_ctx child_ctx;
-        int vocab_owned;
-        int prefixes_owned;
-        if (resolve_child_ctx(tree, child, ctx, &child_ctx, &vocab_owned, &prefixes_owned) < 0) { /* GCOVR_EXCL_BR_LINE:
-                                                                                        allocation-failure path */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        int status = collect_rdfa_child(tree, state, child, child_ctx, properties);
-        release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
-        if (status < 0) { /* GCOVR_EXCL_BR_LINE: a child fails only on unforceable allocation */
-            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
-    return 0;
-}
-
-/* Walk `element`'s subtree for the outermost @typeof elements, building one top-level RdfaItem each (its own subtree is
-   consumed by build_rdfa_item, so the walk does not descend into it) and threading @vocab/@prefix down. -1 only on the
-   excluded allocation-failure path. */
-static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx, PyObject *items) {
-    for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        rdfa_ctx child_ctx;
-        int vocab_owned;
-        int prefixes_owned;
-        if (resolve_child_ctx(tree, child, ctx, &child_ctx, &vocab_owned, &prefixes_owned) < 0) { /* GCOVR_EXCL_BR_LINE:
-                                                                                        allocation-failure path */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        int status;
-        if (th_node_attr_find(tree, child, "typeof", 6) >= 0) {
-            PyObject *item = build_rdfa_item(tree, state, child, child_ctx);
-            if (item == NULL) { /* GCOVR_EXCL_BR_LINE: build fails only on unforceable allocation */
-                release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE: alloc-failure path */
-                return -1;                                                  /* GCOVR_EXCL_LINE */
-            }
-            status = PyList_Append(items, item);
-            Py_DECREF(item);
-        } else {
-            status = walk_rdfa(tree, state, child, child_ctx, items);
-        }
-        release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
-        if (status < 0) { /* GCOVR_EXCL_BR_LINE: append/recursion fails only on unforceable allocation */
-            return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-    }
-    return 0;
+    return walk_rdfa(tree, state, element, ctx, properties, RDFA_WALK_PROPERTIES);
 }
 
 /* Build one RdfaItem for every top-level RDFa resource, absolutizing IRIs against `base` when the caller passed one.
@@ -1277,19 +1340,20 @@ static PyObject *gather_rdfa(PyObject *self, PyObject *base) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     /* A document that never interns a typeof attribute carries no RDFa resource, so skip the walk and the prefix map it
        would need -- this is the whole cost of the RDFa pass on the pages (most of them) that use no RDFa. */
-    if (th_attr_lookup(tree, "typeof", 6) != UINT32_MAX) {
+    int has_rdfa = th_attr_lookup(tree, "typeof", 6) != UINT32_MAX;
+    if (has_rdfa) {
         PyObject *prefixes = build_default_prefixes();
         failed = prefixes == NULL; /* the build fails only on unforceable allocation */
         if (prefixes != NULL) {    /* GCOVR_EXCL_BR_LINE: the build fails only on unforceable allocation */
-            rdfa_ctx ctx = {NULL, prefixes, base};
-            failed = walk_rdfa(tree, state, root, ctx, items) < 0;
+            rdfa_ctx ctx = {NULL, prefixes, base, 0};
+            failed = walk_rdfa(tree, state, root, ctx, items, RDFA_WALK_ITEMS) < 0;
             Py_DECREF(prefixes);
         }
     }
     Py_END_CRITICAL_SECTION();
-    if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(items); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;      /* GCOVR_EXCL_LINE */
+    if (failed) {
+        Py_DECREF(items);
+        return NULL;
     }
     return items;
 }
@@ -1443,6 +1507,19 @@ static int parse_base_url(PyObject *self, PyObject *args, PyObject *kwargs, cons
     return *base == NULL ? -1 : 0;
 }
 
+/* Copy the document under its tree lock so combined extraction reads one immutable version without keeping the live
+   tree locked across JSON parsing or record constructors. */
+static PyObject *snapshot_document(PyObject *self) {
+    th_tree *snapshot_tree;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    snapshot_tree = th_tree_copy_document(tree_of(self));
+    Py_END_CRITICAL_SECTION();
+    if (snapshot_tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return wrap_fresh_tree_node(state_of(self), snapshot_tree, th_tree_document(snapshot_tree));
+}
+
 /* Build the OpenGraph record Document.opengraph() returns from the og:/twitter: <meta> map the shared walk gathers:
    keep only the og: keys, strip that prefix (og:title -> "title"), drop the twitter: keys, and wrap the result in the
    registered OpenGraph mapping type. NULL only on the excluded allocation-failure path (or with an exception set on a
@@ -1535,26 +1612,43 @@ PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *Py_UNUSED(ign
    typed URLs). microformats is still a later phase, present as an empty list so the record's shape is stable. NULL only
    on the excluded allocation-failure path (or with an exception set on a bad base_url). */
 PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *snapshot = snapshot_document(self);
+    if (snapshot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     PyObject *base = NULL;
-    if (parse_base_url(self, args, kwargs, "|O:structured_data", &base) < 0) {
+    if (parse_base_url(snapshot, args, kwargs, "|O:structured_data", &base) < 0) {
+        Py_DECREF(snapshot);
         return NULL;
     }
     PyObject *sections = PyTuple_New(6);
-    if (sections == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_XDECREF(base);   /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;        /* GCOVR_EXCL_LINE */
-    }
-    int failed = 0;
-    failed |= tuple_set_or_fail(sections, 0, turbohtml_document_json_ld(self, NULL));
-    failed |= tuple_set_or_fail(sections, 1, gather_microdata(self, base));
-    failed |= tuple_set_or_fail(sections, 2, gather_opengraph(self, base));
-    failed |= tuple_set_or_fail(sections, 3, PyList_New(0));
-    failed |= tuple_set_or_fail(sections, 4, gather_rdfa(self, base));
-    failed |= tuple_set_or_fail(sections, 5, gather_dublin_core(self));
-    Py_XDECREF(base);
-    if (failed != 0) {       /* GCOVR_EXCL_BR_LINE: a section build fails only on unforceable allocation */
-        Py_DECREF(sections); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (sections == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(snapshot); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(base);    /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    int failed =
+        tuple_set_or_fail(sections, 0, turbohtml_document_json_ld(snapshot, NULL)) < 0; /* GCOVR_EXCL_BR_LINE */
+    if (!failed) { /* GCOVR_EXCL_BR_LINE: JSON parsing returns a list */
+        failed = tuple_set_or_fail(sections, 1, gather_microdata(snapshot, base)) < 0;
+    }
+    if (!failed) {
+        failed = tuple_set_or_fail(sections, 2, gather_opengraph(snapshot, base)) < 0; /* GCOVR_EXCL_BR_LINE */
+    }
+    if (!failed) { /* GCOVR_EXCL_BR_LINE: the previous dict build fails only on allocation */
+        failed = tuple_set_or_fail(sections, 3, PyList_New(0)) < 0; /* GCOVR_EXCL_BR_LINE */
+    }
+    if (!failed) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced from a test */
+        failed = tuple_set_or_fail(sections, 4, gather_rdfa(snapshot, base)) < 0;
+    }
+    if (!failed) {
+        failed = tuple_set_or_fail(sections, 5, gather_dublin_core(snapshot)) < 0; /* GCOVR_EXCL_BR_LINE */
+    }
+    Py_DECREF(snapshot);
+    Py_XDECREF(base);
+    if (failed) {
+        Py_DECREF(sections);
+        return NULL;
     }
     PyObject *result = PyObject_Call(state_of(self)->structured_data_type, sections, NULL);
     Py_DECREF(sections);

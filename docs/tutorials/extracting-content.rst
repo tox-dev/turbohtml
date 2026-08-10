@@ -67,8 +67,8 @@ shape a ``pandas.read_html`` user feeds to a ``DataFrame``, with no pandas depen
  Collect the embedded data
 ***************************
 
-:meth:`~turbohtml.Document.structured_data` walks the page once and returns every embedded format -- JSON-LD, Microdata,
-OpenGraph, RDFa -- as a :class:`~turbohtml.StructuredData` record, the ``extruct`` successor:
+:meth:`~turbohtml.Document.structured_data` reads one page snapshot and returns every embedded format -- JSON-LD,
+Microdata, OpenGraph, and RDFa -- as a :class:`~turbohtml.StructuredData` record, the ``extruct`` successor:
 
 .. testcode::
 

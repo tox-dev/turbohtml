@@ -10,7 +10,7 @@ Pull the machine-readable metadata a page embeds -- JSON-LD, Microdata, OpenGrap
 ****************************************
 
 Scrapers want the JSON-LD, Microdata, and OpenGraph/Twitter metadata a page embeds, the job of ``extruct`` or
-``metadata_parser``. :meth:`~turbohtml.Document.structured_data` pulls every supported format in one walk:
+``metadata_parser``. :meth:`~turbohtml.Document.structured_data` pulls every supported format from one page snapshot:
 
 .. testcode::
 

@@ -437,11 +437,14 @@ PyDoc_STRVAR(structured_data_doc,
              "extruct. Returns a StructuredData record with .json_ld (list of parsed JSON-LD\n"
              "values), .microdata (list of MicrodataItem), .opengraph (dict of og:/twitter: keys\n"
              "to their content), .rdfa (list of RdfaItem), .dublin_core (dict of dc.*/dcterms.*\n"
-             "names to their content), and .microformats (an empty list, a later phase).\n\n"
+             "names to their content), and .microformats (an empty list, a later phase). Every field\n"
+             "comes from one document snapshot.\n\n"
              ":param base_url: when given, the URL each relative URL-valued microdata, opengraph, or\n"
              "    RDFa field is resolved against (a <base href> refines it, HTML spec 4.2.3); json_ld\n"
              "    and Dublin Core are left verbatim. None (the default) returns every value verbatim.\n"
-             ":raises ValueError: if base_url is not a valid absolute URL.");
+             ":raises ValueError: if base_url is not a valid absolute URL.\n"
+             ":raises RecursionError: if Microdata or RDFa records nest more than 400 levels, or if\n"
+             "    Microdata itemref links form a nested-item cycle.");
 
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "Parse every <script type=\"application/ld+json\"> block in the document with the\n"
@@ -467,7 +470,9 @@ PyDoc_STRVAR(microdata_doc,
              ":param base_url: when given, the URL each relative URL-valued property (an a/area/link\n"
              "    href, a media src, an object data) is resolved against; a <base href> refines it.\n"
              "    None (the default) returns every value verbatim.\n"
-             ":raises ValueError: if base_url is not a valid absolute URL.");
+             ":raises ValueError: if base_url is not a valid absolute URL.\n"
+             ":raises RecursionError: if records nest more than 400 levels, or if itemref links form\n"
+             "    a nested-item cycle.");
 
 PyDoc_STRVAR(rdfa_doc, "rdfa(base_url=None)\n--\n\n"
                        "Extract RDFa as a list of RdfaItem, one per top-level typeof resource. Each item has\n"
@@ -477,7 +482,8 @@ PyDoc_STRVAR(rdfa_doc, "rdfa(base_url=None)\n--\n\n"
                        "context seeds the common prefixes); an undeclared prefix stays verbatim.\n\n"
                        ":param base_url: when given, the URL each resource/href/src IRI is resolved against; a\n"
                        "    <base href> refines it. None (the default) returns every value verbatim.\n"
-                       ":raises ValueError: if base_url is not a valid absolute URL.");
+                       ":raises ValueError: if base_url is not a valid absolute URL.\n"
+                       ":raises RecursionError: if records nest more than 400 levels.");
 
 PyDoc_STRVAR(dublin_core_doc, "dublin_core()\n--\n\n"
                               "Return a dict mapping each <meta name=\"dc.*\"> or <meta name=\"dcterms.*\"> name\n"

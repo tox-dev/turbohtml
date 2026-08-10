@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 import pytest
 
 from turbohtml import parse_xml
@@ -1009,31 +1007,57 @@ def test_rng_data_param_without_name() -> None:
     assert rng_ok(schema, "<e>hello</e>")
 
 
-@pytest.mark.skipif(
-    sys.implementation.name == "pypy",
-    reason="RPython's own stack check trips on the C validator's recursion before its depth cap can "
-    "report, raising SystemError instead; the recursion stays bounded either way",
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            XMLSchema(
+                f'<xs:schema {XS}><xs:element name="a"><xs:complexType><xs:sequence>'
+                '<xs:element ref="a" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+            ),
+            id="xsd",
+        ),
+        pytest.param(
+            RelaxNG(
+                f'<grammar xmlns="{R}"><start><ref name="a"/></start>'
+                '<define name="a"><element name="a"><optional><ref name="a"/></optional></element></define></grammar>'
+            ),
+            id="relax-ng",
+        ),
+    ],
 )
-def test_xsd_deep_nesting_is_bounded() -> None:
-    schema = XMLSchema(
-        f'<xs:schema {XS}><xs:element name="a"><xs:complexType><xs:sequence>'
-        '<xs:element ref="a" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
-    )
+def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG) -> None:
     assert schema.validate(parse_xml("<a>" * 20 + "</a>" * 20)).valid
-    result = schema.validate(parse_xml("<a>" * 1100 + "</a>" * 1100))
-    assert not result.valid
-    assert "nesting depth" in result.errors[0].message
+    with pytest.raises(RecursionError, match="schema validation"):
+        schema.validate(parse_xml("<a>" * 1200 + "</a>" * 1200))
 
 
-def test_rng_deep_nesting_is_bounded() -> None:
-    schema = RelaxNG(
-        f'<grammar xmlns="{R}"><start><ref name="a"/></start>'
-        '<define name="a"><element name="a"><optional><ref name="a"/></optional></element></define></grammar>'
-    )
-    assert schema.validate(parse_xml("<a>" * 20 + "</a>" * 20)).valid
-    result = schema.validate(parse_xml("<a>" * 1100 + "</a>" * 1100))
-    assert not result.valid
-    assert "nesting depth" in result.errors[0].message
+@pytest.mark.parametrize(
+    ("schema_type", "source"),
+    [
+        pytest.param(
+            XMLSchema,
+            f'<xs:schema {XS}><xs:element name="a"><xs:complexType>'
+            + "<xs:sequence>" * 1200
+            + '<xs:element name="b"/>'
+            + "</xs:sequence>" * 1200
+            + "</xs:complexType></xs:element></xs:schema>",
+            id="xsd",
+        ),
+        pytest.param(
+            RelaxNG,
+            f'<grammar xmlns="{R}"><start>'
+            + "<optional>" * 1200
+            + "<empty/>"
+            + "</optional>" * 1200
+            + "</start></grammar>",
+            id="relax-ng",
+        ),
+    ],
+)
+def test_deep_schema_is_rejected_before_compilation(schema_type: type[XMLSchema | RelaxNG], source: str) -> None:
+    with pytest.raises(RecursionError, match="schema compilation"):
+        schema_type(source)
 
 
 def test_long_names_and_values_hit_buffer_bounds() -> None:

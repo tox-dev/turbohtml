@@ -55,7 +55,7 @@ static int xb_reserve(xb *buf, Py_ssize_t extra) {
     size_t cap;
     size_t bytes;
     /* Size overflow needs a length no allocation could hold. */
-    int fits = th_grow_cap((size_t)(buf->len + extra), (size_t)buf->cap, 16, sizeof(Py_UCS4), &cap, &bytes);
+    int fits = th_grow_cap((size_t)buf->len + (size_t)extra, (size_t)buf->cap, 16, sizeof(Py_UCS4), &cap, &bytes);
     if (!fits) {   /* GCOVR_EXCL_BR_LINE */
         return -1; /* GCOVR_EXCL_LINE */
     }
@@ -4108,24 +4108,30 @@ static int rule_order(const void *left_ptr, const void *right_ptr) {
 
 /* ---- output serialization ------------------------------------------------- */
 
+static th_node *xslt_preorder_next(th_node *root, th_node *node) {
+    if (node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
 /* Append the text of every Text descendant of node, in document order. */
 static int collect_output_text(th_node *node, xb *buffer) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            if (xb_add(buffer, child->text, child->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                return -1;                                          /* GCOVR_EXCL_LINE */
-            }
-        } else if (collect_output_text(child, buffer) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                       /* GCOVR_EXCL_LINE */
+    for (th_node *child = node->first_child; child != NULL; child = xslt_preorder_next(node, child)) {
+        if (child->type == TH_NODE_TEXT && /* GCOVR_EXCL_BR_LINE: the second condition fails only on allocation */
+            xb_add(buffer, child->text, child->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                          /* GCOVR_EXCL_LINE */
         }
     }
     return 0;
 }
 
-/* Retype every direct text-node child of a cdata-section-elements element to a CDATA node so
-   the serializer wraps it in <![CDATA[...]]> (section 16.1). Recurses the output tree. */
+/* Retype direct text children of cdata-section-elements so the serializer wraps them in CDATA. */
 static void apply_cdata_sections(engine *eng, th_node *node) {
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+    for (th_node *child = node->first_child; child != NULL; child = xslt_preorder_next(node, child)) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
@@ -4136,7 +4142,6 @@ static void apply_cdata_sections(engine *eng, th_node *node) {
                 }
             }
         }
-        apply_cdata_sections(eng, child);
     }
 }
 
@@ -4524,31 +4529,75 @@ static int strip_record(engine *eng, th_node *node, th_node *parent, th_node *ne
     return 0;
 }
 
-/* Detach every strippable whitespace-only text node under element in document order, honoring
-   an inherited xml:space="preserve" (nearest xml:space ancestor wins). Recurses into children. */
-static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
+typedef struct {
+    th_node *element;
+    th_node *child;
+    int preserve;
+    int strips;
+} strip_frame;
+
+static int strip_push(engine *eng, strip_frame **frames, size_t *length, size_t *capacity, th_node *element,
+                      int inherited_preserve) {
+    if (*length == *capacity) {
+        size_t grown_capacity;
+        size_t bytes;
+        /* Source depth cannot exhaust size_t. */
+        /* GCOVR_EXCL_BR_START */
+        if (!th_grow_cap(*length + 1, *capacity, 16, sizeof(strip_frame), &grown_capacity, &bytes)) {
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        strip_frame *grown = PyMem_Realloc(*frames, bytes);
+        if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        *frames = grown;
+        *capacity = grown_capacity;
+    }
     int preserve = inherited_preserve;
     Py_ssize_t xmlspace_len = 0;
     const Py_UCS4 *xmlspace = attr_lookup(eng->src_tree, element, "xml:space", &xmlspace_len);
     if (xmlspace != NULL) {
         preserve = ucs4_ascii_eq(xmlspace, xmlspace_len, "preserve");
     }
-    int strips = !preserve && element_strips_space(eng, element);
-    th_node *child = element->first_child;
-    while (child != NULL) {
-        th_node *next = child->next_sibling;
+    (*frames)[(*length)++] =
+        (strip_frame){element, element->first_child, preserve, !preserve && element_strips_space(eng, element)};
+    return 0;
+}
+
+/* Detach strippable whitespace text in document order while tracking inherited xml:space on a heap stack. */
+static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
+    strip_frame *frames = NULL;
+    size_t length = 0;
+    size_t capacity = 0;
+    int push_failed = strip_push(eng, &frames, &length, &capacity, element, inherited_preserve);
+    if (push_failed < 0) {  /* GCOVR_EXCL_BR_LINE: failure requires allocation exhaustion */
+        PyMem_Free(frames); /* GCOVR_EXCL_LINE */
+        return -1;          /* GCOVR_EXCL_LINE */
+    }
+    while (length > 0) {
+        strip_frame *frame = &frames[length - 1];
+        if (frame->child == NULL) {
+            length--;
+            continue;
+        }
+        th_node *child = frame->child;
+        frame->child = child->next_sibling;
         if (child->type == TH_NODE_TEXT) {
-            if (strips && th_node_text_is_blank(eng->src_tree, child)) {
-                if (strip_record(eng, child, element, next) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    return -1;                                     /* GCOVR_EXCL_LINE */
+            if (frame->strips && th_node_text_is_blank(eng->src_tree, child)) {
+                if (strip_record(eng, child, frame->element, frame->child) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    PyMem_Free(frames);                                           /* GCOVR_EXCL_LINE */
+                    return -1;                                                    /* GCOVR_EXCL_LINE */
                 }
                 th_node_remove(child);
             }
-        } else if (child->type == TH_NODE_ELEMENT && strip_walk(eng, child, preserve) < 0) { /* GCOVR_EXCL_BR_LINE */
-            return -1;                                                                       /* GCOVR_EXCL_LINE */
+        } else if (child->type == TH_NODE_ELEMENT && /* GCOVR_EXCL_BR_LINE: failure requires allocation exhaustion */
+                   strip_push(eng, &frames, &length, &capacity, child, frame->preserve) < 0) {
+            PyMem_Free(frames); /* GCOVR_EXCL_LINE */
+            return -1;          /* GCOVR_EXCL_LINE */
         }
-        child = next;
     }
+    PyMem_Free(frames);
     return 0;
 }
 

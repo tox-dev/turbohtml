@@ -26,18 +26,12 @@
    the stack of open elements, so further start tags become its siblings rather than
    descending further -- the same runaway-nesting bound browsers apply (Blink and
    WebKit cap the parser's open-element depth at 512). Capping at construction keeps
-   every parsed tree shallow enough that the recursive sanitize/text/markdown walks
-   cannot exhaust the C stack, and bounds the O(depth^2) cost a linear run of start
-   tags would otherwise pay. */
+   parser bookkeeping bounded, and caps the O(depth^2) cost a linear run of start tags would otherwise pay. */
 #define TH_MAX_TREE_DEPTH 512
 
-/* The recursive tree walks (sanitize, text collection, markdown, clone, normalize)
-   stop descending past this depth. The mutation API can build a tree deeper than the
-   parser ever would -- the parse-time cap above does not gate it -- so the walks need
-   their own backstop against C-stack exhaustion. The 2x headroom over TH_MAX_TREE_DEPTH
-   guarantees a parsed tree never reaches it, so parsed input walks byte-for-byte
-   identically; only a directly-constructed, pathologically deep tree is truncated. */
-#define TH_MAX_WALK_DEPTH (TH_MAX_TREE_DEPTH * 2)
+/* Markdown and layout-text formatting still use recursive state machines whose entry/exit actions depend on the C call
+   stack. They preflight this limit with a parent-linked walk and raise before producing output. */
+#define TH_MAX_RECURSIVE_RENDER_DEPTH ((Py_ssize_t)(TH_MAX_TREE_DEPTH * 2))
 
 enum th_node_type {
     TH_NODE_DOCUMENT,
@@ -126,6 +120,32 @@ struct th_node {
     th_node_attr *attrs;
     Py_ssize_t attr_count;
 };
+
+/* Reject an unsafe recursive consumer before it allocates output, invokes callbacks, or mutates the tree. */
+static inline int th_node_check_max_depth(th_node *root, Py_ssize_t limit, const char *operation) {
+    th_node *node = root;
+    Py_ssize_t depth = 0;
+    for (;;) {
+        if (depth >= limit) {
+            PyErr_Format(PyExc_RecursionError, "%s does not support trees nested %zd levels or deeper", operation,
+                         limit);
+            return -1;
+        }
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            depth++;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+            depth--;
+        }
+        if (node == root) {
+            return 0;
+        }
+        node = node->next_sibling;
+    }
+}
 
 typedef struct th_tree th_tree;
 
@@ -308,16 +328,16 @@ Py_ssize_t *th_tree_observer_cap_ptr(th_tree *tree);
 
 int th_node_contains(th_node *ancestor, th_node *node);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
+th_tree *th_tree_copy_document(th_tree *src);
 
 /* Whether two subtrees are structurally equal: same node type, and for an element the
    same namespace, tag name, and attribute set (names + values, order-independent) with
-   the same ordered children compared recursively; for a leaf the same character data.
+   the same ordered children; for a leaf the same character data.
    The two nodes may live in different trees. Pure structure -- it never touches node
    identity (the `==` operator's domain). */
 int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right);
 
-/* DOM normalize over a subtree: merge each run of adjacent Text children into one
-   node and drop empty Text nodes, recursing into every element. */
+/* DOM normalize over a subtree: merge each run of adjacent Text children into one node and drop empty Text nodes. */
 void th_node_normalize(th_tree *tree, th_node *root);
 
 /* Parse an HTML fragment as if set as the innerHTML of the given context element

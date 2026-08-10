@@ -493,6 +493,53 @@ def test_concurrent_structured_data_and_extract_is_memory_safe() -> None:
     assert isinstance(doc.structured_data(), turbohtml.StructuredData)
 
 
+def test_concurrent_structured_data_reads_one_tree_snapshot() -> None:
+    def markup(version: str) -> str:
+        return (
+            f'<script type="application/ld+json">{{"version": "{version}"}}</script>'
+            f'<meta property="og:title" content="{version}"><meta name="dc.title" content="{version}">'
+            f'<div itemscope><meta itemprop="version" content="{version}"></div>'
+            f'<div typeof="Thing"><meta property="version" content="{version}"></div>'
+        )
+
+    doc = turbohtml.parse(f"<body>{markup('a')}</body>")
+    body = doc.find("body")
+    assert body is not None
+    start = threading.Barrier(2)
+    snapshots: list[frozenset[str]] = []
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(200):
+            data = doc.structured_data()
+            json_value = data.json_ld[0]
+            assert isinstance(json_value, dict)
+            json_version = json_value["version"]
+            microdata_version = data.microdata[0].properties["version"][0]
+            rdfa_version = data.rdfa[0].properties["version"][0]
+            assert isinstance(json_version, str)
+            assert isinstance(microdata_version, str)
+            assert isinstance(rdfa_version, str)
+            snapshots.append(
+                frozenset({
+                    json_version,
+                    microdata_version,
+                    data.opengraph["og:title"],
+                    rdfa_version,
+                    data.dublin_core["dc.title"],
+                })
+            )
+
+    def mutator() -> None:
+        start.wait()
+        for index in range(200):
+            body.set_inner_html(markup("a" if index % 2 == 0 else "b"))
+
+    _run(reader, mutator)
+    assert len(snapshots) == 200
+    assert all(len(snapshot) == 1 for snapshot in snapshots)
+
+
 def test_concurrent_table_reads_and_mutation_are_memory_safe() -> None:
     rows = "".join(
         f"<tr><td rowspan=2>r{index}</td><td>{index}</td></tr><tr><td>{index}b</td></tr>" for index in range(150)

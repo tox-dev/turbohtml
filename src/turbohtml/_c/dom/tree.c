@@ -1267,47 +1267,79 @@ static int node_has_attr(const th_node *node, uint32_t atom) {
 /* The first HTML element with this atom in a depth-first walk of parent's
    subtree, not descending into nested selects. */
 static th_node *first_descendant_atom(th_node *parent, uint16_t atom) {
-    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML) {
-            if (child->atom == atom) {
-                return child;
+    th_node *node = parent->first_child;
+    while (node != NULL) {
+        int skip_children = 0;
+        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML) {
+            if (node->atom == atom) {
+                return node;
             }
             /* GCOVR_EXCL_START: a nested <select> start closes the open select, so a select never contains one */
-            if (child->atom == TH_TAG_SELECT) {
-                continue;
-            }
+            skip_children = node->atom == TH_TAG_SELECT;
             /* GCOVR_EXCL_STOP */
         }
-        th_node *found = first_descendant_atom(child, atom);
-        if (found != NULL) {
-            return found;
+        if (!skip_children && /* GCOVR_EXCL_BR_LINE: tree construction closes nested selects */
+            node->first_child != NULL) {
+            node = node->first_child;
+            continue;
         }
+        while (node != parent && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        node = node == parent ? NULL : node->next_sibling;
     }
     return NULL;
 }
 
-/* Deep-copy src's children, appending the copies to dst. */
+static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
+    if (source->type == TH_NODE_ELEMENT) {
+        th_node *copy = node_clone(tree, source);
+        if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+            copy->ns = source->ns;
+        }
+        return copy;
+    }
+    th_node *copy = node_new(tree, source->type);
+    if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+        copy->text = need_text(tree, source);
+        copy->text_len = source->text_len;
+        if (source->type == TH_NODE_PI ||      /* GCOVR_EXCL_BR_LINE: HTML currently emits PI syntax as comments */
+            source->type == TH_NODE_DOCTYPE) { /* GCOVR_EXCL_BR_LINE: HTML cannot nest a doctype in selected content */
+            copy->attr_count = source->attr_count; /* GCOVR_EXCL_LINE: neither node can occur below an HTML option */
+        } /* GCOVR_EXCL_LINE: closes the selected-option node-type arm */
+    }
+    return copy;
+}
+
+/* Deep-copy src's children into dst without consuming one C stack frame per level. */
 static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) {
-    for (th_node *child = src->first_child; child != NULL; child = child->next_sibling) {
-        th_node *copy;
-        if (child->type == TH_NODE_ELEMENT) {
-            copy = node_clone(tree, child);
-            if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                copy->ns = child->ns;
+    const th_node *from = src;
+    th_node *copy = dst;
+    for (;;) {
+        if (from->first_child != NULL) {
+            from = from->first_child;
+            th_node *child = copy_node_in_tree(tree, (th_node *)from);
+            if (child == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
             }
-        } else {
-            copy = node_new(tree, child->type);
-            if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-                /* Realize a zero-copy span before sharing the payload pointer. */
-                copy->text = need_text(tree, (th_node *)child);
-                copy->text_len = child->text_len;
-            }
+            node_append(copy, child);
+            copy = child;
+            continue;
         }
-        if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;         /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        while (from != src && from->next_sibling == NULL) {
+            from = from->parent;
+            copy = copy->parent;
         }
-        node_append(dst, copy);
-        deep_copy_children(tree, child, copy);
+        if (from == src) {
+            return;
+        }
+        from = from->next_sibling;
+        th_node *sibling = copy_node_in_tree(tree, (th_node *)from);
+        if (sibling == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;            /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        node_append(copy->parent, sibling);
+        copy = sibling;
     }
 }
 

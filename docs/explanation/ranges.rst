@@ -30,6 +30,10 @@ an arena boundary -- and why a clone reuses the tested deep-copy primitive withi
 the per-tree critical section, so a content edit is atomic under the free-threaded build the same way the other
 structural mutations are.
 
+The straddling-end algorithm retains the DOM specification's recursive shape. Before allocating a fragment or changing
+the source tree, it raises :exc:`RecursionError` when a partial boundary path reaches 400 levels. The iterative copy
+walk handles contained subtrees without a nesting limit.
+
 Two scope choices bound this. First, a ``Range`` is only as live as its own operations: its content methods move its
 boundaries per the spec, but an edit made through another API -- appending a sibling, removing a subtree -- does not
 shift a range you happen to be holding, because the tree's mutators do not track live ranges. A range is a cursor you

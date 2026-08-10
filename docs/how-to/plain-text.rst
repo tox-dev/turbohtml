@@ -13,6 +13,10 @@ Extract rendered text with :meth:`~turbohtml.Node.to_text`, and get the same tex
 <https://github.com/weblyzard/inscriptis>`_ fills), keeping the visual structure rather than collapsing everything like
 :attr:`~turbohtml.Node.text` does. Its most visible feature is laying tables out as aligned columns:
 
+Layout-aware text carries entry and exit state while it renders structure and annotations. A tree nested 1,024 levels or
+deeper raises :exc:`RecursionError` before rendering; :attr:`~turbohtml.Node.text`, which only concatenates text
+descendants, has no nesting limit.
+
 .. testcode::
 
     import turbohtml

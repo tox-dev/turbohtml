@@ -1487,13 +1487,8 @@ static void hoist_children(th_node *element) {
     }
 }
 
-/* Replace a disallowed element with its escaped start tag, its sanitized children, and its escaped end tag. */
+/* Replace a disallowed element with its escaped start tag, its already-sanitized children, and its escaped end tag. */
 static int escape_element(sanitizer *s, th_node *element) {
-    /* the element is being escaped to text, so its children lose this element as a
-       kept ancestor (parent_kept = 0): a foreign child must not survive into HTML */
-    if (sanitize_children(s, element, 0) < 0) {
-        return -1;
-    }
     PyObject *opening = open_tag(s, element);
     if (opening == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1671,7 +1666,9 @@ static int apply_transform(sanitizer *s, th_node *element, PyObject **tag) {
    1 when the element's parent is itself being kept; an allowlisted foreign (SVG/MathML)
    element is kept only then, so it never outlives its namespace context (e.g. an svg
    <a> must not survive into HTML as a live anchor when its <svg> is escaped). */
-static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
+enum sanitize_action { SANITIZE_DONE, SANITIZE_KEEP_CHILDREN, SANITIZE_STRIP_CHILDREN, SANITIZE_ESCAPE_CHILDREN };
+
+static int sanitize_element(sanitizer *s, th_node *element, int parent_kept, enum sanitize_action *action) {
     int is_html = element->ns == TH_NS_HTML;
     PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, element->text_len);
     if (tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1731,24 +1728,26 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept) {
         return -1;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int status = 0;
+    *action = SANITIZE_DONE;
     if (allowed < 0 || remove_content < 0) { /* GCOVR_EXCL_BR_LINE: PySet_Contains never fails on a str key */
         status = -1;                         /* GCOVR_EXCL_LINE */
     } else if (allowed && style_element) {
         /* a kept <style> holds raw CSS, not child elements, so scrub its stylesheet body instead of walking children */
         status = sanitize_attributes(s, element, tag, custom) < 0 ? -1 : sanitize_style_body(s, element);
     } else if (allowed) {
-        status = sanitize_attributes(s, element, tag, custom) < 0 ? -1 : sanitize_children(s, element, 1);
+        if (sanitize_attributes(s, element, tag, custom) < 0) {
+            status = -1;
+        } else {
+            *action = SANITIZE_KEEP_CHILDREN;
+        }
     } else if (remove_content || s->on_disallowed == ON_REMOVE || (s->on_disallowed == ON_STRIP && !is_html)) {
         /* drop the whole subtree: a content-removal tag (e.g. script/style, so its text never leaks), REMOVE mode, or
            foreign content under STRIP (unwrapping it would invite namespace confusion) */
         th_node_remove(element);
     } else if (s->on_disallowed == ON_STRIP) {
-        if ((status = sanitize_children(s, element, 0)) == 0) {
-            hoist_children(element);
-            th_node_remove(element);
-        }
+        *action = SANITIZE_STRIP_CHILDREN;
     } else {
-        status = escape_element(s, element);
+        *action = SANITIZE_ESCAPE_CHILDREN;
     }
     Py_DECREF(tag);
     return status;
@@ -1778,14 +1777,70 @@ static int strip_text_templates(sanitizer *s, th_node *node) {
     return status;
 }
 
-/* Walk an element's children, applying the policy; capturing the next sibling keeps the loop safe across edits. */
+typedef struct {
+    th_node *element;
+    th_node *next;
+    enum sanitize_action action;
+    int parent_kept;
+} sanitize_frame;
+
+/* Walk descendants with an explicit stack. A frame keeps the post-order strip/escape action and the sibling that
+   follows the element, so mutations cannot invalidate traversal state. */
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
+    sanitize_frame *frames = NULL;
+    Py_ssize_t depth = 0;
+    Py_ssize_t capacity = 0;
     th_node *child = parent->first_child;
-    while (child != NULL) {
+    for (;;) {
+        if (child == NULL) {
+            if (depth == 0) {
+                PyMem_Free(frames);
+                return 0;
+            }
+            sanitize_frame frame = frames[--depth];
+            if (frame.action == SANITIZE_STRIP_CHILDREN) {
+                hoist_children(frame.element);
+                th_node_remove(frame.element);
+            } else if (frame.action == SANITIZE_ESCAPE_CHILDREN && /* GCOVR_EXCL_BR_LINE: escape only fails on alloc */
+                       escape_element(s, frame.element) < 0) {     /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+                PyMem_Free(frames);                                /* GCOVR_EXCL_LINE: allocation-failure cleanup */
+                return -1;                                         /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            parent_kept = frame.parent_kept;
+            child = frame.next;
+            continue;
+        }
         th_node *next = child->next_sibling;
         if (child->type == TH_NODE_ELEMENT) {
-            if (sanitize_element(s, child, parent_kept) < 0) {
+            enum sanitize_action action;
+            if (sanitize_element(s, child, parent_kept, &action) < 0) {
+                PyMem_Free(frames);
                 return -1;
+            }
+            if (action != SANITIZE_DONE) {
+                if (depth == capacity) {
+                    size_t grown;
+                    size_t bytes;
+                    int fits =
+                        th_grow_cap((size_t)depth + 1, (size_t)capacity, 16, sizeof(sanitize_frame), &grown, &bytes);
+                    if (!fits) {            /* GCOVR_EXCL_BR_LINE: no representable tree can overflow size_t here */
+                        PyMem_Free(frames); /* GCOVR_EXCL_LINE: size-overflow path */
+                        PyErr_NoMemory();   /* GCOVR_EXCL_LINE: size-overflow path */
+                        return -1;          /* GCOVR_EXCL_LINE: size-overflow path */
+                    }
+                    sanitize_frame *resized = PyMem_Realloc(frames, bytes);
+                    if (resized == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                        PyMem_Free(frames); /* GCOVR_EXCL_LINE: allocation-failure path */
+                        PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation-failure path */
+                        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+                    }
+                    frames = resized;
+                    capacity = (Py_ssize_t)grown;
+                }
+                frames[depth++] = (sanitize_frame){child, next, action, parent_kept};
+                parent_kept = action == SANITIZE_KEEP_CHILDREN;
+                child = child->first_child;
+                continue;
             }
         } else if (child->type == TH_NODE_COMMENT) {
             if (s->strip_comments) {
@@ -1794,6 +1849,7 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
         } else if (child->type == TH_NODE_TEXT) {
             /* strip_text_templates only fails on allocation, which no test can force */
             if (s->strip_templates && strip_text_templates(s, child) < 0) { /* GCOVR_EXCL_BR_LINE */
+                PyMem_Free(frames);                                         /* GCOVR_EXCL_LINE */
                 return -1;                                                  /* GCOVR_EXCL_LINE */
             }
         } else {
@@ -1801,7 +1857,6 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
         }
         child = next;
     }
-    return 0;
 }
 
 /* The set-typed policy fields reach a PySet_Contains in the walk, which raises a bare SystemError on a non-set. Reject

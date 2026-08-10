@@ -261,6 +261,20 @@ def test_flatten_expands_nested_fallback_slot() -> None:
     assert [type(node).__name__ for node in outer.assigned_nodes(flatten=True)] == ["Text"]
 
 
+def test_flatten_expands_deep_fallback_slots_iteratively() -> None:
+    root = Element("div").attach_shadow("open")
+    outer = Element("slot")
+    root.append(outer)
+    deepest = outer
+    for _ in range(1_200):
+        child = Element("slot")
+        deepest.append(child)
+        deepest = child
+    fallback = Text("deep")
+    deepest.append(fallback)
+    assert outer.assigned_nodes(flatten=True) == [fallback]
+
+
 def test_flatten_fallback_skips_non_slottable_content() -> None:
     host = Element("div")
     root = host.attach_shadow("open")

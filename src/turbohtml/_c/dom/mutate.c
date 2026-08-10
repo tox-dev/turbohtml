@@ -449,13 +449,7 @@ static int data_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, th
     return left->text_len == 0 || memcmp(left_text, right_text, (size_t)left->text_len * sizeof(Py_UCS4)) == 0;
 }
 
-/* Whether two subtrees are structurally equal: the same node type, and for an
-   element the same namespace, tag name, and attribute set (order-independent) with
-   the same ordered children compared recursively; for a leaf the same character
-   data. The engine behind Node.equals, an explicit structural test distinct from
-   `==`, which stays node identity. Recurses on tree depth, the same bound the
-   deep-copy walk assumes. */
-int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
+static int node_data_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
     if (left->type != right->type) {
         return 0;
     }
@@ -501,22 +495,46 @@ int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_no
     case TH_NODE_CONTENT:
         break; /* a document / template-content fragment compares purely by its children */
     }
-    th_node *left_child = left->first_child;
-    th_node *right_child = right->first_child;
-    while (left_child != NULL && right_child != NULL) {
-        if (!th_node_equals(left_tree, left_child, right_tree, right_child)) {
-            return 0;
-        }
-        left_child = left_child->next_sibling;
-        right_child = right_child->next_sibling;
-    }
-    return left_child == NULL && right_child == NULL; /* an unequal child count leaves one non-NULL */
+    return 1;
 }
 
-/* Deep-copy a node and its subtree from src into dest's arena, materializing
-   borrowed text and re-interning per-tree attribute atoms. Used to adopt a node
-   from another tree without retaining the source. NULL on allocation failure. */
-static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int depth) {
+/* Node.equals compares the two shapes in lockstep, using parent links to return from a subtree instead of the C stack.
+ */
+int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
+    th_node *left_root = left;
+    th_node *right_root = right;
+    for (;;) {
+        if (!node_data_equals(left_tree, left, right_tree, right)) {
+            return 0;
+        }
+        if ((left->first_child == NULL) != (right->first_child == NULL)) {
+            return 0;
+        }
+        if (left->first_child != NULL) {
+            left = left->first_child;
+            right = right->first_child;
+            continue;
+        }
+        while (left != left_root && left->next_sibling == NULL) {
+            if (right->next_sibling != NULL) {
+                return 0;
+            }
+            left = left->parent;
+            right = right->parent;
+        }
+        if (left == left_root) {
+            return right == right_root;
+        }
+        if (right->next_sibling == NULL) {
+            return 0;
+        }
+        left = left->next_sibling;
+        right = right->next_sibling;
+    }
+}
+
+/* Copy one node without its children, materializing borrowed text and re-interning per-tree attribute atoms. */
+static th_node *copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_node) {
     th_node *node = node_new(dest, src_node->type);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -565,37 +583,63 @@ static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int
             }
         }
     }
-    if (depth < TH_MAX_WALK_DEPTH) {
-        /* past the backstop the copy is left shallow rather than recursing into a tree
-           built deeper than the parser ever would; see TH_MAX_WALK_DEPTH */
-        for (th_node *child = src_node->first_child; child != NULL; child = child->next_sibling) {
-            th_node *copy = copy_node_at(dest, src, child, depth + 1);
-            if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            node_append(node, copy);
-        }
-    }
     return node;
 }
 
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
-    return copy_node_at(dest, src, src_node, 0);
+    th_node *root = copy_node_shallow(dest, src, src_node);
+    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_node *from = src_node;
+    th_node *copy = root;
+    for (;;) {
+        if (from->first_child != NULL) {
+            from = from->first_child;
+            th_node *child = copy_node_shallow(dest, src, from);
+            if (child == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            node_append(copy, child);
+            copy = child;
+            continue;
+        }
+        while (from != src_node && from->next_sibling == NULL) {
+            from = from->parent;
+            copy = copy->parent;
+        }
+        if (from == src_node) {
+            return root;
+        }
+        from = from->next_sibling;
+        th_node *sibling = copy_node_shallow(dest, src, from);
+        if (sibling == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        node_append(copy->parent, sibling);
+        copy = sibling;
+    }
 }
 
-/* DOM normalize: merge adjacent Text children into the first of each run and drop
-   empty Text nodes, recursing into every element. Merged runs get a fresh arena
-   buffer; on allocation failure the merge stops early, leaving a valid tree. */
-static void normalize_at(th_tree *tree, th_node *root, int depth) {
-    if (depth >= TH_MAX_WALK_DEPTH) {
-        /* backstop for a tree built past the parser's depth cap; see TH_MAX_WALK_DEPTH */
-        return;
+/* Copy a document into an independent tree while its caller holds the source-tree lock. */
+th_tree *th_tree_copy_document(th_tree *src) {
+    th_tree *dest = th_tree_new();
+    if (dest == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    dest->xml = src->xml;
+    dest->document = th_tree_copy_node(dest, src, src->document);
+    if (dest->document == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_tree_free(dest);       /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;              /* GCOVR_EXCL_LINE */
+    }
+    return dest;
+}
+
+static void normalize_children(th_tree *tree, th_node *root) {
     for (th_node *child = root->first_child; child != NULL;) {
         th_node *next = child->next_sibling;
-        if (child->type == TH_NODE_ELEMENT) {
-            normalize_at(tree, child, depth + 1);
-        } else if (child->type == TH_NODE_TEXT) {
+        if (child->type == TH_NODE_TEXT) {
             if (child->text_len == 0) {
                 th_node_remove(child);
                 child = next;
@@ -623,7 +667,23 @@ static void normalize_at(th_tree *tree, th_node *root, int depth) {
 }
 
 void th_node_normalize(th_tree *tree, th_node *root) {
-    normalize_at(tree, root, 0);
+    th_node *node = root;
+    for (;;) {
+        if (node == root || node->type == TH_NODE_ELEMENT) {
+            normalize_children(tree, node);
+        }
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        if (node == root) {
+            return;
+        }
+        node = node->next_sibling;
+    }
 }
 
 /* Construct one shell element (html/head/body/meta/title) from its ASCII tag name,

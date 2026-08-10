@@ -69,6 +69,25 @@ def test_default_keeps_allowlisted() -> None:
     assert sanitize('<a href="http://x.com" title="t">hi</a>') == '<a href="http://x.com" title="t">hi</a>'
 
 
+def test_deep_input_is_sanitized_without_using_the_c_stack() -> None:
+    markup = "<div>" * 1_200 + "bottom" + "</div>" * 1_200
+    output = sanitize(markup, Policy(tags=frozenset({"div"})))
+    assert (output.count("<div>"), "bottom" in output) == (1_200, True)
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_open_count"),
+    [
+        pytest.param(OnDisallowed.STRIP, 0, id="strip"),
+        pytest.param(OnDisallowed.ESCAPE, 1_200, id="escape"),
+    ],
+)
+def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, expected_open_count: int) -> None:
+    markup = "<x>" * 1_200 + "bottom" + "</x>" * 1_200
+    output = sanitize(markup, Policy(on_disallowed_tag=mode))
+    assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
+
+
 def test_disallowed_attribute_dropped() -> None:
     assert sanitize('<a href="http://x" class="c" id="i">x</a>') == '<a href="http://x">x</a>'
 

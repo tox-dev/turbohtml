@@ -722,6 +722,10 @@ def test_has_memo_deep_chain(depth: int, selector: str, expected: str) -> None:
     assert len(parse(_nested_divs(depth)).select(selector)) == counts[expected]
 
 
+def test_has_memo_walks_next_sibling_after_leaf() -> None:
+    assert len(parse(_nested_divs(30, "<i></i><!-- gap --><a>x</a>")).select("div:has(a)")) == 30
+
+
 def test_has_memo_deep_sibling_chains() -> None:
     # two sibling deep chains: the first populates the memo, so the second's anchors
     # probe a non-empty table for keys it does not hold (the get-miss + linear-probe

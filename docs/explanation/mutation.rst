@@ -50,11 +50,12 @@ ASCII-lowercased so they resolve to the same interned atoms the parser assigns. 
 directly rather than a throwaway dict), and ``copy.copy``, ``copy.deepcopy``, and :mod:`python:pickle` all run through
 the same subtree copy, so a clone is always a standalone tree.
 
-:class:`~turbohtml.ProcessingInstruction` and :class:`~turbohtml.CData` round out the node model for building, but the
-parser never emits them: a WHATWG-conformant parse folds ``<? ... >`` into a comment and a foreign CDATA section into
-text, and turbohtml keeps that conformance rather than inventing nodes the algorithm does not produce. Pickling carries
-an element's children as an explicit list instead of re-serializing, so those two node types survive a round-trip that
-serialize-and-reparse would fold away.
+Subtree copy, cross-tree adoption, equality, and :meth:`~turbohtml.Element.normalize` use parent-linked loops. Their
+results remain complete until allocation fails. The HTML parser's construction limit does not constrain these mutations.
+
+:class:`~turbohtml.ProcessingInstruction` and :class:`~turbohtml.CData` round out the node model for building. The HTML
+parser emits processing instructions but folds foreign CDATA sections into text. Pickling carries an element's children
+as an explicit list instead of re-serializing, so both node types survive a round-trip without losing their fields.
 
 *************************
  Observing changes: sync

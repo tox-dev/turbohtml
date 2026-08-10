@@ -4,27 +4,27 @@
 
 :meth:`~turbohtml.Document.structured_data` answers the scraping question ``extruct`` and ``metadata_parser`` exist for:
 what machine-readable metadata does this page embed? It pulls JSON-LD, Microdata, OpenGraph/Twitter card metadata, RDFa,
-and Dublin Core in one walk, with the per-format helpers :meth:`~turbohtml.Document.json_ld`,
+and Dublin Core in one call, with the per-format helpers :meth:`~turbohtml.Document.json_ld`,
 :meth:`~turbohtml.Document.opengraph`, :meth:`~turbohtml.Document.microdata`, :meth:`~turbohtml.Document.rdfa`, and
 :meth:`~turbohtml.Document.dublin_core` beside it. The combined result is a frozen :class:`~turbohtml.StructuredData`
 record with a stable six-field shape -- ``json_ld``, ``microdata``, ``opengraph``, ``rdfa``, ``dublin_core``, plus
 ``microformats`` reserved for a later phase -- so code that reads it does not break when that format lands. The records
 hold no reference back into the tree, so they outlive the document they came from.
 
+Nested Microdata and RDFa resources become nested Python records. The extractor raises :exc:`RecursionError` when a
+record contains more than 400 nested records, or when Microdata ``itemref`` links form a nested-item cycle. DOM wrappers
+do not count toward that limit, and the flat metadata helpers remain iterative.
+
 *********************
  Where the work runs
 *********************
 
-The division of labor is the same one the rest of the read path follows: the *locating* runs in C and the only genuinely
-Python step stays in Python. A pure-C pass under the per-tree critical section walks the document once per format,
-gathering the ``itemscope``/``itemprop``/``itemtype`` structure into nested :class:`~turbohtml.MicrodataItem` records
-and the OpenGraph and Twitter ``<meta>`` pairs into a flat mapping, all holding no reference back into the tree. JSON-LD
-is the one exception: the C walk gathers the verbatim text of each ``<script type="application/ld+json">`` block into a
-list of strings, then the critical section is released and a thin facade parses them with the standard library
-:mod:`json`. The JSON grammar is not reinvented in C, and the parse never touches the tree, so it cannot race a
-concurrent mutation -- the snapshot-then-parse split is what keeps the Python call off the live structure. A block that
-is not valid JSON is skipped rather than raising, the safe default for scraping a page whose markup the author did not
-validate.
+C locates and assembles the values; Python parses JSON. Each per-format helper walks the document under its tree lock.
+:meth:`~turbohtml.Document.structured_data` copies the document once under that lock, then runs every format pass
+against the private copy. Each result comes from one document version even when another thread mutates the original.
+JSON-LD uses the same boundary: C gathers the verbatim text of each ``<script type="application/ld+json">`` block, then
+a thin facade parses the strings with :mod:`json` without touching the live tree. A block that is not valid JSON is
+skipped so extraction can continue when a page contains malformed metadata.
 
 *******************************
  Microdata, OpenGraph, Twitter

@@ -171,6 +171,11 @@ pointers. turbohtml already has the tree, so the exporter is a single pass over 
 each element as block (its own line, with collapsed blank-line margins) or inline (wrapped in a marker), the CSS
 normal-flow distinction.
 
+An iterative depth walk preflights that recursive formatter. At 1,024 levels, it raises :exc:`RecursionError` before
+calling a converter or allocating an output buffer. The structural HTML serializers and plain
+:attr:`~turbohtml.Node.text` use parent-linked walks and have no nesting limit. Copy, equality, normalization, selector
+subtree scans, and shadow-slot flattening use the same approach.
+
 The one subtle part is whitespace, and it is where the reference libraries differ. turbohtml never emits a space from
 text eagerly: a run of whitespace sets a pending flag, and the owed space is written only just before the next visible
 character, and dropped at a line or block start. Because a closing emphasis marker does not flush that pending space, a

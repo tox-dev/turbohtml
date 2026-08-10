@@ -35,7 +35,8 @@ bundles alongside, are out of scope; reach for a dedicated tool there.
 The whole scoring walk is pure C and allocates only a small candidate array (a linear find-or-insert map, since the
 candidate set is just the parents and grandparents of scored paragraphs). It touches no Python object until a winner is
 chosen, at which point the binding (holding the same per-tree critical section the other walks use) wraps that one node,
-or renders its text for :meth:`~turbohtml.Node.main_text`. Two threads extracting from two trees never interfere.
+or renders its text for :meth:`~turbohtml.Node.main_text`. Parent-linked iteration keeps scoring and metadata harvesting
+complete on deep XML and programmatic trees. Two threads extracting from separate trees do not interfere.
 
 :func:`turbohtml.extract.boilerplate` layers the paragraph-level view justext and boilerpy3 expose over the same walk:
 the winner picks the content body, then each paragraph unit is reported individually -- outside the winner is

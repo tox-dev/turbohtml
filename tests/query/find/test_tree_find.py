@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Axis, Element, parse
+from turbohtml import Axis, Element, Text, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -565,6 +565,17 @@ def test_text_empty_string_matches_textless_element() -> None:
 def test_text_equal_length_different_content_does_not_match() -> None:
     # both are three code points, so the length gate passes and the content compare decides
     assert parse("<p>abc</p>").find_all(text="xyz") == []
+
+
+def test_text_scan_handles_programmatic_tree_beyond_parser_depth_cap() -> None:
+    root = Element("div")
+    parent = root
+    for _ in range(1_200):
+        child = Element("div")
+        parent.append(child)
+        parent = child
+    parent.append(Text("needle"))
+    assert root.find(text="needle") is not None
 
 
 # A non-literal regex keeps the Python path that snapshots candidates under the lock, where the
