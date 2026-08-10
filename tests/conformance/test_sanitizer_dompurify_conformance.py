@@ -122,7 +122,9 @@ _REMOVE_WITH_CONTENT = frozenset({
     "script", "style", "noscript", "template", "noembed", "noframes", "iframe", "object", "embed",
 })  # fmt: skip
 _STRUCTURAL_TAGS = frozenset(Policy.relaxed().tags | {
-    "form", "input", "select", "button", "svg", "circle", "rect", "g", "path", "defs", "filter", "image", "text",
+    "form", "input", "select", "button", "script", "svg", "circle", "rect", "g", "path", "defs", "filter", "image",
+    "text",
+    "animate", "animateColor", "animateMotion", "animateTransform", "set",
     "math", "mi", "mn", "mo", "mrow", "mtext", "ms", "style",
 })  # fmt: skip
 
@@ -150,10 +152,10 @@ _MODES: dict[str, Policy] = {
     "profile-mathml": replace(_BASE, allow_html=False, allow_svg=False),
 }
 
-# --- inertness oracle: what executes if a sanitized string is assigned to innerHTML ---------------------------------
 _DANGER_TAGS = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
 _DANGER_SCHEMES = ("javascript:", "data:", "vbscript:")
 _URL_ATTRS = frozenset({"href", "src", "action", "xlink:href", "formaction", "poster", "background", "cite", "ping"})
+_SVG_ANIMATION_TAGS = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
 _CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
 _TEMPLATE_OPENERS = ("{{", "${", "<%")
 
@@ -186,12 +188,27 @@ def _live_danger(html: str) -> list[str]:
     while stack:
         node = stack.pop()
         if isinstance(node, Element):
-            if node.tag in _DANGER_TAGS and node.namespace.value == "html":
+            namespace = node.namespace.value
+            if namespace == "svg" and node.tag in _SVG_ANIMATION_TAGS:
+                attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
+                target = attrs.get("attributename", "")
+                if target.startswith("on") or (
+                    target in _URL_ATTRS
+                    and any(
+                        _bad_scheme(value)
+                        for name in ("from", "to", "values")
+                        for value in attrs.get(name, "").split(";")
+                    )
+                ):
+                    survived.append(f"<{node.tag}>->{target}")
+            if node.tag == "script" and namespace in {"html", "svg"}:
+                survived.append("<script>")
+            elif node.tag == "style" and namespace in {"html", "svg"}:
                 body = "".join(getattr(child, "data", "") for child in node.children).lower()
-                if node.tag != "style":
-                    survived.append(f"<{node.tag}>")
-                elif any(token in body for token in _CSS_DANGER):
+                if any(token in body for token in _CSS_DANGER):
                     survived.append("style-body")
+            elif node.tag in _DANGER_TAGS and namespace == "html":
+                survived.append(f"<{node.tag}>")
             survived.extend(
                 hit
                 for name, raw in node.attrs.items()
@@ -345,11 +362,23 @@ def test_corpus_exercises_the_oracle() -> None:
     ("html", "survived"),
     [
         pytest.param("<script>alert(1)</script>", ["<script>"], id="scriptable-element"),
-        pytest.param("<svg><script>alert(1)</script></svg>", [], id="svg-namespace-script-inert"),
+        pytest.param("<svg><script>alert(1)</script></svg>", ["<script>"], id="svg-script"),
+        pytest.param("<svg><style>a{behavior:url(#x)}</style></svg>", ["style-body"], id="svg-style-danger"),
+        pytest.param("<svg><style>a{fill:red}</style></svg>", [], id="svg-style-benign"),
         pytest.param('<img src=x onerror="alert(1)">', ["@onerror"], id="event-handler"),
         pytest.param('<a href="javascript:alert(1)">x</a>', ["href=javascript:alert(1)"], id="url-danger"),
         pytest.param('<a href="https://example.com">x</a>', [], id="url-benign"),
         pytest.param("<style>a{behavior:url(#x)}</style>", ["style-body"], id="style-body-danger"),
+        pytest.param(
+            '<svg><animate attributeName="xlink:href" from="javascript:x"></animate></svg>',
+            ["<animate>->xlink:href"],
+            id="svg-animation-url",
+        ),
+        pytest.param(
+            '<svg><set attributeName="onload" to="alert(1)"></set></svg>',
+            ["<set>->onload"],
+            id="svg-animation-handler",
+        ),
     ],
 )
 def test_live_danger_labels_every_executable_construct(html: str, survived: list[str]) -> None:

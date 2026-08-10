@@ -158,6 +158,32 @@ def test_allowlisted_foreign_script_is_still_escaped() -> None:
     assert "<script>" not in out
 
 
+@pytest.mark.parametrize(
+    "tag",
+    [
+        pytest.param("animate", id="animate"),
+        pytest.param("animateColor", id="animate-color"),
+        pytest.param("animateMotion", id="animate-motion"),
+        pytest.param("animateTransform", id="animate-transform"),
+        pytest.param("set", id="set"),
+    ],
+)
+def test_svg_animation_is_blocked_by_an_allowlist(tag: str) -> None:
+    policy = Policy(tags=frozenset({"svg", tag}), attributes={"*": frozenset({"*"})})
+    assert f"<{tag}" not in sanitize(f'<svg><{tag} attributeName="xlink:href" to="javascript:x"></{tag}></svg>', policy)
+
+
+def test_svg_animation_name_matching_is_case_adjusted() -> None:
+    policy = Policy(tags=frozenset({"svg", "animate"}), attributes={"*": frozenset({"*"})})
+    assert "<animate" not in sanitize(
+        '<svg><ANIMATE ATTRIBUTENAME="xlink:href" TO="javascript:x"></ANIMATE></svg>', policy
+    )
+
+
+def test_html_element_named_animate_is_not_svg_animation() -> None:
+    assert sanitize("<animate>text</animate>", Policy(tags=frozenset({"animate"}))) == "<animate>text</animate>"
+
+
 def test_set_attributes_adds_absent_attributes() -> None:
     # set_attributes forces attributes onto kept elements even when the allowlist would not admit them
     policy = Policy(
