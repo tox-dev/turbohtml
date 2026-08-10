@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from turbohtml._html import Element, Text, _linkify_find, _linkify_scan, parse_fragment
+from turbohtml._html import Element, Text, _linkify_find, _linkify_has, _linkify_scan, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -371,7 +371,7 @@ class LinkDetector:
         :param text: the text to scan.
         :returns: whether the text contains at least one link.
         """
-        return bool(_linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes))
+        return _linkify_has(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes)
 
 
 __all__ = [

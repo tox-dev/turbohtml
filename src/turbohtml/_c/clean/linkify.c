@@ -453,22 +453,11 @@ static int append_span(PyObject *spans, Py_ssize_t start, Py_ssize_t end, enum t
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
 }
 
-/* The shared scan: trigger on the few bytes that can begin a link and expand to
-   its bounds, appending each (start, end, kind) span. extra_tlds extends the
-   bare-domain/email TLD rule; schemes (NULL in the rewrite path) enables
-   registered scheme-less URLs; url_schemes (NULL for the permissive raw scan)
-   restricts which scheme://host schemes autolink. Returns the span list, or NULL. */
-static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
-                         PyObject *url_schemes) {
+static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
+                        PyObject *url_schemes, PyObject *spans) {
     int kind = PyUnicode_KIND(text);
     const void *data = PyUnicode_DATA(text);
     Py_ssize_t len = PyUnicode_GET_LENGTH(text);
-
-    PyObject *spans = PyList_New(0);
-    if (spans == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-
     Py_ssize_t pos = 0;
     while (pos < len) {
         Py_UCS4 c = READ(pos);
@@ -491,14 +480,30 @@ static PyObject *do_scan(PyObject *text, int parse_email, int bare_domains, PyOb
             found = match_domain(kind, data, pos, 0, len, &match_start, &match_end, extra_tlds);
         }
         if (found) {
+            if (spans == NULL) {
+                return 1;
+            }
             if (append_span(spans, match_start, match_end, link_kind) < 0) { /* GCOVR_EXCL_BR_LINE */
-                Py_DECREF(spans);                                            /* GCOVR_EXCL_LINE */
-                return NULL;                                                 /* GCOVR_EXCL_LINE */
+                return -1;                                                   /* GCOVR_EXCL_LINE */
             }
             pos = match_end;
         } else {
             pos++;
         }
+    }
+    return 0;
+}
+
+static PyObject *collect_matches(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds,
+                                 PyObject *schemes, PyObject *url_schemes) {
+    PyObject *spans = PyList_New(0);
+    if (spans == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int scan_status = scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, spans);
+    if (scan_status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_DECREF(spans);  /* GCOVR_EXCL_LINE */
+        return NULL;       /* GCOVR_EXCL_LINE */
     }
     return spans;
 }
@@ -518,7 +523,7 @@ PyObject *turbohtml_linkify_scan(PyObject *Py_UNUSED(module), PyObject *args) {
                           &extra_tlds, &PyTuple_Type, &url_schemes)) {
         return NULL;
     }
-    return do_scan(text, parse_email, bare_domains, extra_tlds, NULL, url_schemes);
+    return collect_matches(text, parse_email, bare_domains, extra_tlds, NULL, url_schemes);
 }
 
 /* _linkify_find(text, emails, bare_domains, extra_tlds, schemes, url_schemes=None)
@@ -537,5 +542,19 @@ PyObject *turbohtml_linkify_find(PyObject *Py_UNUSED(module), PyObject *args) {
                           &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes)) {
         return NULL;
     }
-    return do_scan(text, emails, bare_domains, extra_tlds, schemes, url_schemes);
+    return collect_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes);
+}
+
+PyObject *turbohtml_linkify_has(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *text;
+    int emails;
+    int bare_domains;
+    PyObject *extra_tlds;
+    PyObject *schemes;
+    PyObject *url_schemes = NULL;
+    if (!PyArg_ParseTuple(args, "UppO!O!|O!:_linkify_has", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
+                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes)) {
+        return NULL;
+    }
+    return PyBool_FromLong(scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL));
 }
