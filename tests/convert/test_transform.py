@@ -2433,6 +2433,7 @@ def test_transform_import_root_blocks_parent_swap(
     is_relative_to = path_type.is_relative_to
 
     def check_root(path: Path, other: Path) -> bool:
+        monkeypatch.undo()
         allowed = is_relative_to(path, other)
         inside.rename(root / "saved")
         if replacement == "file":
@@ -2457,6 +2458,7 @@ def test_transform_import_root_blocks_file_swap(
     is_relative_to = path_type.is_relative_to
 
     def check_root(path: Path, other: Path) -> bool:
+        monkeypatch.undo()
         allowed = is_relative_to(path, other)
         (inside / "base.xsl").rename(inside / "saved.xsl")
         try:
