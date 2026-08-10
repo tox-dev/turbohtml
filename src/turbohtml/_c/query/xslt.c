@@ -22,8 +22,19 @@
 #include "tokenizer/binding.h"
 #include "query/xpath/internal.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#include <wchar.h>
+#else
+#include <unistd.h>
+#endif
 
 static PyObject *make_str(const Py_UCS4 *data, Py_ssize_t len) {
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, len);
@@ -4459,13 +4470,49 @@ typedef struct {
     PyObject *url2pathname;
     PyObject *root;
     int allow_imports;
+#ifdef _WIN32
+    HANDLE root_handle;
+    wchar_t *root_final;
+    size_t root_final_len;
+#else
+    int root_fd;
+#endif
 } import_policy;
+
+static void import_descriptor_close(int descriptor) {
+#ifdef _WIN32
+    _close(descriptor);
+#else
+    close(descriptor);
+#endif
+}
+
+static Py_ssize_t import_descriptor_read(int descriptor, char *buffer, size_t size) {
+#ifdef _WIN32
+    int count;
+    Py_BEGIN_ALLOW_THREADS count = _read(descriptor, buffer, (unsigned int)size);
+#else
+    ssize_t count;
+    Py_BEGIN_ALLOW_THREADS count = read(descriptor, buffer, size);
+#endif
+    Py_END_ALLOW_THREADS return (Py_ssize_t)count;
+}
 
 static void import_policy_clear(import_policy *policy) {
     Py_DECREF(policy->path_type);
     Py_DECREF(policy->urlparse);
     Py_DECREF(policy->url2pathname);
     Py_XDECREF(policy->root);
+#ifdef _WIN32
+    if (policy->root_handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(policy->root_handle);
+    }
+    PyMem_Free(policy->root_final);
+#else
+    if (policy->root_fd >= 0) {
+        import_descriptor_close(policy->root_fd);
+    }
+#endif
 }
 
 static PyObject *import_path_from_url(import_policy *policy, PyObject *value, const char *name) {
@@ -4542,6 +4589,258 @@ static int import_check_root(import_policy *policy, PyObject *path) {
     return 0;
 }
 
+#ifdef _WIN32
+static HANDLE import_windows_open(PyObject *path, DWORD access, DWORD share, DWORD flags) {
+    PyObject *text = PyObject_Str(path);
+    if (text == NULL) {
+        return INVALID_HANDLE_VALUE;
+    }
+    wchar_t *wide = PyUnicode_AsWideCharString(text, NULL);
+    Py_DECREF(text);
+    if (wide == NULL) {
+        return INVALID_HANDLE_VALUE;
+    }
+    HANDLE handle;
+    Py_BEGIN_ALLOW_THREADS handle = CreateFileW(wide, access, share, NULL, OPEN_EXISTING, flags, NULL);
+    Py_END_ALLOW_THREADS PyMem_Free(wide);
+    if (handle == INVALID_HANDLE_VALUE) {
+        PyErr_SetExcFromWindowsErrWithFilenameObject(PyExc_OSError, 0, path);
+    }
+    return handle;
+}
+
+static wchar_t *import_windows_final_path(HANDLE handle, size_t *length) {
+    DWORD size;
+    Py_BEGIN_ALLOW_THREADS size = GetFinalPathNameByHandleW(handle, NULL, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    Py_END_ALLOW_THREADS if (size == 0) {
+        PyErr_SetFromWindowsErr(0);
+        return NULL;
+    }
+    wchar_t *path = PyMem_Malloc(((size_t)size + 1) * sizeof(*path));
+    if (path == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    DWORD written;
+    Py_BEGIN_ALLOW_THREADS written =
+        GetFinalPathNameByHandleW(handle, path, size + 1, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    Py_END_ALLOW_THREADS if (written == 0 || written > size) {
+        PyMem_Free(path);
+        PyErr_SetFromWindowsErr(0);
+        return NULL;
+    }
+    *length = written;
+    return path;
+}
+
+static int import_windows_path_inside(import_policy *policy, const wchar_t *path, size_t length) {
+    size_t root_length = policy->root_final_len;
+    while (root_length > 0 &&
+           (policy->root_final[root_length - 1] == L'\\' || policy->root_final[root_length - 1] == L'/')) {
+        root_length--;
+    }
+    if (length < root_length || wcsncmp(policy->root_final, path, root_length) != 0) {
+        return 0;
+    }
+    return length == root_length || path[root_length] == L'\\' || path[root_length] == L'/';
+}
+
+static int import_open_root(import_policy *policy) {
+    policy->root_handle = import_windows_open(policy->root, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                              FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    if (policy->root_handle == INVALID_HANDLE_VALUE) {
+        return -1;
+    }
+    policy->root_final = import_windows_final_path(policy->root_handle, &policy->root_final_len);
+    return policy->root_final == NULL ? -1 : 0;
+}
+
+static int import_open_file(import_policy *policy, PyObject *path) {
+    HANDLE handle = import_windows_open(path, GENERIC_READ | FILE_READ_ATTRIBUTES,
+                                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return -1;
+    }
+    size_t final_length;
+    wchar_t *final_path = import_windows_final_path(handle, &final_length);
+    if (final_path == NULL) {
+        CloseHandle(handle);
+        return -1;
+    }
+    int inside = import_windows_path_inside(policy, final_path, final_length);
+    PyMem_Free(final_path);
+    if (!inside) {
+        CloseHandle(handle);
+        PyErr_Format(PyExc_ValueError, "xsl:import path escapes import_root: %S", path);
+        return -1;
+    }
+    int descriptor = _open_osfhandle((intptr_t)handle, _O_RDONLY | _O_BINARY);
+    if (descriptor < 0) {
+        CloseHandle(handle);
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+    }
+    return descriptor;
+}
+#else
+static PyObject *import_fs_bytes(PyObject *path) {
+    PyObject *value = PyObject_Str(path);
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: pathlib.Path.__str__ only allocates */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    PyObject *bytes = PyUnicode_EncodeFSDefault(value);
+    Py_DECREF(value);
+    return bytes;
+}
+
+static int import_open_beneath(int anchor, PyObject *path, PyObject *error_path, int require_directory) {
+    PyObject *bytes = import_fs_bytes(path);
+    if (bytes == NULL) { /* GCOVR_EXCL_BR_LINE: pathlib paths encode unless allocation fails */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t length = PyBytes_GET_SIZE(bytes);
+    char *parts = PyMem_Malloc((size_t)length + 1);
+    if (parts == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        Py_DECREF(bytes); /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    memcpy(parts, PyBytes_AS_STRING(bytes), (size_t)length);
+    parts[length] = '\0';
+    Py_DECREF(bytes);
+    int descriptor;
+    do {
+        descriptor = fcntl(anchor, F_DUPFD_CLOEXEC, 0);
+    } while (descriptor < 0 && errno == EINTR); /* GCOVR_EXCL_BR_LINE: requires a signal during fcntl */
+    if (descriptor < 0) {  /* GCOVR_EXCL_BR_LINE: requires process-wide descriptor exhaustion */
+        PyMem_Free(parts); /* GCOVR_EXCL_LINE */
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, error_path); /* GCOVR_EXCL_LINE */
+        return -1;                                                       /* GCOVR_EXCL_LINE */
+    }
+    char *cursor = parts;
+    while (*cursor == '/') {
+        cursor++;
+    }
+    while (*cursor != '\0') {
+        char *separator = strchr(cursor, '/');
+        if (separator != NULL) {
+            *separator = '\0';
+        }
+        int last_component = separator == NULL;
+        int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW;
+        if (!last_component || require_directory) {
+            flags |= O_DIRECTORY;
+        }
+        int opened_descriptor;
+        do {
+            Py_BEGIN_ALLOW_THREADS opened_descriptor = openat(descriptor, cursor, flags);
+            Py_END_ALLOW_THREADS
+        } while (opened_descriptor < 0 && errno == EINTR); /* GCOVR_EXCL_BR_LINE: requires a signal during openat */
+        if (opened_descriptor < 0) {
+            int error = errno;
+            import_descriptor_close(descriptor);
+            PyMem_Free(parts);
+            if (error == ELOOP || error == ENOTDIR) {
+                PyErr_Format(PyExc_ValueError, "xsl:import path escapes import_root: %S", error_path);
+            } else {
+                errno = error;
+                PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, error_path);
+            }
+            return -1;
+        }
+        import_descriptor_close(descriptor);
+        descriptor = opened_descriptor;
+        if (last_component) {
+            break;
+        }
+        cursor = separator + 1;
+    }
+    PyMem_Free(parts);
+    return descriptor;
+}
+
+static int import_open_root(import_policy *policy) {
+    int anchor = open("/", O_RDONLY | O_CLOEXEC | O_DIRECTORY);
+    if (anchor < 0) {                      /* GCOVR_EXCL_BR_LINE: supported POSIX systems expose the filesystem root */
+        PyErr_SetFromErrno(PyExc_OSError); /* GCOVR_EXCL_LINE */
+        return -1;                         /* GCOVR_EXCL_LINE */
+    }
+    policy->root_fd = import_open_beneath(anchor, policy->root, policy->root, 1);
+    import_descriptor_close(anchor);
+    return policy->root_fd < 0 ? -1 : 0;
+}
+
+static int import_open_file(import_policy *policy, PyObject *path) {
+    PyObject *relative = PyObject_CallMethod(path, "relative_to", "O", policy->root);
+    if (relative == NULL) { /* GCOVR_EXCL_BR_LINE: import_check_root established containment */
+        return -1;          /* GCOVR_EXCL_LINE */
+    }
+    int descriptor = import_open_beneath(policy->root_fd, relative, path, 0);
+    Py_DECREF(relative);
+    return descriptor;
+}
+#endif
+
+static PyObject *import_read_descriptor(int descriptor, PyObject *path) {
+    char *data = NULL;
+    size_t length = 0;
+    size_t capacity = 0;
+    for (;;) {
+        if (length == capacity) {
+            size_t grown_capacity;
+            size_t grown_bytes;
+            /* GCOVR_EXCL_BR_START: address space cannot hold the input. */
+            if (!th_grow_cap(length + 1, capacity, 65536, sizeof(*data), &grown_capacity, &grown_bytes)) {
+                PyMem_Free(data);                    /* GCOVR_EXCL_LINE */
+                PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
+                import_descriptor_close(descriptor); /* GCOVR_EXCL_LINE */
+                return NULL;                         /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            char *grown = PyMem_Realloc(data, grown_bytes);
+            if (grown == NULL) {                     /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+                PyMem_Free(data);                    /* GCOVR_EXCL_LINE */
+                PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
+                import_descriptor_close(descriptor); /* GCOVR_EXCL_LINE */
+                return NULL;                         /* GCOVR_EXCL_LINE */
+            }
+            data = grown;
+            capacity = grown_capacity;
+        }
+        size_t remaining = capacity - length;
+        Py_ssize_t count = import_descriptor_read(descriptor, data + length, remaining < 65536 ? remaining : 65536);
+        if (count < 0 && errno == EINTR) { /* GCOVR_EXCL_BR_LINE: requires a signal during the read syscall */
+            continue;                      /* GCOVR_EXCL_LINE */
+        }
+        if (count < 0) {
+            int error = errno;
+            PyMem_Free(data);
+            import_descriptor_close(descriptor);
+            errno = error;
+            PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+            return NULL;
+        }
+        if (count == 0) {
+            break;
+        }
+        length += (size_t)count;
+    }
+    import_descriptor_close(descriptor);
+    PyObject *text = PyUnicode_DecodeUTF8(data, (Py_ssize_t)length, "strict");
+    PyMem_Free(data);
+    return text;
+}
+
+static PyObject *import_read_text(import_policy *policy, PyObject *path) {
+    if (policy->root == NULL) {
+        return PyObject_CallMethod(path, "read_text", "s", "utf-8");
+    }
+    int descriptor = import_open_file(policy, path);
+    if (descriptor < 0) {
+        return NULL;
+    }
+    return import_read_descriptor(descriptor, path);
+}
+
 static PyObject *load_stylesheet_import(PyObject *module, import_policy *policy, PyObject *base, PyObject *href) {
     PyObject *current_path = import_path_from_url(policy, base, "base_url");
     if (current_path == NULL) {
@@ -4582,7 +4881,7 @@ static PyObject *load_stylesheet_import(PyObject *module, import_policy *policy,
         Py_DECREF(current);
         return NULL;
     }
-    PyObject *text = PyObject_CallMethod(path, "read_text", "s", "utf-8");
+    PyObject *text = import_read_text(policy, path);
     if (text == NULL) {
         Py_DECREF(path);
         Py_DECREF(current);
@@ -4613,6 +4912,11 @@ static PyObject *load_stylesheet_import(PyObject *module, import_policy *policy,
 static int import_policy_init(import_policy *policy, int allow_imports, PyObject *import_root) {
     memset(policy, 0, sizeof(*policy));
     policy->allow_imports = allow_imports;
+#ifdef _WIN32
+    policy->root_handle = INVALID_HANDLE_VALUE;
+#else
+    policy->root_fd = -1;
+#endif
     PyObject *pathlib = PyImport_ImportModule("pathlib");
     PyObject *parse = PyImport_ImportModule("urllib.parse");
     PyObject *request = PyImport_ImportModule("urllib.request");
@@ -4651,6 +4955,10 @@ static int import_policy_init(import_policy *policy, int allow_imports, PyObject
         if (policy->root == NULL) {      /* GCOVR_EXCL_BR_LINE: Path.resolve fails here only on allocation */
             import_policy_clear(policy); /* GCOVR_EXCL_LINE */
             return -1;                   /* GCOVR_EXCL_LINE */
+        }
+        if (import_open_root(policy) < 0) {
+            import_policy_clear(policy);
+            return -1;
         }
     }
     return 0;
