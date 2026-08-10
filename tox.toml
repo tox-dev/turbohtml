@@ -112,6 +112,8 @@ commands = [
     { replace = "if", condition = "factor['3.10']", then = "97", else = "100" },
     "--html-details",
     "{env_tmp_dir}{/}c_htmlcov.html",
+    "--txt-metric",
+    "branch",
     "--txt",
     "-",
   ] },
