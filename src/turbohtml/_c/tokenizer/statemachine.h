@@ -91,6 +91,7 @@ typedef struct {
     Py_ssize_t attr_count;
     Py_ssize_t attr_cap;
     int self_closing;
+    int self_closing_acknowledged;
     /* DOCTYPE only */
     th_buf public_id;
     th_buf system_id;

@@ -831,6 +831,11 @@ static th_node *insert_element(th_tree *tree, const th_token *token) {
     return node;
 }
 
+static th_node *insert_void_element(th_tree *tree, th_token *token) {
+    token->self_closing_acknowledged = 1;
+    return insert_element(tree, token);
+}
+
 const th_meta_label *th_tree_meta_labels(const th_tree *tree, Py_ssize_t *count) {
     *count = tree->meta_label_count;
     return tree->meta_labels;
@@ -2288,7 +2293,7 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
             atom == TH_TAG_META) {
-            insert_element(tree, tok); /* void metadata: inserted, not pushed */
+            insert_void_element(tree, tok); /* void metadata: inserted, not pushed */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_NOSCRIPT) {
@@ -2374,7 +2379,7 @@ static enum th_drain drain_in_head_noscript(th_tree *tree, th_token *tok, th_ins
     if (tok->kind == TH_START_TAG) {
         uint16_t atom = tok_atom(tok);
         if (atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK || atom == TH_TAG_META) {
-            insert_element(tree, tok); /* void metadata */
+            insert_void_element(tree, tok); /* void metadata */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_STYLE || atom == TH_TAG_NOFRAMES) {
@@ -2459,7 +2464,7 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                     }
                     return TH_DRAIN_NEXT;
                 }
-                th_node *node = insert_element(tree, tok);
+                th_node *node = is_void_atom(atom) ? insert_void_element(tree, tok) : insert_element(tree, tok);
                 stack_pop(tree); /* remove head again */
                 if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
                     if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
@@ -2507,7 +2512,7 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
             atom == TH_TAG_META) {
-            insert_element(tree, tok); /* void head content */
+            insert_void_element(tree, tok); /* void head content */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
@@ -2577,7 +2582,7 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_FRAME) {
-            insert_element(tree, tok); /* void */
+            insert_void_element(tree, tok); /* void */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_NOFRAMES) {
@@ -2832,7 +2837,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                    first, so the hr lands at select level rather than inside the option */
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
             }
-            insert_element(tree, tok); /* void */
+            insert_void_element(tree, tok); /* void */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BUTTON) {
@@ -2885,7 +2890,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
             atom == TH_TAG_META) {
-            insert_element(tree, tok); /* head metadata: in-head rules, no AFE reconstruction */
+            insert_void_element(tree, tok); /* head metadata: in-head rules, no AFE reconstruction */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_FORM) {
@@ -2911,13 +2916,13 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 pop_until_atom(tree, TH_TAG_SELECT);
             }
             reconstruct_afe(tree);
-            insert_element(tree, tok); /* void */
+            insert_void_element(tree, tok); /* void */
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_IMAGE) {
             /* the famous quirk: <image> becomes <img> */
             reconstruct_afe(tree);
-            th_node *node = insert_element(tree, tok);
+            th_node *node = insert_void_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 node->atom = TH_TAG_IMG;
                 node->text = (Py_UCS4 *)th_tag_wide_name(TH_TAG_IMG);
@@ -3024,7 +3029,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         reconstruct_afe(tree);
-        th_node *node = insert_element(tree, tok);
+        th_node *node = is_void_atom(atom) ? insert_void_element(tree, tok) : insert_element(tree, tok);
         if (is_void_atom(atom)) {
             return TH_DRAIN_NEXT; /* void: inserted, not pushed (a stray "/" on any
                       other element is ignored in HTML content) */
@@ -3291,7 +3296,7 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_INPUT && input_is_hidden(tok)) {
-            insert_element(tree, tok); /* a hidden input stays in the table, no fostering */
+            insert_void_element(tree, tok); /* a hidden input stays in the table, no fostering */
             dc->mode = dc->table_origin;
             return TH_DRAIN_NEXT;
         }
@@ -3399,7 +3404,7 @@ static enum th_drain drain_in_column_group(th_tree *tree, th_token *tok, th_inse
         return TH_DRAIN_NEXT;
     }
     if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_COL) {
-        insert_element(tree, tok); /* col is void */
+        insert_void_element(tree, tok); /* col is void */
         return TH_DRAIN_NEXT;
     }
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_COLGROUP) {
@@ -3739,7 +3744,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         /* the element(s) this end tag pops are the ones the source closed explicitly */
         tree->closing_end_tag = tok->kind == TH_END_TAG ? tok : NULL;
         if (use_foreign_rules(tree, tok) && foreign_step(tree, tok)) {
-            continue; /* handled under foreign-content rules */
+            goto token_done; /* handled under foreign-content rules */
         }
         /* template tags are handled uniformly across the table/select modes (the
            spec routes them through in-head); in-body/in-head/in-template keep
@@ -3752,7 +3757,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
                 tmpl_pop(tree);
                 dc->mode = reset_insertion_mode(tree);
             }
-            continue;
+            goto token_done;
         }
         if (tok->kind == TH_START_TAG &&
             (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
@@ -3765,7 +3770,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
             }
             tmpl_push(tree, M_IN_TEMPLATE);
             dc->mode = M_IN_TEMPLATE;
-            continue;
+            goto token_done;
         }
         /* "in select in table": a select opened in a table context does not get its own
            mode here, so a table-family start tag would nest inside the still-open select.
@@ -3855,6 +3860,11 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         }
         if (action == TH_DRAIN_REPROCESS) {
             goto reprocess;
+        }
+    token_done:
+        if (tok->kind == TH_START_TAG && tok->self_closing && !tok->self_closing_acknowledged) {
+            th_error_sink_push(&tree->errors, "non-void-html-element-start-tag-with-trailing-solidus", tok->line,
+                               tok->col);
         }
     }
     run_state->mode = dc->mode;

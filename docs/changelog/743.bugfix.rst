@@ -1,0 +1,1 @@
+Report unacknowledged self-closing start tags as HTML parse errors.

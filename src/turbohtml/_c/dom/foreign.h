@@ -265,7 +265,8 @@ static int is_foreign_breakout(uint16_t atom) {
 
 /* Insert an element into a foreign (SVG/MathML) namespace, adjusting an SVG
    element's name to its mixed-case spelling. */
-static th_node *insert_foreign(th_tree *tree, const th_token *token, uint8_t ns) {
+static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
+    token->self_closing_acknowledged = 1;
     th_node *node = insert_element(tree, token);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
@@ -359,7 +360,7 @@ static int use_foreign_rules(th_tree *tree, const th_token *token) {
 
 /* Process a token under foreign-content rules. Returns 1 when handled, 0 when an
    HTML breakout/end-tag match means the caller should run the HTML rules. */
-static int foreign_step(th_tree *tree, const th_token *token) {
+static int foreign_step(th_tree *tree, th_token *token) {
     if (token->kind == TH_TEXT) {
         Py_ssize_t len;
         Py_UCS4 *text = token_text(tree, token, &len);
