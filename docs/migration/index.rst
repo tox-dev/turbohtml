@@ -95,21 +95,30 @@ input recovers the WHATWG way, and every node shares the navigation, query, and 
             :alt: html5-parser total downloads
             :target: https://pepy.tech/project/html5-parser
     - - 8
+      - :doc:`justhtml <justhtml>`
+      - `docs <https://emilstenstrom.github.io/justhtml/>`__
+      - .. image:: https://static.pepy.tech/badge/justhtml/month
+            :alt: JustHTML monthly downloads
+            :target: https://pepy.tech/project/justhtml
+      - .. image:: https://static.pepy.tech/badge/justhtml
+            :alt: JustHTML total downloads
+            :target: https://pepy.tech/project/justhtml
+    - - 9
       - :doc:`stdlib <stdlib>`
       - `docs <https://docs.python.org/3/library/html.parser.html>`__
       - Bundled with Python
       - --
-    - - 9
+    - - 10
       - :doc:`parse5 <parse5>`
       - `docs <https://github.com/inikulin/parse5>`__
       - JavaScript (npm)
       - --
-    - - 10
+    - - 11
       - :doc:`jsdom <jsdom>`
       - `docs <https://github.com/jsdom/jsdom>`__
       - JavaScript (npm)
       - --
-    - - 11
+    - - 12
       - :doc:`lol-html <lol-html>`
       - `docs <https://github.com/cloudflare/lol-html>`__
       - Rust / WASM

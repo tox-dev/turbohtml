@@ -68,6 +68,19 @@ doc = LexborHTMLParser(TEXT.encode())
 emit(elements=len(doc.css("*")), anchors=len(doc.css("a")), css=len(doc.css("div a[href]")), text=doc.text())
 """,
     ),
+    "JustHTML": (
+        ("justhtml>=3.11",),
+        """
+from justhtml import JustHTML
+doc = JustHTML(TEXT, sanitize=False).root
+emit(
+    elements=len(doc.query("*")),
+    anchors=len(doc.query("a")),
+    css=len(doc.query("div a[href]")),
+    text=doc.to_text(separator="", strip=False),
+)
+""",
+    ),
     "BeautifulSoup (html.parser)": (
         ("beautifulsoup4>=4.15", "soupsieve>=2.5"),
         """

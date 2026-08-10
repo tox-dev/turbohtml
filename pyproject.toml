@@ -152,6 +152,7 @@ bench = [
   "inscriptis>=2.7.2",
   "jsmin>=3.0.1",
   "justext>=3.0.2",
+  "justhtml>=3.11",
   "lightningcss>=0.3.1",
   "linkify-it-py>=2.1",
   "lxml>=6.1.1",

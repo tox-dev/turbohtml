@@ -14,6 +14,7 @@ Move parsing, tree-building, and DOM code to turbohtml.
     resiliparse
     mechanicalsoup
     html5-parser
+    justhtml
     stdlib
     parse5
     jsdom
