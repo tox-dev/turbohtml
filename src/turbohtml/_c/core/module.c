@@ -208,6 +208,7 @@ static PyMethodDef html_methods[] = {
     {"_matches_many", turbohtml_matches_many, METH_VARARGS, NULL},
     {"_select_many", turbohtml_select_many, METH_VARARGS, NULL},
     {"_xslt_resolve_imports", turbohtml_xslt_resolve_imports, METH_VARARGS, NULL},
+    {"_xslt_compile", turbohtml_xslt_compile, METH_VARARGS, NULL},
     {"_xslt_transform", turbohtml_xslt_transform, METH_VARARGS, NULL},
     {"_css_specificity", turbohtml_css_specificity, METH_VARARGS, NULL},
     {"_css_parse_declarations", turbohtml_css_parse_declarations, METH_O, NULL},

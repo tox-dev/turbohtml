@@ -13,7 +13,7 @@ import re
 import pytest
 
 import turbohtml
-from turbohtml.transform import transform
+from turbohtml.transform import Transform
 
 etree = pytest.importorskip("lxml.etree")
 
@@ -180,7 +180,7 @@ _CASES = [
 
 @pytest.mark.parametrize(("source", "sheet", "params", "method"), _CASES)
 def test_transform_matches_lxml(source: str, sheet: str, params: dict[str, str], method: str) -> None:
-    mine = transform(turbohtml.parse_xml(sheet), turbohtml.parse_xml(source), **params)
+    mine = Transform(turbohtml.parse_xml(sheet))(turbohtml.parse_xml(source), **params)
     theirs = _lxml(sheet, source, params)
     if method == "text":
         assert mine == theirs

@@ -4,11 +4,10 @@
 
 .. module:: turbohtml.transform
 
-Apply an XSLT 1.0 stylesheet to a document, the job `lxml <https://lxml.de>`_'s ``etree.XSLT`` does. A stylesheet is an
-XML document, so it is read with :func:`turbohtml.parse_xml`; :class:`Transform` holds the parsed stylesheet and is
-callable over source documents, the compile-once, apply-many shape. The whole transformation runs in the C extension,
-reusing turbohtml's XPath 1.0 engine for every match pattern and select expression rather than growing a second path
-evaluator.
+Apply an XSLT 1.0 stylesheet to a document, the job `lxml <https://lxml.de>`_'s ``etree.XSLT`` does. Parse the XML
+stylesheet with :func:`turbohtml.parse_xml`; :class:`Transform` compiles it into a callable for source documents. The C
+extension performs the transformation and sends every match pattern and select expression through turbohtml's XPath 1.0
+engine.
 
 .. autoclass:: Transform
     :members: __call__
@@ -26,5 +25,11 @@ adds the XSLT functions ``current()``, ``key()``, ``generate-id()``, ``format-nu
 ``function-available()``, and ``element-available()``.
 
 External-document loading is limited. ``xsl:import`` resolves local paths and file URLs against ``base_url``; the
-imported declarations join conflict resolution at lower import precedence. ``xsl:include`` and ``document()`` do not
+imported declarations join conflict resolution at lower import precedence. The compatibility default permits any local
+path. Set ``allow_imports=False`` for an untrusted stylesheet, or set ``import_root`` so parent traversal, absolute
+paths, file URLs, and resolved symlinks must stay inside one directory. ``xsl:include`` and ``document()`` do not
 resolve, and ``document()`` returns an empty node-set.
+
+:class:`Transform` copies the principal and imported stylesheets into private native storage, then builds the stylesheet
+model and compiled XPath programs during construction. Each call allocates source-specific evaluation state; callers can
+use one instance with different documents across threads without sharing writable caches.

@@ -1,0 +1,1 @@
+Add ``allow_imports`` and ``import_root`` controls for XSLT import filesystem access.

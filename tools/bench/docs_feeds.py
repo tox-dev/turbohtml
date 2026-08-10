@@ -90,6 +90,9 @@ TABLES: Final[dict[str, str | Combined]] = {
     "text-content": "text-content",
     "tokenizing": "tokenize",
     "tree-navigation": "navigate",
+    "xslt": "transform",
+    "xslt-compile": "transform-compile",
+    "xslt-reuse": "transform-reuse",
     "unescaping": "unescape",
     "url-cleaning": "urls-clean",
     "markdown": Combined(
