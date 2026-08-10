@@ -96,8 +96,8 @@ The vendored ``html5lib-tests`` conformance data is separate: it lives under ``t
 
 The committed ``tests/conformance/data/wpt_html_tree.json`` tracks the living WPT tree-construction corpus as a source
 apart from the frozen ``html5lib-tests`` data. Refresh it every three months and before releases or after WHATWG parsing
-changes. Check out the desired WPT revision before running the one command that updates the pin and prints the tree
-and parse-error results:
+changes. Check out the desired WPT revision before running the one command that updates the pin and prints the tree and
+parse-error results:
 
 ::
 
