@@ -2039,10 +2039,16 @@ static size_t sel_has_hash(const th_node *node, size_t mask) {
    always exists). Shared by get and insert so one probe loop carries both. */
 static size_t sel_has_memo_find(const sel_has_memo *memo, const sel_complex *rel, const th_node *node) {
     size_t idx = sel_has_hash(node, memo->mask);
-    while (memo->slots[idx].rel != NULL && (memo->slots[idx].node != node || memo->slots[idx].rel != rel)) {
+    for (;;) {
+        const sel_has_slot *slot = &memo->slots[idx];
+        if (slot->node == node && slot->rel == rel) {
+            return idx;
+        }
+        if (slot->rel == NULL) {
+            return idx;
+        }
         idx = (idx + 1) & memo->mask;
     }
-    return idx;
 }
 
 /* Look up (rel, node); on a hit store the cached result in *out and return 1. */
