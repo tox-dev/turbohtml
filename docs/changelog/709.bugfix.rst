@@ -1,0 +1,1 @@
+Reject SVG animation elements that can assign event handlers or script URLs at runtime.

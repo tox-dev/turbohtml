@@ -49,11 +49,17 @@ dropped even when a pattern would admit it:
 
     <p style="color: #0a0">ok</p>
 
+``Policy.attribute_filter`` replacements and ``Policy.set_attributes`` additions pass through the mandatory safety
+checks before serialization. These checks remove event handlers, disallowed URL and ``srcset`` schemes, unsafe CSS,
+media hosts outside ``media_hosts``, and values outside ``attribute_values``. Template stripping and named-property
+isolation run on the final values. The sanitizer ASCII-lowercases HTML names created by these rules before the checks.
+
 ``Policy.transform_tags`` renames elements during the same walk, sanitize-html's ``transformTags``. Key it by source
 tag: map to a bare string to rename, or to a :class:`Transform` to rename and add attributes. The rename runs *before*
 the allowlist, so the renamed element is re-checked from scratch -- a transform decides an element's name but never its
-safety. Mapping a tag to ``script`` still drops it, and an added attribute is scrubbed like the element's own, so it
-must be allowlisted to survive:
+safety. Mapping a tag to ``script`` still drops it. The sanitizer scrubs added attributes like source attributes, so the
+policy must allowlist them. Browsers treat HTML transform targets and injected attribute names as ASCII
+case-insensitive, and the sanitizer follows that rule.
 
 .. testcode::
 
@@ -113,7 +119,8 @@ element. The safety baseline still runs on whatever the matcher keeps, so an ``o
 
 ``Policy.allow_html``, ``Policy.allow_svg``, and ``Policy.allow_mathml`` gate each namespace independently, DOMPurify's
 ``USE_PROFILES``. All default on; turning one off drops that whole namespace even when its tags are allowlisted, so a
-policy can keep SVG but not MathML:
+policy can keep SVG but not MathML. The baseline blocks SVG animation elements under an SVG policy because they can
+assign event handlers or script URLs at runtime.
 
 .. testcode::
 

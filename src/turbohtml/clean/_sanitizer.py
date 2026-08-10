@@ -21,7 +21,7 @@ from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
-from turbohtml._html import _sanitize, parse_fragment
+from turbohtml._html import _sanitize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -141,10 +141,11 @@ class Policy:
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
     :param strip_comments: drop HTML comments from the output.
     :param add_link_rel: ``rel`` tokens forced onto every kept ``<a href>`` (e.g. ``noopener``).
-    :param attribute_filter: an optional last word over every surviving attribute, returning a replacement value or
-        ``None`` to drop it.
+    :param attribute_filter: an optional rewrite for each surviving attribute, returning a replacement value or
+        ``None`` to drop it. The replacement passes through the safety checks before serialization.
     :param set_attributes: attribute values forced onto every kept instance of a tag (added if absent, overwritten if
-        present); unlike ``attribute_filter``, this can add attributes that were not there.
+        present); unlike ``attribute_filter``, this can add attributes that were not there. Added values pass through
+        the same URL, CSS, template, value, media-host, and named-property checks as parsed attributes.
     :param remove_with_content: disallowed tags whose whole subtree is dropped (e.g. ``script``/``style``) rather than
         escaped or stripped, so their text never leaks into the output.
     :param css_properties: the CSS property allowlist. A kept ``style`` attribute and, when ``style`` is in ``tags``,
@@ -198,7 +199,8 @@ class Policy:
         ``USE_PROFILES.html``. Independent of the tag allowlist, so it composes with ``allow_svg``/``allow_mathml`` to
         select which content languages a policy admits.
     :param allow_svg: keep SVG-namespace elements, DOMPurify's ``USE_PROFILES.svg``. Off drops every SVG element even
-        when its tag is in ``tags``.
+        when its tag is in ``tags``. The baseline rejects SVG animation elements because they can assign event handlers
+        or script URLs at runtime; an allowlist cannot keep them.
     :param allow_mathml: keep MathML-namespace elements, DOMPurify's ``USE_PROFILES.mathMl``. Off drops every MathML
         element even when its tag is in ``tags``.
     :param xml: emit well-formed XML/XHTML instead of HTML, DOMPurify's ``RETURN_DOM`` served through the XML
@@ -346,9 +348,8 @@ class Sanitizer:
     def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Element:
         """Run the C walk over a freshly parsed fragment, appending drops to ``removed`` when it is not None."""
         policy = self.policy
-        root = parse_fragment(html)
-        _sanitize(
-            root,
+        return _sanitize(
+            html,
             policy.tags,
             self._attributes,
             policy.url_schemes,
@@ -375,7 +376,6 @@ class Sanitizer:
             policy.allow_svg,
             policy.allow_mathml,
         )
-        return root
 
 
 def sanitize(html: str, options: Policy | None = None) -> str:

@@ -25,6 +25,12 @@ decision was taken out of the policy's hands entirely. The same shape governs th
 handlers, ``<script>``, and ``javascript:`` URLs are dropped below the allowlists, so no combination of ``tags``,
 ``attributes``, or ``attribute_filter`` settings can bring them back.
 
+``attribute_filter`` and ``set_attributes`` write after the first checks over parsed attributes. The sanitizer therefore
+checks each rewritten value again. This pass covers handlers, URL and ``srcset`` schemes, CSS, template markers,
+configured value sets, media hosts, and named-property isolation. The serializer receives the checked result. Callbacks
+can narrow or rewrite policy output without gaining a route around the baseline. The extra scan runs only when a
+callback or matching ``set_attributes`` rule wrote a value, so configuring one tag does not rescan unrelated elements.
+
 ``transform_tags`` is the one step that *adds* rather than removes -- it renames an element and can inject attributes --
 so its placement is what keeps the model intact. The rename runs at the very top, before the allowlist reads the tag,
 and then the walk continues on the renamed element as if the author had written the target: the allowlist decides its
@@ -32,7 +38,9 @@ disposition, the unsafe-tag baseline still escapes a ``script`` or ``iframe`` ta
 the element's own to be scrubbed by the same gates below. A transform therefore chooses an element's *name* while every
 gate underneath still governs its *safety*. Putting the additive step above the subtractive stack, instead of letting it
 write past the allowlist, is why ``{"b": "script"}`` cannot smuggle a live ``<script>`` and an injected ``href`` cannot
-carry a ``javascript:`` URL -- the transform hands its output back to the pipeline rather than around it.
+carry a ``javascript:`` URL -- the transform hands its output back to the pipeline rather than around it. HTML target
+and injected attribute names are ASCII-lowercased before those checks, matching browser name handling and preventing a
+mixed-case policy value from bypassing a lowercase safety rule.
 
 ``isolate_named_props`` is the other rewriting step, and its design turns on a constraint the layered model does not:
 turbohtml has no live DOM. DOM clobbering exploits *named access* -- an ``id`` or ``name`` whose value matches a
@@ -59,6 +67,15 @@ whose ``attributeNameCheck`` can readmit an ``on*`` handler if the caller's patt
 event-handler and URL baseline unconditional, so a custom-element policy is safe by construction the same way a
 ``style`` policy is. Only basic custom-element names reach the matcher -- a hyphenated name clear of the reserved
 ``annotation-xml``/``font-face`` set -- so a matcher cannot be tricked into keeping a real foreign element by its name.
+
+SVG animation needs an element rule in addition to direct attribute checks. ``animate``, ``set``, ``animateMotion``,
+``animateTransform``, and ``animateColor`` can assign the attribute named by ``attributeName`` at runtime. A value in
+``from``, ``to``, or ``values`` can write a script URL or event handler without placing that value in a direct URL or
+``on*`` attribute. The baseline blocks these animation elements under custom SVG allowlists.
+
+The string API parses into the private tree that the native walk mutates. The internal Element entrypoint snapshots its
+input under the tree's critical section, then releases the shared tree before invoking a policy callback. Callback code
+may retain or mutate the original tree without racing the sanitizer's private copy.
 
 The ``allow_html``/``allow_svg``/``allow_mathml`` profiles are the coarsest subtractive layer of all: each drops a whole
 content language above the allowlist, so a namespace a policy disables is gone no matter which of its tags appear in
