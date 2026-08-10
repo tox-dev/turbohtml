@@ -266,11 +266,9 @@ PyObject *turbohtml_parse_tree(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_fragment(PyObject *module, PyObject *args);
 PyObject *turbohtml_parse_only(PyObject *module, PyObject *arg);
 
-/* Implemented in query/xslt.c, the XSLT 1.0 processor. _xslt_transform(stylesheet,
-   source, params) transforms the source document by the stylesheet's templates,
-   reusing the XPath engine for every match pattern and select expression, and
-   returns the serialized result string under the stylesheet's xsl:output method.
-   Signature matches METH_VARARGS. */
+/* Implemented in query/xslt.c. _xslt_compile builds immutable stylesheet state;
+   _xslt_transform applies it with source-specific execution state. */
+PyObject *turbohtml_xslt_compile(PyObject *module, PyObject *args);
 PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args);
 
 /* Implemented in query/xpath/functions.c. _xpath_parse compiles an XPath expression and returns a

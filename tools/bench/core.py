@@ -745,8 +745,20 @@ def xpath_path(text: str) -> None:
 
 
 @functools.cache
+def _xslt_sheet(sheet: str) -> turbohtml.Document:
+    """Keep XML parsing outside compile timing."""
+    return turbohtml.parse_xml(sheet)
+
+
+def transform_compile(case: tuple[str, str]) -> None:
+    """Measure construction without source evaluation."""
+    sheet, _source = case
+    _Transform(_xslt_sheet(sheet))
+
+
+@functools.cache
 def _xslt_compiled(sheet: str, source: str) -> tuple[_Transform, turbohtml.Document]:
-    """Compile the stylesheet and parse the source once, so the op times only the transformation."""
+    """Keep construction and source parsing outside application timing."""
     return _Transform(turbohtml.parse_xml(sheet)), turbohtml.parse_xml(source)
 
 
@@ -755,6 +767,14 @@ def transform(case: tuple[str, str]) -> None:
     sheet, source = case
     compiled, document = _xslt_compiled(sheet, source)
     compiled(document)
+
+
+def transform_reuse(case: tuple[str, str]) -> None:
+    """Apply one compiled stylesheet ten times."""
+    sheet, source = case
+    compiled, document = _xslt_compiled(sheet, source)
+    for _ in range(10):
+        compiled(document)
 
 
 def _count_ext(_context: object, nodes: list[object]) -> float:
@@ -990,6 +1010,8 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "xpath": (xpath, "turbohtml"),
     "xpath-id": (xpath_id, "turbohtml"),
     "transform": (transform, "turbohtml"),
+    "transform-compile": (transform_compile, "turbohtml"),
+    "transform-reuse": (transform_reuse, "turbohtml"),
     "transform-sort": (transform, "turbohtml"),
     "transform-dense": (transform, "turbohtml"),
     "minify-css": (minify_css, "turbohtml"),

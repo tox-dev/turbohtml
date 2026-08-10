@@ -381,6 +381,27 @@ pays, and turbohtml's compiled program stays ahead per evaluation.
 .. bench-table::
     :file: bench/querying-5.json
 
+******
+ XSLT
+******
+
+:class:`turbohtml.transform.Transform` compiles one stylesheet into a native model with reusable XPath programs. Each
+application allocates source-specific indexes and output state. Callers can use one ``Transform`` instance with
+different documents and parameters across threads.
+
+The first table measures construction. The other two measure a 120-row catalog and ten calls to a 300-template
+stylesheet. That stylesheet has 299 unused templates and 24 static ``xsl:number`` patterns in its used template; the
+repeated result includes any stylesheet analysis or XPath compilation left in the application path.
+
+.. bench-table::
+    :file: bench/xslt-compile.json
+
+.. bench-table::
+    :file: bench/xslt.json
+
+.. bench-table::
+    :file: bench/xslt-reuse.json
+
 ************
  Node paths
 ************

@@ -225,6 +225,9 @@ from ._stubs.query import (
     _xpath_parse as _xpath_parse,
 )
 from ._stubs.query import (
+    _xslt_compile as _xslt_compile,
+)
+from ._stubs.query import (
     _xslt_resolve_imports as _xslt_resolve_imports,
 )
 from ._stubs.query import (

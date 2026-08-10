@@ -1,0 +1,23 @@
+{
+  "label": "XSLT transform a catalog (120 rows)",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "catalog (120 rows)",
+      0.00017508348188393085,
+      0.00026295260439468393
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.013615131628127292,
+      0.008103144526729045
+    ]
+  ],
+  "notes": {}
+}
