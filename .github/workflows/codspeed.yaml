@@ -60,5 +60,7 @@ jobs:
           # the arena count reaches the measurement. One arena is the same arena on every runner.
           GLIBC_TUNABLES: "glibc.cpu.hwcaps=-AVX512F,-AVX512VL,-AVX512BW,-AVX512DQ,-AVX512CD,-AVX2,-AVX,-ERMS,-FSRM:glibc.malloc.arena_max=1"
         with:
+          # Allocator instruction counts still vary across GitHub CPU models after pinning glibc's dispatch and arenas.
+          exclude-allocations: true
           mode: simulation
           run: .tox/codspeed/bin/python -m pytest tests/benchmarks --codspeed
