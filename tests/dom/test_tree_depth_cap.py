@@ -137,6 +137,14 @@ def test_clone_walk_copies_a_deep_tree(duplicate: Callable[[Element], Element]) 
     assert clone.equals(root)
 
 
+def test_clone_walk_copies_deep_siblings() -> None:
+    root, deepest = _nested_with_deepest("x", _DEEP, None)
+    deepest.append(Element("a"))
+    deepest.append(Element("b"))
+    clone = copy.copy(root)
+    assert (clone is not root, clone.html) == (True, root.html)
+
+
 def test_append_copies_a_deep_foreign_tree() -> None:
     root = Element("root")
     child = _nested("x", _DEEP, "bottom")
