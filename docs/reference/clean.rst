@@ -238,9 +238,9 @@ insignificant whitespace, omit optional tags, unquote attributes, strip comments
 The HTML minify layout emits ``<style>`` bodies verbatim; to also minify embedded CSS, run :func:`minify_css` (below)
 over a ``<style>`` body yourself, which is what ``minify-html``'s ``minify_css`` did inline. Passing a :class:`JSMinify`
 as ``Minify(minify_js=...)`` rewrites inline ``<script>`` content, covering ``minify-html``'s ``minify_js``. The doctype
-is always normalized to ``<!doctype html>`` (``minify-html``'s ``minify_doctype`` is implicit), and HTML has no
-processing instructions to drop (``remove_processing_instructions`` is moot under the WHATWG parser, which reads them as
-bogus comments).
+normalizes to ``<!doctype html>`` (``minify-html``'s ``minify_doctype`` is implicit). The minifier preserves HTML
+processing instructions; remove :class:`~turbohtml.ProcessingInstruction` nodes before serialization when translating
+``remove_processing_instructions``.
 
 *****************
  JS minification

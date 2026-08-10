@@ -70,14 +70,13 @@ static void serialize_node_line(sbuf *out, th_tree *tree, th_node *node, int dep
     case TH_NODE_CONTENT:
         sbuf_puts(out, "content");
         break;
-    /* GCOVR_EXCL_START: a WHATWG-conformant parse never yields a PI (folded to a
-       comment) or a CDATA section (folded to text), so the #document dumper, which
-       only serves parsed trees, never reaches these. */
     case TH_NODE_PI:
         sbuf_puts(out, "<?");
         sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_putc(out, '>');
+        sbuf_puts(out, "?>");
         break;
+    /* GCOVR_EXCL_START: the HTML parser folds a foreign CDATA section to text, so
+       the #document dumper, which serves parsed trees, never reaches this type. */
     case TH_NODE_CDATA:
         sbuf_puts(out, "<![CDATA[");
         sbuf_put_ucs4(out, node->text, node->text_len);

@@ -10,6 +10,7 @@ class TokenType(IntEnum):
     COMMENT = 3
     DOCTYPE = 4
     CHARACTER_REFERENCE = 5
+    PROCESSING_INSTRUCTION = 6
 
 @final
 class Token:
@@ -21,6 +22,8 @@ class Token:
     def source(self) -> str | None: ...
     @property
     def tag(self) -> str | None: ...
+    @property
+    def target(self) -> str | None: ...
     @property
     def attrs(self) -> list[tuple[str, str]] | None: ...
     @property

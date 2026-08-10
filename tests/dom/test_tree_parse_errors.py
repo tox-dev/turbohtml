@@ -20,7 +20,6 @@ from turbohtml import Document, HTMLParseError, IncrementalParser, ParseError, T
         pytest.param("<!-->", "abrupt-closing-of-empty-comment", 1, 4, id="abrupt-empty-comment"),
         pytest.param("<!--->", "abrupt-closing-of-empty-comment", 1, 5, id="abrupt-empty-comment-dash"),
         pytest.param("</>", "missing-end-tag-name", 1, 2, id="missing-end-tag-name"),
-        pytest.param("<?php?>", "unexpected-question-mark-instead-of-tag-name", 1, 1, id="question-mark"),
         pytest.param("<html><!DOCTYPE html>", "unexpected-doctype", 1, 6, id="unexpected-doctype"),
     ],
 )

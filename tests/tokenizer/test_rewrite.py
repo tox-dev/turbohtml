@@ -22,7 +22,7 @@ def _set(name: str, value: str) -> Callable[[Element], None]:
 
 
 def test_rewrite_noop_returns_input_unchanged() -> None:
-    src = '<!DOCTYPE html><html><body><p class=x>Hi &amp; bye</p><img src="a.png"></body></html>'
+    src = '<!DOCTYPE html><html><body><?pi data?><p class=x>Hi &amp; bye</p><img src="a.png"></body></html>'
     assert rewrite(src) == src
 
 

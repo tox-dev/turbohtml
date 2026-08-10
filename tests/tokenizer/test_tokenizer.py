@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 def _shape(token: Token) -> tuple[object, ...]:
-    return (token.type, token.tag, token.data, token.attrs, token.self_closing)
+    return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
 
 
 def assert_streaming_matches_whole(document: str) -> None:
@@ -38,10 +38,10 @@ def assert_streaming_matches_whole(document: str) -> None:
 
 def test_tokenize_simple_document() -> None:
     head, start, body, end = list(tokenize('a<p class="x">b</p>'))
-    assert _shape(head) == (TokenType.TEXT, None, "a", None, False)
-    assert _shape(start) == (TokenType.START_TAG, "p", None, [("class", "x")], False)
-    assert _shape(body) == (TokenType.TEXT, None, "b", None, False)
-    assert _shape(end) == (TokenType.END_TAG, "p", None, [], False)
+    assert _shape(head) == (TokenType.TEXT, None, None, "a", None, False)
+    assert _shape(start) == (TokenType.START_TAG, "p", None, None, [("class", "x")], False)
+    assert _shape(body) == (TokenType.TEXT, None, None, "b", None, False)
+    assert _shape(end) == (TokenType.END_TAG, "p", None, None, [], False)
 
 
 def test_tokenize_empty_input() -> None:
@@ -54,6 +54,46 @@ def test_comment_token() -> None:
     assert comment.data == " hi "
     assert comment.tag is None
     assert comment.attrs is None
+
+
+@pytest.mark.parametrize(
+    ("document", "target", "data"),
+    [
+        pytest.param("<?pi>", "pi", "", id="greater-than-close"),
+        pytest.param("<?pi?>", "pi", "", id="question-mark-close"),
+        pytest.param("<?pi   value?>", "pi", "value", id="leading-data-space-collapses"),
+        pytest.param("<?pi value?part>", "pi", "value?part", id="question-mark-data"),
+        pytest.param("<?module-handler data>", "module-handler", "data", id="target-punctuation"),
+        pytest.param("<?_private1 data>", "_private1", "data", id="underscore-and-digit-target"),
+    ],
+)
+def test_processing_instruction_token(document: str, target: str, data: str, width_prefix: str) -> None:
+    token = list(tokenize(width_prefix + document, capture_source=True))[-1]
+    assert (token.type, token.target, token.data, token.source, token.tag) == (
+        TokenType.PROCESSING_INSTRUCTION,
+        target,
+        data,
+        document,
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("document", "data"),
+    [
+        pytest.param("<?xml?>", "?xml?", id="xml"),
+        pytest.param("<?XML-stylesheet href=x?>", "?XML-stylesheet href=x?", id="xml-stylesheet-case-insensitive"),
+        pytest.param("<?1bad>", "?1bad", id="bad-first-character"),
+        pytest.param("<?bad.target>", "?bad.target", id="bad-target-character"),
+    ],
+)
+def test_invalid_processing_instruction_is_a_comment(document: str, data: str, width_prefix: str) -> None:
+    token = list(tokenize(width_prefix + document))[-1]
+    assert (token.type, token.data, token.target) == (TokenType.COMMENT, data, None)
+
+
+def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str) -> None:
+    assert [token.data for token in tokenize(width_prefix + "<?pi ")] == ([width_prefix] if width_prefix else [])
 
 
 # each expected tuple is (type, name, public_id, system_id, force_quirks)
@@ -152,18 +192,22 @@ def test_attr_name_must_be_str() -> None:
 
 
 def test_token_repr() -> None:
-    tokens = list(tokenize("a<p x=1></p><!--c--><!DOCTYPE html>"))
-    assert repr(tokens[0]) == "Token(TEXT, data='a')"
-    assert repr(tokens[1]) == "Token(START_TAG, tag='p')"
-    assert repr(tokens[2]) == "Token(END_TAG, tag='p')"
-    assert repr(tokens[3]) == "Token(COMMENT, data='c')"
-    assert repr(tokens[4]) == "Token(DOCTYPE, name='html')"
+    tokens = list(tokenize("a<p x=1></p><!--c--><!DOCTYPE html><?pi data?>"))
+    assert [repr(token) for token in tokens] == [
+        "Token(TEXT, data='a')",
+        "Token(START_TAG, tag='p')",
+        "Token(END_TAG, tag='p')",
+        "Token(COMMENT, data='c')",
+        "Token(DOCTYPE, name='html')",
+        "Token(PROCESSING_INSTRUCTION, target='pi', data='data')",
+    ]
 
 
 def test_token_type_enum() -> None:
-    assert [member.value for member in TokenType] == [0, 1, 2, 3, 4, 5]
+    assert [member.value for member in TokenType] == [0, 1, 2, 3, 4, 5, 6]
     assert TokenType.TEXT == 0
     assert TokenType.CHARACTER_REFERENCE == 5
+    assert TokenType.PROCESSING_INSTRUCTION == 6
     assert isinstance(TokenType.START_TAG, int)
 
 
@@ -366,6 +410,7 @@ def test_single_text_token(text: str, expected: str) -> None:
         pytest.param("a<p>ő x=🎉>b", id="widening-midstream"),
         pytest.param("<![CDATA[x]]>", id="cdata-bogus"),
         pytest.param("</> <?bogus> text", id="bogus-comments"),
+        pytest.param("<?pi data?more>", id="processing-instruction"),
     ],
 )
 def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> None:
@@ -399,6 +444,10 @@ def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> No
         pytest.param("<!--x<!", id="comment-lt-bang"),
         pytest.param("<!--x<!-", id="comment-lt-bang-dash"),
         pytest.param("<a x=&amp", id="attr-charref"),
+        pytest.param("<?", id="processing-instruction-open"),
+        pytest.param("<?pi", id="processing-instruction-target"),
+        pytest.param("<?pi data", id="processing-instruction-data"),
+        pytest.param("<?pi data?", id="processing-instruction-questionable"),
         pytest.param("<script><!--</scrip >x", id="escaped-end-inappropriate-space"),
         pytest.param("<script><!--</scrip/>x", id="escaped-end-inappropriate-slash"),
         pytest.param("<script><!--<scr ipt>x", id="double-escape-start-space"),

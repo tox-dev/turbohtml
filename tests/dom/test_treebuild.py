@@ -63,8 +63,8 @@ class Recorder:
     def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]
         return Built("comment", (data,))
 
-    def create_pi(self, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("pi", (data,))
+    def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]
+        return Built("pi", (target, data))
 
     def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]
         parent.children.append(child)
@@ -110,7 +110,7 @@ def test_processing_instruction_is_distinct_from_comment() -> None:
     body = build("<body><?php echo 1?></body>").children[0].children[1]
     node = body.children[0]
     assert node.kind == "pi"
-    assert node.payload == ("?php echo 1?",)
+    assert node.payload == ("php", "echo 1")
 
 
 def test_svg_and_mathml_carry_their_foreign_namespace() -> None:
@@ -179,7 +179,7 @@ def _flatten(node: Built, out: list[SaxEvent]) -> None:
         out.append(Comment(node.payload[0]))
         return
     if node.kind == "pi":
-        out.append(ProcessingInstruction(node.payload[0]))
+        out.append(ProcessingInstruction(*node.payload))
         return
     if node.kind == "doctype":
         out.append(Doctype(*node.payload))
@@ -241,8 +241,8 @@ class _RaisingBuilder(Recorder):
     def create_comment(self, data: str) -> Built:
         return self._maybe("create_comment", super().create_comment(data))
 
-    def create_pi(self, data: str) -> Built:
-        return self._maybe("create_pi", super().create_pi(data))
+    def create_pi(self, target: str, data: str) -> Built:
+        return self._maybe("create_pi", super().create_pi(target, data))
 
     def append(self, parent: Built, child: Built) -> None:
         if self._at == "append":

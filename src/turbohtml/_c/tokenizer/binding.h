@@ -42,7 +42,7 @@ typedef struct {
     PyObject *tokenizer_type;         /* Tokenizer */
     PyObject *iter_type;              /* the iterator returned by feed()/close()/tokenize() */
     PyObject *kind_enum;              /* TokenType (enum.IntEnum) */
-    PyObject *kinds[6];               /* cached TokenType members, indexed by enum th_kind */
+    PyObject *kinds[7];               /* cached TokenType members, indexed by enum th_kind */
     PyObject *node_type;              /* Node (the sealed-hierarchy base) */
     PyObject *element_type;           /* Element */
     PyObject *text_type;              /* Text */

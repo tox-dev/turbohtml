@@ -14,6 +14,7 @@ static int stack_push(th_tree *tree, th_node *node);
 static void stack_pop(th_tree *tree);
 static th_node *insert_element(th_tree *tree, const th_token *token);
 static void insert_comment(th_tree *tree, const th_token *token, th_node *parent);
+static void insert_comment_or_pi(th_tree *tree, const th_token *token, th_node *parent);
 static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len);
 static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out_len);
 static uint16_t tok_atom(const th_token *tok);
@@ -376,8 +377,8 @@ static int foreign_step(th_tree *tree, const th_token *token) {
         insert_text(tree, text, len);
         return 1;
     }
-    if (token->kind == TH_COMMENT) {
-        insert_comment(tree, token, NULL);
+    if (token->kind == TH_COMMENT || token->kind == TH_PI) {
+        insert_comment_or_pi(tree, token, NULL);
         return 1;
     }
     if (token->kind == TH_DOCTYPE) {

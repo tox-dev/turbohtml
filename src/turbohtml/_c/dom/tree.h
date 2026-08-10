@@ -40,9 +40,8 @@ enum th_node_type {
     TH_NODE_COMMENT,
     TH_NODE_DOCTYPE,
     TH_NODE_CONTENT, /* a <template>'s content document fragment */
-    TH_NODE_PI,      /* a processing instruction (construction only; the parser folds
-                        <? ... > into a comment and foreign CDATA into text) */
-    TH_NODE_CDATA,   /* a CDATA section (construction only, same reason) */
+    TH_NODE_PI,
+    TH_NODE_CDATA, /* a CDATA section (construction only; the HTML parser folds foreign CDATA into text) */
 };
 
 /* A doctype node reuses its (element-only) tag_flags field to record which
@@ -75,12 +74,6 @@ enum th_node_type {
    shadowrootclonable attributes; both clear on a shadow root the mutation API creates. */
 #define TH_SHADOW_DELEGATES_FOCUS 0x04u
 #define TH_SHADOW_CLONABLE 0x08u
-
-/* A comment node the parser built from a `<?` bogus comment (a comment carries no
-   element category bits, so this bit is free on it, disjoint from the content-node
-   shadow bits above). The SAX walk reads it to report the node as a processing
-   instruction rather than a comment. */
-#define TH_COMMENT_IS_PI 0x01u
 
 /* An attribute on an element node. The name is interned to an atom: a static
    compile-time id for common names (attr_atom.h), or a per-tree dynamic id for

@@ -19,9 +19,9 @@ typedef struct {
     PyObject *src_str;   /* resolved verbatim source string (NULL until needed) */
 } TokenObject;
 
-#define KIND_COUNT 6
-static const char *const KIND_NAMES[KIND_COUNT] = {"TEXT",    "START_TAG", "END_TAG",
-                                                   "COMMENT", "DOCTYPE",   "CHARACTER_REFERENCE"};
+#define KIND_COUNT 7
+static const char *const KIND_NAMES[KIND_COUNT] = {
+    "TEXT", "START_TAG", "END_TAG", "COMMENT", "DOCTYPE", "CHARACTER_REFERENCE", "PROCESSING_INSTRUCTION"};
 
 static module_state *state_of(PyObject *self) {
     return PyType_GetModuleState(Py_TYPE(self));
@@ -183,7 +183,8 @@ static PyObject *token_get_data(PyObject *self, void *Py_UNUSED(closure)) {
         }
         return Py_NewRef(token->data_str);
     }
-    if (token->record.kind == TH_TEXT || token->record.kind == TH_COMMENT || token->record.kind == TH_CHARREF) {
+    if (token->record.kind == TH_TEXT || token->record.kind == TH_COMMENT || token->record.kind == TH_CHARREF ||
+        token->record.kind == TH_PI) {
         return buf_to_str(&token->record.text);
     }
     Py_RETURN_NONE;
@@ -213,6 +214,14 @@ static PyObject *token_get_source(PyObject *self, void *Py_UNUSED(closure)) {
 static PyObject *token_get_tag(PyObject *self, void *Py_UNUSED(closure)) {
     const th_token *record = &((TokenObject *)self)->record;
     if (is_tag(record)) {
+        return buf_to_str(&record->name);
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject *token_get_target(PyObject *self, void *Py_UNUSED(closure)) {
+    const th_token *record = &((TokenObject *)self)->record;
+    if (record->kind == TH_PI) {
         return buf_to_str(&record->name);
     }
     Py_RETURN_NONE;
@@ -306,9 +315,11 @@ static PyObject *token_get_col(PyObject *self, void *Py_UNUSED(closure)) {
    from _html.pyi, the single source of truth (see docs/conf.py). */
 static PyGetSetDef token_getset[] = {
     {"type", token_get_type, NULL, "the TokenType of this token", NULL},
-    {"data", token_get_data, NULL, "text run, comment, or resolved character-reference data, else None", NULL},
+    {"data", token_get_data, NULL, "text, comment, processing-instruction, or character-reference data, else None",
+     NULL},
     {"source", token_get_source, NULL, "verbatim source slice this token came from, else None", NULL},
     {"tag", token_get_tag, NULL, "lowercased tag name for start/end tags, else None", NULL},
+    {"target", token_get_target, NULL, "processing-instruction target, else None", NULL},
     {"attrs", token_get_attrs, NULL, "attribute (name, value) pairs for tags, else None", NULL},
     {"self_closing", token_get_self_closing, NULL, "whether a start tag carried a trailing slash", NULL},
     {"name", token_get_name, NULL, "DOCTYPE name, else None", NULL},
@@ -381,6 +392,19 @@ static PyObject *token_repr(PyObject *self) {
         }
         PyObject *repr = th_str_format("Token(DOCTYPE, name=%R)", name);
         Py_DECREF(name);
+        return repr;
+    }
+    if (record->kind == TH_PI) {
+        PyObject *target = buf_to_str(&record->name);
+        PyObject *data = buf_to_str(&record->text);
+        if (target == NULL || data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_XDECREF(target);               /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(data);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *repr = th_str_format("Token(PROCESSING_INSTRUCTION, target=%R, data=%R)", target, data);
+        Py_DECREF(target);
+        Py_DECREF(data);
         return repr;
     }
     PyObject *data = token_get_data(self, NULL);
@@ -461,7 +485,8 @@ static int build_kind_enum(PyObject *module, module_state *state) {
                              "(Token.tag, Token.attrs); COMMENT is a comment (Token.data); DOCTYPE is a "
                              "document type declaration (Token.name and the public/system ids); "
                              "CHARACTER_REFERENCE is a single resolved reference emitted on its own when the "
-                             "tokenizer runs with resolve_references=False.");
+                             "tokenizer runs with resolve_references=False; PROCESSING_INSTRUCTION carries "
+                             "Token.target and Token.data.");
     /* allocation failure cannot be forced from a test */
     if (doc == NULL || PyObject_SetAttrString(kind_enum, "__doc__", doc) < 0) { /* GCOVR_EXCL_BR_LINE */
         Py_XDECREF(doc);      /* GCOVR_EXCL_LINE: alloc-failure path */

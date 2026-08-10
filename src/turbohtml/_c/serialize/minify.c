@@ -327,6 +327,10 @@ static int mini_starts_with_ws(th_tree *tree, th_node *node) {
     return node->type == TH_NODE_TEXT && node->text_len > 0 && is_space(need_text(tree, node)[0]);
 }
 
+static int mini_is_comment_like(th_node *node) {
+    return node->type == TH_NODE_COMMENT || node->type == TH_NODE_PI;
+}
+
 /* Whether node lies within an html <atom> ancestor the parser would have "in scope",
    walking the parent chain the way has_in_scope walks the open stack: an html scoping
    element or any foreign ancestor bounds the search. rt/rp only imply-close a preceding
@@ -387,9 +391,9 @@ static int mini_end_tag_rule(th_tree *tree, th_node *node, th_node *next) {
                (last && node->parent->ns == TH_NS_HTML && !mini_p_parent_excluded(node->parent->atom));
     case TH_TAG_HTML:
     case TH_TAG_BODY:
-        return next == NULL || next->type != TH_NODE_COMMENT; /* not immediately followed by a comment */
+        return next == NULL || !mini_is_comment_like(next);
     case TH_TAG_HEAD:
-        return next == NULL || (next->type != TH_NODE_COMMENT && !mini_starts_with_ws(tree, next));
+        return next == NULL || (!mini_is_comment_like(next) && !mini_starts_with_ws(tree, next));
     default:
         return 0;
     }
@@ -435,7 +439,7 @@ static int mini_omit_start_tag(th_tree *tree, th_node *node, int strip_comments)
     if (first == NULL) {
         return 1;
     }
-    if (first->type == TH_NODE_COMMENT || mini_starts_with_ws(tree, first)) {
+    if (mini_is_comment_like(first) || mini_starts_with_ws(tree, first)) {
         return 0;
     }
     return !(first->type == TH_NODE_ELEMENT &&
@@ -635,14 +639,14 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             sbuf_put_ucs4(out, node->text, doctype_name_len(node));
             sbuf_putc(out, '>');
             break;
-        /* GCOVR_EXCL_START: a WHATWG-conformant parse folds a PI to a comment and
-           a CDATA section to text, so the minifier, which only serves parsed
-           trees, never reaches these node types. */
         case TH_NODE_PI:
+            last_was_space = 0;
             sbuf_puts(out, "<?");
             sbuf_put_ucs4(out, node->text, node->text_len);
             sbuf_putc(out, '>');
             break;
+        /* GCOVR_EXCL_START: the HTML parser folds a foreign CDATA section to text,
+           so the minifier, which serves parsed trees, never reaches this type. */
         case TH_NODE_CDATA:
             sbuf_puts(out, "<![CDATA[");
             sbuf_put_ucs4(out, node->text, node->text_len);

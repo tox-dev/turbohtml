@@ -35,7 +35,7 @@ from typing import cast
 import pytest
 
 import turbohtml
-from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, Text, _html
+from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, ProcessingInstruction, Text, _html
 
 _TREE_DIR = Path(__file__).parents[1] / "html5lib-tests" / "tree-construction"
 
@@ -92,6 +92,8 @@ def _dump_node(node: Node, depth: int, out: list[str]) -> None:
         out.append(f'{pad}"{node.data}"')
     elif isinstance(node, Comment):
         out.append(f"{pad}<!-- {node.data} -->")
+    elif isinstance(node, ProcessingInstruction):
+        out.append(f"{pad}<?{node.target} {node.data}?>")
     else:
         doctype = cast("Doctype", node)  # the corpus dumps only element/text/comment/doctype nodes
         name = doctype.name or ""
@@ -152,6 +154,10 @@ _SPEC_LAG: frozenset[tuple[str, str, str | None]] = frozenset({
     ("foreign-fragment.dat", "</br><foo>", "svg svg"),
     ("tests7.dat", "<select><keygen>", None),
     ("tests_innerHTML_1.dat", "<keygen><option>", "select"),
+    ("html5test-com.dat", '<?import namespace="foo" implementation="#bar">', None),
+    ("tests1.dat", "<?", None),
+    ("tests1.dat", "<?COMMENT?>", None),
+    ("tests1.dat", "<?COM--MENT?>", None),
 })
 
 # The html5lib `#document` text format wraps each doctype identifier in unescaped quotes, so it cannot

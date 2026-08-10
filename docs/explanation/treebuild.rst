@@ -59,7 +59,5 @@ Because the calls come from the same C tree builder :func:`turbohtml.parse` uses
 rules produce is reflected: the implied ``<html>``/``<head>``/``<body>``, auto-closed paragraphs and list items, foster
 parenting out of tables, and the adoption agency's re-nesting of misplaced formatting elements. A ``<template>``'s
 content fragment is flattened -- its children are appended under the template handle -- matching how the SAX walk
-streams it. And a bogus ``<?...>`` construct, which WHATWG HTML parses as a comment, reaches a distinct ``create_pi``
-method rather than ``create_comment``, the one place the builder is finer-grained than the parsed
-:class:`~turbohtml.Document` (which wraps it as a :class:`~turbohtml.Comment`), matching the SAX stream's
-:class:`~turbohtml.saxparse.ProcessingInstruction`.
+streams it. Processing instructions reach ``create_pi(target, data)`` and the parsed
+:class:`~turbohtml.ProcessingInstruction`; reserved XML targets remain comments.

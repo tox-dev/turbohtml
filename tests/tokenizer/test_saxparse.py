@@ -21,6 +21,7 @@ import pytest
 from turbohtml import Comment as DomComment
 from turbohtml import Doctype as DomDoctype
 from turbohtml import Element as DomElement
+from turbohtml import ProcessingInstruction as DomProcessingInstruction
 from turbohtml import Text as DomText
 from turbohtml import _html, parse
 from turbohtml.saxparse import (
@@ -56,8 +57,8 @@ class _Recorder(SaxHandler):
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
         self.events.append(Doctype(name, public_id, system_id))
 
-    def processing_instruction(self, data: str) -> None:
-        self.events.append(ProcessingInstruction(data))
+    def processing_instruction(self, target: str, data: str) -> None:
+        self.events.append(ProcessingInstruction(target, data))
 
 
 def test_sax_parse_matches_iter_events() -> None:
@@ -81,7 +82,7 @@ def test_sax_parse_fires_every_event_and_order() -> None:
         StartElement("br", ()),
         EndElement("br"),
         Comment("c"),
-        ProcessingInstruction("?pi?"),
+        ProcessingInstruction("pi", ""),
         EndElement("p"),
         EndElement("body"),
         EndElement("html"),
@@ -159,7 +160,7 @@ def test_processing_instruction_vs_comment() -> None:
         for event in iter_events("<p><?php echo 1?><!--c--></p>")
         if isinstance(event, (Comment, ProcessingInstruction))
     ]
-    assert events == [ProcessingInstruction("?php echo 1?"), Comment("c")]
+    assert events == [ProcessingInstruction("php", "echo 1"), Comment("c")]
 
 
 _CORPUS = [
@@ -170,6 +171,7 @@ _CORPUS = [
     pytest.param("<select><option>1<option>2</select>", id="select"),
     pytest.param("<div><p>unclosed<span>text", id="unclosed"),
     pytest.param("text before <html> and <body> tags", id="stray-text"),
+    pytest.param("<?pi data?>", id="processing-instruction"),
     pytest.param("<svg><circle/></svg><math><mi>x</mi></math>", id="foreign"),
     pytest.param("<!-- lead --><!DOCTYPE html><p>x</p><!-- trail -->", id="document-comments"),
 ]
@@ -196,7 +198,9 @@ def _dom_events(markup: str) -> list[SaxEvent]:
             events.append(Characters(node.data))
         elif isinstance(node, DomComment):
             events.append(Comment(node.data))
-        else:  # the parser yields only these four node types into a document's descendant .children
+        elif isinstance(node, DomProcessingInstruction):
+            events.append(ProcessingInstruction(node.target, node.data))
+        else:  # parse() exposes no other Document child type
             doctype = cast("DomDoctype", node)
             events.append(Doctype(doctype.name, doctype.public_id, doctype.system_id))
     return events
@@ -214,7 +218,7 @@ def test_bare_handler_is_a_noop_for_every_event() -> None:
     handler.characters("x")
     handler.comment("c")
     handler.doctype("html", None, None)
-    handler.processing_instruction("pi")
+    handler.processing_instruction("pi", "data")
     sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", handler)
 
 

@@ -19,9 +19,8 @@ over :class:`html.parser.HTMLParser` is speed and a tree the standard library's 
 Two shapes share one C walk. Subclass :class:`SaxHandler`, override the events you care about, and pass an instance to
 :func:`sax_parse` for the push (callback) form; or iterate :func:`iter_events` for the pull form, a stream of typed
 :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/:class:`Doctype`/
-:class:`ProcessingInstruction` records. WHATWG HTML has no processing instructions -- ``<?xml ...>`` is a bogus
-comment -- so a :class:`ProcessingInstruction` event stands in for exactly that ``<?...>`` construct, matching
-:meth:`html.parser.HTMLParser.handle_pi`.
+:class:`ProcessingInstruction` records. WHATWG HTML processing instructions expose their target and data separately;
+the reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
 """
 
 from __future__ import annotations
@@ -70,8 +69,8 @@ class SaxHandler:
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
         """Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them."""
 
-    def processing_instruction(self, data: str) -> None:
-        """Handle a ``<?...>`` construct with body ``data`` (a WHATWG bogus comment)."""
+    def processing_instruction(self, target: str, data: str) -> None:
+        """Receive non-reserved instructions after the parser separates their target and data."""
 
 
 class StartElement(NamedTuple):
@@ -116,11 +115,12 @@ class Doctype(NamedTuple):
 
 
 class ProcessingInstruction(NamedTuple):
-    """A ``<?...>`` event; WHATWG parses it as a bogus comment, so ``data`` is that comment's body."""
+    """An HTML instruction whose target is not reserved for XML."""
 
+    target: str
+    """the ASCII target, preserving source case."""
     data: str
-    """the WHATWG bogus-comment body: the source between the opening ``<`` and the closing ``>``, so the leading
-    ``?`` is kept (``<?php?>`` gives ``?php?``)."""
+    """the text after leading whitespace and before the closing delimiter."""
 
 
 SaxEvent = StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction

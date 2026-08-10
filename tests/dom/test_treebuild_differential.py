@@ -67,8 +67,8 @@ class LxmlBuilder:
     def create_comment(self, data: str) -> object:  # ruff:ignore[no-self-use]
         return etree.Comment(data)
 
-    def create_pi(self, data: str) -> object:  # ruff:ignore[no-self-use]
-        return etree.Comment(data)
+    def create_pi(self, target: str, data: str) -> object:  # ruff:ignore[no-self-use]
+        return etree.Comment(f"?{target}{f' {data}' if data else ''}?")
 
     def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]
         node = cast("_LxmlNode", parent)

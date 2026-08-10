@@ -27,6 +27,7 @@ enum th_kind {
     TH_COMMENT,
     TH_DOCTYPE,
     TH_CHARREF,
+    TH_PI,
 };
 
 /* Growable code-point buffer stored at the narrowest PyUnicode kind its
@@ -90,10 +91,6 @@ typedef struct {
     Py_ssize_t attr_count;
     Py_ssize_t attr_cap;
     int self_closing;
-    /* a COMMENT token the tokenizer opened from `<?` (an unexpected question mark
-       instead of a tag name): WHATWG makes it a bogus comment, but the SAX walk
-       reports it as a processing instruction, matching html.parser's handle_pi */
-    int is_pi;
     /* DOCTYPE only */
     th_buf public_id;
     th_buf system_id;
@@ -193,7 +190,7 @@ void th_tok_reset(th_tokenizer *self);
 
 /* Select the output surface. resolve_references off splits each character
    reference in text into a TH_CHARREF token; capture_source records each markup
-   token's verbatim span; capture_attributes retains tag attributes. The options
+   token's verbatim span (including processing instructions); capture_attributes retains tag attributes. The options
    survive th_tok_reset because they are configuration rather than input state. */
 void th_tok_set_options(th_tokenizer *self, int resolve_references, int capture_source, int capture_attributes);
 

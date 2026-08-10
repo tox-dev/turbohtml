@@ -681,7 +681,7 @@ class _NodeBuilder:
     def create_comment(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#comment")
 
-    def create_pi(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_pi(self, target: str, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
         return _Node("#pi")
 
     def append(self, parent: _Node, child: _Node) -> None:  # ruff:ignore[no-self-use]

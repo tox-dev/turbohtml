@@ -12,9 +12,8 @@ browsers run:
 - Character references are always resolved (as ``convert_charrefs=True``), so :meth:`~HTMLParser.handle_data` receives
   decoded text and :meth:`~HTMLParser.handle_entityref`/:meth:`~HTMLParser.handle_charref` are never called. The
   ``convert_charrefs`` argument is accepted for signature compatibility but has no effect.
-- A processing instruction (``<?...>``) and a CDATA section outside foreign content are comments per the HTML spec, so
-  they reach :meth:`~HTMLParser.handle_comment`; :meth:`~HTMLParser.handle_pi` and :meth:`~HTMLParser.unknown_decl` are
-  never called.
+- A processing instruction reaches :meth:`~HTMLParser.handle_pi`. A CDATA section outside foreign content remains a
+  comment, so :meth:`~HTMLParser.unknown_decl` is never called.
 - A valueless attribute's value is the empty string rather than ``None`` (the tokenizer does not tell ``disabled``
   apart from ``disabled=""``).
 """
@@ -101,7 +100,7 @@ class HTMLParser:
 
     def handle_comment(self, data: str) -> None:
         """
-        Handle a comment (also processing instructions and CDATA, which are comments here).
+        Handle a comment (also CDATA outside foreign content).
 
         :param data: the comment text, without the ``<!--`` ``-->`` delimiters.
         """
@@ -115,9 +114,9 @@ class HTMLParser:
 
     def handle_pi(self, data: str) -> None:
         """
-        Handle a processing instruction; never called, since PIs are comments in the HTML spec.
+        Handle an instruction with its target and data joined by one space.
 
-        :param data: the instruction text.
+        :param data: the target followed by data when present.
         """
 
     def handle_entityref(self, name: str) -> None:

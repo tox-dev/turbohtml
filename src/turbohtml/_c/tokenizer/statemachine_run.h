@@ -508,10 +508,10 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
                 continue;
             }
             if (ch == '?') {
-                tok_error(self, "unexpected-question-mark-instead-of-tag-name");
-                init_markup(self, TH_COMMENT);
-                self->tok.is_pi = 1; /* a `<?` bogus comment the SAX walk reports as a processing instruction */
-                self->state = ST_BOGUS_COMMENT;
+                buf_reset(&self->temp);
+                self->eof_code = "eof-in-processing-instruction";
+                CONSUME();
+                self->state = ST_PI_OPEN;
                 continue;
             }
             tok_error(self, "invalid-first-character-of-tag-name");
@@ -1275,6 +1275,13 @@ static enum run_result TH_NAME(run)(th_tokenizer *self) {
             tok_error(self, "unexpected-solidus-in-tag");
             self->state = ST_BEFORE_ATTR_NAME;
             continue;
+
+        case ST_PI_OPEN:
+        case ST_PI_TARGET:
+        case ST_AFTER_PI_TARGET:
+        case ST_PI_DATA:
+        case ST_PI_QUESTIONABLE:
+            return run_pi(self);
 
         case ST_BOGUS_COMMENT:
             if (at_eof) {

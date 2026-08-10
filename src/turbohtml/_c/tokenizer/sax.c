@@ -114,6 +114,26 @@ static PyObject *doctype_event(th_tree *tree, th_node *node) {
     return Py_BuildValue("(iNNN)", SAX_DOCTYPE, name, public_id, system_id);
 }
 
+static int pi_strings(th_node *node, PyObject **target, PyObject **data) {
+    *target = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->attr_count);
+    *data = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text + node->attr_count + 1,
+                                      node->text_len - node->attr_count - 1);
+    if (*target == NULL || *data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(*target);                /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(*data);                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return 0;
+}
+
+static PyObject *pi_event(th_node *node) {
+    PyObject *target, *data;
+    if (pi_strings(node, &target, &data) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;                            /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return Py_BuildValue("(iNN)", SAX_PI, target, data);
+}
+
 /* The event for entering a node, or NULL: with an exception set on allocation
    failure, and without one for a node that emits nothing on entry (the document
    root and a <template>'s content fragment, whose children carry the events). */
@@ -143,9 +163,10 @@ static PyObject *enter_event(th_tree *tree, th_node *node) {
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        int kind = (node->tag_flags & TH_COMMENT_IS_PI) ? SAX_PI : SAX_COMMENT;
-        return Py_BuildValue("(iN)", kind, data);
+        return Py_BuildValue("(iN)", SAX_COMMENT, data);
     }
+    case TH_NODE_PI:
+        return pi_event(node);
     case TH_NODE_DOCTYPE:
         return doctype_event(tree, node);
     default: /* TH_NODE_DOCUMENT and TH_NODE_CONTENT emit nothing themselves */
@@ -339,10 +360,18 @@ static int dispatch_enter(th_tree *tree, th_node *node, sax_dispatch_handlers *b
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        int which = node->type == TH_NODE_TEXT             ? SAX_H_CHARACTERS
-                    : (node->tag_flags & TH_COMMENT_IS_PI) ? SAX_H_PI
-                                                           : SAX_H_COMMENT;
+        int which = node->type == TH_NODE_TEXT ? SAX_H_CHARACTERS : SAX_H_COMMENT;
         result = PyObject_CallFunctionObjArgs(bound->fn[which], data, NULL);
+        Py_DECREF(data);
+        break;
+    }
+    case TH_NODE_PI: {
+        PyObject *target, *data;
+        if (pi_strings(node, &target, &data) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        result = PyObject_CallFunctionObjArgs(bound->fn[SAX_H_PI], target, data, NULL);
+        Py_DECREF(target);
         Py_DECREF(data);
         break;
     }

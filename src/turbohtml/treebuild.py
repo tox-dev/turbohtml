@@ -15,9 +15,8 @@ your :meth:`TreeBuilder.create_document` returns is what :func:`parse_into` give
 
 The methods mirror parse5's adapter: every element carries its namespace URI (``http://www.w3.org/1999/xhtml`` for
 HTML, and the SVG and MathML URIs for foreign content) and its attributes as ``(name, value)`` pairs, a valueless
-attribute pairing with None. A ``<template>``'s content is appended straight under the template handle, and a bogus
-``<?...>`` construct -- WHATWG has no processing instructions -- arrives through :meth:`TreeBuilder.create_pi` so you
-can keep it distinct from a comment.
+attribute pairing with None. A ``<template>``'s content is appended straight under the template handle. Processing
+instructions arrive through :meth:`TreeBuilder.create_pi` with separate target and data strings.
 """
 
 from __future__ import annotations
@@ -59,8 +58,8 @@ class TreeBuilder(Protocol[H]):
     def create_comment(self, data: str) -> H:
         """Create a comment node holding ``data``."""
 
-    def create_pi(self, data: str) -> H:
-        """Create a node for a ``<?...>`` construct (a WHATWG bogus comment) holding ``data``."""
+    def create_pi(self, target: str, data: str) -> H:
+        """Create a node for an HTML instruction whose target is not reserved for XML."""
 
     def append(self, parent: H, child: H) -> None:
         """Append the ``child`` handle under the ``parent`` handle, in document order."""

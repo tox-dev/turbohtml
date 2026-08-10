@@ -51,7 +51,7 @@ tag histogram never allocates a tree at all -- the whole document is summarized 
         def create_comment(self, data):
             return None
 
-        def create_pi(self, data):
+        def create_pi(self, target, data):
             return None
 
         def append(self, parent, child):
@@ -97,7 +97,7 @@ children]`` lists:
         def create_comment(self, data):
             return ["#comment", []]
 
-        def create_pi(self, data):
+        def create_pi(self, target, data):
             return ["#pi", []]
 
         def append(self, parent, child):
@@ -115,8 +115,8 @@ children]`` lists:
 Every element also carries its namespace URI and its attributes. ``create_element`` receives ``namespace`` --
 ``http://www.w3.org/1999/xhtml`` for HTML, and the SVG and MathML URIs for foreign content -- and ``attrs`` as a tuple
 of ``(name, value)`` pairs, a valueless attribute pairing with ``None``. A ``<template>``'s content is appended straight
-under the template handle, and a bogus ``<?...>`` construct -- WHATWG HTML has no processing instructions -- arrives
-through ``create_pi`` so you can keep it distinct from a comment.
+under the template handle. A processing instruction arrives through ``create_pi(target, data)``; the reserved ``xml``
+and ``xml-stylesheet`` targets arrive through ``create_comment``.
 
 *******************
  Errors and typing

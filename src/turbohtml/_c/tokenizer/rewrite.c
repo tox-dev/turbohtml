@@ -1437,6 +1437,9 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         case TH_COMMENT:
             rw_handle_leaf(&ctx, token, ctx.comment_handler, RW_COMMENT);
             break;
+        case TH_PI:
+            rw_handle_leaf(&ctx, token, NULL, RW_COMMENT);
+            break;
         default: /* TH_DOCTYPE */
             rw_handle_leaf(&ctx, token, ctx.doctype_handler, RW_DOCTYPE);
             break;

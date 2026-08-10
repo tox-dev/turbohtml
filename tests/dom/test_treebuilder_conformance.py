@@ -96,6 +96,15 @@ _SPEC_OVERRIDES: dict[tuple[str, str, str | None], str] = {
     # matching the WHATWG algorithm. See https://github.com/tox-dev/turbohtml/issues/93
     ("tests7.dat", "<select><keygen>", None): "| <html>\n|   <head>\n|   <body>\n|     <select>\n|     <keygen>",
     ("tests_innerHTML_1.dat", "<keygen><option>", "select"): "| <option>",
+    # WHATWG added HTML processing instructions after the pinned html5lib-tests revision.
+    (
+        "html5test-com.dat",
+        '<?import namespace="foo" implementation="#bar">',
+        None,
+    ): ('| <?import namespace="foo" implementation="#bar"?>\n| <html>\n|   <head>\n|   <body>'),
+    ("tests1.dat", "<?", None): "| <html>\n|   <head>\n|   <body>",
+    ("tests1.dat", "<?COMMENT?>", None): "| <?COMMENT ?>\n| <html>\n|   <head>\n|   <body>",
+    ("tests1.dat", "<?COM--MENT?>", None): "| <?COM--MENT ?>\n| <html>\n|   <head>\n|   <body>",
 }
 
 

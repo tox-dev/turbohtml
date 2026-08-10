@@ -161,9 +161,21 @@ static PyObject *make_handle(th_tree *tree, th_node *node, builder *methods) {
         if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        PyObject *method =
-            (node->tag_flags & TH_COMMENT_IS_PI) ? methods->slots[M_CREATE_PI] : methods->slots[M_CREATE_COMMENT];
-        PyObject *handle = PyObject_CallOneArg(method, data);
+        PyObject *handle = PyObject_CallOneArg(methods->slots[M_CREATE_COMMENT], data);
+        Py_DECREF(data);
+        return handle;
+    }
+    case TH_NODE_PI: {
+        PyObject *target = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->attr_count);
+        PyObject *data = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text + node->attr_count + 1,
+                                                   node->text_len - node->attr_count - 1);
+        if (target == NULL || data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_XDECREF(target);               /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(data);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *handle = PyObject_CallFunctionObjArgs(methods->slots[M_CREATE_PI], target, data, NULL);
+        Py_DECREF(target);
         Py_DECREF(data);
         return handle;
     }

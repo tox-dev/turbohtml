@@ -83,8 +83,7 @@ Nobody wrote ``<html>``, ``<head>``, ``<body>``, ``<tbody>``, or ``<tr>``; the p
 **********
 
 A :class:`~turbohtml.saxparse.Doctype` event carries the ``name`` and, when the source supplied them, the ``public_id``
-and ``system_id`` (each ``None`` otherwise). A ``<?...>`` construct -- a WHATWG bogus comment, since HTML has no
-processing instructions -- arrives as a :class:`~turbohtml.saxparse.ProcessingInstruction`, matching
-:meth:`html.parser.HTMLParser.handle_pi`.
+and ``system_id`` (each ``None`` otherwise). A :class:`~turbohtml.saxparse.ProcessingInstruction` event carries its
+``target`` and ``data`` fields separately. The reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
 
 For the memory model and why this is not a way to parse a document larger than memory, see :doc:`/explanation/sax`.

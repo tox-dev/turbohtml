@@ -273,11 +273,12 @@ static PyObject *tokenizer_iter(PyObject *self) {
 
 /* The handlers dispatch() drives, bound once per call: a token then costs one call instead of an attribute lookup
    and a Python-level walk over the token's fields. Held as an array indexed by the enum so binding walks the name
-   table rather than testing six results in one condition, which no single input can exercise every arm of. */
-enum { SAX_STARTTAG, SAX_STARTENDTAG, SAX_ENDTAG, SAX_DATA, SAX_COMMENT, SAX_DECL, SAX_COUNT };
+   table rather than testing seven results in one condition, which no single input can exercise every arm of. */
+enum { SAX_STARTTAG, SAX_STARTENDTAG, SAX_ENDTAG, SAX_DATA, SAX_COMMENT, SAX_DECL, SAX_PI, SAX_COUNT };
 
 static const char *const HANDLER_NAMES[SAX_COUNT] = {
-    "handle_starttag", "handle_startendtag", "handle_endtag", "handle_data", "handle_comment", "handle_decl",
+    "handle_starttag", "handle_startendtag", "handle_endtag", "handle_data",
+    "handle_comment",  "handle_decl",        "handle_pi",
 };
 
 typedef struct {
@@ -369,6 +370,25 @@ static PyObject *doctype_of(const th_token *record) {
     return decl;
 }
 
+static PyObject *pi_of(const th_token *record) {
+    PyObject *target = th_buf_to_str(&record->name);
+    if (target == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (record->text.len == 0) {
+        return target;
+    }
+    PyObject *data = th_buf_to_str(&record->text);
+    if (data == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(target); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *result = th_str_format("%U %U", target, data);
+    Py_DECREF(target);
+    Py_DECREF(data);
+    return result;
+}
+
 PyDoc_STRVAR(tokenizer_dispatch_doc, "dispatch(handler)\n--\n\n"
                                      "Drive handler's handle_* methods over the tokens completed so far.\n\n"
                                      "The same tokens iterating the tokenizer would yield, delivered without\n"
@@ -414,6 +434,9 @@ static PyObject *tokenizer_dispatch(PyObject *self, PyObject *handler) {
             } else if (record->kind == TH_COMMENT) {
                 first = th_buf_to_str(&record->text);
                 target = bound.fn[SAX_COMMENT];
+            } else if (record->kind == TH_PI) {
+                first = pi_of(record);
+                target = bound.fn[SAX_PI];
             } else {
                 first = doctype_of(record);
                 target = bound.fn[SAX_DECL];
@@ -561,6 +584,16 @@ static PyObject *record_as_test_tuple(const th_tokenizer *sm, const th_token *re
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         return Py_BuildValue("(sN)", record->kind == TH_TEXT ? "Character" : "Comment", data);
+    }
+    if (record->kind == TH_PI) {
+        PyObject *target = th_str_from_kind(record->name.kind, record->name.data, record->name.len);
+        PyObject *data = th_str_from_kind(record->text.kind, record->text.data, record->text.len);
+        if (target == NULL || data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_XDECREF(target);               /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(data);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        return Py_BuildValue("(sNN)", "ProcessingInstruction", target, data);
     }
     if (record->kind == TH_END_TAG) {
         PyObject *name = th_str_from_kind(record->name.kind, record->name.data, record->name.len);

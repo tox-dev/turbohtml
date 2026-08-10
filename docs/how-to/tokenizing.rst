@@ -37,9 +37,9 @@ the base class and the handlers fire as before:
 
     ['/x', '/y']
 
-It differs from ``html.parser`` only where ``html.parser`` diverges from the WHATWG algorithm: references are always
-resolved (so ``handle_entityref``/``handle_charref`` never fire), and a processing instruction or CDATA section reaches
-``handle_comment`` rather than ``handle_pi``/``unknown_decl``, because the HTML spec treats both as comments.
+turbohtml resolves references before calling ``handle_data``, so ``handle_entityref`` and ``handle_charref`` never fire.
+A CDATA section reaches ``handle_comment`` rather than ``unknown_decl``. Processing instructions reach ``handle_pi``;
+the reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
 
 If you would rather drop the subclass entirely, turbohtml also exposes the raw token stream.
 :class:`python:html.parser.HTMLParser` is callback-driven: you subclass it and override a handler per event. turbohtml
@@ -88,6 +88,8 @@ The events map one to one:
 - ``handle_data(data)`` → ``TokenType.TEXT``; character references arrive decoded, like ``convert_charrefs=True``, so
   there is no ``handle_entityref``/``handle_charref`` pair to implement.
 - ``handle_comment(data)`` → ``TokenType.COMMENT``.
+- ``handle_pi(data)`` → ``TokenType.PROCESSING_INSTRUCTION``; ``token.target`` and ``token.data`` keep the two fields
+  separate.
 - ``handle_decl(decl)`` → ``TokenType.DOCTYPE``, split into ``name``, ``public_id`` and ``system_id`` instead of one raw
   string.
 - ``self.getpos()`` → ``token.line`` and ``token.col``, the same 1-based-line, 0-based-column convention.
@@ -235,8 +237,8 @@ attribute values are always decoded:
 
 The tokenizer normalizes tags: names lowercase, attribute order and quoting collapse. When you need the exact bytes a
 token came from - to rewrite markup in place, or to report it untouched - pass ``capture_source=True`` and read
-:attr:`turbohtml.Token.source`, the verbatim slice of the input. It is set for start tags, end tags, comments, and
-DOCTYPEs (text tokens leave it ``None``):
+:attr:`turbohtml.Token.source`, the verbatim slice of the input. It is set for start tags, end tags, comments,
+processing instructions, and DOCTYPEs (text tokens leave it ``None``):
 
 .. testcode::
 
