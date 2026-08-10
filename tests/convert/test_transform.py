@@ -2436,7 +2436,7 @@ def test_transform_import_root_blocks_parent_swap(
         monkeypatch.undo()
         allowed = is_relative_to(path, other)
         inside.rename(root / "saved")
-        if replacement == "file":
+        if replacement == "file":  # pragma: no cover - Windows skips parent-file swaps
             inside.write_text("outside", encoding="utf-8")
         else:
             try:
