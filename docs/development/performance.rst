@@ -87,10 +87,9 @@ thirty. Its figure there is the cost of finding nothing.
     :file: bench/linkify.json
 
 The detection primitive on its own, :meth:`turbohtml.clean.LinkDetector.find` against ``LinkifyIt().match`` and
-:meth:`~turbohtml.clean.LinkDetector.has_link` against ``LinkifyIt().test``, scans a run of plain text and returns the
-spans or a boolean without rewriting any HTML, so this isolates the C scan from the full linkify rewrite above. It runs
-51 to 103 times faster, except on the ``has_link`` prose row (2.8x), where ``test`` short-circuits on the first link
-near the start.
+:meth:`~turbohtml.clean.LinkDetector.has_link` against ``LinkifyIt().test``, scans a run of plain text without rewriting
+HTML. Both libraries stop on the first valid match; turbohtml allocates no span list. The large-tail case starts with a
+link followed by 220 KiB of prose to catch a return to full-input scanning.
 
 .. bench-table::
     :file: bench/linkify-2.json

@@ -94,6 +94,7 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
    Both signatures match METH_VARARGS. */
 PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
+PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args);
 
 /* Implemented in url/url.c. _url_split(url) breaks a URL into (scheme, netloc,
    path, query, fragment, userinfo, host, port, has_port, host_kind) the way the
