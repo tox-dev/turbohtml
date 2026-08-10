@@ -17,10 +17,10 @@ the tree the browser resolves.
 Two divergence classes are documented rather than silently skipped:
 
 - Spec-lag: a handful of pinned ``.dat`` cases encode pre-errata trees for ``</p>``/``</br>`` in
-  foreign content and ``<select><keygen>``. turbohtml follows the modern WHATWG algorithm (as do
-  lexbor and html5lib's own library); the pinned data does not. For these the public tree is
+  foreign content. turbohtml follows the modern WHATWG algorithm (as do lexbor and html5lib's own
+  library); the pinned data does not. For these the public tree is
   asserted against turbohtml's spec-validated parse, which the conformance suite pins to the
-  corrected tree. See issues #32, #63, #93.
+  corrected tree. See issues #32 and #63.
 - A ``.dat`` text-format limit: the html5lib ``#document`` dump wraps doctype identifiers in unescaped
   quotes, so it cannot represent a quote embedded in one (``taco"`` reads back as ``taco``). turbohtml
   keeps the quote, matching html5lib-python and the WHATWG tokenizer, so the public tree is asserted
@@ -142,7 +142,7 @@ _CASES = [(path.name, *case) for path in sorted(_TREE_DIR.glob("*.dat")) for cas
 
 # The pinned .dat predates modern-spec errata for these cases; turbohtml is spec-correct (lexbor and
 # html5lib's own library agree). The public tree is checked against turbohtml's conformance-validated
-# parse, which test_treebuilder_conformance pins to the corrected tree. See issues #32, #63, #93.
+# parse, which test_treebuilder_conformance pins to the corrected tree. See issues #32 and #63.
 _SPEC_LAG: frozenset[tuple[str, str, str | None]] = frozenset({
     ("tests26.dat", "<svg></p><foo>", None),
     ("tests26.dat", "<math></p><foo>", None),
@@ -152,8 +152,6 @@ _SPEC_LAG: frozenset[tuple[str, str, str | None]] = frozenset({
     ("foreign-fragment.dat", "</p><foo>", "svg svg"),
     ("foreign-fragment.dat", "<svg></br><foo>", "div"),
     ("foreign-fragment.dat", "</br><foo>", "svg svg"),
-    ("tests7.dat", "<select><keygen>", None),
-    ("tests_innerHTML_1.dat", "<keygen><option>", "select"),
     ("html5test-com.dat", '<?import namespace="foo" implementation="#bar">', None),
     ("tests1.dat", "<?", None),
     ("tests1.dat", "<?COMMENT?>", None),
