@@ -480,6 +480,9 @@ void th_tok_set_initial(th_tokenizer *self, enum th_initial_state state, const P
 static void input_append(th_tokenizer *self, int kind, const void *data, Py_ssize_t from, Py_ssize_t to) {
     th_buf *buf = &self->input;
     Py_ssize_t count = to - from;
+    if (count == 0) { /* a chunk opening with '\r' on a still-NULL buffer: even a zero offset into NULL is undefined */
+        return;
+    }
     int promote = kind > buf->kind ? buf_promote(buf, kind) : 0;
     /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
     if (promote < 0 || buf_ensure(buf, (buf->len + count) * buf->kind) < 0) {

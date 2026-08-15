@@ -361,6 +361,25 @@ def test_streaming_crlf_across_feeds() -> None:
     assert [token.data for token in tokenizer.close()] == ["a\nb"]
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("\ra", ["\na"], id="lone-cr"),
+        pytest.param("\r\na", ["\na"], id="crlf"),
+        pytest.param("\r\U0001f600", ["\n\U0001f600"], id="ucs4-lone-cr"),
+        pytest.param(
+            '\r-><a hre="p?q=1&r=" 4itle="he said"&qot;hi&qot;">link</a>\n',
+            ["\n->", "link", "\n"],
+            id="fuzz-reproducer",
+        ),
+    ],
+)
+def test_leading_carriage_return_into_an_empty_input(text: str, expected: list[str]) -> None:
+    # nothing precedes the '\r', so the first block appended has no code points and the input buffer is still
+    # unallocated; the append must return before it forms a pointer into NULL (the deep-fuzz UBSan finding)
+    assert [token.data for token in tokenize(text) if token.type is TokenType.TEXT] == expected
+
+
 def test_feed_after_close_is_rejected() -> None:
     tokenizer = Tokenizer()
     list(tokenizer.feed("<p>"))

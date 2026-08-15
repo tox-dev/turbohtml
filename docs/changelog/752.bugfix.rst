@@ -1,0 +1,2 @@
+Parse a document, or feed a first stream chunk, that opens with a carriage return without touching the not yet allocated
+input buffer; UndefinedBehaviorSanitizer reported the empty append as a zero offset applied to a null pointer.
