@@ -18,6 +18,8 @@ permissions:
 jobs:
   codspeed:
     name: 🚀 CodSpeed
+    # OIDC only authenticates the repository registered with CodSpeed, so a fork's push runs fail with 401 Unauthorized
+    if: github.repository == 'tox-dev/turbohtml'
     runs-on: codspeed-macro
     permissions:
       contents: read
