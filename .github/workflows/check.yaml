@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: "22"
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run ${{ matrix.py }}
@@ -70,7 +70,7 @@ jobs:
         with:
           node-version: "22"
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run ${{ matrix.py }}
@@ -90,7 +90,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run ${{ matrix.tox_env }}
@@ -122,7 +122,7 @@ jobs:
         run: npm ci
         working-directory: tools/bench/node
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run the conformance suites
@@ -152,7 +152,7 @@ jobs:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Build with -Werror
@@ -191,7 +191,7 @@ jobs:
         with:
           arch: arm64
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Build with -Werror
@@ -217,7 +217,7 @@ jobs:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run clang-tidy
@@ -237,7 +237,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: ✅ Run tsan
