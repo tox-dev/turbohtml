@@ -1384,7 +1384,8 @@ static void format_digits(const th_phone_format *format, const char *template, c
 }
 
 static int is_template_separator(char byte) {
-    return memchr(" -.()", byte, 5) != NULL;
+    static const char separators[] = {' ', '-', '.', '(', ')'};
+    return memchr(separators, byte, sizeof separators) != NULL;
 }
 
 /* RFC 3966's rewrite of a formatted national number: the leading separators go, every other separator run becomes
