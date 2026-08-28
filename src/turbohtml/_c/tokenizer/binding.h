@@ -65,6 +65,7 @@ typedef struct {
     PyObject *serialize_iter_type;    /* _SerializeIterator (serialize_iter chunk stream) */
     PyObject *sax_events_type;        /* _SaxEvents (the O(depth) event walk behind saxparse) */
     PyObject *rewrite_handle_type;    /* _RewriteHandle (the node handle a streaming rewrite handler edits) */
+    PyObject *phone_config_type;      /* _PhoneConfig (a compiled PhoneNumbers configuration) */
     PyObject *namespace_enum;         /* Namespace (enum.Enum) */
     PyObject *namespaces[3];          /* cached Namespace members, indexed by enum th_ns */
     PyObject *axis_enum;              /* Axis (enum.Enum) for find()/find_all() */
@@ -117,6 +118,7 @@ int tokenizer_register(PyObject *module, module_state *state);
 int tree_register(PyObject *module, module_state *state);
 int sax_register(PyObject *module, module_state *state);
 int rewrite_register(PyObject *module, module_state *state);
+int phone_register(PyObject *module, module_state *state);
 
 /* Stream a DOM-less rewrite over source: match the compiled element handlers against the
    open-element spine and drive the text/comment/doctype handlers, applying each handler's

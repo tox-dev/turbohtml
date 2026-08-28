@@ -10,6 +10,7 @@
    same rule bleach used. Matches are returned as (start, end, kind) spans into
    the input; the scan never allocates per match. */
 
+#include "clean/phone_binding.h"
 #include "core/ascii.h"
 #include "core/common.h"
 #include "dom/tree.h"
@@ -19,6 +20,8 @@
 #include "data/tld_table.h"
 
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 enum th_link_kind {
     /* A bare domain (``example.com``): no scheme of its own, so the Python layer prefixes ``http://``. */
@@ -29,6 +32,8 @@ enum th_link_kind {
     /* A ``scheme://host`` URL: the scanner matched an explicit scheme, so the match is kept verbatim. Classifying it
        here spares the Python layer a per-match re.match against the scheme grammar. */
     TH_LINK_HAS_SCHEME = 3,
+    /* A phone number the recognizer accepted: the href is its tel: URI, built from the digits it resolved. */
+    TH_LINK_PHONE = 4,
 };
 
 /* A non-ASCII Unicode White_Space code point (the ASCII ones are c <= 0x20). UTS46
@@ -445,50 +450,273 @@ static int match_scheme_less(int kind, const void *data, Py_ssize_t colon, Py_ss
     return 1;
 }
 
-static int append_span(PyObject *spans, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind) {
-    PyObject *span = Py_BuildValue("(nni)", start, end, (int)link_kind);
-    if (span == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+/* The scan reads the text through one view: the code-point accessor the recognizer takes, the matcher policy, and
+   `resume`, the end of the last emitted span, which bounds every leftward expansion so a matcher never reads into a
+   link already emitted. */
+typedef struct {
+    PyObject *text;
+    int kind;
+    const void *data;
+    Py_ssize_t len;
+    int parse_email;
+    int bare_domains;
+    PyObject *extra_tlds;
+    PyObject *schemes;
+    PyObject *url_schemes;
+    Py_ssize_t resume;
+} scan_view;
+
+static uint32_t read_point(const void *text, size_t index) {
+    const scan_view *view = text;
+    return PyUnicode_READ(view->kind, view->data, (Py_ssize_t)index);
+}
+
+/* One trigger the phone path evaluated ahead of the scan; the scan reads it back instead of matching twice. */
+typedef struct {
+    Py_ssize_t pos;
+    int found;
+    Py_ssize_t start;
+    Py_ssize_t end;
+    enum th_link_kind link_kind;
+} trigger_memo;
+
+/* Plain prose holds none of the bytes that begin a link, so one-byte text is skipped a block at a time and the
+   per-character switch sees only the blocks that hold a `.`, `:`, `@` or, with phone detection on, a digit. */
+#if defined(__aarch64__) || defined(_M_ARM64)
+
+#include <arm_neon.h>
+
+#define TRIGGER_BLOCK 16
+
+static inline int block_has_trigger(const uint8_t *block, int digits) {
+    uint8x16_t bytes = vld1q_u8(block);
+    uint8x16_t hits = vorrq_u8(vorrq_u8(vceqq_u8(bytes, vdupq_n_u8('.')), vceqq_u8(bytes, vdupq_n_u8(':'))),
+                               vceqq_u8(bytes, vdupq_n_u8('@')));
+    if (digits) {
+        hits = vorrq_u8(hits, vcleq_u8(vsubq_u8(bytes, vdupq_n_u8('0')), vdupq_n_u8(9)));
     }
+    return vmaxvq_u8(hits) != 0;
+}
+
+#elif defined(__SSE2__) || defined(_M_X64)
+
+#include <emmintrin.h>
+
+#define TRIGGER_BLOCK 16
+
+static inline int block_has_trigger(const uint8_t *block, int digits) {
+    __m128i bytes = _mm_loadu_si128((const __m128i *)block);
+    __m128i hits =
+        _mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('.')), _mm_cmpeq_epi8(bytes, _mm_set1_epi8(':'))),
+                     _mm_cmpeq_epi8(bytes, _mm_set1_epi8('@')));
+    if (digits) {
+        /* a byte is a digit when its wrapping distance from '0' is at most 9, an unsigned max against 9 */
+        __m128i distance = _mm_sub_epi8(bytes, _mm_set1_epi8('0'));
+        hits = _mm_or_si128(hits, _mm_cmpeq_epi8(_mm_max_epu8(distance, _mm_set1_epi8(9)), _mm_set1_epi8(9)));
+    }
+    return _mm_movemask_epi8(hits) != 0;
+}
+
+#else
+
+#define TRIGGER_BLOCK 8
+#define TRIGGER_ONES 0x0101010101010101ULL
+#define TRIGGER_HIGHS 0x8080808080808080ULL
+
+static inline uint64_t word_has_byte(uint64_t word, uint8_t byte) {
+    uint64_t lanes = word ^ (TRIGGER_ONES * byte);
+    return (lanes - TRIGGER_ONES) & ~lanes & TRIGGER_HIGHS;
+}
+
+/* Any lane strictly between low and high (Anderson's hasbetween): the digits are the lanes between '/' and ':'. */
+static inline uint64_t word_has_between(uint64_t word, uint8_t low, uint8_t high) {
+    uint64_t sevens = TRIGGER_ONES * 127;
+    return (TRIGGER_ONES * (127 + high) - (word & sevens)) & ~word & ((word & sevens) + TRIGGER_ONES * (127 - low)) &
+           TRIGGER_HIGHS;
+}
+
+static inline int block_has_trigger(const uint8_t *block, int digits) {
+    uint64_t word;
+    memcpy(&word, block, sizeof(word));
+    uint64_t hits = word_has_byte(word, '.') | word_has_byte(word, ':') | word_has_byte(word, '@');
+    if (digits) {
+        hits |= word_has_between(word, '/', ':');
+    }
+    return hits != 0;
+}
+
+#endif
+
+static Py_ssize_t skip_plain(const uint8_t *bytes, Py_ssize_t pos, Py_ssize_t len, int digits) {
+    while (pos + TRIGGER_BLOCK <= len && !block_has_trigger(bytes + pos, digits)) {
+        pos += TRIGGER_BLOCK;
+    }
+    return pos;
+}
+
+static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
+                         enum th_link_kind *link_kind) {
+    int kind = scan->kind;
+    const void *data = scan->data;
+    if (c == ':') {
+        if (match_url(kind, data, pos, scan->resume, scan->len, start, end, scan->url_schemes)) {
+            *link_kind = TH_LINK_HAS_SCHEME; /* a scheme://host URL carries its own scheme, kept verbatim */
+            return 1;
+        }
+        *link_kind = TH_LINK_SCHEME;
+        return scan->schemes != NULL &&
+               match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes);
+    }
+    if (c == '@') {
+        *link_kind = TH_LINK_EMAIL;
+        return scan->parse_email && match_email(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+    }
+    *link_kind = TH_LINK_URL;
+    return scan->bare_domains && match_domain(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+}
+
+/* Does a domain the `.` arm would link overlap the number just recognized? It keeps winning, so `1password.com` is
+   what it was before phone detection was on. A `.` is the only trigger a number can hold or end on: `:` and `@` are
+   not punctuation a run allows, and a number touching `@` was rejected with its neighbors. A domain found from a
+   dot inside or right after the number includes the number's digits, so finding one is overlapping. The trigger that
+   decided it is memoized for the scan to read back. */
+static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t end, trigger_memo *memo) {
+    Py_ssize_t probe_end = end < scan->len ? end + 1 : end;
+    for (Py_ssize_t probe = start; probe < probe_end; probe++) {
+        if (PyUnicode_READ(scan->kind, scan->data, probe) != '.') {
+            continue;
+        }
+        memo->pos = probe;
+        memo->found = match_trigger(scan, '.', probe, &memo->start, &memo->end, &memo->link_kind);
+        if (memo->found) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The tel: URI of a recognized number, RFC 3966: the E.164-style global number, then `;ext=` for an extension. */
+static PyObject *phone_url(const th_phone_match *number) {
+    char buffer[5 + 4 + TH_PHONE_NSN_CAPACITY + 5 + TH_PHONE_MAX_EXTENSION + 1];
+    int written = snprintf(buffer, sizeof(buffer), "tel:+%u%.*s", (unsigned)number->country_code, (int)number->nsn_len,
+                           number->nsn);
+    if (number->ext_len) {
+        written += snprintf(buffer + written, sizeof(buffer) - (size_t)written, ";ext=%.*s", (int)number->ext_len,
+                            number->ext);
+    }
+    return PyUnicode_FromStringAndSize(buffer, written);
+}
+
+/* The href of a span: a bare domain gets `http://`, an email `mailto:`, a scheme URL is itself. */
+static PyObject *matched_url(PyObject *text, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind) {
+    PyObject *matched = PyUnicode_Substring(text, start, end);
+    /* GCOVR_EXCL_BR_START: substring allocation cannot be forced */
+    if (matched == NULL || link_kind == TH_LINK_SCHEME || link_kind == TH_LINK_HAS_SCHEME) {
+        return matched;
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    PyObject *prefix = PyUnicode_FromString(link_kind == TH_LINK_EMAIL ? "mailto:" : "http://");
+    /* GCOVR_EXCL_BR_START: prefix/concatenation allocation cannot be forced */
+    PyObject *url = prefix == NULL ? NULL : PyUnicode_Concat(prefix, matched);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(prefix);
+    Py_DECREF(matched);
+    return url;
+}
+
+static int append_span(PyObject *spans, const scan_view *scan, Py_ssize_t start, Py_ssize_t end,
+                       enum th_link_kind link_kind, const PhoneConfigObject *phone, const th_phone_match *number) {
+    PyObject *phone_object = Py_NewRef(Py_None);
+    if (link_kind == TH_LINK_PHONE) {
+        Py_SETREF(phone_object, turbohtml_phone_number_new(phone, number));
+        if (phone_object == NULL) {
+            return -1;
+        }
+    }
+    PyObject *url = link_kind == TH_LINK_PHONE ? phone_url(number) : matched_url(scan->text, start, end, link_kind);
+    /* GCOVR_EXCL_BR_START: string and tuple allocation cannot be forced */
+    PyObject *span = url == NULL ? NULL : Py_BuildValue("(nniOO)", start, end, (int)link_kind, url, phone_object);
+    Py_XDECREF(url);
+    Py_DECREF(phone_object);
+    if (span == NULL) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
     int rc = PyList_Append(spans, span);
     Py_DECREF(span);
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
 }
 
+/* Scan one text run for links; with `spans` NULL, stop at the first (the presence test builds nothing). `resume`
+   is the end of the last emitted span; `phone_retry` is where the recognizer said the next digit may start a probe,
+   so a run it rejected is not probed again from each of its digits, while `.`, `@` and `:` inside it still reach
+   their own arms. */
 static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
-                        PyObject *url_schemes, PyObject *spans) {
-    int kind = PyUnicode_KIND(text);
-    const void *data = PyUnicode_DATA(text);
-    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+                        PyObject *url_schemes, const PhoneConfigObject *phone, PyObject *spans) {
+    scan_view scan = {
+        .text = text,
+        .kind = PyUnicode_KIND(text),
+        .data = PyUnicode_DATA(text),
+        .len = PyUnicode_GET_LENGTH(text),
+        .parse_email = parse_email,
+        .bare_domains = bare_domains,
+        .extra_tlds = extra_tlds,
+        .schemes = schemes,
+        .url_schemes = url_schemes,
+        .resume = 0,
+    };
+    trigger_memo memo = {-1, 0, 0, 0, TH_LINK_URL};
     Py_ssize_t pos = 0;
-    while (pos < len) {
-        Py_UCS4 c = READ(pos);
+    Py_ssize_t checked_until = 0;
+    Py_ssize_t phone_retry = 0;
+    while (pos < scan.len) {
+        if (scan.kind == PyUnicode_1BYTE_KIND && pos >= checked_until) {
+            pos = skip_plain(scan.data, pos, scan.len, phone != NULL);
+            checked_until = pos + TRIGGER_BLOCK;
+            if (pos >= scan.len) {
+                break;
+            }
+        }
+        Py_UCS4 c = PyUnicode_READ(scan.kind, scan.data, pos);
         Py_ssize_t match_start = 0;
         Py_ssize_t match_end = 0;
         enum th_link_kind link_kind = TH_LINK_URL;
         int found = 0;
-        if (c == ':') {
-            found = match_url(kind, data, pos, 0, len, &match_start, &match_end, url_schemes);
-            if (found) {
-                link_kind = TH_LINK_HAS_SCHEME; /* a scheme://host URL carries its own scheme, kept verbatim */
-            } else if (schemes != NULL) {
-                found = match_scheme_less(kind, data, pos, 0, len, &match_start, &match_end, schemes);
-                link_kind = TH_LINK_SCHEME;
+        th_phone_match number;
+        if (c == ':' || c == '@' || c == '.') {
+            if (memo.pos == pos) {
+                found = memo.found;
+                match_start = memo.start;
+                match_end = memo.end;
+                link_kind = memo.link_kind;
+            } else {
+                found = match_trigger(&scan, c, pos, &match_start, &match_end, &link_kind);
             }
-        } else if (c == '@' && parse_email) {
-            found = match_email(kind, data, pos, 0, len, &match_start, &match_end, extra_tlds);
-            link_kind = TH_LINK_EMAIL;
-        } else if (c == '.' && bare_domains) {
-            found = match_domain(kind, data, pos, 0, len, &match_start, &match_end, extra_tlds);
+        } else if (phone != NULL && pos >= phone_retry &&
+                   (scan.kind == PyUnicode_1BYTE_KIND ? is_ascii_digit(c) : th_phone_digit_value(c) >= 0)) {
+            size_t retry;
+            found = th_phone_find(read_point, &scan, (size_t)scan.len, (size_t)scan.resume, (size_t)pos, &phone->config,
+                                  &number, &retry);
+            phone_retry = (Py_ssize_t)retry;
+            if (found) {
+                match_start = (Py_ssize_t)number.start;
+                match_end = (Py_ssize_t)number.end;
+                link_kind = TH_LINK_PHONE;
+                if (token_overlaps(&scan, match_start, match_end, &memo)) {
+                    found = 0;
+                    phone_retry = match_end;
+                }
+            }
         }
         if (found) {
             if (spans == NULL) {
                 return 1;
             }
-            if (append_span(spans, match_start, match_end, link_kind) < 0) { /* GCOVR_EXCL_BR_LINE */
-                return -1;                                                   /* GCOVR_EXCL_LINE */
+            if (append_span(spans, &scan, match_start, match_end, link_kind, phone, &number) < 0) {
+                return -1;
             }
             pos = match_end;
+            scan.resume = match_end;
         } else {
             pos++;
         }
@@ -497,21 +725,35 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
 }
 
 static PyObject *collect_matches(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds,
-                                 PyObject *schemes, PyObject *url_schemes) {
+                                 PyObject *schemes, PyObject *url_schemes, const PhoneConfigObject *phone) {
     PyObject *spans = PyList_New(0);
     if (spans == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int scan_status = scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, spans);
-    if (scan_status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        Py_DECREF(spans);  /* GCOVR_EXCL_LINE */
-        return NULL;       /* GCOVR_EXCL_LINE */
+    int scan_status = scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, phone, spans);
+    if (scan_status < 0) {
+        Py_DECREF(spans);
+        return NULL;
     }
     return spans;
 }
 
+/* The phone argument of the scanner bindings: None, or a _PhoneConfig of this module. */
+static int phone_config_arg(PyObject *module, PyObject *object, const PhoneConfigObject **phone) {
+    if (object == Py_None) {
+        *phone = NULL;
+        return 0;
+    }
+    if (!turbohtml_phone_config_check(module, object)) {
+        PyErr_SetString(PyExc_TypeError, "phones must be a _PhoneConfig or None");
+        return -1;
+    }
+    *phone = (const PhoneConfigObject *)object;
+    return 0;
+}
+
 /* _linkify_scan(text, parse_email, bare_domains, extra_tlds=(), url_schemes=None)
-   -> list[(start, end, kind)]. extra_tlds is a tuple of lowercased custom TLDs
+   -> list[(start, end, kind, url, None)]. extra_tlds is a tuple of lowercased custom TLDs
    extending the built-in table for bare-domain and email host recognition.
    url_schemes, when given, is a tuple of lowercased schemes the rewrite path allows
    for scheme://host URLs; omitting it keeps the permissive any-scheme scan. */
@@ -525,40 +767,51 @@ PyObject *turbohtml_linkify_scan(PyObject *Py_UNUSED(module), PyObject *args) {
                           &extra_tlds, &PyTuple_Type, &url_schemes)) {
         return NULL;
     }
-    return collect_matches(text, parse_email, bare_domains, extra_tlds, NULL, url_schemes);
+    return collect_matches(text, parse_email, bare_domains, extra_tlds, NULL, url_schemes, NULL);
 }
 
-/* _linkify_find(text, emails, bare_domains, extra_tlds, schemes, url_schemes=None)
-   -> list[(start, end, kind)]. extra_tlds and schemes are tuples of lowercased
+/* _linkify_find(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phones)
+   -> list[(start, end, kind, url, phone)]. extra_tlds and schemes are tuples of lowercased
    names; an empty schemes tuple still enables the scheme-less path (matching
    nothing), so the detector can register zero or more schemes uniformly. url_schemes
-   is the lowercased allowlist for scheme://host URLs; omitting it matches any scheme. */
-PyObject *turbohtml_linkify_find(PyObject *Py_UNUSED(module), PyObject *args) {
+   is the lowercased allowlist for scheme://host URLs. phones is a compiled
+   _PhoneConfig, or None to leave digits alone. */
+PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args) {
     PyObject *text;
     int emails;
     int bare_domains;
     PyObject *extra_tlds;
     PyObject *schemes;
-    PyObject *url_schemes = NULL;
-    if (!PyArg_ParseTuple(args, "UppO!O!|O!:_linkify_find", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
-                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes)) {
+    PyObject *url_schemes;
+    PyObject *phone_object;
+    if (!PyArg_ParseTuple(args, "UppO!O!O!O:_linkify_find", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
+                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes, &phone_object)) {
         return NULL;
     }
-    return collect_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes);
+    const PhoneConfigObject *phone;
+    if (phone_config_arg(module, phone_object, &phone) < 0) {
+        return NULL;
+    }
+    return collect_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone);
 }
 
-PyObject *turbohtml_linkify_has(PyObject *Py_UNUSED(module), PyObject *args) {
+PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args) {
     PyObject *text;
     int emails;
     int bare_domains;
     PyObject *extra_tlds;
     PyObject *schemes;
-    PyObject *url_schemes = NULL;
-    if (!PyArg_ParseTuple(args, "UppO!O!|O!:_linkify_has", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
-                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes)) {
+    PyObject *url_schemes;
+    PyObject *phone_object;
+    if (!PyArg_ParseTuple(args, "UppO!O!O!O:_linkify_has", &text, &emails, &bare_domains, &PyTuple_Type, &extra_tlds,
+                          &PyTuple_Type, &schemes, &PyTuple_Type, &url_schemes, &phone_object)) {
         return NULL;
     }
-    return PyBool_FromLong(scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL));
+    const PhoneConfigObject *phone;
+    if (phone_config_arg(module, phone_object, &phone) < 0) {
+        return NULL;
+    }
+    return PyBool_FromLong(scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone, NULL));
 }
 
 static int tag_matches_str(const th_node *node, PyObject *tag) {
@@ -678,12 +931,16 @@ static PyObject *anchor_attrs(th_tree *tree, th_node *anchor) {
     return attrs;
 }
 
-static PyObject *new_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing) {
+static PyObject *new_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing,
+                               PyObject *phone) {
     PyObject *candidate = PyObject_CallFunctionObjArgs(candidate_type, url, text, attrs, NULL);
-    if (candidate != NULL && existing) { /* GCOVR_EXCL_BR_LINE: LinkCandidate allocation failure */
-        if (PyObject_SetAttrString(candidate, "existing", Py_True) < 0) { /* GCOVR_EXCL_BR_LINE: fixed writable field */
-            Py_CLEAR(candidate);                                          /* GCOVR_EXCL_LINE */
-        } /* GCOVR_EXCL_LINE */
+    if (candidate == NULL) {
+        return NULL;
+    }
+    if ((existing && PyObject_SetAttrString(candidate, "existing", Py_True) < 0) ||
+        (phone != Py_None && PyObject_SetAttrString(candidate, "phone", phone) < 0)) {
+        Py_DECREF(candidate);
+        return NULL;
     }
     return candidate;
 }
@@ -716,10 +973,10 @@ static void clear_candidate_result(candidate_result *result) {
 }
 
 static int prepare_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing,
-                             PyObject *callbacks, candidate_result *result) {
-    PyObject *candidate = new_candidate(candidate_type, url, text, attrs, existing);
-    if (candidate == NULL) { /* GCOVR_EXCL_BR_LINE: LinkCandidate allocation failure */
-        return -1;           /* GCOVR_EXCL_LINE */
+                             PyObject *phone, PyObject *callbacks, candidate_result *result) {
+    PyObject *candidate = new_candidate(candidate_type, url, text, attrs, existing, phone);
+    if (candidate == NULL) {
+        return -1;
     }
     int status = run_callbacks(callbacks, &candidate);
     if (status != 0) {
@@ -893,7 +1150,7 @@ static int process_existing(PyObject *module, PyObject *target, PyObject *callba
         return -1;                                                    /* GCOVR_EXCL_LINE */
     }
     candidate_result result = {NULL, NULL, NULL, 0};
-    int status = prepare_candidate(candidate_type, url, text, attrs, 1, callbacks, &result);
+    int status = prepare_candidate(candidate_type, url, text, attrs, 1, Py_None, callbacks, &result);
     Py_DECREF(url);
     Py_DECREF(attrs);
     if (status == 0) {
@@ -915,26 +1172,6 @@ static int process_existing(PyObject *module, PyObject *target, PyObject *callba
     return status;
 }
 
-static PyObject *matched_url(PyObject *matched, int kind) {
-    if (kind == TH_LINK_EMAIL) {
-        PyObject *prefix = PyUnicode_FromString("mailto:");
-        /* GCOVR_EXCL_BR_START: prefix/concatenation allocation cannot be forced */
-        PyObject *url = prefix == NULL ? NULL : PyUnicode_Concat(prefix, matched);
-        /* GCOVR_EXCL_BR_STOP */
-        Py_XDECREF(prefix);
-        return url;
-    }
-    if (kind == TH_LINK_URL) {
-        PyObject *prefix = PyUnicode_FromString("http://");
-        /* GCOVR_EXCL_BR_START: prefix/concatenation allocation cannot be forced */
-        PyObject *url = prefix == NULL ? NULL : PyUnicode_Concat(prefix, matched);
-        /* GCOVR_EXCL_BR_STOP */
-        Py_XDECREF(prefix);
-        return url;
-    }
-    return Py_NewRef(matched);
-}
-
 static int append_data_slice(th_tree *tree, th_node *fragment, const Py_UCS4 *points, Py_ssize_t start,
                              Py_ssize_t end) {
     if (end <= start) {
@@ -948,17 +1185,22 @@ static int append_data_slice(th_tree *tree, th_node *fragment, const Py_UCS4 *po
     return 0;
 }
 
-static int prepare_detected(PyObject *matched, int kind, PyObject *callbacks, PyObject *candidate_type,
+/* Build the candidate for one detected span: the matched text, the href the scan built, and the PhoneNumber when
+   the span is a number. */
+static int prepare_detected(PyObject *text, PyObject *span, PyObject *callbacks, PyObject *candidate_type,
                             candidate_result *result) {
-    PyObject *url = matched_url(matched, kind);
+    Py_ssize_t start = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 0));
+    Py_ssize_t end = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 1));
+    PyObject *matched = PyUnicode_Substring(text, start, end);
     PyObject *attrs = PyDict_New();
-    if (url == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: URL/dict allocation cannot be forced from a test */
-        Py_XDECREF(url);                /* GCOVR_EXCL_LINE */
-        Py_XDECREF(attrs);              /* GCOVR_EXCL_LINE */
-        return -1;                      /* GCOVR_EXCL_LINE */
+    if (matched == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: substring/dict allocation cannot be forced */
+        Py_XDECREF(matched);                /* GCOVR_EXCL_LINE */
+        Py_XDECREF(attrs);                  /* GCOVR_EXCL_LINE */
+        return -1;                          /* GCOVR_EXCL_LINE */
     }
-    int status = prepare_candidate(candidate_type, url, matched, attrs, 0, callbacks, result);
-    Py_DECREF(url);
+    int status = prepare_candidate(candidate_type, PyTuple_GET_ITEM(span, 3), matched, attrs, 0,
+                                   PyTuple_GET_ITEM(span, 4), callbacks, result);
+    Py_DECREF(matched);
     Py_DECREF(attrs);
     return status;
 }
@@ -1046,16 +1288,26 @@ static int apply_text(PyObject *module, PyObject *target, PyObject *text, PyObje
     return status;
 }
 
-static int process_text(PyObject *module, PyObject *target, int parse_email, PyObject *extra_tlds,
-                        PyObject *url_schemes, PyObject *callbacks, PyObject *candidate_type) {
+typedef struct {
+    int parse_email;
+    PyObject *extra_tlds;
+    PyObject *url_schemes;
+    PyObject *schemes; /* ("tel",) with phone detection on, so a written tel: URI links as itself */
+    const PhoneConfigObject *phone;
+    PyObject *callbacks;
+    PyObject *candidate_type;
+} apply_policy;
+
+static int process_text(PyObject *module, PyObject *target, const apply_policy *policy) {
     PyObject *text = snapshot_text(module, target);
     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text snapshot allocation cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE */
     }
-    PyObject *spans = collect_matches(text, parse_email, 1, extra_tlds, NULL, url_schemes);
-    if (spans == NULL) { /* GCOVR_EXCL_BR_LINE: span list/tuple allocation cannot be forced from a test */
-        Py_DECREF(text); /* GCOVR_EXCL_LINE */
-        return -1;       /* GCOVR_EXCL_LINE */
+    PyObject *spans = collect_matches(text, policy->parse_email, 1, policy->extra_tlds, policy->schemes,
+                                      policy->url_schemes, policy->phone);
+    if (spans == NULL) {
+        Py_DECREF(text);
+        return -1;
     }
     if (PyList_GET_SIZE(spans) == 0) {
         Py_DECREF(spans);
@@ -1073,20 +1325,10 @@ static int process_text(PyObject *module, PyObject *target, int parse_email, PyO
     Py_ssize_t prepared = 0;
     for (; prepared < count; prepared++) {
         PyObject *span = PyList_GET_ITEM(spans, prepared);
-        Py_ssize_t start = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 0));
-        Py_ssize_t end = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 1));
-        int kind = (int)PyLong_AsLong(PyTuple_GET_ITEM(span, 2));
-        PyObject *matched = PyUnicode_Substring(text, start, end);
-        if (matched == NULL) { /* GCOVR_EXCL_BR_LINE: matched substring allocation */
-            status = -1;       /* GCOVR_EXCL_LINE */
-            break;             /* GCOVR_EXCL_LINE */
-        }
-        if (prepare_detected(matched, kind, callbacks, candidate_type, &results[prepared]) < 0) {
-            Py_DECREF(matched);
+        if (prepare_detected(text, span, policy->callbacks, policy->candidate_type, &results[prepared]) < 0) {
             status = -1;
             break;
         }
-        Py_DECREF(matched);
     }
     if (status == 0) {
         status = apply_text(module, target, text, spans, results);
@@ -1109,13 +1351,18 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     int process_existing_flag;
     PyObject *skip_tags;
     PyObject *candidate_type;
+    PyObject *phone_object;
     /* GCOVR_EXCL_BR_START: Linker passes tuple-backed compiled fields */
-    if (!PyArg_ParseTuple(args, "OO!pO!O!pO!O:_linkify_apply", &owner, &PyTuple_Type, &callbacks, &parse_email,
+    if (!PyArg_ParseTuple(args, "OO!pO!O!pO!OO:_linkify_apply", &owner, &PyTuple_Type, &callbacks, &parse_email,
                           &PyTuple_Type, &extra_tlds, &PyTuple_Type, &url_schemes, &process_existing_flag,
-                          &PyTuple_Type, &skip_tags, &candidate_type)) {
+                          &PyTuple_Type, &skip_tags, &candidate_type, &phone_object)) {
         return NULL; /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
+    apply_policy policy = {parse_email, extra_tlds, url_schemes, NULL, NULL, callbacks, candidate_type};
+    if (phone_config_arg(module, phone_object, &policy.phone) < 0) {
+        return NULL;
+    }
     th_tree *tree;
     th_node *root;
     if (turbohtml_node_borrow(module, owner, &tree, &root) < 0) { /* GCOVR_EXCL_BR_LINE: Linker supplies a fragment */
@@ -1126,6 +1373,13 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     PyObject *targets = collect_targets(module, owner, process_existing_flag, skip_tags);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list/wrapper allocation */
         return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    if (policy.phone != NULL) {
+        policy.schemes = Py_BuildValue("(s)", "tel");
+        if (policy.schemes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(targets);       /* GCOVR_EXCL_LINE */
+            return NULL;              /* GCOVR_EXCL_LINE */
+        }
     }
     int status = 0;
     for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
@@ -1141,11 +1395,12 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
         text_target = node->type == TH_NODE_TEXT;
         Py_END_CRITICAL_SECTION();
         if (text_target) {
-            status = process_text(module, target, parse_email, extra_tlds, url_schemes, callbacks, candidate_type);
+            status = process_text(module, target, &policy);
         } else {
             status = process_existing(module, target, callbacks, candidate_type);
         }
     }
+    Py_XDECREF(policy.schemes);
     Py_DECREF(targets);
     if (status < 0) {
         return NULL;

@@ -4,7 +4,8 @@ Build and drive the turbohtml fuzz harnesses under AddressSanitizer + UndefinedB
 Two mechanisms cover the untrusted-input entry points the security spike prioritizes (tox-dev/turbohtml#478):
 
 * standalone, malloc-backed C harnesses for the surfaces whose core decouples from CPython -- the IDNA ToASCII engine
-  (``idna_harness.c``, the highest memory-safety risk) and the JS minifier (``../js_minify_harness.c``). These compile
+  (``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``) and the JS
+  minifier (``../js_minify_harness.c``). These compile
   with no interpreter, exactly the ``JM_STANDALONE`` pattern the JS minifier already ships.
 * an in-process driver (``_targets.py``) for the surfaces that reach the live PyObject tree -- parse, serialize,
   sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
@@ -85,7 +86,9 @@ def _run_standalone(mode: str, extra: Path | None) -> int:
     work = Path(tempfile.mkdtemp(prefix="th-fuzz-"))
     idna = work / "idna_harness"
     js = work / "js_harness"
+    phone = work / "phone_harness"
     _compile(_FUZZ / "idna_harness.c", [], "-DTH_IDNA_STANDALONE", idna)
+    _compile(_FUZZ / "phone_harness.c", [], "-DTH_PHONE_STANDALONE", phone)
     _compile(
         _ROOT / "tools" / "js_minify_harness.c",
         [_ROOT / "src" / "turbohtml" / "_c" / "js" / f"{name}.c" for name in _JS_ENGINE],
@@ -93,7 +96,7 @@ def _run_standalone(mode: str, extra: Path | None) -> int:
         js,
     )
     js_seeds = sorted(str(path) for path in _JS_CORPUS.glob("*")) if mode == "deep" else []
-    for binary, seeds in ((idna, _seed_files("idna", extra)), (js, js_seeds)):
+    for binary, seeds in ((idna, _seed_files("idna", extra)), (phone, _seed_files("phone", extra)), (js, js_seeds)):
         if (result := subprocess.run([str(binary), *seeds], env=env, check=False)).returncode != 0:
             print(f"SANITIZER ABORT in {binary.name} (exit {result.returncode})", file=sys.stderr)
             return result.returncode

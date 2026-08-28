@@ -1,11 +1,21 @@
 # Subsystem: features (_c/features) — sanitizing, linkify scanning, annotation, and type registration.
 import re
 from collections.abc import Callable, Iterable, Mapping
+from typing import TypeAlias
 
+from turbohtml.clean import PhoneNumber, PhoneType
 from turbohtml.extract._feed import Entry, Feed
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
 from .dom import Element
+
+# (start, end, kind, href, phone): the href is built by the scanner for every kind, the phone is set for kind 4
+_Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None]
+_PhoneSpec: TypeAlias = tuple[
+    tuple[str, ...], bool, bool, bool, int, tuple[str, ...], type[PhoneNumber], tuple[PhoneType, ...]
+]
+
+class _PhoneConfig: ...
 
 def _register_markup(markup_type: type, /) -> None: ...
 def _linkify_scan(
@@ -15,23 +25,25 @@ def _linkify_scan(
     extra_tlds: tuple[str, ...] = ...,
     url_schemes: tuple[str, ...] = ...,
     /,
-) -> list[tuple[int, int, int]]: ...
+) -> list[_Span]: ...
 def _linkify_find(
     text: str,
     emails: bool,
     bare_domains: bool,
     extra_tlds: tuple[str, ...],
     schemes: tuple[str, ...],
-    url_schemes: tuple[str, ...] = ...,
+    url_schemes: tuple[str, ...],
+    phones: _PhoneConfig | None,
     /,
-) -> list[tuple[int, int, int]]: ...
+) -> list[_Span]: ...
 def _linkify_has(
     text: str,
     emails: bool,
     bare_domains: bool,
     extra_tlds: tuple[str, ...],
     schemes: tuple[str, ...],
-    url_schemes: tuple[str, ...] = ...,
+    url_schemes: tuple[str, ...],
+    phones: _PhoneConfig | None,
     /,
 ) -> bool: ...
 def _linkify_apply(
@@ -43,8 +55,11 @@ def _linkify_apply(
     process_existing: bool,
     skip_tags: tuple[str, ...],
     candidate_type: type,
+    phones: _PhoneConfig | None,
     /,
 ) -> None: ...
+def _phone_config_compile(spec: _PhoneSpec, /) -> _PhoneConfig: ...
+def _phone_number_check(country_code: int, national_number: str, region: str | None, type_index: int, /) -> None: ...
 def _registrable_domain(host: str, /) -> str: ...
 def _date_scan(text: str, current_year: int, /) -> tuple[int, int, int] | None: ...
 def _date_scan_all(text: str, current_year: int, /) -> list[tuple[int, int, int]]: ...

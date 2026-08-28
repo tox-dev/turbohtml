@@ -34,11 +34,15 @@ _CLEAN_SANITIZE = (
     "sanitize",
 )
 _CLEAN_LINKIFY = (
+    "DEFAULT_PHONE_LABELS",
     "LinkCandidate",
     "LinkDetector",
     "LinkSpan",
     "Linker",
     "Linkify",
+    "PhoneNumber",
+    "PhoneNumbers",
+    "PhoneType",
     "linkify",
     "nofollow",
     "target_blank",

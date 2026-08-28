@@ -70,6 +70,12 @@ def test_schemes_registers_a_custom_scheme() -> None:
     assert out == '<a href="git://example.com">git://example.com</a> and http://x.com'
 
 
+def _with_hrefs(text: str, spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, str, None]]:
+    """The scanner's span shape: the href it builds per kind, and no phone for a URL or an email."""
+    prefixes = {0: "http://", 1: "mailto:"}
+    return [(start, end, kind, prefixes.get(kind, "") + text[start:end], None) for start, end, kind in spans]
+
+
 @pytest.mark.parametrize(
     ("text", "parse_email", "extra_tlds", "spans"),
     [
@@ -87,7 +93,7 @@ def test_scanner_extra_tlds(
     extra_tlds: tuple[str, ...],
     spans: list[tuple[int, int, int]],
 ) -> None:
-    assert _linkify_scan(text, parse_email, True, extra_tlds) == spans  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding under test
+    assert _linkify_scan(text, parse_email, True, extra_tlds) == _with_hrefs(text, spans)  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding under test
 
 
 def test_scanner_extra_tlds_defaults_to_none() -> None:

@@ -92,6 +92,22 @@ def _idna(data: bytes) -> None:
     _url_to_ascii(_decode(data))
 
 
+_PHONES: Final = clean.PhoneNumbers(regions=("US", "GB", "DE", "IN"))
+_PHONE_DETECTOR: Final = clean.LinkDetector(phones=_PHONES)
+_PHONE_LINKER: Final = clean.Linker(clean.Linkify(phones=_PHONES, parse_email=True))
+_PHONE_POSSIBLE: Final = clean.LinkDetector(phones=clean.PhoneNumbers(regions=("US",), require_valid=False))
+
+
+def _phone(data: bytes) -> None:
+    text = _decode(data)
+    for span in _PHONE_DETECTOR.find(text):
+        if span.phone is not None:
+            fields = ("country_code", "national_number", "extension", "region", "type")
+            clean.PhoneNumber(*(getattr(span.phone, name) for name in fields))
+    _PHONE_POSSIBLE.find(text)
+    _PHONE_LINKER.linkify(text)
+
+
 def _minify_css(data: bytes) -> None:
     clean.minify_css(_decode(data))
 
@@ -101,6 +117,7 @@ def _minify_html(data: bytes) -> None:
 
 
 TARGETS: Final[dict[str, Callable[[bytes], None]]] = {
+    "phone": _phone,
     "parse": _parse,
     "serialize": _serialize,
     "roundtrip": _roundtrip,

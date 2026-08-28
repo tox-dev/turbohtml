@@ -227,6 +227,8 @@ static PyMethodDef html_methods[] = {
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
     {"_linkify_has", turbohtml_linkify_has, METH_VARARGS, NULL},
     {"_linkify_apply", turbohtml_linkify_apply, METH_VARARGS, NULL},
+    {"_phone_config_compile", turbohtml_phone_config_compile, METH_O, NULL},
+    {"_phone_number_check", turbohtml_phone_number_check, METH_VARARGS, NULL},
     {"_registrable_domain", turbohtml_registrable_domain, METH_O, NULL},
     {"_date_scan", turbohtml_date_scan, METH_VARARGS, NULL},
     {"_date_scan_all", turbohtml_date_scan_all, METH_VARARGS, NULL},
@@ -264,6 +266,9 @@ static int html_exec(PyObject *module) {
     }
     if (rewrite_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (phone_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* allocation failure cannot be forced from a test */
     if (tree_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE */
@@ -307,6 +312,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->serialize_iter_type); /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->sax_events_type);     /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->rewrite_handle_type); /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->phone_config_type);   /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->namespace_enum);      /* GCOVR_EXCL_BR_LINE: same */
     for (int index = 0; index < 3; index++) {
         Py_VISIT(state->namespaces[index]); /* GCOVR_EXCL_BR_LINE: same */
@@ -383,6 +389,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->serialize_iter_type);
     Py_CLEAR(state->sax_events_type);
     Py_CLEAR(state->rewrite_handle_type);
+    Py_CLEAR(state->phone_config_type);
     Py_CLEAR(state->namespace_enum);
     for (int index = 0; index < 3; index++) {
         Py_CLEAR(state->namespaces[index]);

@@ -132,6 +132,18 @@ from ._stubs.features import (
     _linkify_scan as _linkify_scan,
 )
 from ._stubs.features import (
+    _phone_config_compile as _phone_config_compile,
+)
+from ._stubs.features import (
+    _phone_number_check as _phone_number_check,
+)
+from ._stubs.features import (
+    _PhoneConfig as _PhoneConfig,
+)
+from ._stubs.features import (
+    _PhoneSpec as _PhoneSpec,
+)
+from ._stubs.features import (
     _register_article as _register_article,
 )
 from ._stubs.features import (

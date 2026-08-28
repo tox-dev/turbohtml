@@ -1,5 +1,5 @@
 """
-Turn URLs and email addresses in HTML into links, the way bleach.linkify did.
+Turn URLs, email addresses and phone numbers in HTML into links, the way bleach.linkify did.
 
 bleach is the only library that shipped an HTML-aware linkifier, and it is end of life, so this is its replacement.
 The typed layer compiles the options and parses the input with turbohtml's WHATWG tree builder. The C core snapshots
@@ -9,29 +9,265 @@ an existing ``<a>``, a raw-text element (``<script>``/``<style>``), or a caller'
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from turbohtml._html import _linkify_apply, _linkify_find, _linkify_has, parse_fragment
+from turbohtml._html import (
+    _linkify_apply,
+    _linkify_find,
+    _linkify_has,
+    _phone_config_compile,
+    _phone_number_check,
+    parse_fragment,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from turbohtml._html import _PhoneConfig
+
 _EMAIL_KIND: Final = 1
-
-# A scheme-less match (``tel:+1-800``, ``bitcoin:1abc``) already carries its scheme, so its url is the matched text
-# verbatim; only a bare domain (kind 0 without a ``scheme://``) is prefixed with ``http://``.
-_SCHEME_KIND: Final = 2
-
-# A ``scheme://`` URL the scanner flagged as already carrying its scheme (the anchored ``[a-zA-Z][a-zA-Z0-9+.\-]*://``
-# rule, applied per match in C), so its url is the matched text verbatim. A bare domain (``example.com``, ``www.x.com``)
-# stays kind 0 and is prefixed with ``http://``; classifying in the scanner avoids re-running the rule here per match.
-_HAS_SCHEME_KIND: Final = 3
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
 # a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
 _DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
+
+
+class PhoneType(Enum):
+    """The line type libphonenumber's metadata assigns a number; ``UNKNOWN`` appears only in possible mode."""
+
+    FIXED_LINE = "fixed_line"
+    MOBILE = "mobile"
+    FIXED_LINE_OR_MOBILE = "fixed_line_or_mobile"
+    TOLL_FREE = "toll_free"
+    PREMIUM_RATE = "premium_rate"
+    SHARED_COST = "shared_cost"
+    VOIP = "voip"
+    PERSONAL_NUMBER = "personal_number"
+    PAGER = "pager"
+    UAN = "uan"
+    VOICEMAIL = "voicemail"
+    UNKNOWN = "unknown"
+
+
+# PhoneType members in the order the C recognizer numbers them (enum th_phone_type).
+_PHONE_TYPES: Final = (
+    PhoneType.FIXED_LINE,
+    PhoneType.MOBILE,
+    PhoneType.TOLL_FREE,
+    PhoneType.PREMIUM_RATE,
+    PhoneType.SHARED_COST,
+    PhoneType.PERSONAL_NUMBER,
+    PhoneType.VOIP,
+    PhoneType.PAGER,
+    PhoneType.UAN,
+    PhoneType.VOICEMAIL,
+    PhoneType.FIXED_LINE_OR_MOBILE,
+    PhoneType.UNKNOWN,
+)
+_ALL_PHONE_TYPES: Final = 0x7FF
+_MAX_E164_DIGITS: Final = 15
+
+#: Words that mark the digits right after them as an identifier rather than a phone number.
+DEFAULT_PHONE_LABELS: Final = (
+    "account",
+    "acct",
+    "asin",
+    "bic",
+    "doi",
+    "ean",
+    "iban",
+    "invoice",
+    "isbn",
+    "issn",
+    "order",
+    "postcode",
+    "ref",
+    "reference",
+    "serial",
+    "sku",
+    "ticket",
+    "tracking",
+    "upc",
+    "vat",
+    "zip",
+)
+
+
+def _ordered_strings(values: Iterable[str], field: str) -> tuple[str, ...]:
+    """Consume an ordered iterable of ``str`` into a tuple; a bare string, a set or a mapping has no order."""
+    if isinstance(values, (str, bytes, AbstractSet, Mapping)):
+        msg = f"{field} must be an ordered iterable of str, not {type(values).__name__}"
+        raise TypeError(msg)
+    items = tuple(values)
+    if any(not isinstance(item, str) for item in items):
+        msg = f"{field} entries must be str"
+        raise TypeError(msg)
+    return items
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PhoneNumbers:
+    """
+    Phone-number detection settings for :class:`Linkify` and :class:`LinkDetector`.
+
+    ``regions`` are the ordered fallback regions for a number written without ``+`` (empty finds ``+`` numbers only);
+    order decides which national reading wins, so any ordered iterable of ``str`` is accepted (a list, a tuple, a
+    ``deque``, a generator, a caller's own iterable) and a bare string, a set or a mapping is a ``TypeError``, a
+    runtime rule the ``Iterable[str]`` annotation cannot express. ``ignore_numbers_after`` are the words that mark
+    the run of digits right after them as an identifier, not a number: ``Order 12345`` is skipped, the phone in
+    ``Order 12345, 650-253-0000`` is still found, and ``Phone no. 650-253-0000`` links because ``no`` is not in the
+    default list. Words are compared ASCII case-folded against the word immediately before the digits and stored
+    sorted; ``()`` disables the rule.
+
+    :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes (``"US"``).
+    :param require_valid: link only numbers the region's numbering plan assigns (libphonenumber's ``VALID``); False
+        links every number of a possible length (``POSSIBLE``), with type ``UNKNOWN`` and possibly no region.
+    :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
+    :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
+    :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
+    :param ignore_numbers_after: words that mark the digits right after them as an identifier.
+    """
+
+    regions: tuple[str, ...]
+    require_valid: bool
+    require_separators: bool
+    skip_card_numbers: bool
+    types: frozenset[PhoneType] | None
+    ignore_numbers_after: tuple[str, ...]
+
+    def __init__(  # ruff:ignore[too-many-arguments]
+        self,
+        *,
+        regions: Iterable[str] = (),
+        require_valid: bool = True,
+        require_separators: bool = False,
+        skip_card_numbers: bool = True,
+        types: Iterable[PhoneType] | None = None,
+        ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
+    ) -> None:
+        """Normalize and validate the settings; a mistake raises here, never at scan time."""
+        for name, flag in (
+            ("require_valid", require_valid),
+            ("require_separators", require_separators),
+            ("skip_card_numbers", skip_card_numbers),
+        ):
+            if not isinstance(flag, bool):
+                msg = f"{name} must be bool"
+                raise TypeError(msg)
+        region_codes = tuple(dict.fromkeys(code.strip().upper() for code in _ordered_strings(regions, "regions")))
+        labels = tuple(
+            sorted({word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")})
+        )
+        wanted = None
+        if types is not None:
+            wanted = frozenset(types)
+            if not wanted or any(not isinstance(member, PhoneType) for member in wanted):
+                msg = "types must be a non-empty iterable of PhoneType members"
+                raise TypeError(msg) if wanted else ValueError(msg)
+            if PhoneType.UNKNOWN in wanted:
+                msg = "types cannot include PhoneType.UNKNOWN; it is what possible mode reports"
+                raise ValueError(msg)
+            if not require_valid:
+                msg = "types needs require_valid=True"
+                raise ValueError(msg)
+        object.__setattr__(self, "regions", region_codes)
+        object.__setattr__(self, "require_valid", require_valid)
+        object.__setattr__(self, "require_separators", require_separators)
+        object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
+        object.__setattr__(self, "types", wanted)
+        object.__setattr__(self, "ignore_numbers_after", labels)
+        _compile_phones(self)
+
+
+@dataclass(frozen=True, slots=True)
+class PhoneNumber:
+    """
+    A detected number, in the form the tables produced it.
+
+    ``international_number`` is ``+`` followed by the country code and the national significant number with no
+    separators and no extension, the string libphonenumber's ``E164`` formatter emits and the value the ``tel:`` href
+    carries. ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None`` otherwise: the pinned
+    metadata declares longer valid national services (DE, ID, JP, KR, NG and UY, up to 19 digits with the country
+    code), and those are linked but are not E.164 numbers.
+
+    :param country_code: the calling code, ``1`` for ``+1``.
+    :param national_number: the national significant number, ASCII digits with the leading zeros the plan keeps.
+    :param extension: the extension digits, or ``None``.
+    :param region: the region whose plan assigns the number (``"US"``, ``"001"`` for a non-geographic code), or
+        ``None`` when possible mode could not tell.
+    :param type: the resolved line type.
+    """
+
+    country_code: int
+    national_number: str
+    extension: str | None
+    region: str | None
+    type: PhoneType
+
+    def __post_init__(self) -> None:
+        """Reject a value the tables never produce."""
+        if type(self.country_code) is not int or type(self.national_number) is not str:
+            msg = "country_code must be int and national_number must be str"
+            raise TypeError(msg)
+        if (self.extension is not None and type(self.extension) is not str) or (
+            self.region is not None and type(self.region) is not str
+        ):
+            msg = "extension and region must be str or None"
+            raise TypeError(msg)
+        if not isinstance(self.type, PhoneType):
+            msg = "type must be a PhoneType"
+            raise TypeError(msg)
+        if self.extension is not None and not (
+            0 < len(self.extension) <= 20 and self.extension.isascii() and self.extension.isdigit()
+        ):
+            msg = "extension must be 1-20 ASCII digits"
+            raise ValueError(msg)
+        _phone_number_check(self.country_code, self.national_number, self.region, _PHONE_TYPES.index(self.type))
+
+    @classmethod
+    def _from_native(cls, *fields: object) -> PhoneNumber:
+        # the recognizer resolved (country_code, national_number, extension, region, type) from the same tables the
+        # check would consult, so the frozen instance is filled without it
+        number = object.__new__(cls)
+        for name, value in zip(("country_code", "national_number", "extension", "region", "type"), fields, strict=True):
+            object.__setattr__(number, name, value)  # ruff:ignore[unnecessary-dunder-call]  # bypasses the frozen guard
+        return number
+
+    @property
+    def international_number(self) -> str:
+        """The ``+`` number with no separators, what the ``tel:`` href carries."""
+        return f"+{self.country_code}{self.national_number}"
+
+    @property
+    def e164(self) -> str | None:
+        """The international number when it fits E.164's fifteen digits, else ``None``."""
+        number = self.international_number
+        return number if len(number) - 1 <= _MAX_E164_DIGITS else None
+
+
+def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
+    """Compile the settings once into the object every scan is handed."""
+    if phones is None:
+        return None
+    if not isinstance(phones, PhoneNumbers):
+        msg = "phones must be PhoneNumbers or None"
+        raise TypeError(msg)
+    mask = _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types)
+    return _phone_config_compile((
+        phones.regions,
+        phones.require_valid,
+        phones.require_separators,
+        phones.skip_card_numbers,
+        mask,
+        phones.ignore_numbers_after,
+        PhoneNumber,
+        _PHONE_TYPES,
+    ))
 
 
 class LinkCandidate:
@@ -45,9 +281,11 @@ class LinkCandidate:
     :param text: the visible link text the reader sees.
     :param attrs: extra attributes to put on the ``<a>`` (``rel``, ``target``, ``class``, ...).
     :param existing: True when reprocessing an ``<a>`` already in the input, False for a freshly detected link.
+    :param phone: the detected number when the link is a phone number found in plain text; ``None`` for a URL, an
+        email, and every existing anchor whatever its ``href``.
     """
 
-    __slots__ = ("attrs", "existing", "text", "url")
+    __slots__ = ("attrs", "existing", "phone", "text", "url")
 
     def __init__(
         self,
@@ -56,12 +294,14 @@ class LinkCandidate:
         attrs: dict[str, str] | None = None,
         *,
         existing: bool = False,
+        phone: PhoneNumber | None = None,
     ) -> None:
         """Create a link."""
         self.url = url
         self.text = text
         self.attrs = attrs if attrs is not None else {}
         self.existing = existing
+        self.phone = phone
 
 
 # A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
@@ -122,6 +362,8 @@ class Linkify:
     :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
         ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
         domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+    :param phones: also link phone numbers as ``tel:`` links, per these :class:`PhoneNumbers` settings; ``None``
+        leaves digits alone. A ``tel:`` URI already written in the text links as itself.
     """
 
     callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
@@ -130,6 +372,7 @@ class Linkify:
     process_existing: bool = False
     extra_tlds: Iterable[str] | None = None
     schemes: Iterable[str] | None = None
+    phones: PhoneNumbers | None = None
 
 
 class Linker:
@@ -154,6 +397,8 @@ class Linker:
             if config.schemes is not None
             else _DEFAULT_URL_SCHEMES
         )
+        self.phones = config.phones
+        self._phone_config = _compile_phones(config.phones)
 
     def linkify(self, text: str) -> str:
         """
@@ -172,13 +417,16 @@ class Linker:
             self.process_existing,
             self.skip_tags,
             LinkCandidate,
+            self._phone_config,
         )
         return root.inner_html
 
 
 def linkify(text: str, options: Linkify | None = None) -> str:
     """
-    Find URLs and email addresses in HTML and wrap them in ``<a>`` links, leaving existing markup untouched.
+    Find URLs, email addresses and phone numbers in HTML and wrap them in ``<a>`` links.
+
+    Existing markup is left untouched.
 
     :param text: the HTML to linkify.
     :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
@@ -189,55 +437,62 @@ def linkify(text: str, options: Linkify | None = None) -> str:
 
 class LinkSpan:
     """
-    One URL or email address found in a run of plain text.
+    One URL, email address or phone number found in a run of plain text.
 
     :param start: the half-open start offset of the match in the scanned text.
     :param end: the half-open end offset of the match in the scanned text.
     :param text: the matched substring exactly as it appeared.
-    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the text
-        itself for a ``scheme://`` or registered scheme-less URL).
+    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, ``tel:`` for a
+        phone number, the text itself for a ``scheme://`` or registered scheme-less URL).
     :param is_email: whether the match is an email address.
+    :param phone: the detected number when the match is a phone number, else ``None``.
     """
 
-    __slots__ = ("end", "is_email", "start", "text", "url")
+    __slots__ = ("end", "is_email", "phone", "start", "text", "url")
 
-    def __init__(self, start: int, end: int, text: str, url: str, is_email: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+    def __init__(  # ruff:ignore[too-many-arguments]  # the five fields are the span's positional contract
+        self,
+        start: int,
+        end: int,
+        text: str,
+        url: str,
+        is_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # the pre-existing positional contract
+        *,
+        phone: PhoneNumber | None = None,
+    ) -> None:
         """Create a link span."""
         self.start = start
         self.end = end
         self.text = text
         self.url = url
         self.is_email = is_email
+        self.phone = phone
 
     def __repr__(self) -> str:
         """Render the span with its offsets and url, the way a debugger or a failing test wants to see it."""
-        return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r})"
+        phone = f", phone={self.phone!r}" if self.phone is not None else ""
+        return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r}{phone})"
 
     def __eq__(self, other: object) -> bool:
         """Two spans are equal when every field matches; comparing to a non-span defers to the other operand."""
         if not isinstance(other, LinkSpan):
             return NotImplemented
-        return (self.start, self.end, self.text, self.url, self.is_email) == (
+        return (self.start, self.end, self.text, self.url, self.is_email, self.phone) == (
             other.start,
             other.end,
             other.text,
             other.url,
             other.is_email,
+            other.phone,
         )
 
     __hash__ = None  # a span carries offsets into one specific string, so it is not a stable dict key
 
 
-def _span_from_match(text: str, start: int, end: int, kind: int) -> LinkSpan:
-    """Normalize one matched span into a :class:`LinkSpan`, adding the ``mailto:``/``http://`` scheme it needs."""
-    matched = text[start:end]
-    if kind == _EMAIL_KIND:
-        url = "mailto:" + matched
-    elif kind in {_SCHEME_KIND, _HAS_SCHEME_KIND}:
-        url = matched
-    else:
-        url = "http://" + matched
-    return LinkSpan(start, end, matched, url, kind == _EMAIL_KIND)
+def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None]) -> LinkSpan:
+    """Wrap one matched span, whose href the scanner already built, into a :class:`LinkSpan`."""
+    start, end, kind, url, phone = span
+    return LinkSpan(start, end, text[start:end], url, kind == _EMAIL_KIND, phone=phone)
 
 
 class LinkDetector:
@@ -253,6 +508,8 @@ class LinkDetector:
     :param schemes: extra schemes to detect, both as scheme-less opaque URLs (``tel:``, ``bitcoin:``) and as
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
         such as ``javascript://`` or a typo like ``hppt://`` is not detected.
+    :param phones: also detect phone numbers, per these :class:`PhoneNumbers` settings; ``None`` leaves digits
+        alone. With phones on, a written ``tel:`` URI is detected as itself, as if ``tel`` were in ``schemes``.
     """
 
     def __init__(
@@ -262,12 +519,18 @@ class LinkDetector:
         bare_domains: bool = True,
         tlds: Iterable[str] = (),
         schemes: Iterable[str] = (),
+        phones: PhoneNumbers | None = None,
     ) -> None:
         """Build a reusable detector."""
         self.emails = emails
         self.bare_domains = bare_domains
+        self.phones = phones
+        self._phone_config = _compile_phones(phones)
         self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})
-        self._schemes = tuple({scheme.lower().rstrip(":") for scheme in schemes})
+        registered = {scheme.lower().rstrip(":") for scheme in schemes}
+        if phones is not None:
+            registered.add("tel")
+        self._schemes = tuple(registered)
         self._url_schemes = tuple(sorted(set(_DEFAULT_URL_SCHEMES).union(self._schemes)))
 
     def find(self, text: str) -> list[LinkSpan]:
@@ -277,8 +540,10 @@ class LinkDetector:
         :param text: the text to scan.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
-        spans = _linkify_find(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes)
-        return [_span_from_match(text, start, end, kind) for start, end, kind in spans]
+        spans = _linkify_find(
+            text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
+        )
+        return [_span_from_match(text, span) for span in spans]
 
     def has_link(self, text: str) -> bool:
         """
@@ -287,17 +552,23 @@ class LinkDetector:
         :param text: the text to scan.
         :returns: whether the text contains at least one link.
         """
-        return _linkify_has(text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes)
+        return _linkify_has(
+            text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
+        )
 
 
 __all__ = [
     "DEFAULT_CALLBACKS",
+    "DEFAULT_PHONE_LABELS",
     "Callback",
     "LinkCandidate",
     "LinkDetector",
     "LinkSpan",
     "Linker",
     "Linkify",
+    "PhoneNumber",
+    "PhoneNumbers",
+    "PhoneType",
     "linkify",
     "nofollow",
     "target_blank",

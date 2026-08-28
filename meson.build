@@ -87,6 +87,8 @@ py.extension_module(
         'src/turbohtml/_c/query/find.c',
         'src/turbohtml/_c/clean/sanitize.c',
         'src/turbohtml/_c/clean/linkify.c',
+        'src/turbohtml/_c/clean/phone.c',
+        'src/turbohtml/_c/clean/phone_binding.c',
         'src/turbohtml/_c/extract/links.c',
         'src/turbohtml/_c/url/url.c',
         'src/turbohtml/_c/url/idna.c',
