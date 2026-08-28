@@ -7,74 +7,104 @@
   "metrics": [],
   "rows": [
     [
-      "mixed corpus, valid (1 KiB)",
+      "detect phone numbers in text — mixed corpus, valid (1 KiB)",
       9.960220200137353e-05,
       0.003555601520323156
     ],
     [
-      "mixed corpus, possible (1 KiB)",
+      "detect phone numbers in text — mixed corpus, possible (1 KiB)",
       0.00011287590950530557,
       0.0017916195955649528
     ],
     [
-      "mixed corpus, 8 regions (1 KiB)",
+      "detect phone numbers in text — mixed corpus, 8 regions (1 KiB)",
       0.00017704146058008518,
       0.003618771855190062
     ],
     [
-      "prose (1 KiB)",
+      "detect phone numbers in text — prose (1 KiB)",
       3.418839840059936e-05,
       0.0007699469154279844
     ],
     [
-      "prose (100 KiB)",
+      "detect phone numbers in text — prose (100 KiB)",
       0.0022680826273661597,
       0.07549478786689481
     ],
     [
-      "noise: dates, prices, IPv4, cards (1 KiB)",
+      "detect phone numbers in text — noise: dates, prices, IPv4, cards (1 KiB)",
       4.4212643074400164e-05,
       0.0047202715474062035
     ],
     [
-      "adversarial digit runs, 1 region (1 KiB)",
+      "detect phone numbers in text — adversarial digit runs, 1 region (1 KiB)",
       0.00013611746349369015,
       0.009791644102172843
     ],
     [
-      "adversarial digit runs, 8 regions (1 KiB)",
+      "detect phone numbers in text — adversarial digit runs, 8 regions (1 KiB)",
       0.00018337970380836546,
       0.009872310541656286
     ],
     [
-      "fullwidth (1 KiB)",
+      "detect phone numbers in text — fullwidth (1 KiB)",
       0.00011032050441954766,
       0.001437450347138262
     ],
     [
-      "ucs2 prose, no digits (100 KiB)",
+      "detect phone numbers in text — ucs2 prose, no digits (100 KiB)",
       0.0004576548990939955,
       0.003800425369763616
     ],
     [
-      "ucs4 prose, no digits (100 KiB)",
+      "detect phone numbers in text — ucs4 prose, no digits (100 KiB)",
       0.0003337724161814511,
       0.0029695053583433644
     ],
     [
-      "short text, 1 region (40 B)",
+      "detect phone numbers in text — short text, 1 region (40 B)",
       2.9899495343599368e-06,
       4.175850832096965e-05
     ],
     [
-      "short text, 8 regions (40 B)",
+      "detect phone numbers in text — short text, 8 regions (40 B)",
       3.043714905285692e-06,
       4.186081678856368e-05
     ],
     [
-      "has_link, mixed corpus (1 KiB)",
+      "detect phone numbers in text — has_link, mixed corpus (1 KiB)",
       8.388894660908235e-07,
       4.2232523091634276e-05
+    ],
+    [
+      "parse held phone numbers — 20 held numbers, valid",
+      3.145494484459259e-05,
+      0.0002174626952808012
+    ],
+    [
+      "parse held phone numbers — 20 held numbers, possible",
+      3.0485868334947003e-05,
+      0.00015263187123887672
+    ],
+    [
+      "format phone numbers — 20 numbers, international",
+      3.5076732839349017e-06,
+      5.085441387547481e-05
+    ],
+    [
+      "format phone numbers — 20 numbers, national",
+      3.6427418375580464e-06,
+      6.44560428712045e-05
+    ],
+    [
+      "format phone numbers — 20 numbers, RFC 3966",
+      4.0364015369961e-06,
+      6.623190169297762e-05
+    ],
+    [
+      "format phone numbers — 20 numbers, E.164",
+      2.8670073191331784e-06,
+      4.660566669737835e-06
     ]
   ],
   "spread": [
@@ -147,6 +177,36 @@
       null,
       0.13878356842507952,
       0.07834981345840929
+    ],
+    [
+      null,
+      0.10166113010019748,
+      0.011338217838786182
+    ],
+    [
+      null,
+      0.10693250328303344,
+      0.007616128457431646
+    ],
+    [
+      null,
+      0.009140519516294259,
+      0.0483098188951435
+    ],
+    [
+      null,
+      0.01274415172915982,
+      0.01794028854473136
+    ],
+    [
+      null,
+      0.07688758018330688,
+      0.014835615516227042
+    ],
+    [
+      null,
+      0.07290268634507936,
+      0.05005380555578729
     ]
   ],
   "row_notes": {}

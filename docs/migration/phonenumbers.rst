@@ -10,11 +10,13 @@ numbers a default region makes readable. The port carries every numbering plan a
 regular expressions over each candidate, so a scan over a page costs milliseconds and the matcher is the slowest piece
 of the package.
 
-turbohtml covers the scanning half. :class:`~turbohtml.clean.LinkDetector` with a :class:`~turbohtml.clean.PhoneNumbers`
-setting locates numbers the way the matcher does, and :func:`~turbohtml.clean.linkify` rewrites them into ``tel:``
-anchors inside HTML, skipping text that is already a link. The build compiles the plans to automata, so the scan is a
-table walk in C. Parsing a number you already hold, formatting it for display, geocoding and carrier lookup stay with
-``phonenumbers``.
+turbohtml covers the number handling: :class:`~turbohtml.clean.LinkDetector` with a
+:class:`~turbohtml.clean.PhoneNumbers` setting locates numbers the way the matcher does at each of its leniencies,
+:func:`~turbohtml.clean.linkify` rewrites them into ``tel:`` anchors inside HTML, skipping text that is already a link,
+:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads a string you already hold and
+:meth:`PhoneNumber.format <turbohtml.clean.PhoneNumber.format>` writes a number in the four layouts of
+``format_number``. The build compiles the plans and number formats to tables, so each of those is a table walk in C.
+Geocoding, carrier and time-zone lookup and the as-you-type formatter stay with ``phonenumbers``.
 
 ***************************
  turbohtml vs phonenumbers
@@ -28,13 +30,13 @@ table walk in C. Parsing a number you already hold, formatting it for display, g
       - turbohtml
       - phonenumbers
     - - Scope
-      - Find numbers in text and rewrite HTML into ``tel:`` anchors
-      - Parse, validate, format and find numbers; geocoding, carrier and timezone data
+      - Find, parse, validate and format numbers; rewrite HTML into ``tel:`` anchors
+      - Parse, validate, format and find numbers; geocoding, carrier and timezone data; as-you-type formatting
     - - Detection rules
-      - libphonenumber's matcher rules, compiled from the same metadata (``v9.0.38``)
+      - libphonenumber's matcher rules at every leniency, compiled from the same metadata (``v9.0.38``)
       - libphonenumber's matcher rules
     - - Output
-      - :class:`~turbohtml.clean.PhoneNumber` with the E.164 form, region and type
+      - :class:`~turbohtml.clean.PhoneNumber` with the E.164 form, region, type and the four layouts
       - ``PhoneNumberMatch`` with a ``PhoneNumber`` object
     - - Performance
       - C table walk; see below
@@ -52,9 +54,15 @@ Feature overlap
 - ``PhoneNumberMatcher(text, region)`` -> :meth:`LinkDetector(phones=PhoneNumbers(regions=(region,))).find(text)
   <turbohtml.clean.LinkDetector.find>`; a ``PhoneNumberMatch`` (``start`` / ``end`` / ``raw_string`` / ``number``) is a
   :class:`~turbohtml.clean.LinkSpan` (``start`` / ``end`` / ``text`` / ``phone``).
-- ``Leniency.VALID`` is the default; ``Leniency.POSSIBLE`` is ``PhoneNumbers(require_valid=False)``.
-- ``format_number(number, PhoneNumberFormat.E164)`` -> :attr:`PhoneNumber.international_number
-  <turbohtml.clean.PhoneNumber.international_number>`; ``number.extension`` -> ``phone.extension``;
+- ``Leniency.VALID`` is the default; ``Leniency.POSSIBLE`` is ``PhoneNumbers(require_valid=False)``;
+  ``Leniency.STRICT_GROUPING`` and ``EXACT_GROUPING`` are ``PhoneNumbers(grouping=PhoneGrouping.STRICT)`` and ``EXACT``,
+  checked against the same number formats and alternate formats.
+- ``parse(text, region)`` -> :meth:`PhoneNumber.parse(text, regions=(region,)) <turbohtml.clean.PhoneNumber.parse>`,
+  which raises ``ValueError`` where ``parse`` raises ``NumberParseException`` or ``is_valid_number`` says no;
+  ``is_possible_number`` is ``require_valid=False``.
+- ``format_number(number, PhoneNumberFormat.X)`` -> :meth:`phone.format(PhoneFormat.X)
+  <turbohtml.clean.PhoneNumber.format>` for ``E164``, ``INTERNATIONAL``, ``NATIONAL`` and ``RFC3966``, with the same
+  grouping, national prefix and extension marker; ``number.extension`` -> ``phone.extension``;
   ``region_code_for_number`` -> ``phone.region``; ``number_type`` -> ``phone.type``.
 - One matcher takes one default region; ``regions`` takes an ordered tuple, tried in order for numbers written without
   ``+``.
@@ -72,13 +80,12 @@ What turbohtml adds
 What phonenumbers has that turbohtml does not
 =============================================
 
-- ``parse`` and ``format_number`` for a number you already hold, ``is_valid_number`` on its own, the as-you-type
-  formatter, and the geocoder, carrier and timezone data. Keep ``phonenumbers`` for those; a
-  :class:`~turbohtml.clean.PhoneNumber` gives you the E.164 string to hand it.
-- ``Leniency.STRICT_GROUPING`` and ``EXACT_GROUPING``, which check that the written grouping matches the number's
-  format. turbohtml offers the ``VALID`` and ``POSSIBLE`` levels.
-- ``parse`` accepts a number written without the national prefix its format requires; the matcher, and turbohtml, do not
-  link it.
+- The as-you-type formatter, and the geocoder, carrier and timezone data, which are lookup sets several times the size
+  of the numbering plans. Keep ``phonenumbers`` for those; a :class:`~turbohtml.clean.PhoneNumber` gives you the E.164
+  string to hand it.
+- ``format_out_of_country_calling_number``, ``format_in_original_format`` and formatting with a carrier code.
+- ``parse`` reads a letter glued to the digits (``x650-253-0000``) and a ``phone-context`` parameter; turbohtml's
+  ``parse`` refuses the first and ignores the second.
 
 Performance
 ===========
@@ -86,11 +93,14 @@ Performance
 .. bench-table::
     :file: bench/phonenumbers.json
 
-Both parties scan the same texts for numbers with the United States as the default region, at the ``VALID`` leniency
-unless the row says ``possible``. :meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>` runs 36x faster than
-``PhoneNumberMatcher`` on the mixed corpus (16x at ``POSSIBLE``), 22x to 33x on prose with a few numbers, and over 70x
-on the digit-heavy inputs (dates, prices, IPv4 addresses, 21-group digit runs) where the matcher's regular expressions
-retry the most. Prose with no digits at all is the narrowest row, 8x to 9x, the cost of the trigger scan alone.
+The scanning rows time both parties over the same texts with the United States as the default region, at the ``VALID``
+leniency unless the row says ``possible``; the parse rows read twenty held numbers from as many regions, 7x faster than
+``parse`` plus ``is_valid_number`` (5x against ``is_possible_number``); the format rows write those twenty numbers in
+one layout, 14x to 18x faster than ``format_number`` except for E.164, where both sides only join a few strings and the
+gap is 2x. :meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>` runs 36x faster than ``PhoneNumberMatcher`` on
+the mixed corpus (16x at ``POSSIBLE``), 22x to 33x on prose with a few numbers, and over 70x on the digit-heavy inputs
+(dates, prices, IPv4 addresses, 21-group digit runs) where the matcher's regular expressions retry the most. Prose with
+no digits at all is the narrowest row, 8x to 9x, the cost of the trigger scan alone.
 :meth:`~turbohtml.clean.LinkDetector.has_link` stops at the first number and runs 50x faster than
 ``PhoneNumberMatcher.has_next``. The eight-region rows configure turbohtml with eight fallback regions and give
 ``phonenumbers`` its first one, so its figure there is the single-region cost.
@@ -117,6 +127,12 @@ retry the most. Prose with no digits at all is the narrowest row, 8x to 9x, the 
       - :meth:`LinkDetector(phones=PhoneNumbers(regions=("US",))).find(text) <turbohtml.clean.LinkDetector.find>`
     - - ``PhoneNumberMatcher(text, "US", leniency=Leniency.POSSIBLE)``
       - ``PhoneNumbers(regions=("US",), require_valid=False)``
+    - - ``PhoneNumberMatcher(text, "US", leniency=Leniency.EXACT_GROUPING)``
+      - ``PhoneNumbers(regions=("US",), grouping=PhoneGrouping.EXACT)``
+    - - ``is_valid_number(parse(text, "US"))``
+      - :meth:`PhoneNumber.parse(text, regions=("US",)) <turbohtml.clean.PhoneNumber.parse>` (raises when not)
+    - - ``format_number(number, PhoneNumberFormat.NATIONAL)``
+      - :meth:`phone.format(PhoneFormat.NATIONAL) <turbohtml.clean.PhoneNumber.format>`
     - - ``match.start`` / ``match.end`` / ``match.raw_string``
       - ``span.start`` / ``span.end`` / ``span.text``
     - - ``format_number(match.number, PhoneNumberFormat.E164)``
@@ -132,17 +148,20 @@ retry the most. Prose with no digits at all is the narrowest row, 8x to 9x, the 
 
 .. testcode::
 
-    from turbohtml.clean import LinkDetector, Linkify, PhoneNumbers, linkify
+    from turbohtml.clean import LinkDetector, Linkify, PhoneFormat, PhoneNumber, PhoneNumbers, linkify
 
     phones = PhoneNumbers(regions=("US",))
     span = LinkDetector(phones=phones).find("Call 650-253-0000")[0]
     print(span.start, span.end, span.phone.international_number, span.phone.type.value)
     print(linkify("Call 650-253-0000", Linkify(phones=phones)))
+    number = PhoneNumber.parse("(650) 253-0000 ext. 12", regions=("US",))
+    print(number.format(PhoneFormat.INTERNATIONAL), "|", number.format(PhoneFormat.RFC3966))
 
 .. testoutput::
 
     5 17 +16502530000 fixed_line_or_mobile
     Call <a href="tel:+16502530000">650-253-0000</a>
+    +1 650-253-0000 ext. 12 | tel:+1-650-253-0000;ext=12
 
 **********************
  Gotchas and pitfalls
@@ -155,3 +174,8 @@ retry the most. Prose with no digits at all is the narrowest row, 8x to 9x, the 
 - A number split across elements (``<b>650-253</b>-0000``) is not joined; the scanner works on one text node at a time.
 - ``PhoneNumberMatcher`` returns nothing after a slash date in the same run; turbohtml links the number, so counts
   differ on texts that mix dates and numbers.
+- ``parse`` returns a ``PhoneNumber`` for an invalid number and leaves ``is_valid_number`` to you;
+  :meth:`~turbohtml.clean.PhoneNumber.parse` raises for one, since every :class:`~turbohtml.clean.PhoneNumber` is a
+  number the tables assign (or, with ``require_valid=False``, one of a possible length).
+- A detected number links the way the matcher would find it, national prefix included; ``PhoneNumbers``
+  (``require_national_prefix=False``) links what ``parse`` would accept.

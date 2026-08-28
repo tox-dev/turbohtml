@@ -110,6 +110,24 @@ measure the trigger scan alone (8x to 9x, the narrowest rows).
 .. bench-table::
     :file: bench/linkify-3.json
 
+:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` against ``phonenumbers.parse`` followed by
+``is_valid_number`` (``is_possible_number`` on the possible row), over twenty held numbers from twenty regions, each in
+a written form of its own: national with the prefix, international, with an extension, bracketed. The port normalizes
+the string, strips prefixes and matches the plan's regular expressions one type at a time; turbohtml runs the same
+recognizer the scanner uses over the one string, 7x faster (5x when only a possible length is asked for).
+
+.. bench-table::
+    :file: bench/linkify-4.json
+
+:meth:`PhoneNumber.format <turbohtml.clean.PhoneNumber.format>` against ``format_number`` over the same twenty numbers,
+parsed once outside the timed loop, one layout per row. The port picks the number format by running its leading-digits
+and pattern expressions and substitutes the groups with a regular-expression replacement; turbohtml walks one
+leading-digits automaton per candidate format and splits the digits by the group bounds the generator recorded, 14x to
+18x faster; E.164 joins a few strings on both sides and is the narrowest row at 2x.
+
+.. bench-table::
+    :file: bench/linkify-5.json
+
 **********
  Sanitize
 **********

@@ -1,0 +1,33 @@
+{
+  "label": "parse held phone numbers",
+  "parties": [
+    "turbohtml",
+    "phonenumbers"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "20 held numbers, valid",
+      3.145494484459259e-05,
+      0.0002174626952808012
+    ],
+    [
+      "20 held numbers, possible",
+      3.0485868334947003e-05,
+      0.00015263187123887672
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.10166113010019748,
+      0.011338217838786182
+    ],
+    [
+      null,
+      0.10693250328303344,
+      0.007616128457431646
+    ]
+  ],
+  "notes": {}
+}

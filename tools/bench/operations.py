@@ -336,6 +336,8 @@ OPERATIONS: dict[str, Operation] = {
     "linkify-traversal": Operation("linkify with native tree traversal", "us"),
     "detect": Operation("detect links in text", "us"),
     "phone": Operation("detect phone numbers in text", "us"),
+    "phone-parse": Operation("parse held phone numbers", "us"),
+    "phone-format": Operation("format phone numbers", "us"),
     "markdown": Operation("HTML to Markdown", "us"),
     "markdown-google": Operation("Google Docs export to Markdown", "us"),
     "tables": Operation("extract table grids", "us"),
@@ -486,6 +488,41 @@ _PHONE_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
     ("short text, 1 region (40 B)", ("valid", "call 650-253-0000 or write to us today")),
     ("short text, 8 regions (40 B)", ("regions-8", "call 650-253-0000 or write to us today")),
     ("has_link, mixed corpus (1 KiB)", ("has", _PHONE_MIXED * 5)),
+)
+
+# Twenty numbers people hold as strings, one per region and written form, so parse and format each take one
+# reading of every national prefix style, extension marker and layout the tables cover.
+_PHONE_HELD: Final[tuple[tuple[str, str], ...]] = (
+    ("US", "+1 650-253-0000"),
+    ("US", "(650) 253-0000 ext. 12"),
+    ("US", "6502530000"),
+    ("GB", "020 7946 0958"),
+    ("GB", "+44 20 7946 0958 x12"),
+    ("DE", "030 12345678"),
+    ("DE", "+49 1512 3456789"),
+    ("FR", "01 23 45 67 89"),
+    ("IT", "06 1234 5678"),
+    ("ES", "612 34 56 78"),
+    ("BR", "(11) 96123-4567"),
+    ("IN", "098765 43210"),
+    ("JP", "03-1234-5678"),
+    ("AU", "(02) 1234 5678"),
+    ("AR", "011 15-2345-6789"),
+    ("MX", "222 123 4567"),
+    ("RU", "8 (912) 345-67-89"),
+    ("CN", "131 2345 6789"),
+    ("KR", "02-123-4567"),
+    ("SG", "6123 4567"),
+)
+_PHONE_PARSE_CASES: Final[tuple[tuple[str, tuple[str, tuple[tuple[str, str], ...]]], ...]] = (
+    ("20 held numbers, valid", ("valid", _PHONE_HELD)),
+    ("20 held numbers, possible", ("possible", _PHONE_HELD)),
+)
+_PHONE_FORMAT_CASES: Final[tuple[tuple[str, tuple[str, tuple[tuple[str, str], ...]]], ...]] = (
+    ("20 numbers, international", ("international", _PHONE_HELD)),
+    ("20 numbers, national", ("national", _PHONE_HELD)),
+    ("20 numbers, RFC 3966", ("rfc3966", _PHONE_HELD)),
+    ("20 numbers, E.164", ("e164", _PHONE_HELD)),
 )
 
 _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
@@ -1023,6 +1060,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
     ),
     "phone": lambda: _PHONE_CASES,
+    "phone-parse": lambda: _PHONE_PARSE_CASES,
+    "phone-format": lambda: _PHONE_FORMAT_CASES,
     "markdown": lambda: (
         ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),
