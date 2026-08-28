@@ -47,7 +47,8 @@ update --init --depth 1 tools/bench-data/whatwg-html tools/bench-data/war-and-pe
 (`pre-commit <https://pre-commit.com>`_), ``pkg_meta`` (wheel/sdist metadata), ``bench`` (`pyperf
 <https://pyperf.readthedocs.io>`_ comparison against each competitor library, each in its own isolated ``uv`` venv; see
 the :doc:`performance` page), ``codspeed`` (the pytest-codspeed hot-path benchmarks behind the CI regression gate,
-below), and ``regen`` (regenerate the entity tables).
+below), and ``regen`` (regenerate the entity, tag and phone-plan tables; the phone tables fetch libphonenumber's
+metadata and the Unicode data at their pinned tags and verify each file's SHA-256).
 
 Every pull request runs the ``codspeed`` benchmarks under `CodSpeed <https://codspeed.io>`_ in the ``👷 benchmark``
 workflow. It counts the CPU instructions of one benchmark per operation under Valgrind and comments the per-benchmark
@@ -118,7 +119,8 @@ Every untrusted-input entry point has an AddressSanitizer + UndefinedBehaviorSan
 Two mechanisms share one driver (``tools/fuzz/fuzz.py``):
 
 - **Standalone C harnesses** for the surfaces whose core decouples from CPython: the IDNA ``ToASCII`` engine
-  (``idna_harness.c``, compiled with ``TH_IDNA_STANDALONE``) and the JS minifier (``js_minify_harness.c``, compiled with
+  (``idna_harness.c``, compiled with ``TH_IDNA_STANDALONE``), the phone-number recognizer (``phone_harness.c``, which
+  reads text through a callback and needs no interpreter) and the JS minifier (``js_minify_harness.c``, compiled with
   ``JM_STANDALONE``). Both link against the system allocator with no interpreter, so a coverage-guided ``libFuzzer`` run
   (``-fsanitize=fuzzer``) or an ``AFL++`` target drives them directly.
 - **An in-process driver** (``tools/fuzz/_targets.py``) for the surfaces that reach the live tree -- ``parse``,

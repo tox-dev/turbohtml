@@ -98,6 +98,18 @@ link followed by 220 KiB of prose to catch a return to full-input scanning.
 .. bench-table::
     :file: bench/linkify-2.json
 
+Phone-number detection, :class:`~turbohtml.clean.LinkDetector` with a :class:`~turbohtml.clean.PhoneNumbers` setting
+against `phonenumbers <https://github.com/daviddrysdale/python-phonenumbers>`_'s ``PhoneNumberMatcher``, both with the
+United States as the default region. The numbering plans are compiled to automata at build time, so a candidate is a
+table walk per digit where the port runs the library's regular expressions over each one: 36x faster on the mixed
+corpus, 22x to 33x on prose with a few numbers, and 54x to 107x on the digit-heavy inputs where those expressions retry
+the most. The eight-region rows give turbohtml eight fallback regions and the matcher its first; the adversarial rows
+are 21-group digit runs that never form a number, the shape that costs the most splits; the prose rows with no digits
+measure the trigger scan alone (8x to 9x, the narrowest rows).
+
+.. bench-table::
+    :file: bench/linkify-3.json
+
 **********
  Sanitize
 **********

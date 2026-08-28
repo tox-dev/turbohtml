@@ -108,6 +108,11 @@ _STRIP = "code, a, q"  # a bulk set of tags to drop or unwrap
 _SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _SET_TEXT = "Replacement text, escaped & verbatim."
 _DETECTOR = _LinkDetector()
+_PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
+    "valid": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",))),
+    "possible": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",), require_valid=False)),
+    "regions-8": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
+}
 _LINKER: Final[_clean.Linker] = _clean.Linker()
 _LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
 _LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(
@@ -559,6 +564,15 @@ def detect(case: tuple[str, str]) -> None:
         _DETECTOR.find(text)
     else:
         _DETECTOR.has_link(text)
+
+
+def phone(case: tuple[str, str]) -> None:
+    """Scan plain text for phone numbers with turbohtml's LinkDetector: one mode per case, or the presence test."""
+    mode, text = case
+    if mode == "has":
+        _PHONE_DETECTORS["valid"].has_link(text)
+    else:
+        _PHONE_DETECTORS[mode].find(text)
 
 
 def markdown(case: tuple[str, str]) -> None:
@@ -1014,6 +1028,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "linkify": (linkify, "turbohtml"),
     "linkify-traversal": (linkify_traversal, "turbohtml"),
     "detect": (detect, "turbohtml"),
+    "phone": (phone, "turbohtml"),
     "normalize": (normalize, "turbohtml"),
     "escape-identifier": (escape_identifier, "turbohtml"),
     "idna": (idna, "turbohtml"),

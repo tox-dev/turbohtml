@@ -7,9 +7,9 @@
 Clean untrusted or raw HTML: sanitize it against an allowlist and rewrite bare URLs into links. Sanitizing is a
 successor to ``bleach.clean`` -- build a :class:`Policy` (or take a preset), then sanitize; a non-overridable baseline
 removes scripting elements, event-handler attributes, and ``javascript:`` URLs regardless of the policy. Linkifying is a
-successor to `bleach.linkify <https://github.com/mozilla/bleach>`_ -- it finds URLs and email addresses and wraps them
-in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw-text element, or a caller's
-``skip_tags``.
+successor to `bleach.linkify <https://github.com/mozilla/bleach>`_ -- it finds URLs, email addresses and phone numbers
+and wraps them in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw-text element, or a
+caller's ``skip_tags``.
 
 .. autofunction:: sanitize
 
@@ -186,9 +186,9 @@ instead of enumerating a safe set from scratch.
 A :class:`Linkify` configuration object carries the knobs: a callback receives each generated :class:`LinkCandidate` and
 returns it to keep the link or ``None`` to leave the text bare, ``process_existing`` runs the callbacks over ``<a>``
 tags already in the input (a callback reads ``LinkCandidate.existing`` to tell the two apart), ``extra_tlds`` extends
-bare-domain detection beyond the built-in IANA table, and ``schemes`` sets which explicit-scheme URLs autolink
-(defaulting to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain
-text).
+bare-domain detection beyond the built-in IANA table, ``schemes`` sets which explicit-scheme URLs autolink (defaulting
+to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain text), and
+``phones`` turns on phone-number detection with ``tel:`` hrefs.
 
 .. autofunction:: linkify
 
@@ -224,6 +224,25 @@ for each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 
 .. autoclass:: LinkSpan
     :members:
+
+Phone numbers link when either entry point is given a :class:`PhoneNumbers` setting; each detected number is a
+:class:`PhoneNumber` on ``LinkCandidate.phone`` and ``LinkSpan.phone``.
+
+.. autoclass:: PhoneNumbers
+    :members:
+
+.. autoclass:: PhoneNumber
+    :members:
+
+.. autoclass:: PhoneType
+    :members:
+    :undoc-members:
+
+.. autodata:: DEFAULT_PHONE_LABELS
+    :no-value:
+
+    The words ``PhoneNumbers.ignore_numbers_after`` holds by default: a digit run right after one of them (``Order
+    12345``, ``ISBN 9780306406157``) is an identifier, not a number.
 
 ***********
  Minifying

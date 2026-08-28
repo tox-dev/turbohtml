@@ -145,3 +145,46 @@ a typo scheme or a ``javascript://`` payload is left alone):
 .. testoutput::
 
     ['http://wiki.corp', 'tel:+1-800-555-0100']
+
+********************
+ Link phone numbers
+********************
+
+Phone numbers link when you pass a :class:`turbohtml.clean.PhoneNumbers` setting. ``regions`` is the ordered fallback
+for numbers written without ``+`` (an empty tuple links ``+`` numbers only), and the href is the number in E.164 form,
+with ``;ext=`` for an extension. Detection follows libphonenumber's numbering plans, so ``650-253-0000`` links for a US
+text while ``3/10/2011``, ``192.168.0.1`` and ``Order 12345`` stay plain:
+
+.. testcode::
+
+    from turbohtml.clean import Linkify, PhoneNumbers, linkify
+
+    phones = PhoneNumbers(regions=("US", "GB"))
+    print(linkify("Call 650-253-0000 or +44 20 7946 0958 x12, order 12345", Linkify(phones=phones)))
+
+.. testoutput::
+
+    Call <a href="tel:+16502530000">650-253-0000</a> or <a href="tel:+442079460958;ext=12">+44 20 7946 0958 x12</a>, order 12345
+
+A callback reads ``link.phone``, a :class:`~turbohtml.clean.PhoneNumber` with the country code, national number, region
+and :class:`~turbohtml.clean.PhoneType`, so it can route mobiles to ``sms:`` or drop premium-rate numbers; URLs and
+emails carry ``phone=None``. :class:`~turbohtml.clean.LinkDetector` takes the same setting and puts the number on each
+:class:`~turbohtml.clean.LinkSpan`:
+
+.. testcode::
+
+    from turbohtml.clean import LinkDetector
+
+    detector = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False))
+    for span in detector.find("try 555-123-4567 or 650-253-0000"):
+        print(span.text, span.phone.international_number, span.phone.region, span.phone.type.value)
+
+.. testoutput::
+
+    555-123-4567 +15551234567 None unknown
+    650-253-0000 +16502530000 US unknown
+
+``require_valid=False`` is libphonenumber's ``POSSIBLE`` leniency: any number of a plausible length links, the type is
+``UNKNOWN`` and the region may be ``None``. Use it for text where numbers are often mistyped; the default links only
+numbers the plan assigns. See :doc:`/explanation/phone-detection` for the rules and where they depart from
+libphonenumber.

@@ -335,6 +335,7 @@ OPERATIONS: dict[str, Operation] = {
     "linkify": Operation("linkify HTML", "us"),
     "linkify-traversal": Operation("linkify with native tree traversal", "us"),
     "detect": Operation("detect links in text", "us"),
+    "phone": Operation("detect phone numbers in text", "us"),
     "markdown": Operation("HTML to Markdown", "us"),
     "markdown-google": Operation("Google Docs export to Markdown", "us"),
     "tables": Operation("extract table grids", "us"),
@@ -450,6 +451,41 @@ _LINKIFY_CASES = (
     ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
     ("prose (1 KiB)", "See https://example.com/path?q=1 and visit www.example.org for more. " * 15),
     ("markup (4 KiB)", '<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
+)
+
+_PHONE_PROSE = (
+    "Our office moved last spring, so the front desk now answers on 650-253-0000 during business hours and the "
+    "support line +44 20 7946 0958 ext. 12 after six. Invoices quote order 48213 and ship within 3 days; the "
+    "warehouse (2 pages) lists 12 pallets, 4 crates and 1,240 units per lot. "
+)
+_PHONE_NOISE = (
+    "Released 3/10/2011 at 12:30:45 from 192.168.0.1; ISBN 978-0-306-40615-7, card 4111 1111 1111 1111, ticket "
+    "4711, pages 1-5 (3 pages), version 2.4.16.1, 2012-01-02 08:00, order 10293847, ref 5551234, +1 (555) 555-5555. "
+)
+_PHONE_MIXED = (
+    "Call 650-253-0000 or (650) 253-0001, fax 011 44 20 7946 0958, mobile 07400 123456, Berlin 030 12345678, "
+    "Mumbai 022 2345 6789, +55 11 96123-4567, +81 3-1234-5678, order 98211 shipped 3/10/2011; not 123-456-7890. "
+)
+_PHONE_ADVERSARIAL = " ".join(["1234"] * 21) + " " + "1" * 21 + " " + ".".join(["12"] * 21) + " "
+_PHONE_FULLWIDTH = (
+    "\uff0b\uff14\uff14 \uff12\uff10 \uff17\uff19\uff14\uff16 \uff10\uff19\uff15\uff18 or "
+    "\uff16\uff15\uff10-\uff12\uff15\uff13-\uff10\uff10\uff10\uff10, then prose. "
+)
+_PHONE_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
+    ("mixed corpus, valid (1 KiB)", ("valid", _PHONE_MIXED * 5)),
+    ("mixed corpus, possible (1 KiB)", ("possible", _PHONE_MIXED * 5)),
+    ("mixed corpus, 8 regions (1 KiB)", ("regions-8", _PHONE_MIXED * 5)),
+    ("prose (1 KiB)", ("valid", _PHONE_PROSE * 3)),
+    ("prose (100 KiB)", ("valid", _PHONE_PROSE * 300)),
+    ("noise: dates, prices, IPv4, cards (1 KiB)", ("valid", _PHONE_NOISE * 5)),
+    ("adversarial digit runs, 1 region (1 KiB)", ("valid", _PHONE_ADVERSARIAL * 6)),
+    ("adversarial digit runs, 8 regions (1 KiB)", ("regions-8", _PHONE_ADVERSARIAL * 6)),
+    ("fullwidth (1 KiB)", ("valid", _PHONE_FULLWIDTH * 15)),
+    ("ucs2 prose, no digits (100 KiB)", ("valid", "\u4e2d\u6587\u7684\u6587\u672c\u6bb5\u843d " * 12_800)),
+    ("ucs4 prose, no digits (100 KiB)", ("valid", "\U0001f600 emoji prose here " * 4_000)),
+    ("short text, 1 region (40 B)", ("valid", "call 650-253-0000 or write to us today")),
+    ("short text, 8 regions (40 B)", ("regions-8", "call 650-253-0000 or write to us today")),
+    ("has_link, mixed corpus (1 KiB)", ("has", _PHONE_MIXED * 5)),
 )
 
 _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
@@ -982,7 +1018,11 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
         ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
         ("has_link early (220 KiB tail)", ("has", "https://example.com " + "tail " * 45_000)),
+        ("find numeric prose, phones off (1 KiB)", ("find", _PHONE_MIXED * 5)),
+        ("find ucs2 prose, phones off (100 KiB)", ("find", _PHONE_CASES[9][1][1])),
+        ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
     ),
+    "phone": lambda: _PHONE_CASES,
     "markdown": lambda: (
         ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),

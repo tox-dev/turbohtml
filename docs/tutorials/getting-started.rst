@@ -49,8 +49,8 @@ Stay with the string helpers below, or continue to :doc:`tokenizing` to break wh
 ********************
 
 One more string-in, string-out helper rounds out the getting-started toolkit: :func:`turbohtml.clean.linkify` finds the
-URLs in a run of text and wraps each one in an anchor, leaving the surrounding characters untouched. It is the quickest
-way to turn a plain message into clickable HTML:
+URLs in a run of text and wraps each one in an anchor, leaving the surrounding characters untouched (emails and phone
+numbers too, once you ask for them). It is the quickest way to turn a plain message into clickable HTML:
 
 .. testcode::
 

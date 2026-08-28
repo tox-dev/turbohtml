@@ -1,0 +1,4 @@
+Link phone numbers as ``tel:`` anchors: :class:`~turbohtml.clean.Linkify` and :class:`~turbohtml.clean.LinkDetector`
+take a :class:`~turbohtml.clean.PhoneNumbers` setting with the fallback regions, and each match carries a
+:class:`~turbohtml.clean.PhoneNumber` with the E.164 form, region and :class:`~turbohtml.clean.PhoneType`. Detection
+follows libphonenumber's numbering plans, compiled to automata at build time.

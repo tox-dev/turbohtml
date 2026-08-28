@@ -36,6 +36,9 @@ they do more work per call.
       - URLs, bare domains, ``mailto:`` emails, registered scheme-less schemes (``tel:``, ``bitcoin:``); HTML walk with
         skip tags and existing-anchor handling
       - URLs, bare domains, emails, plus fuzzy IP / ``@``-mention / fuzzy-email heuristics and pluggable custom schemes
+    - - Phone numbers
+      - ``tel:`` links from libphonenumber's plans via :class:`~turbohtml.clean.PhoneNumbers`
+      - None; ``fuzzy_ip`` finds bare IPv4 addresses
     - - Performance
       - C candidate scan; faster on span detection (see below)
       - Pure-Python scanner

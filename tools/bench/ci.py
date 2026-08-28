@@ -162,6 +162,20 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "linkify-traversal-skipped": ("linkify-traversal", 2),
     "linkify-traversal-callbacks": ("linkify-traversal", 3),
     "linkify-traversal-empty-nodes": ("linkify-traversal", 4),
+    "phone-possible": ("phone", 1),
+    "phone-regions-8": ("phone", 2),
+    "phone-prose": ("phone", 4),
+    "phone-noise": ("phone", 5),
+    "phone-adversarial": ("phone", 6),
+    "phone-adversarial-8": ("phone", 7),
+    "phone-fullwidth": ("phone", 8),
+    "phone-ucs2-prose": ("phone", 9),
+    "phone-ucs4-prose": ("phone", 10),
+    "phone-short": ("phone", 11),
+    "phone-short-8": ("phone", 12),
+    "detect-numeric-prose": ("detect", 5),
+    "detect-ucs2-prose": ("detect", 6),
+    "detect-ucs4-prose": ("detect", 7),
 }
 
 

@@ -9,6 +9,7 @@ Move sanitizing, linkifying, and minifying to turbohtml.
 
     linkify-it-py
     bleach
+    phonenumbers
     nh3
     lxml-html-clean
     rcssmin

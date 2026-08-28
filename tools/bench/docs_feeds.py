@@ -68,6 +68,7 @@ TABLES: Final[dict[str, str | Combined]] = {
     "link-filtering": "links-filter",
     "linkify": "linkify",
     "linkify-2": "detect",
+    "linkify-3": "phone",
     "links": "links-extract",
     "links-2": "links-absolutize",
     "links-3": "links-rewrite",

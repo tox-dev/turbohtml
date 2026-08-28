@@ -373,6 +373,15 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://img.shields.io/npm/dt/dompurify
             :alt: DOMPurify total downloads
             :target: https://www.npmjs.com/package/dompurify
+    - - 17
+      - :doc:`phonenumbers <phonenumbers>`
+      - `docs <https://github.com/daviddrysdale/python-phonenumbers>`__
+      - .. image:: https://static.pepy.tech/badge/phonenumbers/month
+            :alt: phonenumbers monthly downloads
+            :target: https://pepy.tech/project/phonenumbers
+      - .. image:: https://static.pepy.tech/badge/phonenumbers
+            :alt: phonenumbers total downloads
+            :target: https://pepy.tech/project/phonenumbers
 
 *********
  Convert
