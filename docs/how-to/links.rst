@@ -188,3 +188,43 @@ emails carry ``phone=None``. :class:`~turbohtml.clean.LinkDetector` takes the sa
 ``UNKNOWN`` and the region may be ``None``. Use it for text where numbers are often mistyped; the default links only
 numbers the plan assigns. See :doc:`/explanation/phone-detection` for the rules and where they depart from
 libphonenumber.
+
+``require_national_prefix=False`` links a number written without the national prefix its format writes (``20 7946 0958``
+for a British text), which libphonenumber's matcher refuses and its ``parse`` accepts. For a string you already hold,
+:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads it that way: words before the number, a ``tel:``
+scheme, brackets and an extension are fine, and anything that is not one number is a ``ValueError``:
+
+.. testcode::
+
+    from turbohtml.clean import PhoneNumber
+
+    number = PhoneNumber.parse("Tel: (650) 253-0000 ext. 7", regions=("US",))
+    print(number.international_number, number.extension, number.type.value)
+    try:
+        PhoneNumber.parse("650-253-0000 or 650-253-0001", regions=("US",))
+    except ValueError as error:
+        print(error)
+
+.. testoutput::
+
+    +16502530000 7 fixed_line_or_mobile
+    '650-253-0000 or 650-253-0001' is not a phone number
+
+A :class:`~turbohtml.clean.PhoneNumber` writes itself in the four layouts of libphonenumber's ``format_number``, chosen
+with :class:`~turbohtml.clean.PhoneFormat`; the grouping and the extension marker are the ones the number's calling code
+publishes, so a callback can put the international form in the link text or the national form in a ``title``:
+
+.. testcode::
+
+    from turbohtml.clean import PhoneFormat
+
+    number = LinkDetector(phones=PhoneNumbers(regions=("GB",))).find("ring 020 7946 0958 x12")[0].phone
+    for style in PhoneFormat:
+        print(style.value, number.format(style))
+
+.. testoutput::
+
+    e164 +442079460958
+    international +44 20 7946 0958 x12
+    national 020 7946 0958 x12
+    rfc3966 tel:+44-20-7946-0958;ext=12

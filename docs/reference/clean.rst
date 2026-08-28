@@ -234,6 +234,10 @@ Phone numbers link when either entry point is given a :class:`PhoneNumbers` sett
 .. autoclass:: PhoneNumber
     :members:
 
+.. autoclass:: PhoneFormat
+    :members:
+    :undoc-members:
+
 .. autoclass:: PhoneType
     :members:
     :undoc-members:

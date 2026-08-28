@@ -138,6 +138,10 @@ from ._stubs.features import (
     _phone_number_check as _phone_number_check,
 )
 from ._stubs.features import (
+    _phone_number_format as _phone_number_format,
+    _phone_parse as _phone_parse,
+)
+from ._stubs.features import (
     _PhoneConfig as _PhoneConfig,
 )
 from ._stubs.features import (

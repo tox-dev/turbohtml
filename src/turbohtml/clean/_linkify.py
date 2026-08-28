@@ -9,6 +9,7 @@ an existing ``<a>``, a raw-text element (``<script>``/``<style>``), or a caller'
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ from turbohtml._html import (
     _linkify_has,
     _phone_config_compile,
     _phone_number_check,
+    _phone_number_format,
+    _phone_parse,
     parse_fragment,
 )
 
@@ -55,6 +58,20 @@ class PhoneType(Enum):
 
 
 # PhoneType members in the order the C recognizer numbers them (enum th_phone_type).
+class PhoneFormat(Enum):
+    """The ways :meth:`PhoneNumber.format` writes a number, libphonenumber's ``PhoneNumberFormat``."""
+
+    E164 = "e164"
+    """``+16502530000``: the calling code and national significant number, no separators and no extension."""
+    INTERNATIONAL = "international"
+    """``+1 650-253-0000``: the calling code, then the national number in its plan's grouping."""
+    NATIONAL = "national"
+    """``(650) 253-0000``: the national number as dialed within its region, national prefix included."""
+    RFC3966 = "rfc3966"
+    """``tel:+1-650-253-0000``: the RFC 3966 URI, hyphens between groups and ``;ext=`` for an extension."""
+
+
+_PHONE_FORMATS: Final = (PhoneFormat.E164, PhoneFormat.INTERNATIONAL, PhoneFormat.NATIONAL, PhoneFormat.RFC3966)
 _PHONE_TYPES: Final = (
     PhoneType.FIXED_LINE,
     PhoneType.MOBILE,
@@ -129,6 +146,9 @@ class PhoneNumbers:
         links every number of a possible length (``POSSIBLE``), with type ``UNKNOWN`` and possibly no region.
     :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
     :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
+    :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
+        writes, libphonenumber's matcher rule (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False
+        links it the way ``parse`` accepts it. Applies with ``require_valid``.
     :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
     :param ignore_numbers_after: words that mark the digits right after them as an identifier.
     """
@@ -137,6 +157,7 @@ class PhoneNumbers:
     require_valid: bool
     require_separators: bool
     skip_card_numbers: bool
+    require_national_prefix: bool
     types: frozenset[PhoneType] | None
     ignore_numbers_after: tuple[str, ...]
 
@@ -147,6 +168,7 @@ class PhoneNumbers:
         require_valid: bool = True,
         require_separators: bool = False,
         skip_card_numbers: bool = True,
+        require_national_prefix: bool = True,
         types: Iterable[PhoneType] | None = None,
         ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
     ) -> None:
@@ -155,6 +177,7 @@ class PhoneNumbers:
             ("require_valid", require_valid),
             ("require_separators", require_separators),
             ("skip_card_numbers", skip_card_numbers),
+            ("require_national_prefix", require_national_prefix),
         ):
             if not isinstance(flag, bool):
                 msg = f"{name} must be bool"
@@ -179,6 +202,7 @@ class PhoneNumbers:
         object.__setattr__(self, "require_valid", require_valid)
         object.__setattr__(self, "require_separators", require_separators)
         object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
+        object.__setattr__(self, "require_national_prefix", require_national_prefix)
         object.__setattr__(self, "types", wanted)
         object.__setattr__(self, "ignore_numbers_after", labels)
         _compile_phones(self)
@@ -230,6 +254,38 @@ class PhoneNumber:
         _phone_number_check(self.country_code, self.national_number, self.region, _PHONE_TYPES.index(self.type))
 
     @classmethod
+    def parse(cls, text: str, *, regions: Iterable[str] = (), require_valid: bool = True) -> PhoneNumber:
+        """
+        Read a string that holds one phone number, the way ``phonenumbers.parse`` reads it.
+
+        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators,
+        an extension in any written form and punctuation after it; the number itself must be the whole of the rest,
+        so ``650-253-0000 or 650-253-0001`` is not one number. A number written without ``+`` is read with each of
+        ``regions`` in turn, and unlike detection it needs neither separators nor the national prefix its format
+        writes, and a payment-card shape is not refused.
+
+        :param text: the text holding the number.
+        :param regions: the ordered fallback regions for a number written without ``+``.
+        :param require_valid: the number must be one the plan assigns; False accepts any possible length.
+        :returns: the number.
+        :raises ValueError: when the text does not hold one such number.
+        """
+        if not isinstance(text, str):
+            msg = "text must be str"
+            raise TypeError(msg)
+        settings = PhoneNumbers(
+            regions=regions,
+            require_valid=require_valid,
+            skip_card_numbers=False,
+            require_national_prefix=False,
+            ignore_numbers_after=(),
+        )
+        if (number := _phone_parse(_parse_config(settings), text)) is None:
+            msg = f"{text!r} is not a phone number"
+            raise ValueError(msg)
+        return number
+
+    @classmethod
     def _from_native(cls, *fields: object) -> PhoneNumber:
         # the recognizer resolved (country_code, national_number, extension, region, type) from the same tables the
         # check would consult, so the frozen instance is filled without it
@@ -249,6 +305,32 @@ class PhoneNumber:
         number = self.international_number
         return number if len(number) - 1 <= _MAX_E164_DIGITS else None
 
+    def format(self, style: PhoneFormat = PhoneFormat.INTERNATIONAL) -> str:
+        """
+        Write the number the way libphonenumber's ``format_number`` does.
+
+        The grouping comes from the number formats of the calling code's main region (``+1`` numbers group the
+        North American way whatever their region), chosen by the number's leading digits and length; a number no
+        format covers is written as its bare national significant number. An extension follows the region's
+        preferred marker (``ext.`` by default, ``;ext=`` for :attr:`PhoneFormat.RFC3966`) and is left out of
+        :attr:`PhoneFormat.E164`.
+
+        :param style: the layout to write.
+        :returns: the formatted number, ASCII.
+        """
+        if not isinstance(style, PhoneFormat):
+            msg = "style must be a PhoneFormat"
+            raise TypeError(msg)
+        return _phone_number_format(
+            self.country_code, self.national_number, self.extension, _PHONE_FORMATS.index(style)
+        )
+
+
+@functools.lru_cache(maxsize=32)
+def _parse_config(settings: PhoneNumbers) -> _PhoneConfig:
+    # one compiled configuration per distinct settings, since every parse call would otherwise compile its own
+    return _compile_settings(settings)
+
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
     """Compile the settings once into the object every scan is handed."""
@@ -257,12 +339,17 @@ def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
     if not isinstance(phones, PhoneNumbers):
         msg = "phones must be PhoneNumbers or None"
         raise TypeError(msg)
+    return _compile_settings(phones)
+
+
+def _compile_settings(phones: PhoneNumbers) -> _PhoneConfig:
     mask = _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types)
     return _phone_config_compile((
         phones.regions,
         phones.require_valid,
         phones.require_separators,
         phones.skip_card_numbers,
+        phones.require_national_prefix,
         mask,
         phones.ignore_numbers_after,
         PhoneNumber,
@@ -566,6 +653,7 @@ __all__ = [
     "LinkSpan",
     "Linker",
     "Linkify",
+    "PhoneFormat",
     "PhoneNumber",
     "PhoneNumbers",
     "PhoneType",

@@ -37,6 +37,7 @@ def test_defaults() -> None:
         require_valid=True,
         require_separators=False,
         skip_card_numbers=True,
+        require_national_prefix=True,
         types=None,
         ignore_numbers_after=DEFAULT_PHONE_LABELS,
     )
@@ -99,7 +100,9 @@ def test_regions_reject_unknown_codes(regions: tuple[str, ...], message: str) ->
         PhoneNumbers(regions=regions)
 
 
-@pytest.mark.parametrize("name", ["require_valid", "require_separators", "skip_card_numbers"])
+@pytest.mark.parametrize(
+    "name", ["require_valid", "require_separators", "skip_card_numbers", "require_national_prefix"]
+)
 @pytest.mark.parametrize(
     "value", [pytest.param(1, id="int"), pytest.param("yes", id="str"), pytest.param(None, id="none")]
 )
@@ -305,3 +308,26 @@ def test_regions_order_decides_the_national_reading() -> None:
     assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US", "GB"))).find("020 7946 0958")] == [
         "tel:+442079460958"
     ]
+
+
+@pytest.mark.parametrize(
+    ("phones", "expected"),
+    [
+        pytest.param(PhoneNumbers(regions=("GB",)), [], id="required-by-default"),
+        pytest.param(
+            PhoneNumbers(regions=("GB",), require_national_prefix=False), ["tel:+442079460958"], id="not-required"
+        ),
+        pytest.param(
+            PhoneNumbers(regions=("GB",), require_valid=False), ["tel:+442079460958"], id="possible-mode-never-asks"
+        ),
+    ],
+)
+def test_national_prefix_requirement(phones: PhoneNumbers, expected: list[str]) -> None:
+    spans = LinkDetector(phones=phones).find("ring 20 7946 0958 today")
+    assert [span.url for span in spans] == expected
+
+
+def test_written_prefix_links_either_way() -> None:
+    for required in (True, False):
+        phones = PhoneNumbers(regions=("GB",), require_national_prefix=required)
+        assert [span.url for span in LinkDetector(phones=phones).find("ring 020 7946 0958")] == ["tel:+442079460958"]

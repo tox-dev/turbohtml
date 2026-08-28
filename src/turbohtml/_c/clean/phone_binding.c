@@ -9,7 +9,7 @@
 
 #include <string.h>
 
-#define SPEC_ITEMS 8
+#define SPEC_ITEMS 9
 #define MAX_LABELS 256
 #define MAX_LABEL_LENGTH 12
 #define TYPE_MEMBERS 12
@@ -233,9 +233,10 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
         parse_flag(PyTuple_GET_ITEM(spec, 1), "require_valid", &config->require_valid) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 2), "require_separators", &config->require_separators) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 3), "skip_card_numbers", &config->skip_card_numbers) < 0 ||
-        parse_type_mask(PyTuple_GET_ITEM(spec, 4), config, &config->type_mask) < 0 ||
-        parse_labels(PyTuple_GET_ITEM(spec, 5), self) < 0 ||
-        parse_classes(PyTuple_GET_ITEM(spec, 6), PyTuple_GET_ITEM(spec, 7), self) < 0) {
+        parse_flag(PyTuple_GET_ITEM(spec, 4), "require_national_prefix", &config->require_national_prefix) < 0 ||
+        parse_type_mask(PyTuple_GET_ITEM(spec, 5), config, &config->type_mask) < 0 ||
+        parse_labels(PyTuple_GET_ITEM(spec, 6), self) < 0 ||
+        parse_classes(PyTuple_GET_ITEM(spec, 7), PyTuple_GET_ITEM(spec, 8), self) < 0) {
         return -1;
     }
     th_phone_config_floor(config);
@@ -243,7 +244,7 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
 }
 
 /* _phone_config_compile(spec) -> _PhoneConfig, spec = (regions, require_valid, require_separators,
-   skip_card_numbers, type_mask, labels, phone_number_type, phone_types). */
+   skip_card_numbers, require_national_prefix, type_mask, labels, phone_number_type, phone_types). */
 PyObject *turbohtml_phone_config_compile(PyObject *module, PyObject *spec) {
     if (!PyTuple_Check(spec) || PyTuple_GET_SIZE(spec) != SPEC_ITEMS) {
         PyErr_Format(PyExc_TypeError, "phone spec must be a tuple of %d items", SPEC_ITEMS);
@@ -373,6 +374,84 @@ PyObject *turbohtml_phone_number_check(PyObject *Py_UNUSED(module), PyObject *ar
         return PyErr_Format(PyExc_ValueError, "no number +%ld%s has region %R and type index %ld", code, digits, region,
                             type);
     }
+}
+
+/* _phone_number_format(country_code, national_number, extension, style) -> str: the number written the way
+   libphonenumber's formatNumber writes it, `style` indexing PhoneFormat's members. */
+PyObject *turbohtml_phone_number_format(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *country_code;
+    PyObject *national_number;
+    PyObject *extension;
+    PyObject *style;
+    if (!PyArg_ParseTuple(args, "OOOO:_phone_number_format", &country_code, &national_number, &extension, &style)) {
+        return NULL;
+    }
+    if (!PyLong_CheckExact(country_code) || !PyLong_CheckExact(style)) {
+        PyErr_SetString(PyExc_TypeError, "country_code and style must be int");
+        return NULL;
+    }
+    if (extension != Py_None && !PyUnicode_CheckExact(extension)) {
+        PyErr_SetString(PyExc_TypeError, "extension must be str or None");
+        return NULL;
+    }
+    long code = PyLong_AsLong(country_code);
+    if (code < 1 || code > 999) {
+        PyErr_SetString(PyExc_ValueError, "country_code must be between 1 and 999");
+        return NULL;
+    }
+    long style_index = PyLong_AsLong(style);
+    if (style_index < TH_PHONE_STYLE_E164 || style_index > TH_PHONE_STYLE_RFC3966) {
+        PyErr_SetString(PyExc_ValueError, "style must be between 0 and 3");
+        return NULL;
+    }
+    const char *digits;
+    Py_ssize_t length;
+    if (parse_national_number(national_number, &digits, &length) < 0) {
+        return NULL;
+    }
+    const char *ext = "";
+    Py_ssize_t ext_length = 0;
+    if (extension != Py_None) {
+        ext = PyUnicode_AsUTF8AndSize(extension, &ext_length);
+        if (ext == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
+            return NULL;   /* GCOVR_EXCL_LINE */
+        }
+        if (ext_length < 1 || ext_length > TH_PHONE_MAX_EXTENSION) {
+            PyErr_Format(PyExc_ValueError, "extension must be 1-%d characters", TH_PHONE_MAX_EXTENSION);
+            return NULL;
+        }
+    }
+    char out[TH_PHONE_FORMAT_CAPACITY];
+    size_t written = th_phone_format_number((unsigned)code, digits, (size_t)length, ext, (size_t)ext_length,
+                                            (enum th_phone_style)style_index, out);
+    return PyUnicode_FromStringAndSize(out, (Py_ssize_t)written);
+}
+
+static uint32_t read_str(const void *text, size_t index) {
+    return PyUnicode_READ_CHAR((PyObject *)text, (Py_ssize_t)index);
+}
+
+/* _phone_parse(config, text) -> PhoneNumber | None: the one number `text` holds. */
+PyObject *turbohtml_phone_parse(PyObject *module, PyObject *args) {
+    PyObject *config;
+    PyObject *text;
+    if (!PyArg_ParseTuple(args, "OO:_phone_parse", &config, &text)) {
+        return NULL;
+    }
+    if (!turbohtml_phone_config_check(module, config)) {
+        PyErr_SetString(PyExc_TypeError, "config must be a _PhoneConfig");
+        return NULL;
+    }
+    if (!PyUnicode_CheckExact(text)) {
+        PyErr_SetString(PyExc_TypeError, "text must be str");
+        return NULL;
+    }
+    th_phone_match match;
+    if (!th_phone_parse(read_str, text, (size_t)PyUnicode_GET_LENGTH(text), &((PhoneConfigObject *)config)->config,
+                        &match)) {
+        Py_RETURN_NONE;
+    }
+    return turbohtml_phone_number_new((PhoneConfigObject *)config, &match);
 }
 
 int phone_register(PyObject *module, module_state *state) {

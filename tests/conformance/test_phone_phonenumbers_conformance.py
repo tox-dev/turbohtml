@@ -24,7 +24,7 @@ from generate_phone import LIBPHONENUMBER_TAG
 from phone_oracle import CONTEXTS, Found, classify, oracle_matches, renderings
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberType
 
-from turbohtml.clean import LinkDetector, PhoneNumbers, PhoneType
+from turbohtml.clean import LinkDetector, PhoneFormat, PhoneNumber, PhoneNumbers, PhoneType
 
 _ORACLE = Path(__file__).parent / "python-phonenumbers" / "python" / "phonenumbers" / "__init__.py"
 if not _ORACLE.exists():  # pragma: no cover
@@ -136,3 +136,64 @@ def test_non_geographic_entities_are_found_without_a_region(country_code: int) -
     assert [(span.phone.international_number, span.phone.region) for span in spans if span.phone] == [
         (phonenumbers.format_number(number, PhoneNumberFormat.E164), "001")
     ]
+
+
+_STYLES = {
+    PhoneFormat.E164: PhoneNumberFormat.E164,
+    PhoneFormat.INTERNATIONAL: PhoneNumberFormat.INTERNATIONAL,
+    PhoneFormat.NATIONAL: PhoneNumberFormat.NATIONAL,
+    PhoneFormat.RFC3966: PhoneNumberFormat.RFC3966,
+}
+
+
+def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
+    nsn = phonenumbers.national_significant_number(number)
+    region = phonenumbers.region_code_for_number(number)
+    resolved = _TYPES[phonenumbers.number_type(number)]
+    assert number.country_code is not None
+    for extension in (None, "123"):
+        number.extension = extension
+        ours = PhoneNumber(number.country_code, nsn, extension, region, resolved)
+        assert {style: ours.format(style) for style in PhoneFormat} == {
+            style: phonenumbers.format_number(number, theirs) for style, theirs in _STYLES.items()
+        }, (number.country_code, nsn, extension)
+
+
+@pytest.mark.parametrize("region", [pytest.param(region, id=region) for region in _REGIONS])
+def test_format_writes_every_style_as_the_oracle(region: str) -> None:
+    for number in _examples(region):
+        _formats_agree(number)
+
+
+@pytest.mark.parametrize(
+    "country_code",
+    [pytest.param(code, id=str(code)) for code in sorted(phonenumbers.COUNTRY_CODES_FOR_NON_GEO_REGIONS)],
+)
+def test_format_writes_non_geographic_numbers_as_the_oracle(country_code: int) -> None:
+    number = phonenumbers.example_number_for_non_geo_entity(country_code)
+    assert number is not None
+    _formats_agree(number)
+
+
+def _oracle_parse(text: str, region: str) -> tuple[int | None, str, str | None] | None:
+    try:
+        number = phonenumbers.parse(text, region)
+    except phonenumbers.NumberParseException:
+        return None
+    if not phonenumbers.is_valid_number(number):
+        return None
+    return (number.country_code, phonenumbers.national_significant_number(number), number.extension)
+
+
+@pytest.mark.parametrize("region", [pytest.param(region, id=region) for region in _REGIONS])
+def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
+    for number in _examples(region):
+        for name, text in renderings(number, region):
+            theirs = _oracle_parse(text, region)
+            try:
+                parsed = PhoneNumber.parse(text, regions=(region,))
+            except ValueError:
+                ours = None
+            else:
+                ours = (parsed.country_code, parsed.national_number, parsed.extension)
+            assert ours == theirs, (name, text)

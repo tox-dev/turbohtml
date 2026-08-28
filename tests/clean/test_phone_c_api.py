@@ -15,6 +15,8 @@ from turbohtml._html import (
     _linkify_has,
     _phone_config_compile,
     _phone_number_check,
+    _phone_number_format,
+    _phone_parse,
 )
 from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType
 from turbohtml.clean._linkify import _PHONE_TYPES  # the spec item under test
@@ -22,7 +24,7 @@ from turbohtml.clean._linkify import _PHONE_TYPES  # the spec item under test
 if TYPE_CHECKING:
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
-_SPEC = cast("_PhoneSpec", (("US",), True, False, True, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES))
+_SPEC = cast("_PhoneSpec", (("US",), True, False, True, True, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES))
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
@@ -32,6 +34,7 @@ def _spec(**overrides: object) -> _PhoneSpec:
         "require_valid",
         "require_separators",
         "skip_card_numbers",
+        "require_national_prefix",
         "type_mask",
         "labels",
         "number_type",
@@ -51,13 +54,13 @@ def test_compile_returns_an_unconstructible_config() -> None:
     "spec",
     [
         pytest.param(list(_SPEC), id="list"),
-        pytest.param(_SPEC[:7], id="seven-items"),
-        pytest.param((*_SPEC, 0), id="nine-items"),
+        pytest.param(_SPEC[:8], id="eight-items"),
+        pytest.param((*_SPEC, 0), id="ten-items"),
         pytest.param(None, id="none"),
     ],
 )
 def test_compile_rejects_malformed_specs(spec: object) -> None:
-    with pytest.raises(TypeError, match="tuple of 8 items"):
+    with pytest.raises(TypeError, match="tuple of 9 items"):
         _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]
 
 
@@ -84,6 +87,9 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
         pytest.param({"require_valid": 1}, TypeError, "require_valid must be bool", id="int-flag"),
         pytest.param({"require_separators": "no"}, TypeError, "require_separators must be bool", id="str-flag"),
         pytest.param({"skip_card_numbers": None}, TypeError, "skip_card_numbers must be bool", id="none-flag"),
+        pytest.param(
+            {"require_national_prefix": 1}, TypeError, "require_national_prefix must be bool", id="int-prefix-flag"
+        ),
         pytest.param({"type_mask": 0}, ValueError, "1..0x7FF", id="mask-zero"),
         pytest.param({"type_mask": 0x800}, ValueError, "1..0x7FF", id="mask-too-wide"),
         pytest.param({"type_mask": True}, TypeError, "type mask must be int", id="mask-bool"),
@@ -318,3 +324,65 @@ def test_number_check_value_errors(args: tuple[object, ...], message: str) -> No
 
 def test_number_check_accepts_a_produced_value() -> None:
     assert _phone_number_check(1, "6502530000", "US", 10) is None
+
+
+@pytest.mark.parametrize(
+    ("args", "error", "message"),
+    [
+        pytest.param(("1", "6502530000", None, 1), TypeError, "country_code and style must be int", id="code-str"),
+        pytest.param((1, "6502530000", None, "1"), TypeError, "country_code and style must be int", id="style-str"),
+        pytest.param((1, "6502530000", 12, 1), TypeError, "extension must be str or None", id="extension-int"),
+        pytest.param((0, "6502530000", None, 1), ValueError, "between 1 and 999", id="code-zero"),
+        pytest.param((1000, "6502530000", None, 1), ValueError, "between 1 and 999", id="code-high"),
+        pytest.param((1, "6502530000", None), TypeError, "takes exactly 4 arguments", id="three-arguments"),
+        pytest.param((1, "6502530000", None, 4), ValueError, "style must be between 0 and 3", id="style-high"),
+        pytest.param((1, "6502530000", None, -1), ValueError, "style must be between 0 and 3", id="style-negative"),
+        pytest.param((1, "65O2530000", None, 1), ValueError, "ASCII digits", id="nsn-letter"),
+        pytest.param((1, "6502530000", "", 1), ValueError, "extension must be 1-20", id="extension-empty"),
+        pytest.param((1, "6502530000", "1" * 21, 1), ValueError, "extension must be 1-20", id="extension-long"),
+    ],
+)
+def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        _phone_number_format(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        pytest.param((999, "6502530000", None, 1), "6502530000", id="unassigned-code"),
+        pytest.param((1, "1234", None, 2), "1234", id="no-format-takes-a-first-digit-1"),
+        pytest.param((1, "65", None, 2), "65", id="shorter-than-every-format"),
+        pytest.param((1, "65025300001", None, 2), "65025300001", id="longer-than-every-format"),
+        pytest.param((1, "1234", "5", 3), "tel:+1-1234;ext=5", id="rfc3966-keeps-the-extension"),
+    ],
+)
+def test_number_format_falls_back_to_the_bare_national_number(args: tuple[object, ...], expected: str) -> None:
+    assert _phone_number_format(*args) == expected  # ty: ignore[invalid-argument-type]  # a mixed tuple of the row
+
+
+def test_number_format_writes_each_style() -> None:
+    assert [_phone_number_format(1, "6502530000", "12", style) for style in range(4)] == [
+        "+16502530000",
+        "+1 650-253-0000 ext. 12",
+        "(650) 253-0000 ext. 12",
+        "tel:+1-650-253-0000;ext=12",
+    ]
+
+
+def test_parse_rejects_bad_arguments() -> None:
+    config = _phone_config_compile(_SPEC)
+    with pytest.raises(TypeError, match="takes exactly 2 arguments"):
+        _phone_parse(config)  # ty: ignore[missing-argument]  # the arity is the point
+    with pytest.raises(TypeError, match="config must be a _PhoneConfig"):
+        _phone_parse(None, "650-253-0000")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
+    with pytest.raises(TypeError, match="text must be str"):
+        _phone_parse(config, b"650-253-0000")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
+
+
+def test_parse_returns_none_without_a_number() -> None:
+    config = _phone_config_compile(_SPEC)
+    assert _phone_parse(config, "no digits here") is None
+    number = _phone_parse(config, "650-253-0000")
+    assert number is not None
+    assert number.international_number == "+16502530000"

@@ -19,6 +19,9 @@
 #define TH_PHONE_DIGIT_BUFFER 256
 #define TH_PHONE_MAX_EXTENSION 20
 #define TH_PHONE_NSN_CAPACITY 18
+/* a formatted number: a template application per group split of at most TH_PHONE_MAX_NSN digits, the calling code,
+   the RFC 3966 scheme and an extension */
+#define TH_PHONE_FORMAT_CAPACITY 512
 
 enum th_phone_type {
     TH_PHONE_FIXED_LINE = 0,
@@ -49,6 +52,7 @@ typedef struct {
     uint8_t require_valid;
     uint8_t require_separators;
     uint8_t skip_card_numbers;
+    uint8_t require_national_prefix; /* VALID's isNationalPrefixPresentIfRequired applies */
     uint8_t national_floor;
     uint16_t type_mask;           /* accepted resolved types, bit i = enum th_phone_type i, eleven bits */
     const th_phone_label *labels; /* sorted, lowercase ASCII */
@@ -73,6 +77,13 @@ typedef struct {
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
                   const th_phone_config *config, th_phone_match *match, size_t *retry);
 
+/* Read `text` as one number, the way phonenumbers' parse reads a string it is handed: the characters before the
+   first plus or digit are skipped (an RFC 3966 `tel:` scheme among them), the run is read like a matcher candidate,
+   and after it only characters that are not digits, Latin letters or `#` may follow. Returns 1 and fills `match`,
+   or 0. */
+int th_phone_parse(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
+                   th_phone_match *match);
+
 /* The decimal value of a code point under Unicode Nd, or -1. */
 int th_phone_digit_value(uint32_t code);
 
@@ -84,6 +95,20 @@ int th_phone_region_index(const char *code, size_t len);
 
 /* The uppercase code of the region at a table index, with its length. */
 const char *th_phone_region_code(int index, size_t *len);
+
+/* libphonenumber's PhoneNumberFormat, in its order. */
+enum th_phone_style {
+    TH_PHONE_STYLE_E164 = 0,
+    TH_PHONE_STYLE_INTERNATIONAL = 1,
+    TH_PHONE_STYLE_NATIONAL = 2,
+    TH_PHONE_STYLE_RFC3966 = 3,
+};
+
+/* formatNumber: write the number in `style` to `out` (TH_PHONE_FORMAT_CAPACITY bytes, ASCII) and return its
+   length. `nsn` holds ASCII digits; `ext` may be empty. A calling code the tables do not assign formats as its bare
+   national number, as libphonenumber does. */
+size_t th_phone_format_number(unsigned country_code, const char *nsn, size_t nsn_len, const char *ext, size_t ext_len,
+                              enum th_phone_style style, char *out);
 
 enum th_phone_check {
     TH_PHONE_CHECK_OK = 0,

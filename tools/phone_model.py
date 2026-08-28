@@ -76,6 +76,7 @@ class Config:
     require_valid: bool = True
     require_separators: bool = False
     skip_card_numbers: bool = True
+    require_national_prefix: bool = True
     type_mask: int = 0x7FF
     labels: tuple[str, ...] = ()
 
@@ -509,7 +510,7 @@ class Recognizer:
             return None
         group = self.tables.groups[self.tables.group_of_code[region.country_code]]
         reading = self._validate(group, nsn)
-        if reading is None or not self.config.require_valid:
+        if reading is None or not self.config.require_valid or not self.config.require_national_prefix:
             return reading
         return (
             reading if self._prefix_present_if_required(self.tables.regions[group.main], digits, reading.nsn) else None
@@ -521,11 +522,13 @@ class Recognizer:
         for item in main.formats:
             if not _looking_at(item.leading, symbols):
                 continue
-            if item.full is not None and not _matches(item.full, symbols):
+            if (
+                not sum(low for low, _high in item.format.groups)
+                <= len(nsn)
+                <= sum(high for _low, high in item.format.groups)
+            ):
                 continue
-            if item.full is None and not item.lengths >> len(nsn) & 1:
-                continue
-            if not item.requires_prefix:
+            if not item.format.requires_prefix:
                 return True
             return self._strip(main, raw_digits) is not None
         return True

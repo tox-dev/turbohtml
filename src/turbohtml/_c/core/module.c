@@ -229,6 +229,8 @@ static PyMethodDef html_methods[] = {
     {"_linkify_apply", turbohtml_linkify_apply, METH_VARARGS, NULL},
     {"_phone_config_compile", turbohtml_phone_config_compile, METH_O, NULL},
     {"_phone_number_check", turbohtml_phone_number_check, METH_VARARGS, NULL},
+    {"_phone_number_format", turbohtml_phone_number_format, METH_VARARGS, NULL},
+    {"_phone_parse", turbohtml_phone_parse, METH_VARARGS, NULL},
     {"_registrable_domain", turbohtml_registrable_domain, METH_O, NULL},
     {"_date_scan", turbohtml_date_scan, METH_VARARGS, NULL},
     {"_date_scan_all", turbohtml_date_scan_all, METH_VARARGS, NULL},

@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 LIBPHONENUMBER_TAG: Final = "v9.0.38"
 METADATA_SHA256: Final = "505eb93659bb6cc7daff90576c1db3d7cfca6591b0038f2f3fcc187e7ea7ea35"
 PHONENUMBERUTIL_SHA256: Final = "580eb2da64567319fac9bc8e288ccf6a2561a72a47d44fe4a905c3a07cafcb17"
+ALTERNATE_FORMATS_SHA256: Final = "3cfdc3ed6ac674214aa8fc2409fcb14632b0ddcb6a5834612bcb1aefe657cbd5"
 UNICODE_VERSION: Final = "16.0.0"
 BLOCKS_SHA256: Final = "f3907b395d410f1b97342292ca6bc83dd12eb4b205f2a0c48efdef99e517d7b0"
 UNICODE_DATA_SHA256: Final = "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f"
@@ -72,6 +73,10 @@ _UPSTREAM: Final = f"https://raw.githubusercontent.com/google/libphonenumber/{LI
 _UCD: Final = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 SOURCES: Final = {
     "PhoneNumberMetadata.xml": (f"{_UPSTREAM}/resources/PhoneNumberMetadata.xml", METADATA_SHA256),
+    "PhoneNumberAlternateFormats.xml": (
+        f"{_UPSTREAM}/resources/PhoneNumberAlternateFormats.xml",
+        ALTERNATE_FORMATS_SHA256,
+    ),
     "PhoneNumberUtil.java": (
         f"{_UPSTREAM}/java/libphonenumber/src/com/google/i18n/phonenumbers/PhoneNumberUtil.java",
         PHONENUMBERUTIL_SHA256,
@@ -101,6 +106,9 @@ MAX_LAG: Final = 20
 MAX_PREFIX_DIGITS: Final = 20
 MAX_ROUTER_REPLAY: Final = 8
 MAX_LITERAL: Final = 4
+MAX_FORMAT_GROUPS: Final = 6
+MAX_GROUP_DIGITS: Final = 15
+MAX_TEMPLATE_CHARS: Final = 24
 MAX_TABLE_BYTES: Final = 400 * 1024
 
 # Copied from PhoneNumberUtil.java at the pinned tag; ``check_java_constants`` proves each still occurs there verbatim.
@@ -178,9 +186,12 @@ LATIN_BLOCKS: Final = (
 _WHITESPACE: Final = re.compile(r"\s+")
 # PhoneNumberUtil.FIRST_GROUP_ONLY_PREFIX_PATTERN: a rule of just the first group needs no national prefix.
 _FIRST_GROUP_ONLY: Final = re.compile(r"\(?\$1\)?")
-# a numberFormat pattern that only counts digits, so the full match is a length test
-_DIGIT_RUN_PATTERN: Final = re.compile(r"(?:\(?\\d\{(\d+)(?:,(\d+))?\}\)?)+")
-_DIGIT_RUN_PART: Final = re.compile(r"\\d\{(\d+)(?:,(\d+))?\}")
+# a numberFormat pattern is a run of capture groups over digits, each `\d`, `\d{n}` or `\d{n,m}`, so choosing it is
+# a length test and formatNsn's replacement is a greedy split of the digits into those groups, no regex engine needed
+_GROUP_RUN: Final = re.compile(r"(?:\(\\d(?:\{\d+(?:,\d+)?\})?\))+")
+_GROUP_PART: Final = re.compile(r"\(\\d(?:\{(\d+)(?:,(\d+))?\})?\)")
+_TEMPLATE_REF: Final = re.compile(r"\$(\d)")
+_TEMPLATE_CHARS: Final = frozenset(" -.()0123456789")
 _TRANSFORM_RULE: Final = re.compile(r"^(\d{0,4})\$(\d)$")
 _LENGTH_ITEM: Final = re.compile(r"^(\d+)$|^\[(\d+)-(\d+)\]$")
 
@@ -200,10 +211,19 @@ class TypeDesc:
 
 @dataclass
 class Format:
-    """One numberFormat as isNationalPrefixPresentIfRequired reads it: its last leadingDigits, pattern and rule."""
+    """
+    One numberFormat as formatNsn and isNationalPrefixPresentIfRequired read it.
+
+    ``groups`` are the digit-count bounds of the pattern's capture groups; ``national`` is the format template with
+    the national prefix formatting rule applied to its first group, ``intl`` the international template, ``None``
+    when intlFormat is ``NA`` and the format is absent from the international list.
+    """
 
     leading: str | None
     pattern: str
+    groups: tuple[tuple[int, int], ...]
+    national: str
+    intl: str | None
     requires_prefix: bool
 
 
@@ -221,6 +241,7 @@ class Region:
     idd_pattern: str | None
     general: str
     types: dict[str, TypeDesc]
+    ext_prefix: str | None = None
     formats: list[Format] = field(default_factory=list)
     possible_national: frozenset[int] = frozenset()
     possible_local_only: frozenset[int] = frozenset()
@@ -238,12 +259,10 @@ class PrefixTag:
 
 @dataclass
 class FormatTables:
-    """One numberFormat compiled to its leadingDigits automaton and either a pattern automaton or lengths."""
+    """One numberFormat compiled: its leadingDigits automaton and the format it came from."""
 
     leading: Dfa
-    full: Dfa | None
-    lengths: int
-    requires_prefix: bool
+    format: Format
 
 
 @dataclass
@@ -301,6 +320,7 @@ class Tables:
     regions: list[RegionTables]
     groups: list[Group]
     group_of_code: dict[int, int]
+    alternates: list[list[FormatTables]]
     unicode: UnicodeTables
     extension: ExtensionTables
     max_lag: int
@@ -390,6 +410,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
                 idd_pattern=_strip_or_none(territory.get("internationalPrefix")),
                 general=_WHITESPACE.sub("", general.findtext("nationalNumberPattern") or ""),
                 types=types,
+                ext_prefix=territory.get("preferredExtnPrefix"),
                 formats=formats,
                 possible_national=national,
                 possible_local_only=local_only,
@@ -404,6 +425,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
 
 def parse_formats(territory: ET.Element, national_prefix: str) -> list[Format]:
     """Read the availableFormats the way BuildMetadataFromXml's loadAvailableFormats resolves their prefix rules."""
+    name = territory.get("id") or f"+{territory.get('countryCode')}"
     territory_rule = _formatting_rule(territory.get("nationalPrefixFormattingRule"), national_prefix)
     territory_optional = territory.get("nationalPrefixOptionalWhenFormatting") == "true"
     formats: list[Format] = []
@@ -417,15 +439,75 @@ def parse_formats(territory: ET.Element, national_prefix: str) -> list[Format]:
         leading = [_WHITESPACE.sub("", item.text or "") for item in element.iter("leadingDigits")]
         pattern = element.get("pattern")
         if not pattern:
-            msg = f"{territory.get('id')}: a numberFormat needs a pattern"
+            msg = f"{name}: a numberFormat needs a pattern"
             raise GenerationError(msg)
+        groups = parse_groups(name, pattern)
+        template = parse_template(name, element.findtext("format"), len(groups))
+        intl_text = element.findtext("intlFormat")
+        intl = None if intl_text == "NA" else parse_template(name, intl_text or template, len(groups))
         requires = bool(rule) and not optional and _FIRST_GROUP_ONLY.fullmatch(rule) is None
-        formats.append(Format(leading[-1] if leading else None, pattern, requires))
+        national = parse_template(name, _apply_rule(rule, template), len(groups))
+        formats.append(Format(leading[-1] if leading else None, pattern, groups, national, intl, requires))
     return formats
+
+
+def parse_groups(name: str, pattern: str) -> tuple[tuple[int, int], ...]:
+    """Read the digit-count bounds of a numberFormat pattern's capture groups; refuse any other pattern shape."""
+    if _GROUP_RUN.fullmatch(pattern) is None:
+        msg = f"{name}: numberFormat pattern {pattern!r} is not a run of digit groups"
+        raise GenerationError(msg)
+    groups = tuple((int(low or 1), int(high or low or 1)) for low, high in _GROUP_PART.findall(pattern))
+    if len(groups) > MAX_FORMAT_GROUPS or any(low < 1 or high < low or high > MAX_GROUP_DIGITS for low, high in groups):
+        msg = f"{name}: numberFormat pattern {pattern!r} exceeds the group bounds"
+        raise GenerationError(msg)
+    return groups
+
+
+def parse_template(name: str, text: str | None, group_count: int) -> str:
+    """Check a format template: ``$N`` references into the pattern's groups and the separators the formatter emits."""
+    if not text or len(text) > MAX_TEMPLATE_CHARS:
+        msg = f"{name}: format template {text!r} is empty or longer than {MAX_TEMPLATE_CHARS}"
+        raise GenerationError(msg)
+    refs = _TEMPLATE_REF.findall(text)
+    if (
+        not refs
+        or any(not 1 <= int(ref) <= group_count for ref in refs)
+        or not set(_TEMPLATE_REF.sub("", text)) <= _TEMPLATE_CHARS
+    ):
+        msg = f"{name}: format template {text!r} references a missing group or uses an unexpected character"
+        raise GenerationError(msg)
+    if _TEMPLATE_REF.fullmatch(text[-2:]) is None:
+        # RFC 3966's separator rewrite never has to flush a trailing run, and every group split ends on a digit
+        msg = f"{name}: format template {text!r} does not end with a group"
+        raise GenerationError(msg)
+    return text
 
 
 def _formatting_rule(rule: str | None, national_prefix: str) -> str:
     return (rule or "").replace("$NP", national_prefix).replace("$FG", "$1")
+
+
+def _apply_rule(rule: str, template: str) -> str:
+    """FormatNsnUsingPattern's NATIONAL rewrite: the rule replaces the template's first group reference."""
+    if not rule:
+        return template
+    first = next(_TEMPLATE_REF.finditer(template))
+    return template[: first.start()] + rule.replace("$1", first.group()) + template[first.end() :]
+
+
+def parse_alternate_formats(xml: bytes) -> dict[int, list[Format]]:
+    """Read PhoneNumberAlternateFormats.xml: per calling code, the groupings the matcher also accepts."""
+    formats: dict[int, list[Format]] = {}
+    for territory in ET.fromstring(xml).iter("territory"):  # ruff: ignore[suspicious-xml-element-tree-usage]  # pinned by hash, not untrusted
+        code = int(territory.get("countryCode", "0"))
+        if code in formats:
+            msg = f"+{code}: alternate formats listed twice"
+            raise GenerationError(msg)
+        if any(len(element.findall("leadingDigits")) > 1 for element in territory.iter("numberFormat")):
+            msg = f"+{code}: an alternate format carries several leadingDigits; the matcher reads only the first"
+            raise GenerationError(msg)
+        formats[code] = parse_formats(territory, "")
+    return formats
 
 
 def _strip_or_none(text: str | None) -> str | None:
@@ -493,15 +575,9 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
 
 
 def compile_format(item: Format) -> FormatTables:
-    """Compile one numberFormat: its leadingDigits as a prefix automaton, its pattern as lengths or an automaton."""
+    """Compile one numberFormat: its leadingDigits as a prefix automaton; the groups decide the rest."""
     # a format without leadingDigits applies to every number, so its automaton accepts any first digit
-    leading = compile_dfa(compile_program(item.leading or r"\d", capture=False))
-    if _DIGIT_RUN_PATTERN.fullmatch(item.pattern):
-        lengths = {0}
-        for low, high in _DIGIT_RUN_PART.findall(item.pattern):
-            lengths = {total + extra for total in lengths for extra in range(int(low), int(high or low) + 1)}
-        return FormatTables(leading, None, sum(1 << length for length in lengths if length < 32), item.requires_prefix)
-    return FormatTables(leading, compile_dfa(compile_program(item.pattern, capture=False)), 0, item.requires_prefix)
+    return FormatTables(compile_dfa(compile_program(item.leading or r"\d", capture=False)), item)
 
 
 def check_type_lengths(region: Region, type_programs: list[Program | None]) -> None:
@@ -943,6 +1019,7 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
         compiled,
         groups,
         group_of_code,
+        compile_alternates(sources["PhoneNumberAlternateFormats.xml"], len(groups), group_of_code),
         unicode,
         extension,
         max_lag,
@@ -951,6 +1028,17 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
         threads,
         slots,
     )
+
+
+def compile_alternates(xml: bytes, group_count: int, group_of_code: dict[int, int]) -> list[list[FormatTables]]:
+    """Compile the alternate formats of each calling code, indexed like the groups."""
+    alternates: list[list[FormatTables]] = [[] for _group in range(group_count)]
+    for code, items in parse_alternate_formats(xml).items():
+        if code not in group_of_code:
+            msg = f"+{code}: alternate formats for a calling code the metadata does not assign"
+            raise GenerationError(msg)
+        alternates[group_of_code[code]] = [compile_format(item) for item in items]
+    return alternates
 
 
 def _rows(
@@ -1029,17 +1117,43 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
             shared_dfa[key] = add(automaton, DIGIT_SYMBOLS)
         return shared_dfa[key]
 
+    templates: list[str] = []
+    template_offset: dict[str, int] = {}
+
+    def add_template(text: str) -> int:
+        if text not in template_offset:
+            template_offset[text] = sum(len(item) + 1 for item in templates)
+            templates.append(text)
+        return template_offset[text]
+
+    def format_row(item: FormatTables) -> str:
+        groups = [(low << 4) | high for low, high in item.format.groups]
+        groups.extend([0] * (MAX_FORMAT_GROUPS - len(groups)))
+        national = add_template(item.format.national)
+        intl = 0xFFFF if item.format.intl is None else add_template(item.format.intl)
+        return (
+            f"{{{add_shared(item.leading)}u, {len(item.format.groups)}u, {{{', '.join(f'{g}u' for g in groups)}}}, "
+            f"{national}u, {intl}u, {int(item.format.requires_prefix)}u}}"
+        )
+
     format_rows: list[str] = []
     format_spans: list[tuple[int, int]] = []
     mains = {group.main for group in tables.groups}
     for index, region_tables in enumerate(tables.regions):
         first = len(format_rows)
         if index in mains:
-            for item in region_tables.formats:
-                leading = add_shared(item.leading)
-                full = 0xFFFF if item.full is None else add_shared(item.full)
-                format_rows.append(f"{{{leading}u, {full}u, {item.lengths}u, {int(item.requires_prefix)}u}}")
+            format_rows.extend(format_row(item) for item in region_tables.formats)
         format_spans.append((first, len(format_rows) - first))
+    alternate_rows: list[str] = []
+    alternate_spans: list[tuple[int, int]] = []
+    for items in tables.alternates:
+        first = len(alternate_rows)
+        alternate_rows.extend(format_row(item) for item in items)
+        alternate_spans.append((first, len(alternate_rows) - first))
+    ext_prefixes = [
+        0xFFFF if region_tables.region.ext_prefix is None else add_template(region_tables.region.ext_prefix)
+        for region_tables in tables.regions
+    ]
     rows8, rows16, accepts, descriptors = _rows(dfas)
     programs: list[Program] = [
         region_tables.prefix_program for region_tables in tables.regions if region_tables.prefix_program is not None
@@ -1081,6 +1195,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(f"#define TH_PHONE_GROUP_COUNT {len(tables.groups)}")
     out(f"#define TH_PHONE_EXT_DFA {extension_index}")
     out("#define TH_PHONE_GENERAL_BIT 0x8000")
+    out(f"#define TH_PHONE_FORMAT_GROUPS {MAX_FORMAT_GROUPS}")
+    out(f"#define TH_PHONE_TEMPLATE_CHARS {MAX_TEMPLATE_CHARS}")
     out("")
     out("typedef struct {")
     out("    uint32_t next_offset;")
@@ -1114,15 +1230,22 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out("    uint8_t floor_possible;")
     out("    uint16_t format_first;")
     out("    uint8_t format_count;")
+    out("    uint16_t ext_prefix; /* into th_phone_templates, 0xFFFF for the default */")
+    out("    uint8_t has_ndd;     /* the territory declares a nationalPrefix */")
     out("} th_phone_region;")
     out("")
-    out("/* A numberFormat of a calling code's main region, for isNationalPrefixPresentIfRequired: the last")
-    out("    leadingDigits pattern (any digit when it has none), the pattern as an automaton (0xFFFF when `lengths`")
-    out("    decides). */")
+    out(
+        "/* A numberFormat of a calling code's main region (or an alternate format of the code): the last leadingDigits"
+    )
+    out("   pattern (any digit when it has none), each capture group's digit-count bounds as (min << 4) | max, the")
+    out("   NATIONAL template with the national prefix rule applied and the international one (0xFFFF when intlFormat")
+    out("   is NA), both offsets into th_phone_templates, and whether VALID needs the prefix in the written digits. */")
     out("typedef struct {")
     out("    uint16_t leading;")
-    out("    uint16_t full;")
-    out("    uint32_t lengths;")
+    out("    uint8_t group_count;")
+    out("    uint8_t groups[TH_PHONE_FORMAT_GROUPS];")
+    out("    uint16_t national;")
+    out("    uint16_t intl;")
     out("    uint8_t requires_prefix;")
     out("} th_phone_format;")
     out("")
@@ -1132,6 +1255,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out("    uint16_t first;")
     out("    uint8_t count;")
     out("    uint16_t main;")
+    out("    uint16_t alt_first;")
+    out("    uint8_t alt_count;")
     out("} th_phone_group;")
     out("")
     out("typedef struct {")
@@ -1180,11 +1305,19 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
             f"{entry.get('idd', 0xFFFF)}u, {entry.get('prefix', 0xFFFF)}u, {entry['plan']}u, "
             f"{label_offsets[index][0]}u, {label_offsets[index][1]}u, {tag_index}u, {national}u, {local}u, "
             f"{region_tables.floor_valid}u, {region_tables.floor_possible}u, "
-            f"{format_spans[index][0]}u, {format_spans[index][1]}u}},"
+            f"{format_spans[index][0]}u, {format_spans[index][1]}u, {ext_prefixes[index]}u, "
+            f"{int(bool(region.national_prefix))}u}},"
         )
     out("};")
     out("")
-    out(_array("th_phone_format", "th_phone_formats", format_rows or ["{0xFFFFu, 0xFFFFu, 0u, 0u}"], raw=True))
+    empty_format = "{0xFFFFu, 0u, {0u, 0u, 0u, 0u, 0u, 0u}, 0xFFFFu, 0xFFFFu, 0u}"
+    out(_array("th_phone_format", "th_phone_formats", format_rows or [empty_format], raw=True))
+    out(_array("th_phone_format", "th_phone_alt_formats", alternate_rows or [empty_format], raw=True))
+    out("static const char th_phone_templates[] =")
+    for text in templates or [""]:
+        out(f'    "{text}\\0"')
+    out("    ;")
+    out("")
     out("static const th_phone_prefix_tag th_phone_prefix_tags[] = {")
     for tag in tags:
         out(f'    {{{len(tag.literal)}u, {tag.group}u, {tag.program}u, "{tag.literal}"}},')
@@ -1199,7 +1332,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
         )
         out(
             f"    {{{group.country_code}u, {router_index.get(group_index, 0xFFFF)}u, {first}u, "
-            f"{len(group.members)}u, {group.main}u}},"
+            f"{len(group.members)}u, {group.main}u, {alternate_spans[group_index][0]}u, "
+            f"{alternate_spans[group_index][1]}u}},"
         )
     out("};")
     out("")

@@ -36,7 +36,8 @@ hyphen, between dots, between spaces. It reads each candidate the way ``parse`` 
 international prefix commits to the country code that follows, the region's own country code may come off, or the
 national prefix comes off and the remaining digits go to the plan of each region sharing the calling code, in the
 library's routing order. A national number read this way must carry the national prefix its number format writes, so
-``2012-01-02 08`` is not a German number while ``030 12345678`` is.
+``2012-01-02 08`` is not a German number while ``030 12345678`` is; ``require_national_prefix=False`` drops that rule
+for text where numbers are written the way people dial them locally.
 
 The recognizer tries the regions you configure in order; the first reading wins. The ``regions`` tuple is the fallback
 for numbers written without ``+``; with an empty tuple only ``+`` numbers link. In ``require_valid`` mode (the default)
@@ -79,3 +80,35 @@ numbers.
 Callbacks see the number on ``link.phone``, so a callback can route mobiles to ``sms:`` or drop premium-rate numbers. An
 anchor already in the input reaches a callback with ``phone`` set to ``None`` whatever its ``href``; the field describes
 detected plain text only.
+
+***********************************
+ Reading a string you already hold
+***********************************
+
+:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` is the recognizer pointed at one string, with the rules
+that exist for prose switched off: no separators are required, a payment-card shape is not refused, no word before the
+digits marks them as an identifier, and the national prefix need not be written. The characters before the first ``+``
+or digit are skipped, which is how ``phonenumbers.parse`` treats ``Tel:`` and the ``tel:`` scheme, and after the number
+only characters that cannot continue it may follow, so two numbers in one string are an error rather than the first of
+them. What remains is the matcher's reading of one candidate, which is why a letter glued to the digits
+(``x650-253-0000``) is refused here and accepted by ``phonenumbers``. The conformance suite parses every rendering of
+every example number with both and expects the same country code, national number and extension, or a refusal from both.
+
+******************
+ Writing a number
+******************
+
+:meth:`PhoneNumber.format <turbohtml.clean.PhoneNumber.format>` writes a number the way libphonenumber's
+``format_number`` does, in the four layouts of :class:`~turbohtml.clean.PhoneFormat`. The number formats of each calling
+code's main region are part of the compiled tables: the leading-digits pattern of each format is an automaton, and its
+digit pattern needs none. Every capture group in every format of the metadata, the alternate formats included, is a
+plain digit count (``\d{3}``, ``\d{2,11}``), so a format applies when the national number has a length its groups can
+sum to, and the split between groups is the one Java's backtracking would pick: each group takes the most digits that
+still leave the later groups their minimum. The generator refuses any other pattern shape, so a metadata update that
+introduced one would fail the build rather than format wrongly. The templates keep their ``$1 $2`` references; the
+NATIONAL template has the national prefix rule already folded into its first group at generation time, and RFC 3966
+collapses every separator run into one hyphen at write time.
+
+The tables carry no geocoding, carrier or time-zone data, and no as-you-type formatter: those are lookup sets several
+times the size of the numbering plans and a different product from linkifying HTML. ``phonenumbers`` remains the tool
+for them, and a :class:`~turbohtml.clean.PhoneNumber` gives it the E.164 string to start from.

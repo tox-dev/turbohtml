@@ -104,6 +104,8 @@ def _phone(data: bytes) -> None:
         if span.phone is not None:
             fields = ("country_code", "national_number", "extension", "region", "type")
             clean.PhoneNumber(*(getattr(span.phone, name) for name in fields))
+            for style in clean.PhoneFormat:
+                span.phone.format(style)
     _PHONE_POSSIBLE.find(text)
     _PHONE_LINKER.linkify(text)
 

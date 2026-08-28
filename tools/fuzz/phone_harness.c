@@ -13,7 +13,7 @@
    Usage: phonefuzz [file ...]                       -- built-in edge cases, then each file's bytes, per configuration
           phonefuzz --dump REGIONS MODE [OPTIONS]    -- one text per stdin line; print its matches, then `--`
    REGIONS is a comma-separated list (or `-` for none), MODE is `valid` or `possible`, OPTIONS may contain
-   `separators`, `cards` (keep card numbers) and `labels`. The dump form is what tests/clean/test_phone_model.py diffs
+   `separators`, `cards` (keep card numbers), `noprefix` (do not require the national prefix) and `labels`. The dump form is what tests/clean/test_phone_model.py diffs
    against the Python model. */
 
 #include "clean/phone.c"
@@ -113,7 +113,8 @@ static void run_bytes(const unsigned char *bytes, size_t len) {
     static const char *const region_sets[][3] = {{"US", NULL, NULL}, {"GB", "DE", NULL}, {NULL, NULL, NULL}, {"JP", "IN", "BR"}};
     for (size_t set = 0; set < sizeof(region_sets) / sizeof(region_sets[0]); set++) {
         for (int valid = 0; valid < 2; valid++) {
-            th_phone_config config = {.require_valid = (uint8_t)valid, .skip_card_numbers = 1, .type_mask = 0x7FF};
+            th_phone_config config = {
+                .require_valid = (uint8_t)valid, .skip_card_numbers = 1, .require_national_prefix = 1, .type_mask = 0x7FF};
             for (size_t slot = 0; slot < 3 && region_sets[set][slot] != NULL; slot++) {
                 add_region(&config, region_sets[set][slot]);
             }
@@ -197,6 +198,7 @@ static int run_dump(int argc, char **argv) {
     const char *options = argc > 4 ? argv[4] : "";
     config.require_separators = strstr(options, "separators") != NULL;
     config.skip_card_numbers = strstr(options, "cards") == NULL;
+    config.require_national_prefix = strstr(options, "noprefix") == NULL;
     if (strstr(options, "labels") != NULL) {
         fill_labels(&config);
     }

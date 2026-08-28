@@ -17,15 +17,17 @@ from generate_phone import (
     GenerationError,
     TypeDesc,
     check_java_constants,
-    compile_format,
     compile_groups,
     compile_region,
     compile_tables,
     emit_header,
     fetch_sources,
     generate,
+    parse_alternate_formats,
     parse_formats,
+    parse_groups,
     parse_metadata,
+    parse_template,
     parse_transform,
     parse_unicode,
     router_replay,
@@ -191,12 +193,13 @@ _METADATA = b"""<?xml version="1.0" encoding="UTF-8"?>
         <possibleLengths national="10"/><exampleNumber>8002345678</exampleNumber></tollFree>
     </territory>
     <territory id="XC" countryCode="49" internationalPrefix="00" nationalPrefix="0"
-               nationalPrefixFormattingRule="$NP$FG">
+               nationalPrefixFormattingRule="$NP$FG" preferredExtnPrefix=" Anexo ">
       <availableFormats>
         <numberFormat pattern="(\\d{2})(\\d{3,11})">
-          <leadingDigits>3[02]|40|[68]9</leadingDigits><format>$1 $2</format></numberFormat>
+          <leadingDigits>3[02]|40|[68]9</leadingDigits><format>$1 $2</format>
+          <intlFormat>$1-$2</intlFormat></numberFormat>
         <numberFormat pattern="(\\d{3})(\\d{5,8})" nationalPrefixFormattingRule="($FG)">
-          <format>$1 $2</format></numberFormat>
+          <format>$1 $2</format><intlFormat>NA</intlFormat></numberFormat>
       </availableFormats>
       <generalDesc><nationalNumberPattern>[1-9]\\d{4,13}</nationalNumberPattern></generalDesc>
       <fixedLine><nationalNumberPattern>3[02]\\d{6,9}|[1-9]\\d{6,12}</nationalNumberPattern>
@@ -220,15 +223,18 @@ def test_parse_metadata_reads_territories_and_derives_general_lengths() -> None:
     assert main.examples == {"fixedLine": "2012345678", "mobile": "2012345678", "tollFree": "8002345678"}
 
 
-def test_parse_formats_resolves_the_prefix_rules() -> None:
+def test_parse_formats_resolves_the_prefix_rules_and_templates() -> None:
     main, _routed, german = parse_metadata(_METADATA)
-    assert [(item.leading, item.pattern, item.requires_prefix) for item in main.formats] == [
-        ("[2-9]", r"(\d{3})(\d{3})(\d{4})", False),
+    assert main.formats == [
+        Format(
+            "[2-9]", r"(\d{3})(\d{3})(\d{4})", ((3, 3), (3, 3), (4, 4)), "$1 $2 $3", "$1 $2 $3", requires_prefix=False
+        ),
     ]
-    assert [(item.leading, item.pattern, item.requires_prefix) for item in german.formats] == [
-        ("3[02]|40|[68]9", r"(\d{2})(\d{3,11})", True),
-        (None, r"(\d{3})(\d{5,8})", False),
+    assert german.formats == [
+        Format("3[02]|40|[68]9", r"(\d{2})(\d{3,11})", ((2, 2), (3, 11)), "0$1 $2", "$1-$2", requires_prefix=True),
+        Format(None, r"(\d{3})(\d{5,8})", ((3, 3), (5, 8)), "($1) $2", None, requires_prefix=False),
     ]
+    assert (main.ext_prefix, german.ext_prefix) == (None, " Anexo ")
 
 
 def test_parse_formats_keeps_the_last_leading_digits_and_needs_a_pattern() -> None:
@@ -238,7 +244,9 @@ def test_parse_formats_keeps_the_last_leading_digits_and_needs_a_pattern() -> No
         '<numberFormat pattern="(\\d{4})"><leadingDigits>1</leadingDigits><leadingDigits>12</leadingDigits>'
         "<format>$1</format></numberFormat></availableFormats></territory>"
     )
-    assert [(item.leading, item.requires_prefix) for item in parse_formats(territory, "0")] == [("12", True)]
+    assert [(item.leading, item.national, item.requires_prefix) for item in parse_formats(territory, "0")] == [
+        ("12", "0 $1", True)
+    ]
     number_format = territory.find("availableFormats/numberFormat")
     assert number_format is not None
     number_format.attrib.pop("pattern")
@@ -270,18 +278,100 @@ def test_parse_metadata_rejects_malformed_territories(xml: bytes, message: str) 
 
 
 @pytest.mark.parametrize(
-    ("pattern", "lengths", "has_dfa"),
+    ("pattern", "expected"),
     [
-        pytest.param(r"(\d{3})(\d{4})", 1 << 7, False, id="fixed-lengths"),
-        pytest.param(r"(\d{2})(\d{3,4})", (1 << 5) | (1 << 6), False, id="length-range"),
-        pytest.param(r"([2-9]\d{2})(\d{4})", 0, True, id="class-needs-an-automaton"),
+        pytest.param(r"(\d{3})(\d{4})", ((3, 3), (4, 4)), id="fixed-lengths"),
+        pytest.param(r"(\d{2})(\d{3,4})", ((2, 2), (3, 4)), id="length-range"),
+        pytest.param(r"(\d)(\d{2,15})", ((1, 1), (2, 15)), id="bare-digit-and-the-longest-group"),
     ],
 )
-def test_compile_format_prefers_a_length_mask(pattern: str, lengths: int, has_dfa: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_parse_groups_reads_the_bounds(pattern: str, expected: tuple[tuple[int, int], ...]) -> None:
+    assert parse_groups("XA", pattern) == expected
 
-    compiled = compile_format(Format("[2-9]", pattern, requires_prefix=True))
-    assert (compiled.lengths, compiled.full is not None, compiled.requires_prefix) == (lengths, has_dfa, True)
-    assert compiled.leading is not None
+
+@pytest.mark.parametrize(
+    ("pattern", "message"),
+    [
+        pytest.param(r"([2-9]\d{2})(\d{4})", "not a run of digit groups", id="class"),
+        pytest.param(r"(\d{2}|\d{3})(\d{4})", "not a run of digit groups", id="alternation"),
+        pytest.param(r"\d(\d{4})", "not a run of digit groups", id="digit-outside-a-group"),
+        pytest.param(r"(\d)(\d)(\d)(\d)(\d)(\d)(\d)", "exceeds the group bounds", id="seven-groups"),
+        pytest.param(r"(\d{16})", "exceeds the group bounds", id="sixteen-digit-group"),
+        pytest.param(r"(\d{0,3})", "exceeds the group bounds", id="empty-group"),
+        pytest.param(r"(\d{4,3})", "exceeds the group bounds", id="inverted-bounds"),
+    ],
+)
+def test_parse_groups_refuses_other_shapes(pattern: str, message: str) -> None:
+    with pytest.raises(GenerationError, match=message):
+        parse_groups("XA", pattern)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        pytest.param(None, "is empty", id="missing"),
+        pytest.param("", "is empty", id="empty"),
+        pytest.param("$1 " * 9, "longer than", id="long"),
+        pytest.param("123", "references a missing group", id="no-reference"),
+        pytest.param("$1 $3", "references a missing group", id="reference-past-the-groups"),
+        pytest.param("$1/$2", "unexpected character", id="slash"),
+        pytest.param("$1 $2 ", "does not end with a group", id="trailing-separator"),
+    ],
+)
+def test_parse_template_refuses_bad_templates(text: str | None, message: str) -> None:
+    with pytest.raises(GenerationError, match=message):
+        parse_template("XA", text, 2)
+
+
+_ALTERNATE_FORMATS = b"""<?xml version="1.0" encoding="UTF-8"?>
+<phoneNumberMetadata>
+  <territories>
+    <territory countryCode="49">
+      <availableFormats>
+        <numberFormat pattern="(\\d{3})(\\d{5,9})">
+          <leadingDigits>[3-9]</leadingDigits><format>$1 $2</format></numberFormat>
+        <numberFormat pattern="(\\d{4})(\\d{4,8})"><format>$1 $2</format></numberFormat>
+      </availableFormats>
+    </territory>
+  </territories>
+</phoneNumberMetadata>
+"""
+
+
+def test_parse_alternate_formats_reads_each_calling_code() -> None:
+    assert parse_alternate_formats(_ALTERNATE_FORMATS) == {
+        49: [
+            Format("[3-9]", r"(\d{3})(\d{5,9})", ((3, 3), (5, 9)), "$1 $2", "$1 $2", requires_prefix=False),
+            Format(None, r"(\d{4})(\d{4,8})", ((4, 4), (4, 8)), "$1 $2", "$1 $2", requires_prefix=False),
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("xml", "message"),
+    [
+        pytest.param(
+            b'<territory countryCode="49"/><territory countryCode="49"/>', "listed twice", id="duplicate-code"
+        ),
+        pytest.param(
+            b'<territory countryCode="49"><availableFormats><numberFormat pattern="(\\d{4})"><leadingDigits>1'
+            b"</leadingDigits><leadingDigits>12</leadingDigits><format>$1</format></numberFormat></availableFormats>"
+            b"</territory>",
+            "several leadingDigits",
+            id="several-leading-digits",
+        ),
+    ],
+)
+def test_parse_alternate_formats_rejects_malformed_territories(xml: bytes, message: str) -> None:
+    with pytest.raises(GenerationError, match=message):
+        parse_alternate_formats(b"<phoneNumberMetadata><territories>" + xml + b"</territories></phoneNumberMetadata>")
+
+
+def test_compile_tables_refuses_alternate_formats_for_an_unassigned_code() -> None:
+    sources = _sources()
+    sources["PhoneNumberAlternateFormats.xml"] = _ALTERNATE_FORMATS.replace(b'countryCode="49"', b'countryCode="99"')
+    with pytest.raises(GenerationError, match=r"\+99: alternate formats for a calling code"):
+        compile_tables(sources)
 
 
 @pytest.mark.parametrize(
@@ -374,6 +464,7 @@ def _sources() -> dict[str, bytes]:
     java = "\n".join(literal for literals in JAVA_CONSTANTS.values() for literal in literals)
     return {
         "PhoneNumberMetadata.xml": _METADATA,
+        "PhoneNumberAlternateFormats.xml": _ALTERNATE_FORMATS,
         "PhoneNumberUtil.java": java.encode(),
         "Blocks.txt": _BLOCKS.encode(),
         "UnicodeData.txt": _UNICODE_DATA.encode(),
@@ -392,7 +483,7 @@ def test_compile_region_and_groups_on_the_fixture() -> None:
     assert (routed.tag.literal, routed.tag.group) == ("268", 1)
     assert german.prefix is not None
     assert german.idd is not None
-    assert [item.requires_prefix for item in german.formats] == [True, False]
+    assert [item.format.requires_prefix for item in german.formats] == [True, False]
     groups, group_of_code = compile_groups(compiled, rng)
     assert group_of_code == {1: 0, 49: 1}
     assert (groups[0].members, groups[0].main, groups[0].routed) == ([0, 1], 0, [False, True])
@@ -416,6 +507,9 @@ def test_emit_header_on_the_fixture() -> None:
     assert '{"XA", 2u, 1u, 0u' in header
     assert '{"001"' not in header
     assert "th_phone_formats[]" in header
+    assert "th_phone_alt_formats[]" in header
+    assert '"$1 $2 $3\\0"' in header
+    assert '" Anexo \\0"' in header
     assert 0 < payload < MAX_TABLE_BYTES
 
 
