@@ -141,9 +141,9 @@ static int label_is_well_formed(const char *text, Py_ssize_t length) {
     if (length < 1 || length > MAX_LABEL_LENGTH) {
         return 0;
     }
+    static const char allowed[] = "abcdefghijklmnopqrstuvwxyz0123456789";
     for (Py_ssize_t offset = 0; offset < length; offset++) {
-        char byte = text[offset];
-        if (!((byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9'))) {
+        if (memchr(allowed, text[offset], sizeof(allowed) - 1) == NULL) {
             return 0;
         }
     }
@@ -280,13 +280,13 @@ PyObject *turbohtml_phone_number_new(const PhoneConfigObject *config, const th_p
     }
     PyObject *country_code = PyLong_FromLong(match->country_code);
     PyObject *number = NULL;
-    if (nsn != NULL && extension != NULL && region != NULL &&
-        country_code != NULL) { /* GCOVR_EXCL_BR_LINE: allocation */
+    if (nsn != NULL && extension != NULL && region != NULL && country_code != NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
         PyObject *member = PyTuple_GET_ITEM(config->types, match->type);
         number = PyObject_CallMethod(config->number_type, "_from_native", "OOOOO", country_code, nsn, extension, region,
                                      member);
         if (number != NULL && !PyObject_TypeCheck(number, (PyTypeObject *)config->number_type)) {
-            PyErr_Format(PyExc_TypeError, "_from_native must return a %N instance", config->number_type);
+            PyErr_Format(PyExc_TypeError, "_from_native must return a %s instance",
+                         ((PyTypeObject *)config->number_type)->tp_name);
             Py_DECREF(number);
             number = NULL;
         }
