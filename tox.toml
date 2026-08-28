@@ -308,6 +308,8 @@ commands_pre = [
     "--config-settings=build-dir={env_dir}{/}cbuild",
     "--config-settings=setup-args=-Dbuildtype=release",
   ],
+  # the phone oracle is the vendored python-phonenumbers checkout, so the suite compares against the pinned release
+  [ "uv", "pip", "install", "--no-deps", "{tox_root}{/}tests{/}conformance{/}python-phonenumbers{/}python" ],
 ]
 # Each tests/conformance/test_*.py validates one feature against a competitor's or standards body's OWN suite,
 # vendored as a pinned submodule under tests/conformance/<oracle> (libxml2, unicodetools, qt3tests, parse5,

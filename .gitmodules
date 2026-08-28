@@ -62,3 +62,7 @@
 [submodule "tests/conformance/chardetng"]
 	path = tests/conformance/chardetng
 	url = https://github.com/hsivonen/chardetng
+[submodule "tests/conformance/python-phonenumbers"]
+	path = tests/conformance/python-phonenumbers
+	url = https://github.com/daviddrysdale/python-phonenumbers
+	shallow = true
