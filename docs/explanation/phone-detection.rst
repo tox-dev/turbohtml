@@ -39,6 +39,14 @@ library's routing order. A national number read this way must carry the national
 ``2012-01-02 08`` is not a German number while ``030 12345678`` is; ``require_national_prefix=False`` drops that rule
 for text where numbers are written the way people dial them locally.
 
+``grouping`` adds libphonenumber's two stricter leniencies. Both start from a valid number and compare the digit groups
+the text wrote against the groups its format would write, in the international layout, and against each alternate format
+the metadata lists for its calling code (``PhoneNumberAlternateFormats.xml``, pinned next to the plans): ``STRICT``
+wants each group to occur in order, ``EXACT`` wants the written groups to be those groups, or the whole national number
+unbroken. A candidate with two slashes fails both unless the first slash only sets off the country code. Since every
+group in the metadata is a plain digit count, the groups a format writes come from the same greedy split the formatter
+uses, so no regular expression runs here either.
+
 The recognizer tries the regions you configure in order; the first reading wins. The ``regions`` tuple is the fallback
 for numbers written without ``+``; with an empty tuple only ``+`` numbers link. In ``require_valid`` mode (the default)
 a number must be one the plan assigns, with a resolved :class:`~turbohtml.clean.PhoneType`; ``require_valid=False`` is

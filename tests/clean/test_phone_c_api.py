@@ -24,7 +24,7 @@ from turbohtml.clean._linkify import _PHONE_TYPES  # the spec item under test
 if TYPE_CHECKING:
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
-_SPEC = cast("_PhoneSpec", (("US",), True, False, True, True, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES))
+_SPEC = cast("_PhoneSpec", (("US",), True, False, True, True, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES))
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
@@ -35,6 +35,7 @@ def _spec(**overrides: object) -> _PhoneSpec:
         "require_separators",
         "skip_card_numbers",
         "require_national_prefix",
+        "grouping",
         "type_mask",
         "labels",
         "number_type",
@@ -54,13 +55,13 @@ def test_compile_returns_an_unconstructible_config() -> None:
     "spec",
     [
         pytest.param(list(_SPEC), id="list"),
-        pytest.param(_SPEC[:8], id="eight-items"),
-        pytest.param((*_SPEC, 0), id="ten-items"),
+        pytest.param(_SPEC[:9], id="nine-items"),
+        pytest.param((*_SPEC, 0), id="eleven-items"),
         pytest.param(None, id="none"),
     ],
 )
 def test_compile_rejects_malformed_specs(spec: object) -> None:
-    with pytest.raises(TypeError, match="tuple of 9 items"):
+    with pytest.raises(TypeError, match="tuple of 10 items"):
         _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]
 
 
@@ -89,6 +90,15 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
         pytest.param({"skip_card_numbers": None}, TypeError, "skip_card_numbers must be bool", id="none-flag"),
         pytest.param(
             {"require_national_prefix": 1}, TypeError, "require_national_prefix must be bool", id="int-prefix-flag"
+        ),
+        pytest.param({"grouping": "1"}, TypeError, "grouping must be int", id="str-grouping"),
+        pytest.param({"grouping": 3}, ValueError, "grouping must be between 0 and 2", id="grouping-high"),
+        pytest.param({"grouping": -1}, ValueError, "grouping must be between 0 and 2", id="grouping-negative"),
+        pytest.param(
+            {"grouping": 1, "require_valid": False},
+            ValueError,
+            "only be checked with require_valid",
+            id="grouping-possible",
         ),
         pytest.param({"type_mask": 0}, ValueError, "1..0x7FF", id="mask-zero"),
         pytest.param({"type_mask": 0x800}, ValueError, "1..0x7FF", id="mask-too-wide"),
@@ -340,6 +350,7 @@ def test_number_check_accepts_a_produced_value() -> None:
         pytest.param((1, "65O2530000", None, 1), ValueError, "ASCII digits", id="nsn-letter"),
         pytest.param((1, "6502530000", "", 1), ValueError, "extension must be 1-20", id="extension-empty"),
         pytest.param((1, "6502530000", "1" * 21, 1), ValueError, "extension must be 1-20", id="extension-long"),
+        pytest.param((1, "6502530000", "\udc80", 1), UnicodeEncodeError, "surrogates", id="extension-surrogate"),
     ],
 )
 def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: type[Exception], message: str) -> None:
@@ -354,6 +365,7 @@ def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: ty
         pytest.param((1, "1234", None, 2), "1234", id="no-format-takes-a-first-digit-1"),
         pytest.param((1, "65", None, 2), "65", id="shorter-than-every-format"),
         pytest.param((1, "65025300001", None, 2), "65025300001", id="longer-than-every-format"),
+        pytest.param((49, "15", None, 2), "15", id="shorter-than-a-leading-digits-pattern"),
         pytest.param((1, "1234", "5", 3), "tel:+1-1234;ext=5", id="rfc3966-keeps-the-extension"),
     ],
 )
@@ -370,19 +382,30 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-def test_parse_rejects_bad_arguments() -> None:
-    config = _phone_config_compile(_SPEC)
-    with pytest.raises(TypeError, match="takes exactly 2 arguments"):
-        _phone_parse(config)  # ty: ignore[missing-argument]  # the arity is the point
-    with pytest.raises(TypeError, match="config must be a _PhoneConfig"):
-        _phone_parse(None, "650-253-0000")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
-    with pytest.raises(TypeError, match="text must be str"):
-        _phone_parse(config, b"650-253-0000")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
+_CONFIG = object()  # stands for the compiled configuration in a parametrized argument list
 
 
-def test_parse_returns_none_without_a_number() -> None:
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        pytest.param((_CONFIG,), "takes exactly 2 arguments", id="one-argument"),
+        pytest.param((None, "650-253-0000"), "config must be a _PhoneConfig", id="config-none"),
+        pytest.param((_CONFIG, b"650-253-0000"), "text must be str", id="text-bytes"),
+    ],
+)
+def test_parse_rejects_bad_arguments(args: tuple[object, ...], message: str) -> None:
     config = _phone_config_compile(_SPEC)
-    assert _phone_parse(config, "no digits here") is None
-    number = _phone_parse(config, "650-253-0000")
-    assert number is not None
-    assert number.international_number == "+16502530000"
+    with pytest.raises(TypeError, match=message):
+        _phone_parse(*(config if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("no digits here", None, id="none"),
+        pytest.param("650-253-0000", "+16502530000", id="number"),
+    ],
+)
+def test_parse_returns_the_number_or_none(text: str, expected: str | None) -> None:
+    number = _phone_parse(_phone_config_compile(_SPEC), text)
+    assert (None if number is None else number.international_number) == expected

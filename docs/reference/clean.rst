@@ -238,6 +238,10 @@ Phone numbers link when either entry point is given a :class:`PhoneNumbers` sett
     :members:
     :undoc-members:
 
+.. autoclass:: PhoneGrouping
+    :members:
+    :undoc-members:
+
 .. autoclass:: PhoneType
     :members:
     :undoc-members:

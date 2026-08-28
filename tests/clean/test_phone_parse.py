@@ -97,8 +97,13 @@ def test_text_must_be_str() -> None:
         PhoneNumber.parse(b"650-253-0000")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
 
 
-def test_regions_validate_like_phone_numbers() -> None:
-    with pytest.raises(TypeError, match="regions"):
-        PhoneNumber.parse("650-253-0000", regions="US")
-    with pytest.raises(ValueError, match="XX"):
-        PhoneNumber.parse("650-253-0000", regions=("XX",))
+@pytest.mark.parametrize(
+    ("regions", "error", "message"),
+    [
+        pytest.param("US", TypeError, "regions", id="bare-string"),
+        pytest.param(("XX",), ValueError, "XX", id="unknown-code"),
+    ],
+)
+def test_regions_validate_like_phone_numbers(regions: object, error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        PhoneNumber.parse("650-253-0000", regions=regions)  # ty: ignore[invalid-argument-type]  # the wrong value is the point

@@ -6,7 +6,16 @@ from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
-from turbohtml.clean import DEFAULT_PHONE_LABELS, LinkDetector, Linker, Linkify, PhoneNumbers, PhoneType, linkify
+from turbohtml.clean import (
+    DEFAULT_PHONE_LABELS,
+    LinkDetector,
+    Linker,
+    Linkify,
+    PhoneGrouping,
+    PhoneNumbers,
+    PhoneType,
+    linkify,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,9 +47,29 @@ def test_defaults() -> None:
         require_separators=False,
         skip_card_numbers=True,
         require_national_prefix=True,
+        grouping=PhoneGrouping.ANY,
         types=None,
         ignore_numbers_after=DEFAULT_PHONE_LABELS,
     )
+
+
+@pytest.mark.parametrize(
+    ("settings", "error", "message"),
+    [
+        pytest.param({"grouping": "strict"}, TypeError, "grouping must be a PhoneGrouping", id="str-grouping"),
+        pytest.param(
+            {"grouping": PhoneGrouping.EXACT, "require_valid": False},
+            ValueError,
+            "grouping needs require_valid=True",
+            id="grouping-in-possible-mode",
+        ),
+        pytest.param({"regions": ("\udc80\udc80",)}, UnicodeEncodeError, "surrogates", id="surrogate-region"),
+        pytest.param({"ignore_numbers_after": ("\udc80",)}, UnicodeEncodeError, "surrogates", id="surrogate-label"),
+    ],
+)
+def test_settings_rejections(settings: dict[str, object], error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        PhoneNumbers(**settings)  # ty: ignore[invalid-argument-type]  # the wrong values are the point
 
 
 def test_default_labels_are_sorted_lowercase_ascii() -> None:
@@ -327,7 +356,7 @@ def test_national_prefix_requirement(phones: PhoneNumbers, expected: list[str]) 
     assert [span.url for span in spans] == expected
 
 
-def test_written_prefix_links_either_way() -> None:
-    for required in (True, False):
-        phones = PhoneNumbers(regions=("GB",), require_national_prefix=required)
-        assert [span.url for span in LinkDetector(phones=phones).find("ring 020 7946 0958")] == ["tel:+442079460958"]
+@pytest.mark.parametrize("required", [pytest.param(True, id="required"), pytest.param(False, id="not-required")])
+def test_written_prefix_links_either_way(required: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest passes the row positionally
+    phones = PhoneNumbers(regions=("GB",), require_national_prefix=required)
+    assert [span.url for span in LinkDetector(phones=phones).find("ring 020 7946 0958")] == ["tel:+442079460958"]

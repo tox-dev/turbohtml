@@ -72,6 +72,22 @@ class PhoneFormat(Enum):
 
 
 _PHONE_FORMATS: Final = (PhoneFormat.E164, PhoneFormat.INTERNATIONAL, PhoneFormat.NATIONAL, PhoneFormat.RFC3966)
+
+
+class PhoneGrouping(Enum):
+    """How closely the written digit groups must follow the number's format, libphonenumber's grouping leniencies."""
+
+    ANY = "any"
+    """The groups may fall anywhere (``VALID``)."""
+    STRICT = "strict"
+    """Each group of the number's format, or of an alternate format of its calling code, occurs in the text in order
+    (``STRICT_GROUPING``); ``415 6667777`` passes, ``41 566 67777`` does not."""
+    EXACT = "exact"
+    """The written groups are the format's groups, or the whole national number unbroken (``EXACT_GROUPING``);
+    ``415 6667777`` does not pass."""
+
+
+_PHONE_GROUPINGS: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
 _PHONE_TYPES: Final = (
     PhoneType.FIXED_LINE,
     PhoneType.MOBILE,
@@ -149,6 +165,7 @@ class PhoneNumbers:
     :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
         writes, libphonenumber's matcher rule (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False
         links it the way ``parse`` accepts it. Applies with ``require_valid``.
+    :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
     :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
     :param ignore_numbers_after: words that mark the digits right after them as an identifier.
     """
@@ -158,6 +175,7 @@ class PhoneNumbers:
     require_separators: bool
     skip_card_numbers: bool
     require_national_prefix: bool
+    grouping: PhoneGrouping
     types: frozenset[PhoneType] | None
     ignore_numbers_after: tuple[str, ...]
 
@@ -169,6 +187,7 @@ class PhoneNumbers:
         require_separators: bool = False,
         skip_card_numbers: bool = True,
         require_national_prefix: bool = True,
+        grouping: PhoneGrouping = PhoneGrouping.ANY,
         types: Iterable[PhoneType] | None = None,
         ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
     ) -> None:
@@ -182,6 +201,12 @@ class PhoneNumbers:
             if not isinstance(flag, bool):
                 msg = f"{name} must be bool"
                 raise TypeError(msg)
+        if not isinstance(grouping, PhoneGrouping):
+            msg = "grouping must be a PhoneGrouping"
+            raise TypeError(msg)
+        if grouping is not PhoneGrouping.ANY and not require_valid:
+            msg = "grouping needs require_valid=True"
+            raise ValueError(msg)
         region_codes = tuple(dict.fromkeys(code.strip().upper() for code in _ordered_strings(regions, "regions")))
         labels = tuple(
             sorted({word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")})
@@ -203,6 +228,7 @@ class PhoneNumbers:
         object.__setattr__(self, "require_separators", require_separators)
         object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
         object.__setattr__(self, "require_national_prefix", require_national_prefix)
+        object.__setattr__(self, "grouping", grouping)
         object.__setattr__(self, "types", wanted)
         object.__setattr__(self, "ignore_numbers_after", labels)
         _compile_phones(self)
@@ -273,14 +299,8 @@ class PhoneNumber:
         if not isinstance(text, str):
             msg = "text must be str"
             raise TypeError(msg)
-        settings = PhoneNumbers(
-            regions=regions,
-            require_valid=require_valid,
-            skip_card_numbers=False,
-            require_national_prefix=False,
-            ignore_numbers_after=(),
-        )
-        if (number := _phone_parse(_parse_config(settings), text)) is None:
+        config = _parse_config(_ordered_strings(regions, "regions"), require_valid=require_valid)
+        if (number := _phone_parse(config, text)) is None:
             msg = f"{text!r} is not a phone number"
             raise ValueError(msg)
         return number
@@ -327,9 +347,17 @@ class PhoneNumber:
 
 
 @functools.lru_cache(maxsize=32)
-def _parse_config(settings: PhoneNumbers) -> _PhoneConfig:
-    # one compiled configuration per distinct settings, since every parse call would otherwise compile its own
-    return _compile_settings(settings)
+def _parse_config(regions: tuple[str, ...], *, require_valid: bool) -> _PhoneConfig:
+    # keyed on the raw regions so a repeated parse call pays a cache lookup, not a settings object and its compile
+    return _compile_settings(
+        PhoneNumbers(
+            regions=regions,
+            require_valid=require_valid,
+            skip_card_numbers=False,
+            require_national_prefix=False,
+            ignore_numbers_after=(),
+        )
+    )
 
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
@@ -350,6 +378,7 @@ def _compile_settings(phones: PhoneNumbers) -> _PhoneConfig:
         phones.require_separators,
         phones.skip_card_numbers,
         phones.require_national_prefix,
+        _PHONE_GROUPINGS.index(phones.grouping),
         mask,
         phones.ignore_numbers_after,
         PhoneNumber,
@@ -654,6 +683,7 @@ __all__ = [
     "Linker",
     "Linkify",
     "PhoneFormat",
+    "PhoneGrouping",
     "PhoneNumber",
     "PhoneNumbers",
     "PhoneType",

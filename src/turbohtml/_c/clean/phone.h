@@ -38,6 +38,14 @@ enum th_phone_type {
     TH_PHONE_UNKNOWN = 11,
 };
 
+/* Leniency.STRICT_GROUPING and EXACT_GROUPING on top of VALID: the written digit groups must follow the number's
+   format, or an alternate format of its calling code, loosely or exactly. */
+enum th_phone_grouping {
+    TH_PHONE_GROUPING_ANY = 0,
+    TH_PHONE_GROUPING_STRICT = 1,
+    TH_PHONE_GROUPING_EXACT = 2,
+};
+
 /* Read the code point at `index`; `text` is whatever the caller handed th_phone_find. */
 typedef uint32_t (*th_phone_read)(const void *text, size_t index);
 
@@ -53,6 +61,7 @@ typedef struct {
     uint8_t require_separators;
     uint8_t skip_card_numbers;
     uint8_t require_national_prefix; /* VALID's isNationalPrefixPresentIfRequired applies */
+    uint8_t grouping;                /* enum th_phone_grouping */
     uint8_t national_floor;
     uint16_t type_mask;           /* accepted resolved types, bit i = enum th_phone_type i, eleven bits */
     const th_phone_label *labels; /* sorted, lowercase ASCII */

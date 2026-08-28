@@ -13,7 +13,8 @@
    Usage: phonefuzz [file ...]                       -- built-in edge cases, then each file's bytes, per configuration
           phonefuzz --dump REGIONS MODE [OPTIONS]    -- one text per stdin line; print its matches, then `--`
    REGIONS is a comma-separated list (or `-` for none), MODE is `valid` or `possible`, OPTIONS may contain
-   `separators`, `cards` (keep card numbers), `noprefix` (do not require the national prefix) and `labels`. The dump form is what tests/clean/test_phone_model.py diffs
+   `separators`, `cards` (keep card numbers), `noprefix` (do not require the national prefix), `strict` or
+   `exact` (the grouping leniencies) and `labels`. The dump form is what tests/clean/test_phone_model.py diffs
    against the Python model. */
 
 #include "clean/phone.c"
@@ -119,6 +120,7 @@ static void run_bytes(const unsigned char *bytes, size_t len) {
                 add_region(&config, region_sets[set][slot]);
             }
             config.require_separators = (uint8_t)(set & 1);
+            config.grouping = (uint8_t)(valid ? set % 3 : 0);
             if (set == 3) {
                 fill_labels(&config);
             }
@@ -199,6 +201,7 @@ static int run_dump(int argc, char **argv) {
     config.require_separators = strstr(options, "separators") != NULL;
     config.skip_card_numbers = strstr(options, "cards") == NULL;
     config.require_national_prefix = strstr(options, "noprefix") == NULL;
+    config.grouping = strstr(options, "exact") != NULL ? 2 : strstr(options, "strict") != NULL ? 1 : 0;
     if (strstr(options, "labels") != NULL) {
         fill_labels(&config);
     }

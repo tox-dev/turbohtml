@@ -24,7 +24,7 @@ from generate_phone import LIBPHONENUMBER_TAG
 from phone_oracle import CONTEXTS, Found, classify, oracle_matches, renderings
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberType
 
-from turbohtml.clean import LinkDetector, PhoneFormat, PhoneNumber, PhoneNumbers, PhoneType
+from turbohtml.clean import LinkDetector, PhoneFormat, PhoneGrouping, PhoneNumber, PhoneNumbers, PhoneType
 
 _ORACLE = Path(__file__).parent / "python-phonenumbers" / "python" / "phonenumbers" / "__init__.py"
 if not _ORACLE.exists():  # pragma: no cover
@@ -197,3 +197,26 @@ def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
             else:
                 ours = (parsed.country_code, parsed.national_number, parsed.extension)
             assert ours == theirs, (name, text)
+
+
+@pytest.mark.parametrize(
+    ("grouping", "leniency"),
+    [
+        pytest.param(PhoneGrouping.STRICT, Leniency.STRICT_GROUPING, id="strict"),
+        pytest.param(PhoneGrouping.EXACT, Leniency.EXACT_GROUPING, id="exact"),
+    ],
+)
+@pytest.mark.parametrize("region", [pytest.param(region, id=region) for region in _REGIONS])
+def test_grouping_leniencies_match_the_matcher(region: str, grouping: PhoneGrouping, leniency: int) -> None:
+    detector = LinkDetector(phones=PhoneNumbers(regions=(region,), grouping=grouping))
+    unexplained: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
+    for number in _examples(region):
+        for _form, rendered in renderings(number, region):
+            for context in CONTEXTS:
+                text = context.format(rendered)
+                ours, _parsed = _ours(detector, region, text)
+                theirs = oracle_matches(text, region, leniency)
+                category = classify(text, ours, theirs)
+                if category not in _EXPLAINED:
+                    unexplained.append((category, text, sorted(ours), sorted(theirs)))
+    assert unexplained == []

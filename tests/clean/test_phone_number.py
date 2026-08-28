@@ -23,6 +23,18 @@ def test_fields_and_derived_strings() -> None:
     assert number.e164 == "+16502530000"
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param((1, "\udc80\udc80", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="national-number"),
+        pytest.param((1, "6502530000", None, "\udc80\udc80", PhoneType.FIXED_LINE_OR_MOBILE), id="region"),
+    ],
+)
+def test_lone_surrogates_do_not_encode(fields: tuple[int, str, str | None, str, PhoneType]) -> None:
+    with pytest.raises(UnicodeEncodeError, match="surrogates"):
+        PhoneNumber(*fields)
+
+
 def test_extension_is_not_part_of_the_international_number() -> None:
     number = PhoneNumber(44, "2079460958", "123", "GB", PhoneType.FIXED_LINE)
     assert number.international_number == "+442079460958"

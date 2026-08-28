@@ -96,6 +96,9 @@ _PHONES: Final = clean.PhoneNumbers(regions=("US", "GB", "DE", "IN"))
 _PHONE_DETECTOR: Final = clean.LinkDetector(phones=_PHONES)
 _PHONE_LINKER: Final = clean.Linker(clean.Linkify(phones=_PHONES, parse_email=True))
 _PHONE_POSSIBLE: Final = clean.LinkDetector(phones=clean.PhoneNumbers(regions=("US",), require_valid=False))
+_PHONE_EXACT: Final = clean.LinkDetector(
+    phones=clean.PhoneNumbers(regions=("US", "DE"), grouping=clean.PhoneGrouping.EXACT)
+)
 
 
 def _phone(data: bytes) -> None:
@@ -107,6 +110,7 @@ def _phone(data: bytes) -> None:
             for style in clean.PhoneFormat:
                 span.phone.format(style)
     _PHONE_POSSIBLE.find(text)
+    _PHONE_EXACT.find(text)
     _PHONE_LINKER.linkify(text)
 
 

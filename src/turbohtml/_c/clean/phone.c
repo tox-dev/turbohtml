@@ -57,11 +57,15 @@ typedef struct {
     size_t len;
 } digit_string;
 
+enum reading_source { SOURCE_DEFAULT_REGION = 0, SOURCE_PLUS = 1, SOURCE_IDD = 2, SOURCE_OWN_CODE = 3 };
+
 typedef struct {
     uint16_t country_code;
+    uint16_t group; /* index into th_phone_groups */
     digit_string nsn;
     int region;
     uint8_t type;
+    uint8_t source; /* enum reading_source, the CountryCodeSource of the reading */
     int general;
     int found;
 } reading;
@@ -439,8 +443,6 @@ static void strip_prefix(const th_phone_region *region, const digit_string *inpu
 static int dfa_looking_at(uint16_t index, const char *digits, size_t len) {
     const th_phone_dfa *dfa = dfa_at(index);
     uint16_t state = 1;
-    /* GCOVR_EXCL_BR_START: a format's leadingDigits are never longer than a number its region assigns, so the walk
-       ends in an accept or the dead state before the digits run out */
     for (size_t position = 0; position < len; position++) {
         state = dfa_step(dfa, state, (uint16_t)(digits[position] - '0'));
         if (state == 0) {
@@ -450,8 +452,7 @@ static int dfa_looking_at(uint16_t index, const char *digits, size_t len) {
             return 1;
         }
     }
-    return 0; /* GCOVR_EXCL_LINE */
-    /* GCOVR_EXCL_BR_STOP */
+    return 0;
 }
 
 /* A format's pattern is a run of digit groups, so `matches()` is a bound on the digit count. */
@@ -578,6 +579,7 @@ static void validate(const th_phone_config *config, const th_phone_group *group,
         result->general = region != NO_REGION && (word & GENERAL_BIT) != 0;
     }
     result->country_code = group->country_code;
+    result->group = (uint16_t)(group - th_phone_groups);
     result->region = region;
     copy_digits(&result->nsn, nsn->data, nsn->len);
     cap_leading_zeros(&result->nsn);
@@ -631,6 +633,7 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
     if (idd_end > 0 && ((size_t)idd_end >= len || digits[idd_end] != '0')) {
         if (len - (size_t)idd_end > 2) {
             read_international(config, digits + idd_end, len - (size_t)idd_end, result);
+            result->source = SOURCE_IDD;
         }
         return;
     }
@@ -662,6 +665,7 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
             const th_phone_region *parse_region = group->main == region_index ? region : &th_phone_regions[group->main];
             strip_prefix(parse_region, &potential, 1, &nsn);
             validate(config, group, &nsn, result);
+            result->source = SOURCE_OWN_CODE;
             return;
         }
     }
@@ -670,6 +674,7 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
     digit_string nsn;
     strip_prefix(region, &input, 1, &nsn);
     validate(config, group, &nsn, result);
+    result->source = SOURCE_DEFAULT_REGION;
     if (result->found && config->require_valid && config->require_national_prefix &&
         !prefix_present_if_required(&th_phone_regions[group->main], digits, len, &result->nsn)) {
         result->found = 0;
@@ -1325,6 +1330,312 @@ static int x_rules_hold(th_phone_read read, const void *text, const th_phone_con
 }
 
 typedef struct {
+    char data[TH_PHONE_FORMAT_CAPACITY];
+    size_t len;
+} text_buffer;
+
+static void append_text(text_buffer *buffer, const char *text, size_t len) {
+    memcpy(buffer->data + buffer->len, text, len);
+    buffer->len += len;
+}
+
+static void append_string(text_buffer *buffer, const char *text) {
+    while (*text != '\0') {
+        buffer->data[buffer->len++] = *text++;
+    }
+}
+
+/* Matcher.replaceAll(template) over the digits: each match splits the digits into the format's groups the way
+   Java's backtracking does, every group taking the most digits that still leave the later groups their minimum,
+   and the digits no further match covers pass through. A format the chooser picked fits, so one match takes all. */
+static void format_digits(const th_phone_format *format, const char *template, const char *digits, size_t len,
+                          text_buffer *out) {
+    size_t minimum = 0;
+    for (size_t index = 0; index < format->group_count; index++) {
+        minimum += format->groups[index] >> 4;
+    }
+    size_t position = 0;
+    while (len - position >= minimum) {
+        size_t starts[TH_PHONE_FORMAT_GROUPS + 1];
+        size_t cursor = position;
+        size_t later = minimum;
+        for (size_t index = 0; index < format->group_count; index++) {
+            later -= format->groups[index] >> 4;
+            size_t take = format->groups[index] & 0xFu;
+            if (take > len - cursor - later) {
+                take = len - cursor - later;
+            }
+            starts[index] = cursor;
+            cursor += take;
+        }
+        starts[format->group_count] = cursor;
+        for (const char *at = template; *at != '\0'; at++) {
+            if (*at == '$') {
+                size_t group = (size_t)(at[1] - '1');
+                append_text(out, digits + starts[group], starts[group + 1] - starts[group]);
+                at++;
+            } else {
+                append_text(out, at, 1);
+            }
+        }
+        position = cursor;
+    }
+    append_text(out, digits + position, len - position);
+}
+
+static int is_template_separator(char byte) {
+    return memchr(" -.()", byte, 5) != NULL;
+}
+
+/* RFC 3966's rewrite of a formatted national number: the leading separators go, every other separator run becomes
+   one hyphen. No template ends on a separator, so no run is left pending. */
+static void hyphenate(text_buffer *buffer) {
+    size_t written = 0;
+    int pending = 0;
+    for (size_t index = 0; index < buffer->len; index++) {
+        if (is_template_separator(buffer->data[index])) {
+            pending = written > 0;
+            continue;
+        }
+        if (pending) {
+            buffer->data[written++] = '-';
+            pending = 0;
+        }
+        buffer->data[written++] = buffer->data[index];
+    }
+    buffer->len = written;
+}
+
+static size_t write_country_code(unsigned country_code, char *out) {
+    size_t len = 0;
+    char digits[4];
+    do {
+        digits[len++] = (char)('0' + country_code % 10);
+        country_code /= 10;
+    } while (country_code);
+    for (size_t index = 0; index < len; index++) {
+        out[index] = digits[len - 1 - index];
+    }
+    return len;
+}
+
+/* The candidate as the matcher normalizes it for the grouping checks: every digit an ASCII digit, every other code
+   point kept. A chunk lies inside one run, so it holds at most TH_PHONE_MAX_RUN_CHARS code points. */
+typedef struct {
+    uint32_t data[TH_PHONE_MAX_RUN_CHARS + 1];
+    size_t len;
+} candidate_text;
+
+static void normalize_candidate(th_phone_read read, const void *text, size_t start, size_t end,
+                                candidate_text *candidate) {
+    candidate->len = 0;
+    for (size_t position = start; position < end; position++) {
+        uint32_t code = read(text, position);
+        int value = th_phone_digit_value(code);
+        candidate->data[candidate->len++] = value >= 0 ? (uint32_t)('0' + value) : code;
+    }
+}
+
+/* Every caller keeps `at + needle_len` inside the candidate: the search loop by its bound, the group checks because
+   the national number's digits sit in sequence inside the candidate, at or after any group found before them. */
+static int candidate_has_at(const candidate_text *candidate, size_t at, const char *needle, size_t needle_len) {
+    for (size_t index = 0; index < needle_len; index++) {
+        if (candidate->data[at + index] != (uint32_t)(unsigned char)needle[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int candidate_find(const candidate_text *candidate, const char *needle, size_t needle_len, size_t from) {
+    for (size_t at = from; at + needle_len <= candidate->len; at++) {
+        if (candidate_has_at(candidate, at, needle, needle_len)) {
+            return (int)at;
+        }
+    }
+    return -1;
+}
+
+/* The candidate's digit runs the way NON_DIGITS_PATTERN.split cuts them: a run of non-digits ends one, and a
+   candidate that starts with a bracket has an empty run first. A candidate ends on a digit, so no run of non-digits
+   needs a bound and no empty run trails. A chunk holds at most TH_PHONE_MAX_GROUPS groups and one extension. */
+static size_t candidate_runs(const candidate_text *candidate, size_t runs[][2]) {
+    size_t count = 0;
+    size_t start = 0;
+    size_t index = 0;
+    for (;;) {
+        while (index < candidate->len && th_phone_digit_value(candidate->data[index]) >= 0) {
+            index++;
+        }
+        runs[count][0] = start;
+        runs[count][1] = index - start;
+        count++;
+        if (index == candidate->len) {
+            return count;
+        }
+        while (th_phone_digit_value(candidate->data[index]) < 0) {
+            index++;
+        }
+        start = index;
+    }
+}
+
+/* containsMoreThanOneSlashInNationalNumber: two slashes make a date or a fraction, unless the first one only sets
+   off the country code the candidate wrote. A reading that carries its country code starts on those digits, so the
+   digits before the first slash are the code whenever there are as many of them. */
+static int more_than_one_slash(const candidate_text *candidate, const reading *result) {
+    int first = candidate_find(candidate, "/", 1, 0);
+    if (first < 0) {
+        return 0;
+    }
+    int second = candidate_find(candidate, "/", 1, (size_t)first + 1);
+    if (second < 0) {
+        return 0;
+    }
+    if (result->source == SOURCE_PLUS || result->source == SOURCE_OWN_CODE) {
+        char code[4];
+        size_t before = 0;
+        for (size_t index = 0; index < (size_t)first; index++) {
+            before += th_phone_digit_value(candidate->data[index]) >= 0;
+        }
+        if (before == write_country_code(result->country_code, code)) {
+            return candidate_find(candidate, "/", 1, (size_t)second + 1) >= 0;
+        }
+    }
+    return 1;
+}
+
+typedef struct {
+    const char *text;
+    size_t len;
+} text_span;
+
+/* The digit groups of the national number written with `format` (bare when NULL), the way getNationalNumberGroups
+   reads them off the RFC 3966 form: the runs between hyphens. Each group holds a digit, so there are at most
+   TH_PHONE_MAX_NSN. */
+static size_t formatted_groups(const th_phone_format *format, const char *template, const reading *result,
+                               text_buffer *body, text_span *groups) {
+    body->len = 0;
+    if (format == NULL) {
+        append_text(body, result->nsn.data, result->nsn.len);
+    } else {
+        format_digits(format, template, result->nsn.data, result->nsn.len, body);
+        hyphenate(body);
+    }
+    size_t count = 0;
+    size_t start = 0;
+    for (size_t index = 0; index <= body->len; index++) {
+        if (index == body->len || body->data[index] == '-') {
+            groups[count].text = body->data + start;
+            groups[count].len = index - start;
+            count++;
+            start = index + 1;
+        }
+    }
+    return count;
+}
+
+/* allNumberGroupsRemainGrouped: each formatted group occurs in the candidate in order, after the country code when
+   the candidate wrote one; a digit right after the first group in a plan with a national prefix means the rest was
+   written unbroken, which passes only when the candidate carries the whole national number from that group on. */
+static int groups_remain_grouped(const reading *result, const candidate_text *candidate, const text_span *groups,
+                                 size_t count, const char *ext, size_t ext_len) {
+    int from = 0;
+    if (result->source != SOURCE_DEFAULT_REGION) {
+        char code[4];
+        size_t code_len = write_country_code(result->country_code, code);
+        from = candidate_find(candidate, code, code_len, 0) + (int)code_len;
+    }
+    for (size_t index = 0; index < count; index++) {
+        from = candidate_find(candidate, groups[index].text, groups[index].len, (size_t)from);
+        if (from < 0) {
+            return 0;
+        }
+        from += (int)groups[index].len;
+        if (index == 0 && (size_t)from < candidate->len) {
+            const th_phone_region *main = &th_phone_regions[th_phone_groups[result->group].main];
+            if (main->has_ndd && th_phone_digit_value(candidate->data[from]) >= 0) {
+                return candidate_has_at(candidate, (size_t)from - groups[0].len, result->nsn.data, result->nsn.len);
+            }
+        }
+    }
+    return candidate_find(candidate, ext, ext_len, (size_t)from) >= 0;
+}
+
+/* allNumberGroupsAreExactlyPresent: the candidate's digit runs, read backwards from the number's last one, equal
+   the formatted groups, and the run holding the first group may end with it (a country code or national prefix
+   written onto it). A run that holds the whole national number passes as written. */
+static int groups_exactly_present(const reading *result, const candidate_text *candidate, const text_span *groups,
+                                  size_t count, size_t ext_len) {
+    size_t runs[TH_PHONE_MAX_GROUPS + 3][2];
+    size_t run_count = candidate_runs(candidate, runs);
+    int at = (int)run_count - (ext_len > 0 ? 2 : 1);
+    if (run_count == 1) {
+        return 1;
+    }
+    for (size_t offset = 0; offset + result->nsn.len <= runs[at][1]; offset++) {
+        if (candidate_has_at(candidate, runs[at][0] + offset, result->nsn.data, result->nsn.len)) {
+            return 1;
+        }
+    }
+    size_t formatted = count - 1;
+    while (formatted > 0 && at >= 0) {
+        if (runs[at][1] != groups[formatted].len ||
+            !candidate_has_at(candidate, runs[at][0], groups[formatted].text, groups[formatted].len)) {
+            return 0;
+        }
+        formatted--;
+        at--;
+    }
+    return at >= 0 && runs[at][1] >= groups[0].len &&
+           candidate_has_at(candidate, runs[at][0] + runs[at][1] - groups[0].len, groups[0].text, groups[0].len);
+}
+
+static int groups_hold(const th_phone_config *config, const reading *result, const candidate_text *candidate,
+                       const text_span *groups, size_t count, const char *ext, size_t ext_len) {
+    if (config->grouping == TH_PHONE_GROUPING_STRICT) {
+        return groups_remain_grouped(result, candidate, groups, count, ext, ext_len);
+    }
+    return groups_exactly_present(result, candidate, groups, count, ext_len);
+}
+
+/* checkNumberGroupingIsValid under STRICT_GROUPING or EXACT_GROUPING: the candidate's groups against the number's
+   own format, then against each alternate format of its calling code whose leading digits it matches. */
+static int grouping_holds(th_phone_read read, const void *text, const th_phone_config *config, size_t start, size_t end,
+                          const reading *result, const char *ext, size_t ext_len) {
+    if (config->grouping == TH_PHONE_GROUPING_ANY) {
+        return 1;
+    }
+    candidate_text candidate;
+    normalize_candidate(read, text, start, end, &candidate);
+    if (more_than_one_slash(&candidate, result)) {
+        return 0;
+    }
+    const th_phone_group *group = &th_phone_groups[result->group];
+    const th_phone_region *main = &th_phone_regions[group->main];
+    const th_phone_format *format =
+        choose_format(&th_phone_formats[main->format_first], main->format_count, result->nsn.data, result->nsn.len, 1);
+    text_buffer body;
+    text_span groups[TH_PHONE_MAX_NSN + 1];
+    size_t count =
+        formatted_groups(format, format == NULL ? NULL : th_phone_templates + format->intl, result, &body, groups);
+    if (groups_hold(config, result, &candidate, groups, count, ext, ext_len)) {
+        return 1;
+    }
+    for (size_t index = 0; index < group->alt_count; index++) {
+        const th_phone_format *alternate = &th_phone_alt_formats[group->alt_first + index];
+        if (!dfa_looking_at(alternate->leading, result->nsn.data, result->nsn.len)) {
+            continue;
+        }
+        count = formatted_groups(alternate, th_phone_templates + alternate->national, result, &body, groups);
+        if (groups_hold(config, result, &candidate, groups, count, ext, ext_len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+typedef struct {
     reading result;
     size_t end;
     char ext[TH_PHONE_MAX_EXTENSION + 1];
@@ -1379,6 +1690,7 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
     found->result.found = 0;
     if (plus) {
         read_international(config, digits, digit_count, &found->result);
+        found->result.source = SOURCE_PLUS;
     } else {
         int idd_only = config->require_separators && last - first == 1;
         for (size_t position = 0; position < config->region_count && !found->result.found; position++) {
@@ -1386,7 +1698,8 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
         }
     }
     return found->result.found &&
-           x_rules_hold(read, text, config, start, found->end, &found->result, found->ext, found->ext_len);
+           x_rules_hold(read, text, config, start, found->end, &found->result, found->ext, found->ext_len) &&
+           grouping_holds(read, text, config, start, found->end, &found->result, found->ext, found->ext_len);
 }
 
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
@@ -1555,90 +1868,6 @@ enum th_phone_check th_phone_number_check(unsigned country_code, const char *nsn
     return TH_PHONE_CHECK_OK;
 }
 
-typedef struct {
-    char data[TH_PHONE_FORMAT_CAPACITY];
-    size_t len;
-} text_buffer;
-
-static void append_text(text_buffer *buffer, const char *text, size_t len) {
-    memcpy(buffer->data + buffer->len, text, len);
-    buffer->len += len;
-}
-
-/* Matcher.replaceAll(template) over the digits: each match splits the digits into the format's groups the way
-   Java's backtracking does, every group taking the most digits that still leave the later groups their minimum,
-   and the digits no further match covers pass through. A format the chooser picked fits, so one match takes all. */
-static void format_digits(const th_phone_format *format, const char *template, const char *digits, size_t len,
-                          text_buffer *out) {
-    size_t minimum = 0;
-    for (size_t index = 0; index < format->group_count; index++) {
-        minimum += format->groups[index] >> 4;
-    }
-    size_t position = 0;
-    while (len - position >= minimum) {
-        size_t starts[TH_PHONE_FORMAT_GROUPS + 1];
-        size_t cursor = position;
-        size_t later = minimum;
-        for (size_t index = 0; index < format->group_count; index++) {
-            later -= format->groups[index] >> 4;
-            size_t take = format->groups[index] & 0xFu;
-            if (take > len - cursor - later) {
-                take = len - cursor - later;
-            }
-            starts[index] = cursor;
-            cursor += take;
-        }
-        starts[format->group_count] = cursor;
-        for (const char *at = template; *at != '\0'; at++) {
-            if (*at == '$') {
-                size_t group = (size_t)(at[1] - '1');
-                append_text(out, digits + starts[group], starts[group + 1] - starts[group]);
-                at++;
-            } else {
-                append_text(out, at, 1);
-            }
-        }
-        position = cursor;
-    }
-    append_text(out, digits + position, len - position);
-}
-
-static int is_template_separator(char byte) {
-    return memchr(" -.()", byte, 5) != NULL;
-}
-
-/* RFC 3966's rewrite of a formatted national number: the leading separators go, every other separator run becomes
-   one hyphen. No template ends on a separator, so no run is left pending. */
-static void hyphenate(text_buffer *buffer) {
-    size_t written = 0;
-    int pending = 0;
-    for (size_t index = 0; index < buffer->len; index++) {
-        if (is_template_separator(buffer->data[index])) {
-            pending = written > 0;
-            continue;
-        }
-        if (pending) {
-            buffer->data[written++] = '-';
-            pending = 0;
-        }
-        buffer->data[written++] = buffer->data[index];
-    }
-    buffer->len = written;
-}
-
-static size_t write_country_code(unsigned country_code, char *out) {
-    size_t len = 0;
-    char digits[4];
-    do {
-        digits[len++] = (char)('0' + country_code % 10);
-        country_code /= 10;
-    } while (country_code);
-    for (size_t index = 0; index < len; index++) {
-        out[index] = digits[len - 1 - index];
-    }
-    return len;
-}
-
 size_t th_phone_format_number(unsigned country_code, const char *nsn, size_t nsn_len, const char *ext, size_t ext_len,
                               enum th_phone_style style, char *out) {
     text_buffer result;
@@ -1681,8 +1910,7 @@ size_t th_phone_format_number(unsigned country_code, const char *nsn, size_t nsn
         if (style == TH_PHONE_STYLE_RFC3966) {
             append_text(&result, ";ext=", 5);
         } else if (main->ext_prefix != 0xFFFF) {
-            const char *prefix = th_phone_templates + main->ext_prefix;
-            append_text(&result, prefix, strlen(prefix));
+            append_string(&result, th_phone_templates + main->ext_prefix);
         } else {
             append_text(&result, " ext. ", 6);
         }

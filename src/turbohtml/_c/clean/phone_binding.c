@@ -9,7 +9,7 @@
 
 #include <string.h>
 
-#define SPEC_ITEMS 9
+#define SPEC_ITEMS 10
 #define MAX_LABELS 256
 #define MAX_LABEL_LENGTH 12
 #define TYPE_MEMBERS 12
@@ -88,8 +88,8 @@ static int parse_regions(PyObject *regions, th_phone_config *config) {
         }
         Py_ssize_t length;
         const char *code = PyUnicode_AsUTF8AndSize(item, &length);
-        if (code == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
-            return -1;      /* GCOVR_EXCL_LINE */
+        if (code == NULL) {
+            return -1;
         }
         int region = length == 2 && code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z'
                          ? th_phone_region_index(code, 2)
@@ -137,6 +137,24 @@ static int parse_type_mask(PyObject *value, const th_phone_config *config, uint1
     return 0;
 }
 
+static int parse_grouping(PyObject *value, const th_phone_config *config, uint8_t *out) {
+    if (!PyLong_CheckExact(value)) {
+        PyErr_SetString(PyExc_TypeError, "grouping must be int");
+        return -1;
+    }
+    long grouping = PyLong_AsLong(value);
+    if (grouping < TH_PHONE_GROUPING_ANY || grouping > TH_PHONE_GROUPING_EXACT) {
+        PyErr_SetString(PyExc_ValueError, "grouping must be between 0 and 2");
+        return -1;
+    }
+    if (grouping != TH_PHONE_GROUPING_ANY && !config->require_valid) {
+        PyErr_SetString(PyExc_ValueError, "phone grouping can only be checked with require_valid");
+        return -1;
+    }
+    *out = (uint8_t)grouping;
+    return 0;
+}
+
 static int label_is_well_formed(const char *text, Py_ssize_t length) {
     if (length < 1 || length > MAX_LABEL_LENGTH) {
         return 0;
@@ -177,8 +195,8 @@ static int parse_labels(PyObject *labels, PhoneConfigObject *self) {
         }
         Py_ssize_t length;
         const char *text = PyUnicode_AsUTF8AndSize(item, &length);
-        if (text == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
-            return -1;      /* GCOVR_EXCL_LINE */
+        if (text == NULL) {
+            return -1;
         }
         if (!label_is_well_formed(text, length)) {
             PyErr_Format(PyExc_ValueError, "phone label %R must be 1-12 lowercase ASCII letters or digits", item);
@@ -234,9 +252,10 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
         parse_flag(PyTuple_GET_ITEM(spec, 2), "require_separators", &config->require_separators) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 3), "skip_card_numbers", &config->skip_card_numbers) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 4), "require_national_prefix", &config->require_national_prefix) < 0 ||
-        parse_type_mask(PyTuple_GET_ITEM(spec, 5), config, &config->type_mask) < 0 ||
-        parse_labels(PyTuple_GET_ITEM(spec, 6), self) < 0 ||
-        parse_classes(PyTuple_GET_ITEM(spec, 7), PyTuple_GET_ITEM(spec, 8), self) < 0) {
+        parse_grouping(PyTuple_GET_ITEM(spec, 5), config, &config->grouping) < 0 ||
+        parse_type_mask(PyTuple_GET_ITEM(spec, 6), config, &config->type_mask) < 0 ||
+        parse_labels(PyTuple_GET_ITEM(spec, 7), self) < 0 ||
+        parse_classes(PyTuple_GET_ITEM(spec, 8), PyTuple_GET_ITEM(spec, 9), self) < 0) {
         return -1;
     }
     th_phone_config_floor(config);
@@ -244,7 +263,7 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
 }
 
 /* _phone_config_compile(spec) -> _PhoneConfig, spec = (regions, require_valid, require_separators,
-   skip_card_numbers, require_national_prefix, type_mask, labels, phone_number_type, phone_types). */
+   skip_card_numbers, require_national_prefix, grouping, type_mask, labels, phone_number_type, phone_types). */
 PyObject *turbohtml_phone_config_compile(PyObject *module, PyObject *spec) {
     if (!PyTuple_Check(spec) || PyTuple_GET_SIZE(spec) != SPEC_ITEMS) {
         PyErr_Format(PyExc_TypeError, "phone spec must be a tuple of %d items", SPEC_ITEMS);
@@ -305,8 +324,8 @@ static int parse_national_number(PyObject *value, const char **digits, Py_ssize_
         return -1;
     }
     *digits = PyUnicode_AsUTF8AndSize(value, length);
-    if (*digits == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
-        return -1;         /* GCOVR_EXCL_LINE */
+    if (*digits == NULL) {
+        return -1;
     }
     if (*length < 2 || *length > MAX_NSN) {
         PyErr_Format(PyExc_ValueError, "national_number must be 2-%d digits", MAX_NSN);
@@ -358,8 +377,8 @@ PyObject *turbohtml_phone_number_check(PyObject *Py_UNUSED(module), PyObject *ar
     Py_ssize_t region_length = 0;
     if (region != Py_None) {
         region_text = PyUnicode_AsUTF8AndSize(region, &region_length);
-        if (region_text == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
-            return NULL;           /* GCOVR_EXCL_LINE */
+        if (region_text == NULL) {
+            return NULL;
         }
     }
     switch (
@@ -413,8 +432,8 @@ PyObject *turbohtml_phone_number_format(PyObject *Py_UNUSED(module), PyObject *a
     Py_ssize_t ext_length = 0;
     if (extension != Py_None) {
         ext = PyUnicode_AsUTF8AndSize(extension, &ext_length);
-        if (ext == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes */
-            return NULL;   /* GCOVR_EXCL_LINE */
+        if (ext == NULL) {
+            return NULL;
         }
         if (ext_length < 1 || ext_length > TH_PHONE_MAX_EXTENSION) {
             PyErr_Format(PyExc_ValueError, "extension must be 1-%d characters", TH_PHONE_MAX_EXTENSION);

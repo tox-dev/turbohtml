@@ -139,6 +139,8 @@ from ._stubs.features import (
 )
 from ._stubs.features import (
     _phone_number_format as _phone_number_format,
+)
+from ._stubs.features import (
     _phone_parse as _phone_parse,
 )
 from ._stubs.features import (
