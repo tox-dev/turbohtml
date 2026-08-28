@@ -56,6 +56,10 @@ _UNBROKEN = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
         pytest.param("ES", "612345678", _ALL, id="es-no-national-prefix-unbroken"),
         pytest.param("ES", "61234 5678", _LOOSE, id="es-no-national-prefix-merged"),
         pytest.param("AC", "62889", _ALL, id="ac-region-without-formats"),
+        pytest.param("SM", "0549 912345", _ALL, id="sm-area-code-written"),
+        pytest.param("SM", "91 23 45", _NONE, id="sm-transformed-prefix-groups-regrouped"),
+        pytest.param("SM", "912345", _UNBROKEN, id="sm-transformed-unbroken-run"),
+        pytest.param("NF", "2 2123", _NONE, id="nf-one-digit-transform"),
     ],
 )
 def test_grouping_leniencies_follow_the_matcher(region: str, text: str, accepting: tuple[PhoneGrouping, ...]) -> None:

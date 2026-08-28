@@ -1580,7 +1580,9 @@ static int groups_exactly_present(const reading *result, const candidate_text *c
         }
     }
     size_t formatted = count - 1;
-    while (formatted > 0 && at >= 0) {
+    /* no plan's prefix transform writes more than the first group, so the runs never run out before the groups; the
+       run bound stays as part of one test so a future plan cannot step outside the array */
+    while ((formatted > 0) & (at >= 0)) {
         if (runs[at][1] != groups[formatted].len ||
             !candidate_has_at(candidate, runs[at][0], groups[formatted].text, groups[formatted].len)) {
             return 0;
@@ -1588,8 +1590,10 @@ static int groups_exactly_present(const reading *result, const candidate_text *c
         formatted--;
         at--;
     }
-    return at >= 0 && runs[at][1] >= groups[0].len &&
-           candidate_has_at(candidate, runs[at][0] + runs[at][1] - groups[0].len, groups[0].text, groups[0].len);
+    if (at < 0 || runs[at][1] < groups[0].len) {
+        return 0;
+    }
+    return candidate_has_at(candidate, runs[at][0] + runs[at][1] - groups[0].len, groups[0].text, groups[0].len);
 }
 
 static int groups_hold(const th_phone_config *config, const reading *result, const candidate_text *candidate,
