@@ -28,6 +28,7 @@ keywords = [
 license = "MIT"
 license-files = [
   "LICENSE",
+  "licenses/LICENSE-LIBPHONENUMBER",
   "licenses/LICENSE-WHATWG",
 ]
 maintainers = [
@@ -167,6 +168,7 @@ bench = [
   "opengraph-py3>=0.71",
   "pandas>=3.0.3",
   "parsel>=1.11",
+  "phonenumbers>=9.0.38",
   "pyperf>=2.10",
   "pyquery>=2.0.1",
   "rcssmin>=1.2.2",

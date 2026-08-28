@@ -1,5 +1,6 @@
 *.egg-info
 build
+!tests/build/
 builddir
 dist
 *.egg
