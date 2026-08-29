@@ -1747,7 +1747,8 @@ static int groups_remain_grouped(const reading *result, const candidate_text *ca
    written onto it). A run that holds the whole national number passes as written. */
 static int groups_exactly_present(const reading *result, const candidate_text *candidate, const text_span *groups,
                                   size_t count, size_t ext_len) {
-    size_t runs[TH_PHONE_MAX_GROUPS + 3][2];
+    /* zeroed because gcc cannot see that a candidate always holds digits, so the splitter always writes a run */
+    size_t runs[TH_PHONE_MAX_GROUPS + 3][2] = {{0}};
     size_t run_count = candidate_runs(candidate, runs);
     int at = (int)run_count - (ext_len > 0 ? 2 : 1);
     if (run_count == 1) {
