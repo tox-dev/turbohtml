@@ -40,14 +40,22 @@ def test_acceptance_span() -> None:
 
 
 def test_phone_is_none_for_the_other_kinds() -> None:
-    spans = LinkDetector(phones=_US).find("bob@example.com example.com https://x.org tel:+16502530000")
+    spans = LinkDetector(phones=_US).find("bob@example.com example.com https://x.org tel:+1-650-253-0000")
     assert [span.url for span in spans] == [
         "mailto:bob@example.com",
         "http://example.com",
         "https://x.org",
         "tel:+16502530000",
     ]
-    assert all(span.phone is None for span in spans)
+    assert [span.phone is None for span in spans] == [True, True, True, False]
+    assert spans[3].phone.international_number == "+16502530000"
+
+
+def test_written_tel_uri_carries_its_number_through_tel_authority_form() -> None:
+    spans = LinkDetector(phones=_US).find("tel://+16502530000")
+    assert [(span.text, span.url, span.phone.e164) for span in spans] == [
+        ("tel://+16502530000", "tel:+16502530000", "+16502530000")
+    ]
 
 
 def test_no_phones_leaves_digits_alone() -> None:
@@ -253,7 +261,7 @@ def test_emails_and_domains_keep_winning(text: str, kwargs: _Policy, expected: l
 @pytest.mark.parametrize(
     ("text", "kwargs", "expected"),
     [
-        pytest.param("tel:+1-650-253-0000", {}, ["tel:+1-650-253-0000"], id="tel-uri-is-itself"),
+        pytest.param("tel:+1-650-253-0000", {}, ["tel:+16502530000"], id="tel-uri-links-to-its-number"),
         pytest.param("callto:+1-650-253-0000", {}, ["tel:+16502530000"], id="unregistered-scheme-digits-link"),
         pytest.param(
             "callto:+1-650-253-0000", {"schemes": ["callto"]}, ["callto:+1-650-253-0000"], id="registered-scheme-wins"

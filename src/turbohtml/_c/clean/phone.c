@@ -922,9 +922,11 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
     }
     run->end = run->groups[run->group_count - 1].end;
     size_t earliest = digits_start > left_bound + MAX_LEAD_CHARS ? digits_start - MAX_LEAD_CHARS : left_bound;
+    /* the bracket rule belongs to parseAndVerify, which read_chunk applies per chunk: a lead whose bracket never
+       closes still starts the candidate, and the text before that bracket is the chunk extractInnerMatch offers */
     run->start = digits_start;
-    for (size_t candidate = earliest; candidate <= digits_start; candidate++) {
-        if (lead_groups_match(read, text, candidate, digits_start) && brackets_match(read, text, candidate, run->end)) {
+    for (size_t candidate = earliest; candidate < digits_start; candidate++) {
+        if (lead_groups_match(read, text, candidate, digits_start)) {
             run->start = candidate;
             break;
         }
@@ -946,11 +948,11 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
                walk_extension(read, text, len, grammar, run->groups[run->group_count - 2].end, &tail_end, ext_digits,
                               &ext_len) &&
                tail_end >= run->end) {
+        /* PATTERN reads `x1234` as a punctuation-separated digit block, so a `#` after it stays outside the match */
         run->group_count--;
         run->digit_count = run->groups[run->group_count].digits_offset;
         memcpy(run->extension, ext_digits, ext_len);
         run->extension_len = ext_len;
-        run->extension_end = tail_end;
     }
     return 1;
 }
@@ -1073,10 +1075,11 @@ static int label_before(th_phone_read read, const void *text, size_t start, cons
     if (config->label_count == 0) {
         return 0;
     }
+    static const char marks[] = "\t\n\r.:#-";
     size_t position = start;
     while (position > 0) {
         uint32_t code = read(text, position - 1);
-        if (code != ' ' && code != '\t' && code != '.' && code != ':' && code != '#' && code != '-') {
+        if (!is_space_separator(code) && !(code < 0x80 && memchr(marks, (int)code, sizeof marks - 1) != NULL)) {
             break;
         }
         position--;
@@ -1339,22 +1342,112 @@ static int is_pub_pages(th_phone_read read, const void *text, const run_record *
     return 0;
 }
 
-static int is_address_chain_char(uint32_t code) {
-    static const char chain[] = "0123456789abcdefABCDEF:[]";
-    return code < 0x80 && memchr(chain, (int)code, sizeof chain - 1) != NULL;
+static int is_hex_digit(uint32_t code) {
+    return (code >= '0' && code <= '9') || (code | 0x20) - 'a' < 6;
 }
 
-/* An IPv6 literal: the candidate sits on a chain of hex groups with two or more colons (`2001:db8::8888`,
-   `[::1]:8080`), whose hextets would otherwise offer themselves as numbers. */
+static int is_address_chain_char(uint32_t code) {
+    return is_hex_digit(code) || code == ':' || code == '[' || code == ']';
+}
+
+/* A bracketed IPv6 literal with a port is 47 characters; a longer chain of address characters is prose. */
+#define MAX_ADDRESS_CHARS 48
+
+/* RFC 4291's text form without an IPv4 tail, bare or in brackets with a port: up to eight hextets of one to four hex
+   digits, `::` at most once and standing for one hextet or more, no lone colon at either end. The chain holds the
+   candidate's digits, so a colon at its start always has a character after it. */
+static int is_ipv6_literal(th_phone_read read, const void *text, size_t left, size_t right) {
+    size_t position = left;
+    int bracketed = read(text, position) == '[';
+    position += (size_t)bracketed;
+    if (read(text, position) == ':' && read(text, position + 1) != ':') {
+        return 0;
+    }
+    size_t hextets = 0;
+    size_t digits = 0;
+    size_t colon_run = 0;
+    int gap = 0;
+    for (; position < right; position++) {
+        uint32_t code = read(text, position);
+        if (is_hex_digit(code)) {
+            colon_run = 0;
+            digits++;
+            if (digits > 4) {
+                return 0;
+            }
+            continue;
+        }
+        if (code != ':') {
+            break;
+        }
+        hextets += digits > 0;
+        digits = 0;
+        colon_run++;
+        if (colon_run == 2 && gap) {
+            return 0;
+        }
+        gap |= colon_run == 2;
+        if (colon_run > 2) {
+            return 0;
+        }
+    }
+    hextets += digits > 0;
+    if (colon_run == 1) {
+        return 0;
+    }
+    if (gap && hextets > 7) {
+        return 0;
+    }
+    if (!gap && hextets != 8) {
+        return 0;
+    }
+    if (!bracketed) {
+        return position == right;
+    }
+    if (position >= right) {
+        return 0;
+    }
+    if (read(text, position) != ']') {
+        return 0;
+    }
+    position++;
+    if (position == right) {
+        return 1;
+    }
+    if (read(text, position) != ':') {
+        return 0;
+    }
+    size_t port = 0;
+    for (position++; position < right && th_phone_digit_value(read(text, position)) >= 0; position++) {
+        port++;
+    }
+    if (port == 0) {
+        return 0;
+    }
+    if (port > 5) {
+        return 0;
+    }
+    return position == right;
+}
+
+/* Does the candidate sit inside an IPv6 literal (`2001:db8::8888`, `[::1]:8080`), whose hextets and port would
+   otherwise offer themselves as numbers? The chain of address characters around it is read as one, so a chain past
+   the length of any literal, or one that only looks like hextets (`6502530000:6502530000:1`), is not an address. */
 static int in_address_chain(th_phone_read read, const void *text, size_t len, size_t start, size_t end) {
-    size_t colons = 0;
-    for (size_t position = start; position > 0 && is_address_chain_char(read(text, position - 1)); position--) {
-        colons += read(text, position - 1) == ':';
+    if (end - start > MAX_ADDRESS_CHARS) {
+        return 0;
     }
-    for (size_t position = end; position < len && is_address_chain_char(read(text, position)); position++) {
-        colons += read(text, position) == ':';
+    size_t left = start;
+    while (left > 0 && start - left < MAX_ADDRESS_CHARS && is_address_chain_char(read(text, left - 1))) {
+        left--;
     }
-    return colons >= 2;
+    size_t right = end;
+    while (right < len && right - end < MAX_ADDRESS_CHARS && is_address_chain_char(read(text, right))) {
+        right++;
+    }
+    int overflows = (left > 0 && is_address_chain_char(read(text, left - 1))) +
+                    (right < len && is_address_chain_char(read(text, right)));
+    return overflows == 0 && right - left > end - start && is_ipv6_literal(read, text, left, right);
 }
 
 static int blocked_by_neighbors(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
@@ -1396,14 +1489,17 @@ static int x_rules_hold(th_phone_read read, const void *text, const th_phone_con
                 after.data[after.len++] = (char)('0' + value);
             }
         }
+        /* after a carrier code the digits are the number's, read the way isNumberMatch reads them: with the
+           extension's own digits behind them */
         const char *expected = carrier ? result->nsn.data : ext;
-        size_t expected_len = carrier ? result->nsn.len : ext_len;
+        size_t expected_len = carrier ? result->nsn.len + ext_len : ext_len;
         /* GCOVR_EXCL_BR_START: the digits after the marker are a suffix of the chunk's own digits, so equal lengths
            imply equal digits and memcmp never decides */
-        if (after.len != expected_len || memcmp(after.data, expected, expected_len) != 0) {
+        if (after.len != expected_len || memcmp(after.data, expected, expected_len - (carrier ? ext_len : 0)) != 0) {
             return 0;
         }
         /* GCOVR_EXCL_BR_STOP */
+        position += (size_t)carrier;
     }
     return 1;
 }
@@ -1540,28 +1636,25 @@ static int candidate_find(const candidate_text *candidate, const char *needle, s
     return -1;
 }
 
-/* The candidate's digit runs the way NON_DIGITS_PATTERN.split cuts them: a run of non-digits ends one, and a
-   candidate that starts with a bracket has an empty run first. A candidate ends on a digit, so no run of non-digits
-   needs a bound and no empty run trails. A chunk holds at most TH_PHONE_MAX_GROUPS groups and one extension. */
+/* The candidate's digit runs the way NON_DIGITS_PATTERN.split cuts them: a run of non-digits ends one, a candidate
+   that starts with a bracket has an empty run first, and Java's split drops the empty run a trailing `#` would
+   leave. A chunk holds at most TH_PHONE_MAX_GROUPS groups and one extension. */
 static size_t candidate_runs(const candidate_text *candidate, size_t runs[][2]) {
     size_t count = 0;
-    size_t start = 0;
     size_t index = 0;
-    for (;;) {
+    while (index < candidate->len) {
+        size_t start = index;
         while (index < candidate->len && th_phone_digit_value(candidate->data[index]) >= 0) {
             index++;
         }
         runs[count][0] = start;
         runs[count][1] = index - start;
         count++;
-        if (index == candidate->len) {
-            return count;
-        }
-        while (th_phone_digit_value(candidate->data[index]) < 0) {
+        while (index < candidate->len && th_phone_digit_value(candidate->data[index]) < 0) {
             index++;
         }
-        start = index;
     }
+    return count;
 }
 
 /* containsMoreThanOneSlashInNationalNumber: two slashes make a date or a fraction, unless the first one only sets
@@ -1755,9 +1848,7 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
         memcpy(found->ext, run->extension, run->extension_len);
         found->ext_len = run->extension_len;
         found->end = run->extension_end;
-    } else if (last - first >= 2 &&
-               (run->groups[last - 1].separator_has_extension_marker ||
-                (config->parsing_extensions && found->end < len && read(text, found->end) == '#'))) {
+    } else if (last - first >= 2 && run->groups[last - 1].separator_has_extension_marker) {
         size_t tail_end;
         char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
         uint8_t ext_len;
@@ -1766,7 +1857,6 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
             tail_end >= found->end) {
             memcpy(found->ext, ext_digits, ext_len);
             found->ext_len = ext_len;
-            found->end = tail_end;
             last--;
         }
     }
@@ -1775,8 +1865,17 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
         return 0;
     }
     int plus = 0;
+    int gap = 0;
     for (size_t position = start; position < run->groups[first].start; position++) {
-        plus |= is_plus(read(text, position));
+        if (is_plus(read(text, position))) {
+            /* VALID_PHONE_NUMBER takes plus signs at the very start only, so `+ +1` is not a viable number */
+            if (gap) {
+                return 0;
+            }
+            plus = 1;
+        } else if (plus) {
+            gap = 1;
+        }
     }
     const char *digits = run->digits + run->groups[first].digits_offset;
     size_t digit_count =
@@ -1855,34 +1954,6 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
         first = end_group;
     }
     return 0;
-}
-
-static int parse_range(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
-                       th_phone_match *match) {
-    size_t first = start;
-    while (first < end && !is_plus(read(text, first)) && th_phone_digit_value(read(text, first)) < 0) {
-        first++;
-    }
-    size_t digit = first;
-    while (digit < end && th_phone_digit_value(read(text, digit)) < 0) {
-        digit++;
-    }
-    if (digit == end) {
-        return 0;
-    }
-    size_t retry;
-    if (!th_phone_find(read, text, end, start, digit, config, match, &retry) || match->start > first) {
-        return 0;
-    }
-    /* extractPossibleNumber trims only what is neither a digit, a letter nor `#` after the number */
-    for (size_t position = match->end; position < end; position++) {
-        uint32_t code = read(text, position);
-        int continues = is_number_mark(code) + is_letter(code) + (code == '#');
-        if (continues) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 static int text_has_at(th_phone_read read, const void *text, size_t at, size_t end, const char *needle) {
@@ -1981,42 +2052,159 @@ static int context_prefix(th_phone_read read, const void *text, size_t value, si
     return prefix->len > 1 ? 1 : -1;
 }
 
+/* MAX_INPUT_STRING_LENGTH: parse refuses a longer string before reading any of it. */
+#define MAX_PARSE_CHARS 250
+
+/* UNWANTED_END_CHAR_PATTERN: a trailing character that is neither a number, a letter nor `#`. */
+static int is_unwanted_end(uint32_t code) {
+    return !is_number_mark(code) && !is_letter(code) && code != '#';
+}
+
+/* buildNationalNumberForParsing: with a `phone-context`, the text after the first `tel:` up to the parameter, behind
+   the context's calling code when it has one; otherwise the text from the first plus or digit, less the unwanted
+   end characters and anything from a second number's `/x`. `;isub=` ends either. Returns 0 when the context is no
+   calling code and no domain. */
+static int number_to_parse(th_phone_read read, const void *text, size_t start, size_t end, candidate_text *number) {
+    number->len = 0;
+    size_t context = find_parameter(read, text, start, end, ";phone-context=");
+    size_t last = context;
+    size_t first = start;
+    if (context < end) {
+        if (context_prefix(read, text, context + 15, end, number) < 0) {
+            return 0;
+        }
+        for (size_t position = start; position + 4 <= context; position++) {
+            if (text_has_at(read, text, position, context, "tel:")) {
+                first = position + 4;
+                break;
+            }
+        }
+    } else {
+        while (first < end && !is_plus(read(text, first)) && th_phone_digit_value(read(text, first)) < 0) {
+            first++;
+        }
+        while (last > first && is_unwanted_end(read(text, last - 1))) {
+            last--;
+        }
+        for (size_t position = first; position < last; position++) {
+            uint32_t code = read(text, position);
+            size_t cut;
+            if ((code == '/' || code == '\\') && second_number_start(read, text, last, position, &cut)) {
+                last = position;
+            }
+        }
+    }
+    for (size_t position = first; position < last; position++) {
+        number->data[number->len++] = read(text, position);
+    }
+    size_t isub = find_parameter(read_candidate, number, 1, number->len, ";isub=");
+    if (isub < number->len) {
+        number->len = isub;
+    }
+    return 1;
+}
+
+/* VALID_PHONE_NUMBER_PATTERN and maybeStripExtension on the text after its plus signs: punctuation, digits and
+   ASCII letters, three digits before the first letter, and at the end an extension in a written form, whose start
+   is the number's end. Returns that end, or 0 when the text is no number. */
+static size_t viable_number_end(const th_phone_config *config, const candidate_text *number, size_t start,
+                                char *ext_digits, uint8_t *ext_len) {
+    *ext_len = 0;
+    size_t digits = 0;
+    size_t third_digit = 0;
+    size_t end = number->len;
+    for (size_t position = start; position < number->len; position++) {
+        uint32_t code = number->data[position];
+        if (th_phone_digit_value(code) >= 0) {
+            digits++;
+            third_digit = digits == 3 ? position + 1 : third_digit;
+        } else if (!is_punctuation(code) && !(digits >= 3 && is_ascii_letter(code))) {
+            end = position;
+            break;
+        }
+    }
+    if (digits < 3) {
+        return 0;
+    }
+    for (size_t position = third_digit; position <= end; position++) {
+        size_t tail_end;
+        if (walk_extension(read_candidate, number, number->len, extension_dfa(config), position, &tail_end, ext_digits,
+                           ext_len) &&
+            tail_end == number->len) {
+            return position;
+        }
+    }
+    *ext_len = 0;
+    return end == number->len ? end : 0;
+}
+
+/* The keypad digit of a vanity letter, ALPHA_MAPPINGS. */
+static char vanity_digit(uint32_t code) {
+    static const char keypad[] = "22233344455566677778889999";
+    return keypad[(code | 0x20) - 'a'];
+}
+
+/* parse's normalize: with three or more letters the text is a vanity number and each letter is its keypad digit;
+   with fewer, the letters go the way of everything else that is not a digit. */
+static void normalize_number(const candidate_text *number, size_t start, size_t end, digit_string *digits) {
+    size_t letters = 0;
+    for (size_t position = start; position < end; position++) {
+        letters += is_ascii_letter(number->data[position]);
+    }
+    digits->len = 0;
+    for (size_t position = start; position < end; position++) {
+        uint32_t code = number->data[position];
+        int value = th_phone_digit_value(code);
+        if (value >= 0) {
+            digits->data[digits->len++] = (char)('0' + value);
+        } else if (letters >= 3 && is_ascii_letter(code)) {
+            digits->data[digits->len++] = vanity_digit(code);
+        }
+    }
+}
+
 int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match) {
-    size_t context = find_parameter(read, text, start, end, ";phone-context=");
-    size_t isub = find_parameter(read, text, start, end, ";isub=");
-    size_t number_end = context < isub ? context : isub;
-    if (context == end) {
-        return parse_range(read, text, start, number_end, config, match);
-    }
-    candidate_text local;
-    int global = context_prefix(read, text, context + 15, end, &local);
-    if (global < 0) {
+    candidate_text number;
+    if (end - start > MAX_PARSE_CHARS || !number_to_parse(read, text, start, end, &number)) {
         return 0;
     }
-    if (global == 0) {
-        return parse_range(read, text, start, number_end, config, match);
+    size_t plus_end = 0;
+    while (plus_end < number.len && is_plus(number.data[plus_end])) {
+        plus_end++;
     }
-    /* buildNationalNumberForParsing: the local digits after the scheme, with the context's calling code in front,
-       read as one global number */
-    size_t number_start = start;
-    while (number_start < number_end && is_space_separator(read(text, number_start))) {
-        number_start++;
-    }
-    if (text_has_at(read, text, number_start, number_end, "tel:")) {
-        number_start += 4;
-    }
-    if (local.len + (number_end - number_start) > CANDIDATE_CAPACITY) {
+    char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
+    uint8_t ext_len;
+    size_t number_end = viable_number_end(config, &number, plus_end, ext_digits, &ext_len);
+    if (number_end == 0) {
         return 0;
     }
-    for (size_t position = number_start; position < number_end; position++) {
-        local.data[local.len++] = read(text, position);
+    digit_string digits;
+    normalize_number(&number, plus_end, number_end, &digits);
+    reading result;
+    result.found = 0;
+    if (plus_end == 0 || !read_international(config, digits.data, digits.len, &result)) {
+        /* parseHelper's retry after a plus that led to no calling code: the region's international prefix or own
+           code may still read the digits, never a national number */
+        enum reading_mode mode = plus_end > 0 ? READ_WITH_CODE : READ_ANY;
+        for (size_t position = 0; position < config->region_count && !result.found; position++) {
+            read_national(config, config->regions[position], digits.data, digits.len, mode, &result);
+        }
     }
-    if (!parse_range(read_candidate, &local, 0, local.len, config, match)) {
+    if (!result.found) {
         return 0;
     }
     match->start = start;
     match->end = end;
+    match->country_code = result.country_code;
+    match->nsn_len = (uint8_t)result.nsn.len;
+    memcpy(match->nsn, result.nsn.data, result.nsn.len);
+    match->nsn[result.nsn.len] = '\0';
+    match->ext_len = ext_len;
+    memcpy(match->ext, ext_digits, ext_len);
+    match->ext[ext_len] = '\0';
+    match->region = result.region;
+    match->type = result.type;
     return 1;
 }
 

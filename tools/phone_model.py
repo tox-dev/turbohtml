@@ -260,13 +260,18 @@ class Recognizer:
             # the chunk's own extension: an in-run marker group at its end, parsed the way parse() would on the chunk
             consumed = self._walk_extension(text, run.groups[last - 2].end)
             if consumed is not None and consumed[0] >= chunk_end and consumed[1]:
-                chunk_end, extension = consumed
+                extension = consumed[1]
                 last -= 1
         chunk = text[start:chunk_end]
         if not _brackets_match(chunk) or _PUB_PAGES.search(chunk) or self._blocked_by_neighbors(text, start, chunk_end):
             return None
         digits = "".join(group.digits for group in run.groups[first:last])
-        plus = any(char in PLUS for char in text[start : run.groups[first].start])
+        lead = text[start : run.groups[first].start]
+        first_plus = next((index for index, char in enumerate(lead) if char in PLUS), None)
+        plus = first_plus is not None
+        # VALID_PHONE_NUMBER takes plus signs at the very start only, so `+ +1` is not a viable number
+        if plus and any(char in PLUS for char in lead[first_plus:].lstrip("".join(PLUS))):
+            return None
         if plus and self._country_code(digits)[0] is not None:
             reading = self._international(digits, None)
         else:
@@ -309,13 +314,17 @@ class Recognizer:
         for position, char in enumerate(candidate[:-1]):
             if char not in "xX":
                 continue
+            if position > 0 and candidate[position - 1] in "xX":
+                continue  # the second `x` of a carrier-code pair is no extension marker
             digits_from = position + 2 if candidate[position + 1] in "xX" else position + 1
             digits_after = "".join(
                 chr(0x30 + value)
                 for value in (digit_value(self.tables, ch) for ch in candidate[digits_from:])
                 if value >= 0
             )
-            expected = reading.nsn if digits_from == position + 2 else extension
+            # after a carrier code the digits are the number's, read the way isNumberMatch reads them: with the
+            # extension's own digits behind them
+            expected = reading.nsn + (extension or "") if digits_from == position + 2 else extension
             if digits_after != expected:
                 return False
         return True
@@ -363,21 +372,17 @@ class Recognizer:
         if not groups:
             return None
         end = groups[-1].end
-        start = self._lead_start(text, digits_start, end, left_bound)
+        start = self._lead_start(text, digits_start, left_bound)
         plus = any(char in PLUS for char in text[start:digits_start])
         extension, extension_end = self._extension(text, groups, end)
         return _Run(start, end, plus, groups, extension, extension_end, set(), second_number_cut)
 
     @staticmethod
-    def _lead_start(text: str, digits_start: int, end: int, left_bound: int) -> int:
-        """
-        Find the leftmost start of ``(?:[lead][punct]{0,4}){0,2}`` ending at the digits.
-
-        Returns the start the MATCHING_BRACKETS regex would choose after its inner-bracket retry.
-        """
+    def _lead_start(text: str, digits_start: int, left_bound: int) -> int:
+        """Find the leftmost start of ``(?:[lead][punct]{0,4}){0,2}`` ending at the digits; brackets are per chunk."""
         earliest = max(left_bound, digits_start - 2 * (MAX_LEAD_PUNCTUATION + 1))
         for candidate in range(earliest, digits_start + 1):
-            if _lead_groups_match(text[candidate:digits_start]) and _brackets_match(text[candidate:end]):
+            if _lead_groups_match(text[candidate:digits_start]):
                 return candidate
         return digits_start
 
@@ -403,8 +408,9 @@ class Recognizer:
             if tail_start == end and tail_end > end and digits:
                 return digits, tail_end
             if tail_start != end and tail_end >= end and digits:
+                # PATTERN reads `x1234` as a punctuation-separated digit block, so a `#` after it stays outside
                 groups.pop()
-                return digits, tail_end
+                return digits, end
         return None, end
 
     def _walk_extension(self, text: str, tail_start: int) -> tuple[int, str] | None:
@@ -775,7 +781,7 @@ def _timestamp_groups(text: str, run: _Run) -> int:
 def _word_before(tables: Tables, text: str, start: int) -> str:
     """Return the ASCII word right before the digits, or "" when a Latin letter glued to it makes a longer word."""
     position = start
-    while position > 0 and text[position - 1] in " \t.:#-":
+    while position > 0 and text[position - 1] in " \xa0\u3000\t\n\r.:#-":
         position -= 1
     word_end = position
     while position > 0 and text[position - 1] in string.ascii_letters and position > word_end - 12:
@@ -803,17 +809,43 @@ def _brackets_match(candidate: str) -> bool:
 
 _CARD_SHAPES: Final = ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4])
 _ADDRESS_CHAIN: Final = frozenset("0123456789abcdefABCDEF:[]")
+_HEX_DIGITS: Final = frozenset(string.hexdigits)
+_MAX_ADDRESS_CHARS: Final = 48
+
+
+def _is_ipv6_literal(chain: str) -> bool:
+    """RFC 4291's text form without an IPv4 tail, bare or bracketed with a port."""
+    address = chain
+    if chain.startswith("["):
+        address, closer, port = chain[1:].partition("]")
+        if not closer or (port and not (port.startswith(":") and 1 <= len(port) - 1 <= 5 and port[1:].isdigit())):
+            return False
+    if not address or any(char not in _HEX_DIGITS and char != ":" for char in address):
+        return False
+    if address.count("::") > 1 or ":::" in address:
+        return False
+    if (address.startswith(":") and not address.startswith("::")) or (
+        address.endswith(":") and not address.endswith("::")
+    ):
+        return False
+    hextets = [group for group in address.split(":") if group]
+    if any(len(group) > 4 for group in hextets):
+        return False
+    return len(hextets) <= 7 if "::" in address else len(hextets) == 8
 
 
 def _in_address_chain(text: str, start: int, end: int) -> bool:
-    """Whether the candidate sits on a chain of hex groups with two or more colons, an IPv6 literal."""
+    """Whether the candidate sits inside an IPv6 literal; a chain past any literal's length is prose."""
+    if end - start > _MAX_ADDRESS_CHARS:
+        return False
     left = start
-    while left > 0 and text[left - 1] in _ADDRESS_CHAIN:
+    while left > 0 and start - left < _MAX_ADDRESS_CHARS and text[left - 1] in _ADDRESS_CHAIN:
         left -= 1
     right = end
-    while right < len(text) and text[right] in _ADDRESS_CHAIN:
+    while right < len(text) and right - end < _MAX_ADDRESS_CHARS and text[right] in _ADDRESS_CHAIN:
         right += 1
-    return text[left:start].count(":") + text[end:right].count(":") >= 2
+    overflows = (left > 0 and text[left - 1] in _ADDRESS_CHAIN) or (right < len(text) and text[right] in _ADDRESS_CHAIN)
+    return not overflows and right - left > end - start and _is_ipv6_literal(text[left:right])
 
 
 def _luhn(digits: str) -> bool:

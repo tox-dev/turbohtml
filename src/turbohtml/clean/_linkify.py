@@ -210,7 +210,12 @@ class PhoneNumbers:
         if grouping is not PhoneGrouping.ANY and not require_valid:
             msg = "grouping needs require_valid=True"
             raise ValueError(msg)
-        region_codes = tuple(dict.fromkeys(code.strip().upper() for code in _ordered_strings(regions, "regions")))
+        # folding case only on ASCII: `ß` would otherwise fold to South Sudan's `SS`
+        region_codes = tuple(
+            dict.fromkeys(
+                code.strip().upper() if code.isascii() else code for code in _ordered_strings(regions, "regions")
+            )
+        )
         labels = tuple(
             sorted({word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")})
         )
@@ -304,13 +309,15 @@ class PhoneNumber:
         """
         Read a string that holds one phone number, the way ``phonenumbers.parse`` reads it.
 
-        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators and
-        an extension in any written form, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included;
-        after the number anything but digits, letters and ``#`` may follow, so neither ``650-253-0000 or 650-253-0001``
-        nor ``650-253-0000 today`` is one number. An RFC 3966 local number reads through its ``phone-context``
-        (``tel:2530000;phone-context=+1650``), and ``;isub=`` ends the number. A number written without ``+`` is read
-        with each of ``regions`` in turn, and unlike detection it needs neither separators nor the national prefix its
-        format writes, and a payment-card shape is not refused.
+        The number starts at the first ``+`` or digit, so a ``tel:`` scheme or a word before it (``Tel: 650-253-0000``)
+        is skipped; characters that are neither digits, letters nor ``#`` are dropped from the end, and a second
+        number after ``/x`` is cut off. What remains must be digits, separators and ASCII letters, with an extension in
+        any written form at the end, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included. Three
+        or more letters make a vanity number whose letters are keypad digits (``1-800-FLOWERS``); fewer are dropped.
+        An RFC 3966 local number reads through its ``phone-context`` (``tel:2530000;phone-context=+1650``), and
+        ``;isub=`` ends the number. A number written without ``+`` is read with each of ``regions`` in turn, and
+        unlike detection it needs neither separators nor the national prefix its format writes, and a payment-card
+        shape is not refused. A string over 250 characters is no number.
 
         :param text: the text holding the number.
         :param regions: the ordered fallback regions for a number written without ``+``.
@@ -583,8 +590,9 @@ class LinkSpan:
     :param start: the half-open start offset of the match in the scanned text.
     :param end: the half-open end offset of the match in the scanned text.
     :param text: the matched substring exactly as it appeared.
-    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, ``tel:`` for a
-        phone number, the text itself for a ``scheme://`` or registered scheme-less URL).
+    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the number's own
+        ``tel:`` URI for a phone number and for a written ``tel:`` URI, the text itself for a ``scheme://`` or
+        registered scheme-less URL).
     :param is_email: whether the match is an email address.
     :param phone: the detected number when the match is a phone number, else ``None``.
     """
@@ -650,8 +658,8 @@ class LinkDetector:
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
         such as ``javascript://`` or a typo like ``hppt://`` is not detected.
     :param phones: also detect phone numbers, per these :class:`PhoneNumbers` settings; ``None`` leaves digits
-        alone. With phones on, a written ``tel:`` URI whose digits read as a number is detected as itself; the
-        ``tel://`` authority form still needs ``tel`` in ``schemes``.
+        alone. With phones on, a written ``tel:`` or ``tel://`` URI whose payload reads as a number is a phone link
+        too: the span covers the URI as written and carries the number, whose own ``tel:`` URI is the ``url``.
     """
 
     def __init__(

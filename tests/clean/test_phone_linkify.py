@@ -119,10 +119,8 @@ def test_nbsp_inside_a_number() -> None:
     assert html == '<a href="tel:+16502530000">650&nbsp;253&nbsp;0000</a>'
 
 
-def test_written_tel_uri_links_as_itself() -> None:
-    assert linkify("tel:+1-650-253-0000", Linkify(phones=_US)) == (
-        '<a href="tel:+1-650-253-0000">tel:+1-650-253-0000</a>'
-    )
+def test_written_tel_uri_links_to_its_number() -> None:
+    assert linkify("tel:+1-650-253-0000", Linkify(phones=_US)) == ('<a href="tel:+16502530000">tel:+1-650-253-0000</a>')
 
 
 @pytest.mark.parametrize(

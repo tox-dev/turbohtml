@@ -50,12 +50,22 @@ static void phone_config_dealloc(PyObject *self) {
 
 PyDoc_STRVAR(phone_config_doc, "A compiled PhoneNumbers configuration; built by _phone_config_compile.");
 
+/* The compiled tables never change, so a copy is the object itself; dataclasses.asdict deep-copies every field of
+   the settings that hold one. */
+static PyObject *phone_config_copy(PyObject *self, PyObject *Py_UNUSED(args)) {
+    return Py_NewRef(self);
+}
+
+static PyMethodDef phone_config_methods[] = {
+    {"__copy__", phone_config_copy, METH_NOARGS, "Return the configuration itself; it is immutable."},
+    {"__deepcopy__", phone_config_copy, METH_O, "Return the configuration itself; it is immutable."},
+    {NULL, NULL, 0, NULL},
+};
+
 static PyType_Slot phone_config_slots[] = {
-    {Py_tp_doc, (void *)phone_config_doc},
-    {Py_tp_dealloc, phone_config_dealloc},
-    {Py_tp_traverse, phone_config_traverse},
-    {Py_tp_clear, phone_config_clear},
-    TH_SEALED_END,
+    {Py_tp_doc, (void *)phone_config_doc}, {Py_tp_methods, phone_config_methods},
+    {Py_tp_dealloc, phone_config_dealloc}, {Py_tp_traverse, phone_config_traverse},
+    {Py_tp_clear, phone_config_clear},     TH_SEALED_END,
 };
 
 static PyType_Spec phone_config_spec = {

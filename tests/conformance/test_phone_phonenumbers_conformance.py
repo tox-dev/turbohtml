@@ -17,6 +17,7 @@ the pin is a setup error, never a skip.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import phonenumbers
 import pytest
@@ -205,6 +206,91 @@ def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
             else:
                 ours = (parsed.country_code, parsed.national_number, parsed.extension)
             assert ours == theirs, (name, text)
+
+
+_PROSE_SHAPES: Final = [
+    "+44 20 7946 0958 (1234)",
+    "+1 650-253-0000 (x1234)",
+    "(+1 650 253 0000)",
+    "((650)) 253-0000",
+    "(650) (253) (0000)",
+    "650 ----- 253 0000",
+    "+ +1 650 253 0000",
+    "++1 650 253 0000",
+    "+1 +650 253 0000",
+    "0xx11 2345 6789 x12",
+    "650 253 0000 x1234#",
+    "+1 650 253 0000 (ext. 1234)",
+    "650-253-0000/x12",
+    "650-253-0000\\x12",
+    "650-253-0000 / x12",
+    "tel:+1-650-253-0000;ext=12",
+    "tel:+1-650-253-0000;isub=123",
+    "tel:2530000;ext=12;phone-context=+1650",
+    "tel:2530000;phone-context=+1650;ext=12",
+    "Tel:2530000;phone-context=+1650",
+    "1-800-FLOWERS",
+    "x650-253-0000",
+    "Call +1 650 253 0000 tomorrow",
+    "650-253-0000 call",
+    "650-253-0000 ok",
+    "650-253-0000 today",
+    "650-253-0000 or 650-253-0001",
+    "+1 650 253 0000 x 1234 # ",
+    "+1 650 253 0000 #1234",
+    "+1 650 253 0000 ext",
+    "650 253 0000 ext 12345678",
+    "  +1 650 253 0000  ",
+    "+1 (650) 253-0000)",
+    "6502530000abc",
+    "650.253.0000.",
+    "+1 650 253 0000,,1234",
+    "+1 650 253 0000;1234",
+    "+1 650 253 0000 ,,,,,,1234",
+    "650-253-0000 - 1234#",
+    "650-253-0000ext1234",
+    "650-253-0000 x",
+    "+1 650 253 0000 (",
+    "650-253-0000 #",
+    "12 650-253-0000",
+    "650-253-0000 1",
+    "+1 650-253-0000\u2460",
+    "650-253-0000 \u7535\u8bdd",
+    "\uff0b1 650 253 0000",
+    "+1 \uff16\uff15\uff10 \uff12\uff15\uff13 \uff10\uff10\uff10\uff10",
+    "+1 650 253 0000 \u0434\u043e\u0431. 12",
+    "+1 650 253 0000 anexo 12",
+    "+1 650 253 0000 int 12",
+    "011 44 20 7946 0958",
+    "650-253-0000" + " " * 238,
+    "650-253-0000" + " " * 239,
+    "+1 650 253 0000 x" + "1" * 21,
+]
+
+
+@pytest.mark.parametrize(
+    "text", [pytest.param(text, id=f"{index}-{text[:24]!r}") for index, text in enumerate(_PROSE_SHAPES)]
+)
+def test_parse_reads_prose_shapes_as_the_oracle(text: str) -> None:
+    for require_valid in (True, False):
+        try:
+            number = phonenumbers.parse(text, "US")
+        except phonenumbers.NumberParseException:
+            theirs = None
+        else:
+            checks = phonenumbers.is_valid_number(number) if require_valid else phonenumbers.is_possible_number(number)
+            theirs = (
+                (number.country_code, phonenumbers.national_significant_number(number), number.extension)
+                if checks
+                else None
+            )
+        try:
+            parsed = PhoneNumber.parse(text, regions=("US",), require_valid=require_valid)
+        except ValueError:
+            ours = None
+        else:
+            ours = (parsed.country_code, parsed.national_number, parsed.extension)
+        assert ours == theirs, require_valid
 
 
 @pytest.mark.parametrize(

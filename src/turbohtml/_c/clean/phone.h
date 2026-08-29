@@ -89,11 +89,12 @@ typedef struct {
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
                   const th_phone_config *config, th_phone_match *match, size_t *retry);
 
-/* Read `text[start:end]` as one number, the way phonenumbers' parse reads a string it is handed: the characters
-   before the first plus or digit are skipped (an RFC 3966 `tel:` scheme among them), the run is read like a matcher
-   candidate, and after it anything but digits, letters and `#` may follow. An RFC 3966 `;phone-context=` names the
-   calling code local digits belong to, or a domain under which they read as a national number; `;isub=` and what
-   follows it are not part of the number. Returns 1 and fills `match`, or 0. */
+/* Read `text[start:end]` as one number, the way phonenumbers' parse reads a string it is handed: from the first plus
+   or digit (an RFC 3966 `tel:` scheme among what is skipped) to the last digit, letter or `#`, cut at a second
+   number's `/x`; what remains is punctuation, digits and ASCII letters with an extension at its end, three or more
+   letters spelling a vanity number. An RFC 3966 `;phone-context=` names the calling code local digits belong to, or
+   a domain under which they read as a national number; `;isub=` and what follows it are not part of the number. A
+   string over 250 characters is no number. Returns 1 and fills `match`, or 0. */
 int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match);
 

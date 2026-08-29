@@ -121,6 +121,8 @@ def test_regions_generator_failure_propagates() -> None:
         pytest.param(("USA",), "unknown phone region 'USA'", id="three-letters"),
         pytest.param(("001",), "unknown phone region '001'", id="non-geographic"),
         pytest.param(("U1",), "unknown phone region 'U1'", id="digit"),
+        pytest.param(("\u00df",), "unknown phone region '\u00df'", id="sharp-s-is-not-south-sudan"),
+        pytest.param(("\u0131s",), "unknown phone region '\u0131s'", id="dotless-i-is-not-iceland"),
         pytest.param(("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE", "AT"), "at most 8 phone regions", id="nine"),
     ],
 )
@@ -361,3 +363,30 @@ def test_national_prefix_requirement(phones: PhoneNumbers, expected: list[str]) 
 def test_written_prefix_links_either_way(required: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest passes the row positionally
     phones = PhoneNumbers(regions=("GB",), require_national_prefix=required)
     assert [span.url for span in LinkDetector(phones=phones).find("ring 020 7946 0958")] == ["tel:+442079460958"]
+
+
+@pytest.mark.parametrize(
+    "separator",
+    [
+        pytest.param(" ", id="space"),
+        pytest.param("\u00a0", id="nbsp"),
+        pytest.param("\u3000", id="ideographic-space"),
+        pytest.param("\t", id="tab"),
+        pytest.param("\n", id="newline"),
+        pytest.param("\r\n", id="crlf"),
+        pytest.param(": ", id="colon-and-space"),
+    ],
+)
+def test_label_reaches_over_any_whitespace(separator: str) -> None:
+    assert LinkDetector(phones=PhoneNumbers(regions=("US",))).find(f"Order{separator}650-253-0000") == []
+
+
+def test_label_stops_at_a_symbol() -> None:
+    spans = LinkDetector(phones=PhoneNumbers(regions=("US",))).find("Order\u2192650-253-0000")
+    assert [span.text for span in spans] == ["650-253-0000"]
+
+
+def test_settings_convert_to_a_dict_and_a_tuple() -> None:
+    phones = PhoneNumbers(regions=("US",), ignore_numbers_after=("order",))
+    assert dataclasses.asdict(phones)["regions"] == ("US",)
+    assert dataclasses.astuple(phones)[0] == ("US",)

@@ -106,10 +106,96 @@ _US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
         pytest.param(
             "tel:+1-650-253-0000;ext=12",
             _US,
-            [("tel:+1-650-253-0000;ext=12", "tel:+1-650-253-0000;ext=12")],
+            [("tel:+1-650-253-0000;ext=12", "tel:+16502530000;ext=12")],
             id="tel-uri-with-a-number",
         ),
-        pytest.param("TEL:650-253-0000", _US, [("TEL:650-253-0000", "TEL:650-253-0000")], id="tel-uri-any-case"),
+        pytest.param("TEL:650-253-0000", _US, [("TEL:650-253-0000", "tel:+16502530000")], id="tel-uri-any-case"),
+        pytest.param(
+            "tel:+1-650-253-0000;isub=123",
+            _US,
+            [("tel:+1-650-253-0000;isub=123", "tel:+16502530000")],
+            id="tel-uri-isub",
+        ),
+        pytest.param(
+            "+44 20 7946 0958 (1234)",
+            _US,
+            [("+44 20 7946 0958", "tel:+442079460958")],
+            id="bracketed-group-after-a-plus",
+        ),
+        pytest.param(
+            "+1 650 253 0000 (1234", _US, [("+1 650 253 0000", "tel:+16502530000")], id="unclosed-bracket-after-a-plus"
+        ),
+        pytest.param("(650 253 0000", _US, [("(650 253 0000", "tel:+16502530000")], id="unclosed-lead-bracket"),
+        pytest.param("+ +1 650 253 0000", _US, [], id="plus-after-a-gap"),
+        pytest.param("+ 1 650 253 0000", _US, [("+ 1 650 253 0000", "tel:+16502530000")], id="plus-then-a-space"),
+        pytest.param("++1 650 253 0000", _US, [("++1 650 253 0000", "tel:+16502530000")], id="doubled-plus"),
+        pytest.param(
+            "650 253 0000 x1234#",
+            _US,
+            [("650 253 0000 x1234", "tel:+16502530000;ext=1234")],
+            id="hash-after-an-x-group",
+        ),
+        pytest.param(
+            "650 253 0000 #1234#",
+            _US,
+            [("650 253 0000 #1234#", "tel:+16502530000;ext=1234")],
+            id="hash-marked-extension",
+        ),
+        pytest.param(
+            "0xx11 2345 6789",
+            PhoneNumbers(regions=("BR",)),
+            [("0xx11 2345 6789", "tel:+551123456789")],
+            id="carrier-code",
+        ),
+        pytest.param(
+            "0xx11 2345 6789 x12",
+            PhoneNumbers(regions=("BR",)),
+            [("0xx11 2345 6789 x12", "tel:+551123456789;ext=12")],
+            id="carrier-code-then-extension",
+        ),
+        pytest.param(
+            "6502530000:6502530000:1",
+            _US,
+            [("6502530000", "tel:+16502530000"), ("6502530000", "tel:+16502530000")],
+            id="colon-chain-that-is-no-address",
+        ),
+        pytest.param("2001:db8::6502530000", _US, [("6502530000", "tel:+16502530000")], id="hextet-too-long"),
+        pytest.param("[2001:db8::1]:6502530000", _US, [("6502530000", "tel:+16502530000")], id="port-too-long"),
+        pytest.param(
+            "2001:db8:1:2:3:4:5:6:8888", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="nine-hextets"
+        ),
+        pytest.param("2001:db8::1::8888", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="two-gaps"),
+        pytest.param(":8888:1", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="lone-leading-colon"),
+        pytest.param("[::8888", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="bracket-never-closed"),
+        pytest.param("1:2:3:4:5:6:7:8888", PhoneNumbers(regions=("TA",)), [], id="eight-hextets"),
+        pytest.param("2001:db8:::8888", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="triple-colon"),
+        pytest.param(
+            "2001:db8::8888:", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="lone-trailing-colon"
+        ),
+        pytest.param("[::8888]:", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="port-without-digits"),
+        pytest.param("[::8888]", PhoneNumbers(regions=("TA",)), [], id="bracketed-without-a-port"),
+        pytest.param("[::8888]x", PhoneNumbers(regions=("TA",)), [], id="bracketed-address-then-a-letter"),
+        pytest.param("[::8888[", PhoneNumbers(regions=("TA",)), [("8888", "tel:+2908888")], id="bracket-reopened"),
+        pytest.param(
+            "[::1]a8888",
+            PhoneNumbers(regions=("TA",), require_valid=False),
+            [("8888", "tel:+2908888")],
+            id="hex-letter-after-the-bracket",
+        ),
+        pytest.param(
+            "[::1]:80a8888",
+            PhoneNumbers(regions=("TA",), require_valid=False),
+            [("8888", "tel:+2908888")],
+            id="hex-letter-after-the-port",
+        ),
+        pytest.param(
+            "1:2:3:4:5:6:7::8888",
+            PhoneNumbers(regions=("TA",)),
+            [("8888", "tel:+2908888")],
+            id="gap-with-eight-hextets",
+        ),
+        pytest.param("()650 253 0000", _US, [], id="empty-brackets-before-the-digits"),
+        pytest.param("1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3", _US, [], id="run-longer-than-any-address"),
     ],
 )
 def test_runs_around_a_number(text: str, phones: PhoneNumbers, expected: list[tuple[str, str]]) -> None:
@@ -118,8 +204,19 @@ def test_runs_around_a_number(text: str, phones: PhoneNumbers, expected: list[tu
 
 def test_rewrite_leaves_a_tel_uri_without_a_number_alone() -> None:
     assert linkify("see tel:not-a-number or tel:650-253-0000", Linkify(phones=_US)) == (
-        'see tel:not-a-number or <a href="tel:650-253-0000">tel:650-253-0000</a>'
+        'see tel:not-a-number or <a href="tel:+16502530000">tel:650-253-0000</a>'
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("abcdef0123456789" * 2000, id="hex-chain"),
+        pytest.param("6502530000:" * 2000, id="colon-chain"),
+    ],
+)
+def test_long_address_chains_scan_in_bounded_time(text: str) -> None:
+    assert len(LinkDetector(phones=_US).find(text)) == (0 if text.startswith("a") else 2000)
 
 
 @pytest.mark.parametrize(

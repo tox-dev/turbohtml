@@ -84,8 +84,8 @@ What phonenumbers has that turbohtml does not
   of the numbering plans. Keep ``phonenumbers`` for those; a :class:`~turbohtml.clean.PhoneNumber` gives you the E.164
   string to hand it.
 - ``format_out_of_country_calling_number``, ``format_in_original_format`` and formatting with a carrier code.
-- ``parse`` reads a letter glued to the digits (``x650-253-0000``) and a ``phone-context`` parameter; turbohtml's
-  ``parse`` refuses the first and ignores the second.
+- ``parse`` with ``keep_raw_input`` and the country-code source it records; a :class:`~turbohtml.clean.PhoneNumber`
+  holds the resolved number only.
 
 Performance
 ===========

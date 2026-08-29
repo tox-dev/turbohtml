@@ -479,6 +479,7 @@ typedef struct {
     Py_ssize_t start;
     Py_ssize_t end;
     enum th_link_kind link_kind;
+    th_phone_match number;
 } trigger_memo;
 
 /* Plain prose holds none of the bytes that begin a link, so one-byte text is skipped a block at a time and the
@@ -568,7 +569,7 @@ static int scheme_is_tel(int kind, const void *data, Py_ssize_t start, Py_ssize_
 }
 
 static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
-                         enum th_link_kind *link_kind) {
+                         enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
     const void *data = scan->data;
     if (c == ':') {
@@ -581,9 +582,16 @@ static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ss
             !match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes)) {
             return 0;
         }
-        th_phone_match number;
-        return scan->phone == NULL || !scheme_is_tel(kind, data, *start, pos) ||
-               th_phone_parse(read_point, scan, (size_t)pos + 1, (size_t)*end, &scan->phone->config, &number);
+        if (scan->phone == NULL || !scheme_is_tel(kind, data, *start, pos)) {
+            return 1;
+        }
+        /* a written tel: URI is a phone link once its payload reads as a number: the href comes from that number,
+           the way every other phone link's does, and the span carries it */
+        if (!th_phone_parse(read_point, scan, (size_t)pos + 1, (size_t)*end, &scan->phone->config, number)) {
+            return 0;
+        }
+        *link_kind = TH_LINK_PHONE;
+        return 1;
     }
     if (c == '@') {
         *link_kind = TH_LINK_EMAIL;
@@ -605,7 +613,7 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
             continue;
         }
         memo->pos = probe;
-        memo->found = match_trigger(scan, '.', probe, &memo->start, &memo->end, &memo->link_kind);
+        memo->found = match_trigger(scan, '.', probe, &memo->start, &memo->end, &memo->link_kind, &memo->number);
         if (memo->found) {
             return 1;
         }
@@ -692,7 +700,7 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
         .phone = phone,
         .resume = 0,
     };
-    trigger_memo memo = {-1, 0, 0, 0, TH_LINK_URL};
+    trigger_memo memo = {.pos = -1, .link_kind = TH_LINK_URL};
     Py_ssize_t pos = 0;
     Py_ssize_t checked_until = 0;
     Py_ssize_t phone_retry = 0;
@@ -717,7 +725,7 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
                 match_end = memo.end;
                 link_kind = memo.link_kind;
             } else {
-                found = match_trigger(&scan, c, pos, &match_start, &match_end, &link_kind);
+                found = match_trigger(&scan, c, pos, &match_start, &match_end, &link_kind, &number);
             }
         } else if (phone != NULL && pos >= phone_retry &&
                    (scan.kind == PyUnicode_1BYTE_KIND ? is_ascii_digit(c) : th_phone_digit_value(c) >= 0)) {

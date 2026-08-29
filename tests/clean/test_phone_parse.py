@@ -43,6 +43,130 @@ def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, Phon
             "(650) 253-0000)", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="closer-after"
         ),
         pytest.param(
+            "x650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="letter-glued-to-the-digits",
+        ),
+        pytest.param(
+            "650-253-0000 ok",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="two-letters-after",
+        ),
+        pytest.param(
+            "650-253-0000 x", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="lone-x-after"
+        ),
+        pytest.param("1-800-FLOWERS", ("US",), (1, "8003569377", None, "US", PhoneType.TOLL_FREE), id="vanity-letters"),
+        pytest.param(
+            "1-800-goog-411", ("US",), (1, "8004664411", None, "US", PhoneType.TOLL_FREE), id="vanity-lowercase"
+        ),
+        pytest.param(
+            "+1 650 253 0000 (ext. 1234)",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="bracketed-extension",
+        ),
+        pytest.param(
+            "+1 650-253-0000 (x1234)",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="bracketed-x-extension",
+        ),
+        pytest.param(
+            "650 253 0000 ext 12345678",
+            ("US",),
+            (1, "6502530000", "12345678", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="long-explicit-extension",
+        ),
+        pytest.param(
+            "650-253-0000/x12",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="second-number-cut",
+        ),
+        pytest.param(
+            "650-253-0000\\x12",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="second-number-after-backslash",
+        ),
+        pytest.param(
+            "650-253-0000 / x12",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="second-number-after-spaced-slash",
+        ),
+        pytest.param(
+            "((650)) 253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="doubled-brackets",
+        ),
+        pytest.param(
+            "(650) (253) (0000)",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="every-group-bracketed",
+        ),
+        pytest.param(
+            "650 ----- 253 0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="long-separator",
+        ),
+        pytest.param(
+            "+1 650 253 0000 (",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="opener-after",
+        ),
+        pytest.param(
+            "++1 650 253 0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="doubled-plus",
+        ),
+        pytest.param(
+            "+1 650 253 0000 ,,,,,,1234",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="many-commas-autodial",
+        ),
+        pytest.param(
+            "650-253-0000;ext=2;isub=1",
+            ("US",),
+            (1, "6502530000", "2", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="isub-after-the-extension",
+        ),
+        pytest.param(
+            "650-253-0000;isub=1;ext=2",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="isub-cuts-the-extension",
+        ),
+        pytest.param(
+            "0xx11 2345 6789", ("BR",), (55, "1123456789", None, "BR", PhoneType.FIXED_LINE), id="carrier-code-marks"
+        ),
+        pytest.param(
+            "020 7946 0958",
+            ("US", "GB", "DE"),
+            (44, "2079460958", None, "GB", PhoneType.FIXED_LINE),
+            id="middle-region-reads-the-number",
+        ),
+        pytest.param(
+            "+011 44 20 7946 0958",
+            ("US",),
+            (44, "2079460958", None, "GB", PhoneType.FIXED_LINE),
+            id="plus-then-idd-reads-without-the-plus",
+        ),
+        pytest.param(
+            "  tel:  +1 650 253 0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="spaces-around-the-scheme",
+        ),
+        pytest.param(
             "  +1 650 253 0000  ", (), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="whitespace"
         ),
         pytest.param(
@@ -171,7 +295,18 @@ def test_parse_reads_one_number(
         pytest.param("650-253-0000 1", ("US",), id="digit-after"),
         pytest.param("650-253-0000 #", ("US",), id="hash-after"),
         pytest.param("12 650-253-0000", ("US",), id="digits-before"),
-        pytest.param("x650-253-0000", ("US",), id="letter-glued-to-the-digits"),
+        pytest.param("650-253-0000 abc", ("US",), id="three-letters-after-spell-digits"),
+        pytest.param("650-253-0000 x12 ok", ("US",), id="letters-after-the-extension-spell-digits"),
+        pytest.param("12 ext 34", ("US",), id="letter-before-the-third-digit"),
+        pytest.param("+1 2", ("US",), id="too-few-digits"),
+        pytest.param("+999 650 253 0000", ("US",), id="unassigned-code-after-a-plus"),
+        pytest.param("+00 1 650 253 0000", ("US",), id="zeros-after-a-plus"),
+        pytest.param("+1 650 253 0000 ext", ("US",), id="extension-label-without-digits"),
+        pytest.param("+ +1 650 253 0000", ("US",), id="plus-after-a-gap"),
+        pytest.param("+1 +650 253 0000", ("US",), id="plus-after-the-code"),
+        pytest.param("+1 650 253 0000 x 1234 #", ("US",), id="hash-after-a-space"),
+        pytest.param("Tel:2530000;phone-context=+1650", ("US",), id="uppercase-scheme-with-a-context"),
+        pytest.param("650-253-0000" + " " * 239, ("US",), id="over-250-characters"),
         pytest.param("tel:2530000;phone-context=", ("US",), id="empty-context"),
         pytest.param("tel:2530000;phone-context=+", ("US",), id="context-without-digits"),
         pytest.param("tel:2530000;phone-context=+1 650!", ("US",), id="context-with-a-stray-character"),
@@ -183,6 +318,7 @@ def test_parse_reads_one_number(
         pytest.param("tel:2530000;phone-context=1", ("US",), id="top-label-starting-with-a-digit"),
         pytest.param("tel:2530000;phone-context=a.b_c", ("US",), id="domain-with-an-underscore"),
         pytest.param("tel:1;phone-context=+" + "1" * 500, ("US",), id="context-past-any-number"),
+        pytest.param("tel:1;phone-context=+" + "1" * 25, ("US",), id="context-past-a-calling-code-and-a-number"),
         pytest.param("tel:+1-650-253-0000;phone-context=+1", ("US",), id="global-number-with-a-global-context"),
         pytest.param("tel:2530000;phone-contex", ("US",), id="truncated-parameter-name"),
         pytest.param("tel:2530000;phone-context=+1\u00e9650", ("US",), id="context-with-a-non-ascii-mark"),
@@ -221,6 +357,18 @@ def test_trailing_hash_makes_the_last_group_an_extension(
 def test_possible_mode_accepts_a_plausible_length() -> None:
     number = PhoneNumber.parse("555-123-4567", regions=("US",), require_valid=False)
     assert _fields(number) == (1, "5551234567", None, None, PhoneType.UNKNOWN)
+
+
+def test_possible_mode_reads_a_slash_date_unlike_detection() -> None:
+    assert LinkDetector(phones=PhoneNumbers(regions=("GB",), require_valid=False)).find("25/12/2012") == []
+    number = PhoneNumber.parse("25/12/2012", regions=("GB",), require_valid=False)
+    assert (number.country_code, number.national_number) == (44, "25122012")
+
+
+def test_parse_reads_exactly_250_characters() -> None:
+    text = "650-253-0000" + " " * 238
+    assert len(text) == 250
+    assert PhoneNumber.parse(text, regions=("US",)).national_number == "6502530000"
 
 
 def test_parsed_number_formats() -> None:

@@ -66,15 +66,20 @@ Four rules are deliberate departures, each chosen for the text a linkifier sees 
 - A digit run in a payment-card shape that passes the Luhn check is not a number (``skip_card_numbers``), and neither is
   an unbroken card of 13 to 19 digits wherever it sits in a run, so the phone written after one is still found. The
   library links the card when its groups happen to form a valid number.
-- The hextets of an IPv6 address (``2001:db8::8888``, ``[::1]:8080``) are not numbers; the library reads ``8888`` as one
-  under a plan with four-digit numbers.
+- The hextets and port of an IPv6 literal (``2001:db8::8888``, ``[::1]:8080``) are not numbers; the library reads
+  ``8888`` as one under a plan with four-digit numbers. Only a well-formed literal counts: ``6502530000:6502530000:1``
+  holds two numbers for both.
 - ``require_separators=True`` refuses a bare digit run with no ``+``, separators or international prefix.
-- Letters never stand for digits: ``1-800-FLOWERS`` is not a number here, while the matcher reads a vanity number in
-  possible mode.
+- In prose, letters never stand for digits: ``1-800-FLOWERS`` is not a number here, while the matcher reads a vanity
+  number in possible mode. :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads it, as
+  ``phonenumbers.parse`` does.
 - A run that touches ``@`` on either side is never a number, and a URL, email or bare domain the scanner would link on
   its own wins over a number inside it: ``123@example.com`` and ``1password.com`` are what they were before phones were
-  on. A ``tel:`` URI already written in the text links as itself when its digits read as a number under the same
-  settings; ``tel:not-a-number`` stays text.
+  on. A ``tel:`` URI already written in the text is one phone link when its payload reads as a number under the same
+  settings, scheme and parameters included (the matcher links the payload alone), with the number's own ``tel:`` URI as
+  the href; ``tel:not-a-number`` stays text.
+- A second number cut off at ``/x`` (``650-253-0000 / x12``) ends on its last digit; the matcher's match keeps the space
+  before the slash.
 
 The conformance suite (``tests/conformance/test_phone_phonenumbers_conformance.py``) runs the pinned ``phonenumbers``
 release over every example number the metadata carries, in a dozen written forms and contexts, and fails on any
@@ -101,16 +106,18 @@ detected plain text only.
 ***********************************
 
 :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` is the recognizer pointed at one string, with the rules
-that exist for prose switched off: no separators are required, a payment-card shape is not refused, no word before the
-digits marks them as an identifier, the national prefix need not be written, and the auto-dialling extension forms
-``parse`` alone reads (``,,1234``, ``;1234``) join the written ones. An RFC 3966 local number reads through its
-``phone-context``, a calling code put in front of the digits or a domain under which they read nationally, and
-``;isub=`` ends the number, as in ``phonenumbers``. The characters before the first ``+`` or digit are skipped, which is
-how ``phonenumbers.parse`` treats ``Tel:`` and the ``tel:`` scheme, and after the number only characters that cannot
-continue it may follow, so two numbers in one string are an error rather than the first of them. What remains is the
-matcher's reading of one candidate, which is why a letter glued to the digits (``x650-253-0000``) is refused here in
-valid mode and accepted by ``phonenumbers``. The conformance suite parses every rendering of every example number with
-both and expects the same country code, national number and extension, or a refusal from both.
+``phonenumbers.parse`` applies rather than the prose matcher's: no separators are required, a payment-card shape is not
+refused, no word before the digits marks them as an identifier, the national prefix need not be written, and the
+auto-dialling extension forms ``parse`` alone reads (``,,1234``, ``;1234``) join the written ones. The number starts at
+the first ``+`` or digit, which is how ``Tel:``, the ``tel:`` scheme and a letter glued to the digits
+(``x650-253-0000``) are skipped; from the end, characters that are neither digits, letters nor ``#`` are dropped, and a
+second number after ``/x`` is cut off. What remains must be digits, separators and ASCII letters with an extension at
+the end, so ``650-253-0000 or 650-253-0001`` is an error rather than the first of them. Three or more letters spell a
+vanity number (``1-800-FLOWERS``) and fewer are dropped, which also makes ``650-253-0000 today`` an error: ``today``
+spells five more digits. An RFC 3966 local number reads through its ``phone-context``, a calling code put in front of
+the digits or a domain under which they read nationally, and ``;isub=`` ends the number, as in ``phonenumbers``. The
+conformance suite parses every rendering of every example number and a corpus of prose shapes with both and expects the
+same country code, national number and extension, or a refusal from both.
 
 ******************
  Writing a number
