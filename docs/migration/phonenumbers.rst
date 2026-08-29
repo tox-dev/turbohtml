@@ -170,8 +170,8 @@ no digits at all is the narrowest row, 8x to 9x, the cost of the trigger scan al
 - ``regions`` is ordered: the first region whose plan reads a prefix-less number wins, so put the region most of your
   text is written for first.
 - ``phone.e164`` is ``None`` for the few national services longer than 15 digits; their href is RFC 3966's local form
-  with a ``phone-context``, ``international_number`` still holds the digits, and ``e164`` is the value to hand a
-  system that enforces the ITU limit.
+  with a ``phone-context``, ``international_number`` still holds the digits, and ``e164`` is the value to hand a system
+  that enforces the ITU limit.
 - A number split across elements (``<b>650-253</b>-0000``) is not joined; the scanner works on one text node at a time.
 - ``PhoneNumberMatcher`` returns nothing after a slash date in the same run; turbohtml links the number, so counts
   differ on texts that mix dates and numbers.

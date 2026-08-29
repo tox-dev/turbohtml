@@ -60,9 +60,9 @@ empty.
 Four rules are deliberate departures, each chosen for the text a linkifier sees rather than the text a parser is handed:
 
 - A slash date (``3/10/2011``), a timestamp (``2012-01-02 08:00``), an IPv4 address and a labeled identifier (``Order
-  12345``, the ``ignore_numbers_after`` words) poison only their own groups; a label reaches as far as the groups
-  joined to it without whitespace, so ``Order 650-253-0000`` is an identifier and ``Order 12345, 650-253-0000`` holds
-  a number. libphonenumber discards the whole run, so the number after a date is lost there and kept here.
+  12345``, the ``ignore_numbers_after`` words) poison only their own groups; a label reaches as far as the groups joined
+  to it without whitespace, so ``Order 650-253-0000`` is an identifier and ``Order 12345, 650-253-0000`` holds a number.
+  libphonenumber discards the whole run, so the number after a date is lost there and kept here.
 - A digit run in a payment-card shape that passes the Luhn check is not a number (``skip_card_numbers``). The library
   links it when the groups happen to form a valid number.
 - ``require_separators=True`` refuses a bare digit run with no ``+``, separators or international prefix.
