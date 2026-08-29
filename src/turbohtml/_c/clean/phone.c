@@ -353,6 +353,10 @@ enum length_result {
 };
 
 static enum length_result length_result(const th_phone_region *region, size_t len) {
+    /* a run holds up to 240 digits, far past the 32 lengths the masks describe and past every plan's longest */
+    if (len >= 32) {
+        return LENGTH_TOO_LONG;
+    }
     if (region->possible_local_only >> len & 1) {
         return LENGTH_LOCAL_ONLY;
     }
@@ -605,15 +609,18 @@ static int group_of_country_code(const char *digits, size_t *code_length) {
 
 /* A number that carries its own country code: the calling code's main region strips its national prefix
    (parseHelper's regionMetadata switch), then the group routes and validates. */
-static void read_international(const th_phone_config *config, const char *digits, size_t len, reading *result) {
+static int read_international(const th_phone_config *config, const char *digits, size_t len, reading *result) {
     result->found = 0;
     if (len <= 2) {
-        return;
+        return 1;
     }
     size_t code_length = 0;
     int group_index = group_of_country_code(digits, &code_length);
-    if (group_index < 0 || len - code_length < 2) {
-        return;
+    if (group_index < 0) {
+        return 0;
+    }
+    if (len - code_length < 2) {
+        return 1;
     }
     const th_phone_group *group = &th_phone_groups[group_index];
     digit_string rest;
@@ -621,12 +628,18 @@ static void read_international(const th_phone_config *config, const char *digits
     digit_string nsn;
     strip_prefix(&th_phone_regions[group->main], &rest, 1, &nsn);
     validate(config, group, &nsn, result);
+    return 1;
 }
+
+/* Which of parseHelper's readings a default region may make: all three, the international prefix alone (a bare
+   digit run under require_separators), or the two that carry a country code (the retry after a plus that led to no
+   calling code). */
+enum reading_mode { READ_ANY = 0, READ_IDD = 1, READ_WITH_CODE = 2 };
 
 /* parseHelper with a default region: an international prefix commits to a country code, the region's own country
    code may be stripped after the extraction test, otherwise the national prefix is stripped and the group validates. */
 static void read_national(const th_phone_config *config, uint16_t region_index, const char *digits, size_t len,
-                          int idd_only, reading *result) {
+                          enum reading_mode mode, reading *result) {
     result->found = 0;
     const th_phone_region *region = &th_phone_regions[region_index];
     int idd_end = priority_match_end(region->idd, digits, len);
@@ -637,7 +650,7 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
         }
         return;
     }
-    if (idd_only) {
+    if (mode == READ_IDD) {
         return;
     }
     const th_phone_group *group = &th_phone_groups[region->group];
@@ -668,6 +681,9 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
             result->source = SOURCE_OWN_CODE;
             return;
         }
+    }
+    if (mode == READ_WITH_CODE) {
+        return;
     }
     digit_string input;
     copy_digits(&input, digits, len);
@@ -1003,18 +1019,40 @@ static size_t timestamp_groups(th_phone_read read, const void *text, size_t len,
     return spanned;
 }
 
-static int is_ipv4(const run_record *run) {
-    if (run->group_count != 4 || run->plus) {
-        return 0;
+/* An IPv4 address is four dot-joined groups worth at most 255 each with no further dotted group on either side.
+   Each one poisons its own four groups, so the number written after an address keeps its first group. */
+static void poison_ipv4(run_record *run) {
+    if (run->plus) {
+        return;
     }
-    for (size_t index = 0; index < 4; index++) {
-        const group_record *group = &run->groups[index];
-        unsigned value;
-        if ((index > 0 && !group->separator_is_dots) || !group_value(run, group, &value) || value > 255) {
-            return 0;
+    for (size_t index = 0; index + 4 <= run->group_count; index++) {
+        int address = index == 0 || !run->groups[index].separator_is_dots;
+        address &= index + 4 == run->group_count || !run->groups[index + 4].separator_is_dots;
+        for (size_t offset = 0; offset < 4; offset++) {
+            unsigned value;
+            const group_record *group = &run->groups[index + offset];
+            address &= (offset == 0 || group->separator_is_dots) && group_value(run, group, &value) && value <= 255;
+        }
+        if (address) {
+            run->poison |= 0xFu << index;
         }
     }
-    return 1;
+}
+
+static int is_space_separator(uint32_t code) {
+    return code == ' ' || code == 0xA0 || code == 0x3000;
+}
+
+/* Does whitespace sit between a group and the one before it? An identifier label reaches over hyphens and dots
+   (`Order 650-253-0000`), not over the space that starts a new token (`Order 12345, 650-253-0000`). */
+static int separator_has_space(th_phone_read read, const void *text, const run_record *run, size_t index) {
+    for (size_t position = run->groups[index - 1].end; position < run->groups[index].start; position++) {
+        uint32_t code = read(text, position);
+        if (is_space_separator(code)) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int label_before(th_phone_read read, const void *text, size_t start, const th_phone_config *config) {
@@ -1040,8 +1078,7 @@ static int label_before(th_phone_read read, const void *text, size_t start, cons
         position--;
         length++;
     }
-    if (length == 0 ||
-        (position > 0 && ((read(text, position - 1) | 0x20) >= 'a' && (read(text, position - 1) | 0x20) <= 'z'))) {
+    if (length == 0 || (position > 0 && is_latin_letter(read(text, position - 1)))) {
         return 0;
     }
     for (size_t index = 0; index < length; index++) {
@@ -1081,11 +1118,13 @@ static void poison(th_phone_read read, const void *text, size_t len, const th_ph
     if (stamp) {
         run->poison |= ((1u << stamp) - 1u) << (run->group_count - stamp);
     }
-    if (is_ipv4(run)) {
-        run->poison |= 0xFu;
-    }
+    poison_ipv4(run);
     if (label_before(read, text, run->start, config)) {
-        run->poison |= 1u;
+        size_t index = 0;
+        do {
+            run->poison |= 1u << index;
+            index++;
+        } while (index < run->group_count && !separator_has_space(read, text, run, index));
     }
 }
 
@@ -1126,9 +1165,6 @@ static int is_card_shape(const run_record *run) {
 
 /* Java's \p{Z} restricted to the separators a candidate can hold: of the space characters, only these three are in
    libphonenumber's VALID_PUNCTUATION, so no other reaches the split rules. */
-static int is_space_separator(uint32_t code) {
-    return code == ' ' || code == 0xA0 || code == 0x3000;
-}
 
 static int is_wide_hyphen(uint32_t code) {
     return (code >= 0x2012 && code <= 0x2015) || code == 0xFF0D;
@@ -1421,9 +1457,13 @@ static size_t write_country_code(unsigned country_code, char *out) {
 }
 
 /* The candidate as the matcher normalizes it for the grouping checks: every digit an ASCII digit, every other code
-   point kept. A chunk lies inside one run, so it holds at most TH_PHONE_MAX_RUN_CHARS code points. */
+   point kept. A run may reach TH_PHONE_MAX_RUN_CHARS from its first digit and then hold one more group, after its
+   lead characters and before an extension; a chunk that read as a number is far shorter, its digits being a country
+   code, a prefix and a national number. */
+#define CANDIDATE_CAPACITY (MAX_LEAD_CHARS + TH_PHONE_MAX_RUN_CHARS + TH_PHONE_MAX_GROUP_DIGITS + 128)
+
 typedef struct {
-    uint32_t data[TH_PHONE_MAX_RUN_CHARS + 1];
+    uint32_t data[CANDIDATE_CAPACITY];
     size_t len;
 } candidate_text;
 
@@ -1693,13 +1733,16 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
     size_t digit_count =
         run->groups[last - 1].digits_offset + run->groups[last - 1].count - run->groups[first].digits_offset;
     found->result.found = 0;
-    if (plus) {
-        read_international(config, digits, digit_count, &found->result);
+    if (plus && read_international(config, digits, digit_count, &found->result)) {
         found->result.source = SOURCE_PLUS;
     } else {
-        int idd_only = config->require_separators && last - first == 1;
+        /* after a plus that led to no calling code, parseHelper drops the plus and lets the default region's
+           international prefix or own code read the digits; it never reads them as a national number */
+        enum reading_mode mode = plus                                              ? READ_WITH_CODE
+                                 : config->require_separators && last - first == 1 ? READ_IDD
+                                                                                   : READ_ANY;
         for (size_t position = 0; position < config->region_count && !found->result.found; position++) {
-            read_national(config, config->regions[position], digits, digit_count, idd_only, &found->result);
+            read_national(config, config->regions[position], digits, digit_count, mode, &found->result);
         }
     }
     return found->result.found &&
@@ -1768,27 +1811,34 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
     return 0;
 }
 
-int th_phone_parse(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
+/* The ASCII marks that may trail a parsed number: the punctuation and whitespace of the text around it, not `#`,
+   which libphonenumber reads as part of a number. */
+static int is_ascii_punctuation(uint32_t code) {
+    static const char marks[] = " !\"$%&'()*+,-./:;<=>?@[\\]^_`{|}~\t\n\r";
+    return code < 0x80 && memchr(marks, (int)code, sizeof marks) != NULL;
+}
+
+int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match) {
-    size_t first = 0;
-    while (first < len && !is_plus(read(text, first)) && th_phone_digit_value(read(text, first)) < 0) {
+    size_t first = start;
+    while (first < end && !is_plus(read(text, first)) && th_phone_digit_value(read(text, first)) < 0) {
         first++;
     }
     size_t digit = first;
-    while (digit < len && th_phone_digit_value(read(text, digit)) < 0) {
+    while (digit < end && th_phone_digit_value(read(text, digit)) < 0) {
         digit++;
     }
-    if (digit == len) {
+    if (digit == end) {
         return 0;
     }
     size_t retry;
-    if (!th_phone_find(read, text, len, 0, digit, config, match, &retry) || match->start > first) {
+    if (!th_phone_find(read, text, end, start, digit, config, match, &retry) || match->start > first) {
         return 0;
     }
-    for (size_t position = match->end; position < len; position++) {
+    for (size_t position = match->end; position < end; position++) {
         uint32_t code = read(text, position);
-        int continues = (th_phone_digit_value(code) >= 0) + is_latin_letter(code) + (code == '#');
-        if (continues) {
+        int trailing = is_punctuation(code) + is_closer(code) + is_ascii_punctuation(code);
+        if (!trailing) {
             return 0;
         }
     }

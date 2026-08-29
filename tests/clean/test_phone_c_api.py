@@ -135,7 +135,7 @@ def test_compile_rejects_each_malformed_field(
 
 
 def test_compile_accepts_the_bounds() -> None:
-    labels = tuple(f"l{index:03d}" for index in range(256))
+    labels = tuple("l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256))
     spec = _spec(regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"), labels=labels, type_mask=1)
     assert _phone_config_compile(spec) is not None
 

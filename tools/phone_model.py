@@ -11,6 +11,7 @@ speed; the C port keeps its structure and decision order.
 from __future__ import annotations
 
 import re
+import string
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -275,15 +276,18 @@ class Recognizer:
         if not _brackets_match(chunk) or _PUB_PAGES.search(chunk) or self._blocked_by_neighbors(text, start, chunk_end):
             return None
         digits = "".join(group.digits for group in run.groups[first:last])
-        if any(char in PLUS for char in text[start : run.groups[first].start]):
+        plus = any(char in PLUS for char in text[start : run.groups[first].start])
+        if plus and self._country_code(digits)[0] is not None:
             reading = self._international(digits, None)
         else:
-            idd_only = self.config.require_separators and last - first == 1
+            # after a plus that led to no calling code, parseHelper drops the plus and lets the default region's
+            # international prefix or own code read the digits; it never reads them as a national number
+            mode = "with-code" if plus else "idd" if self.config.require_separators and last - first == 1 else "any"
             reading = next(
                 (
                     found
                     for region_index in self.regions
-                    if (found := self._national(region_index, digits, idd_only=idd_only)) is not None
+                    if (found := self._national(region_index, digits, mode=mode)) is not None
                 ),
                 None,
             )
@@ -443,17 +447,28 @@ class Recognizer:
                 run.poison.update(id(group) for group in (first, second, third))
         if spanned := _timestamp_groups(text, run):
             run.poison.update(id(group) for group in groups[-spanned:])
-        if (
-            len(groups) == 4
-            and not run.plus
-            and all(group.separator == "." for group in groups[1:])
-            and all(len(group.digits) <= 3 and int(group.digits) <= 255 for group in groups)
-        ):
-            run.poison.update(id(group) for group in groups)
-        if self.config.labels:
-            word = _word_before(text, run.start)
-            if word and word in self.config.labels:
-                run.poison.add(id(groups[0]))
+        if not run.plus:
+            self._poison_ipv4(run)
+        if self.config.labels and (word := _word_before(self.tables, text, run.start)) and word in self.config.labels:
+            # the label reaches over hyphens and dots, not over the whitespace that starts a new token
+            for index, group in enumerate(groups):
+                if index > 0 and any(char in " \xa0\u3000" for char in group.separator):
+                    break
+                run.poison.add(id(group))
+
+    @staticmethod
+    def _poison_ipv4(run: _Run) -> None:
+        """Poison the four groups of each IPv4 address in the run, wherever it sits, and nothing around it."""
+        groups = run.groups
+        for index in range(len(groups) - 3):
+            window = groups[index : index + 4]
+            bounded = (index == 0 or groups[index].separator != ".") and (
+                index + 4 == len(groups) or groups[index + 4].separator != "."
+            )
+            dotted = all(group.separator == "." for group in window[1:])
+            octets = all(len(group.digits) <= 3 and int(group.digits) <= 255 for group in window)
+            if bounded and dotted and octets:
+                run.poison.update(id(group) for group in window)
 
     def _international(self, digits: str, parse_region: int | None) -> _Reading | None:
         """Build a ``+`` reading: country code by the 1-2-3 digit index, the main region's prefix rule, then routing."""
@@ -479,7 +494,7 @@ class Recognizer:
                 return index, length
         return None, 0
 
-    def _national(self, region_index: int, digits: str, *, idd_only: bool = False) -> _Reading | None:
+    def _national(self, region_index: int, digits: str, *, mode: str = "any") -> _Reading | None:
         """ParseHelper with a default region: IDD first, then the region's own country code, then a national read."""
         tables = self.tables.regions[region_index]
         region = tables.region
@@ -489,7 +504,7 @@ class Recognizer:
                 # committed to international parsing: too short or an unknown country code raises upstream
                 rest = digits[idd_end:]
                 return self._international(rest, None) if len(rest) > MIN_NSN else None
-        if idd_only:
+        if mode == "idd":
             return None
         code = str(region.country_code)
         if digits.startswith(code) and len(digits) > len(code):
@@ -505,8 +520,7 @@ class Recognizer:
                 else:
                     potential = self._strip_prefix(tables, potential, adopt=True)
                 return self._validate(group, potential)
-        nsn = self._strip_prefix(tables, digits, adopt=True)
-        if not MIN_NSN <= len(nsn) <= MAX_NSN:
+        if mode == "with-code" or not MIN_NSN <= len(nsn := self._strip_prefix(tables, digits, adopt=True)) <= MAX_NSN:
             return None
         group = self.tables.groups[self.tables.group_of_code[region.country_code]]
         reading = self._validate(group, nsn)
@@ -756,13 +770,16 @@ def _timestamp_groups(text: str, run: _Run) -> int:
     return spanned if stamp[0] in "12" and stamp[4] <= "1" and stamp[6] <= "3" else 0
 
 
-def _word_before(text: str, start: int) -> str:
+def _word_before(tables: Tables, text: str, start: int) -> str:
+    """Return the ASCII word right before the digits, or "" when a Latin letter glued to it makes a longer word."""
     position = start
     while position > 0 and text[position - 1] in " \t.:#-":
         position -= 1
     word_end = position
-    while position > 0 and text[position - 1].isalpha() and position > word_end - 12:
+    while position > 0 and text[position - 1] in string.ascii_letters and position > word_end - 12:
         position -= 1
+    if position > 0 and is_latin_letter(tables, text[position - 1]):
+        return ""
     return text[position:word_end].lower()
 
 

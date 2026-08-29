@@ -193,6 +193,7 @@ def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
         pytest.param([1], TypeError, "ignore_numbers_after", id="int-entry"),
         pytest.param(7, TypeError, "iterable", id="not-iterable"),
         pytest.param(["a-b"], ValueError, "phone label 'a-b'", id="punctuation"),
+        pytest.param(["ref2"], ValueError, "phone label 'ref2'", id="digit"),
         pytest.param([""], ValueError, "phone label ''", id="empty-entry"),
         pytest.param(["abcdefghijklm"], ValueError, "phone label", id="thirteen-bytes"),
         pytest.param(["ünit"], ValueError, "phone label", id="non-ascii"),

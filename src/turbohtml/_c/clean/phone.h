@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #define TH_PHONE_MAX_REGIONS 8
+/* a run's last group starts within this many code points of its first digit */
 #define TH_PHONE_MAX_RUN_CHARS 250
 #define TH_PHONE_MAX_GROUPS 21
 #define TH_PHONE_MAX_GROUP_DIGITS 20
@@ -86,11 +87,10 @@ typedef struct {
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
                   const th_phone_config *config, th_phone_match *match, size_t *retry);
 
-/* Read `text` as one number, the way phonenumbers' parse reads a string it is handed: the characters before the
-   first plus or digit are skipped (an RFC 3966 `tel:` scheme among them), the run is read like a matcher candidate,
-   and after it only characters that are not digits, Latin letters or `#` may follow. Returns 1 and fills `match`,
-   or 0. */
-int th_phone_parse(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
+/* Read `text[start:end]` as one number, the way phonenumbers' parse reads a string it is handed: the characters
+   before the first plus or digit are skipped (an RFC 3966 `tel:` scheme among them), the run is read like a matcher
+   candidate, and after it only whitespace and punctuation may follow. Returns 1 and fills `match`, or 0. */
+int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match);
 
 /* The decimal value of a code point under Unicode Nd, or -1. */

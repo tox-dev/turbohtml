@@ -60,14 +60,16 @@ empty.
 Four rules are deliberate departures, each chosen for the text a linkifier sees rather than the text a parser is handed:
 
 - A slash date (``3/10/2011``), a timestamp (``2012-01-02 08:00``), an IPv4 address and a labeled identifier (``Order
-  12345``, the ``ignore_numbers_after`` words) poison only their own groups. libphonenumber discards the whole run, so
-  the number after a date is lost there and kept here.
+  12345``, the ``ignore_numbers_after`` words) poison only their own groups; a label reaches as far as the groups
+  joined to it without whitespace, so ``Order 650-253-0000`` is an identifier and ``Order 12345, 650-253-0000`` holds
+  a number. libphonenumber discards the whole run, so the number after a date is lost there and kept here.
 - A digit run in a payment-card shape that passes the Luhn check is not a number (``skip_card_numbers``). The library
   links it when the groups happen to form a valid number.
 - ``require_separators=True`` refuses a bare digit run with no ``+``, separators or international prefix.
 - A run that touches ``@`` on either side is never a number, and a URL, email or bare domain the scanner would link on
   its own wins over a number inside it: ``123@example.com`` and ``1password.com`` are what they were before phones were
-  on. A ``tel:`` URI already written in the text links as itself.
+  on. A ``tel:`` URI already written in the text links as itself when its digits read as a number under the same
+  settings; ``tel:not-a-number`` stays text.
 
 The conformance suite (``tests/conformance/test_phone_phonenumbers_conformance.py``) runs the pinned ``phonenumbers``
 release over every example number the metadata carries, in a dozen written forms and contexts, and fails on any
@@ -82,8 +84,8 @@ leading zeros the plan keeps, the extension digits, the region whose plan assign
 code such as ``+800``) and the type. ``international_number`` is ``+`` followed by the digits with no separators, which
 is what the ``tel:`` href carries; an extension follows as ``;ext=`` per RFC 3966, so ``tel:+16502530000;ext=1234``.
 ``e164`` is the same string when it fits the 15-digit ITU limit and ``None`` otherwise: the metadata declares longer
-valid national services (Germany, Indonesia, Japan, Korea, Nigeria and Uruguay), and those link without being E.164
-numbers.
+valid national services (Germany, Indonesia, Japan, Korea, Nigeria and Uruguay), and since RFC 3966 composes a global
+number from E.164, those link with the local form it allows instead, ``tel:200000000000000;phone-context=+49``.
 
 Callbacks see the number on ``link.phone``, so a callback can route mobiles to ``sms:`` or drop premium-rate numbers. An
 anchor already in the input reaches a callback with ``phone`` set to ``None`` whatever its ``href``; the field describes

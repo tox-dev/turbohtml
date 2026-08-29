@@ -159,7 +159,7 @@ static int label_is_well_formed(const char *text, Py_ssize_t length) {
     if (length < 1 || length > MAX_LABEL_LENGTH) {
         return 0;
     }
-    static const char allowed[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+    static const char allowed[] = "abcdefghijklmnopqrstuvwxyz";
     for (Py_ssize_t offset = 0; offset < length; offset++) {
         if (memchr(allowed, text[offset], sizeof(allowed) - 1) == NULL) {
             return 0;
@@ -199,7 +199,7 @@ static int parse_labels(PyObject *labels, PhoneConfigObject *self) {
             return -1;
         }
         if (!label_is_well_formed(text, length)) {
-            PyErr_Format(PyExc_ValueError, "phone label %R must be 1-12 lowercase ASCII letters or digits", item);
+            PyErr_Format(PyExc_ValueError, "phone label %R must be 1-12 lowercase ASCII letters", item);
             return -1;
         }
         if (index > 0) {
@@ -466,7 +466,7 @@ PyObject *turbohtml_phone_parse(PyObject *module, PyObject *args) {
         return NULL;
     }
     th_phone_match match;
-    if (!th_phone_parse(read_str, text, (size_t)PyUnicode_GET_LENGTH(text), &((PhoneConfigObject *)config)->config,
+    if (!th_phone_parse(read_str, text, 0, (size_t)PyUnicode_GET_LENGTH(text), &((PhoneConfigObject *)config)->config,
                         &match)) {
         Py_RETURN_NONE;
     }

@@ -48,6 +48,8 @@ from phone_dfa import (
     union_program,
 )
 
+from turbohtml.clean import DEFAULT_PHONE_LABELS
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -401,6 +403,10 @@ def test_parse_transform_accepts_the_grammar(rule: str | None, expected: tuple[s
 def test_parse_transform_rejects_other_rules(rule: str) -> None:
     with pytest.raises(GenerationError):
         parse_transform(rule, compile_program(r"0?(9)?(11)"))
+
+
+def test_default_labels_match_the_runtime() -> None:
+    assert tuple(sorted(generate_phone.DEFAULT_LABELS)) == DEFAULT_PHONE_LABELS
 
 
 def test_java_constants_must_occur_verbatim() -> None:

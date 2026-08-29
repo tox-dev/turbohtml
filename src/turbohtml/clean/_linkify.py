@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 from turbohtml._html import (
     _linkify_apply,
@@ -29,6 +29,8 @@ from turbohtml._html import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+
+    from typing_extensions import Self
 
     from turbohtml._html import _PhoneConfig
 
@@ -152,10 +154,10 @@ class PhoneNumbers:
     order decides which national reading wins, so any ordered iterable of ``str`` is accepted (a list, a tuple, a
     ``deque``, a generator, a caller's own iterable) and a bare string, a set or a mapping is a ``TypeError``, a
     runtime rule the ``Iterable[str]`` annotation cannot express. ``ignore_numbers_after`` are the words that mark
-    the run of digits right after them as an identifier, not a number: ``Order 12345`` is skipped, the phone in
-    ``Order 12345, 650-253-0000`` is still found, and ``Phone no. 650-253-0000`` links because ``no`` is not in the
-    default list. Words are compared ASCII case-folded against the word immediately before the digits and stored
-    sorted; ``()`` disables the rule.
+    the digits right after them as an identifier, not a number, as far as the groups joined without whitespace reach:
+    ``Order 12345`` and ``Order 650-253-0000`` are skipped, the phone in ``Order 12345, 650-253-0000`` is still found,
+    and ``Phone no. 650-253-0000`` links because ``no`` is not in the default list. Words are ASCII letters, compared
+    case-folded against the word immediately before the digits and stored sorted; ``()`` disables the rule.
 
     :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes (``"US"``).
     :param require_valid: link only numbers the region's numbering plan assigns (libphonenumber's ``VALID``); False
@@ -243,7 +245,8 @@ class PhoneNumber:
     separators and no extension, the string libphonenumber's ``E164`` formatter emits and the value the ``tel:`` href
     carries. ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None`` otherwise: the pinned
     metadata declares longer valid national services (DE, ID, JP, KR, NG and UY, up to 19 digits with the country
-    code), and those are linked but are not E.164 numbers.
+    code), and those link with RFC 3966's local form, ``tel:200000000000000;phone-context=+49``, since a global
+    ``tel:`` number must be E.164.
 
     :param country_code: the calling code, ``1`` for ``+1``.
     :param national_number: the national significant number, ASCII digits with the leading zeros the plan keeps.
@@ -280,15 +283,15 @@ class PhoneNumber:
         _phone_number_check(self.country_code, self.national_number, self.region, _PHONE_TYPES.index(self.type))
 
     @classmethod
-    def parse(cls, text: str, *, regions: Iterable[str] = (), require_valid: bool = True) -> PhoneNumber:
+    def parse(cls, text: str, *, regions: Iterable[str] = (), require_valid: bool = True) -> Self:
         """
         Read a string that holds one phone number, the way ``phonenumbers.parse`` reads it.
 
-        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators,
-        an extension in any written form and punctuation after it; the number itself must be the whole of the rest,
-        so ``650-253-0000 or 650-253-0001`` is not one number. A number written without ``+`` is read with each of
-        ``regions`` in turn, and unlike detection it needs neither separators nor the national prefix its format
-        writes, and a payment-card shape is not refused.
+        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators
+        and an extension in any written form; after the number only whitespace and punctuation may follow, so
+        ``650-253-0000 or 650-253-0001`` is not one number and neither is ``650-253-0000 today``. A number written
+        without ``+`` is read with each of ``regions`` in turn, and unlike detection it needs neither separators nor
+        the national prefix its format writes, and a payment-card shape is not refused.
 
         :param text: the text holding the number.
         :param regions: the ordered fallback regions for a number written without ``+``.
@@ -299,11 +302,11 @@ class PhoneNumber:
         if not isinstance(text, str):
             msg = "text must be str"
             raise TypeError(msg)
-        config = _parse_config(_ordered_strings(regions, "regions"), require_valid=require_valid)
+        config = _parse_config(cls, _ordered_strings(regions, "regions"), require_valid=require_valid)
         if (number := _phone_parse(config, text)) is None:
             msg = f"{text!r} is not a phone number"
             raise ValueError(msg)
-        return number
+        return cast("Self", number)  # the native factory built cls, which the binding's annotation cannot say
 
     @classmethod
     def _from_native(cls, *fields: object) -> PhoneNumber:
@@ -347,17 +350,16 @@ class PhoneNumber:
 
 
 @functools.lru_cache(maxsize=32)
-def _parse_config(regions: tuple[str, ...], *, require_valid: bool) -> _PhoneConfig:
+def _parse_config(number_type: type[PhoneNumber], regions: tuple[str, ...], *, require_valid: bool) -> _PhoneConfig:
     # keyed on the raw regions so a repeated parse call pays a cache lookup, not a settings object and its compile
-    return _compile_settings(
-        PhoneNumbers(
-            regions=regions,
-            require_valid=require_valid,
-            skip_card_numbers=False,
-            require_national_prefix=False,
-            ignore_numbers_after=(),
-        )
+    settings = PhoneNumbers(
+        regions=regions,
+        require_valid=require_valid,
+        skip_card_numbers=False,
+        require_national_prefix=False,
+        ignore_numbers_after=(),
     )
+    return _compile_settings(settings, number_type)
 
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
@@ -367,10 +369,10 @@ def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
     if not isinstance(phones, PhoneNumbers):
         msg = "phones must be PhoneNumbers or None"
         raise TypeError(msg)
-    return _compile_settings(phones)
+    return _compile_settings(phones, PhoneNumber)
 
 
-def _compile_settings(phones: PhoneNumbers) -> _PhoneConfig:
+def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber]) -> _PhoneConfig:
     mask = _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types)
     return _phone_config_compile((
         phones.regions,
@@ -381,7 +383,7 @@ def _compile_settings(phones: PhoneNumbers) -> _PhoneConfig:
         _PHONE_GROUPINGS.index(phones.grouping),
         mask,
         phones.ignore_numbers_after,
-        PhoneNumber,
+        number_type,
         _PHONE_TYPES,
     ))
 

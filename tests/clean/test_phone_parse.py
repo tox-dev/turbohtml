@@ -31,6 +31,12 @@ def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, Phon
             id="label-and-trailing-period",
         ),
         pytest.param(
+            "650-253-0000!?", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="ascii-marks"
+        ),
+        pytest.param(
+            "(650) 253-0000)", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="closer-after"
+        ),
+        pytest.param(
             "  +1 650 253 0000  ", (), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="whitespace"
         ),
         pytest.param(
@@ -66,6 +72,8 @@ def test_parse_reads_one_number(
         pytest.param("555-123-4567", ("US",), id="invalid"),
         pytest.param("650-253-0000 or 650-253-0001", ("US",), id="two-numbers"),
         pytest.param("650-253-0000 today", ("US",), id="letters-after"),
+        pytest.param("650-253-0000 \u7535\u8bdd", ("US",), id="han-after"),
+        pytest.param("650-253-0000 \u0437\u0430\u0432\u0442\u0440\u0430", ("US",), id="cyrillic-after"),
         pytest.param("650-253-0000 1", ("US",), id="digit-after"),
         pytest.param("650-253-0000 #", ("US",), id="hash-after"),
         pytest.param("12 650-253-0000", ("US",), id="digits-before"),
@@ -90,6 +98,13 @@ def test_possible_mode_accepts_a_plausible_length() -> None:
 
 def test_parsed_number_formats() -> None:
     assert PhoneNumber.parse("+49 30 12345678").format() == "+49 30 12345678"
+
+
+def test_subclass_parses_to_itself() -> None:
+    class Held(PhoneNumber):
+        __slots__ = ()
+
+    assert type(Held.parse("+1 650-253-0000")) is Held
 
 
 def test_text_must_be_str() -> None:

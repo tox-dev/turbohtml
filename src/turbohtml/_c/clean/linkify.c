@@ -463,6 +463,7 @@ typedef struct {
     PyObject *extra_tlds;
     PyObject *schemes;
     PyObject *url_schemes;
+    const PhoneConfigObject *phone;
     Py_ssize_t resume;
 } scan_view;
 
@@ -554,6 +555,17 @@ static Py_ssize_t skip_plain(const uint8_t *bytes, Py_ssize_t pos, Py_ssize_t le
     return pos;
 }
 
+/* Is the scheme before `colon` the `tel` phone detection registered? A written tel: URI then links only when its
+   payload reads as a number, so `tel:not-a-number` stays text. */
+static int scheme_is_tel(int kind, const void *data, Py_ssize_t start, Py_ssize_t colon) {
+    if (colon - start != 3) {
+        return 0;
+    }
+    return ((PyUnicode_READ(kind, data, start) | 0x20) == 't') &
+           ((PyUnicode_READ(kind, data, start + 1) | 0x20) == 'e') &
+           ((PyUnicode_READ(kind, data, start + 2) | 0x20) == 'l');
+}
+
 static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
                          enum th_link_kind *link_kind) {
     int kind = scan->kind;
@@ -564,8 +576,13 @@ static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ss
             return 1;
         }
         *link_kind = TH_LINK_SCHEME;
-        return scan->schemes != NULL &&
-               match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes);
+        if (scan->schemes == NULL ||
+            !match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes)) {
+            return 0;
+        }
+        th_phone_match number;
+        return scan->phone == NULL || !scheme_is_tel(kind, data, *start, pos) ||
+               th_phone_parse(read_point, scan, (size_t)pos + 1, (size_t)*end, &scan->phone->config, &number);
     }
     if (c == '@') {
         *link_kind = TH_LINK_EMAIL;
@@ -595,11 +612,16 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
     return 0;
 }
 
-/* The tel: URI of a recognized number, RFC 3966: the E.164-style global number, then `;ext=` for an extension. */
+/* The tel: URI of a recognized number, RFC 3966: the global number when it fits E.164's fifteen digits, else the
+   local number with its calling code as the phone-context, then `;ext=` for an extension. */
 static PyObject *phone_url(const th_phone_match *number) {
-    char buffer[5 + 4 + TH_PHONE_NSN_CAPACITY + 5 + TH_PHONE_MAX_EXTENSION + 1];
-    int written = snprintf(buffer, sizeof(buffer), "tel:+%u%.*s", (unsigned)number->country_code, (int)number->nsn_len,
-                           number->nsn);
+    char buffer[4 + 1 + 3 + TH_PHONE_NSN_CAPACITY + 15 + 1 + 3 + 5 + TH_PHONE_MAX_EXTENSION + 1];
+    char code[4];
+    int code_len = snprintf(code, sizeof(code), "%u", (unsigned)number->country_code);
+    int written =
+        code_len + number->nsn_len <= 15
+            ? snprintf(buffer, sizeof(buffer), "tel:+%s%.*s", code, (int)number->nsn_len, number->nsn)
+            : snprintf(buffer, sizeof(buffer), "tel:%.*s;phone-context=+%s", (int)number->nsn_len, number->nsn, code);
     if (number->ext_len) {
         written += snprintf(buffer + written, sizeof(buffer) - (size_t)written, ";ext=%.*s", (int)number->ext_len,
                             number->ext);
@@ -663,6 +685,7 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
         .extra_tlds = extra_tlds,
         .schemes = schemes,
         .url_schemes = url_schemes,
+        .phone = phone,
         .resume = 0,
     };
     trigger_memo memo = {-1, 0, 0, 0, TH_LINK_URL};
