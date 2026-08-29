@@ -34,6 +34,12 @@ def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, Phon
             "650-253-0000!?", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="ascii-marks"
         ),
         pytest.param(
+            "650-253-0000\u2003\u2026\u3001\uff01",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="unicode-space-and-marks",
+        ),
+        pytest.param(
             "(650) 253-0000)", ("US",), (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE), id="closer-after"
         ),
         pytest.param(
@@ -49,6 +55,90 @@ def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, Phon
             "20 7946 0958", ("GB",), (44, "2079460958", None, "GB", PhoneType.FIXED_LINE), id="prefix-not-required"
         ),
         pytest.param("011 44 20 7946 0958", ("US",), (44, "2079460958", None, "GB", PhoneType.FIXED_LINE), id="idd"),
+        pytest.param(
+            "650-253-0000,,1234",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="autodial",
+        ),
+        pytest.param(
+            "650-253-0000;1234",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="semicolon",
+        ),
+        pytest.param(
+            "650-253-0000,1234",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="one-comma",
+        ),
+        pytest.param(
+            "650-253-0000 ,, 1234#",
+            ("US",),
+            (1, "6502530000", "1234", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="spaced-autodial-with-suffix",
+        ),
+        pytest.param(
+            "tel:2530000;phone-context=+1650",
+            (),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="local-number-with-a-global-context",
+        ),
+        pytest.param(
+            " tel:2530000;phone-context=+1650",
+            (),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="space-before-the-scheme",
+        ),
+        pytest.param(
+            "tel:2530000;ext=12;phone-context=+1-650",
+            (),
+            (1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="local-number-extension-before-the-context",
+        ),
+        pytest.param(
+            "tel:2530000;phone-context=+1650;ext=12",
+            (),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="parameters-after-the-context-are-not-the-number",
+        ),
+        pytest.param(
+            "tel:650-253-0000;phone-context=example.com",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="domain-context-reads-nationally",
+        ),
+        pytest.param(
+            "tel:650-253-0000;phone-context=example.com.",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="domain-context-with-a-trailing-dot",
+        ),
+        pytest.param(
+            "tel:650-253-0000;phone-context=a1-b.example",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="domain-context-with-hyphens-and-digits",
+        ),
+        pytest.param(
+            "tel:0000;phone-context=+1(650)253",
+            (),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="global-context-with-visual-separators",
+        ),
+        pytest.param(
+            "tel:650-253-0000;isub=1234",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="isub-ends-the-number",
+        ),
+        pytest.param(
+            "tel:650-253-0000;ext=12;isub=1234",
+            ("US",),
+            (1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="extension-before-isub",
+        ),
         pytest.param(
             "030 12345678", ("US", "DE"), (49, "3012345678", None, "DE", PhoneType.FIXED_LINE), id="second-region"
         ),
@@ -74,10 +164,33 @@ def test_parse_reads_one_number(
         pytest.param("650-253-0000 today", ("US",), id="letters-after"),
         pytest.param("650-253-0000 \u7535\u8bdd", ("US",), id="han-after"),
         pytest.param("650-253-0000 \u0437\u0430\u0432\u0442\u0440\u0430", ("US",), id="cyrillic-after"),
+        pytest.param("650-253-0000 \u0915", ("US",), id="devanagari-letter-after"),
+        pytest.param("+1 650-253-0000\u2460", (), id="circled-digit-after"),
+        pytest.param("+1 650-253-0000\u00bd", (), id="fraction-after"),
+        pytest.param("+1 650-253-0000\u2168", (), id="roman-numeral-after"),
         pytest.param("650-253-0000 1", ("US",), id="digit-after"),
         pytest.param("650-253-0000 #", ("US",), id="hash-after"),
         pytest.param("12 650-253-0000", ("US",), id="digits-before"),
         pytest.param("x650-253-0000", ("US",), id="letter-glued-to-the-digits"),
+        pytest.param("tel:2530000;phone-context=", ("US",), id="empty-context"),
+        pytest.param("tel:2530000;phone-context=+", ("US",), id="context-without-digits"),
+        pytest.param("tel:2530000;phone-context=+1 650!", ("US",), id="context-with-a-stray-character"),
+        pytest.param("tel:2530000;phone-context=ex ample", ("US",), id="context-that-is-no-domain"),
+        pytest.param("tel:2530000;phone-context=a..b", ("US",), id="domain-with-an-empty-label"),
+        pytest.param("tel:2530000;phone-context=-a.com", ("US",), id="domain-label-starting-with-a-hyphen"),
+        pytest.param("tel:2530000;phone-context=a-.com", ("US",), id="domain-label-ending-with-a-hyphen"),
+        pytest.param("tel:2530000;phone-context=.example.com", ("US",), id="domain-starting-with-a-dot"),
+        pytest.param("tel:2530000;phone-context=1", ("US",), id="top-label-starting-with-a-digit"),
+        pytest.param("tel:2530000;phone-context=a.b_c", ("US",), id="domain-with-an-underscore"),
+        pytest.param("tel:1;phone-context=+" + "1" * 500, ("US",), id="context-past-any-number"),
+        pytest.param("tel:+1-650-253-0000;phone-context=+1", ("US",), id="global-number-with-a-global-context"),
+        pytest.param("tel:2530000;phone-contex", ("US",), id="truncated-parameter-name"),
+        pytest.param("tel:2530000;phone-context=+1\u00e9650", ("US",), id="context-with-a-non-ascii-mark"),
+        pytest.param(
+            "tel:2530000;phone-context=ex\u00e4mple.com", ("US",), id="domain-context-with-a-non-ascii-letter"
+        ),
+        pytest.param(";phone-context=+1650", ("US",), id="context-without-a-number"),
+        pytest.param("tel:" + "1 " * 300 + ";phone-context=+1", ("US",), id="number-part-past-the-buffer"),
     ],
 )
 def test_parse_refuses_text_that_is_not_one_number(text: str, regions: tuple[str, ...]) -> None:
@@ -89,6 +202,20 @@ def test_card_shape_is_read_unlike_detection() -> None:
     text = "0800 123456 7899"
     assert LinkDetector(phones=PhoneNumbers(regions=("DE",))).find(text) == []
     assert _fields(PhoneNumber.parse(text, regions=("DE",))) == (49, "8001234567899", None, "DE", PhoneType.TOLL_FREE)
+
+
+@pytest.mark.parametrize(
+    ("text", "regions", "expected"),
+    [
+        pytest.param("+44 20 7946 0958#", (), (44, "207946", "0958"), id="international"),
+        pytest.param("020 7946 0958#", ("IT",), (39, "0207946", "0958"), id="national-keeps-the-italian-zero"),
+    ],
+)
+def test_trailing_hash_makes_the_last_group_an_extension(
+    text: str, regions: tuple[str, ...], expected: tuple[int, str, str]
+) -> None:
+    number = PhoneNumber.parse(text, regions=regions, require_valid=False)
+    assert (number.country_code, number.national_number, number.extension) == expected
 
 
 def test_possible_mode_accepts_a_plausible_length() -> None:

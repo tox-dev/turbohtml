@@ -29,15 +29,15 @@ returns the number, its region and type, or the position the next probe may star
 *************************
 
 The recognizer follows ``PhoneNumberMatcher`` from libphonenumber, so a text links the way that library would find it. A
-run is up to 21 groups of up to 20 digits, joined by the punctuation the library allows between groups, with an optional
-``+`` or bracket in front and an extension at the end. The recognizer reads the whole run first; when that fails, it
-tries the library's inner splits in its order: after a slash, each bracketed part, around a spaced hyphen, around a wide
-hyphen, between dots, between spaces. It reads each candidate the way ``parse`` would with a default region: an
-international prefix commits to the country code that follows, the region's own country code may come off, or the
-national prefix comes off and the remaining digits go to the plan of each region sharing the calling code, in the
-library's routing order. A national number read this way must carry the national prefix its number format writes, so
-``2012-01-02 08`` is not a German number while ``030 12345678`` is; ``require_national_prefix=False`` drops that rule
-for text where numbers are written the way people dial them locally.
+run is up to 21 groups of up to 20 digits, the last of them starting within 250 code points of the first digit, joined
+by the punctuation the library allows between groups, with an optional ``+`` or bracket in front and an extension at the
+end. The recognizer reads the whole run first; when that fails, it tries the library's inner splits in its order: after
+a slash, each bracketed part, around a spaced hyphen, around a wide hyphen, between dots, between spaces. It reads each
+candidate the way ``parse`` would with a default region: an international prefix commits to the country code that
+follows, the region's own country code may come off, or the national prefix comes off and the remaining digits go to the
+plan of each region sharing the calling code, in the library's routing order. A national number read this way must carry
+the national prefix its number format writes, so ``2012-01-02 08`` is not a German number while ``030 12345678`` is;
+``require_national_prefix=False`` drops that rule for text where numbers are written the way people dial them locally.
 
 ``grouping`` adds libphonenumber's two stricter leniencies. Both start from a valid number and compare the digit groups
 the text wrote against the groups its format would write, in the international layout, and against each alternate format
@@ -69,6 +69,8 @@ Four rules are deliberate departures, each chosen for the text a linkifier sees 
 - The hextets of an IPv6 address (``2001:db8::8888``, ``[::1]:8080``) are not numbers; the library reads ``8888`` as one
   under a plan with four-digit numbers.
 - ``require_separators=True`` refuses a bare digit run with no ``+``, separators or international prefix.
+- Letters never stand for digits: ``1-800-FLOWERS`` is not a number here, while the matcher reads a vanity number in
+  possible mode.
 - A run that touches ``@`` on either side is never a number, and a URL, email or bare domain the scanner would link on
   its own wins over a number inside it: ``123@example.com`` and ``1password.com`` are what they were before phones were
   on. A ``tel:`` URI already written in the text links as itself when its digits read as a number under the same
@@ -100,12 +102,15 @@ detected plain text only.
 
 :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` is the recognizer pointed at one string, with the rules
 that exist for prose switched off: no separators are required, a payment-card shape is not refused, no word before the
-digits marks them as an identifier, and the national prefix need not be written. The characters before the first ``+``
-or digit are skipped, which is how ``phonenumbers.parse`` treats ``Tel:`` and the ``tel:`` scheme, and after the number
-only characters that cannot continue it may follow, so two numbers in one string are an error rather than the first of
-them. What remains is the matcher's reading of one candidate, which is why a letter glued to the digits
-(``x650-253-0000``) is refused here and accepted by ``phonenumbers``. The conformance suite parses every rendering of
-every example number with both and expects the same country code, national number and extension, or a refusal from both.
+digits marks them as an identifier, the national prefix need not be written, and the auto-dialling extension forms
+``parse`` alone reads (``,,1234``, ``;1234``) join the written ones. An RFC 3966 local number reads through its
+``phone-context``, a calling code put in front of the digits or a domain under which they read nationally, and
+``;isub=`` ends the number, as in ``phonenumbers``. The characters before the first ``+`` or digit are skipped, which is
+how ``phonenumbers.parse`` treats ``Tel:`` and the ``tel:`` scheme, and after the number only characters that cannot
+continue it may follow, so two numbers in one string are an error rather than the first of them. What remains is the
+matcher's reading of one candidate, which is why a letter glued to the digits (``x650-253-0000``) is refused here in
+valid mode and accepted by ``phonenumbers``. The conformance suite parses every rendering of every example number with
+both and expects the same country code, national number and extension, or a refusal from both.
 
 ******************
  Writing a number

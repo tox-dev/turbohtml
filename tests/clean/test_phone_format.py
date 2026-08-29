@@ -95,6 +95,23 @@ def test_extension_follows_the_regions_preferred_marker() -> None:
     assert number.format(PhoneFormat.NATIONAL) == "(01) 1234567 Anexo 22"
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("+49 200000000000000", "tel:2000-00000000000;phone-context=+49", id="past-e164"),
+        pytest.param(
+            "+49 200000000000000 ext. 12", "tel:2000-00000000000;ext=12;phone-context=+49", id="with-extension"
+        ),
+    ],
+)
+def test_rfc3966_past_e164_is_a_local_number(text: str, expected: str) -> None:
+    number = PhoneNumber.parse(text, require_valid=False)
+    assert number.e164 is None
+    assert number.format(PhoneFormat.RFC3966) == expected
+    parsed = PhoneNumber.parse(number.format(PhoneFormat.RFC3966), require_valid=False)
+    assert (parsed.country_code, parsed.national_number, parsed.extension) == (49, "200000000000000", number.extension)
+
+
 def test_hand_built_number_formats_too() -> None:
     number = PhoneNumber(49, "30123456", None, "DE", PhoneType.FIXED_LINE)
     assert number.format(PhoneFormat.NATIONAL) == "030 123456"

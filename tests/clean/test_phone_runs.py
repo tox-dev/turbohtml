@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import copy
+import pickle  # ruff:ignore[suspicious-pickle-import]  # this test pickles its own values
+
 import pytest
 
-from turbohtml.clean import LinkDetector, Linkify, PhoneNumbers, linkify
+from turbohtml.clean import LinkDetector, Linkify, PhoneGrouping, PhoneNumber, PhoneNumbers, PhoneType, linkify
 
 _US = PhoneNumbers(regions=("US",))
 _US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
@@ -49,6 +52,18 @@ _US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
             id="beyond-e164-gets-the-local-form",
         ),
         pytest.param(
+            "+49 200000000000000 ext. 12",
+            _US_POSSIBLE,
+            [("+49 200000000000000 ext. 12", "tel:200000000000000;ext=12;phone-context=+49")],
+            id="beyond-e164-extension-first",
+        ),
+        pytest.param(
+            "tel:200000000000000;ext=12;phone-context=+49",
+            _US_POSSIBLE,
+            [("tel:200000000000000;ext=12;phone-context=+49", "tel:200000000000000;ext=12;phone-context=+49")],
+            id="local-form-uri-links-as-itself",
+        ),
+        pytest.param(
             "4111111111111111 021 5550123",
             PhoneNumbers(regions=("ID",), require_valid=False),
             [("021 5550123", "tel:+62215550123")],
@@ -76,6 +91,19 @@ _US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
         ),
         pytest.param("tel:not-a-number", _US, [], id="tel-uri-without-a-number"),
         pytest.param(
+            "tel://evil.example call 650-253-0000",
+            _US,
+            [("650-253-0000", "tel:+16502530000")],
+            id="tel-authority-is-not-a-url",
+        ),
+        pytest.param(
+            "-".join(["1" * 20] * 11 + ["1" * 18, "1" * 20]) + " call 650-253-0000 now",
+            _US,
+            [("650-253-0000", "tel:+16502530000")],
+            id="run-holding-258-digits-then-a-phone",
+        ),
+        pytest.param("tel:1;phone-context=+" + "1" * 500, _US, [], id="tel-uri-with-an-overlong-context"),
+        pytest.param(
             "tel:+1-650-253-0000;ext=12",
             _US,
             [("tel:+1-650-253-0000;ext=12", "tel:+1-650-253-0000;ext=12")],
@@ -92,6 +120,54 @@ def test_rewrite_leaves_a_tel_uri_without_a_number_alone() -> None:
     assert linkify("see tel:not-a-number or tel:650-253-0000", Linkify(phones=_US)) == (
         'see tel:not-a-number or <a href="tel:650-253-0000">tel:650-253-0000</a>'
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("+49 200000000000000 ext. 12", id="beyond-e164"),
+        pytest.param("+44 20 7946 0958 x12", id="global"),
+    ],
+)
+def test_href_round_trips_through_parse(text: str) -> None:
+    span = LinkDetector(phones=_US_POSSIBLE).find(text)[0]
+    assert span.phone is not None
+    parsed = PhoneNumber.parse(span.url, require_valid=False)
+    assert (parsed.country_code, parsed.national_number, parsed.extension) == (
+        span.phone.country_code,
+        span.phone.national_number,
+        span.phone.extension,
+    )
+
+
+def test_registered_tel_scheme_links_the_authority_form() -> None:
+    detector = LinkDetector(schemes=("tel",), phones=_US)
+    assert [span.url for span in detector.find("tel://evil.example")] == ["tel://evil.example"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(
+            PhoneNumbers(regions=("US", "GB"), grouping=PhoneGrouping.STRICT, types=(PhoneType.MOBILE,)), id="settings"
+        ),
+        pytest.param(Linkify(phones=_US), id="linkify"),
+    ],
+)
+def test_settings_pickle_and_copy(value: object) -> None:
+    assert pickle.loads(pickle.dumps(value)) == value  # ruff: ignore[suspicious-pickle-usage]  # this test's own bytes
+    assert copy.deepcopy(value) == value
+
+
+def test_detector_pickles_with_its_settings() -> None:
+    detector = pickle.loads(  # ruff: ignore[suspicious-pickle-usage]  # this test's own bytes
+        pickle.dumps(LinkDetector(phones=_US, schemes=("bitcoin",), tlds=("test",)))
+    )
+    assert [span.url for span in detector.find("call 650-253-0000 or bitcoin:1abc at host.test")] == [
+        "tel:+16502530000",
+        "bitcoin:1abc",
+        "http://host.test",
+    ]
 
 
 def test_other_schemes_keep_their_payloads() -> None:

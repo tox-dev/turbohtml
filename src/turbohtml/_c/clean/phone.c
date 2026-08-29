@@ -116,6 +116,16 @@ static int is_latin_letter(uint32_t code) {
     return in_ranges(code, th_phone_latin_ranges, TH_PHONE_LATIN_RANGE_COUNT);
 }
 
+/* Unicode's letter and number categories: what parse refuses after a number, along with `#`, the way
+   extractPossibleNumber's UNWANTED_END_CHARS does with \p{L} and \p{N}. */
+static int is_letter(uint32_t code) {
+    return in_ranges(code, th_phone_letter_ranges, TH_PHONE_LETTER_RANGE_COUNT);
+}
+
+static int is_number_mark(uint32_t code) {
+    return in_ranges(code, th_phone_number_ranges, TH_PHONE_NUMBER_RANGE_COUNT);
+}
+
 static int is_invalid_punctuation(uint32_t code) {
     return code == '%' || in_ranges(code, th_phone_currency_ranges, TH_PHONE_CURRENCY_RANGE_COUNT);
 }
@@ -813,9 +823,13 @@ static uint16_t extension_symbol(uint32_t code) {
 }
 
 /* Walk the extension grammar from `tail_start`; on a hit report where it ends and the extension digits. */
-static int walk_extension(th_phone_read read, const void *text, size_t len, size_t tail_start, size_t *tail_end,
-                          char *ext_digits, uint8_t *ext_len) {
-    const th_phone_dfa *dfa = dfa_at(TH_PHONE_EXT_DFA);
+static uint16_t extension_dfa(const th_phone_config *config) {
+    return config->parsing_extensions ? TH_PHONE_EXT_PARSING_DFA : TH_PHONE_EXT_DFA;
+}
+
+static int walk_extension(th_phone_read read, const void *text, size_t len, uint16_t grammar, size_t tail_start,
+                          size_t *tail_end, char *ext_digits, uint8_t *ext_len) {
+    const th_phone_dfa *dfa = dfa_at(grammar);
     uint16_t state = 1;
     char digits[TH_PHONE_MAX_EXTENSION + 1];
     uint8_t count = 0;
@@ -842,8 +856,8 @@ static int walk_extension(th_phone_read read, const void *text, size_t len, size
     return found;
 }
 
-static int segment(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
-                   run_record *run) {
+static int segment(th_phone_read read, const void *text, size_t len, uint16_t grammar, size_t left_bound,
+                   size_t digit_pos, run_record *run) {
     memset(run, 0, sizeof(*run));
     size_t digits_start = digit_pos;
     size_t position = digits_start;
@@ -924,12 +938,12 @@ static int segment(th_phone_read read, const void *text, size_t len, size_t left
     size_t tail_end;
     char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
     uint8_t ext_len;
-    if (walk_extension(read, text, len, run->end, &tail_end, ext_digits, &ext_len)) {
+    if (walk_extension(read, text, len, grammar, run->end, &tail_end, ext_digits, &ext_len)) {
         memcpy(run->extension, ext_digits, ext_len);
         run->extension_len = ext_len;
         run->extension_end = tail_end;
     } else if (run->group_count > 1 && run->groups[run->group_count - 1].separator_has_extension_marker &&
-               walk_extension(read, text, len, run->groups[run->group_count - 2].end, &tail_end, ext_digits,
+               walk_extension(read, text, len, grammar, run->groups[run->group_count - 2].end, &tail_end, ext_digits,
                               &ext_len) &&
                tail_end >= run->end) {
         run->group_count--;
@@ -1506,8 +1520,8 @@ static void normalize_candidate(th_phone_read read, const void *text, size_t sta
     }
 }
 
-/* Every caller keeps `at + needle_len` inside the candidate: the search loop by its bound, the group checks because
-   the national number's digits sit in sequence inside the candidate, at or after any group found before them. */
+/* Every caller keeps `at + needle_len` inside the candidate: the search loop by its bound, the group checks by
+   their own. */
 static int candidate_has_at(const candidate_text *candidate, size_t at, const char *needle, size_t needle_len) {
     for (size_t index = 0; index < needle_len; index++) {
         if (candidate->data[at + index] != (uint32_t)(unsigned char)needle[index]) {
@@ -1625,7 +1639,10 @@ static int groups_remain_grouped(const reading *result, const candidate_text *ca
         if (index == 0 && (size_t)from < candidate->len) {
             const th_phone_region *main = &th_phone_regions[th_phone_groups[result->group].main];
             if (main->has_ndd && th_phone_digit_value(candidate->data[from]) >= 0) {
-                return candidate_has_at(candidate, (size_t)from - groups[0].len, result->nsn.data, result->nsn.len);
+                /* a prefix transform can make the national number longer than the candidate's tail */
+                size_t nsn_start = (size_t)from - groups[0].len;
+                return nsn_start + result->nsn.len <= candidate->len &&
+                       candidate_has_at(candidate, nsn_start, result->nsn.data, result->nsn.len);
             }
         }
     }
@@ -1738,11 +1755,14 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
         memcpy(found->ext, run->extension, run->extension_len);
         found->ext_len = run->extension_len;
         found->end = run->extension_end;
-    } else if (last - first >= 2 && run->groups[last - 1].separator_has_extension_marker) {
+    } else if (last - first >= 2 &&
+               (run->groups[last - 1].separator_has_extension_marker ||
+                (config->parsing_extensions && found->end < len && read(text, found->end) == '#'))) {
         size_t tail_end;
         char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
         uint8_t ext_len;
-        if (walk_extension(read, text, len, run->groups[last - 2].end, &tail_end, ext_digits, &ext_len) &&
+        if (walk_extension(read, text, len, extension_dfa(config), run->groups[last - 2].end, &tail_end, ext_digits,
+                           &ext_len) &&
             tail_end >= found->end) {
             memcpy(found->ext, ext_digits, ext_len);
             found->ext_len = ext_len;
@@ -1782,7 +1802,7 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
                   const th_phone_config *config, th_phone_match *match, size_t *retry) {
     run_record run;
-    if (!segment(read, text, len, left_bound, digit_pos, &run)) {
+    if (!segment(read, text, len, extension_dfa(config), left_bound, digit_pos, &run)) {
         size_t end = digit_pos;
         while (end < len && th_phone_digit_value(read(text, end)) >= 0) {
             end++;
@@ -1837,15 +1857,8 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
     return 0;
 }
 
-/* The ASCII marks that may trail a parsed number: the punctuation and whitespace of the text around it, not `#`,
-   which libphonenumber reads as part of a number. */
-static int is_ascii_punctuation(uint32_t code) {
-    static const char marks[] = " !\"$%&'()*+,-./:;<=>?@[\\]^_`{|}~\t\n\r";
-    return code < 0x80 && memchr(marks, (int)code, sizeof marks) != NULL;
-}
-
-int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
-                   th_phone_match *match) {
+static int parse_range(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
+                       th_phone_match *match) {
     size_t first = start;
     while (first < end && !is_plus(read(text, first)) && th_phone_digit_value(read(text, first)) < 0) {
         first++;
@@ -1861,13 +1874,149 @@ int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t en
     if (!th_phone_find(read, text, end, start, digit, config, match, &retry) || match->start > first) {
         return 0;
     }
+    /* extractPossibleNumber trims only what is neither a digit, a letter nor `#` after the number */
     for (size_t position = match->end; position < end; position++) {
         uint32_t code = read(text, position);
-        int trailing = is_punctuation(code) + is_closer(code) + is_ascii_punctuation(code);
-        if (!trailing) {
+        int continues = is_number_mark(code) + is_letter(code) + (code == '#');
+        if (continues) {
             return 0;
         }
     }
+    return 1;
+}
+
+static int text_has_at(th_phone_read read, const void *text, size_t at, size_t end, const char *needle) {
+    for (size_t index = 0; needle[index] != '\0'; index++) {
+        if (at + index >= end || read(text, at + index) != (uint32_t)(unsigned char)needle[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The first `;name=` parameter of a tel URI at or after `start`, or `end`; RFC 3966 names are lowercase. */
+static size_t find_parameter(th_phone_read read, const void *text, size_t start, size_t end, const char *needle) {
+    for (size_t position = start; position < end; position++) {
+        if (read(text, position) == ';' && text_has_at(read, text, position, end, needle)) {
+            return position;
+        }
+    }
+    return end;
+}
+
+/* RFC 3966's visual separators, the only marks a global number's digits may carry. */
+static int is_visual_separator(uint32_t code) {
+    static const char marks[] = "-.()";
+    return code < 0x80 && memchr(marks, (int)code, sizeof marks - 1) != NULL;
+}
+
+static int is_ascii_letter(uint32_t code) {
+    return (code | 0x20) - 'a' < 26;
+}
+
+/* RFC 3966's domainname as libphonenumber checks it: labels of ASCII letters and digits with hyphens inside them,
+   joined by single dots, the last label starting with a letter, one dot allowed after it. */
+static int is_rfc_domain(th_phone_read read, const void *text, size_t start, size_t end) {
+    size_t position = start;
+    int top_starts_with_letter = 0;
+    while (position < end) {
+        uint32_t code = read(text, position);
+        int letter = is_ascii_letter(code);
+        if (!letter && th_phone_digit_value(code) < 0) {
+            return 0;
+        }
+        top_starts_with_letter = letter;
+        while (position < end && is_ascii_letter(code) + (th_phone_digit_value(code) >= 0) + (code == '-') > 0) {
+            position++;
+            if (position < end) {
+                code = read(text, position);
+            }
+        }
+        if (read(text, position - 1) == '-') {
+            return 0;
+        }
+        if (position == end) {
+            break;
+        }
+        if (code != '.') {
+            return 0;
+        }
+        position++;
+    }
+    return top_starts_with_letter;
+}
+
+static uint32_t read_candidate(const void *text, size_t index) {
+    return ((const candidate_text *)text)->data[index];
+}
+
+/* The `;phone-context=` value: a global number (`+49`) whose digits go before the local number, kept in `prefix`
+   with its plus; a domain name, under which the digits read as a national number; anything else is no number. */
+static int context_prefix(th_phone_read read, const void *text, size_t value, size_t end, candidate_text *prefix) {
+    size_t value_end = value;
+    while (value_end < end && read(text, value_end) != ';') {
+        value_end++;
+    }
+    prefix->len = 0;
+    if (value == value_end) {
+        return -1;
+    }
+    if (!is_plus(read(text, value))) {
+        return is_rfc_domain(read, text, value, value_end) ? 0 : -1;
+    }
+    prefix->data[prefix->len++] = '+';
+    for (size_t position = value + 1; position < value_end; position++) {
+        uint32_t code = read(text, position);
+        int digit = th_phone_digit_value(code);
+        if (digit >= 0) {
+            /* a calling code and a national number bound the digits a context can lend a number */
+            if (prefix->len > 3 + TH_PHONE_MAX_NSN) {
+                return -1;
+            }
+            prefix->data[prefix->len++] = (uint32_t)('0' + digit);
+        } else if (!is_visual_separator(code)) {
+            return -1;
+        }
+    }
+    return prefix->len > 1 ? 1 : -1;
+}
+
+int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
+                   th_phone_match *match) {
+    size_t context = find_parameter(read, text, start, end, ";phone-context=");
+    size_t isub = find_parameter(read, text, start, end, ";isub=");
+    size_t number_end = context < isub ? context : isub;
+    if (context == end) {
+        return parse_range(read, text, start, number_end, config, match);
+    }
+    candidate_text local;
+    int global = context_prefix(read, text, context + 15, end, &local);
+    if (global < 0) {
+        return 0;
+    }
+    if (global == 0) {
+        return parse_range(read, text, start, number_end, config, match);
+    }
+    /* buildNationalNumberForParsing: the local digits after the scheme, with the context's calling code in front,
+       read as one global number */
+    size_t number_start = start;
+    while (number_start < number_end && is_space_separator(read(text, number_start))) {
+        number_start++;
+    }
+    if (text_has_at(read, text, number_start, number_end, "tel:")) {
+        number_start += 4;
+    }
+    if (local.len + (number_end - number_start) > CANDIDATE_CAPACITY) {
+        return 0;
+    }
+    for (size_t position = number_start; position < number_end; position++) {
+        local.data[local.len++] = read(text, position);
+    }
+    if (!parse_range(read_candidate, &local, 0, local.len, config, match)) {
+        return 0;
+    }
+    match->start = start;
+    match->end = end;
     return 1;
 }
 
@@ -1976,11 +2125,19 @@ size_t th_phone_format_number(unsigned country_code, const char *nsn, size_t nsn
     } else {
         format_digits(format, th_phone_templates + (intl ? format->intl : format->national), nsn, nsn_len, &body);
     }
+    char code[4];
+    size_t code_len = write_country_code(country_code, code);
+    /* RFC 3966 composes a global number from E.164, so a longer one is written as a local number whose context is
+       its calling code, the extension first among the parameters as the RFC orders them */
+    int global = code_len + nsn_len <= 15;
     if (style == TH_PHONE_STYLE_RFC3966) {
         hyphenate(&body);
-        append_text(&result, "tel:+", 5);
-        result.len += write_country_code(country_code, result.data + result.len);
-        append_text(&result, "-", 1);
+        append_text(&result, "tel:", 4);
+        if (global) {
+            append_text(&result, "+", 1);
+            append_text(&result, code, code_len);
+            append_text(&result, "-", 1);
+        }
     } else if (style == TH_PHONE_STYLE_INTERNATIONAL) {
         append_text(&result, "+", 1);
         result.len += write_country_code(country_code, result.data + result.len);
@@ -1996,6 +2153,10 @@ size_t th_phone_format_number(unsigned country_code, const char *nsn, size_t nsn
             append_text(&result, " ext. ", 6);
         }
         append_text(&result, ext, ext_len);
+    }
+    if (style == TH_PHONE_STYLE_RFC3966 && !global) {
+        append_text(&result, ";phone-context=+", 16);
+        append_text(&result, code, code_len);
     }
     memcpy(out, result.data, result.len);
     return result.len;

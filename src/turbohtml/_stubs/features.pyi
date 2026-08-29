@@ -12,7 +12,17 @@ from .dom import Element
 # (start, end, kind, href, phone): the href is built by the scanner for every kind, the phone is set for kind 4
 _Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None]
 _PhoneSpec: TypeAlias = tuple[
-    tuple[str, ...], bool, bool, bool, bool, int, int, tuple[str, ...], type[PhoneNumber], tuple[PhoneType, ...]
+    tuple[str, ...],
+    bool,
+    bool,
+    bool,
+    bool,
+    int,
+    int,
+    tuple[str, ...],
+    type[PhoneNumber],
+    tuple[PhoneType, ...],
+    bool,
 ]
 
 class _PhoneConfig: ...

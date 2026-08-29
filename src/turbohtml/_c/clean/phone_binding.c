@@ -9,7 +9,7 @@
 
 #include <string.h>
 
-#define SPEC_ITEMS 10
+#define SPEC_ITEMS 11
 #define MAX_LABELS 256
 #define MAX_LABEL_LENGTH 12
 #define TYPE_MEMBERS 12
@@ -255,7 +255,8 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
         parse_grouping(PyTuple_GET_ITEM(spec, 5), config, &config->grouping) < 0 ||
         parse_type_mask(PyTuple_GET_ITEM(spec, 6), config, &config->type_mask) < 0 ||
         parse_labels(PyTuple_GET_ITEM(spec, 7), self) < 0 ||
-        parse_classes(PyTuple_GET_ITEM(spec, 8), PyTuple_GET_ITEM(spec, 9), self) < 0) {
+        parse_classes(PyTuple_GET_ITEM(spec, 8), PyTuple_GET_ITEM(spec, 9), self) < 0 ||
+        parse_flag(PyTuple_GET_ITEM(spec, 10), "parsing_extensions", &config->parsing_extensions) < 0) {
         return -1;
     }
     th_phone_config_floor(config);
@@ -263,7 +264,8 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
 }
 
 /* _phone_config_compile(spec) -> _PhoneConfig, spec = (regions, require_valid, require_separators,
-   skip_card_numbers, require_national_prefix, grouping, type_mask, labels, phone_number_type, phone_types). */
+   skip_card_numbers, require_national_prefix, grouping, type_mask, labels, phone_number_type, phone_types,
+   parsing_extensions). */
 PyObject *turbohtml_phone_config_compile(PyObject *module, PyObject *spec) {
     if (!PyTuple_Check(spec) || PyTuple_GET_SIZE(spec) != SPEC_ITEMS) {
         PyErr_Format(PyExc_TypeError, "phone spec must be a tuple of %d items", SPEC_ITEMS);

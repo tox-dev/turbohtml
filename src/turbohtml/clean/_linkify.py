@@ -237,6 +237,20 @@ class PhoneNumbers:
         # compiled once here, where a mistake raises, and handed to every scanner and parse that takes the settings
         object.__setattr__(self, "_config", _compile_settings(self, PhoneNumber))
 
+    def __reduce__(self) -> tuple[Callable[[], PhoneNumbers], tuple[()]]:
+        # the compiled configuration is a native object, so a copy or a pickle rebuilds from the settings
+        return functools.partial(
+            PhoneNumbers,
+            regions=self.regions,
+            require_valid=self.require_valid,
+            require_separators=self.require_separators,
+            skip_card_numbers=self.skip_card_numbers,
+            require_national_prefix=self.require_national_prefix,
+            grouping=self.grouping,
+            types=self.types,
+            ignore_numbers_after=self.ignore_numbers_after,
+        ), ()
+
 
 @dataclass(frozen=True, slots=True)
 class PhoneNumber:
@@ -244,11 +258,12 @@ class PhoneNumber:
     A detected number, in the form the tables produced it.
 
     ``international_number`` is ``+`` followed by the country code and the national significant number with no
-    separators and no extension, the string libphonenumber's ``E164`` formatter emits and the value the ``tel:`` href
-    carries. ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None`` otherwise: the pinned
+    separators and no extension, the string libphonenumber's ``E164`` formatter emits and, when it fits E.164, the
+    value the ``tel:`` href carries. ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None``
+    otherwise: the pinned
     metadata declares longer valid national services (DE, ID, JP, KR, NG and UY, up to 19 digits with the country
     code), and those link with RFC 3966's local form, ``tel:200000000000000;phone-context=+49``, since a global
-    ``tel:`` number must be E.164.
+    ``tel:`` number must be E.164; an extension goes first among the parameters, as the RFC orders them.
 
     :param country_code: the calling code, ``1`` for ``+1``.
     :param national_number: the national significant number, ASCII digits with the leading zeros the plan keeps.
@@ -289,11 +304,13 @@ class PhoneNumber:
         """
         Read a string that holds one phone number, the way ``phonenumbers.parse`` reads it.
 
-        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators
-        and an extension in any written form; after the number only whitespace and punctuation may follow, so
-        ``650-253-0000 or 650-253-0001`` is not one number and neither is ``650-253-0000 today``. A number written
-        without ``+`` is read with each of ``regions`` in turn, and unlike detection it needs neither separators nor
-        the national prefix its format writes, and a payment-card shape is not refused.
+        The text may carry a ``tel:`` scheme, words before the number (``Tel: 650-253-0000``), brackets, separators and
+        an extension in any written form, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included;
+        after the number anything but digits, letters and ``#`` may follow, so neither ``650-253-0000 or 650-253-0001``
+        nor ``650-253-0000 today`` is one number. An RFC 3966 local number reads through its ``phone-context``
+        (``tel:2530000;phone-context=+1650``), and ``;isub=`` ends the number. A number written without ``+`` is read
+        with each of ``regions`` in turn, and unlike detection it needs neither separators nor the national prefix its
+        format writes, and a payment-card shape is not refused.
 
         :param text: the text holding the number.
         :param regions: the ordered fallback regions for a number written without ``+``.
@@ -334,6 +351,9 @@ class PhoneNumber:
         """
         Write the number the way libphonenumber's ``format_number`` does.
 
+        A number past E.164's fifteen digits takes RFC 3966's local form (``tel:200000000000000;phone-context=+49``)
+        in :attr:`PhoneFormat.RFC3966`, since a global ``tel:`` number must be E.164.
+
         The grouping comes from the number formats of the calling code's main region (``+1`` numbers group the
         North American way whatever their region), chosen by the number's leading digits and length; a number no
         format covers is written as its bare national significant number. An extension follows the region's
@@ -361,7 +381,7 @@ def _parse_config(number_type: type[PhoneNumber], regions: tuple[str, ...], *, r
         require_national_prefix=False,
         ignore_numbers_after=(),
     )
-    return settings._config if number_type is PhoneNumber else _compile_settings(settings, number_type)  # ruff: ignore[private-member-access]  # the settings compiled themselves
+    return _compile_settings(settings, number_type, parsing=True)
 
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
@@ -374,7 +394,7 @@ def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
     return phones._config  # ruff: ignore[private-member-access]  # the settings compiled themselves
 
 
-def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber]) -> _PhoneConfig:
+def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, parsing: bool = False) -> _PhoneConfig:
     mask = _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types)
     return _phone_config_compile((
         phones.regions,
@@ -387,6 +407,7 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber]) -> _
         phones.ignore_numbers_after,
         number_type,
         _PHONE_TYPES,
+        parsing,
     ))
 
 
@@ -629,7 +650,8 @@ class LinkDetector:
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
         such as ``javascript://`` or a typo like ``hppt://`` is not detected.
     :param phones: also detect phone numbers, per these :class:`PhoneNumbers` settings; ``None`` leaves digits
-        alone. With phones on, a written ``tel:`` URI is detected as itself, as if ``tel`` were in ``schemes``.
+        alone. With phones on, a written ``tel:`` URI whose digits read as a number is detected as itself; the
+        ``tel://`` authority form still needs ``tel`` in ``schemes``.
     """
 
     def __init__(
@@ -647,11 +669,20 @@ class LinkDetector:
         self.phones = phones
         self._phone_config = _compile_phones(phones)
         self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})
-        registered = {scheme.lower().rstrip(":") for scheme in schemes}
-        if phones is not None:
-            registered.add("tel")
-        self._schemes = tuple(registered)
-        self._url_schemes = tuple(sorted(set(_DEFAULT_URL_SCHEMES).union(self._schemes)))
+        self._registered = tuple(sorted({scheme.lower().rstrip(":") for scheme in schemes}))
+        self._schemes = self._registered if phones is None else tuple(sorted({*self._registered, "tel"}))
+        self._url_schemes = tuple(sorted(set(_DEFAULT_URL_SCHEMES).union(self._registered)))
+
+    def __reduce__(self) -> tuple[Callable[[], LinkDetector], tuple[()]]:
+        # the compiled phone configuration is a native object, so a copy or a pickle rebuilds from the settings
+        return functools.partial(
+            LinkDetector,
+            emails=self.emails,
+            bare_domains=self.bare_domains,
+            tlds=self._tlds,
+            schemes=self._registered,
+            phones=self.phones,
+        ), ()
 
     def find(self, text: str) -> list[LinkSpan]:
         """

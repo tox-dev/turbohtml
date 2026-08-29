@@ -127,6 +127,9 @@ JAVA_CONSTANTS: Final = {
         '"(?:[x\\uFF58#\\uFF03~\\uFF5E]|int|\\uFF49\\uFF4E\\uFF54)"',
         '"[ \\u00A0\\\\t,]*"',
         '"[:\\\\.\\uFF0E]?[ \\u00A0\\\\t,-]*"',
+        '"[ \\u00A0\\\\t]*"',
+        '"(?:,{2}|;)"',
+        '"(?:,)+"',
         "extLimitAfterExplicitLabel = 20",
         "extLimitAfterAmbiguousChar = 9",
         "extLimitWhenNotSure = 6",
@@ -146,6 +149,14 @@ EXTENSION_FORMS: Final = (
     ("explicit", f"{_SEP_BEFORE_LABEL}{_EXPLICIT_LABELS}{_AFTER_LABEL}(\\d{{1,20}})#?", 20),
     ("ambiguous", f"{_SEP_BEFORE_LABEL}{_AMBIGUOUS_LABELS}{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
     ("american", "[- ]+(\\d{1,6})#", 6),
+)
+# createExtnPattern(forParsing = true) adds the auto-dialling forms a held string may carry, which the matcher never
+# reads out of prose: `,,` or `;` before the digits, or one or more commas alone.
+_SEP_BEFORE_AUTODIAL: Final = "[ \u00a0\t]*"
+PARSING_EXTENSION_FORMS: Final = (
+    *EXTENSION_FORMS,
+    ("autodial", f"{_SEP_BEFORE_AUTODIAL}(?:,,|;){_AFTER_LABEL}(\\d{{1,15}})#?", 15),
+    ("commas", f"{_SEP_BEFORE_AUTODIAL},+{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
 )
 
 # Words that mark the digit run right after them as an identifier, not a phone number; sorted, lowercase, ASCII.
@@ -300,16 +311,19 @@ class UnicodeTables:
     nd_pages: list[int]
     currency_ranges: list[tuple[int, int]]
     latin_ranges: list[tuple[int, int]]
+    letter_ranges: list[tuple[int, int]]
+    number_ranges: list[tuple[int, int]]
     case_classes: dict[int, frozenset[int]]
 
 
 @dataclass
 class ExtensionTables:
-    """The extension grammar compiled to one DFA over a private symbol alphabet, plus that alphabet's classes."""
+    """The extension grammars compiled to DFAs over one private symbol alphabet, plus that alphabet's classes."""
 
     classes: list[tuple[int, int, int]]
     symbols: int
     dfa: Dfa
+    parsing_dfa: Dfa
     symbol_of: dict[int, int]
 
 
@@ -822,11 +836,15 @@ def parse_unicode(unicode_data: str, blocks: str) -> UnicodeTables:
         msg = "a Latin block named by isLatinLetter is missing from Blocks.txt"
         raise GenerationError(msg)
     currency = {code for code, category in categories.items() if category == "Sc"}
+    letters = {code for code, category in categories.items() if category.startswith("L")}
+    numbers = {code for code, category in categories.items() if category.startswith("N")}
     return UnicodeTables(
         nd_ranges,
         pages,
         _ranges(currency),
         _ranges(latin_codes),
+        _ranges(letters),
+        _ranges(numbers),
         _case_classes(upper, lower, title),
     )
 
@@ -925,15 +943,10 @@ def _case_classes(upper: dict[int, int], lower: dict[int, int], title: dict[int,
 
 
 def compile_extension(unicode: UnicodeTables) -> ExtensionTables:
-    """Compile the four extension forms over a classifier alphabet: case classes, separators, one digit class."""
-    literals: set[int] = set()
-    for _name, pattern, _cap in EXTENSION_FORMS:
-        for opcode, argument in _walk(list(_parse(pattern))):
-            if opcode == "literal":
-                literals.add(argument)
+    """Compile the extension forms over a classifier alphabet: case classes, separators, one digit class."""
     symbol_of: dict[int, int] = {}
     next_symbol = 2
-    for code in sorted(literals):
+    for code in sorted(_extension_literals()):
         if code in symbol_of:
             continue
         members = unicode.case_classes.get(code, frozenset({code})) if chr(code).isalpha() else frozenset({code})
@@ -947,16 +960,32 @@ def compile_extension(unicode: UnicodeTables) -> ExtensionTables:
     def symbolize(code: int) -> int:
         return 1 << symbol_of[code]
 
-    programs = [
-        compile_program(pattern, symbolize=symbolize, digit_mask=1 << 1, label=cap, capture=False, allow_unbounded=True)
-        for _name, pattern, cap in EXTENSION_FORMS
-    ]
-    dfa = compile_dfa(union_program(programs), symbols=next_symbol, end_symbol=-1)
+    def compile_forms(forms: tuple[tuple[str, str, int], ...]) -> Dfa:
+        programs = [
+            compile_program(
+                pattern, symbolize=symbolize, digit_mask=1 << 1, label=cap, capture=False, allow_unbounded=True
+            )
+            for _name, pattern, cap in forms
+        ]
+        return compile_dfa(union_program(programs), symbols=next_symbol, end_symbol=-1)
+
     classes: list[tuple[int, int, int]] = [(first, last, 1) for first, last, _zero in unicode.nd_ranges]
     for code, symbol in symbol_of.items():
         classes.append((code, code, symbol))
     classes.sort()
-    return ExtensionTables(classes, next_symbol, dfa, symbol_of)
+    return ExtensionTables(
+        classes, next_symbol, compile_forms(EXTENSION_FORMS), compile_forms(PARSING_EXTENSION_FORMS), symbol_of
+    )
+
+
+def _extension_literals() -> set[int]:
+    """Collect every literal code point an extension form spells, the alphabet both grammars share."""
+    literals: set[int] = set()
+    for _name, pattern, _cap in PARSING_EXTENSION_FORMS:
+        for opcode, argument in _walk(list(_parse(pattern))):
+            if opcode == "literal":
+                literals.add(argument)
+    return literals
 
 
 def _parse(pattern: str) -> SreItems:
@@ -1109,6 +1138,7 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
         encoded = Dfa(group.router.symbols, group.router.next, [set_index[accept] for accept in group.router.accepts])
         router_index[group_index] = add(encoded, DIGIT_SYMBOLS)
     extension_index = add(tables.extension.dfa, tables.extension.symbols)
+    parsing_extension_index = add(tables.extension.parsing_dfa, tables.extension.symbols)
     shared_dfa: dict[tuple, int] = {}
 
     def add_shared(automaton: Dfa) -> int:
@@ -1194,6 +1224,7 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(f"#define TH_PHONE_REGION_COUNT {len(tables.regions)}")
     out(f"#define TH_PHONE_GROUP_COUNT {len(tables.groups)}")
     out(f"#define TH_PHONE_EXT_DFA {extension_index}")
+    out(f"#define TH_PHONE_EXT_PARSING_DFA {parsing_extension_index}")
     out("#define TH_PHONE_GENERAL_BIT 0x8000")
     out(f"#define TH_PHONE_FORMAT_GROUPS {MAX_FORMAT_GROUPS}")
     out(f"#define TH_PHONE_TEMPLATE_CHARS {MAX_TEMPLATE_CHARS}")
@@ -1376,6 +1407,12 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     )
     out(_array("uint32_t", "th_phone_latin_ranges", [value for pair in tables.unicode.latin_ranges for value in pair]))
     out(
+        _array("uint32_t", "th_phone_letter_ranges", [value for pair in tables.unicode.letter_ranges for value in pair])
+    )
+    out(
+        _array("uint32_t", "th_phone_number_ranges", [value for pair in tables.unicode.number_ranges for value in pair])
+    )
+    out(
         _array(
             "uint32_t",
             "th_phone_ext_classes",
@@ -1385,6 +1422,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(f"#define TH_PHONE_ND_RANGE_COUNT {len(tables.unicode.nd_ranges)}")
     out(f"#define TH_PHONE_CURRENCY_RANGE_COUNT {len(tables.unicode.currency_ranges)}")
     out(f"#define TH_PHONE_LATIN_RANGE_COUNT {len(tables.unicode.latin_ranges)}")
+    out(f"#define TH_PHONE_LETTER_RANGE_COUNT {len(tables.unicode.letter_ranges)}")
+    out(f"#define TH_PHONE_NUMBER_RANGE_COUNT {len(tables.unicode.number_ranges)}")
     out(f"#define TH_PHONE_EXT_CLASS_COUNT {len(tables.extension.classes)}")
     out(f"#define TH_PHONE_LABEL_COUNT {len(DEFAULT_LABELS)}")
     out("static const char *const th_phone_default_labels[] = {")

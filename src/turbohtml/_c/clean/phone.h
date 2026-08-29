@@ -16,8 +16,9 @@
 #define TH_PHONE_MAX_RUN_CHARS 250
 #define TH_PHONE_MAX_GROUPS 21
 #define TH_PHONE_MAX_GROUP_DIGITS 20
-/* a run of at most 250 code points holds at most 12 full groups of 20 digits (240) plus their separators */
-#define TH_PHONE_DIGIT_BUFFER 256
+/* a run's last group starts within TH_PHONE_MAX_RUN_CHARS code points of its first digit and holds up to
+   TH_PHONE_MAX_GROUP_DIGITS more, so a run of one-character separators holds at most that many digits */
+#define TH_PHONE_DIGIT_BUFFER (TH_PHONE_MAX_RUN_CHARS + TH_PHONE_MAX_GROUP_DIGITS)
 #define TH_PHONE_MAX_EXTENSION 20
 #define TH_PHONE_NSN_CAPACITY 18
 /* a formatted number: a template application per group split of at most TH_PHONE_MAX_NSN digits, the calling code,
@@ -63,6 +64,7 @@ typedef struct {
     uint8_t skip_card_numbers;
     uint8_t require_national_prefix; /* VALID's isNationalPrefixPresentIfRequired applies */
     uint8_t grouping;                /* enum th_phone_grouping */
+    uint8_t parsing_extensions;      /* also read the auto-dialling extension forms parse accepts (`,,12`, `;12`) */
     uint8_t national_floor;
     uint16_t type_mask;           /* accepted resolved types, bit i = enum th_phone_type i, eleven bits */
     const th_phone_label *labels; /* sorted, lowercase ASCII */
@@ -89,7 +91,9 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
 
 /* Read `text[start:end]` as one number, the way phonenumbers' parse reads a string it is handed: the characters
    before the first plus or digit are skipped (an RFC 3966 `tel:` scheme among them), the run is read like a matcher
-   candidate, and after it only whitespace and punctuation may follow. Returns 1 and fills `match`, or 0. */
+   candidate, and after it anything but digits, letters and `#` may follow. An RFC 3966 `;phone-context=` names the
+   calling code local digits belong to, or a domain under which they read as a national number; `;isub=` and what
+   follows it are not part of the number. Returns 1 and fills `match`, or 0. */
 int th_phone_parse(th_phone_read read, const void *text, size_t start, size_t end, const th_phone_config *config,
                    th_phone_match *match);
 

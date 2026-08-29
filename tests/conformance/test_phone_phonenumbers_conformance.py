@@ -154,9 +154,15 @@ def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
     for extension in (None, "123"):
         number.extension = extension
         ours = PhoneNumber(number.country_code, nsn, extension, region, resolved)
-        assert {style: ours.format(style) for style in PhoneFormat} == {
-            style: phonenumbers.format_number(number, theirs) for style, theirs in _STYLES.items()
-        }, (number.country_code, nsn, extension)
+        expected = {style: phonenumbers.format_number(number, theirs) for style, theirs in _STYLES.items()}
+        if len(str(number.country_code)) + len(nsn) > 15:
+            # RFC 3966 composes a global number from E.164; past that limit turbohtml writes the local form
+            global_form = expected[PhoneFormat.RFC3966].removeprefix(f"tel:+{number.country_code}-")
+            digits, _, ext = global_form.partition(";ext=")
+            expected[PhoneFormat.RFC3966] = (
+                f"tel:{digits}{';ext=' + ext if ext else ''};phone-context=+{number.country_code}"
+            )
+        assert {style: ours.format(style) for style in PhoneFormat} == expected, (number.country_code, nsn, extension)
 
 
 @pytest.mark.parametrize("region", [pytest.param(region, id=region) for region in _REGIONS])
@@ -188,7 +194,9 @@ def _oracle_parse(text: str, region: str) -> tuple[int | None, str, str | None] 
 @pytest.mark.parametrize("region", [pytest.param(region, id=region) for region in _REGIONS])
 def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
     for number in _examples(region):
-        for name, text in renderings(number, region):
+        national = phonenumbers.format_number(number, PhoneNumberFormat.NATIONAL)
+        held = [("ext-autodial", f"{national},,123"), ("ext-semicolon", f"{national};123")]
+        for name, text in [*renderings(number, region), *held]:
             theirs = _oracle_parse(text, region)
             try:
                 parsed = PhoneNumber.parse(text, regions=(region,))

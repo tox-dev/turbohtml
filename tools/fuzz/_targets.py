@@ -18,6 +18,7 @@ call the current input is written to the repro file, so an abort names its own c
 from __future__ import annotations
 
 import argparse
+import contextlib
 import random
 import sys
 import time
@@ -112,6 +113,10 @@ def _phone(data: bytes) -> None:
     _PHONE_POSSIBLE.find(text)
     _PHONE_EXACT.find(text)
     _PHONE_LINKER.linkify(text)
+    for held in (text, "tel:" + text):
+        for require_valid in (True, False):
+            with contextlib.suppress(ValueError):
+                clean.PhoneNumber.parse(held, regions=("US", "DE"), require_valid=require_valid)
 
 
 def _minify_css(data: bytes) -> None:

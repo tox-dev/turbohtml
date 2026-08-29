@@ -456,6 +456,9 @@ def test_parse_unicode_tables() -> None:
     assert tables.nd_ranges == [(0x30, 0x39, 0x30), (0x660, 0x669, 0x660), (0x1D7CE, 0x1D7D7, 0x1D7CE)]
     assert tables.currency_ranges == [(0x24, 0x24), (0xA3, 0xA3)]
     assert tables.latin_ranges == [(0x41, 0x41), (0x4B, 0x4B), (0x61, 0x61), (0x6B, 0x6B), (0xC9, 0xC9), (0x301, 0x301)]
+    assert (0x41, 0x41) in tables.letter_ranges
+    assert (0x301, 0x301) not in tables.letter_ranges
+    assert (0x30, 0x39) in tables.number_ranges
     assert tables.case_classes[0x6B] == frozenset({0x4B, 0x6B, 0x212A})
     assert tables.nd_pages[0] & 1
     assert tables.nd_pages[(0x1D7CE >> 8) >> 3] >> ((0x1D7CE >> 8) & 7) & 1
@@ -514,6 +517,7 @@ def test_emit_header_on_the_fixture() -> None:
     assert '{"001"' not in header
     assert "th_phone_formats[]" in header
     assert "th_phone_alt_formats[]" in header
+    assert "#define TH_PHONE_EXT_PARSING_DFA" in header
     assert '"$1 $2 $3\\0"' in header
     assert '" Anexo \\0"' in header
     assert 0 < payload < MAX_TABLE_BYTES

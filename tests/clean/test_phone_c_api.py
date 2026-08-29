@@ -24,7 +24,10 @@ from turbohtml.clean._linkify import _PHONE_TYPES  # the spec item under test
 if TYPE_CHECKING:
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
-_SPEC = cast("_PhoneSpec", (("US",), True, False, True, True, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES))
+_SPEC = cast(
+    "_PhoneSpec",
+    (("US",), True, False, True, True, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
+)
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
@@ -40,6 +43,7 @@ def _spec(**overrides: object) -> _PhoneSpec:
         "labels",
         "number_type",
         "types",
+        "parsing_extensions",
     )
     return cast("_PhoneSpec", tuple(starmap(overrides.get, zip(names, _SPEC, strict=True))))
 
@@ -55,13 +59,13 @@ def test_compile_returns_an_unconstructible_config() -> None:
     "spec",
     [
         pytest.param(list(_SPEC), id="list"),
-        pytest.param(_SPEC[:9], id="nine-items"),
-        pytest.param((*_SPEC, 0), id="eleven-items"),
+        pytest.param(_SPEC[:10], id="ten-items"),
+        pytest.param((*_SPEC, 0), id="twelve-items"),
         pytest.param(None, id="none"),
     ],
 )
 def test_compile_rejects_malformed_specs(spec: object) -> None:
-    with pytest.raises(TypeError, match="tuple of 10 items"):
+    with pytest.raises(TypeError, match="tuple of 11 items"):
         _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]
 
 
@@ -92,6 +96,7 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
             {"require_national_prefix": 1}, TypeError, "require_national_prefix must be bool", id="int-prefix-flag"
         ),
         pytest.param({"grouping": "1"}, TypeError, "grouping must be int", id="str-grouping"),
+        pytest.param({"parsing_extensions": 1}, TypeError, "parsing_extensions must be bool", id="int-parsing-flag"),
         pytest.param({"grouping": 3}, ValueError, "grouping must be between 0 and 2", id="grouping-high"),
         pytest.param({"grouping": -1}, ValueError, "grouping must be between 0 and 2", id="grouping-negative"),
         pytest.param(

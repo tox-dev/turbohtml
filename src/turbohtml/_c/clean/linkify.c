@@ -614,18 +614,21 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
 }
 
 /* The tel: URI of a recognized number, RFC 3966: the global number when it fits E.164's fifteen digits, else the
-   local number with its calling code as the phone-context, then `;ext=` for an extension. */
+   local number with its calling code as the phone-context; `;ext=` comes first among the parameters, as the RFC
+   orders them. */
 static PyObject *phone_url(const th_phone_match *number) {
-    char buffer[4 + 1 + 3 + TH_PHONE_NSN_CAPACITY + 15 + 1 + 3 + 5 + TH_PHONE_MAX_EXTENSION + 1];
+    char buffer[4 + 1 + 3 + TH_PHONE_NSN_CAPACITY + 5 + TH_PHONE_MAX_EXTENSION + 15 + 1 + 3 + 1];
     char code[4];
     int code_len = snprintf(code, sizeof(code), "%u", (unsigned)number->country_code);
-    int written =
-        code_len + number->nsn_len <= 15
-            ? snprintf(buffer, sizeof(buffer), "tel:+%s%.*s", code, (int)number->nsn_len, number->nsn)
-            : snprintf(buffer, sizeof(buffer), "tel:%.*s;phone-context=+%s", (int)number->nsn_len, number->nsn, code);
+    int global = code_len + number->nsn_len <= 15;
+    int written = snprintf(buffer, sizeof(buffer), "tel:%s%s%.*s", global ? "+" : "", global ? code : "",
+                           (int)number->nsn_len, number->nsn);
     if (number->ext_len) {
         written += snprintf(buffer + written, sizeof(buffer) - (size_t)written, ";ext=%.*s", (int)number->ext_len,
                             number->ext);
+    }
+    if (!global) {
+        written += snprintf(buffer + written, sizeof(buffer) - (size_t)written, ";phone-context=+%s", code);
     }
     return PyUnicode_FromStringAndSize(buffer, written);
 }
