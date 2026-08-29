@@ -6,7 +6,7 @@ import random
 import re
 import string
 import xml.etree.ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # literal fixtures, never untrusted input
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import generate_phone
 import pytest
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from phone_dfa import Dfa
     from pytest_mock import MockerFixture
 
-_DIGITS = string.digits
+_DIGITS: Final = string.digits
 
 
 def _accepts(dfa: Dfa, digits: str) -> int:
@@ -86,26 +86,29 @@ def _strings(alphabet: str, longest: int) -> list[str]:
 )
 def test_dfa_agrees_with_re_on_every_short_string(pattern: str) -> None:
     dfa = compile_dfa(compile_program(pattern, capture=False))
-    expected = {digits for digits in _strings(_DIGITS, 5) if re.fullmatch(pattern, digits)}
-    assert {digits for digits in _strings(_DIGITS, 5) if _accepts(dfa, digits)} == expected
+    assert {digits for digits in _strings(_DIGITS, 5) if _accepts(dfa, digits)} == {
+        digits for digits in _strings(_DIGITS, 5) if re.fullmatch(pattern, digits)
+    }
 
 
 def test_union_keeps_each_program_label() -> None:
-    programs = [compile_program(r"1\d", label=1, capture=False), compile_program(r"\d2", label=2, capture=False)]
-    dfa = compile_dfa(union_program(programs))
+    dfa = compile_dfa(
+        union_program([
+            compile_program(r"1\d", label=1, capture=False),
+            compile_program(r"\d2", label=2, capture=False),
+        ])
+    )
     assert (_accepts(dfa, "12"), _accepts(dfa, "13"), _accepts(dfa, "32"), _accepts(dfa, "33")) == (3, 1, 2, 0)
 
 
 def test_minimize_is_idempotent_and_keeps_the_language() -> None:
-    dfa = compile_dfa(compile_program(r"1(?:2|3)4|1(?:2|3)5", capture=False))
-    once = minimize(dfa)
+    once = minimize(compile_dfa(compile_program(r"1(?:2|3)4|1(?:2|3)5", capture=False)))
     assert minimize(once) == once
     assert {digits for digits in _strings("12345", 4) if _accepts(once, digits)} == {"124", "134", "125", "135"}
 
 
 def test_accepted_lengths_reports_the_lengths_with_their_labels() -> None:
-    dfa = compile_dfa(compile_program(r"\d{2,4}|1\d{6}", capture=False))
-    assert accepted_lengths(dfa) == {2: 1, 3: 1, 4: 1, 7: 1}
+    assert accepted_lengths(compile_dfa(compile_program(r"\d{2,4}|1\d{6}", capture=False))) == {2: 1, 3: 1, 4: 1, 7: 1}
 
 
 @pytest.mark.parametrize(
@@ -145,8 +148,8 @@ def test_pike_spans_follow_javas_path(pattern: str, digits: str, expected: dict[
     assert pike_spans(compile_program(pattern), [int(char) for char in digits]) == expected
 
 
-def test_max_threads_is_at_least_one() -> None:
-    assert max_threads(compile_program(r"0?(11|[2368]\d)")) >= 1
+def test_max_threads_counts_the_live_threads() -> None:
+    assert max_threads(compile_program(r"0?(11|[2368]\d)")) == 3
 
 
 @pytest.mark.parametrize(
@@ -240,8 +243,7 @@ def test_parse_formats_resolves_the_prefix_rules_and_templates() -> None:
 
 
 def test_parse_formats_keeps_the_last_leading_digits_and_needs_a_pattern() -> None:
-
-    territory = ET.fromstring(  # ruff: ignore[suspicious-xml-element-tree-usage]  # a literal fixture, not untrusted input
+    territory = ET.fromstring(  # ruff:ignore[suspicious-xml-element-tree-usage]  # a literal fixture, not untrusted input
         '<territory id="XD" nationalPrefix="0" nationalPrefixFormattingRule="$NP $FG"><availableFormats>'
         '<numberFormat pattern="(\\d{4})"><leadingDigits>1</leadingDigits><leadingDigits>12</leadingDigits>'
         "<format>$1</format></numberFormat></availableFormats></territory>"
@@ -369,8 +371,7 @@ def test_parse_alternate_formats_rejects_malformed_territories(xml: bytes, messa
         parse_alternate_formats(b"<phoneNumberMetadata><territories>" + xml + b"</territories></phoneNumberMetadata>")
 
 
-def test_compile_tables_refuses_alternate_formats_for_an_unassigned_code() -> None:
-    sources = _sources()
+def test_compile_tables_refuses_alternate_formats_for_an_unassigned_code(sources: dict[str, bytes]) -> None:
     sources["PhoneNumberAlternateFormats.xml"] = _ALTERNATE_FORMATS.replace(b'countryCode="49"', b'countryCode="99"')
     with pytest.raises(GenerationError, match=r"\+99: alternate formats for a calling code"):
         compile_tables(sources)
@@ -469,23 +470,43 @@ def test_parse_unicode_needs_every_latin_block() -> None:
         parse_unicode(_UNICODE_DATA, "0000..007F; Basic Latin")
 
 
-def _sources() -> dict[str, bytes]:
-    java = "\n".join(literal for literals in JAVA_CONSTANTS.values() for literal in literals)
+@pytest.fixture
+def sources() -> dict[str, bytes]:
     return {
         "PhoneNumberMetadata.xml": _METADATA,
         "PhoneNumberAlternateFormats.xml": _ALTERNATE_FORMATS,
-        "PhoneNumberUtil.java": java.encode(),
+        "PhoneNumberUtil.java": "\n".join(
+            literal for literals in JAVA_CONSTANTS.values() for literal in literals
+        ).encode(),
         "Blocks.txt": _BLOCKS.encode(),
         "UnicodeData.txt": _UNICODE_DATA.encode(),
     }
 
 
-def test_compile_region_and_groups_on_the_fixture() -> None:
+@pytest.fixture
+def sources_dir(tmp_path: Path, sources: dict[str, bytes]) -> Path:
+    for name, raw in sources.items():
+        (tmp_path / name).write_bytes(raw)
+    return tmp_path
 
+
+@pytest.fixture
+def pinned_sources_dir(sources_dir: Path, sources: dict[str, bytes], mocker: MockerFixture) -> Path:
+    mocker.patch.object(
+        generate_phone,
+        "SOURCES",
+        {
+            name: (url, hashlib.sha256(sources[name]).hexdigest())
+            for name, (url, _digest) in generate_phone.SOURCES.items()
+        },
+    )
+    return sources_dir
+
+
+def test_compile_region_and_groups_on_the_fixture() -> None:
     rng = random.Random(1)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # the self-check sampler
-    regions = parse_metadata(_METADATA)
     programs = []
-    compiled = [compile_region(region, programs, rng) for region in regions]
+    compiled = [compile_region(region, programs, rng) for region in parse_metadata(_METADATA)]
     main, routed, german = compiled
     assert (main.floor_valid, main.floor_possible) == (10, 7)
     assert routed.tag is not None
@@ -508,9 +529,8 @@ def test_compile_region_refuses_a_type_pattern_longer_than_its_lengths() -> None
         compile_region(region, [], random.Random(1))  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # sampler
 
 
-def test_emit_header_on_the_fixture() -> None:
-    tables = compile_tables(_sources())
-    header, payload = emit_header(tables)
+def test_emit_header_on_the_fixture(sources: dict[str, bytes]) -> None:
+    header, payload = emit_header(compile_tables(sources))
     assert "#define TH_PHONE_REGION_COUNT 3" in header
     assert "#define TH_PHONE_GROUP_COUNT 2" in header
     assert '{"XA", 2u, 1u, 0u' in header
@@ -523,38 +543,18 @@ def test_emit_header_on_the_fixture() -> None:
     assert 0 < payload < MAX_TABLE_BYTES
 
 
-def test_generate_writes_the_header_from_local_sources(tmp_path: Path, mocker: MockerFixture) -> None:
-
-    sources = _sources()
-    for name, raw in sources.items():
-        (tmp_path / name).write_bytes(raw)
-    pinned = {
-        name: (url, hashlib.sha256(sources[name]).hexdigest())
-        for name, (url, _digest) in generate_phone.SOURCES.items()
-    }
-    mocker.patch.object(generate_phone, "SOURCES", pinned)
-    out = tmp_path / "phone_table.h"
-    generate(out, tmp_path)
+def test_generate_writes_the_header_from_local_sources(pinned_sources_dir: Path) -> None:
+    out = pinned_sources_dir / "phone_table.h"
+    generate(out, pinned_sources_dir)
     assert "#define TH_PHONE_REGION_COUNT 3" in out.read_text()
 
 
-def test_fetch_sources_rejects_a_hash_mismatch(tmp_path: Path) -> None:
-    for name, raw in _sources().items():
-        (tmp_path / name).write_bytes(raw)
+def test_fetch_sources_rejects_a_hash_mismatch(sources_dir: Path) -> None:
     with pytest.raises(GenerationError, match="not the pinned"):
-        fetch_sources(tmp_path)
+        fetch_sources(sources_dir)
 
 
-def test_generate_enforces_the_size_gate(tmp_path: Path, mocker: MockerFixture) -> None:
-
-    sources = _sources()
-    for name, raw in sources.items():
-        (tmp_path / name).write_bytes(raw)
-    pinned = {
-        name: (url, hashlib.sha256(sources[name]).hexdigest())
-        for name, (url, _digest) in generate_phone.SOURCES.items()
-    }
-    mocker.patch.object(generate_phone, "SOURCES", pinned)
+def test_generate_enforces_the_size_gate(pinned_sources_dir: Path, mocker: MockerFixture) -> None:
     mocker.patch.object(generate_phone, "MAX_TABLE_BYTES", 1)
     with pytest.raises(GenerationError, match="over the 1 gate"):
-        generate(tmp_path / "phone_table.h", tmp_path)
+        generate(pinned_sources_dir / "phone_table.h", pinned_sources_dir)

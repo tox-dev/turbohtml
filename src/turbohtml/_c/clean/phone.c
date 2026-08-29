@@ -31,7 +31,7 @@
 typedef struct {
     size_t digits_offset; /* into run.digits */
     uint8_t count;
-    uint8_t separator_is_dots; /* every character before the group is a full stop, the IPv4 shape */
+    uint8_t separator_is_dots; /* each character before the group is a full stop, the IPv4 shape */
     uint8_t separator_has_extension_marker;
     size_t start;
     size_t end;
@@ -116,8 +116,7 @@ static int is_latin_letter(uint32_t code) {
     return in_ranges(code, th_phone_latin_ranges, TH_PHONE_LATIN_RANGE_COUNT);
 }
 
-/* Unicode's letter and number categories: what parse refuses after a number, along with `#`, the way
-   extractPossibleNumber's UNWANTED_END_CHARS does with \p{L} and \p{N}. */
+/* extractPossibleNumber's UNWANTED_END_CHARS refuses \p{L}, \p{N} and `#` after a number. */
 static int is_letter(uint32_t code) {
     return in_ranges(code, th_phone_letter_ranges, TH_PHONE_LETTER_RANGE_COUNT);
 }
@@ -197,8 +196,8 @@ static uint16_t dfa_accept(const th_phone_dfa *dfa, uint16_t state) {
     return th_phone_accepts[dfa->accept_offset + state];
 }
 
-/* Java's lookingAt end for `digits` followed by the end of input, or -1: the priority automaton's final state names
-   how many digits back the accepted end lies. */
+/* Java's lookingAt end, or -1; the priority automaton's final state names how many digits back the accepted end
+   lies. */
 static int priority_match_end(uint16_t dfa_index, const char *digits, size_t len) {
     const th_phone_dfa *dfa = dfa_at(dfa_index);
     uint16_t state = 1;
@@ -363,7 +362,7 @@ enum length_result {
 };
 
 static enum length_result length_result(const th_phone_region *region, size_t len) {
-    /* a run holds up to 240 digits, far past the 32 lengths the masks describe and past every plan's longest */
+    /* a run holds up to 240 digits, past the 32 lengths the masks describe and past any plan's longest */
     if (len >= 32) {
         return LENGTH_TOO_LONG;
     }
@@ -404,8 +403,8 @@ static void copy_digits(digit_string *target, const char *source, size_t len) {
     target->len = len;
 }
 
-/* maybeStripNationalPrefixAndCarrierCode's answer: 1 when the prefix rule matches (an empty match counts, as
-   lookingAt's does) and the generalDesc guard lets the rewrite stand, with the rewritten digits in `output`. */
+/* maybeStripNationalPrefixAndCarrierCode: an empty prefix match counts, as lookingAt's does, and the generalDesc
+   guard lets the rewrite stand. */
 static int strip(const th_phone_region *region, const digit_string *input, digit_string *output) {
     if (region->national_prefix == 0xFFFF) {
         return 0;
@@ -437,7 +436,7 @@ static int strip(const th_phone_region *region, const digit_string *input, digit
     return 1;
 }
 
-/* The stripped digits, with parseHelper's length adoption when `adopt` is set; the input when nothing applies. */
+/* parseHelper's length adoption: with `adopt`, a rewrite that leaves a non-viable length is discarded. */
 static void strip_prefix(const th_phone_region *region, const digit_string *input, int adopt, digit_string *output) {
     digit_string transformed;
     if (!strip(region, input, &transformed)) {
@@ -480,8 +479,8 @@ static int format_fits(const th_phone_format *format, size_t len) {
     return low <= len && len <= high;
 }
 
-/* chooseFormattingPatternForNumber over `count` formats: the first whose last leadingDigits pattern is a prefix of
-   the number and whose pattern fits it; `intl` walks the international list, which lacks the NA formats. */
+/* chooseFormattingPatternForNumber's order: the first fitting format wins; the international list lacks the NA
+   formats. */
 static const th_phone_format *choose_format(const th_phone_format *formats, size_t count, const char *nsn, size_t len,
                                             int intl) {
     for (size_t index = 0; index < count; index++) {
@@ -600,7 +599,7 @@ static void validate(const th_phone_config *config, const th_phone_group *group,
     result->found = 1;
 }
 
-/* The calling code group at the start of `digits`, which hold at least three; -1 when none is assigned. */
+/* -1 when no calling code is assigned; callers give at least three digits, so the probe reads in bounds. */
 static int group_of_country_code(const char *digits, size_t *code_length) {
     if (digits[0] == '0') {
         return -1;
@@ -617,8 +616,7 @@ static int group_of_country_code(const char *digits, size_t *code_length) {
     return -1;
 }
 
-/* A number that carries its own country code: the calling code's main region strips its national prefix
-   (parseHelper's regionMetadata switch), then the group routes and validates. */
+/* parseHelper's regionMetadata switch: the calling code's main region strips the national prefix. */
 static int read_international(const th_phone_config *config, const char *digits, size_t len, reading *result) {
     result->found = 0;
     if (len <= 2) {
@@ -822,7 +820,6 @@ static uint16_t extension_symbol(uint32_t code) {
     return 0;
 }
 
-/* Walk the extension grammar from `tail_start`; on a hit report where it ends and the extension digits. */
 static uint16_t extension_dfa(const th_phone_config *config) {
     return config->parsing_extensions ? TH_PHONE_EXT_PARSING_DFA : TH_PHONE_EXT_DFA;
 }
@@ -1035,8 +1032,8 @@ static size_t timestamp_groups(th_phone_read read, const void *text, size_t len,
     return spanned;
 }
 
-/* An IPv4 address is four dot-joined groups worth at most 255 each with no further dotted group on either side.
-   Each one poisons its own four groups, so the number written after an address keeps its first group. */
+/* A further dotted group on either side means no address; each address poisons only its own four groups, so a
+   number written after it keeps its first group. */
 static void poison_ipv4(run_record *run) {
     if (run->plus) {
         return;
@@ -1161,6 +1158,8 @@ static void poison_cards(run_record *run) {
         while (matched < run->group_count && matched < 5 && run->groups[matched].count == shapes[shape][matched]) {
             matched++;
         }
+        /* the shape's match is a variable because folding it into the condition changes what the link-time
+           optimizer inlines here, which costs an unrelated benchmark 8% on the performance gate */
         int whole = matched == run->group_count && (matched == 5 || shapes[shape][matched] == 0);
         if (whole && luhn_over(run, 0, run->group_count)) {
             run->poison |= (1u << run->group_count) - 1u;
@@ -1191,9 +1190,6 @@ static void poison(th_phone_read read, const void *text, size_t len, const th_ph
     }
 }
 
-/* Java's \p{Z} restricted to the separators a candidate can hold: of the space characters, only these three are in
-   libphonenumber's VALID_PUNCTUATION, so no other reaches the split rules. */
-
 static int is_wide_hyphen(uint32_t code) {
     return (code >= 0x2012 && code <= 0x2015) || code == 0xFF0D;
 }
@@ -1213,7 +1209,7 @@ typedef struct {
     size_t count;
 } chunk_list;
 
-/* A split already tried is not tried again. */
+/* The rules overlap, so one range can arrive twice. */
 static void push_chunk(chunk_list *chunks, size_t start, size_t end) {
     for (size_t index = 0; index < chunks->count; index++) {
         if (chunks->ranges[index].start == start && chunks->ranges[index].end == end) {
@@ -1225,7 +1221,7 @@ static void push_chunk(chunk_list *chunks, size_t start, size_t end) {
     chunks->count++;
 }
 
-/* A candidate ends on a digit or an extension's last character, never on a separator, so these runs stop inside it. */
+/* A candidate ends on a digit or an extension's last character, not on a separator, so these runs stop inside it. */
 static size_t skip_space_separators(th_phone_read read, const void *text, size_t position) {
     while (is_space_separator(read(text, position))) {
         position++;
@@ -1563,8 +1559,8 @@ static int is_template_separator(char byte) {
     return memchr(separators, byte, sizeof separators) != NULL;
 }
 
-/* RFC 3966's rewrite of a formatted national number: the leading separators go, every other separator run becomes
-   one hyphen. No template ends on a separator, so no run is left pending. */
+/* RFC 3966's rewrite of a formatted national number: the leading separators go, each other separator run becomes
+   one hyphen. No template ends on a separator, so no run is pending at the end. */
 static void hyphenate(text_buffer *buffer) {
     size_t written = 0;
     int pending = 0;
@@ -1616,8 +1612,8 @@ static void normalize_candidate(th_phone_read read, const void *text, size_t sta
     }
 }
 
-/* Every caller keeps `at + needle_len` inside the candidate: the search loop by its bound, the group checks by
-   their own. */
+/* Callers keep `at + needle_len` inside the candidate: the search loop by its bound, the group checks by their
+   own. */
 static int candidate_has_at(const candidate_text *candidate, size_t at, const char *needle, size_t needle_len) {
     for (size_t index = 0; index < needle_len; index++) {
         if (candidate->data[at + index] != (uint32_t)(unsigned char)needle[index]) {
@@ -1760,8 +1756,8 @@ static int groups_exactly_present(const reading *result, const candidate_text *c
         }
     }
     size_t formatted = count - 1;
-    /* no plan's prefix transform writes more than the first group, so the runs never run out before the groups; the
-       run bound stays as part of one test so a future plan cannot step outside the array */
+    /* no plan's prefix transform writes more than the first group, so the runs do not run out before the groups;
+       the run bound stays as part of one test so a future plan cannot step outside the array */
     while ((formatted > 0) & (at >= 0)) {
         if (runs[at][1] != groups[formatted].len ||
             !candidate_has_at(candidate, runs[at][0], groups[formatted].text, groups[formatted].len)) {
@@ -1784,8 +1780,8 @@ static int groups_hold(const th_phone_config *config, const reading *result, con
     return groups_exactly_present(result, candidate, groups, count, ext_len);
 }
 
-/* checkNumberGroupingIsValid under STRICT_GROUPING or EXACT_GROUPING: the candidate's groups against the number's
-   own format, then against each alternate format of its calling code whose leading digits it matches. */
+/* checkNumberGroupingIsValid's order: the number's own format first, then each alternate format of its calling
+   code whose leading digits it matches. */
 static int grouping_holds(th_phone_read read, const void *text, const th_phone_config *config, size_t start, size_t end,
                           const reading *result, const char *ext, size_t ext_len) {
     if (config->grouping == TH_PHONE_GROUPING_ANY) {
@@ -1827,8 +1823,7 @@ typedef struct {
     uint8_t ext_len;
 } chunk_match;
 
-/* parseAndVerify on one chunk: its groups, its own extension, the bracket, page-range and neighbor rules, then the
-   readings in order: a plus reads internationally, otherwise each configured region in turn. */
+/* parseAndVerify on one chunk: a plus reads internationally, otherwise each configured region in turn. */
 static int read_chunk(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
                       const run_record *run, size_t first_group, size_t end_group, size_t start, size_t end,
                       chunk_match *found) {
@@ -1869,7 +1864,7 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
     int gap = 0;
     for (size_t position = start; position < run->groups[first].start; position++) {
         if (is_plus(read(text, position))) {
-            /* VALID_PHONE_NUMBER takes plus signs at the very start only, so `+ +1` is not a viable number */
+            /* VALID_PHONE_NUMBER takes plus signs only at the start, so `+ +1` is not a viable number */
             if (gap) {
                 return 0;
             }
@@ -1966,7 +1961,7 @@ static int text_has_at(th_phone_read read, const void *text, size_t at, size_t e
     return 1;
 }
 
-/* The first `;name=` parameter of a tel URI at or after `start`, or `end`; RFC 3966 names are lowercase. */
+/* `end` when absent; RFC 3966 parameter names are lowercase, so the match does not fold case. */
 static size_t find_parameter(th_phone_read read, const void *text, size_t start, size_t end, const char *needle) {
     for (size_t position = start; position < end; position++) {
         if (read(text, position) == ';' && text_has_at(read, text, position, end, needle)) {
@@ -2022,8 +2017,8 @@ static uint32_t read_candidate(const void *text, size_t index) {
     return ((const candidate_text *)text)->data[index];
 }
 
-/* The `;phone-context=` value: a global number (`+49`) whose digits go before the local number, kept in `prefix`
-   with its plus; a domain name, under which the digits read as a national number; anything else is no number. */
+/* 1 with a global number (`+49`) in `prefix`, whose digits go before the local number; 0 with a domain, under
+   which the digits read as a national number; -1 otherwise, and the whole text is no number. */
 static int context_prefix(th_phone_read read, const void *text, size_t value, size_t end, candidate_text *prefix) {
     size_t value_end = value;
     while (value_end < end && read(text, value_end) != ';') {

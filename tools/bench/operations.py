@@ -514,17 +514,6 @@ _PHONE_HELD: Final[tuple[tuple[str, str], ...]] = (
     ("KR", "02-123-4567"),
     ("SG", "6123 4567"),
 )
-_PHONE_PARSE_CASES: Final[tuple[tuple[str, tuple[str, tuple[tuple[str, str], ...]]], ...]] = (
-    ("20 held numbers, valid", ("valid", _PHONE_HELD)),
-    ("20 held numbers, possible", ("possible", _PHONE_HELD)),
-)
-_PHONE_FORMAT_CASES: Final[tuple[tuple[str, tuple[str, tuple[tuple[str, str], ...]]], ...]] = (
-    ("20 numbers, international", ("international", _PHONE_HELD)),
-    ("20 numbers, national", ("national", _PHONE_HELD)),
-    ("20 numbers, RFC 3966", ("rfc3966", _PHONE_HELD)),
-    ("20 numbers, E.164", ("e164", _PHONE_HELD)),
-)
-
 _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
     ("text-heavy tree", ("default", "<article><p>" + "plain prose " * 8_000 + "https://example.com</p></article>")),
     ("2,000 small text nodes", ("default", "<div>" + "<span>plain</span>" * 2_000 + "</div>")),
@@ -1060,8 +1049,16 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
     ),
     "phone": lambda: _PHONE_CASES,
-    "phone-parse": lambda: _PHONE_PARSE_CASES,
-    "phone-format": lambda: _PHONE_FORMAT_CASES,
+    "phone-parse": lambda: (
+        ("20 held numbers, valid", ("valid", _PHONE_HELD)),
+        ("20 held numbers, possible", ("possible", _PHONE_HELD)),
+    ),
+    "phone-format": lambda: (
+        ("20 numbers, international", ("international", _PHONE_HELD)),
+        ("20 numbers, national", ("national", _PHONE_HELD)),
+        ("20 numbers, RFC 3966", ("rfc3966", _PHONE_HELD)),
+        ("20 numbers, E.164", ("e164", _PHONE_HELD)),
+    ),
     "markdown": lambda: (
         ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from turbohtml.clean import LinkDetector, PhoneNumbers
 
-_US = PhoneNumbers(regions=("US",))
-_US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
+_US: Final = PhoneNumbers(regions=("US",))
 
 
 def _urls(text: str, phones: PhoneNumbers = _US) -> list[str]:
@@ -13,7 +14,6 @@ def _urls(text: str, phones: PhoneNumbers = _US) -> list[str]:
 
 
 def _in_script(zero: int, text: str = "650-253-0000") -> str:
-    """The number with each ASCII digit replaced by the digit of the script whose zero is ``zero``."""
     return "".join(chr(zero + int(char)) if char.isdigit() else char for char in text)
 
 
@@ -67,7 +67,7 @@ def test_extension_digits_of_other_scripts(text: str) -> None:
 )
 def test_neighboring_letters_and_currency(text: str, valid: list[str], possible: list[str]) -> None:
     assert _urls(text) == valid
-    assert _urls(text, _US_POSSIBLE) == possible
+    assert _urls(text, PhoneNumbers(regions=("US",), require_valid=False)) == possible
 
 
 @pytest.mark.parametrize(
@@ -89,6 +89,5 @@ def test_separators_of_every_kind(text: str) -> None:
 
 
 def test_offsets_count_code_points_not_bytes() -> None:
-    text = "\U0001f600\U0001f600 650-253-0000"
-    span = LinkDetector(phones=_US).find(text)[0]
+    span = LinkDetector(phones=_US).find("\U0001f600\U0001f600 650-253-0000")[0]
     assert (span.start, span.end) == (3, 15)

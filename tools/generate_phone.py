@@ -62,27 +62,25 @@ if TYPE_CHECKING:
 # latest release decides, never the other way round. Each digest is the SHA-256 of the exact bytes the pinned URL
 # serves; a rebuild recomputes it and aborts on a mismatch.
 LIBPHONENUMBER_TAG: Final = "v9.0.38"
-METADATA_SHA256: Final = "505eb93659bb6cc7daff90576c1db3d7cfca6591b0038f2f3fcc187e7ea7ea35"
-PHONENUMBERUTIL_SHA256: Final = "580eb2da64567319fac9bc8e288ccf6a2561a72a47d44fe4a905c3a07cafcb17"
-ALTERNATE_FORMATS_SHA256: Final = "3cfdc3ed6ac674214aa8fc2409fcb14632b0ddcb6a5834612bcb1aefe657cbd5"
-UNICODE_VERSION: Final = "16.0.0"
-BLOCKS_SHA256: Final = "f3907b395d410f1b97342292ca6bc83dd12eb4b205f2a0c48efdef99e517d7b0"
-UNICODE_DATA_SHA256: Final = "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f"
+_UNICODE_VERSION: Final = "16.0.0"
 
 _UPSTREAM: Final = f"https://raw.githubusercontent.com/google/libphonenumber/{LIBPHONENUMBER_TAG}"
-_UCD: Final = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
+_UCD: Final = f"https://www.unicode.org/Public/{_UNICODE_VERSION}/ucd"
 SOURCES: Final = {
-    "PhoneNumberMetadata.xml": (f"{_UPSTREAM}/resources/PhoneNumberMetadata.xml", METADATA_SHA256),
+    "PhoneNumberMetadata.xml": (
+        f"{_UPSTREAM}/resources/PhoneNumberMetadata.xml",
+        "505eb93659bb6cc7daff90576c1db3d7cfca6591b0038f2f3fcc187e7ea7ea35",
+    ),
     "PhoneNumberAlternateFormats.xml": (
         f"{_UPSTREAM}/resources/PhoneNumberAlternateFormats.xml",
-        ALTERNATE_FORMATS_SHA256,
+        "3cfdc3ed6ac674214aa8fc2409fcb14632b0ddcb6a5834612bcb1aefe657cbd5",
     ),
     "PhoneNumberUtil.java": (
         f"{_UPSTREAM}/java/libphonenumber/src/com/google/i18n/phonenumbers/PhoneNumberUtil.java",
-        PHONENUMBERUTIL_SHA256,
+        "580eb2da64567319fac9bc8e288ccf6a2561a72a47d44fe4a905c3a07cafcb17",
     ),
-    "Blocks.txt": (f"{_UCD}/Blocks.txt", BLOCKS_SHA256),
-    "UnicodeData.txt": (f"{_UCD}/UnicodeData.txt", UNICODE_DATA_SHA256),
+    "Blocks.txt": (f"{_UCD}/Blocks.txt", "f3907b395d410f1b97342292ca6bc83dd12eb4b205f2a0c48efdef99e517d7b0"),
+    "UnicodeData.txt": (f"{_UCD}/UnicodeData.txt", "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f"),
 }
 
 # The type descriptions in libphonenumber's order; the bit of each is its index, generalDesc is bit 10.
@@ -99,16 +97,11 @@ TYPES: Final = (
     "voicemail",
 )
 GENERAL_BIT: Final = 1 << len(TYPES)
-NON_GEOGRAPHIC: Final = "001"
 MAX_NSN: Final = 17
 MIN_NSN: Final = 2
-MAX_LAG: Final = 20
-MAX_PREFIX_DIGITS: Final = 20
-MAX_ROUTER_REPLAY: Final = 8
-MAX_LITERAL: Final = 4
-MAX_FORMAT_GROUPS: Final = 6
-MAX_GROUP_DIGITS: Final = 15
-MAX_TEMPLATE_CHARS: Final = 24
+_MAX_ROUTER_REPLAY: Final = 8
+_MAX_FORMAT_GROUPS: Final = 6
+_MAX_TEMPLATE_CHARS: Final = 24
 MAX_TABLE_BYTES: Final = 400 * 1024
 
 # Copied from PhoneNumberUtil.java at the pinned tag; ``check_java_constants`` proves each still occurs there verbatim.
@@ -144,7 +137,7 @@ _SEP_BEFORE_LABEL: Final = "[ \u00a0\t,]*"
 _AFTER_LABEL: Final = "[:.\uff0e]?[ \u00a0\t,-]*"
 _EXPLICIT_LABELS: Final = "(?:e?xt(?:ensi(?:o\u0301?|\u00f3))?n?|\uff45?\uff58\uff54\uff4e?|\u0434\u043e\u0431|anexo)"
 _AMBIGUOUS_LABELS: Final = "(?:[x\uff58#\uff03~\uff5e]|int|\uff49\uff4e\uff54)"
-EXTENSION_FORMS: Final = (
+_EXTENSION_FORMS: Final = (
     ("rfc", ";ext=(\\d{1,20})", 20),
     ("explicit", f"{_SEP_BEFORE_LABEL}{_EXPLICIT_LABELS}{_AFTER_LABEL}(\\d{{1,20}})#?", 20),
     ("ambiguous", f"{_SEP_BEFORE_LABEL}{_AMBIGUOUS_LABELS}{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
@@ -153,8 +146,8 @@ EXTENSION_FORMS: Final = (
 # createExtnPattern(forParsing = true) adds the auto-dialling forms a held string may carry, which the matcher never
 # reads out of prose: `,,` or `;` before the digits, or one or more commas alone.
 _SEP_BEFORE_AUTODIAL: Final = "[ \u00a0\t]*"
-PARSING_EXTENSION_FORMS: Final = (
-    *EXTENSION_FORMS,
+_PARSING_EXTENSION_FORMS: Final = (
+    *_EXTENSION_FORMS,
     ("autodial", f"{_SEP_BEFORE_AUTODIAL}(?:,,|;){_AFTER_LABEL}(\\d{{1,15}})#?", 15),
     ("commas", f"{_SEP_BEFORE_AUTODIAL},+{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
 )
@@ -185,7 +178,7 @@ DEFAULT_LABELS: Final = (
 )
 
 # The six Java UnicodeBlocks PhoneNumberMatcher.isLatinLetter names, by their Blocks.txt names.
-LATIN_BLOCKS: Final = (
+_LATIN_BLOCKS: Final = (
     "Basic Latin",
     "Latin-1 Supplement",
     "Latin Extended-A",
@@ -260,7 +253,7 @@ class Region:
 
 
 @dataclass
-class PrefixTag:
+class _PrefixTag:
     """The national-prefix transform rule's literal and capture group, and which program captured it."""
 
     literal: str
@@ -269,7 +262,7 @@ class PrefixTag:
 
 
 @dataclass
-class FormatTables:
+class _FormatTables:
     """One numberFormat compiled: its leadingDigits automaton and the format it came from."""
 
     leading: Dfa
@@ -285,11 +278,11 @@ class RegionTables:
     labels: list[int]
     prefix: PriorityDfa | None
     prefix_program: Program | None
-    tag: PrefixTag | None
+    tag: _PrefixTag | None
     idd: PriorityDfa | None
     floor_valid: int
     floor_possible: int
-    formats: list[FormatTables] = field(default_factory=list)
+    formats: list[_FormatTables] = field(default_factory=list)
 
 
 @dataclass
@@ -304,7 +297,7 @@ class Group:
 
 
 @dataclass
-class UnicodeTables:
+class _UnicodeTables:
     """The Unicode ranges and case classes the recognizer consults: digits, Latin letters, currency symbols."""
 
     nd_ranges: list[tuple[int, int, int]]
@@ -317,7 +310,7 @@ class UnicodeTables:
 
 
 @dataclass
-class ExtensionTables:
+class _ExtensionTables:
     """The extension grammars compiled to DFAs over one private symbol alphabet, plus that alphabet's classes."""
 
     classes: list[tuple[int, int, int]]
@@ -334,9 +327,9 @@ class Tables:
     regions: list[RegionTables]
     groups: list[Group]
     group_of_code: dict[int, int]
-    alternates: list[list[FormatTables]]
-    unicode: UnicodeTables
-    extension: ExtensionTables
+    alternates: list[list[_FormatTables]]
+    unicode: _UnicodeTables
+    extension: _ExtensionTables
     max_lag: int
     max_prefix_digits: int
     max_router_replay: int
@@ -365,26 +358,10 @@ def check_java_constants(java: str) -> None:
                 raise GenerationError(msg)
 
 
-def _lengths(text: str | None) -> frozenset[int]:
-    if not text:
-        return frozenset()
-    values: set[int] = set()
-    for item in text.split(","):
-        matched = _LENGTH_ITEM.match(item.strip())
-        if matched is None:
-            msg = f"unparsable possibleLengths item {item!r}"
-            raise GenerationError(msg)
-        if matched.group(1):
-            values.add(int(matched.group(1)))
-        else:
-            values.update(range(int(matched.group(2)), int(matched.group(3)) + 1))
-    return frozenset(values)
-
-
 def parse_metadata(xml: bytes) -> list[Region]:
     """Read every territory, deriving the general possible lengths the way BuildMetadataFromXml does."""
     regions: list[Region] = []
-    for territory in ET.fromstring(xml).iter("territory"):  # ruff: ignore[suspicious-xml-element-tree-usage]  # pinned by hash, not untrusted
+    for territory in ET.fromstring(xml).iter("territory"):  # ruff:ignore[suspicious-xml-element-tree-usage]  # pinned by hash, not untrusted
         general = territory.find("generalDesc")
         if general is None or general.find("possibleLengths") is not None:
             msg = f"{territory.get('id')}: generalDesc must exist and carry no possibleLengths"
@@ -408,10 +385,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
             if (example := desc.find("exampleNumber")) is not None and example.text:
                 examples[name] = example.text
         national = frozenset().union(*(desc.national for desc in types.values()))
-        local_only = frozenset().union(*(desc.local_only for desc in types.values())) - national
         national_prefix = territory.get("nationalPrefix")
-        prefix_pattern = territory.get("nationalPrefixForParsing") or national_prefix
-        formats = parse_formats(territory, national_prefix or "")
         regions.append(
             Region(
                 code=territory.get("id", ""),
@@ -419,15 +393,15 @@ def parse_metadata(xml: bytes) -> list[Region]:
                 main=territory.get("mainCountryForCode") == "true",
                 leading_digits=_strip_or_none(territory.get("leadingDigits")),
                 national_prefix=national_prefix,
-                prefix_pattern=_strip_or_none(prefix_pattern),
+                prefix_pattern=_strip_or_none(territory.get("nationalPrefixForParsing") or national_prefix),
                 transform=territory.get("nationalPrefixTransformRule"),
                 idd_pattern=_strip_or_none(territory.get("internationalPrefix")),
                 general=_WHITESPACE.sub("", general.findtext("nationalNumberPattern") or ""),
                 types=types,
                 ext_prefix=territory.get("preferredExtnPrefix"),
-                formats=formats,
+                formats=parse_formats(territory, national_prefix or ""),
                 possible_national=national,
-                possible_local_only=local_only,
+                possible_local_only=frozenset().union(*(desc.local_only for desc in types.values())) - national,
                 examples=examples,
             )
         )
@@ -435,6 +409,22 @@ def parse_metadata(xml: bytes) -> list[Region]:
         msg = "no territories in the metadata"
         raise GenerationError(msg)
     return sorted(regions, key=lambda region: (region.code, region.country_code))
+
+
+def _lengths(text: str | None) -> frozenset[int]:
+    if not text:
+        return frozenset()
+    values: set[int] = set()
+    for item in text.split(","):
+        matched = _LENGTH_ITEM.match(item.strip())
+        if matched is None:
+            msg = f"unparsable possibleLengths item {item!r}"
+            raise GenerationError(msg)
+        if matched.group(1):
+            values.add(int(matched.group(1)))
+        else:
+            values.update(range(int(matched.group(2)), int(matched.group(3)) + 1))
+    return frozenset(values)
 
 
 def parse_formats(territory: ET.Element, national_prefix: str) -> list[Format]:
@@ -459,9 +449,16 @@ def parse_formats(territory: ET.Element, national_prefix: str) -> list[Format]:
         template = parse_template(name, element.findtext("format"), len(groups))
         intl_text = element.findtext("intlFormat")
         intl = None if intl_text == "NA" else parse_template(name, intl_text or template, len(groups))
-        requires = bool(rule) and not optional and _FIRST_GROUP_ONLY.fullmatch(rule) is None
-        national = parse_template(name, _apply_rule(rule, template), len(groups))
-        formats.append(Format(leading[-1] if leading else None, pattern, groups, national, intl, requires))
+        formats.append(
+            Format(
+                leading[-1] if leading else None,
+                pattern,
+                groups,
+                parse_template(name, _apply_rule(rule, template), len(groups)),
+                intl,
+                bool(rule) and not optional and _FIRST_GROUP_ONLY.fullmatch(rule) is None,
+            )
+        )
     return formats
 
 
@@ -471,7 +468,7 @@ def parse_groups(name: str, pattern: str) -> tuple[tuple[int, int], ...]:
         msg = f"{name}: numberFormat pattern {pattern!r} is not a run of digit groups"
         raise GenerationError(msg)
     groups = tuple((int(low or 1), int(high or low or 1)) for low, high in _GROUP_PART.findall(pattern))
-    if len(groups) > MAX_FORMAT_GROUPS or any(low < 1 or high < low or high > MAX_GROUP_DIGITS for low, high in groups):
+    if len(groups) > _MAX_FORMAT_GROUPS or any(low < 1 or high < low or high > 15 for low, high in groups):
         msg = f"{name}: numberFormat pattern {pattern!r} exceeds the group bounds"
         raise GenerationError(msg)
     return groups
@@ -479,8 +476,8 @@ def parse_groups(name: str, pattern: str) -> tuple[tuple[int, int], ...]:
 
 def parse_template(name: str, text: str | None, group_count: int) -> str:
     """Check a format template: ``$N`` references into the pattern's groups and the separators the formatter emits."""
-    if not text or len(text) > MAX_TEMPLATE_CHARS:
-        msg = f"{name}: format template {text!r} is empty or longer than {MAX_TEMPLATE_CHARS}"
+    if not text or len(text) > _MAX_TEMPLATE_CHARS:
+        msg = f"{name}: format template {text!r} is empty or longer than {_MAX_TEMPLATE_CHARS}"
         raise GenerationError(msg)
     refs = _TEMPLATE_REF.findall(text)
     if (
@@ -512,7 +509,7 @@ def _apply_rule(rule: str, template: str) -> str:
 def parse_alternate_formats(xml: bytes) -> dict[int, list[Format]]:
     """Read PhoneNumberAlternateFormats.xml: per calling code, the groupings the matcher also accepts."""
     formats: dict[int, list[Format]] = {}
-    for territory in ET.fromstring(xml).iter("territory"):  # ruff: ignore[suspicious-xml-element-tree-usage]  # pinned by hash, not untrusted
+    for territory in ET.fromstring(xml).iter("territory"):  # ruff:ignore[suspicious-xml-element-tree-usage]  # pinned by hash, not untrusted
         code = int(territory.get("countryCode", "0"))
         if code in formats:
             msg = f"+{code}: alternate formats listed twice"
@@ -537,7 +534,7 @@ def parse_transform(rule: str | None, prefix_program: Program | None) -> tuple[s
         msg = f"unsupported nationalPrefixTransformRule {rule!r}"
         raise GenerationError(msg)
     literal, group = matched.group(1), int(matched.group(2))
-    if len(literal) > MAX_LITERAL or group == 0 or prefix_program is None or 2 * group + 1 >= prefix_program.slots:
+    if len(literal) > 4 or group == 0 or prefix_program is None or 2 * group + 1 >= prefix_program.slots:
         msg = f"transform rule {rule!r} does not fit the prefix pattern"
         raise GenerationError(msg)
     return literal, group
@@ -549,31 +546,30 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
         compile_program(region.types[name].pattern, label=1 << bit, capture=False) if name in region.types else None
         for bit, name in enumerate(TYPES)
     ]
-    plan_program = union_program([
-        *[program for program in type_programs if program is not None],
-        compile_program(region.general, label=GENERAL_BIT, capture=False),
-    ])
-    plan = compile_dfa(plan_program)
+    plan = compile_dfa(
+        union_program([
+            *[program for program in type_programs if program is not None],
+            compile_program(region.general, label=GENERAL_BIT, capture=False),
+        ])
+    )
     labels = sorted({accept for accept in plan.accepts if accept} - {0})
     if len(labels) > 15:
         msg = f"{region.code}: {len(labels)} distinct plan labels, the dictionary holds 15"
         raise GenerationError(msg)
-    check_type_lengths(region, type_programs)
+    _check_type_lengths(region, type_programs)
     prefix = prefix_program = tag = None
     if region.prefix_pattern:
         prefix_program = compile_program(region.prefix_pattern)
         prefix = compile_priority_dfa(prefix_program)
         literal, group = parse_transform(region.transform, prefix_program)
         programs.append(prefix_program)
-        tag = PrefixTag(literal, group, len(programs) - 1)
-    if region.idd_pattern is None and region.code != NON_GEOGRAPHIC:
+        tag = _PrefixTag(literal, group, len(programs) - 1)
+    if region.idd_pattern is None and region.code != "001":
         msg = f"{region.code}: a geographic region needs an internationalPrefix"
         raise GenerationError(msg)
     idd = compile_priority_dfa(compile_program(region.idd_pattern, capture=False)) if region.idd_pattern else None
-    compiled = CompiledRegion(region, plan, prefix, prefix_program, tag, idd)
-    self_check_region(compiled, rng)
-    floor_valid = _floor(compiled, valid=True)
-    floor_possible = _floor(compiled, valid=False)
+    compiled = _CompiledRegion(region, plan, prefix, prefix_program, tag, idd)
+    _self_check_region(compiled, rng)
     return RegionTables(
         region,
         plan,
@@ -582,31 +578,31 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
         prefix_program,
         tag,
         idd,
-        floor_valid,
-        floor_possible,
-        [compile_format(item) for item in region.formats],
+        _floor(compiled, valid=True),
+        _floor(compiled, valid=False),
+        [_compile_format(item) for item in region.formats],
     )
 
 
-def compile_format(item: Format) -> FormatTables:
-    """Compile one numberFormat: its leadingDigits as a prefix automaton; the groups decide the rest."""
+def _compile_format(item: Format) -> _FormatTables:
     # a format without leadingDigits applies to every number, so its automaton accepts any first digit
-    return FormatTables(compile_dfa(compile_program(item.leading or r"\d", capture=False)), item)
+    return _FormatTables(compile_dfa(compile_program(item.leading or r"\d", capture=False)), item)
 
 
-def check_type_lengths(region: Region, type_programs: list[Program | None]) -> None:
+def _check_type_lengths(region: Region, type_programs: list[Program | None]) -> None:
     """Prove each type regex accepts only its possible lengths, so a plan accept never needs a length test."""
     for bit, name in enumerate(TYPES):
         program = type_programs[bit]
         if program is None:
             continue
-        effective = region.types[name].national or region.possible_national
-        if escaped := set(accepted_lengths(compile_dfa(program))) - effective:
+        if escaped := set(accepted_lengths(compile_dfa(program))) - (
+            region.types[name].national or region.possible_national
+        ):
             msg = f"{region.code}/{name}: the pattern accepts lengths {sorted(escaped)} outside its possibleLengths"
             raise GenerationError(msg)
 
 
-def prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
+def _prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
     """Every ``(match length, captured length)`` a prefix path can produce; -1 when the group did not participate."""
     shapes: set[tuple[int, int]] = set()
     seen: set[tuple[int, int, int, int]] = set()
@@ -619,8 +615,7 @@ def prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
         seen.add(key)
         op = program.ops[index]
         if op.kind == MATCH:
-            captured = group_end - group_start if group_start >= 0 and group_end >= 0 else -1
-            shapes.add((consumed, captured))
+            shapes.add((consumed, group_end - group_start if group_start >= 0 and group_end >= 0 else -1))
         elif op.kind == SPLIT:
             stack.extend(((op.next, consumed, group_start, group_end), (op.alt, consumed, group_start, group_end)))
         elif op.kind == SAVE:
@@ -638,29 +633,25 @@ def prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
 
 
 @dataclass
-class CompiledRegion:
-    """One region's automata before validity floors are measured, bundled for ``self_check_region`` and ``_floor``."""
+class _CompiledRegion:
+    """One region's automata before validity floors are measured, bundled for ``_self_check_region`` and ``_floor``."""
 
     region: Region
     plan: Dfa
     prefix: PriorityDfa | None
     prefix_program: Program | None
-    tag: PrefixTag | None
+    tag: _PrefixTag | None
     idd: PriorityDfa | None
 
 
-def _floor(compiled: CompiledRegion, *, valid: bool) -> int:
+def _floor(compiled: _CompiledRegion, *, valid: bool) -> int:
     """Measure the shortest raw digit string any reading of the region accepts, transforms and prefixes included."""
-    region, plan, prefix_program, tag, idd = (
-        compiled.region,
-        compiled.plan,
-        compiled.prefix_program,
-        compiled.tag,
-        compiled.idd,
-    )
+    region = compiled.region
     if valid:
         nsn_lengths = {
-            length for length, label in accepted_lengths(plan).items() if label & GENERAL_BIT and label & ~GENERAL_BIT
+            length
+            for length, label in accepted_lengths(compiled.plan).items()
+            if label & GENERAL_BIT and label & ~GENERAL_BIT
         }
     else:
         nsn_lengths = set(region.possible_national | region.possible_local_only)
@@ -668,26 +659,26 @@ def _floor(compiled: CompiledRegion, *, valid: bool) -> int:
     if not nsn_lengths:
         return 255
     candidates = set(nsn_lengths)
-    if prefix_program is not None and tag is not None:
-        for match_length, captured in prefix_shapes(prefix_program, tag.group):
+    if compiled.prefix_program is not None and (tag := compiled.tag) is not None:
+        for match_length, captured in _prefix_shapes(compiled.prefix_program, tag.group):
             if tag.group and captured >= 0:
                 inserted = len(tag.literal) + captured
                 candidates.update(match_length + length - inserted for length in nsn_lengths if length >= inserted)
             else:
                 candidates.update(match_length + length for length in nsn_lengths)
-    if idd is not None and (idd_length := shortest_accept(idd)) >= 0:
+    if compiled.idd is not None and (idd_length := shortest_accept(compiled.idd)) >= 0:
         candidates.update(idd_length + len(str(region.country_code)) + length for length in nsn_lengths)
     candidates.update(len(str(region.country_code)) + length for length in nsn_lengths)
     return max(min(candidates), MIN_NSN)
 
 
-def self_check_region(compiled: CompiledRegion, rng: random.Random) -> None:
+def _self_check_region(compiled: _CompiledRegion, rng: random.Random) -> None:
     """Compare every automaton with Python's ``re`` on the example numbers and seeded random digit strings."""
     _check_plan(compiled, rng)
     _check_priority_dfas(compiled, rng)
 
 
-def _check_plan(compiled: CompiledRegion, rng: random.Random) -> None:
+def _check_plan(compiled: _CompiledRegion, rng: random.Random) -> None:
     """Walk the plan DFA over example and random digit strings and compare its label against ``re``."""
     region = compiled.region
     general = re.compile(region.general)
@@ -695,9 +686,8 @@ def _check_plan(compiled: CompiledRegion, rng: random.Random) -> None:
     samples = [*region.examples.values(), *(_random_digits(rng, 1, MAX_NSN) for _ in range(2000))]
     samples += [mutated for example in region.examples.values() for mutated in _mutations(rng, example)]
     for sample in samples:
-        digits = [ord(char) - 0x30 for char in sample]
         state = 1
-        for digit in digits:
+        for digit in [ord(char) - 0x30 for char in sample]:
             state = compiled.plan.next[state][digit]
         label = compiled.plan.accepts[state] if state else 0
         expected = GENERAL_BIT if general.fullmatch(sample) else 0
@@ -709,7 +699,7 @@ def _check_plan(compiled: CompiledRegion, rng: random.Random) -> None:
             raise GenerationError(msg)
 
 
-def _check_priority_dfas(compiled: CompiledRegion, rng: random.Random) -> None:
+def _check_priority_dfas(compiled: _CompiledRegion, rng: random.Random) -> None:
     """Compare the prefix and IDD priority DFAs, and the prefix Pike VM's transform group, against ``re``."""
     region = compiled.region
     for automaton, pattern in ((compiled.prefix, region.prefix_pattern), (compiled.idd, region.idd_pattern)):
@@ -720,8 +710,7 @@ def _check_priority_dfas(compiled: CompiledRegion, rng: random.Random) -> None:
             sample = _random_digits(rng, 0, MAX_NSN)
             digits = [ord(char) - 0x30 for char in sample]
             matched = pattern_re.match(sample)
-            expected_end = matched.end() if matched else -1
-            if match_end(automaton, digits) != expected_end:
+            if match_end(automaton, digits) != (matched.end() if matched else -1):
                 msg = f"{region.code}: priority DFA disagrees with re.match on {sample!r} for {pattern!r}"
                 raise GenerationError(msg)
             if (
@@ -732,10 +721,9 @@ def _check_priority_dfas(compiled: CompiledRegion, rng: random.Random) -> None:
                 and compiled.tag.group
             ):
                 spans = pike_spans(compiled.prefix_program, digits[: matched.end()]) or {}
-                expected_span = (
+                if spans.get(compiled.tag.group) != (
                     matched.span(compiled.tag.group) if matched.span(compiled.tag.group) != (-1, -1) else None
-                )
-                if spans.get(compiled.tag.group) != expected_span:
+                ):
                     msg = f"{region.code}: Pike VM disagrees with re on the transform group for {sample!r}"
                     raise GenerationError(msg)
 
@@ -770,12 +758,16 @@ def compile_groups(regions: list[RegionTables], rng: random.Random) -> tuple[lis
         routed = [regions[index].region.leading_digits is not None for index in ordered]
         router = None
         if any(routed):
-            programs = [
-                compile_program(regions[index].region.leading_digits or "", label=1 << position, capture=False)
-                for position, index in enumerate(ordered)
-                if routed[position]
-            ]
-            router = compile_dfa(sticky_program(union_program(programs), ALL_DIGITS))
+            router = compile_dfa(
+                sticky_program(
+                    union_program([
+                        compile_program(regions[index].region.leading_digits or "", label=1 << position, capture=False)
+                        for position, index in enumerate(ordered)
+                        if routed[position]
+                    ]),
+                    ALL_DIGITS,
+                )
+            )
             _self_check_router(router, [regions[index].region for index in ordered], routed, rng)
         group_of_code[country_code] = len(groups)
         groups.append(Group(country_code, ordered, main, router, routed))
@@ -806,18 +798,18 @@ def router_replay(router: Dfa) -> int:
     """Measure the deepest first accept over the router: the digits a newly routed region's plan walk must replay."""
     frontier = {1}
     deepest = 0
-    for depth in range(1, MAX_ROUTER_REPLAY + 2):
+    for depth in range(1, _MAX_ROUTER_REPLAY + 2):
         successors = {router.next[state][symbol] for state in frontier for symbol in range(DIGIT_SYMBOLS)} - {0}
         if any(router.accepts[state] for state in successors):
             deepest = depth
         frontier = {state for state in successors if not router.accepts[state]}
         if not frontier:
             return deepest
-    msg = "router first accept deeper than MAX_ROUTER_REPLAY"
+    msg = "router first accept deeper than the replay cap"
     raise GenerationError(msg)
 
 
-def parse_unicode(unicode_data: str, blocks: str) -> UnicodeTables:
+def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
     """Digits with their zero, currency symbols, the Latin letters and marks of six blocks, and case mappings."""
     categories, decimal, upper, lower, title = _parse_unicode_records(unicode_data)
     nd_ranges = _digit_ranges(decimal)
@@ -826,25 +818,21 @@ def parse_unicode(unicode_data: str, blocks: str) -> UnicodeTables:
         for page in range(first >> 8, (last >> 8) + 1):
             pages[page >> 3] |= 1 << (page & 7)
     block_ranges = _blocks(blocks)
-    latin_codes = {
-        code
-        for code, category in categories.items()
-        if (category.startswith("L") or category == "Mn")
-        and any(first <= code <= last for name, (first, last) in block_ranges.items() if name in LATIN_BLOCKS)
-    }
-    if set(LATIN_BLOCKS) - set(block_ranges):
+    if set(_LATIN_BLOCKS) - set(block_ranges):
         msg = "a Latin block named by isLatinLetter is missing from Blocks.txt"
         raise GenerationError(msg)
-    currency = {code for code, category in categories.items() if category == "Sc"}
-    letters = {code for code, category in categories.items() if category.startswith("L")}
-    numbers = {code for code, category in categories.items() if category.startswith("N")}
-    return UnicodeTables(
+    return _UnicodeTables(
         nd_ranges,
         pages,
-        _ranges(currency),
-        _ranges(latin_codes),
-        _ranges(letters),
-        _ranges(numbers),
+        _ranges({code for code, category in categories.items() if category == "Sc"}),
+        _ranges({
+            code
+            for code, category in categories.items()
+            if (category.startswith("L") or category == "Mn")
+            and any(first <= code <= last for name, (first, last) in block_ranges.items() if name in _LATIN_BLOCKS)
+        }),
+        _ranges({code for code, category in categories.items() if category.startswith("L")}),
+        _ranges({code for code, category in categories.items() if category.startswith("N")}),
         _case_classes(upper, lower, title),
     )
 
@@ -886,23 +874,12 @@ def _parse_unicode_records(
 
 
 def _digit_ranges(decimal: dict[int, int]) -> list[tuple[int, int, int]]:
-    zeros = sorted({code - value for code, value in decimal.items()})
     ranges: list[tuple[int, int, int]] = []
-    for zero in zeros:
+    for zero in sorted({code - value for code, value in decimal.items()}):
         if any(decimal.get(zero + digit) != digit for digit in range(10)):
             msg = f"decimal digits at U+{zero:04X} are not a contiguous 0-9 run"
             raise GenerationError(msg)
         ranges.append((zero, zero + 9, zero))
-    return ranges
-
-
-def _ranges(codes: set[int]) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    for code in sorted(codes):
-        if ranges and ranges[-1][1] == code - 1:
-            ranges[-1] = (ranges[-1][0], code)
-        else:
-            ranges.append((code, code))
     return ranges
 
 
@@ -915,6 +892,16 @@ def _blocks(blocks: str) -> dict[str, tuple[int, int]]:
         first, last = span.split("..")
         result[name.strip()] = (int(first, 16), int(last, 16))
     return result
+
+
+def _ranges(codes: set[int]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for code in sorted(codes):
+        if ranges and ranges[-1][1] == code - 1:
+            ranges[-1] = (ranges[-1][0], code)
+        else:
+            ranges.append((code, code))
+    return ranges
 
 
 def _case_classes(upper: dict[int, int], lower: dict[int, int], title: dict[int, int]) -> dict[int, frozenset[int]]:
@@ -931,8 +918,7 @@ def _case_classes(upper: dict[int, int], lower: dict[int, int], title: dict[int,
         members = {code}
         stack = [code]
         while stack:
-            current = stack.pop()
-            for neighbor in neighbors.get(current, ()):
+            for neighbor in neighbors.get(stack.pop(), ()):
                 if neighbor not in members:
                     members.add(neighbor)
                     stack.append(neighbor)
@@ -942,15 +928,16 @@ def _case_classes(upper: dict[int, int], lower: dict[int, int], title: dict[int,
     return classes
 
 
-def compile_extension(unicode: UnicodeTables) -> ExtensionTables:
+def _compile_extension(unicode: _UnicodeTables) -> _ExtensionTables:
     """Compile the extension forms over a classifier alphabet: case classes, separators, one digit class."""
     symbol_of: dict[int, int] = {}
     next_symbol = 2
     for code in sorted(_extension_literals()):
         if code in symbol_of:
             continue
-        members = unicode.case_classes.get(code, frozenset({code})) if chr(code).isalpha() else frozenset({code})
-        for member in sorted(members):
+        for member in sorted(
+            unicode.case_classes.get(code, frozenset({code})) if chr(code).isalpha() else frozenset({code})
+        ):
             symbol_of[member] = next_symbol
         next_symbol += 1
     if next_symbol > 255:
@@ -961,35 +948,34 @@ def compile_extension(unicode: UnicodeTables) -> ExtensionTables:
         return 1 << symbol_of[code]
 
     def compile_forms(forms: tuple[tuple[str, str, int], ...]) -> Dfa:
-        programs = [
-            compile_program(
-                pattern, symbolize=symbolize, digit_mask=1 << 1, label=cap, capture=False, allow_unbounded=True
-            )
-            for _name, pattern, cap in forms
-        ]
-        return compile_dfa(union_program(programs), symbols=next_symbol, end_symbol=-1)
+        return compile_dfa(
+            union_program([
+                compile_program(
+                    pattern, symbolize=symbolize, digit_mask=1 << 1, label=cap, capture=False, allow_unbounded=True
+                )
+                for _name, pattern, cap in forms
+            ]),
+            symbols=next_symbol,
+            end_symbol=-1,
+        )
 
     classes: list[tuple[int, int, int]] = [(first, last, 1) for first, last, _zero in unicode.nd_ranges]
     for code, symbol in symbol_of.items():
         classes.append((code, code, symbol))
     classes.sort()
-    return ExtensionTables(
-        classes, next_symbol, compile_forms(EXTENSION_FORMS), compile_forms(PARSING_EXTENSION_FORMS), symbol_of
+    return _ExtensionTables(
+        classes, next_symbol, compile_forms(_EXTENSION_FORMS), compile_forms(_PARSING_EXTENSION_FORMS), symbol_of
     )
 
 
 def _extension_literals() -> set[int]:
     """Collect every literal code point an extension form spells, the alphabet both grammars share."""
     literals: set[int] = set()
-    for _name, pattern, _cap in PARSING_EXTENSION_FORMS:
-        for opcode, argument in _walk(list(_parse(pattern))):
+    for _name, pattern, _cap in _PARSING_EXTENSION_FORMS:
+        for opcode, argument in _walk(list(sre_parse.parse(pattern))):
             if opcode == "literal":
                 literals.add(argument)
     return literals
-
-
-def _parse(pattern: str) -> SreItems:
-    return sre_parse.parse(pattern)
 
 
 def _walk(items: SreItems) -> Iterable[tuple[str, int]]:
@@ -1020,9 +1006,8 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
     """Build every table from the verified sources, checking each automaton against ``re`` as it goes."""
     check_java_constants(sources["PhoneNumberUtil.java"].decode("utf-8"))
     rng = random.Random(seed)
-    regions = parse_metadata(sources["PhoneNumberMetadata.xml"])
     programs: list[Program] = []
-    compiled = [compile_region(region, programs, rng) for region in regions]
+    compiled = [compile_region(region, programs, rng) for region in parse_metadata(sources["PhoneNumberMetadata.xml"])]
     groups, group_of_code = compile_groups(compiled, rng)
     for group in groups:
         # a reading validates against any plan of its calling code, so a region's floor is its group's shortest
@@ -1031,7 +1016,6 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
             tables.floor_valid = min(item.floor_valid for item in members)
             tables.floor_possible = min(item.floor_possible for item in members)
     unicode = parse_unicode(sources["UnicodeData.txt"].decode("utf-8"), sources["Blocks.txt"].decode("utf-8"))
-    extension = compile_extension(unicode)
     max_lag = max((lag(tables.prefix) for tables in compiled if tables.prefix), default=0)
     max_lag = max(max_lag, *(lag(tables.idd) for tables in compiled if tables.idd))
     max_prefix = max(
@@ -1041,16 +1025,16 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
     replay = max((router_replay(group.router) for group in groups if group.router), default=0)
     threads = max((max_threads(program) for program in programs), default=0)
     slots = max((program.slots for program in programs), default=0)
-    if max_lag > MAX_LAG or max_prefix > MAX_PREFIX_DIGITS or replay > MAX_ROUTER_REPLAY or threads > 64 or slots > 8:
+    if max_lag > 20 or max_prefix > 20 or replay > _MAX_ROUTER_REPLAY or threads > 64 or slots > 8:
         msg = f"bounds exceeded: lag {max_lag}, prefix {max_prefix}, replay {replay}, threads {threads}, slots {slots}"
         raise GenerationError(msg)
     return Tables(
         compiled,
         groups,
         group_of_code,
-        compile_alternates(sources["PhoneNumberAlternateFormats.xml"], len(groups), group_of_code),
+        _compile_alternates(sources["PhoneNumberAlternateFormats.xml"], len(groups), group_of_code),
         unicode,
-        extension,
+        _compile_extension(unicode),
         max_lag,
         max_prefix,
         replay,
@@ -1059,40 +1043,15 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
     )
 
 
-def compile_alternates(xml: bytes, group_count: int, group_of_code: dict[int, int]) -> list[list[FormatTables]]:
+def _compile_alternates(xml: bytes, group_count: int, group_of_code: dict[int, int]) -> list[list[_FormatTables]]:
     """Compile the alternate formats of each calling code, indexed like the groups."""
-    alternates: list[list[FormatTables]] = [[] for _group in range(group_count)]
+    alternates: list[list[_FormatTables]] = [[] for _group in range(group_count)]
     for code, items in parse_alternate_formats(xml).items():
         if code not in group_of_code:
             msg = f"+{code}: alternate formats for a calling code the metadata does not assign"
             raise GenerationError(msg)
-        alternates[group_of_code[code]] = [compile_format(item) for item in items]
+        alternates[group_of_code[code]] = [_compile_format(item) for item in items]
     return alternates
-
-
-def _rows(
-    dfas: list[tuple[Dfa | PriorityDfa, int]],
-) -> tuple[list[int], list[int], list[int], list[tuple[int, int, int, int, int]]]:
-    """Lay every automaton out as narrow or wide rows plus one accept word per state."""
-    rows8: list[int] = []
-    rows16: list[int] = []
-    accepts: list[int] = []
-    descriptors: list[tuple[int, int, int, int, int]] = []
-    for automaton, symbols in dfas:
-        states = len(automaton.next)
-        wide = states > 255
-        target = rows16 if wide else rows8
-        descriptors.append((len(target), len(accepts), states, symbols, int(wide)))
-        for state in range(states):
-            row = automaton.next[state]
-            target.extend(row[symbol] for symbol in range(symbols))
-            if isinstance(automaton, PriorityDfa):
-                word = (0x8000 if automaton.accept[state] else 0) | (0x4000 if automaton.final[state] else 0)
-                word |= automaton.offset_back[state] << 8
-            else:
-                word = automaton.accepts[state]
-            accepts.append(word)
-    return rows8, rows16, accepts, descriptors
 
 
 def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-statements, too-many-locals]  # one emitter section per C table; splitting would scatter one format across many co-dependent functions
@@ -1114,12 +1073,16 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
         label_offsets.append((offset, len(region_tables.labels)))
         dictionary = {label: position + 1 for position, label in enumerate(region_tables.labels)}
         plan = region_tables.plan
-        encoded = Dfa(
-            plan.symbols,
-            plan.next,
-            [(accept & GENERAL_BIT and 0x8000) | dictionary.get(accept, 0) for accept in plan.accepts],
-        )
-        entry = {"plan": add(encoded, DIGIT_SYMBOLS)}
+        entry = {
+            "plan": add(
+                Dfa(
+                    plan.symbols,
+                    plan.next,
+                    [(accept & GENERAL_BIT and 0x8000) | dictionary.get(accept, 0) for accept in plan.accepts],
+                ),
+                DIGIT_SYMBOLS,
+            )
+        }
         if region_tables.prefix is not None:
             entry["prefix"] = add(region_tables.prefix, DIGIT_SYMBOLS + 1)
         if region_tables.idd is not None:
@@ -1135,8 +1098,10 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
             if accept and accept not in set_index:
                 set_index[accept] = len(router_sets)
                 router_sets.append(accept)
-        encoded = Dfa(group.router.symbols, group.router.next, [set_index[accept] for accept in group.router.accepts])
-        router_index[group_index] = add(encoded, DIGIT_SYMBOLS)
+        router_index[group_index] = add(
+            Dfa(group.router.symbols, group.router.next, [set_index[accept] for accept in group.router.accepts]),
+            DIGIT_SYMBOLS,
+        )
     extension_index = add(tables.extension.dfa, tables.extension.symbols)
     parsing_extension_index = add(tables.extension.parsing_dfa, tables.extension.symbols)
     shared_dfa: dict[tuple, int] = {}
@@ -1156,9 +1121,9 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
             templates.append(text)
         return template_offset[text]
 
-    def format_row(item: FormatTables) -> str:
+    def format_row(item: _FormatTables) -> str:
         groups = [(low << 4) | high for low, high in item.format.groups]
-        groups.extend([0] * (MAX_FORMAT_GROUPS - len(groups)))
+        groups.extend([0] * (_MAX_FORMAT_GROUPS - len(groups)))
         national = add_template(item.format.national)
         intl = 0xFFFF if item.format.intl is None else add_template(item.format.intl)
         return (
@@ -1185,13 +1150,12 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
         for region_tables in tables.regions
     ]
     rows8, rows16, accepts, descriptors = _rows(dfas)
-    programs: list[Program] = [
-        region_tables.prefix_program for region_tables in tables.regions if region_tables.prefix_program is not None
-    ]
     ops: list[tuple[int, int, int, int]] = []
     program_table: list[tuple[int, int, int]] = []
     class_masks: list[int] = []
-    for program in programs:
+    for program in [
+        region_tables.prefix_program for region_tables in tables.regions if region_tables.prefix_program is not None
+    ]:
         first = len(ops)
         for op in program.ops:
             arg = op.arg
@@ -1205,7 +1169,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out = lines.append
     out("/* Auto-generated by tools/generate_phone.py - do not edit. */")
     out(
-        f"/* libphonenumber {LIBPHONENUMBER_TAG} numbering plans compiled to DFAs; Unicode {UNICODE_VERSION} tables. */"
+        f"/* libphonenumber {LIBPHONENUMBER_TAG} numbering plans compiled to DFAs; "
+        f"Unicode {_UNICODE_VERSION} tables. */"
     )
     out("")
     out("#ifndef TURBOHTML_PHONE_TABLE_H")
@@ -1226,8 +1191,8 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(f"#define TH_PHONE_EXT_DFA {extension_index}")
     out(f"#define TH_PHONE_EXT_PARSING_DFA {parsing_extension_index}")
     out("#define TH_PHONE_GENERAL_BIT 0x8000")
-    out(f"#define TH_PHONE_FORMAT_GROUPS {MAX_FORMAT_GROUPS}")
-    out(f"#define TH_PHONE_TEMPLATE_CHARS {MAX_TEMPLATE_CHARS}")
+    out(f"#define TH_PHONE_FORMAT_GROUPS {_MAX_FORMAT_GROUPS}")
+    out(f"#define TH_PHONE_TEMPLATE_CHARS {_MAX_TEMPLATE_CHARS}")
     out("")
     out("typedef struct {")
     out("    uint32_t next_offset;")
@@ -1319,7 +1284,7 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out("")
     out(_array("uint16_t", "th_phone_type_masks", type_masks))
     out(_array("uint32_t", "th_phone_router_sets", router_sets))
-    tags: list[PrefixTag] = [PrefixTag("", 0, 0)]
+    tags: list[_PrefixTag] = [_PrefixTag("", 0, 0)]
     out("static const th_phone_region th_phone_regions[] = {")
     for index, region_tables in enumerate(tables.regions):
         region = region_tables.region
@@ -1328,13 +1293,13 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
         if region_tables.tag is not None:
             tags.append(region_tables.tag)
             tag_index = len(tags) - 1
-        code = region.code if region.code != NON_GEOGRAPHIC else NON_GEOGRAPHIC
-        national = sum(1 << length for length in region.possible_national)
-        local = sum(1 << length for length in region.possible_local_only)
         out(
-            f'    {{"{code}", {len(code)}u, {region.country_code}u, {tables.group_of_code[region.country_code]}u, '
+            f'    {{"{region.code}", {len(region.code)}u, {region.country_code}u, '
+            f"{tables.group_of_code[region.country_code]}u, "
             f"{entry.get('idd', 0xFFFF)}u, {entry.get('prefix', 0xFFFF)}u, {entry['plan']}u, "
-            f"{label_offsets[index][0]}u, {label_offsets[index][1]}u, {tag_index}u, {national}u, {local}u, "
+            f"{label_offsets[index][0]}u, {label_offsets[index][1]}u, {tag_index}u, "
+            f"{sum(1 << length for length in region.possible_national)}u, "
+            f"{sum(1 << length for length in region.possible_local_only)}u, "
             f"{region_tables.floor_valid}u, {region_tables.floor_possible}u, "
             f"{format_spans[index][0]}u, {format_spans[index][1]}u, {ext_prefixes[index]}u, "
             f"{int(bool(region.national_prefix))}u}},"
@@ -1431,14 +1396,39 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out("};")
     out("")
     out("#endif /* TURBOHTML_PHONE_TABLE_H */")
-    payload = len(rows8) + 2 * len(rows16) + 2 * len(accepts) + 4 * len(ops) + 12 * len(tables.extension.classes)
-    return "\n".join(lines) + "\n", payload
+    return (
+        "\n".join(lines) + "\n",
+        len(rows8) + 2 * len(rows16) + 2 * len(accepts) + 4 * len(ops) + 12 * len(tables.extension.classes),
+    )
+
+
+def _rows(
+    dfas: list[tuple[Dfa | PriorityDfa, int]],
+) -> tuple[list[int], list[int], list[int], list[tuple[int, int, int, int, int]]]:
+    """Lay every automaton out as narrow or wide rows plus one accept word per state."""
+    rows8: list[int] = []
+    rows16: list[int] = []
+    accepts: list[int] = []
+    descriptors: list[tuple[int, int, int, int, int]] = []
+    for automaton, symbols in dfas:
+        states = len(automaton.next)
+        wide = states > 255
+        target = rows16 if wide else rows8
+        descriptors.append((len(target), len(accepts), states, symbols, int(wide)))
+        for state in range(states):
+            target.extend(automaton.next[state][symbol] for symbol in range(symbols))
+            if isinstance(automaton, PriorityDfa):
+                word = (0x8000 if automaton.accept[state] else 0) | (0x4000 if automaton.final[state] else 0)
+                word |= automaton.offset_back[state] << 8
+            else:
+                word = automaton.accepts[state]
+            accepts.append(word)
+    return rows8, rows16, accepts, descriptors
 
 
 def _array(ctype: str, name: str, values: list, *, raw: bool = False) -> str:
     rendered = [str(value) if raw else f"{value}u" for value in values]
-    chunks = [", ".join(rendered[index : index + 16]) for index in range(0, len(rendered), 16)]
-    body = ",\n    ".join(chunks)
+    body = ",\n    ".join(", ".join(rendered[index : index + 16]) for index in range(0, len(rendered), 16))
     return f"static const {ctype} {name}[] = {{\n    {body},\n}};\n"
 
 
@@ -1455,6 +1445,41 @@ def generate(out_path: Path, local: Path | None) -> None:
         f"lag {tables.max_lag}, prefix digits {tables.max_prefix_digits}, {payload // 1024} KiB of tables, "
         f"{len(header.encode()) // 1024} KiB of header text"
     )
+
+
+__all__ = [
+    "DEFAULT_LABELS",
+    "GENERAL_BIT",
+    "JAVA_CONSTANTS",
+    "LIBPHONENUMBER_TAG",
+    "MAX_NSN",
+    "MAX_TABLE_BYTES",
+    "MIN_NSN",
+    "SOURCES",
+    "TYPES",
+    "Format",
+    "GenerationError",
+    "Group",
+    "Region",
+    "RegionTables",
+    "Tables",
+    "TypeDesc",
+    "check_java_constants",
+    "compile_groups",
+    "compile_region",
+    "compile_tables",
+    "emit_header",
+    "fetch_sources",
+    "generate",
+    "parse_alternate_formats",
+    "parse_formats",
+    "parse_groups",
+    "parse_metadata",
+    "parse_template",
+    "parse_transform",
+    "parse_unicode",
+    "router_replay",
+]
 
 
 if __name__ == "__main__":

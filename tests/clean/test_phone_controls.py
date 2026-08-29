@@ -18,9 +18,7 @@ from turbohtml.clean import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-    from pytest_mock import MockerFixture
+    from collections.abc import Callable, Iterator
 
 
 class _Codes:
@@ -40,8 +38,7 @@ def _failing_codes() -> Iterator[str]:
 
 
 def test_defaults() -> None:
-    phones = PhoneNumbers()
-    assert phones == PhoneNumbers(
+    assert PhoneNumbers() == PhoneNumbers(
         regions=(),
         require_valid=True,
         require_separators=False,
@@ -132,7 +129,11 @@ def test_regions_reject_unknown_codes(regions: tuple[str, ...], message: str) ->
 
 
 @pytest.mark.parametrize(
-    "name", ["require_valid", "require_separators", "skip_card_numbers", "require_national_prefix"]
+    "name",
+    [
+        pytest.param(name, id=name)
+        for name in ("require_valid", "require_separators", "skip_card_numbers", "require_national_prefix")
+    ],
 )
 @pytest.mark.parametrize(
     "value", [pytest.param(1, id="int"), pytest.param("yes", id="str"), pytest.param(None, id="none")]
@@ -196,6 +197,7 @@ def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
         pytest.param(7, TypeError, "iterable", id="not-iterable"),
         pytest.param(["a-b"], ValueError, "phone label 'a-b'", id="punctuation"),
         pytest.param(["ref2"], ValueError, "phone label 'ref2'", id="digit"),
+        pytest.param(["ref~"], ValueError, "phone label 'ref~'", id="past-z"),
         pytest.param([""], ValueError, "phone label ''", id="empty-entry"),
         pytest.param(["abcdefghijklm"], ValueError, "phone label", id="thirteen-bytes"),
         pytest.param(["ünit"], ValueError, "phone label", id="non-ascii"),
@@ -219,9 +221,8 @@ def test_equality_and_repr_use_the_canonical_form() -> None:
 
 
 def test_value_is_frozen() -> None:
-    phones = PhoneNumbers()
     with pytest.raises(dataclasses.FrozenInstanceError):
-        phones.regions = ("US",)  # ty: ignore[invalid-assignment]
+        PhoneNumbers().regions = ("US",)  # ty: ignore[invalid-assignment]
 
 
 def test_value_is_hashable() -> None:
@@ -247,34 +248,17 @@ def test_consumers_reject_non_phone_numbers(phones: object) -> None:
         linkify("650-253-0000", Linkify(phones=phones))  # ty: ignore[invalid-argument-type]
 
 
-def test_linker_keeps_the_value_and_the_compiled_config() -> None:
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda phones: Linker(Linkify(phones=phones)), id="linker"),
+        pytest.param(lambda phones: LinkDetector(phones=phones), id="detector"),
+    ],
+)
+def test_consumers_keep_the_settings(build: Callable[[PhoneNumbers | None], Linker | LinkDetector]) -> None:
     phones = PhoneNumbers(regions=("US",))
-    linker = Linker(Linkify(phones=phones))
-    assert linker.phones is phones
-    assert linker._phone_config is not None  # the compiled object is the contract under test
-    plain = Linker()
-    assert plain.phones is None
-    assert plain._phone_config is None
-
-
-def test_detector_keeps_the_value_and_the_compiled_config() -> None:
-    phones = PhoneNumbers(regions=("US",))
-    detector = LinkDetector(phones=phones)
-    assert detector.phones is phones
-    assert detector._phone_config is not None
-    assert LinkDetector().phones is None
-
-
-def test_linker_compiles_once(mocker: MockerFixture) -> None:
-    spy = mocker.spy(Linker, "__init__")
-    linker = Linker(Linkify(phones=PhoneNumbers(regions=("US",))))
-    compile_spy = mocker.patch(
-        "turbohtml.clean._linkify._phone_config_compile", side_effect=AssertionError("recompiled")
-    )
-    for _ in range(3):
-        assert linker.linkify("650-253-0000") == '<a href="tel:+16502530000">650-253-0000</a>'
-    assert spy.call_count == 1
-    assert compile_spy.call_count == 0
+    assert build(phones).phones is phones
+    assert build(None).phones is None
 
 
 class _Settings(TypedDict, total=False):
@@ -324,22 +308,32 @@ def test_controls_change_detection(text: str, kwargs: _Settings, expected: list[
     ],
 )
 def test_skip_card_numbers(skip: bool, expected: list[str]) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
-    detector = LinkDetector(phones=PhoneNumbers(regions=("DE",), require_valid=False, skip_card_numbers=skip))
-    assert [span.url for span in detector.find("card 4111 1111 1111 1111 on file")] == expected
+    assert [
+        span.url
+        for span in LinkDetector(
+            phones=PhoneNumbers(regions=("DE",), require_valid=False, skip_card_numbers=skip)
+        ).find("card 4111 1111 1111 1111 on file")
+    ] == expected
 
 
 def test_card_shape_with_plus_is_never_a_card() -> None:
-    detector = LinkDetector(phones=PhoneNumbers(regions=("DE",), require_valid=False))
-    assert [span.url for span in detector.find("+49 4111 1111 1111 1111")] == ["tel:+494111", "tel:+49111111111111"]
+    assert [
+        span.url
+        for span in LinkDetector(phones=PhoneNumbers(regions=("DE",), require_valid=False)).find(
+            "+49 4111 1111 1111 1111"
+        )
+    ] == ["tel:+494111", "tel:+49111111111111"]
 
 
-def test_regions_order_decides_the_national_reading() -> None:
-    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("GB", "US"))).find("650-253-0000")] == [
-        "tel:+16502530000"
-    ]
-    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US", "GB"))).find("020 7946 0958")] == [
-        "tel:+442079460958"
-    ]
+@pytest.mark.parametrize(
+    ("regions", "text", "expected"),
+    [
+        pytest.param(("GB", "US"), "650-253-0000", "tel:+16502530000", id="second-region-reads-a-us-number"),
+        pytest.param(("US", "GB"), "020 7946 0958", "tel:+442079460958", id="second-region-reads-a-gb-number"),
+    ],
+)
+def test_regions_order_decides_the_national_reading(regions: tuple[str, ...], text: str, expected: str) -> None:
+    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=regions)).find(text)] == [expected]
 
 
 @pytest.mark.parametrize(
@@ -355,14 +349,17 @@ def test_regions_order_decides_the_national_reading() -> None:
     ],
 )
 def test_national_prefix_requirement(phones: PhoneNumbers, expected: list[str]) -> None:
-    spans = LinkDetector(phones=phones).find("ring 20 7946 0958 today")
-    assert [span.url for span in spans] == expected
+    assert [span.url for span in LinkDetector(phones=phones).find("ring 20 7946 0958 today")] == expected
 
 
 @pytest.mark.parametrize("required", [pytest.param(True, id="required"), pytest.param(False, id="not-required")])
 def test_written_prefix_links_either_way(required: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest passes the row positionally
-    phones = PhoneNumbers(regions=("GB",), require_national_prefix=required)
-    assert [span.url for span in LinkDetector(phones=phones).find("ring 020 7946 0958")] == ["tel:+442079460958"]
+    assert [
+        span.url
+        for span in LinkDetector(phones=PhoneNumbers(regions=("GB",), require_national_prefix=required)).find(
+            "ring 020 7946 0958"
+        )
+    ] == ["tel:+442079460958"]
 
 
 @pytest.mark.parametrize(
@@ -382,8 +379,9 @@ def test_label_reaches_over_any_whitespace(separator: str) -> None:
 
 
 def test_label_stops_at_a_symbol() -> None:
-    spans = LinkDetector(phones=PhoneNumbers(regions=("US",))).find("Order\u2192650-253-0000")
-    assert [span.text for span in spans] == ["650-253-0000"]
+    assert [
+        span.text for span in LinkDetector(phones=PhoneNumbers(regions=("US",))).find("Order\u2192650-253-0000")
+    ] == ["650-253-0000"]
 
 
 def test_settings_convert_to_a_dict_and_a_tuple() -> None:

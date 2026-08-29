@@ -151,9 +151,9 @@ a typo scheme or a ``javascript://`` payload is left alone):
 ********************
 
 Phone numbers link when you pass a :class:`turbohtml.clean.PhoneNumbers` setting. ``regions`` is the ordered fallback
-for numbers written without ``+`` (an empty tuple links ``+`` numbers only), and the href is the number in E.164 form,
-with ``;ext=`` for an extension. Detection follows libphonenumber's numbering plans, so ``650-253-0000`` links for a US
-text while ``3/10/2011``, ``192.168.0.1`` and ``Order 12345`` stay plain:
+for numbers written without ``+`` (with an empty tuple, ``+`` numbers alone link), and the href is the number in E.164
+form, with ``;ext=`` for an extension. Detection uses the numbering plans, so ``650-253-0000`` links for a US text while
+``3/10/2011``, ``192.168.0.1`` and ``Order 12345`` stay plain:
 
 .. testcode::
 
@@ -184,15 +184,14 @@ emails carry ``phone=None``. :class:`~turbohtml.clean.LinkDetector` takes the sa
     555-123-4567 +15551234567 None unknown
     650-253-0000 +16502530000 US unknown
 
-``require_valid=False`` is libphonenumber's ``POSSIBLE`` leniency: any number of a plausible length links, the type is
-``UNKNOWN`` and the region may be ``None``. Use it for text where numbers are often mistyped; the default links only
-numbers the plan assigns. See :doc:`/explanation/phone-detection` for the rules and where they depart from
-libphonenumber.
+``require_valid=False`` links any number of a plausible length: the type is ``UNKNOWN`` and the region may be ``None``.
+Use it for text with mistyped numbers; the default requires a number the plan assigns. See
+:doc:`/explanation/phone-detection` for the rules.
 
 ``require_national_prefix=False`` links a number written without the national prefix its format writes (``20 7946 0958``
-for a British text), which libphonenumber's matcher refuses and its ``parse`` accepts. For a string you already hold,
-:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads it that way: words before the number, a ``tel:``
-scheme, brackets and an extension are fine, and anything that is not one number is a ``ValueError``:
+for a British text). :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads a string you already hold under
+the same rule: it accepts words before the number, a ``tel:`` scheme, brackets and an extension, and raises
+``ValueError`` when the string holds anything other than one number:
 
 .. testcode::
 
@@ -210,9 +209,10 @@ scheme, brackets and an extension are fine, and anything that is not one number 
     +16502530000 7 fixed_line_or_mobile
     '650-253-0000 or 650-253-0001' is not a phone number
 
-A :class:`~turbohtml.clean.PhoneNumber` writes itself in the four layouts of libphonenumber's ``format_number``, chosen
-with :class:`~turbohtml.clean.PhoneFormat`; the grouping and the extension marker are the ones the number's calling code
-publishes, so a callback can put the international form in the link text or the national form in a ``title``:
+:meth:`PhoneNumber.format <turbohtml.clean.PhoneNumber.format>` writes the number in four layouts, chosen with
+:class:`~turbohtml.clean.PhoneFormat`; the grouping and the extension marker come from the numbering plan of the
+number's calling code, so a callback can put the international form in the link text or the national form in a
+``title``:
 
 .. testcode::
 

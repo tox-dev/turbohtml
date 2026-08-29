@@ -28,11 +28,6 @@ if TYPE_CHECKING:
     from generate_phone import Region
 
 
-def model_matches(matches: list[Match]) -> Found:
-    """Reduce ``matches`` to the comparable shape ``oracle_matches`` also produces."""
-    return {(match.start, match.end, match.international_number, match.extension or "") for match in matches}
-
-
 @dataclass
 class _RunState:
     """The counts and printed-example budget threaded through every region's cases."""
@@ -53,8 +48,13 @@ def main() -> None:
         region = region_tables.region
         if region.code == "001" or (wanted and region.code not in wanted):
             continue
-        recognizer = Recognizer(tables, Config(regions=(region.code,), require_valid=arguments.mode == "valid"))
-        _check_region(recognizer, region, leniency, arguments, state)
+        _check_region(
+            Recognizer(tables, Config(regions=(region.code,), require_valid=arguments.mode == "valid")),
+            region,
+            leniency,
+            arguments,
+            state,
+        )
         if arguments.limit and state.cases >= arguments.limit:
             break
     print(f"{state.cases} cases: {dict(state.counts)}")
@@ -84,7 +84,7 @@ def _check_region(
             for context in CONTEXTS:
                 text = context.format(rendered)
                 state.cases += 1
-                ours = model_matches(recognizer.find_all(text))
+                ours = _model_matches(recognizer.find_all(text))
                 theirs = oracle_matches(text, region.code, leniency)
                 category = classify(text, ours, theirs)
                 state.counts[category] += 1
@@ -98,6 +98,11 @@ def _check_region(
                     )
         if arguments.limit and state.cases >= arguments.limit:
             break
+
+
+def _model_matches(matches: list[Match]) -> Found:
+    """Reduce ``matches`` to the comparable shape ``oracle_matches`` also produces."""
+    return {(match.start, match.end, match.international_number, match.extension or "") for match in matches}
 
 
 if __name__ == "__main__":

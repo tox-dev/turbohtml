@@ -65,11 +65,8 @@ def _detected(text: str, region: str) -> PhoneNumber:
         ),
     ],
 )
-def test_styles_write_the_number_the_way_libphonenumber_does(
-    text: str, region: str, expected: tuple[str, str, str, str]
-) -> None:
-    number = _detected(text, region)
-    assert tuple(number.format(style) for style in PhoneFormat) == expected
+def test_styles_write_each_layout(text: str, region: str, expected: tuple[str, str, str, str]) -> None:
+    assert tuple(_detected(text, region).format(style) for style in PhoneFormat) == expected
 
 
 def test_default_style_is_international() -> None:
@@ -113,11 +110,9 @@ def test_rfc3966_past_e164_is_a_local_number(text: str, expected: str) -> None:
 
 
 def test_hand_built_number_formats_too() -> None:
-    number = PhoneNumber(49, "30123456", None, "DE", PhoneType.FIXED_LINE)
-    assert number.format(PhoneFormat.NATIONAL) == "030 123456"
+    assert PhoneNumber(49, "30123456", None, "DE", PhoneType.FIXED_LINE).format(PhoneFormat.NATIONAL) == "030 123456"
 
 
 def test_style_must_be_a_phone_format() -> None:
-    number = PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE)
     with pytest.raises(TypeError, match="style must be a PhoneFormat"):
-        number.format("national")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
+        PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE).format("national")  # ty: ignore[invalid-argument-type]  # the wrong type is the point

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
@@ -9,13 +9,12 @@ from turbohtml.clean import LinkCandidate, LinkDetector, Linker, Linkify, PhoneN
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_US = PhoneNumbers(regions=("US",))
+_US: Final = PhoneNumbers(regions=("US",))
 
 
 def test_acceptance_case() -> None:
-    phones = PhoneNumbers(regions=("US",))
-    assert linkify("Call 650-253-0000", Linkify(phones=phones)) == 'Call <a href="tel:+16502530000">650-253-0000</a>'
-    assert LinkDetector(phones=phones).find("Call 650-253-0000")[0].phone is not None
+    assert linkify("Call 650-253-0000", Linkify(phones=_US)) == 'Call <a href="tel:+16502530000">650-253-0000</a>'
+    assert LinkDetector(phones=_US).find("Call 650-253-0000")[0].phone is not None
 
 
 def test_a_reused_linker_and_one_without_phones() -> None:
@@ -45,8 +44,7 @@ def test_a_reused_linker_and_one_without_phones() -> None:
     ],
 )
 def test_href_is_the_international_number(text: str, regions: tuple[str, ...], href: str) -> None:
-    html = linkify(text, Linkify(phones=PhoneNumbers(regions=regions)))
-    assert html == f'<a href="{href}">{text}</a>'
+    assert linkify(text, Linkify(phones=PhoneNumbers(regions=regions))) == f'<a href="{href}">{text}</a>'
     span = LinkDetector(phones=PhoneNumbers(regions=regions)).find(text)[0]
     assert span.phone is not None
     expected = "tel:" + span.phone.international_number
@@ -68,8 +66,7 @@ def test_callback_sees_the_phone(entry: str) -> None:
     seen: list[LinkCandidate] = []
     config = Linkify(callbacks=[_collect(seen)], phones=_US, parse_email=True)
     text = "mail a@b.com, see example.com, call 650-253-0000"
-    html = linkify(text, config) if entry == "function" else Linker(config).linkify(text)
-    assert html == (
+    assert (linkify(text, config) if entry == "function" else Linker(config).linkify(text)) == (
         'mail <a href="mailto:a@b.com">a@b.com</a>, see <a href="http://example.com">example.com</a>, '
         'call <a href="tel:+16502530000">650-253-0000</a>'
     )
@@ -78,8 +75,6 @@ def test_callback_sees_the_phone(entry: str) -> None:
         None,
         PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
     ]
-    assert seen[2].phone is not None
-    assert seen[2].phone.type is PhoneType.FIXED_LINE_OR_MOBILE
 
 
 def test_callback_can_route_mobiles_to_sms() -> None:
@@ -88,11 +83,10 @@ def test_callback_can_route_mobiles_to_sms() -> None:
             link.url = "sms:" + link.phone.international_number
         return link
 
-    html = linkify(
+    assert linkify(
         "a@b.com or 07400 123456 or 020 7946 0958",
         Linkify(callbacks=[sms], phones=PhoneNumbers(regions=("GB",)), parse_email=True),
-    )
-    assert html == (
+    ) == (
         '<a href="mailto:a@b.com">a@b.com</a> or <a href="sms:+447400123456">07400 123456</a> or '
         '<a href="tel:+442079460958">020 7946 0958</a>'
     )
@@ -103,8 +97,10 @@ def test_veto_leaves_the_text_bare() -> None:
 
 
 def test_skip_tags_and_existing_anchors_are_untouched() -> None:
-    html = '<code>650-253-0000</code> <a href="/x">650-253-0000</a> <script>650-253-0000</script> 650-253-0000'
-    assert linkify(html, Linkify(phones=_US, skip_tags=["code"])) == (
+    assert linkify(
+        '<code>650-253-0000</code> <a href="/x">650-253-0000</a> <script>650-253-0000</script> 650-253-0000',
+        Linkify(phones=_US, skip_tags=["code"]),
+    ) == (
         '<code>650-253-0000</code> <a href="/x">650-253-0000</a> <script>650-253-0000</script> '
         '<a href="tel:+16502530000">650-253-0000</a>'
     )
@@ -115,12 +111,13 @@ def test_a_number_split_across_elements_is_not_joined() -> None:
 
 
 def test_nbsp_inside_a_number() -> None:
-    html = linkify("650&nbsp;253&nbsp;0000", Linkify(phones=_US))
-    assert html == '<a href="tel:+16502530000">650&nbsp;253&nbsp;0000</a>'
+    assert linkify("650&nbsp;253&nbsp;0000", Linkify(phones=_US)) == (
+        '<a href="tel:+16502530000">650&nbsp;253&nbsp;0000</a>'
+    )
 
 
 def test_written_tel_uri_links_to_its_number() -> None:
-    assert linkify("tel:+1-650-253-0000", Linkify(phones=_US)) == ('<a href="tel:+16502530000">tel:+1-650-253-0000</a>')
+    assert linkify("tel:+1-650-253-0000", Linkify(phones=_US)) == '<a href="tel:+16502530000">tel:+1-650-253-0000</a>'
 
 
 @pytest.mark.parametrize(
@@ -138,6 +135,5 @@ def test_existing_anchors_reach_the_callback_without_a_phone(html: str) -> None:
 
 
 def test_candidate_phone_defaults_to_none() -> None:
-    candidate = LinkCandidate("http://x", "x")
-    assert candidate.phone is None
+    assert LinkCandidate("http://x", "x").phone is None
     assert LinkCandidate("tel:+1", "1", phone=None).phone is None

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
 DIGIT_SYMBOLS: Final = 10
-END: Final = 10
+_END: Final = 10
 ALL_DIGITS: Final = (1 << DIGIT_SYMBOLS) - 1
 
 CHAR: Final = 0
@@ -36,10 +36,10 @@ SAVE: Final = 2
 ASSERT_END: Final = 3
 MATCH: Final = 4
 
-Symbolizer: TypeAlias = "Callable[[int], int]"
+_Symbolizer: TypeAlias = "Callable[[int], int]"
 # sre_parse's node list: (opcode, argument) pairs whose argument shape the stdlib leaves untyped, so each site casts
 SreItems: TypeAlias = list[tuple[object, object]]
-_PriorityKey = tuple[tuple[int, ...], int]
+_PriorityKey: TypeAlias = tuple[tuple[int, ...], int]
 
 
 class UnsupportedPatternError(ValueError):
@@ -47,7 +47,7 @@ class UnsupportedPatternError(ValueError):
 
 
 @dataclass
-class Op:
+class _Op:
     """One program instruction; ``next`` and ``alt`` index the program, ``arg`` is a symbol mask, a slot or a label."""
 
     kind: int
@@ -60,7 +60,7 @@ class Op:
 class Program:
     """An ordered NFA program; ``split`` prefers ``next`` over ``alt``, which encodes Java's evaluation order."""
 
-    ops: list[Op]
+    ops: list[_Op]
     start: int
     slots: int
 
@@ -90,7 +90,7 @@ class PriorityDfa:
     offset_back: list[int]
 
 
-def digit_symbolizer(code: int) -> int:
+def _digit_symbolizer(code: int) -> int:
     """Map an ASCII digit code point to its symbol mask; anything else is outside the digit alphabet."""
     if 0x30 <= code <= 0x39:
         return 1 << (code - 0x30)
@@ -105,8 +105,8 @@ class _Fragment:
 
 
 class _Builder:
-    def __init__(self, symbolize: Symbolizer, digit_mask: int, *, capture: bool, allow_unbounded: bool) -> None:
-        self.ops: list[Op] = []
+    def __init__(self, symbolize: _Symbolizer, digit_mask: int, *, capture: bool, allow_unbounded: bool) -> None:
+        self.ops: list[_Op] = []
         self.symbolize = symbolize
         self.digit_mask = digit_mask
         self.capture = capture
@@ -114,7 +114,7 @@ class _Builder:
         self.slots = 0
 
     def emit(self, kind: int, arg: int = 0) -> int:
-        self.ops.append(Op(kind, arg))
+        self.ops.append(_Op(kind, arg))
         return len(self.ops) - 1
 
     def patch(self, outs: Iterable[tuple[int, str]], target: int) -> None:
@@ -244,54 +244,54 @@ class _Builder:
 def compile_program(  # ruff:ignore[too-many-arguments]  # a public API test module calls these as plain keywords; a config object would break it
     pattern: str,
     *,
-    symbolize: Symbolizer = digit_symbolizer,
+    symbolize: _Symbolizer = _digit_symbolizer,
     digit_mask: int = ALL_DIGITS,
     label: int = 1,
     capture: bool = True,
     allow_unbounded: bool = False,
 ) -> Program:
     """Compile ``pattern`` into an ordered program whose single ``MATCH`` carries ``label``."""
-    tree = sre_parse.parse(pattern)
     builder = _Builder(symbolize, digit_mask, capture=capture, allow_unbounded=allow_unbounded)
-    fragment = builder.sequence(list(tree))
-    match_index = builder.emit(MATCH, label)
-    builder.patch(fragment.outs, match_index)
+    fragment = builder.sequence(list(sre_parse.parse(pattern)))
+    builder.patch(fragment.outs, builder.emit(MATCH, label))
     return Program(builder.ops, fragment.start, builder.slots)
 
 
 def union_program(programs: Sequence[Program]) -> Program:
     """Join programs under one start so a subset construction labels each accept with its own program's label."""
-    ops: list[Op] = []
+    ops: list[_Op] = []
     starts: list[int] = []
     slots = 0
     for program in programs:
         offset = len(ops)
         ops.extend(
-            Op(op.kind, op.arg, op.next + offset if op.next >= 0 else -1, op.alt + offset if op.alt >= 0 else -1)
+            _Op(op.kind, op.arg, op.next + offset if op.next >= 0 else -1, op.alt + offset if op.alt >= 0 else -1)
             for op in program.ops
         )
         starts.append(program.start + offset)
         slots = max(slots, program.slots)
     start = starts[-1]
     for alternative in reversed(starts[:-1]):
-        ops.append(Op(SPLIT, 0, alternative, start))
+        ops.append(_Op(SPLIT, 0, alternative, start))
         start = len(ops) - 1
     return Program(ops, start, slots)
 
 
 def sticky_program(program: Program, all_symbols: int) -> Program:
     """Make each accept persist over any further symbols, so a router reports every prefix that matched so far."""
-    ops = [Op(op.kind, op.arg, op.next, op.alt) for op in program.ops]
-    match_indexes = [index for index, op in enumerate(ops) if op.kind == MATCH]
-    for index in match_indexes:
-        label = ops[index].arg
+    ops = [_Op(op.kind, op.arg, op.next, op.alt) for op in program.ops]
+    for index in [position for position, op in enumerate(ops) if op.kind == MATCH]:
         loop_split = len(ops)
-        ops.extend((Op(SPLIT, 0, loop_split + 1, loop_split + 2), Op(CHAR, all_symbols, loop_split), Op(MATCH, label)))
-        ops[index] = Op(SPLIT, 0, loop_split + 1, loop_split + 2)
+        ops.extend((
+            _Op(SPLIT, 0, loop_split + 1, loop_split + 2),
+            _Op(CHAR, all_symbols, loop_split),
+            _Op(MATCH, ops[index].arg),
+        ))
+        ops[index] = _Op(SPLIT, 0, loop_split + 1, loop_split + 2)
     return Program(ops, program.start, program.slots)
 
 
-def closure(program: Program, seeds: Iterable[int]) -> list[int]:
+def _closure(program: Program, seeds: Iterable[int]) -> list[int]:
     """List the consuming and matching instructions reachable through epsilons, in priority order, first visit wins."""
     ordered: list[int] = []
     seen: set[int] = set()
@@ -311,15 +311,9 @@ def closure(program: Program, seeds: Iterable[int]) -> list[int]:
     return ordered
 
 
-def _consumes(op: Op, symbol: int, end_symbol: int = END) -> bool:
-    if op.kind == CHAR:
-        return symbol != end_symbol and bool(op.arg >> symbol & 1)
-    return op.kind == ASSERT_END and symbol == end_symbol
-
-
-def compile_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1, end_symbol: int = END) -> Dfa:
+def compile_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1, end_symbol: int = _END) -> Dfa:
     """Subset construction with labeled accepts (the OR of the reached ``MATCH`` labels), then Moore minimization."""
-    start_set = frozenset(closure(program, [program.start]))
+    start_set = frozenset(_closure(program, [program.start]))
     index_of: dict[frozenset[int], int] = {frozenset(): 0, start_set: 1}
     rows: dict[int, list[int]] = {0: [0] * symbols}
     accepts: dict[int, int] = {0: 0}
@@ -329,7 +323,7 @@ def compile_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1, end_symbol: 
         row = [0] * symbols
         for symbol in range(symbols):
             seeds = [program.ops[index].next for index in current if _consumes(program.ops[index], symbol, end_symbol)]
-            target = frozenset(closure(program, seeds)) if seeds else frozenset()
+            target = frozenset(_closure(program, seeds)) if seeds else frozenset()
             if target not in index_of:
                 index_of[target] = len(index_of)
                 pending.append(target)
@@ -343,6 +337,12 @@ def compile_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1, end_symbol: 
         accepts[state] = label
     count = len(index_of)
     return minimize(Dfa(symbols, [rows[state] for state in range(count)], [accepts[state] for state in range(count)]))
+
+
+def _consumes(op: _Op, symbol: int, end_symbol: int = _END) -> bool:
+    if op.kind == CHAR:
+        return symbol != end_symbol and bool(op.arg >> symbol & 1)
+    return op.kind == ASSERT_END and symbol == end_symbol
 
 
 def minimize(dfa: Dfa) -> Dfa:
@@ -368,9 +368,11 @@ def minimize(dfa: Dfa) -> Dfa:
     representative: dict[int, int] = {}
     for state in range(count):
         representative.setdefault(block[state], state)
-    next_rows = [[renumber[block[target]] for target in dfa.next[representative[value]]] for value in order]
-    accepts = [dfa.accepts[representative[value]] for value in order]
-    return Dfa(dfa.symbols, next_rows, accepts)
+    return Dfa(
+        dfa.symbols,
+        [[renumber[block[target]] for target in dfa.next[representative[value]]] for value in order],
+        [dfa.accepts[representative[value]] for value in order],
+    )
 
 
 def compile_priority_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1) -> PriorityDfa:
@@ -380,9 +382,8 @@ def compile_priority_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1) -> 
     A state is the priority-ordered live threads ahead of the best provisional accept plus that accept's age, so the
     automaton reports the end Java's backtracker would return.
     """
-    dead: _PriorityKey = ((), -1)
-    start_key = _classify(program, closure(program, [program.start]), -1)
-    index_of: dict[_PriorityKey, int] = {dead: 0, start_key: 1}
+    start_key = _classify(program, _closure(program, [program.start]), -1)
+    index_of: dict[_PriorityKey, int] = {((), -1): 0, start_key: 1}
     rows: dict[int, list[int]] = {0: [0] * symbols}
     pending = [start_key]
     while pending:
@@ -399,6 +400,17 @@ def compile_priority_dfa(program: Program, symbols: int = DIGIT_SYMBOLS + 1) -> 
     )
 
 
+def _classify(program: Program, successors: list[int], age: int) -> _PriorityKey:
+    for position, index in enumerate(successors):
+        if program.ops[index].kind == MATCH:
+            # a higher-priority thread accepted here: it replaces any older provisional accept, and everything
+            # behind it can never win, so only the threads ahead of it stay alive
+            return tuple(successors[:position]), 0
+    if not successors and age < 0:
+        return (), -1
+    return tuple(successors), age
+
+
 def _priority_row(
     program: Program,
     key: _PriorityKey,
@@ -412,10 +424,10 @@ def _priority_row(
     threads, age = key
     for symbol in range(symbols):
         seeds = [program.ops[index].next for index in threads if _consumes(program.ops[index], symbol)]
-        successors = closure(program, seeds) if seeds else []
         # the end marker consumes no digit, so the provisional accept does not age across it
-        aged = age if symbol == END or age < 0 else age + 1
-        target = _classify(program, successors, aged)
+        target = _classify(
+            program, _closure(program, seeds) if seeds else [], age if symbol == _END or age < 0 else age + 1
+        )
         if target not in index_of:
             index_of[target] = len(index_of)
             pending.append(target)
@@ -423,18 +435,7 @@ def _priority_row(
     return row
 
 
-def _classify(program: Program, successors: list[int], age: int) -> tuple[tuple[int, ...], int]:
-    for position, index in enumerate(successors):
-        if program.ops[index].kind == MATCH:
-            # a higher-priority thread accepted here: it replaces any older provisional accept, and everything
-            # behind it can never win, so only the threads ahead of it stay alive
-            return tuple(successors[:position]), 0
-    if not successors and age < 0:
-        return (), -1
-    return tuple(successors), age
-
-
-def _is_final(key: tuple[tuple[int, ...], int]) -> bool:
+def _is_final(key: _PriorityKey) -> bool:
     threads, age = key
     return age >= 0 and not threads
 
@@ -526,7 +527,7 @@ def match_end(dfa: PriorityDfa, digits: Sequence[int]) -> int:
             return -1
     if dfa.final[state]:
         return len(digits) - dfa.offset_back[state]
-    state = dfa.next[state][END]
+    state = dfa.next[state][_END]
     if state == 0 or not dfa.accept[state]:
         return -1
     return len(digits) - dfa.offset_back[state]
@@ -546,11 +547,13 @@ def pike_spans(program: Program, digits: Sequence[int]) -> dict[int, tuple[int, 
 
 
 def _pike_positions(program: Program, digits: Sequence[int]) -> list[int] | None:
-    initial = [-1] * max(program.slots, 2)
-    threads = _pike_closure_at(program, [(program.start, initial)], 0)
+    threads = _pike_closure_at(program, [(program.start, [-1] * max(program.slots, 2))], 0)
     for position, symbol in enumerate(digits):
-        seeds = [(op.next, slots) for index, slots in threads if _consumes(op := program.ops[index], symbol)]
-        threads = _pike_closure_at(program, seeds, position + 1)
+        threads = _pike_closure_at(
+            program,
+            [(op.next, slots) for index, slots in threads if _consumes(op := program.ops[index], symbol)],
+            position + 1,
+        )
         if not threads:
             return None
     # at the end a MATCH thread stays as it is and an ASSERT_END thread advances; both are judged in priority order
@@ -592,7 +595,7 @@ def _pike_closure_at(
 
 def max_threads(program: Program, limit: int = 20) -> int:
     """Measure the largest simultaneous thread count a Pike run reaches over inputs up to ``limit`` digits."""
-    frontier = {tuple(closure(program, [program.start]))}
+    frontier = {tuple(_closure(program, [program.start]))}
     high = max(len(threads) for threads in frontier)
     for _ in range(limit + 1):
         successors: set[tuple[int, ...]] = set()
@@ -600,7 +603,7 @@ def max_threads(program: Program, limit: int = 20) -> int:
             for symbol in range(DIGIT_SYMBOLS + 1):
                 seeds = [program.ops[index].next for index in threads if _consumes(program.ops[index], symbol)]
                 if seeds:
-                    successors.add(tuple(closure(program, seeds)))
+                    successors.add(tuple(_closure(program, seeds)))
         frontier = successors
         if not frontier:
             break
@@ -613,21 +616,18 @@ __all__ = [
     "ASSERT_END",
     "CHAR",
     "DIGIT_SYMBOLS",
-    "END",
     "MATCH",
     "SAVE",
     "SPLIT",
     "Dfa",
-    "Op",
     "PriorityDfa",
     "Program",
+    "SreItems",
     "UnsupportedPatternError",
     "accepted_lengths",
-    "closure",
     "compile_dfa",
     "compile_priority_dfa",
     "compile_program",
-    "digit_symbolizer",
     "lag",
     "longest_accept",
     "match_end",
@@ -635,6 +635,8 @@ __all__ = [
     "minimize",
     "pike_spans",
     "shortest_accept",
+    "sre_constants",
+    "sre_parse",
     "sticky_program",
     "union_program",
 ]

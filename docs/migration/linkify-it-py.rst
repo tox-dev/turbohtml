@@ -37,7 +37,7 @@ they do more work per call.
         skip tags and existing-anchor handling
       - URLs, bare domains, emails, plus fuzzy IP / ``@``-mention / fuzzy-email heuristics and pluggable custom schemes
     - - Phone numbers
-      - ``tel:`` links from libphonenumber's plans via :class:`~turbohtml.clean.PhoneNumbers`
+      - ``tel:`` links from the numbering plans via :class:`~turbohtml.clean.PhoneNumbers`
       - None; ``fuzzy_ip`` finds bare IPv4 addresses
     - - Performance
       - C candidate scan; faster on span detection (see below)

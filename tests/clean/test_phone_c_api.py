@@ -4,7 +4,7 @@ import gc
 import sys
 import weakref
 from itertools import starmap
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
@@ -24,28 +24,39 @@ from turbohtml.clean._linkify import _PHONE_TYPES  # the spec item under test
 if TYPE_CHECKING:
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
-_SPEC = cast(
+_SPEC: Final = cast(
     "_PhoneSpec",
     (("US",), True, False, True, True, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
 )
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
-    """The spec with fields overridden, malformed ones included, so the binding's checks are what the test exercises."""
-    names = (
-        "regions",
-        "require_valid",
-        "require_separators",
-        "skip_card_numbers",
-        "require_national_prefix",
-        "grouping",
-        "type_mask",
-        "labels",
-        "number_type",
-        "types",
-        "parsing_extensions",
+    """Overrides stay unvalidated, so the binding's own checks are what a test exercises."""
+    return cast(
+        "_PhoneSpec",
+        tuple(
+            starmap(
+                overrides.get,
+                zip(
+                    (
+                        "regions",
+                        "require_valid",
+                        "require_separators",
+                        "skip_card_numbers",
+                        "require_national_prefix",
+                        "grouping",
+                        "type_mask",
+                        "labels",
+                        "number_type",
+                        "types",
+                        "parsing_extensions",
+                    ),
+                    _SPEC,
+                    strict=True,
+                ),
+            )
+        ),
     )
-    return cast("_PhoneSpec", tuple(starmap(overrides.get, zip(names, _SPEC, strict=True))))
 
 
 def test_compile_returns_an_unconstructible_config() -> None:
@@ -140,14 +151,26 @@ def test_compile_rejects_each_malformed_field(
 
 
 def test_compile_accepts_the_bounds() -> None:
-    labels = tuple("l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256))
-    spec = _spec(regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"), labels=labels, type_mask=1)
-    assert _phone_config_compile(spec) is not None
+    assert (
+        _phone_config_compile(
+            _spec(
+                regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"),
+                labels=tuple(
+                    "l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256)
+                ),
+                type_mask=1,
+            )
+        )
+        is not None
+    )
 
 
-@pytest.mark.skipif(
+_NEEDS_GC_COLLECT: Final = pytest.mark.skipif(
     sys.implementation.name == "pypy", reason="PyPy frees a cycle on its own schedule, not on gc.collect()"
 )
+
+
+@_NEEDS_GC_COLLECT
 def test_config_keeps_a_function_scoped_subclass_alive() -> None:
     def build() -> tuple[_PhoneConfig, weakref.ReferenceType[type[PhoneNumber]]]:
         class Local(PhoneNumber):
@@ -166,9 +189,7 @@ def test_config_keeps_a_function_scoped_subclass_alive() -> None:
     assert alive() is None
 
 
-@pytest.mark.skipif(
-    sys.implementation.name == "pypy", reason="PyPy frees a cycle on its own schedule, not on gc.collect()"
-)
+@_NEEDS_GC_COLLECT
 def test_config_cycle_through_a_class_attribute_is_collectable() -> None:
     def build() -> weakref.ReferenceType[type[PhoneNumber]]:
         class Holder(PhoneNumber):
@@ -213,10 +234,9 @@ def test_factory_returning_another_type_is_a_type_error() -> None:
 
 
 def test_factory_exception_propagates_from_apply() -> None:
-    root = parse_fragment("call 650-253-0000")
     config = _phone_config_compile(_spec(number_type=_Raising))
     with pytest.raises(RuntimeError, match="refused 1"):
-        _linkify_apply(root, (), False, (), ("http",), False, (), LinkCandidate, config)  # ruff:ignore[boolean-positional-value-in-call]
+        _linkify_apply(parse_fragment("call 650-253-0000"), (), False, (), ("http",), False, (), LinkCandidate, config)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_has_never_calls_the_factory() -> None:
@@ -287,14 +307,12 @@ def test_apply_reports_a_candidate_type_without_an_existing_slot() -> None:
 
 
 def test_apply_propagates_a_refusing_candidate_constructor() -> None:
-    root = parse_fragment("see example.com")
     with pytest.raises(RuntimeError, match=r"no candidate for http://example\.com"):
-        _linkify_apply(root, (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]
+        _linkify_apply(parse_fragment("see example.com"), (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_find_span_shape_for_a_phone() -> None:
-    config = _phone_config_compile(_SPEC)
-    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), config)  # ruff:ignore[boolean-positional-value-in-call]
+    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]
     assert spans == [
         (5, 21, 4, "tel:+16502530000;ext=12", PhoneNumber(1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE))
     ]
@@ -387,7 +405,7 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-_CONFIG = object()  # stands for the compiled configuration in a parametrized argument list
+_CONFIG: Final = object()  # stands for the compiled configuration in a parametrized argument list
 
 
 @pytest.mark.parametrize(
@@ -399,9 +417,8 @@ _CONFIG = object()  # stands for the compiled configuration in a parametrized ar
     ],
 )
 def test_parse_rejects_bad_arguments(args: tuple[object, ...], message: str) -> None:
-    config = _phone_config_compile(_SPEC)
     with pytest.raises(TypeError, match=message):
-        _phone_parse(*(config if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
+        _phone_parse(*(_phone_config_compile(_SPEC) if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
 
 
 @pytest.mark.parametrize(

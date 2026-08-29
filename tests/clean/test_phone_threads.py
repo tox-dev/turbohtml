@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from typing import Final
 
 from turbohtml.clean import LinkDetector, Linker, Linkify, PhoneNumbers
 
-_WORKERS = 8
+_WORKERS: Final = 8
 
 
 def test_one_linker_and_one_detector_shared_across_threads() -> None:
@@ -20,14 +21,21 @@ def test_one_linker_and_one_detector_shared_across_threads() -> None:
         return linker.linkify(text), [span.url for span in detector.find(text)]
 
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
-        results = list(pool.map(work, range(_WORKERS)))
-    expected_html = (
-        'mail <a href="mailto:a@b.com">a@b.com</a>, call <a href="tel:+16502530000">650-253-0000</a> or '
-        '<a href="tel:+442079460958;ext=12">+44 20 7946 0958 x12</a>, '
-        'see <a href="http://example.com" rel="nofollow">example.com</a>'
-    )
-    expected_urls = ["mailto:a@b.com", "tel:+16502530000", "tel:+442079460958;ext=12", "http://example.com"]
-    assert results == [(expected_html, expected_urls)] * _WORKERS
+        assert (
+            list(pool.map(work, range(_WORKERS)))
+            == [
+                (
+                    (
+                        'mail <a href="mailto:a@b.com">a@b.com</a>, call '
+                        '<a href="tel:+16502530000">650-253-0000</a> or '
+                        '<a href="tel:+442079460958;ext=12">+44 20 7946 0958 x12</a>, '
+                        'see <a href="http://example.com" rel="nofollow">example.com</a>'
+                    ),
+                    ["mailto:a@b.com", "tel:+16502530000", "tel:+442079460958;ext=12", "http://example.com"],
+                )
+            ]
+            * _WORKERS
+        )
 
 
 def test_detectors_with_different_policies_keep_their_own_answers() -> None:
@@ -39,11 +47,10 @@ def test_detectors_with_different_policies_keep_their_own_answers() -> None:
 
     def work(index: int) -> list[str]:
         barrier.wait()
-        detector = domains if index % 2 == 0 else numbers
-        return [span.url for span in detector.find(text)]
+        return [span.url for span in (domains if index % 2 == 0 else numbers).find(text)]
 
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
-        results = list(pool.map(work, range(_WORKERS)))
-    assert results == [["http://6502530000.corp", "mailto:6502530000@example.com"], ["tel:+16502530000"]] * (
-        _WORKERS // 2
-    )
+        assert list(pool.map(work, range(_WORKERS))) == [
+            ["http://6502530000.corp", "mailto:6502530000@example.com"],
+            ["tel:+16502530000"],
+        ] * (_WORKERS // 2)

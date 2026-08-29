@@ -14,10 +14,8 @@ typedef struct {
     PyObject *types;        /* the twelve PhoneType members, indexed by enum th_phone_type */
 } PhoneConfigObject;
 
-/* Is `object` a _PhoneConfig of this module? */
 int turbohtml_phone_config_check(PyObject *module, PyObject *object);
 
-/* Build the PhoneNumber for a recognized match through number_type._from_native. */
 PyObject *turbohtml_phone_number_new(const PhoneConfigObject *config, const th_phone_match *match);
 
 int phone_register(PyObject *module, module_state *state);

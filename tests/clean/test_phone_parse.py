@@ -1,12 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from turbohtml.clean import LinkDetector, PhoneNumber, PhoneNumbers, PhoneType
-
-
-def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, PhoneType]:
-    return (number.country_code, number.national_number, number.extension, number.region, number.type)
 
 
 @pytest.mark.parametrize(
@@ -274,7 +272,7 @@ def _fields(number: PhoneNumber) -> tuple[int, str, str | None, str | None, Phon
 def test_parse_reads_one_number(
     text: str, regions: tuple[str, ...], expected: tuple[int, str, str | None, str | None, PhoneType]
 ) -> None:
-    assert _fields(PhoneNumber.parse(text, regions=regions)) == expected
+    assert dataclasses.astuple(PhoneNumber.parse(text, regions=regions)) == expected
 
 
 @pytest.mark.parametrize(
@@ -337,7 +335,13 @@ def test_parse_refuses_text_that_is_not_one_number(text: str, regions: tuple[str
 def test_card_shape_is_read_unlike_detection() -> None:
     text = "0800 123456 7899"
     assert LinkDetector(phones=PhoneNumbers(regions=("DE",))).find(text) == []
-    assert _fields(PhoneNumber.parse(text, regions=("DE",))) == (49, "8001234567899", None, "DE", PhoneType.TOLL_FREE)
+    assert dataclasses.astuple(PhoneNumber.parse(text, regions=("DE",))) == (
+        49,
+        "8001234567899",
+        None,
+        "DE",
+        PhoneType.TOLL_FREE,
+    )
 
 
 @pytest.mark.parametrize(
@@ -355,8 +359,13 @@ def test_trailing_hash_makes_the_last_group_an_extension(
 
 
 def test_possible_mode_accepts_a_plausible_length() -> None:
-    number = PhoneNumber.parse("555-123-4567", regions=("US",), require_valid=False)
-    assert _fields(number) == (1, "5551234567", None, None, PhoneType.UNKNOWN)
+    assert dataclasses.astuple(PhoneNumber.parse("555-123-4567", regions=("US",), require_valid=False)) == (
+        1,
+        "5551234567",
+        None,
+        None,
+        PhoneType.UNKNOWN,
+    )
 
 
 def test_possible_mode_reads_a_slash_date_unlike_detection() -> None:
@@ -366,9 +375,7 @@ def test_possible_mode_reads_a_slash_date_unlike_detection() -> None:
 
 
 def test_parse_reads_exactly_250_characters() -> None:
-    text = "650-253-0000" + " " * 238
-    assert len(text) == 250
-    assert PhoneNumber.parse(text, regions=("US",)).national_number == "6502530000"
+    assert PhoneNumber.parse("650-253-0000" + " " * 238, regions=("US",)).national_number == "6502530000"
 
 
 def test_parsed_number_formats() -> None:

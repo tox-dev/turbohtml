@@ -8,7 +8,7 @@ Clean untrusted or raw HTML: sanitize it against an allowlist and rewrite bare U
 successor to ``bleach.clean`` -- build a :class:`Policy` (or take a preset), then sanitize; a non-overridable baseline
 removes scripting elements, event-handler attributes, and ``javascript:`` URLs regardless of the policy. Linkifying is a
 successor to `bleach.linkify <https://github.com/mozilla/bleach>`_ -- it finds URLs, email addresses and phone numbers
-and wraps them in ``<a>`` links, HTML-aware so it never links inside an existing ``<a>``, a raw-text element, or a
+and wraps them in ``<a>`` links, HTML-aware so it does not link inside an existing ``<a>``, a raw-text element, or a
 caller's ``skip_tags``.
 
 .. autofunction:: sanitize
@@ -225,7 +225,7 @@ for each match and accepts custom ``tlds`` and scheme-less ``schemes``.
 .. autoclass:: LinkSpan
     :members:
 
-Phone numbers link when either entry point is given a :class:`PhoneNumbers` setting; each detected number is a
+Phone numbers link when either entry point receives a :class:`PhoneNumbers` setting; each detected number is a
 :class:`PhoneNumber` on ``LinkCandidate.phone`` and ``LinkSpan.phone``.
 
 .. autoclass:: PhoneNumbers
@@ -249,8 +249,8 @@ Phone numbers link when either entry point is given a :class:`PhoneNumbers` sett
 .. autodata:: DEFAULT_PHONE_LABELS
     :no-value:
 
-    The words ``PhoneNumbers.ignore_numbers_after`` holds by default: a digit run right after one of them (``Order
-    12345``, ``ISBN 9780306406157``) is an identifier, not a number.
+    The default words of ``PhoneNumbers.ignore_numbers_after``; a digit run right after one of them (``Order 12345``,
+    ``ISBN 9780306406157``) is an identifier.
 
 ***********
  Minifying

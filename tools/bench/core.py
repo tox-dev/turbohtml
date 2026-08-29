@@ -114,7 +114,7 @@ _PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
     "regions-8": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
 }
 _PHONE_STYLES: Final[dict[str, _clean.PhoneFormat]] = {style.value: style for style in _clean.PhoneFormat}
-_PHONE_PARSED: dict[tuple[str, str], _clean.PhoneNumber] = {}  # the format op times formatting, not the parse
+_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # the format op times formatting, not the parse
 _LINKER: Final[_clean.Linker] = _clean.Linker()
 _LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
 _LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(

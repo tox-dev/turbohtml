@@ -43,7 +43,7 @@ _DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
 
 
 class PhoneType(Enum):
-    """The line type libphonenumber's metadata assigns a number; ``UNKNOWN`` appears only in possible mode."""
+    """The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode."""
 
     FIXED_LINE = "fixed_line"
     MOBILE = "mobile"
@@ -59,9 +59,8 @@ class PhoneType(Enum):
     UNKNOWN = "unknown"
 
 
-# PhoneType members in the order the C recognizer numbers them (enum th_phone_type).
 class PhoneFormat(Enum):
-    """The ways :meth:`PhoneNumber.format` writes a number, libphonenumber's ``PhoneNumberFormat``."""
+    """The ways :meth:`PhoneNumber.format` writes a number."""
 
     E164 = "e164"
     """``+16502530000``: the calling code and national significant number, no separators and no extension."""
@@ -77,19 +76,20 @@ _PHONE_FORMATS: Final = (PhoneFormat.E164, PhoneFormat.INTERNATIONAL, PhoneForma
 
 
 class PhoneGrouping(Enum):
-    """How closely the written digit groups must follow the number's format, libphonenumber's grouping leniencies."""
+    """How closely the written digit groups must follow the number's format."""
 
     ANY = "any"
-    """The groups may fall anywhere (``VALID``)."""
+    """The groups may fall anywhere."""
     STRICT = "strict"
-    """Each group of the number's format, or of an alternate format of its calling code, occurs in the text in order
-    (``STRICT_GROUPING``); ``415 6667777`` passes, ``41 566 67777`` does not."""
+    """Each group of the number's format, or of an alternate format of its calling code, occurs in the text in order;
+    ``415 6667777`` passes, ``41 566 67777`` does not."""
     EXACT = "exact"
-    """The written groups are the format's groups, or the whole national number unbroken (``EXACT_GROUPING``);
-    ``415 6667777`` does not pass."""
+    """The written groups are the format's groups, or the whole national number unbroken; ``415 6667777`` does not
+    pass."""
 
 
 _PHONE_GROUPINGS: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
+# PhoneType members in the order the C recognizer numbers them (enum th_phone_type).
 _PHONE_TYPES: Final = (
     PhoneType.FIXED_LINE,
     PhoneType.MOBILE,
@@ -133,18 +133,6 @@ DEFAULT_PHONE_LABELS: Final = (
 )
 
 
-def _ordered_strings(values: Iterable[str], field: str) -> tuple[str, ...]:
-    """Consume an ordered iterable of ``str`` into a tuple; a bare string, a set or a mapping has no order."""
-    if isinstance(values, (str, bytes, AbstractSet, Mapping)):
-        msg = f"{field} must be an ordered iterable of str, not {type(values).__name__}"
-        raise TypeError(msg)
-    items = tuple(values)
-    if any(not isinstance(item, str) for item in items):
-        msg = f"{field} entries must be str"
-        raise TypeError(msg)
-    return items
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class PhoneNumbers:
     """
@@ -160,13 +148,13 @@ class PhoneNumbers:
     case-folded against the word immediately before the digits and stored sorted; ``()`` disables the rule.
 
     :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes (``"US"``).
-    :param require_valid: link only numbers the region's numbering plan assigns (libphonenumber's ``VALID``); False
-        links every number of a possible length (``POSSIBLE``), with type ``UNKNOWN`` and possibly no region.
+    :param require_valid: link only numbers the region's numbering plan assigns; False links every number of a
+        possible length, with type ``UNKNOWN`` and possibly no region.
     :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
     :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
     :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
-        writes, libphonenumber's matcher rule (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False
-        links it the way ``parse`` accepts it. Applies with ``require_valid``.
+        writes (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False links it the way people dial
+        locally. Applies with ``require_valid``.
     :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
     :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
     :param ignore_numbers_after: words that mark the digits right after them as an identifier.
@@ -182,7 +170,7 @@ class PhoneNumbers:
     ignore_numbers_after: tuple[str, ...]
     _config: _PhoneConfig = field(init=False, repr=False, compare=False)
 
-    def __init__(  # ruff:ignore[too-many-arguments]
+    def __init__(  # ruff:ignore[too-many-arguments]  # one keyword per setting, the dataclass field list
         self,
         *,
         regions: Iterable[str] = (),
@@ -194,7 +182,7 @@ class PhoneNumbers:
         types: Iterable[PhoneType] | None = None,
         ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
     ) -> None:
-        """Normalize and validate the settings; a mistake raises here, never at scan time."""
+        """Raise on any mistake here, never at scan time."""
         for name, flag in (
             ("require_valid", require_valid),
             ("require_separators", require_separators),
@@ -210,15 +198,6 @@ class PhoneNumbers:
         if grouping is not PhoneGrouping.ANY and not require_valid:
             msg = "grouping needs require_valid=True"
             raise ValueError(msg)
-        # folding case only on ASCII: `ß` would otherwise fold to South Sudan's `SS`
-        region_codes = tuple(
-            dict.fromkeys(
-                code.strip().upper() if code.isascii() else code for code in _ordered_strings(regions, "regions")
-            )
-        )
-        labels = tuple(
-            sorted({word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")})
-        )
         wanted = None
         if types is not None:
             wanted = frozenset(types)
@@ -231,14 +210,31 @@ class PhoneNumbers:
             if not require_valid:
                 msg = "types needs require_valid=True"
                 raise ValueError(msg)
-        object.__setattr__(self, "regions", region_codes)
+        # folding case only on ASCII: `ß` would otherwise fold to South Sudan's `SS`
+        object.__setattr__(
+            self,
+            "regions",
+            tuple(
+                dict.fromkeys(
+                    code.strip().upper() if code.isascii() else code for code in _ordered_strings(regions, "regions")
+                )
+            ),
+        )
         object.__setattr__(self, "require_valid", require_valid)
         object.__setattr__(self, "require_separators", require_separators)
         object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
         object.__setattr__(self, "require_national_prefix", require_national_prefix)
         object.__setattr__(self, "grouping", grouping)
         object.__setattr__(self, "types", wanted)
-        object.__setattr__(self, "ignore_numbers_after", labels)
+        object.__setattr__(
+            self,
+            "ignore_numbers_after",
+            tuple(
+                sorted({
+                    word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")
+                })
+            ),
+        )
         # compiled once here, where a mistake raises, and handed to every scanner and parse that takes the settings
         object.__setattr__(self, "_config", _compile_settings(self, PhoneNumber))
 
@@ -257,18 +253,29 @@ class PhoneNumbers:
         ), ()
 
 
+def _ordered_strings(values: Iterable[str], name: str) -> tuple[str, ...]:
+    """Reject a bare string, a set or a mapping: it has no order to preserve."""
+    if isinstance(values, (str, bytes, AbstractSet, Mapping)):
+        msg = f"{name} must be an ordered iterable of str, not {type(values).__name__}"
+        raise TypeError(msg)
+    items = tuple(values)
+    if any(not isinstance(item, str) for item in items):
+        msg = f"{name} entries must be str"
+        raise TypeError(msg)
+    return items
+
+
 @dataclass(frozen=True, slots=True)
 class PhoneNumber:
     """
     A detected number, in the form the tables produced it.
 
     ``international_number`` is ``+`` followed by the country code and the national significant number with no
-    separators and no extension, the string libphonenumber's ``E164`` formatter emits and, when it fits E.164, the
-    value the ``tel:`` href carries. ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None``
-    otherwise: the pinned
-    metadata declares longer valid national services (DE, ID, JP, KR, NG and UY, up to 19 digits with the country
-    code), and those link with RFC 3966's local form, ``tel:200000000000000;phone-context=+49``, since a global
-    ``tel:`` number must be E.164; an extension goes first among the parameters, as the RFC orders them.
+    separators and no extension, the E.164 layout and, when it fits E.164, the value the ``tel:`` href carries.
+    ``e164`` is the same string when it fits ITU E.164's 15-digit limit and ``None`` otherwise: the pinned metadata
+    declares longer valid national services (DE, ID, JP, KR, NG and UY, up to 19 digits with the country code), and
+    those link with RFC 3966's local form, ``tel:200000000000000;phone-context=+49``, since a global ``tel:`` number
+    must be E.164; an extension goes first among the parameters, as the RFC orders them.
 
     :param country_code: the calling code, ``1`` for ``+1``.
     :param national_number: the national significant number, ASCII digits with the leading zeros the plan keeps.
@@ -307,15 +314,15 @@ class PhoneNumber:
     @classmethod
     def parse(cls, text: str, *, regions: Iterable[str] = (), require_valid: bool = True) -> Self:
         """
-        Read a string that holds one phone number, the way ``phonenumbers.parse`` reads it.
+        Read a string that holds one phone number.
 
         The number starts at the first ``+`` or digit, so a ``tel:`` scheme or a word before it (``Tel: 650-253-0000``)
         is skipped; characters that are neither digits, letters nor ``#`` are dropped from the end, and a second
-        number after ``/x`` is cut off. What remains must be digits, separators and ASCII letters, with an extension in
-        any written form at the end, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included. Three
-        or more letters make a vanity number whose letters are keypad digits (``1-800-FLOWERS``); fewer are dropped.
-        An RFC 3966 local number reads through its ``phone-context`` (``tel:2530000;phone-context=+1650``), and
-        ``;isub=`` ends the number. A number written without ``+`` is read with each of ``regions`` in turn, and
+        number after ``/x`` is cut off. The remainder must be digits, separators and ASCII letters, with an extension
+        in any written form at the end, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included.
+        Three or more letters make a vanity number whose letters are keypad digits (``1-800-FLOWERS``); fewer are
+        dropped. An RFC 3966 local number reads through its ``phone-context`` (``tel:2530000;phone-context=+1650``),
+        and ``;isub=`` ends the number. A number written without ``+`` is read with each of ``regions`` in turn, and
         unlike detection it needs neither separators nor the national prefix its format writes, and a payment-card
         shape is not refused. A string over 250 characters is no number.
 
@@ -328,8 +335,11 @@ class PhoneNumber:
         if not isinstance(text, str):
             msg = "text must be str"
             raise TypeError(msg)
-        config = _parse_config(cls, _ordered_strings(regions, "regions"), require_valid=require_valid)
-        if (number := _phone_parse(config, text)) is None:
+        if (
+            number := _phone_parse(
+                _parse_config(cls, _ordered_strings(regions, "regions"), require_valid=require_valid), text
+            )
+        ) is None:
             msg = f"{text!r} is not a phone number"
             raise ValueError(msg)
         return cast("Self", number)  # the native factory built cls, which the binding's annotation cannot say
@@ -356,7 +366,7 @@ class PhoneNumber:
 
     def format(self, style: PhoneFormat = PhoneFormat.INTERNATIONAL) -> str:
         """
-        Write the number the way libphonenumber's ``format_number`` does.
+        Write the number in one of the four layouts.
 
         A number past E.164's fifteen digits takes RFC 3966's local form (``tel:200000000000000;phone-context=+49``)
         in :attr:`PhoneFormat.RFC3966`, since a global ``tel:`` number must be E.164.
@@ -381,28 +391,20 @@ class PhoneNumber:
 @functools.lru_cache(maxsize=32)
 def _parse_config(number_type: type[PhoneNumber], regions: tuple[str, ...], *, require_valid: bool) -> _PhoneConfig:
     # keyed on the raw regions so a repeated parse call pays a cache lookup, not a settings object and its compile
-    settings = PhoneNumbers(
-        regions=regions,
-        require_valid=require_valid,
-        skip_card_numbers=False,
-        require_national_prefix=False,
-        ignore_numbers_after=(),
+    return _compile_settings(
+        PhoneNumbers(
+            regions=regions,
+            require_valid=require_valid,
+            skip_card_numbers=False,
+            require_national_prefix=False,
+            ignore_numbers_after=(),
+        ),
+        number_type,
+        parsing=True,
     )
-    return _compile_settings(settings, number_type, parsing=True)
-
-
-def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
-    """Compile the settings once into the object every scan is handed."""
-    if phones is None:
-        return None
-    if not isinstance(phones, PhoneNumbers):
-        msg = "phones must be PhoneNumbers or None"
-        raise TypeError(msg)
-    return phones._config  # ruff: ignore[private-member-access]  # the settings compiled themselves
 
 
 def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, parsing: bool = False) -> _PhoneConfig:
-    mask = _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types)
     return _phone_config_compile((
         phones.regions,
         phones.require_valid,
@@ -410,7 +412,7 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, p
         phones.skip_card_numbers,
         phones.require_national_prefix,
         _PHONE_GROUPINGS.index(phones.grouping),
-        mask,
+        _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types),
         phones.ignore_numbers_after,
         number_type,
         _PHONE_TYPES,
@@ -639,7 +641,6 @@ class LinkSpan:
 
 
 def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None]) -> LinkSpan:
-    """Wrap one matched span, whose href the scanner already built, into a :class:`LinkSpan`."""
     start, end, kind, url, phone = span
     return LinkSpan(start, end, text[start:end], url, kind == _EMAIL_KIND, phone=phone)
 
@@ -699,10 +700,12 @@ class LinkDetector:
         :param text: the text to scan.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
-        spans = _linkify_find(
-            text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
-        )
-        return [_span_from_match(text, span) for span in spans]
+        return [
+            _span_from_match(text, span)
+            for span in _linkify_find(
+                text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
+            )
+        ]
 
     def has_link(self, text: str) -> bool:
         """
@@ -714,6 +717,15 @@ class LinkDetector:
         return _linkify_has(
             text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
         )
+
+
+def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
+    if phones is None:
+        return None
+    if not isinstance(phones, PhoneNumbers):
+        msg = "phones must be PhoneNumbers or None"
+        raise TypeError(msg)
+    return phones._config  # ruff:ignore[private-member-access]  # the settings compiled themselves
 
 
 __all__ = [

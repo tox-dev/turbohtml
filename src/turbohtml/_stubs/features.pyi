@@ -9,7 +9,7 @@ from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGra
 
 from .dom import Element
 
-# (start, end, kind, href, phone): the href is built by the scanner for every kind, the phone is set for kind 4
+# (start, end, kind, href, phone): the scanner builds the href for every kind and sets the phone for kind 4
 _Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None]
 _PhoneSpec: TypeAlias = tuple[
     tuple[str, ...],

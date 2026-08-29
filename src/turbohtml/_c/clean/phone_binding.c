@@ -40,7 +40,7 @@ static int phone_config_clear(PyObject *self) {
 
 static void phone_config_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
-    /* a failed compile never tracked the object; untracking an untracked object is a no-op */
+    /* a failed compile does not track the object; untracking an untracked object is a no-op */
     PyObject_GC_UnTrack(self);
     free_config_tables((PhoneConfigObject *)self);
     (void)phone_config_clear(self);
@@ -50,7 +50,7 @@ static void phone_config_dealloc(PyObject *self) {
 
 PyDoc_STRVAR(phone_config_doc, "A compiled PhoneNumbers configuration; built by _phone_config_compile.");
 
-/* The compiled tables never change, so a copy is the object itself; dataclasses.asdict deep-copies every field of
+/* The compiled tables do not change, so a copy is the object itself; dataclasses.asdict deep-copies each field of
    the settings that hold one. */
 static PyObject *phone_config_copy(PyObject *self, PyObject *Py_UNUSED(args)) {
     return Py_NewRef(self);

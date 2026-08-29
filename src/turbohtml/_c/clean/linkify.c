@@ -482,7 +482,7 @@ typedef struct {
     th_phone_match number;
 } trigger_memo;
 
-/* Plain prose holds none of the bytes that begin a link, so one-byte text is skipped a block at a time and the
+/* Plain prose holds none of the bytes that begin a link, so the scan skips one-byte text a block at a time and the
    per-character switch sees only the blocks that hold a `.`, `:`, `@` or, with phone detection on, a digit. */
 #if defined(__aarch64__) || defined(_M_ARM64)
 
@@ -641,7 +641,6 @@ static PyObject *phone_url(const th_phone_match *number) {
     return PyUnicode_FromStringAndSize(buffer, written);
 }
 
-/* The href of a span: a bare domain gets `http://`, an email `mailto:`, a scheme URL is itself. */
 static PyObject *matched_url(PyObject *text, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind) {
     PyObject *matched = PyUnicode_Substring(text, start, end);
     /* GCOVR_EXCL_BR_START: substring allocation cannot be forced */

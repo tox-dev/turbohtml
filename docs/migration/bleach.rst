@@ -32,7 +32,7 @@ their filtering in C, ship full type annotations, and take a frozen, thread-safe
       - Escape/strip/remove per tag, value-rewriting attribute filter, forced attributes, regenerable IANA TLD table
       - Allow/strip tags, bool attribute callback, ``css_sanitizer`` for style scrubbing
     - - Phone numbers
-      - ``tel:`` links from libphonenumber's plans via :class:`~turbohtml.clean.PhoneNumbers`
+      - ``tel:`` links from the numbering plans via :class:`~turbohtml.clean.PhoneNumbers`
       - None
     - - Performance
       - Filtering and link scan in C

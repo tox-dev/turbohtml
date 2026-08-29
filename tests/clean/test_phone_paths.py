@@ -209,8 +209,7 @@ def test_a_single_group_past_the_card_length() -> None:
 
 
 def test_a_run_of_full_groups_stops_at_the_length_cap() -> None:
-    text = " ".join(["12345678901234567890"] * 14) + " 650-253-0000"
-    assert _urls(text) == ["tel:+16502530000"]
+    assert _urls(" ".join(["12345678901234567890"] * 14) + " 650-253-0000") == ["tel:+16502530000"]
 
 
 def test_a_group_over_twenty_digits_at_the_end() -> None:
@@ -229,8 +228,9 @@ def test_a_group_over_twenty_digits_at_the_end() -> None:
     ],
 )
 def test_lead_groups(text: str, starts: list[int], valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
-    spans = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=valid)).find(text)
-    assert [span.start for span in spans] == starts
+    assert [
+        span.start for span in LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=valid)).find(text)
+    ] == starts
 
 
 def test_closer_after_the_leading_part_splits_the_run() -> None:
@@ -252,18 +252,27 @@ def test_value_check_rejects_a_routed_region_whose_plan_rejects(
 
 
 def test_leading_zeros_are_capped_at_ten() -> None:
-    spans = LinkDetector(phones=PhoneNumbers(require_valid=False)).find("+62 " + "0" * 12 + "12345")
-    assert [span.phone.national_number for span in spans if span.phone] == ["0" * 10 + "12345"]
+    assert [
+        span.phone.national_number
+        for span in LinkDetector(phones=PhoneNumbers(require_valid=False)).find("+62 " + "0" * 12 + "12345")
+        if span.phone
+    ] == ["0" * 10 + "12345"]
 
 
 def test_all_zero_number_in_possible_mode() -> None:
-    spans = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False)).find("000-000-0000")
-    assert [span.phone.national_number for span in spans if span.phone] == ["0000000000"]
+    assert [
+        span.phone.national_number
+        for span in LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False)).find("000-000-0000")
+        if span.phone
+    ] == ["0000000000"]
 
 
 def test_general_only_number_in_possible_mode_reports_its_region() -> None:
-    spans = LinkDetector(phones=PhoneNumbers(regions=("DE",), require_valid=False)).find("3788762")
-    assert [(span.phone.region, span.phone.type) for span in spans if span.phone] == [("DE", PhoneType.UNKNOWN)]
+    assert [
+        (span.phone.region, span.phone.type)
+        for span in LinkDetector(phones=PhoneNumbers(regions=("DE",), require_valid=False)).find("3788762")
+        if span.phone
+    ] == [("DE", PhoneType.UNKNOWN)]
 
 
 def test_value_check_rejects_leading_zeros_past_the_cap() -> None:

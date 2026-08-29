@@ -40,6 +40,8 @@ _CLEAN_LINKIFY = (
     "LinkSpan",
     "Linker",
     "Linkify",
+    "PhoneFormat",
+    "PhoneGrouping",
     "PhoneNumber",
     "PhoneNumbers",
     "PhoneType",

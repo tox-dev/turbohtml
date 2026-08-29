@@ -5,8 +5,8 @@ Two mechanisms cover the untrusted-input entry points the security spike priorit
 
 * standalone, malloc-backed C harnesses for the surfaces whose core decouples from CPython -- the IDNA ToASCII engine
   (``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``) and the JS
-  minifier (``../js_minify_harness.c``). These compile
-  with no interpreter, exactly the ``JM_STANDALONE`` pattern the JS minifier already ships.
+  minifier (``../js_minify_harness.c``). These compile with no interpreter, exactly the ``JM_STANDALONE`` pattern the
+  JS minifier already ships.
 * an in-process driver (``_targets.py``) for the surfaces that reach the live PyObject tree -- parse, serialize,
   sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
   fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import random
 import sys
 import time
@@ -106,8 +107,7 @@ def _phone(data: bytes) -> None:
     text = _decode(data)
     for span in _PHONE_DETECTOR.find(text):
         if span.phone is not None:
-            fields = ("country_code", "national_number", "extension", "region", "type")
-            clean.PhoneNumber(*(getattr(span.phone, name) for name in fields))
+            clean.PhoneNumber(*dataclasses.astuple(span.phone))
             for style in clean.PhoneFormat:
                 span.phone.format(style)
     _PHONE_POSSIBLE.find(text)

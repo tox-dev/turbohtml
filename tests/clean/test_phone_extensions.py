@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from turbohtml.clean import LinkDetector, PhoneNumbers
 
-_US = PhoneNumbers(regions=("US",))
+_US: Final = PhoneNumbers(regions=("US",))
 
 
 def _find(text: str, phones: PhoneNumbers = _US) -> list[tuple[str, str | None]]:
@@ -99,5 +101,4 @@ def test_carrier_code_marker_needs_the_number_after_it() -> None:
 
 
 def test_extension_digits_are_folded_in_the_href() -> None:
-    span = LinkDetector(phones=_US).find("650-253-0000 ext \uff11\uff12")[0]
-    assert span.url == "tel:+16502530000;ext=12"
+    assert LinkDetector(phones=_US).find("650-253-0000 ext \uff11\uff12")[0].url == "tel:+16502530000;ext=12"

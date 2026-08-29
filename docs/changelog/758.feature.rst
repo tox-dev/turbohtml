@@ -1,7 +1,2 @@
-Link phone numbers as ``tel:`` anchors: :class:`~turbohtml.clean.Linkify` and :class:`~turbohtml.clean.LinkDetector`
-take a :class:`~turbohtml.clean.PhoneNumbers` setting with the fallback regions and libphonenumber's leniencies, from
-possible numbers to :class:`~turbohtml.clean.PhoneGrouping` checks on how the digits were written, and each match
-carries a :class:`~turbohtml.clean.PhoneNumber` with the E.164 form, region and :class:`~turbohtml.clean.PhoneType`.
-Detection follows libphonenumber's numbering plans, compiled to automata at build time. A number writes itself in the
-E.164, international, national and RFC 3966 layouts through :meth:`~turbohtml.clean.PhoneNumber.format`, and
-:meth:`~turbohtml.clean.PhoneNumber.parse` reads a string that holds one number.
+Link phone numbers as ``tel:`` anchors with a :class:`~turbohtml.clean.PhoneNumbers` setting; each match carries a
+:class:`~turbohtml.clean.PhoneNumber`, the class that parses and formats numbers.

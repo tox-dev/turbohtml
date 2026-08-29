@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from turbohtml.clean import LinkDetector, PhoneGrouping, PhoneNumbers
 
-_ALL = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
-_LOOSE = (PhoneGrouping.ANY, PhoneGrouping.STRICT)
-_NONE = (PhoneGrouping.ANY,)
-_UNBROKEN = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
+_ALL: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
+_LOOSE: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT)
+_NONE: Final = (PhoneGrouping.ANY,)
+_UNBROKEN: Final = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
 
 
 @pytest.mark.parametrize(
@@ -64,15 +66,18 @@ _UNBROKEN = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
     ],
 )
 def test_grouping_leniencies_follow_the_matcher(region: str, text: str, accepting: tuple[PhoneGrouping, ...]) -> None:
-    found = {
+    assert {
         grouping: [
             span.text for span in LinkDetector(phones=PhoneNumbers(regions=(region,), grouping=grouping)).find(text)
         ]
         for grouping in PhoneGrouping
-    }
-    assert found == {grouping: [text] if grouping in accepting else [] for grouping in PhoneGrouping}
+    } == {grouping: [text] if grouping in accepting else [] for grouping in PhoneGrouping}
 
 
 def test_grouping_applies_inside_prose() -> None:
-    detector = LinkDetector(phones=PhoneNumbers(regions=("US",), grouping=PhoneGrouping.EXACT))
-    assert [span.text for span in detector.find("call (415) 666-7777 or 415666 7777 now")] == ["(415) 666-7777"]
+    assert [
+        span.text
+        for span in LinkDetector(phones=PhoneNumbers(regions=("US",), grouping=PhoneGrouping.EXACT)).find(
+            "call (415) 666-7777 or 415666 7777 now"
+        )
+    ] == ["(415) 666-7777"]

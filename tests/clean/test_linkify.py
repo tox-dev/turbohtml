@@ -10,6 +10,8 @@ from turbohtml._html import _linkify_scan
 from turbohtml.clean import DEFAULT_CALLBACKS, LinkCandidate, Linker, Linkify, linkify, nofollow, target_blank
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from turbohtml.clean import Callback
 
 
@@ -395,12 +397,6 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
     assert out == 'go <a href="http://example.com/r?u=http://evil.com">example.com/r?u=http://evil.com</a> end'
 
 
-def _with_hrefs(text: str, spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, str, None]]:
-    """The scanner's span shape: the href it builds per kind, and no phone for a URL or an email."""
-    prefixes = {0: "http://", 1: "mailto:"}
-    return [(start, end, kind, prefixes.get(kind, "") + text[start:end], None) for start, end, kind in spans]
-
-
 @pytest.mark.parametrize(
     ("text", "parse_email", "bare_domains", "spans"),
     [
@@ -501,8 +497,9 @@ def test_scanner_spans(
     parse_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     bare_domains: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     spans: list[tuple[int, int, int]],
+    with_hrefs: Callable[[str, list[tuple[int, int, int]]], list[tuple[int, int, int, str, None]]],
 ) -> None:
-    assert _linkify_scan(text, parse_email, bare_domains) == _with_hrefs(text, spans)
+    assert _linkify_scan(text, parse_email, bare_domains) == with_hrefs(text, spans)
 
 
 @pytest.mark.parametrize(
@@ -519,9 +516,10 @@ def test_scanner_url_schemes_restrict_authority(
     text: str,
     url_schemes: tuple[str, ...],
     spans: list[tuple[int, int, int]],
+    with_hrefs: Callable[[str, list[tuple[int, int, int]]], list[tuple[int, int, int, str, None]]],
 ) -> None:
     # a non-None url_schemes tuple restricts scheme://host matching to that allowlist; omitting it matches any scheme
-    assert _linkify_scan(text, False, False, (), url_schemes) == _with_hrefs(text, spans)  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding
+    assert _linkify_scan(text, False, False, (), url_schemes) == with_hrefs(text, spans)  # ruff:ignore[boolean-positional-value-in-call]  # positional-only C binding
 
 
 def test_scanner_omitting_url_schemes_matches_any_scheme() -> None:

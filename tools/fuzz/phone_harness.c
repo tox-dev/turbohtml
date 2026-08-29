@@ -1,9 +1,6 @@
-/* Standalone ASan/UBSan/libFuzzer harness for the phone-number recognizer (src/turbohtml/_c/clean/phone.c).
-
-   The recognizer reads text through a callback and has no CPython dependency, so this driver pushes arbitrary UTF-8
-   through it with no interpreter: every fixed-size buffer in the recognizer (digit groups, the NSN, the extension, the
-   Pike VM thread lists) is an ASan bound here. Inputs are UTF-8 decoded to code points (an ill-formed byte falls back
-   to its Latin-1 value) so multi-byte digit scripts, fullwidth punctuation and astral text all reach the tables.
+/* Standalone ASan/UBSan/libFuzzer harness for the phone-number recognizer (src/turbohtml/_c/clean/phone.c): with
+   no interpreter, each fixed-size buffer in the recognizer is an ASan bound. An ill-formed UTF-8 byte falls back to
+   its Latin-1 value, so mangled multi-byte digit scripts still reach the tables.
 
    Build (macOS, ASan+UBSan; LSan is unavailable on Apple clang):
      clang -fsanitize=address,undefined -g -O1 -fno-omit-frame-pointer -I src/turbohtml/_c \
@@ -72,7 +69,7 @@ static int add_region(th_phone_config *config, const char *code) {
     return 1;
 }
 
-/* Scan `wide` the way the link scanner's digit arm does; with `out` set, print each match. */
+/* The link scanner's digit arm, mirrored. */
 static void scan(const uint32_t *wide, size_t count, const th_phone_config *config, FILE *out) {
     size_t position = 0;
     size_t left_bound = 0;
@@ -86,9 +83,9 @@ static void scan(const uint32_t *wide, size_t count, const th_phone_config *conf
         if (th_phone_find(read_wide, wide, count, left_bound, position, config, &match, &retry)) {
             left_bound = match.end;
             if (out != NULL) {
-                const char *region = match.region < 0 ? "-" : th_phone_regions[match.region].code;
-                fprintf(out, "%zu %zu %u %.*s %s %s %u\n", match.start, match.end, match.country_code, (int)match.nsn_len,
-                        match.nsn, match.ext_len ? match.ext : "-", region, match.type);
+                fprintf(out, "%zu %zu %u %.*s %s %s %u\n", match.start, match.end, match.country_code,
+                        (int)match.nsn_len, match.nsn, match.ext_len ? match.ext : "-",
+                        match.region < 0 ? "-" : th_phone_regions[match.region].code, match.type);
             }
         }
         position = retry > position + 1 ? retry : position + 1;
@@ -111,11 +108,14 @@ static void run_bytes(const unsigned char *bytes, size_t len) {
         return;
     }
     size_t count = widen(bytes, len, wide);
-    static const char *const region_sets[][3] = {{"US", NULL, NULL}, {"GB", "DE", NULL}, {NULL, NULL, NULL}, {"JP", "IN", "BR"}};
+    static const char *const region_sets[][3] = {
+        {"US", NULL, NULL}, {"GB", "DE", NULL}, {NULL, NULL, NULL}, {"JP", "IN", "BR"}};
     for (size_t set = 0; set < sizeof(region_sets) / sizeof(region_sets[0]); set++) {
         for (int valid = 0; valid < 2; valid++) {
-            th_phone_config config = {
-                .require_valid = (uint8_t)valid, .skip_card_numbers = 1, .require_national_prefix = 1, .type_mask = 0x7FF};
+            th_phone_config config = {.require_valid = (uint8_t)valid,
+                                      .skip_card_numbers = 1,
+                                      .require_national_prefix = 1,
+                                      .type_mask = 0x7FF};
             for (size_t slot = 0; slot < 3 && region_sets[set][slot] != NULL; slot++) {
                 add_region(&config, region_sets[set][slot]);
             }
@@ -188,7 +188,8 @@ static int run_dump(int argc, char **argv) {
         fprintf(stderr, "usage: --dump REGIONS MODE [OPTIONS]\n");
         return 2;
     }
-    th_phone_config config = {.require_valid = (uint8_t)(strcmp(argv[3], "valid") == 0), .skip_card_numbers = 1, .type_mask = 0x7FF};
+    th_phone_config config = {
+        .require_valid = (uint8_t)(strcmp(argv[3], "valid") == 0), .skip_card_numbers = 1, .type_mask = 0x7FF};
     char regions[64];
     snprintf(regions, sizeof(regions), "%s", argv[2]);
     for (char *code = strtok(regions, ","); code != NULL; code = strtok(NULL, ",")) {
@@ -217,8 +218,7 @@ static int run_dump(int argc, char **argv) {
         if (wide == NULL) {
             return 2;
         }
-        size_t count = widen((const unsigned char *)line, (size_t)got, wide);
-        scan(wide, count, &config, stdout);
+        scan(wide, widen((const unsigned char *)line, (size_t)got, wide), &config, stdout);
         free(wide);
         puts("--");
     }

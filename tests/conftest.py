@@ -56,6 +56,17 @@ def width_prefix(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture
+def with_hrefs() -> Callable[[str, list[tuple[int, int, int]]], list[tuple[int, int, int, str, None]]]:
+    """Widen (start, end, kind) rows to the scanner's span shape: its href per kind, no phone for a URL or an email."""
+
+    def widen(text: str, spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, str, None]]:
+        prefixes = {0: "http://", 1: "mailto:"}
+        return [(start, end, kind, prefixes.get(kind, "") + text[start:end], None) for start, end, kind in spans]
+
+    return widen
+
+
+@pytest.fixture
 def find() -> Callable[[str, str], Element]:
     """Parse html and return the first element matching selector (never None)."""
 

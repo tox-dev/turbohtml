@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import phonenumbers
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberMatcher
 
 REQUIREMENTS = ("phonenumbers>=9.0.38",)
 
-_LENIENCY = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
+_LENIENCY: Final = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
 
 
 def phone(case: tuple[str, str]) -> None:
@@ -16,8 +18,7 @@ def phone(case: tuple[str, str]) -> None:
     if mode == "has":
         PhoneNumberMatcher(text, "US", leniency=Leniency.VALID).has_next()
         return
-    matcher = PhoneNumberMatcher(text, "US", leniency=_LENIENCY.get(mode, Leniency.VALID))
-    for _match in matcher:
+    for _match in PhoneNumberMatcher(text, "US", leniency=_LENIENCY.get(mode, Leniency.VALID)):
         pass
 
 
@@ -29,13 +30,13 @@ def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
         check(phonenumbers.parse(text, region))
 
 
-_STYLES = {
+_STYLES: Final = {
     "e164": PhoneNumberFormat.E164,
     "international": PhoneNumberFormat.INTERNATIONAL,
     "national": PhoneNumberFormat.NATIONAL,
     "rfc3966": PhoneNumberFormat.RFC3966,
 }
-_PARSED: dict[tuple[str, str], phonenumbers.PhoneNumber] = {}  # the format op times formatting, not the parse
+_PARSED: Final[dict[tuple[str, str], phonenumbers.PhoneNumber]] = {}  # the format op times formatting, not the parse
 
 
 def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:

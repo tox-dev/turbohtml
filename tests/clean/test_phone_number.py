@@ -172,36 +172,30 @@ def test_values_the_tables_produce(number: PhoneNumber) -> None:
     )
 
 
-def test_from_native_equals_the_public_constructor() -> None:
-    fields = (44, "2079460958", "123", "GB", PhoneType.FIXED_LINE)
-    assert PhoneNumber._from_native(*fields) == PhoneNumber(
-        *fields
-    )  # the recognizer's constructor is the contract under test
-
-
-def test_e164_is_none_past_fifteen_digits() -> None:
-    number = PhoneNumber._from_native(49, "1234567890123456", None, "DE", PhoneType.FIXED_LINE)
-    assert number.international_number == "+491234567890123456"
-    assert number.e164 is None
-
-
-def test_e164_keeps_exactly_fifteen_digits() -> None:
-    number = PhoneNumber._from_native(49, "1234567890123", None, "DE", PhoneType.FIXED_LINE)
-    assert number.e164 == "+491234567890123"
+@pytest.mark.parametrize(
+    ("text", "e164"),
+    [
+        pytest.param("+49 123456789012345", None, id="seventeen-digits"),
+        pytest.param("+49 1234567890123", "+491234567890123", id="fifteen-digits"),
+    ],
+)
+def test_e164_stops_at_fifteen_digits(text: str, e164: str | None) -> None:
+    number = PhoneNumber.parse(text, require_valid=False)
+    assert (number.international_number, number.e164) == (text.replace(" ", ""), e164)
 
 
 def test_detected_numbers_round_trip_through_the_constructor() -> None:
-    detector = LinkDetector(phones=PhoneNumbers(regions=("US", "GB")))
-    text = "650-253-0000, 020 7946 0958 x12, +800 1234 5678, 268 464 1234"
-    spans = detector.find(text)
-    assert len(spans) == 4
-    for span in spans:
-        assert span.phone is not None
-        rebuilt = PhoneNumber(
-            span.phone.country_code,
-            span.phone.national_number,
-            span.phone.extension,
-            span.phone.region,
-            span.phone.type,
+    phones = [
+        span.phone
+        for span in LinkDetector(phones=PhoneNumbers(regions=("US", "GB"))).find(
+            "650-253-0000, 020 7946 0958 x12, +800 1234 5678, 268 464 1234"
         )
-        assert rebuilt == span.phone
+        if span.phone
+    ]
+    assert [phone.international_number for phone in phones] == [
+        "+16502530000",
+        "+442079460958",
+        "+80012345678",
+        "+12684641234",
+    ]
+    assert [PhoneNumber(*dataclasses.astuple(phone)) for phone in phones] == phones

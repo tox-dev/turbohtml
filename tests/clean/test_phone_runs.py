@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import copy
 import pickle  # ruff:ignore[suspicious-pickle-import]  # this test pickles its own values
+from typing import Final
 
 import pytest
 
 from turbohtml.clean import LinkDetector, Linkify, PhoneGrouping, PhoneNumber, PhoneNumbers, PhoneType, linkify
 
-_US = PhoneNumbers(regions=("US",))
-_US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
+_US: Final = PhoneNumbers(regions=("US",))
+_US_POSSIBLE: Final = PhoneNumbers(regions=("US",), require_valid=False)
 
 
 @pytest.mark.parametrize(
@@ -209,14 +210,14 @@ def test_rewrite_leaves_a_tel_uri_without_a_number_alone() -> None:
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "count"),
     [
-        pytest.param("abcdef0123456789" * 2000, id="hex-chain"),
-        pytest.param("6502530000:" * 2000, id="colon-chain"),
+        pytest.param("abcdef0123456789" * 2000, 0, id="hex-chain"),
+        pytest.param("6502530000:" * 2000, 2000, id="colon-chain"),
     ],
 )
-def test_long_address_chains_scan_in_bounded_time(text: str) -> None:
-    assert len(LinkDetector(phones=_US).find(text)) == (0 if text.startswith("a") else 2000)
+def test_long_address_chains_scan_in_bounded_time(text: str, count: int) -> None:
+    assert len(LinkDetector(phones=_US).find(text)) == count
 
 
 @pytest.mark.parametrize(
@@ -238,8 +239,9 @@ def test_href_round_trips_through_parse(text: str) -> None:
 
 
 def test_registered_tel_scheme_links_the_authority_form() -> None:
-    detector = LinkDetector(schemes=("tel",), phones=_US)
-    assert [span.url for span in detector.find("tel://evil.example")] == ["tel://evil.example"]
+    assert [span.url for span in LinkDetector(schemes=("tel",), phones=_US).find("tel://evil.example")] == [
+        "tel://evil.example"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -252,24 +254,21 @@ def test_registered_tel_scheme_links_the_authority_form() -> None:
     ],
 )
 def test_settings_pickle_and_copy(value: object) -> None:
-    assert pickle.loads(pickle.dumps(value)) == value  # ruff: ignore[suspicious-pickle-usage]  # this test's own bytes
+    assert pickle.loads(pickle.dumps(value)) == value  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
     assert copy.deepcopy(value) == value
 
 
 def test_detector_pickles_with_its_settings() -> None:
-    detector = pickle.loads(  # ruff: ignore[suspicious-pickle-usage]  # this test's own bytes
-        pickle.dumps(LinkDetector(phones=_US, schemes=("bitcoin",), tlds=("test",)))
-    )
-    assert [span.url for span in detector.find("call 650-253-0000 or bitcoin:1abc at host.test")] == [
-        "tel:+16502530000",
-        "bitcoin:1abc",
-        "http://host.test",
-    ]
+    assert [
+        span.url
+        for span in pickle.loads(  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
+            pickle.dumps(LinkDetector(phones=_US, schemes=("bitcoin",), tlds=("test",)))
+        ).find("call 650-253-0000 or bitcoin:1abc at host.test")
+    ] == ["tel:+16502530000", "bitcoin:1abc", "http://host.test"]
 
 
 def test_other_schemes_keep_their_payloads() -> None:
-    detector = LinkDetector(schemes=("bitcoin", "sms"), phones=_US)
-    assert [(span.text, span.url) for span in detector.find("bitcoin:1abc sms:123 tel:junk")] == [
-        ("bitcoin:1abc", "bitcoin:1abc"),
-        ("sms:123", "sms:123"),
-    ]
+    assert [
+        (span.text, span.url)
+        for span in LinkDetector(schemes=("bitcoin", "sms"), phones=_US).find("bitcoin:1abc sms:123 tel:junk")
+    ] == [("bitcoin:1abc", "bitcoin:1abc"), ("sms:123", "sms:123")]

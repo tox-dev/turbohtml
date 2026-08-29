@@ -16,8 +16,7 @@
 #define TH_PHONE_MAX_RUN_CHARS 250
 #define TH_PHONE_MAX_GROUPS 21
 #define TH_PHONE_MAX_GROUP_DIGITS 20
-/* a run's last group starts within TH_PHONE_MAX_RUN_CHARS code points of its first digit and holds up to
-   TH_PHONE_MAX_GROUP_DIGITS more, so a run of one-character separators holds at most that many digits */
+/* the last group may hold TH_PHONE_MAX_GROUP_DIGITS digits past the run limit */
 #define TH_PHONE_DIGIT_BUFFER (TH_PHONE_MAX_RUN_CHARS + TH_PHONE_MAX_GROUP_DIGITS)
 #define TH_PHONE_MAX_EXTENSION 20
 #define TH_PHONE_NSN_CAPACITY 18
