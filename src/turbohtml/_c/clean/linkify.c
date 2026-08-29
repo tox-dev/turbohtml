@@ -561,9 +561,10 @@ static int scheme_is_tel(int kind, const void *data, Py_ssize_t start, Py_ssize_
     if (colon - start != 3) {
         return 0;
     }
-    return ((PyUnicode_READ(kind, data, start) | 0x20) == 't') &
-           ((PyUnicode_READ(kind, data, start + 1) | 0x20) == 'e') &
-           ((PyUnicode_READ(kind, data, start + 2) | 0x20) == 'l');
+    int letters = ((PyUnicode_READ(kind, data, start) | 0x20) == 't') +
+                  ((PyUnicode_READ(kind, data, start + 1) | 0x20) == 'e') +
+                  ((PyUnicode_READ(kind, data, start + 2) | 0x20) == 'l');
+    return letters == 3;
 }
 
 static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
