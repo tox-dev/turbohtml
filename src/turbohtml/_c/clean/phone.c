@@ -1108,30 +1108,12 @@ static int label_before(th_phone_read read, const void *text, size_t start, cons
     return 0;
 }
 
-static void poison(th_phone_read read, const void *text, size_t len, const th_phone_config *config, run_record *run) {
-    for (size_t index = 0; index + 2 < run->group_count; index++) {
-        if (is_slash_date(read, text, run, index)) {
-            run->poison |= 7u << index;
-        }
-    }
-    size_t stamp = timestamp_groups(read, text, len, run);
-    if (stamp) {
-        run->poison |= ((1u << stamp) - 1u) << (run->group_count - stamp);
-    }
-    poison_ipv4(run);
-    if (label_before(read, text, run->start, config)) {
-        size_t index = 0;
-        do {
-            run->poison |= 1u << index;
-            index++;
-        } while (index < run->group_count && !separator_has_space(read, text, run, index));
-    }
-}
-
-static int luhn(const run_record *run) {
+static int luhn_over(const run_record *run, size_t first, size_t end_group) {
+    size_t begin = run->groups[first].digits_offset;
+    size_t stop = run->groups[end_group - 1].digits_offset + run->groups[end_group - 1].count;
     unsigned total = 0;
     size_t position = 0;
-    for (size_t index = run->digit_count; index > 0; index--) {
+    for (size_t index = stop; index > begin; index--) {
         unsigned value = (unsigned)(run->digits[index - 1] - '0');
         if (position % 2 == 1) {
             value *= 2;
@@ -1145,22 +1127,51 @@ static int luhn(const run_record *run) {
     return total % 10 == 0;
 }
 
-static int is_card_shape(const run_record *run) {
+/* skip_card_numbers: a run that is one Luhn-valid card shape (4-4-4-4, 4-4-4-4-3, 4-6-5, 4-6-4) is poisoned whole,
+   and an unbroken group of 13 to 19 Luhn-valid digits is poisoned wherever it sits, so a card written before a
+   phone leaves the phone readable. A spaced card window inside a longer run is not told apart from two numbers
+   whose leading digits happen to pass Luhn (`5005 000123 5005 000123`), so the shapes apply to whole runs only. */
+static void poison_cards(run_record *run) {
     static const uint8_t shapes[][5] = {{4, 4, 4, 4, 0}, {4, 4, 4, 4, 3}, {4, 6, 5, 0, 0}, {4, 6, 4, 0, 0}};
-    if (run->group_count == 1) {
-        return run->groups[0].count >= 13 && run->groups[0].count <= 19;
+    for (size_t index = 0; index < run->group_count; index++) {
+        uint8_t count = run->groups[index].count;
+        if (count >= 13 && count <= 19 && luhn_over(run, index, index + 1)) {
+            run->poison |= 1u << index;
+        }
     }
     for (size_t shape = 0; shape < sizeof(shapes) / sizeof(shapes[0]); shape++) {
-        size_t index = 0;
-        while (index < 5 && shapes[shape][index] != 0 && index < run->group_count &&
-               run->groups[index].count == shapes[shape][index]) {
-            index++;
+        size_t matched = 0;
+        while (matched < run->group_count && matched < 5 && run->groups[matched].count == shapes[shape][matched]) {
+            matched++;
         }
-        if (index == run->group_count && (index == 5 || shapes[shape][index] == 0)) {
-            return 1;
+        int whole = matched == run->group_count && (matched == 5 || shapes[shape][matched] == 0);
+        if (whole && luhn_over(run, 0, run->group_count)) {
+            run->poison |= (1u << run->group_count) - 1u;
         }
     }
-    return 0;
+}
+
+static void poison(th_phone_read read, const void *text, size_t len, const th_phone_config *config, run_record *run) {
+    for (size_t index = 0; index + 2 < run->group_count; index++) {
+        if (is_slash_date(read, text, run, index)) {
+            run->poison |= 7u << index;
+        }
+    }
+    size_t stamp = timestamp_groups(read, text, len, run);
+    if (stamp) {
+        run->poison |= ((1u << stamp) - 1u) << (run->group_count - stamp);
+    }
+    poison_ipv4(run);
+    if (config->skip_card_numbers && !run->plus) {
+        poison_cards(run);
+    }
+    if (label_before(read, text, run->start, config)) {
+        size_t index = 0;
+        do {
+            run->poison |= 1u << index;
+            index++;
+        } while (index < run->group_count && !separator_has_space(read, text, run, index));
+    }
 }
 
 /* Java's \p{Z} restricted to the separators a candidate can hold: of the space characters, only these three are in
@@ -1314,11 +1325,29 @@ static int is_pub_pages(th_phone_read read, const void *text, const run_record *
     return 0;
 }
 
+static int is_address_chain_char(uint32_t code) {
+    static const char chain[] = "0123456789abcdefABCDEF:[]";
+    return code < 0x80 && memchr(chain, (int)code, sizeof chain - 1) != NULL;
+}
+
+/* An IPv6 literal: the candidate sits on a chain of hex groups with two or more colons (`2001:db8::8888`,
+   `[::1]:8080`), whose hextets would otherwise offer themselves as numbers. */
+static int in_address_chain(th_phone_read read, const void *text, size_t len, size_t start, size_t end) {
+    size_t colons = 0;
+    for (size_t position = start; position > 0 && is_address_chain_char(read(text, position - 1)); position--) {
+        colons += read(text, position - 1) == ':';
+    }
+    for (size_t position = end; position < len && is_address_chain_char(read(text, position)); position++) {
+        colons += read(text, position) == ':';
+    }
+    return colons >= 2;
+}
+
 static int blocked_by_neighbors(th_phone_read read, const void *text, size_t len, const th_phone_config *config,
                                 size_t start, size_t end) {
     uint32_t before = start > 0 ? read(text, start - 1) : 0;
     uint32_t after = end < len ? read(text, end) : 0;
-    if (before == '@' || after == '@') {
+    if (before == '@' || after == '@' || in_address_chain(read, text, len, start, end)) {
         return 1;
     }
     if (!config->require_valid) {
@@ -1769,9 +1798,6 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
         return 0;
     }
     poison(read, text, len, config, &run);
-    if (config->skip_card_numbers && !run.plus && is_card_shape(&run) && luhn(&run)) {
-        return 0;
-    }
     chunk_list chunks;
     chunk_match found;
     size_t first = 0;

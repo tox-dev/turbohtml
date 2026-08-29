@@ -73,7 +73,7 @@ What turbohtml adds
 - :func:`~turbohtml.clean.linkify` rewrites HTML, leaving numbers inside an existing ``<a>``, a ``<script>`` or a
   skipped tag alone, and hands each link to the same callbacks URLs and emails go through.
 - A number after a date, a timestamp or an identifier label is still found; the matcher discards the whole run.
-  Payment-card shapes that pass Luhn, IPv4 addresses and ``Order 12345`` are not numbers.
+  Payment-card shapes that pass Luhn, IPv4 and IPv6 addresses and ``Order 12345`` are not numbers.
 - A URL, email or bare domain the scanner links on its own always wins over a number inside it.
 - Digits of every Unicode ``Nd`` script, at code-point offsets, in one pass over the text.
 

@@ -48,6 +48,32 @@ _US_POSSIBLE = PhoneNumbers(regions=("US",), require_valid=False)
             [("+49 200000000000000", "tel:200000000000000;phone-context=+49")],
             id="beyond-e164-gets-the-local-form",
         ),
+        pytest.param(
+            "4111111111111111 021 5550123",
+            PhoneNumbers(regions=("ID",), require_valid=False),
+            [("021 5550123", "tel:+62215550123")],
+            id="card-run-then-a-phone",
+        ),
+        pytest.param(
+            "4111 1111 1111 1111 021 5550123",
+            PhoneNumbers(regions=("ID",), require_valid=False),
+            [("5550123", "tel:+625550123")],
+            id="spaced-card-then-a-phone-reads-as-the-matcher-does",
+        ),
+        pytest.param(
+            "4111 1111 1111 1112 021 5550123",
+            PhoneNumbers(regions=("ID",), require_valid=False),
+            [("5550123", "tel:+625550123")],
+            id="card-shape-failing-luhn-is-digits",
+        ),
+        pytest.param("2001:4860:4860::8888", PhoneNumbers(regions=("TA",)), [], id="ipv6-hextet"),
+        pytest.param("2001:db8::1 or ::1", PhoneNumbers(regions=("TA",)), [], id="ipv6-short"),
+        pytest.param(
+            "[::1]:8080 then 650-253-0000", _US, [("650-253-0000", "tel:+16502530000")], id="ipv6-bracketed-with-port"
+        ),
+        pytest.param(
+            "open at 12:30, call 650-253-0000", _US, [("650-253-0000", "tel:+16502530000")], id="one-colon-is-a-time"
+        ),
         pytest.param("tel:not-a-number", _US, [], id="tel-uri-without-a-number"),
         pytest.param(
             "tel:+1-650-253-0000;ext=12",

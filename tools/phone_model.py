@@ -205,8 +205,6 @@ class Recognizer:
         if total_digits < floor:
             return None, retry
         self._poison(text, run)
-        if self._is_card(run):
-            return None, retry
         for segment_start, segment_end in self._segments(run):
             for start, end in dict.fromkeys(self._chunks(text, segment_start, segment_end)):
                 if (found := self._read_chunk(text, run, start, end)) is None:
@@ -235,14 +233,6 @@ class Recognizer:
                 segments.append((start, end))
                 first = None
         return segments
-
-    def _is_card(self, run: _Run) -> bool:
-        return (
-            self.config.skip_card_numbers
-            and not run.plus
-            and _is_card_shape(run.groups)
-            and _luhn("".join(group.digits for group in run.groups))
-        )
 
     @staticmethod
     def _chunks(text: str, start: int, end: int) -> list[tuple[int, int]]:
@@ -298,7 +288,7 @@ class Recognizer:
     def _blocked_by_neighbors(self, text: str, start: int, end: int) -> bool:
         before = text[start - 1] if start > 0 else ""
         after = text[end] if end < len(text) else ""
-        if before == "@" or after == "@":
+        if before == "@" or after == "@" or _in_address_chain(text, start, end):
             return True
         if not self.config.require_valid:
             return False
@@ -449,12 +439,24 @@ class Recognizer:
             run.poison.update(id(group) for group in groups[-spanned:])
         if not run.plus:
             self._poison_ipv4(run)
+            if self.config.skip_card_numbers:
+                self._poison_cards(run)
         if self.config.labels and (word := _word_before(self.tables, text, run.start)) and word in self.config.labels:
             # the label reaches over hyphens and dots, not over the whitespace that starts a new token
             for index, group in enumerate(groups):
                 if index > 0 and any(char in " \xa0\u3000" for char in group.separator):
                     break
                 run.poison.add(id(group))
+
+    @staticmethod
+    def _poison_cards(run: _Run) -> None:
+        """Poison a run that is one Luhn-valid card shape, and any unbroken Luhn-valid group of 13 to 19 digits."""
+        groups = run.groups
+        for group in groups:
+            if 13 <= len(group.digits) <= 19 and _luhn(group.digits):
+                run.poison.add(id(group))
+        if [len(group.digits) for group in groups] in _CARD_SHAPES and _luhn("".join(group.digits for group in groups)):
+            run.poison.update(id(group) for group in groups)
 
     @staticmethod
     def _poison_ipv4(run: _Run) -> None:
@@ -799,11 +801,19 @@ def _brackets_match(candidate: str) -> bool:
     return _MATCHING_BRACKETS.fullmatch(folded) is not None
 
 
-def _is_card_shape(groups: list[_Group]) -> bool:
-    lengths = [len(group.digits) for group in groups]
-    if len(lengths) == 1:
-        return 13 <= lengths[0] <= 19
-    return lengths in ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4])
+_CARD_SHAPES: Final = ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4])
+_ADDRESS_CHAIN: Final = frozenset("0123456789abcdefABCDEF:[]")
+
+
+def _in_address_chain(text: str, start: int, end: int) -> bool:
+    """Whether the candidate sits on a chain of hex groups with two or more colons, an IPv6 literal."""
+    left = start
+    while left > 0 and text[left - 1] in _ADDRESS_CHAIN:
+        left -= 1
+    right = end
+    while right < len(text) and text[right] in _ADDRESS_CHAIN:
+        right += 1
+    return text[left:start].count(":") + text[end:right].count(":") >= 2
 
 
 def _luhn(digits: str) -> bool:

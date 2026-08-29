@@ -12,7 +12,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
@@ -180,6 +180,7 @@ class PhoneNumbers:
     grouping: PhoneGrouping
     types: frozenset[PhoneType] | None
     ignore_numbers_after: tuple[str, ...]
+    _config: _PhoneConfig = field(init=False, repr=False, compare=False)
 
     def __init__(  # ruff:ignore[too-many-arguments]
         self,
@@ -233,7 +234,8 @@ class PhoneNumbers:
         object.__setattr__(self, "grouping", grouping)
         object.__setattr__(self, "types", wanted)
         object.__setattr__(self, "ignore_numbers_after", labels)
-        _compile_phones(self)
+        # compiled once here, where a mistake raises, and handed to every scanner and parse that takes the settings
+        object.__setattr__(self, "_config", _compile_settings(self, PhoneNumber))
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,7 +361,7 @@ def _parse_config(number_type: type[PhoneNumber], regions: tuple[str, ...], *, r
         require_national_prefix=False,
         ignore_numbers_after=(),
     )
-    return _compile_settings(settings, number_type)
+    return settings._config if number_type is PhoneNumber else _compile_settings(settings, number_type)  # ruff: ignore[private-member-access]  # the settings compiled themselves
 
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
@@ -369,7 +371,7 @@ def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
     if not isinstance(phones, PhoneNumbers):
         msg = "phones must be PhoneNumbers or None"
         raise TypeError(msg)
-    return _compile_settings(phones, PhoneNumber)
+    return phones._config  # ruff: ignore[private-member-access]  # the settings compiled themselves
 
 
 def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber]) -> _PhoneConfig:

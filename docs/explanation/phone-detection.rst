@@ -63,8 +63,11 @@ Four rules are deliberate departures, each chosen for the text a linkifier sees 
   12345``, the ``ignore_numbers_after`` words) poison only their own groups; a label reaches as far as the groups joined
   to it without whitespace, so ``Order 650-253-0000`` is an identifier and ``Order 12345, 650-253-0000`` holds a number.
   libphonenumber discards the whole run, so the number after a date is lost there and kept here.
-- A digit run in a payment-card shape that passes the Luhn check is not a number (``skip_card_numbers``). The library
-  links it when the groups happen to form a valid number.
+- A digit run in a payment-card shape that passes the Luhn check is not a number (``skip_card_numbers``), and neither is
+  an unbroken card of 13 to 19 digits wherever it sits in a run, so the phone written after one is still found. The
+  library links the card when its groups happen to form a valid number.
+- The hextets of an IPv6 address (``2001:db8::8888``, ``[::1]:8080``) are not numbers; the library reads ``8888`` as one
+  under a plan with four-digit numbers.
 - ``require_separators=True`` refuses a bare digit run with no ``+``, separators or international prefix.
 - A run that touches ``@`` on either side is never a number, and a URL, email or bare domain the scanner would link on
   its own wins over a number inside it: ``123@example.com`` and ``1password.com`` are what they were before phones were
