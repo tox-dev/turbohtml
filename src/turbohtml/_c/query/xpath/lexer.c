@@ -212,36 +212,37 @@ void lex_next(lexer *lx) {
             lx->kind = TK_EOF;
         }
         break;
-    number: {
-        Py_ssize_t start = lx->pos;
-        while (lx->pos < lx->len && lx->src[lx->pos] >= '0' && lx->src[lx->pos] <= '9') {
-            lx->pos++;
-        }
-        if (lx->pos < lx->len && lx->src[lx->pos] == '.') {
-            lx->pos++;
+    number:
+        {
+            Py_ssize_t start = lx->pos;
             while (lx->pos < lx->len && lx->src[lx->pos] >= '0' && lx->src[lx->pos] <= '9') {
                 lx->pos++;
             }
-        }
-        double value = 0.0;
-        double frac = 0.0;
-        double scale = 1.0;
-        int after_dot = 0;
-        for (Py_ssize_t index = start; index < lx->pos; index++) {
-            Py_UCS4 ch = lx->src[index];
-            if (ch == '.') {
-                after_dot = 1;
-            } else if (!after_dot) {
-                value = value * 10.0 + (ch - '0');
-            } else {
-                scale *= 10.0;
-                frac += (ch - '0') / scale;
+            if (lx->pos < lx->len && lx->src[lx->pos] == '.') {
+                lx->pos++;
+                while (lx->pos < lx->len && lx->src[lx->pos] >= '0' && lx->src[lx->pos] <= '9') {
+                    lx->pos++;
+                }
             }
+            double value = 0.0;
+            double frac = 0.0;
+            double scale = 1.0;
+            int after_dot = 0;
+            for (Py_ssize_t index = start; index < lx->pos; index++) {
+                Py_UCS4 ch = lx->src[index];
+                if (ch == '.') {
+                    after_dot = 1;
+                } else if (!after_dot) {
+                    value = value * 10.0 + (ch - '0');
+                } else {
+                    scale *= 10.0;
+                    frac += (ch - '0') / scale;
+                }
+            }
+            lx->num = value + frac;
+            lx->kind = TK_NUM;
+            break;
         }
-        lx->num = value + frac;
-        lx->kind = TK_NUM;
-        break;
-    }
     }
     lx->op_context = xp_op_follows(lx->kind);
 }

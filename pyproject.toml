@@ -101,7 +101,7 @@ test = [
 ]
 type = [
   "ty>=0.0.57",
-  { include-group = "bench" },  # type-check the bench competitor modules in tools/bench/competitors
+  { include-group = "bench" }, # type-check the bench competitor modules in tools/bench/competitors
 ]
 docs = [
   "furo>=2025.12.19",
@@ -324,7 +324,9 @@ builtin = "clear,usage,en-GB_to_en-US"
 # opps (the _minify_js PyArg_ParseTuple format "Opps"), fo/nd/te (ISO 639-1 codes in the URL language filter),
 # januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary),
 # shttp (a scheme in urllib's uses_relative list the URL join guard mirrors)
-ignore-words-list = "caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp"
+ignore-words-list = """\
+  caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp\
+  """
 skip = """\
   */html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,*/psl_table.h,*/css_colors.h,*/language_data.h,*/idna_t\
   able.h,*/normalize_table.h,*/dompurify_expect.mjs,*/package-lock.json\

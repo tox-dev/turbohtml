@@ -81,8 +81,8 @@ parse5). The convention is deliberate:
 
 - A missing oracle **errors, never skips.** A suite whose submodule (or Node oracle) is absent must fail loudly, so a
   half-checked-out tree can never report a green run that silently validated nothing.
-- They run only in the dedicated ``🔬 conformance`` CI job, which checks out every submodule recursively and installs the
-  Node oracle deps before running ``tox r -e conformance``. The normal test matrix deselects ``tests/conformance``
+- They run only in the dedicated ``🔬 conformance`` CI job, which checks out every submodule recursively and installs
+  the Node oracle deps before running ``tox r -e conformance``. The normal test matrix deselects ``tests/conformance``
   (``--ignore``), so it never tries an oracle suite without its oracle.
 - It is a pass/fail correctness gate, **not** a coverage gate. The 100% line/branch coverage gate stays on the matrix;
   the conformance job only asserts the oracle suites pass, so it does not run under coverage.

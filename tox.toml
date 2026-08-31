@@ -126,8 +126,26 @@ commands = [
     "--no-cov",
     "--parallel-threads=auto",
     "--iterations=20",
-  ], else = [ "python", "-c", "print('free-threaded parallel stress skipped (GIL build)')" ] },
+  ], else = [
+    "python",
+    "-c",
+    "print('free-threaded parallel stress skipped (GIL build)')"
+  ] },
 ]
+
+[env."pypy3.11"]
+description = "run the test suite under PyPy 3.11 through cpyext"
+base_python = [ "pypy3.11" ]
+deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
+commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
+commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]
+
+[env."pypy3.10"]
+description = "run the test suite under PyPy 3.10 through cpyext"
+base_python = [ "pypy3.10" ]
+deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
+commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
+commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]
 
 [env.docs]
 description = "build the documentation"
@@ -289,7 +307,9 @@ commands = [
 ]
 
 [env.conformance]
-description = "run the vendored-oracle conformance suites in tests/conformance (the '🔬 conformance' CI job, not a per-PR gate)"
+description = """\
+  run the vendored-oracle conformance suites in tests/conformance (the '🔬 conformance' CI job, not a per-PR gate)\
+  """
 package = "skip"  # commands_pre installs a plain release editable build; no coverage instrumentation
 deps = []  # no gcovr: this is a pass/fail correctness gate, not a coverage gate (the matrix owns the 100% gate)
 dependency_groups = [ "test" ]
@@ -336,7 +356,9 @@ dependency_groups = [ "dev" ]
 commands = [ [ "uv", "pip", "list", "--format=columns" ], [ "python", "-c", 'print(r"{env_python}")' ] ]
 
 [env.docs-linkcheck]
-description = "check every external link in the documentation resolves (network-bound; run on demand, not a per-PR gate)"
+description = """\
+  check every external link in the documentation resolves (network-bound; run on demand, not a per-PR gate)\
+  """
 package = "wheel"
 dependency_groups = [ "docs" ]
 commands_pre = []
@@ -487,17 +509,3 @@ commands = [
     "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
   ],
 ]
-
-[env."pypy3.10"]
-description = "run the test suite under PyPy 3.10 through cpyext"
-base_python = [ "pypy3.10" ]
-deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
-commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
-commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]
-
-[env."pypy3.11"]
-description = "run the test suite under PyPy 3.11 through cpyext"
-base_python = [ "pypy3.11" ]
-deps = { replace = "ref", of = [ "env", "_pypy", "deps" ] }
-commands_pre = [ { replace = "ref", of = [ "env", "_pypy", "commands_pre" ], extend = true } ]
-commands = [ { replace = "ref", of = [ "env", "_pypy", "commands" ], extend = true } ]

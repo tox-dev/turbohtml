@@ -1690,13 +1690,14 @@ static TH_NOINLINE enum run_result run_pi(th_tokenizer *self) {
             goto consume;
         }
 
-    consume: {
-        Py_ssize_t newline = ch == '\n';
-        self->line += newline;
-        self->col = (self->col + 1) * (1 - newline);
-        self->pos++;
-        continue;
-    }
+    consume:
+        {
+            Py_ssize_t newline = ch == '\n';
+            self->line += newline;
+            self->col = (self->col + 1) * (1 - newline);
+            self->pos++;
+            continue;
+        }
     emit:
         self->pos++;
         self->col++;
