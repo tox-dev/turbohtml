@@ -8,6 +8,7 @@ Move sanitizing, linkifying, and minifying to turbohtml.
     :maxdepth: 1
 
     linkify-it-py
+    urlextract
     bleach
     phonenumbers
     nh3
