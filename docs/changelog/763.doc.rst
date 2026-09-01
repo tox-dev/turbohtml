@@ -1,0 +1,3 @@
+Add a :doc:`migration guide from urlextract <migration/urlextract>`, which maps its ``find_urls``/``has_urls`` surface
+onto :class:`~turbohtml.clean.LinkDetector` and states what turbohtml does not do: no DNS check, no bare IP addresses,
+no tunable stop characters, and no runtime download of the top-level-domain list.

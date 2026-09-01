@@ -382,6 +382,15 @@ JavaScript with :func:`~turbohtml.clean.minify_js` -- every minifier value-safe.
       - .. image:: https://static.pepy.tech/badge/phonenumbers
             :alt: phonenumbers total downloads
             :target: https://pepy.tech/project/phonenumbers
+    - - 18
+      - :doc:`urlextract <urlextract>`
+      - `docs <https://github.com/lipoja/URLExtract>`__
+      - .. image:: https://static.pepy.tech/badge/urlextract/month
+            :alt: urlextract monthly downloads
+            :target: https://pepy.tech/project/urlextract
+      - .. image:: https://static.pepy.tech/badge/urlextract
+            :alt: urlextract total downloads
+            :target: https://pepy.tech/project/urlextract
 
 *********
  Convert

@@ -507,7 +507,8 @@ class Linkify:
 
     :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
     :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-    :param parse_email: also autolink bare email addresses as ``mailto:`` links.
+    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
+        ``mailto:`` URI.
     :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
     :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
     :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
@@ -653,8 +654,10 @@ class LinkDetector:
     Unlike :class:`Linker`, which rewrites HTML, a detector only *locates* links and hands back :class:`LinkSpan`
     objects, leaving the text untouched.
 
-    :param emails: detect bare email addresses.
-    :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
+    :param emails: detect email addresses, bare or written as a ``mailto:`` URI; the URI's span covers its own
+        scheme, so it links as one whole.
+    :param bare_domains: detect bare domains (``example.com``) with no explicit scheme. A host behind a written
+        scheme needs no dot, so ``http://localhost:8000/`` and ``http://[::1]/`` are links either way.
     :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
     :param schemes: extra schemes to detect, both as scheme-less opaque URLs (``tel:``, ``bitcoin:``) and as
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme

@@ -99,7 +99,7 @@ in the [design principles](https://turbohtml.readthedocs.io/en/stable/#design-pr
 ## Migration
 
 turbohtml is a clean break, not an API-compatible replacement. The
-[migration guides](https://turbohtml.readthedocs.io/en/stable/migration/) translate code from 65 libraries —
+[migration guides](https://turbohtml.readthedocs.io/en/stable/migration/) translate code from 66 libraries —
 BeautifulSoup, lxml, html5lib, pandas, markupsafe, and the standard library among them — each mapped to the namespace
 that replaces it, ordered by adoption.
 
