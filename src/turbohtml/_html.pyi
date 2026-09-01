@@ -212,6 +212,12 @@ from ._stubs.features import (
 from ._stubs.features import (
     annotation_tags as annotation_tags,
 )
+from ._stubs.features import (
+    nofollow as nofollow,
+)
+from ._stubs.features import (
+    target_blank as target_blank,
+)
 from ._stubs.query import (
     XPath as XPath,
 )
