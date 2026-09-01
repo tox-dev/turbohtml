@@ -190,6 +190,15 @@ and a nested ordered list keeps its own counter through the recursion stack rath
 naive implementation corrupts on nesting. The output is opinionated GFM with no options, validated both by golden cases
 and by rendering it back to HTML with a reference Markdown engine and checking that no visible text was lost.
 
+GFM puts that pipe escape on the cell's *content* ("include a pipe in a cell's content by escaping it, including inside
+other inline spans"), so turbohtml escapes where it writes the content -- prose, code spans, URLs, alt text, embedded
+HTML, a converter's return -- and not over a finished cell. Escaping the rendered cell is the easier implementation, and
+the one most of the field picks. It cannot tell a literal pipe from one the writer already escaped, so ``\|`` turns into
+``\\|``, which a reader takes as a backslash followed by a live cell break, and each level of table nesting adds another
+backslash. The same cell context decides what becomes of a block the cell cannot hold: a nested table or list keeps its
+source HTML, legal there because raw HTML is inline content, rather than dropping its grid or its bullets onto the row
+as literal text.
+
 The walk holds no state outside its stack frame (no module-level buffers, no per-converter object), so two threads
 exporting two trees never interfere, and the binding takes the same per-tree critical section
 :attr:`~turbohtml.Node.text` and :attr:`~turbohtml.Node.html` use so a concurrent mutation cannot rewire the tree

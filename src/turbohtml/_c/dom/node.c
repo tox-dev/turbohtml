@@ -713,7 +713,7 @@ static PyObject *node_render_with_options(PyObject *self, PyObject *args, PyObje
 static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     md_opts opt = th_markdown_default_opts();
     PyObject *heading = NULL, *strike = NULL, *code_style = NULL, *link = NULL, *image = NULL, *table = NULL;
-    PyObject *header = NULL, *escape = NULL, *brk = NULL, *spacing = NULL, *docstrip = NULL;
+    PyObject *header = NULL, *cell_blocks = NULL, *escape = NULL, *brk = NULL, *spacing = NULL, *docstrip = NULL;
     PyObject *converters = NULL, *strip = NULL, *convert = NULL;
     int ignore_emphasis = 0, mark_code = 0;
     static char *kw[] = {"heading_style",
@@ -737,6 +737,7 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
                          "default_image_alt",
                          "table_mode",
                          "table_header",
+                         "cell_blocks",
                          "pad_tables",
                          "escape_mode",
                          "escape_asterisks",
@@ -762,10 +763,10 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int parsed = PyArg_ParseTupleAndKeywords(
-        empty, spec, "|$OsssOpssOspOppppsOsOOpOppOOipppOsspipOOO", kw, &heading, &opt.bullets, &opt.strong,
+        empty, spec, "|$OsssOpssOspOppppsOsOOOpOppOOipppOsspipOOO", kw, &heading, &opt.bullets, &opt.strong,
         &opt.emphasis, &strike, &ignore_emphasis, &opt.sub, &opt.sup, &code_style, &opt.code_language, &mark_code,
         &link, &opt.autolink, &opt.link_title, &opt.ignore_links, &opt.skip_internal_links, &opt.base_url, &image,
-        &opt.default_image_alt, &table, &header, &opt.pad_tables, &escape, &opt.escape_asterisks,
+        &opt.default_image_alt, &table, &header, &cell_blocks, &opt.pad_tables, &escape, &opt.escape_asterisks,
         &opt.escape_underscores, &brk, &spacing, &opt.wrap_width, &opt.wrap_list_items, &opt.wrap_links,
         &opt.transliterate, &docstrip, &opt.quote_open, &opt.quote_close, &opt.google_doc, &opt.google_list_indent,
         &opt.hide_strikethrough, &strip, &convert, &converters);
@@ -780,6 +781,7 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     static const char *const images[] = {"markdown", "alt", "ignore", "html"};
     static const char *const tables[] = {"markdown", "strip", "html"};
     static const char *const headers[] = {"first", "detect", "none"};
+    static const char *const cells[] = {"html", "text"};
     static const char *const escapes[] = {"minimal", "all"};
     static const char *const breaks[] = {"spaces", "backslash"};
     static const char *const spacings[] = {"double", "single"};
@@ -792,6 +794,7 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
         md_resolve_enum("image_mode", image, images, 4, &opt.image_mode) < 0 ||
         md_resolve_enum("table_mode", table, tables, 3, &opt.table_mode) < 0 ||
         md_resolve_enum("table_header", header, headers, 3, &opt.table_header) < 0 ||
+        md_resolve_enum("cell_blocks", cell_blocks, cells, 2, &opt.cell_blocks) < 0 ||
         md_resolve_enum("escape_mode", escape, escapes, 2, &opt.escape_mode) < 0 ||
         md_resolve_enum("line_break", brk, breaks, 2, &opt.line_break) < 0 ||
         md_resolve_enum("block_spacing", spacing, spacings, 2, &block_spacing) < 0 ||

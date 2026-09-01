@@ -277,6 +277,111 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             "|  |\n| --- |\n| H |\n| a |",
             id="table-header-none",
         ),
+        pytest.param(
+            "<table><tr><td>a<table><tr><td>b</td></tr></table></td><td>c</td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| a b | c |\n| --- | --- |",
+            id="cell-blocks-text-flattens-nested-table",
+        ),
+        pytest.param(
+            "<table><tr><td><ul><li>x</li><li>y</li></ul></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| x y |\n| --- |",
+            id="cell-blocks-text-flattens-list",
+        ),
+        pytest.param(
+            "<table><tr><td>a<br>b</td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| a b |\n| --- |",
+            id="cell-blocks-text-break-is-a-space",
+        ),
+        pytest.param(
+            "<table><tr><td><table><tr><td><b>x</b>|y</td></tr></table></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| **x**\\|y |\n| --- |",
+            id="cell-blocks-text-keeps-inline-markup",
+        ),
+        pytest.param(
+            "<table><tr><td><table><thead><tr><th>H</th></tr></thead>"
+            "<tbody><tr><td><ul><li>u</li></ul><ol><li>o</li></ol><menu><li>m</li></menu>"
+            "<table><tr><td>t</td></tr></table></td></tr></tbody>"
+            "<tfoot><tr><td>f</td></tr></tfoot></table></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| H u o m t f |\n| --- |",
+            id="cell-blocks-text-spaces-every-boundary",
+        ),
+        pytest.param(
+            "<table><tr><td>a<table><tr><td>b</td></tr></table></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="html", pad=True)),
+            "| a<table><tr><td>b</td></tr></table> |\n| ----------------------------------- |",
+            id="cell-blocks-html-widens-the-padded-column",
+        ),
+        pytest.param(
+            '<table><tr><td><table><tbody class="x"><tr><td>b</td></tr></tbody></table></td></tr></table>',
+            Markdown(),
+            '| <table><tbody class="x"><tr><td>b</td></tr></table> |\n| --- |',
+            id="cell-html-keeps-a-tbody-that-carries-attributes",
+        ),
+        pytest.param(
+            "<table><tr><td>a|b</td></tr></table>",
+            Markdown(escaping=Markdown.Escaping(mode="all")),
+            "| a\\|b |\n| --- |",
+            id="cell-pipe-escaped-once-under-escape-all",
+        ),
+        pytest.param(
+            '<table><tr><td><a href="u|v" title="t|t">a|b</a></td></tr></table>',
+            Markdown(),
+            '| [a\\|b](u\\|v "t\\|t") |\n| --- |',
+            id="cell-pipe-escaped-in-link-text-url-and-title",
+        ),
+        pytest.param(
+            '<table><tr><td><a href="u |v">x</a></td></tr></table>',
+            Markdown(),
+            "| [x](<u \\|v>) |\n| --- |",
+            id="cell-pipe-escaped-in-bracketed-url",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="a|b.png" alt="x|y"></td></tr></table>',
+            Markdown(),
+            "| ![x\\|y](a\\|b.png) |\n| --- |",
+            id="cell-pipe-escaped-in-image",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="s.png" alt="x|y"></td></tr></table>',
+            Markdown(images=Markdown.Images(mode="alt")),
+            "| x\\|y |\n| --- |",
+            id="cell-pipe-escaped-in-bare-alt-text",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="a|b.png" alt="x"></td></tr></table>',
+            Markdown(images=Markdown.Images(mode="html")),
+            '| <img src="a\\|b.png" alt="x"> |\n| --- |',
+            id="cell-pipe-escaped-in-embedded-html",
+        ),
+        pytest.param(
+            "<table><tr><td><ol><li>x</li></ol></td></tr></table>",
+            Markdown(),
+            "| <ol><li>x</li></ol> |\n| --- |",
+            id="cell-ordered-list-becomes-html",
+        ),
+        pytest.param(
+            "<table><tr><td><menu><li>x</li></menu></td></tr></table>",
+            Markdown(),
+            "| <menu><li>x</li></menu> |\n| --- |",
+            id="cell-menu-becomes-html",
+        ),
+        pytest.param(
+            "<table><tr><td><table><tr><td><svg><text>s</text></svg>t</td></tr></table></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| st |\n| --- |",
+            id="cell-blocks-text-flattens-foreign-content",
+        ),
+        pytest.param(
+            "<table><tr><td><pre>a|b</pre></td></tr></table>",
+            Markdown(),
+            "|  ``` a\\|b ``` |\n| --- |",
+            id="cell-pipe-escaped-in-preformatted-text",
+        ),
     ],
 )
 def test_tables(html: str, opts: Markdown, expected: str) -> None:
@@ -432,6 +537,7 @@ def test_invalid_options(operation: Callable[[Node], object], exc: type[Exceptio
         pytest.param(Markdown(images=Markdown.Images(mode="bogus")), "image_mode", id="image_mode"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
         pytest.param(Markdown(tables=Markdown.Tables(mode="bogus")), "table_mode", id="table_mode"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
         pytest.param(Markdown(tables=Markdown.Tables(header="bogus")), "table_header", id="table_header"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
+        pytest.param(Markdown(tables=Markdown.Tables(cell_blocks="bogus")), "cell_blocks", id="cell_blocks"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
         pytest.param(Markdown(escaping=Markdown.Escaping(mode="bogus")), "escape_mode", id="escape_mode"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
         pytest.param(Markdown(document=Markdown.Document(line_break="bogus")), "line_break", id="line_break"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check
         pytest.param(Markdown(document=Markdown.Document(block_spacing="bogus")), "block_spacing", id="block_spacing"),  # ty: ignore[invalid-argument-type]  # invalid value tests the runtime enum check

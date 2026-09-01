@@ -1,0 +1,3 @@
+Escape a ``|`` where turbohtml writes a Markdown table cell's content rather than over the finished cell, so a nested
+table no longer adds a backslash per level; a table, list or ``<br>`` in a cell keeps its HTML unless
+``Markdown.Tables(cell_blocks="text")``.

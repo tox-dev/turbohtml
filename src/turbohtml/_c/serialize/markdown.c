@@ -56,6 +56,7 @@ md_opts th_markdown_default_opts(void) {
     opt.base_url = "";
     opt.table_mode = TH_MD_TABLE_MARKDOWN;
     opt.table_header = TH_MD_HEADER_FIRST;
+    opt.cell_blocks = TH_MD_CELL_HTML;
     opt.quote_open = "\"";
     opt.quote_close = "\"";
     opt.escape_mode = TH_MD_ESCAPE_MINIMAL;
@@ -114,6 +115,7 @@ typedef struct {
     int pending_word;     /* code points in the word the owed space precedes, for greedy wrapping */
     int no_wrap;          /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
     int inline_only;      /* >0 inside link text: a block flattens to inline, never opens a line */
+    int in_cell;          /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
     int drop_space;       /* swallow the next pending space (block/inline start) without emitting */
     int pending_loose;    /* the previous block wants a blank line after it */
     int suppress_break;   /* the next block attaches to the current (list marker) line */
@@ -317,11 +319,41 @@ static void md_put_char(md_ctx *ctx, Py_UCS4 ch) {
         }
     }
     int line_start_marker = !ctx->line_has_content && (ch == '#' || ch == '>' || ch == '-' || ch == '+');
-    if (md_needs_escape(ctx->opt, ch) || line_start_marker) {
+    if (md_needs_escape(ctx->opt, ch) || line_start_marker || (ctx->in_cell && ch == '|')) {
         sbuf_putc(&ctx->out, '\\');
     }
     sbuf_putc(&ctx->out, ch);
     ctx->line_has_content = 1;
+}
+
+/* Write one content code point, escaping a pipe that would otherwise end the table
+   cell it sits in. GFM puts that escape on the cell's *content* ("include a pipe in a
+   cell's content by escaping it, including inside other inline spans"), so every writer
+   of content goes through here or md_put_run and escapes it exactly once, where it is
+   written. Escaping the rendered cell instead cannot tell a literal pipe from one this
+   writer already escaped: `\|` becomes `\\|`, a backslash followed by a live break. */
+static void md_put_literal(md_ctx *ctx, Py_UCS4 ch) {
+    if (ctx->in_cell && ch == '|') {
+        sbuf_putc(&ctx->out, '\\');
+    }
+    sbuf_putc(&ctx->out, ch);
+}
+
+/* The same rule over a run, which is how prose and embedded markup are written. */
+static void md_put_run(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
+    if (!ctx->in_cell) {
+        sbuf_put_run(&ctx->out, text, len);
+        return;
+    }
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] == '|') {
+            sbuf_put_run(&ctx->out, &text[start], index - start);
+            sbuf_puts(&ctx->out, "\\|");
+            start = index + 1;
+        }
+    }
+    sbuf_put_run(&ctx->out, &text[start], len - start);
 }
 
 /* At a line start, "12. " or "3) " would be read as an ordered-list item, so a
@@ -380,7 +412,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
             index++;
         }
         if (index > start) {
-            sbuf_put_run(&ctx->out, &text[start], index - start);
+            md_put_run(ctx, &text[start], index - start);
         }
     }
 }
@@ -564,7 +596,7 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
     if (pad) {
         sbuf_putc(&ctx->out, ' ');
     }
-    sbuf_put_run(&ctx->out, content.data, len);
+    md_put_run(ctx, content.data, len);
     if (pad) {
         sbuf_putc(&ctx->out, ' ');
     }
@@ -586,21 +618,21 @@ static void md_emit_url(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t len) {
     }
     if (has_space) {
         sbuf_putc(&ctx->out, '<');
-        sbuf_put_run(&ctx->out, url, len);
+        md_put_run(ctx, url, len);
         sbuf_putc(&ctx->out, '>');
     } else {
-        sbuf_put_run(&ctx->out, url, len);
+        md_put_run(ctx, url, len);
     }
 }
 
 /* Write a link/image title inside its `"..."` delimiters: a `"` would close the
    title early and a `\` would escape the next character, so both are backslashed. */
-static void md_emit_title(sbuf *out, const Py_UCS4 *title, Py_ssize_t len) {
+static void md_emit_title(md_ctx *ctx, const Py_UCS4 *title, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         if (title[index] == '"' || title[index] == '\\') {
-            sbuf_putc(out, '\\');
+            sbuf_putc(&ctx->out, '\\');
         }
-        sbuf_putc(out, title[index]);
+        md_put_literal(ctx, title[index]);
     }
 }
 
@@ -711,7 +743,7 @@ static void md_emit_link(md_ctx *ctx, th_node *node) {
     md_emit_url(ctx, href, href_len);
     if (title != NULL) {
         sbuf_puts(&ctx->out, " \"");
-        md_emit_title(&ctx->out, title, title_len);
+        md_emit_title(ctx, title, title_len);
         sbuf_putc(&ctx->out, '"');
     }
     sbuf_putc(&ctx->out, ')');
@@ -734,6 +766,93 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     PyMem_Free(html);
 }
 
+/* The length of a bare `<tbody>`/`</tbody>` tag at the head of text, or 0 for
+   anything else. One with attributes is not bare and keeps its markup. */
+static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
+    static const char *const tags[] = {"<tbody>", "</tbody>"};
+    for (size_t which = 0; which < sizeof(tags) / sizeof(tags[0]); which++) {
+        Py_ssize_t tag_len = (Py_ssize_t)strlen(tags[which]);
+        if (len < tag_len) {
+            continue;
+        }
+        Py_ssize_t index = 0;
+        while (index < tag_len && text[index] == (Py_UCS4)(unsigned char)tags[which][index]) {
+            index++;
+        }
+        if (index == tag_len) {
+            return tag_len;
+        }
+    }
+    return 0;
+}
+
+/* Write a block a pipe-table cell cannot hold -- a nested table or list -- as its
+   source HTML, which is inline content and so legal in a cell (and renders as the
+   real thing wherever embedded HTML is allowed). The `<tbody>` the parser inserts
+   around every row group is dropped on the way out: it reparses back in and only
+   widens the column. The caller's whitespace collapse puts the rest on one line. */
+static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
+    Py_ssize_t len;
+    Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
+    if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    md_before_visible(ctx);
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_ssize_t tag = md_tbody_tag(&html[index], len - index);
+        if (tag > 0) {
+            md_put_run(ctx, &html[start], index - start);
+            index += tag - 1;
+            start = index + 1;
+        }
+    }
+    md_put_run(ctx, &html[start], len - start);
+    ctx->line_has_content = 1;
+    PyMem_Free(html);
+}
+
+/* The blocks a pipe-table cell cannot hold: a nested table, and the lists whose
+   bullets would otherwise land on the row as literal text. */
+static int md_is_cell_block(uint16_t atom) {
+    return atom == TH_TAG_TABLE || atom == TH_TAG_UL || atom == TH_TAG_OL || atom == TH_TAG_MENU;
+}
+
+/* The table and list scaffolding a flattened block is made of. Each one's boundary
+   owes a space, or the last word of a cell and the first of the next fuse. */
+static int md_is_cell_scaffold(uint16_t atom) {
+    switch (atom) {
+    case TH_TAG_TABLE:
+    case TH_TAG_THEAD:
+    case TH_TAG_TBODY:
+    case TH_TAG_TFOOT:
+    case TH_TAG_TR:
+    case TH_TAG_TD:
+    case TH_TAG_TH:
+    case TH_TAG_UL:
+    case TH_TAG_OL:
+    case TH_TAG_MENU:
+    case TH_TAG_LI:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Write a block a cell cannot hold as the text it holds, dropping the grid or the
+   bullets but keeping the inline markup inside each cell or item. */
+static void md_emit_cell_flat(md_ctx *ctx, th_node *node) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && md_is_cell_scaffold(child->atom)) {
+            ctx->space_pending = 1;
+            md_emit_cell_flat(ctx, child);
+        } else {
+            md_render_inline(ctx, child);
+        }
+    }
+}
+
 /* Write an image's alt text, falling back to the configured default. Inside the
    `![...]` description a bracket or backslash is escaped the same way link text
    escapes them (an unescaped `]` would close the description early); the plain
@@ -745,10 +864,10 @@ static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int
                 if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\') {
                     sbuf_putc(&ctx->out, '\\');
                 }
-                sbuf_putc(&ctx->out, alt[index]);
+                md_put_literal(ctx, alt[index]);
             }
         } else {
-            sbuf_put_run(&ctx->out, alt, alt_len);
+            md_put_run(ctx, alt, alt_len);
         }
     } else {
         md_puts8(&ctx->out, ctx->opt->default_image_alt);
@@ -787,7 +906,7 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
     if (title != NULL) {
         sbuf_puts(&ctx->out, " \"");
-        md_emit_title(&ctx->out, title, title_len);
+        md_emit_title(ctx, title, title_len);
         sbuf_putc(&ctx->out, '"');
     }
     sbuf_putc(&ctx->out, ')');
@@ -848,6 +967,18 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
         md_emit_image(ctx, node);
         return;
     case TH_TAG_BR:
+        if (ctx->in_cell) {
+            /* a row is one line, so the markdown spellings of a break cannot be used
+               here: their marker would survive the collapse to a row and the break
+               itself would not. HTML's own break does work inside a cell. */
+            if (opt->cell_blocks == TH_MD_CELL_HTML) {
+                sbuf_puts(&ctx->out, "<br>");
+                ctx->line_has_content = 1;
+            } else {
+                ctx->space_pending = 1;
+            }
+            return;
+        }
         sbuf_puts(&ctx->out, opt->line_break == TH_MD_BREAK_BACKSLASH ? "\\" : "  ");
         md_newline(ctx);
         return;
@@ -1175,7 +1306,7 @@ static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text) {
         if (character == '\n') {
             md_newline(ctx);
         } else {
-            sbuf_putc(&ctx->out, character);
+            md_put_literal(ctx, character);
             ctx->line_has_content = 1;
         }
     }
@@ -1348,8 +1479,10 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
     ctx->list_depth--;
 }
 
-/* Render a cell's inline content into dst, collapsing internal whitespace to
-   single spaces and escaping pipes so the cell stays on one row. */
+/* Render a cell's content into dst, collapsing internal whitespace to single spaces
+   so the cell stays on one row. in_cell steers the writers themselves: a pipe is
+   escaped where it is written and a block that a cell cannot hold becomes HTML, so
+   nothing here has to reinterpret finished markdown. */
 static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
     sbuf saved_out = ctx->out;
     sbuf saved_prefix = ctx->prefix;
@@ -1364,6 +1497,7 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
     ctx->line_has_content = 1;
     ctx->space_pending = 0;
     ctx->drop_space = 1;
+    ctx->in_cell = 1;
     md_inline_children(ctx, node);
     sbuf rendered = ctx->out;
     PyMem_Free(ctx->prefix.data);
@@ -1374,6 +1508,7 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
     ctx->line_has_content = saved_line;
     ctx->space_pending = saved_space;
     ctx->drop_space = saved_drop;
+    ctx->in_cell = 0;
     int space_run = 0;
     for (Py_ssize_t index = 0; index < rendered.len; index++) {
         Py_UCS4 ch = rendered.data[index];
@@ -1385,11 +1520,7 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
             sbuf_putc(dst, ' ');
             space_run = 0;
         }
-        if (ch == '|') {
-            sbuf_puts(dst, "\\|");
-        } else {
-            sbuf_putc(dst, ch);
-        }
+        sbuf_putc(dst, ch);
     }
     PyMem_Free(rendered.data);
 }
@@ -1611,7 +1742,7 @@ static void md_emit_pre_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t end) {
         if (text[index] == '\n') {
             md_newline(ctx);
         } else {
-            sbuf_putc(&ctx->out, text[index]);
+            md_put_literal(ctx, text[index]);
             ctx->line_has_content = 1;
         }
     }
@@ -1718,6 +1849,18 @@ static void md_render_block_body(md_ctx *ctx, th_node *node) {
     if (md_tag_filtered(ctx->opt, atom)) {
         /* drop the block's own markup but keep laying its children out as blocks */
         md_block_children(ctx, node);
+        return;
+    }
+    if (ctx->in_cell && md_is_cell_block(atom)) {
+        /* "Block-level elements cannot be inserted in a table" (GFM 4.10): a nested
+           table or list has no pipe-table spelling, so it either keeps its source
+           HTML -- inline content, and so legal in a cell -- or gives up its markup
+           and contributes the text it holds */
+        if (ctx->opt->cell_blocks == TH_MD_CELL_HTML) {
+            md_emit_cell_html(ctx, node);
+        } else {
+            md_emit_cell_flat(ctx, node);
+        }
         return;
     }
     switch (atom) {
@@ -1833,7 +1976,7 @@ static void md_flush_references(md_ctx *ctx) {
         sbuf_put_run(&ctx->out, ctx->refs[index].url, ctx->refs[index].url_len);
         if (ctx->refs[index].title != NULL) {
             sbuf_puts(&ctx->out, " \"");
-            md_emit_title(&ctx->out, ctx->refs[index].title, ctx->refs[index].title_len);
+            md_emit_title(ctx, ctx->refs[index].title, ctx->refs[index].title_len);
             sbuf_putc(&ctx->out, '"');
         }
     }

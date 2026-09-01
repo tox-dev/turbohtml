@@ -111,6 +111,13 @@ def test_converter_on_root_element() -> None:
     assert out == "S[hi **there**]"
 
 
+def test_converter_output_in_a_table_cell_escapes_its_pipes() -> None:
+    html = "<table><tr><td><span>x</span></td></tr></table>"
+    out = parse(html).to_markdown(Markdown(converters={"span": lambda _e, text: f"{text}|y"}))
+    # the trailing " |" of each row carries one space; compare line-rstripped
+    assert "\n".join(line.rstrip() for line in out.splitlines()) == "| x\\|y |\n| --- |"
+
+
 def test_reference_link_inside_converter_registers() -> None:
     html = "<div><a href='https://e.test'>e</a></div>"
     out = parse(html).to_markdown(Markdown(links=Markdown.Links(style="reference"), converters={"div": wrap("|")}))

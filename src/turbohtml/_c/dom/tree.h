@@ -546,6 +546,10 @@ enum th_md_escape { TH_MD_ESCAPE_MINIMAL, TH_MD_ESCAPE_ALL };
 enum th_md_break { TH_MD_BREAK_SPACES, TH_MD_BREAK_BACKSLASH };
 enum th_md_doc_strip { TH_MD_DOC_STRIP, TH_MD_DOC_LSTRIP, TH_MD_DOC_RSTRIP, TH_MD_DOC_NONE };
 enum th_md_table_header { TH_MD_HEADER_FIRST, TH_MD_HEADER_DETECT, TH_MD_HEADER_NONE };
+/* A pipe-table cell holds inline content only, so a table or list inside one has
+   no markdown spelling: keep its source HTML (which renders as the real thing) or
+   flatten it to the text it contains. */
+enum th_md_cell_blocks { TH_MD_CELL_HTML, TH_MD_CELL_TEXT };
 /* No filter, a strip denylist (listed tags lose their markup), or a convert
    allowlist (only listed tags keep their markup). */
 enum th_md_filter { TH_MD_FILTER_NONE, TH_MD_FILTER_STRIP, TH_MD_FILTER_CONVERT };
@@ -576,6 +580,7 @@ typedef struct {
     const char *base_url;   /* prefix resolved onto a relative link/image href */
     int table_mode;         /* enum th_md_table */
     int table_header;       /* enum th_md_table_header */
+    int cell_blocks;        /* enum th_md_cell_blocks */
     int pad_tables;         /* align columns to a common width */
     const char *quote_open; /* <q> wrappers */
     const char *quote_close;

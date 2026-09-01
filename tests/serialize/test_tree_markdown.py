@@ -246,8 +246,28 @@ def test_breaks_quotes_rules(html: str, expected: str) -> None:
         ),
         pytest.param(
             "<table><tr><td>x<br>y</td></tr><tr><td>z</td></tr></table>",
-            "| x y |\n| --- |\n| z |",
-            id="table-cell-newline-flattened",
+            "| x<br>y |\n| --- |\n| z |",
+            id="table-cell-break-kept-as-html",
+        ),
+        pytest.param(
+            "<table><tr><td>a<table><tr><td>b</td></tr></table></td><td>c</td></tr></table>",
+            "| a<table><tr><td>b</td></tr></table> | c |\n| --- | --- |",
+            id="table-nested-becomes-cell-html",
+        ),
+        pytest.param(
+            "<table><tr><td><ul><li>x</li><li>y</li></ul></td></tr><tr><td>z</td></tr></table>",
+            "| <ul><li>x</li><li>y</li></ul> |\n| --- |\n| z |",
+            id="table-list-in-cell-becomes-html",
+        ),
+        pytest.param(
+            "<table><tr><td><table><tr><td>a|b</td></tr></table></td></tr></table>",
+            "| <table><tr><td>a\\|b</td></tr></table> |\n| --- |",
+            id="table-pipe-inside-nested-escaped-once",
+        ),
+        pytest.param(
+            "<table><tr><td><code>a|b</code></td></tr><tr><td>c</td></tr></table>",
+            "| `a\\|b` |\n| --- |\n| c |",
+            id="table-pipe-in-code-span-escaped",
         ),
     ],
 )
@@ -481,6 +501,28 @@ def _render(markdown: str) -> str:
 def test_roundtrip_preserves_text(html: str) -> None:
     rendered = _render(md(html))
     assert _tokens(rendered) == _tokens(html)
+
+
+def _nested_tables(depth: int) -> str:
+    """`depth` tables, each the only cell of the one above it, around a pipe in text."""
+    html = "a|b"
+    for _ in range(depth):
+        html = f"<table><tr><td>{html}</td></tr></table>"
+    return html
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3, 5], ids=lambda depth: f"depth-{depth}")
+def test_nested_table_pipe_escape_never_compounds(depth: int) -> None:
+    # `\\|` reads as an escaped backslash followed by a live cell break, and escaping
+    # an already-escaped cell once per nesting level is how it used to arrive
+    assert "\\\\|" not in md(_nested_tables(depth))
+
+
+@pytest.mark.parametrize("depth", [2, 3, 5], ids=lambda depth: f"depth-{depth}")
+def test_nested_table_survives_the_round_trip(depth: int) -> None:
+    # the word-token round-trip below passes on a cell flattened to junk, so pin the
+    # structure: every nested table comes back a table
+    assert _render(md(_nested_tables(depth))).count("<table") == depth
 
 
 def test_corpus_never_crashes_and_renders(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:

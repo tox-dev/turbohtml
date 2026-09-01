@@ -153,11 +153,15 @@ class Markdown:
 
         :param mode: ``markdown`` (pipe table), ``strip`` (cell text only), or ``html`` (raw ``<table>``).
         :param header: which row is the header: ``first``, ``detect``, or ``none``.
+        :param cell_blocks: what a table or list *inside* a cell becomes, since a pipe cell holds no block:
+            ``html`` keeps its source markup (and a ``<br>`` for a line break), ``text`` flattens it to the text it
+            contains.
         :param pad: align columns to a common width.
         """
 
         mode: Literal["markdown", "strip", "html"] = "markdown"
         header: Literal["first", "detect", "none"] = "first"
+        cell_blocks: Literal["html", "text"] = "html"
         pad: bool = False
 
     @dataclass(frozen=True)
@@ -277,6 +281,7 @@ class Markdown:
             "default_image_alt": (self.images.default_alt, default.images.default_alt),
             "table_mode": (self.tables.mode, default.tables.mode),
             "table_header": (self.tables.header, default.tables.header),
+            "cell_blocks": (self.tables.cell_blocks, default.tables.cell_blocks),
             "pad_tables": (self.tables.pad, default.tables.pad),
             "escape_mode": (self.escaping.mode, default.escaping.mode),
             "escape_asterisks": (self.escaping.asterisks, default.escaping.asterisks),
