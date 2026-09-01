@@ -24,7 +24,9 @@ from turbohtml._html import (
     _phone_number_check,
     _phone_number_format,
     _phone_parse,
+    nofollow,
     parse_fragment,
+    target_blank,
 )
 
 if TYPE_CHECKING:
@@ -463,40 +465,6 @@ class LinkCandidate:
 # A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
 # text bare.
 Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
-
-
-def _is_web_url(url: str) -> bool:
-    """Is this an ``http``/``https`` URL? The scheme is matched case-insensitively, so ``HTTP://`` counts."""
-    return url[:6].lower().startswith(("http:", "https:"))
-
-
-def nofollow(link: LinkCandidate) -> LinkCandidate | None:
-    """
-    Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
-
-    :param link: the link to adjust.
-    :returns: the link, with ``nofollow`` added when it is a web link.
-    """
-    if _is_web_url(link.url):
-        rels = link.attrs.get("rel", "").split()
-        if "nofollow" not in rels:
-            rels.append("nofollow")
-        link.attrs["rel"] = " ".join(rels)
-    return link
-
-
-def target_blank(link: LinkCandidate) -> LinkCandidate | None:
-    """
-    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
-
-    :param link: the link to adjust.
-    :returns: the link, with ``target`` set on a web link or cleared on a non-web link.
-    """
-    if _is_web_url(link.url):
-        link.attrs["target"] = "_blank"
-    else:
-        link.attrs.pop("target", None)
-    return link
 
 
 #: The callbacks linkify applies when a caller passes none, matching bleach's default.

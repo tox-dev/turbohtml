@@ -1,0 +1,3 @@
+Move the shipped link callbacks :func:`~turbohtml.clean.nofollow` and :func:`~turbohtml.clean.target_blank` into the C
+core. They behave as before and stay ordinary callables a caller can pass in ``callbacks`` or wrap, but they are now
+built-in functions rather than Python ones.

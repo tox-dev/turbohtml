@@ -956,6 +956,105 @@ static int phone_config_arg(PyObject *module, PyObject *object, const PhoneConfi
     return 0;
 }
 
+/* Is this href an http or https URL? The scheme is matched case-insensitively, so HTTP:// counts. */
+static int candidate_is_web(PyObject *url) {
+    static const char scheme[] = "https";
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    Py_ssize_t matched = 0;
+    while (matched < 5 && matched < length && lower_ascii(READ(matched)) == (Py_UCS4)(unsigned char)scheme[matched]) {
+        matched++;
+    }
+    /* only the whole word counts, so `ht:` and `httpx:` are not web schemes */
+    return (matched == 4 || matched == 5) && matched < length && READ(matched) == ':';
+}
+
+/* The `url` and `attrs` of a LinkCandidate as new references, or -1 with the error set. */
+static int candidate_parts(PyObject *args, const char *name, PyObject **link, PyObject **url, PyObject **attrs) {
+    if (!PyArg_ParseTuple(args, "O", link)) {
+        return -1;
+    }
+    *url = PyObject_GetAttrString(*link, "url");
+    *attrs = *url == NULL ? NULL : PyObject_GetAttrString(*link, "attrs");
+    if (*attrs != NULL && PyUnicode_Check(*url) && PyDict_Check(*attrs)) {
+        return 0;
+    }
+    PyErr_Clear();
+    PyErr_Format(PyExc_TypeError, "%s expects a LinkCandidate", name);
+    Py_XDECREF(*url);
+    Py_XDECREF(*attrs);
+    return -1;
+}
+
+/* Put `value` on the candidate's attribute `name`, owning nothing on return. */
+static int candidate_set(PyObject *attrs, const char *name, PyObject *value) {
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: string allocation cannot be forced to fail */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    int status = PyDict_SetItemString(attrs, name, value);
+    Py_DECREF(value);
+    return status; /* GCOVR_EXCL_BR_LINE: dict insertion only fails on allocation failure */
+}
+
+/* nofollow(link) -> link: add rel="nofollow" to a web link, leaving mailto: and the rest alone. */
+PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *link;
+    PyObject *url;
+    PyObject *attrs;
+    if (candidate_parts(args, "nofollow", &link, &url, &attrs) < 0) {
+        return NULL;
+    }
+    int web = candidate_is_web(url);
+    Py_DECREF(url);
+    int status = 0;
+    if (web) {
+        PyObject *rel = PyDict_GetItemString(attrs, "rel"); /* borrowed; NULL when the link carries no rel yet */
+        PyObject *tokens = rel == NULL ? PyList_New(0) : PyObject_CallMethod(rel, "split", NULL);
+        PyObject *wanted = PyUnicode_FromString("nofollow");
+        PyObject *space = PyUnicode_FromString(" ");
+        /* GCOVR_EXCL_BR_START: list, string and str.split allocation cannot be forced to fail */
+        if (tokens == NULL || wanted == NULL || space == NULL) {
+            status = -1; /* GCOVR_EXCL_LINE */
+        } else {         /* GCOVR_EXCL_LINE: brace of the allocation-failure branch */
+            /* GCOVR_EXCL_BR_STOP */
+            int held = PySequence_Contains(tokens, wanted);
+            if (held == 0) { /* not listed yet; a link already carrying it keeps the one copy */
+                held = PyList_Append(tokens, wanted);
+            }
+            /* GCOVR_EXCL_BR_START: membership and append only fail on allocation failure */
+            status = held < 0 ? -1 : candidate_set(attrs, "rel", PyUnicode_Join(space, tokens));
+            /* GCOVR_EXCL_BR_STOP */
+        }
+        Py_XDECREF(space);
+        Py_XDECREF(wanted);
+        Py_XDECREF(tokens);
+    }
+    Py_DECREF(attrs);
+    return status < 0 ? NULL : Py_NewRef(link); /* GCOVR_EXCL_BR_LINE: every failure above is an allocation failure */
+}
+
+/* target_blank(link) -> link: open a web link in a new tab, clearing a stale target from a non-web one. */
+PyObject *turbohtml_linkify_target_blank(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *link;
+    PyObject *url;
+    PyObject *attrs;
+    if (candidate_parts(args, "target_blank", &link, &url, &attrs) < 0) {
+        return NULL;
+    }
+    int web = candidate_is_web(url);
+    Py_DECREF(url);
+    int status = 0;
+    if (web) {
+        status = candidate_set(attrs, "target", PyUnicode_FromString("_blank"));
+    } else if (PyDict_GetItemString(attrs, "target") != NULL) {
+        /* a stale target on a non-web link would leak through, so it goes */
+        status = PyDict_DelItemString(attrs, "target");
+    }
+    Py_DECREF(attrs);
+    return status < 0 ? NULL : Py_NewRef(link); /* GCOVR_EXCL_BR_LINE: every failure above is an allocation failure */
+}
+
 /* _linkify_scan(text, parse_email, bare_domains, extra_tlds=(), url_schemes=None)
    -> list[(start, end, kind, url, None)]. extra_tlds is a tuple of lowercased custom TLDs
    extending the built-in table for bare-domain and email host recognition.

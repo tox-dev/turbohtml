@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import TypeAlias
 
-from turbohtml.clean import PhoneNumber, PhoneType
+from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType
 from turbohtml.extract._feed import Entry, Feed
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
@@ -48,6 +48,8 @@ def _linkify_find(
     unique: bool,
     /,
 ) -> list[_Span]: ...
+def nofollow(link: LinkCandidate, /) -> LinkCandidate: ...
+def target_blank(link: LinkCandidate, /) -> LinkCandidate: ...
 def _linkify_has(
     text: str,
     emails: bool,
