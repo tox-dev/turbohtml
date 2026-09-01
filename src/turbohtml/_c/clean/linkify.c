@@ -34,6 +34,9 @@ enum th_link_kind {
     TH_LINK_HAS_SCHEME = 3,
     /* A phone number the recognizer accepted: the href is its tel: URI, built from the digits it resolved. */
     TH_LINK_PHONE = 4,
+    /* A written ``mailto:`` URI whose payload is an address: the span covers the scheme too, so the URI links as one
+       anchor rather than a stranded ``mailto:`` beside one. */
+    TH_LINK_MAILTO = 5,
 };
 
 /* A non-ASCII Unicode White_Space code point (the ASCII ones are c <= 0x20). UTS46
@@ -308,6 +311,28 @@ static int blocked_on_left(int kind, const void *data, Py_ssize_t start) {
     return before == '@' || before == '.' || is_label_char(before);
 }
 
+/* True when what sits left of `start` is URL syntax the scanner already declined, so
+   the host there belongs to that URL and is not an independent bare domain: a scheme's
+   ``:``, whatever slashes follow it (``https:x.com``, ``https:/x.com``, ``hppt://x.com``,
+   ``http:////x.com``, ``path:to:file.pm``), or a run of three or more slashes
+   (``///x.com``). Exactly ``//`` with no colon is a protocol-relative URL and still
+   links. Hyphens the caller trimmed off the first label are stepped back over, so
+   ``http://-example.com`` is seen for the declined scheme URL it is. */
+static int after_url_syntax(int kind, const void *data, Py_ssize_t start) {
+    Py_ssize_t pos = start;
+    while (pos > 0 && READ(pos - 1) == '-') {
+        pos--;
+    }
+    Py_ssize_t slash_end = pos;
+    while (pos > 0 && READ(pos - 1) == '/') {
+        pos--;
+    }
+    if (pos > 0 && READ(pos - 1) == ':') {
+        return 1;
+    }
+    return slash_end - pos > 2;
+}
+
 /* Expand left from a scheme's ``:`` over the scheme characters; returns the
    scheme start if one of the autolinked schemes is present, else -1. */
 static Py_ssize_t scan_scheme_start(int kind, const void *data, Py_ssize_t colon, Py_ssize_t start) {
@@ -382,14 +407,7 @@ static int match_domain(int kind, const void *data, Py_ssize_t dot, Py_ssize_t s
     while (pos < dot && READ(pos) == '-') { /* a label cannot start with a hyphen, so drop any the sweep pulled in */
         pos++;
     }
-    if (pos == dot || blocked_on_left(kind, data, pos)) {
-        return 0;
-    }
-    /* A ``://`` immediately left of the host is the authority of a scheme URL that
-       match_url declined (an unregistered or typo scheme like ``hppt://``); its host
-       is not an independent bare domain, so the whole thing stays plain text. A bare
-       ``//`` with no colon (``nothttp//example.com``) is not scheme syntax and links. */
-    if (pos >= 3 && READ(pos - 1) == '/' && READ(pos - 2) == '/' && READ(pos - 3) == ':') {
+    if (pos == dot || blocked_on_left(kind, data, pos) || after_url_syntax(kind, data, pos)) {
         return 0;
     }
     Py_ssize_t host_end = scan_host(kind, data, pos, len, 1, extra_tlds);
@@ -447,6 +465,45 @@ static int match_scheme_less(int kind, const void *data, Py_ssize_t colon, Py_ss
     }
     *out_start = scheme_start;
     *out_end = end;
+    return 1;
+}
+
+/* Does the scheme in [start, colon) equal the lowercase ASCII `name`? */
+static int scheme_is(int kind, const void *data, Py_ssize_t start, Py_ssize_t colon, const char *name,
+                     Py_ssize_t name_len) {
+    if (colon - start != name_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < name_len; index++) {
+        if (lower_ascii(READ(start + index)) != (Py_UCS4)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Try to match a written ``mailto:`` URI whose ``:`` is at `colon`: the scheme, then an
+   address the email matcher accepts. The span covers the URI as written, the way GFM's
+   protocol autolink does, so the whole URI becomes one anchor. */
+static int match_mailto(int kind, const void *data, Py_ssize_t colon, Py_ssize_t start, Py_ssize_t len,
+                        Py_ssize_t *out_start, Py_ssize_t *out_end, PyObject *extra_tlds) {
+    Py_ssize_t scheme_start = scan_scheme_start(kind, data, colon, start);
+    if (scheme_start < 0 || blocked_on_left(kind, data, scheme_start) ||
+        !scheme_is(kind, data, scheme_start, colon, "mailto", 6)) {
+        return 0;
+    }
+    Py_ssize_t at = colon + 1;
+    while (at < len && READ(at) != '@') {
+        if (!is_local_char(READ(at)) && READ(at) != '.') {
+            return 0;
+        }
+        at++;
+    }
+    if (at >= len || !match_email(kind, data, at, colon + 1, len, out_start, out_end, extra_tlds) ||
+        *out_start != colon + 1) {
+        return 0;
+    }
+    *out_start = scheme_start;
     return 1;
 }
 
@@ -556,18 +613,6 @@ static Py_ssize_t skip_plain(const uint8_t *bytes, Py_ssize_t pos, Py_ssize_t le
     return pos;
 }
 
-/* Is the scheme before `colon` the `tel` phone detection registered? A written tel: URI then links only when its
-   payload reads as a number, so `tel:not-a-number` stays text. */
-static int scheme_is_tel(int kind, const void *data, Py_ssize_t start, Py_ssize_t colon) {
-    if (colon - start != 3) {
-        return 0;
-    }
-    int letters = ((PyUnicode_READ(kind, data, start) | 0x20) == 't') +
-                  ((PyUnicode_READ(kind, data, start + 1) | 0x20) == 'e') +
-                  ((PyUnicode_READ(kind, data, start + 2) | 0x20) == 'l');
-    return letters == 3;
-}
-
 static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
                          enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
@@ -577,12 +622,17 @@ static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ss
             *link_kind = TH_LINK_HAS_SCHEME; /* a scheme://host URL carries its own scheme, kept verbatim */
             return 1;
         }
+        if (scan->parse_email && match_mailto(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds)) {
+            *link_kind = TH_LINK_MAILTO;
+            return 1;
+        }
         *link_kind = TH_LINK_SCHEME;
         if (scan->schemes == NULL ||
             !match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes)) {
             return 0;
         }
-        if (scan->phone == NULL || !scheme_is_tel(kind, data, *start, pos)) {
+        /* a written tel: URI links only when its payload reads as a number, so `tel:not-a-number` stays text */
+        if (scan->phone == NULL || !scheme_is(kind, data, *start, pos, "tel", 3)) {
             return 1;
         }
         /* a written tel: URI is a phone link once its payload reads as a number: the href comes from that number,
@@ -644,7 +694,8 @@ static PyObject *phone_url(const th_phone_match *number) {
 static PyObject *matched_url(PyObject *text, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind) {
     PyObject *matched = PyUnicode_Substring(text, start, end);
     /* GCOVR_EXCL_BR_START: substring allocation cannot be forced */
-    if (matched == NULL || link_kind == TH_LINK_SCHEME || link_kind == TH_LINK_HAS_SCHEME) {
+    /* every other kind wrote its own scheme, so the match is already the href */
+    if (matched == NULL || (link_kind != TH_LINK_URL && link_kind != TH_LINK_EMAIL)) {
         return matched;
     }
     /* GCOVR_EXCL_BR_STOP */

@@ -34,7 +34,8 @@ if TYPE_CHECKING:
 
     from turbohtml._html import _PhoneConfig
 
-_EMAIL_KIND: Final = 1
+# the two kinds the C scanner numbers as an address: a bare one and a written mailto: URI
+_EMAIL_KINDS: Final = (1, 5)
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
@@ -642,7 +643,7 @@ class LinkSpan:
 
 def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None]) -> LinkSpan:
     start, end, kind, url, phone = span
-    return LinkSpan(start, end, text[start:end], url, kind == _EMAIL_KIND, phone=phone)
+    return LinkSpan(start, end, text[start:end], url, kind in _EMAIL_KINDS, phone=phone)
 
 
 class LinkDetector:
