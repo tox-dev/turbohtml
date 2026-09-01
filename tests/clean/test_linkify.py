@@ -428,7 +428,7 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
         pytest.param("1http://example.com", False, False, [], id="scheme-starts-with-digit"),
         pytest.param("ends in colon foo:", False, False, [], id="colon-at-end-no-room"),
         pytest.param("http:/example.com", False, False, [], id="single-slash-scheme"),
-        pytest.param("http://a.bc- x", False, False, [], id="host-last-label-ends-with-hyphen"),
+        pytest.param("http://a.bc- x", False, False, [(0, 11, 3)], id="host-ends-before-a-trailing-hyphen"),
         pytest.param("trailing-.com", False, True, [], id="label-ends-with-hyphen"),
         pytest.param("-leading.com here", False, True, [(1, 12, 0)], id="leading-hyphen-trimmed"),
         pytest.param("a--b.com here", False, True, [(0, 8, 0)], id="double-hyphen-inside-label"),
