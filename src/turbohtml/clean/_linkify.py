@@ -34,9 +34,6 @@ if TYPE_CHECKING:
 
     from turbohtml._html import _PhoneConfig
 
-# the two kinds the C scanner numbers as an address: a bare one and a written mailto: URI
-_EMAIL_KINDS: Final = (1, 5)
-
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
 # a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
@@ -650,9 +647,9 @@ class LinkSpan:
     __hash__ = None  # a span carries offsets into one specific string, so it is not a stable dict key
 
 
-def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None]) -> LinkSpan:
-    start, end, kind, url, phone = span
-    return LinkSpan(start, end, text[start:end], url, kind in _EMAIL_KINDS, phone=phone)
+def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None, bool]) -> LinkSpan:
+    start, end, _kind, url, phone, is_email = span
+    return LinkSpan(start, end, text[start:end], url, is_email, phone=phone)
 
 
 class LinkDetector:
@@ -714,18 +711,19 @@ class LinkDetector:
             once; offsets then point at that first occurrence.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
-        spans = [
+        return [
             _span_from_match(text, span)
             for span in _linkify_find(
-                text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
+                text,
+                self.emails,
+                self.bare_domains,
+                self._tlds,
+                self._schemes,
+                self._url_schemes,
+                self._phone_config,
+                unique,
             )
         ]
-        if not unique:
-            return spans
-        first: dict[str, LinkSpan] = {}
-        for span in spans:
-            first.setdefault(span.url, span)
-        return list(first.values())
 
     def has_link(self, text: str) -> bool:
         """
