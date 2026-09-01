@@ -181,15 +181,31 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
     return tuple_has_label(extra_tlds, kind, data, start, end);
 }
 
+/* Does an underscore appear in the host's last two labels? A domain name may hold
+   one but a host name may not, so ``_example.com`` is not a bare domain while the
+   ``_dmarc.example.com`` of a DNS record still is -- the rule GFM's autolink
+   literals use. Read backwards over the two labels once the host is known rather
+   than per character, so the scan loop stays as tight as it was. */
+static int host_name_underscored(int kind, const void *data, Py_ssize_t start, Py_ssize_t end) {
+    for (Py_ssize_t pos = start; pos < end; pos++) {
+        if (READ(pos) == '_') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Scan a host of dot-separated labels starting at `start`, requiring at least
-   one dot. With require_tld the final label must be a known TLD (the bare-domain
-   rule); a scheme URL passes 0 so a numeric host like 1.2.3.4 is accepted. Returns
-   the index past the host on success, or -1. Hyphens are allowed inside a label,
-   not at its edges. */
+   one dot. With require_tld the final label must be a known TLD and its last two
+   labels must be host-name shaped (the bare-domain rules); a scheme URL passes 0,
+   so a numeric host like 1.2.3.4 is accepted. Returns the index past the host on
+   success, or -1. Hyphens are allowed inside a label, not at its edges, and a
+   trailing one is punctuation the host ends before. */
 static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssize_t len, int require_tld,
                             PyObject *extra_tlds) {
     Py_ssize_t pos = start;
     Py_ssize_t last_label_start = start;
+    Py_ssize_t previous_label_start = start;
     Py_ssize_t host_end = start;
     int label_len = 0;
     int label_ended_with_hyphen = 0;
@@ -212,6 +228,7 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
                 break;
             }
             dots++;
+            previous_label_start = last_label_start;
             last_label_start = pos + 1;
             label_len = 0;
             pos++;
@@ -219,7 +236,10 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
             break;
         }
     }
-    if (dots < 1 || label_ended_with_hyphen) {
+    if (dots < 1) {
+        return -1;
+    }
+    if (require_tld && host_name_underscored(kind, data, previous_label_start, host_end)) {
         return -1;
     }
     if (require_tld && !is_known_tld(kind, data, last_label_start, host_end, extra_tlds)) {
@@ -287,10 +307,14 @@ static Py_ssize_t scan_url_tail(int kind, const void *data, Py_ssize_t host_end,
     Py_ssize_t pos = host_end;
     if (pos < len && READ(pos) == ':') {
         Py_ssize_t port = pos + 1;
+        long value = 0;
         while (port < len && is_ascii_digit(READ(port))) {
+            /* stop accumulating once the run is out of range, so a thousand digits cannot overflow the counter */
+            value = value > 65535 ? value : value * 10 + (long)(READ(port) - '0');
             port++;
         }
-        if (port > pos + 1) {
+        /* a port is at most 65535, so a larger run is not one: `example.com:500000` links the host alone */
+        if (port > pos + 1 && value <= 65535) {
             pos = port;
         }
     }
