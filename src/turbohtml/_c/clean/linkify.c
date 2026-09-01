@@ -139,6 +139,40 @@ static int tuple_has_label(PyObject *names, int kind, const void *data, Py_ssize
     return 0;
 }
 
+/* Is the label [start, end) one of the internationalized TLDs written as its Unicode
+   U-label (``рф``, ``中国``)? IANA lists only the punycode A-label, so the generated
+   table carries the decoded spelling, sorted by code point, with an upper-case entry
+   of its own wherever the script has case. Binary search, no allocation. */
+static int is_known_unicode_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t length = end - start;
+    int low = 0;
+    int high = th_tld_unicode_count;
+    while (low < high) {
+        int middle = low + (high - low) / 2;
+        const th_tld_unicode_entry *entry = &th_tld_unicode[middle];
+        Py_ssize_t compared = length < entry->len ? length : entry->len;
+        int order = 0;
+        for (Py_ssize_t offset = 0; offset < compared; offset++) {
+            Py_UCS4 candidate = READ(start + offset);
+            if (candidate != entry->points[offset]) {
+                order = candidate < entry->points[offset] ? -1 : 1;
+                break;
+            }
+        }
+        if (order == 0 && length != entry->len) {
+            order = length < entry->len ? -1 : 1;
+        }
+        if (order < 0) {
+            high = middle;
+        } else if (order > 0) {
+            low = middle + 1;
+        } else {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Is the label [start, end) a known TLD? Matched case-insensitively in the
    first-byte bucket of the generated table, which includes the xn-- punycode
    TLDs, so a real xn--p1ai matches and an invented xn--whatever does not. A
@@ -151,7 +185,7 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
     }
     Py_UCS4 first = lower_ascii(READ(start));
     if (first < 'a' || first > 'z') {
-        return tuple_has_label(extra_tlds, kind, data, start, end);
+        return is_known_unicode_tld(kind, data, start, end) || tuple_has_label(extra_tlds, kind, data, start, end);
     }
     int low = th_tld_first[first];
     int high = th_tld_first[first + 1];
@@ -178,7 +212,8 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
             return 1;
         }
     }
-    return tuple_has_label(extra_tlds, kind, data, start, end);
+    /* a U-label whose first code point is ASCII (the o-umlaut of vermoegensberater) misses the bucket above */
+    return is_known_unicode_tld(kind, data, start, end) || tuple_has_label(extra_tlds, kind, data, start, end);
 }
 
 /* Does an underscore appear in the host's last two labels? A domain name may hold
