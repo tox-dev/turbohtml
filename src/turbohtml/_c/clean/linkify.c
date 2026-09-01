@@ -139,6 +139,40 @@ static int tuple_has_label(PyObject *names, int kind, const void *data, Py_ssize
     return 0;
 }
 
+/* Is the label [start, end) one of the internationalized TLDs written as its Unicode
+   U-label (``рф``, ``中国``)? IANA lists only the punycode A-label, so the generated
+   table carries the decoded spelling, sorted by code point, with an upper-case entry
+   of its own wherever the script has case. Binary search, no allocation. */
+static int is_known_unicode_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t length = end - start;
+    int low = 0;
+    int high = th_tld_unicode_count;
+    while (low < high) {
+        int middle = low + (high - low) / 2;
+        const th_tld_unicode_entry *entry = &th_tld_unicode[middle];
+        Py_ssize_t compared = length < entry->len ? length : entry->len;
+        int order = 0;
+        for (Py_ssize_t offset = 0; offset < compared; offset++) {
+            Py_UCS4 candidate = READ(start + offset);
+            if (candidate != entry->points[offset]) {
+                order = candidate < entry->points[offset] ? -1 : 1;
+                break;
+            }
+        }
+        if (order == 0 && length != entry->len) {
+            order = length < entry->len ? -1 : 1;
+        }
+        if (order < 0) {
+            high = middle;
+        } else if (order > 0) {
+            low = middle + 1;
+        } else {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Is the label [start, end) a known TLD? Matched case-insensitively in the
    first-byte bucket of the generated table, which includes the xn-- punycode
    TLDs, so a real xn--p1ai matches and an invented xn--whatever does not. A
@@ -151,7 +185,7 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
     }
     Py_UCS4 first = lower_ascii(READ(start));
     if (first < 'a' || first > 'z') {
-        return tuple_has_label(extra_tlds, kind, data, start, end);
+        return is_known_unicode_tld(kind, data, start, end) || tuple_has_label(extra_tlds, kind, data, start, end);
     }
     int low = th_tld_first[first];
     int high = th_tld_first[first + 1];
@@ -178,7 +212,8 @@ static int is_known_tld(int kind, const void *data, Py_ssize_t start, Py_ssize_t
             return 1;
         }
     }
-    return tuple_has_label(extra_tlds, kind, data, start, end);
+    /* a U-label whose first code point is ASCII (the o-umlaut of vermoegensberater) misses the bucket above */
+    return is_known_unicode_tld(kind, data, start, end) || tuple_has_label(extra_tlds, kind, data, start, end);
 }
 
 /* Does an underscore appear in the host's last two labels? A domain name may hold
@@ -236,7 +271,9 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
             break;
         }
     }
-    if (dots < 1) {
+    /* A bare domain needs a dot to be told apart from an ordinary word; an authority written behind an explicit
+       scheme does not, so `http://localhost:8000/` and `http://intranet/` are the links their authors wrote. */
+    if (host_end == start || (require_tld && dots < 1)) {
         return -1;
     }
     if (require_tld && host_name_underscored(kind, data, previous_label_start, host_end)) {
@@ -246,6 +283,38 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
         return -1;
     }
     return host_end;
+}
+
+/* Scan an RFC 3986 IP-literal host: ``[``, the hex digits, ``:`` and ``.`` of an
+   IPv6 address, an optional ``%`` zone id, then ``]``. Returns the index past the
+   ``]``, or -1. The address itself is not validated -- a link in prose is located,
+   not resolved -- but the brackets bound it, so nothing else in the text is
+   swallowed. */
+static Py_ssize_t scan_ip_literal(int kind, const void *data, Py_ssize_t start, Py_ssize_t len) {
+    Py_ssize_t pos = start + 1;
+    int zone = 0;
+    while (pos < len) {
+        Py_UCS4 c = READ(pos);
+        if (c == ']') {
+            return pos > start + 1 ? pos + 1 : -1;
+        }
+        if (c == '%' && !zone) {
+            zone = 1;
+        } else if (!(zone ? is_label_char(c) : is_ascii_hexdigit(c) || c == ':' || c == '.')) {
+            return -1;
+        }
+        pos++;
+    }
+    return -1;
+}
+
+/* Scan the host of a ``scheme://`` authority: an IP literal in brackets, else a
+   run of labels with no bare-domain TLD rule to meet. */
+static Py_ssize_t scan_authority_host(int kind, const void *data, Py_ssize_t start, Py_ssize_t len) {
+    if (start < len && READ(start) == '[') {
+        return scan_ip_literal(kind, data, start, len);
+    }
+    return scan_host(kind, data, start, len, 0, NULL);
 }
 
 /* Consume a run of URL tail characters from `begin`, balancing brackets and
@@ -391,7 +460,7 @@ static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t st
        the common case stays a single host scan. The last '@' before the path wins,
        so http://user:pass@host links the host, not the embedded email. */
     Py_ssize_t host_start = colon + 3;
-    Py_ssize_t host_end = scan_host(kind, data, host_start, len, 0, NULL);
+    Py_ssize_t host_end = scan_authority_host(kind, data, host_start, len);
     if (host_end < 0 || (host_end < len && (READ(host_end) == ':' || READ(host_end) == '@'))) {
         Py_ssize_t userinfo_end = -1;
         for (Py_ssize_t scan = host_start; scan < len; scan++) {
@@ -404,7 +473,7 @@ static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t st
         }
         if (userinfo_end >= 0) {
             host_start = userinfo_end + 1;
-            host_end = scan_host(kind, data, host_start, len, 0, NULL);
+            host_end = scan_authority_host(kind, data, host_start, len);
         }
     }
     if (host_end < 0) {
