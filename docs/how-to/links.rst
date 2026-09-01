@@ -133,6 +133,17 @@ with offsets, the matched text, and the normalized ``url``; ``has_link`` answers
     5 20 mailto:bob@example.com
     27 38 http://example.com
 
+Pass ``unique=True`` when the same address appearing twice should be reported once; the span you get back is the first
+occurrence, so its offsets still point into the text:
+
+.. testcode::
+
+    print([span.url for span in detector.find("a.com, then b.com, then a.com", unique=True)])
+
+.. testoutput::
+
+    ['http://a.com', 'http://b.com']
+
 Register custom ``tlds`` to detect bare domains on an internal suffix, and ``schemes`` such as ``tel`` so their opaque
 URLs are found too (a ``scheme://`` URL autolinks when its scheme is ``http``/``https``/``ftp`` or one you register, so
 a typo scheme or a ``javascript://`` payload is left alone):
