@@ -1,0 +1,3 @@
+Move the :class:`~turbohtml.query.Query` facade's set algebra into the C core: deduplicating by node identity,
+collecting siblings, the combined ``text``, the joined attribute read, and the four class operations. Behavior is
+unchanged.

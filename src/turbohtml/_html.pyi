@@ -237,6 +237,30 @@ from ._stubs.query import (
     _matches_many as _matches_many,
 )
 from ._stubs.query import (
+    _query_add_class as _query_add_class,
+)
+from ._stubs.query import (
+    _query_attr as _query_attr,
+)
+from ._stubs.query import (
+    _query_has_class as _query_has_class,
+)
+from ._stubs.query import (
+    _query_remove_class as _query_remove_class,
+)
+from ._stubs.query import (
+    _query_siblings as _query_siblings,
+)
+from ._stubs.query import (
+    _query_text as _query_text,
+)
+from ._stubs.query import (
+    _query_toggle_class as _query_toggle_class,
+)
+from ._stubs.query import (
+    _query_unique as _query_unique,
+)
+from ._stubs.query import (
     _register_selector_error as _register_selector_error,
 )
 from ._stubs.query import (
