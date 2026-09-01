@@ -4,3 +4,6 @@ and a known top-level domain to be told apart from an ordinary word.
 
 Recognize an internationalized top-level domain written as its Unicode label, so ``президент.рф`` links the way
 ``президент.xn--p1ai`` already did.
+
+Add ``unique=True`` to :meth:`LinkDetector.find <turbohtml.clean.LinkDetector.find>`, which keeps the first span of each
+distinct URL.

@@ -702,19 +702,27 @@ class LinkDetector:
             phones=self.phones,
         ), ()
 
-    def find(self, text: str) -> list[LinkSpan]:
+    def find(self, text: str, *, unique: bool = False) -> list[LinkSpan]:
         """
         Find every link in a run of text.
 
         :param text: the text to scan.
+        :param unique: keep only the first span of each distinct ``url``, so text repeating one address yields it
+            once; offsets then point at that first occurrence.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
-        return [
+        spans = [
             _span_from_match(text, span)
             for span in _linkify_find(
                 text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
             )
         ]
+        if not unique:
+            return spans
+        first: dict[str, LinkSpan] = {}
+        for span in spans:
+            first.setdefault(span.url, span)
+        return list(first.values())
 
     def has_link(self, text: str) -> bool:
         """
