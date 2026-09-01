@@ -62,6 +62,7 @@ typedef struct {
     uint8_t require_separators;
     uint8_t skip_card_numbers;
     uint8_t require_national_prefix; /* VALID's isNationalPrefixPresentIfRequired applies */
+    uint8_t collapse_whitespace;     /* th_phone_find reads a run of HTML whitespace as the space it renders as */
     uint8_t grouping;                /* enum th_phone_grouping */
     uint8_t parsing_extensions;      /* also read the auto-dialling extension forms parse accepts (`,,12`, `;12`) */
     uint8_t national_floor;

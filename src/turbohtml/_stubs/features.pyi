@@ -17,6 +17,7 @@ _PhoneSpec: TypeAlias = tuple[
     bool,
     bool,
     bool,
+    bool,
     int,
     int,
     tuple[str, ...],

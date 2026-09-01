@@ -156,6 +156,8 @@ class PhoneNumbers:
     :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
         writes (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False links it the way people dial
         locally. Applies with ``require_valid``.
+    :param collapse_whitespace: read a run of HTML whitespace (tab, newline, form feed, carriage return, space) as
+        the single space it renders as, so a number a source formatter broke across a line still reads as one.
     :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
     :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
     :param ignore_numbers_after: words that mark the digits right after them as an identifier.
@@ -166,6 +168,7 @@ class PhoneNumbers:
     require_separators: bool
     skip_card_numbers: bool
     require_national_prefix: bool
+    collapse_whitespace: bool
     grouping: PhoneGrouping
     types: frozenset[PhoneType] | None
     ignore_numbers_after: tuple[str, ...]
@@ -179,6 +182,7 @@ class PhoneNumbers:
         require_separators: bool = False,
         skip_card_numbers: bool = True,
         require_national_prefix: bool = True,
+        collapse_whitespace: bool = False,
         grouping: PhoneGrouping = PhoneGrouping.ANY,
         types: Iterable[PhoneType] | None = None,
         ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
@@ -189,6 +193,7 @@ class PhoneNumbers:
             ("require_separators", require_separators),
             ("skip_card_numbers", skip_card_numbers),
             ("require_national_prefix", require_national_prefix),
+            ("collapse_whitespace", collapse_whitespace),
         ):
             if not isinstance(flag, bool):
                 msg = f"{name} must be bool"
@@ -225,6 +230,7 @@ class PhoneNumbers:
         object.__setattr__(self, "require_separators", require_separators)
         object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
         object.__setattr__(self, "require_national_prefix", require_national_prefix)
+        object.__setattr__(self, "collapse_whitespace", collapse_whitespace)
         object.__setattr__(self, "grouping", grouping)
         object.__setattr__(self, "types", wanted)
         object.__setattr__(
@@ -248,6 +254,7 @@ class PhoneNumbers:
             require_separators=self.require_separators,
             skip_card_numbers=self.skip_card_numbers,
             require_national_prefix=self.require_national_prefix,
+            collapse_whitespace=self.collapse_whitespace,
             grouping=self.grouping,
             types=self.types,
             ignore_numbers_after=self.ignore_numbers_after,
@@ -412,6 +419,7 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, p
         phones.require_separators,
         phones.skip_card_numbers,
         phones.require_national_prefix,
+        phones.collapse_whitespace,
         _PHONE_GROUPINGS.index(phones.grouping),
         _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types),
         phones.ignore_numbers_after,

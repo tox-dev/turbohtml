@@ -44,6 +44,7 @@ def test_defaults() -> None:
         require_separators=False,
         skip_card_numbers=True,
         require_national_prefix=True,
+        collapse_whitespace=False,
         grouping=PhoneGrouping.ANY,
         types=None,
         ignore_numbers_after=DEFAULT_PHONE_LABELS,
@@ -132,7 +133,13 @@ def test_regions_reject_unknown_codes(regions: tuple[str, ...], message: str) ->
     "name",
     [
         pytest.param(name, id=name)
-        for name in ("require_valid", "require_separators", "skip_card_numbers", "require_national_prefix")
+        for name in (
+            "require_valid",
+            "require_separators",
+            "skip_card_numbers",
+            "require_national_prefix",
+            "collapse_whitespace",
+        )
     ],
 )
 @pytest.mark.parametrize(

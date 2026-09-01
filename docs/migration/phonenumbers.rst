@@ -181,3 +181,6 @@ no digits is the narrowest row, 8x to 9x, the cost of the trigger scan alone.
   number the tables assign (or, with ``require_valid=False``, one of a possible length).
 - A detected number must carry its national prefix; ``PhoneNumbers(require_national_prefix=False)`` links the
   prefix-less numbers ``parse`` accepts.
+- ``PhoneNumbers(collapse_whitespace=True)`` reads a run of HTML whitespace as the single space it renders as, which
+  links numbers ``PhoneNumberMatcher`` leaves plain: more than four separator characters, and the tab and newline a
+  source formatter leaves between two groups. The default matches ``PhoneNumberMatcher`` on both.

@@ -30,13 +30,18 @@ the number, its region and type, or the position the next probe may start at.
 
 A run is up to 21 groups of up to 20 digits, the last of them starting within 250 code points of the first digit, joined
 by the punctuation a written number carries between groups, with an optional ``+`` or bracket in front and an extension
-at the end. The recognizer reads the whole run first; when that fails, it tries the inner splits in order: after a
-slash, each bracketed part, around a spaced hyphen, around a wide hyphen, between dots, between spaces. For each
-candidate and default region, the recognizer takes the country code after an international prefix, strips the region's
-own country code when the text carries it, or strips the national prefix and hands the remaining digits to the plan of
-each region sharing the calling code, in the plan's routing order. A national number read this way must carry the
-national prefix its number format writes, so ``2012-01-02 08`` is not a German number while ``030 12345678`` is;
-``require_national_prefix=False`` drops that rule for text where people write numbers the way a local caller dials them.
+at the end. A separator holds at most four of those characters, and a tab, a newline or a carriage return is not one of
+them, so a number a source formatter broke across a line reads as two. ``collapse_whitespace=True`` measures the run as
+the browser paints it: a run of HTML whitespace (tab, newline, form feed, carriage return, space) counts as the one
+space it renders as, in the separator, in the lead, in the extension and in the 250-code-point budget alike. ``U+00A0``
+and ``U+3000`` render as themselves, so they stay separators of their own and never join a run. The recognizer reads the
+whole run first; when that fails, it tries the inner splits in order: after a slash, each bracketed part, around a
+spaced hyphen, around a wide hyphen, between dots, between spaces. For each candidate and default region, the recognizer
+takes the country code after an international prefix, strips the region's own country code when the text carries it, or
+strips the national prefix and hands the remaining digits to the plan of each region sharing the calling code, in the
+plan's routing order. A national number read this way must carry the national prefix its number format writes, so
+``2012-01-02 08`` is not a German number while ``030 12345678`` is; ``require_national_prefix=False`` drops that rule
+for text where people write numbers the way a local caller dials them.
 
 ``grouping`` adds two stricter checks. Both start from a valid number and compare the digit groups as written against
 the groups of its number format, in the international layout, and against each alternate format the metadata lists for

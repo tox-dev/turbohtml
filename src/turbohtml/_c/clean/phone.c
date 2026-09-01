@@ -174,6 +174,29 @@ static int is_punctuation(uint32_t code) {
     }
 }
 
+/* HTML paints a run of these as the one space the reader sees, which is what `collapse_whitespace` reads it as.
+   U+00A0 and U+3000 survive rendering, so they stay separators of their own and never join a run. */
+static int is_collapsing_space(uint32_t code) {
+    return code == ' ' || code == '\t' || code == '\n' || code == '\f' || code == '\r';
+}
+
+static int is_separator(uint32_t code, int collapse) {
+    return is_punctuation(code) || (collapse && is_collapsing_space(code));
+}
+
+/* Past the separator that starts at `position` and reads as `code`: one code point, or the whole whitespace run
+   it opens. The caller has the code in hand, so the common path never reads a character twice. */
+static size_t separator_end(th_phone_read read, const void *text, size_t position, size_t end, uint32_t code,
+                            int collapse) {
+    position++;
+    if (collapse && is_collapsing_space(code)) {
+        while (position < end && is_collapsing_space(read(text, position))) {
+            position++;
+        }
+    }
+    return position;
+}
+
 /* The extension markers that are also punctuation a run allows, so a group after one may be the extension. */
 static int is_extension_marker(uint32_t code) {
     return code == 'x' || code == '~' || code == 0xFF5E;
@@ -708,7 +731,8 @@ static void read_national(const th_phone_config *config, uint16_t region_index, 
 /* Java's lead, `(?:[lead][punct]{0,4}){0,2}`, consumed exactly over the text before the digits: a lead character,
    then the greedy punctuation run, at most twice. Every lead character that is also punctuation gets taken by the
    greedy run of the group before it, so the regex never needs to give punctuation back. */
-static int lead_groups_match_from(th_phone_read read, const void *text, size_t position, size_t end, int groups_left) {
+static int lead_groups_match_from(th_phone_read read, const void *text, size_t position, size_t end, int groups_left,
+                                  int collapse) {
     if (position == end) {
         return 1;
     }
@@ -718,15 +742,33 @@ static int lead_groups_match_from(th_phone_read read, const void *text, size_t p
     }
     position++;
     size_t punctuation = 0;
-    while (punctuation < MAX_LEAD_PUNCTUATION && position < end && is_punctuation(read(text, position))) {
-        position++;
+    while (punctuation < MAX_LEAD_PUNCTUATION && position < end) {
+        uint32_t punctuation_code = read(text, position);
+        if (!is_separator(punctuation_code, collapse)) {
+            break;
+        }
+        position = separator_end(read, text, position, end, punctuation_code, collapse);
         punctuation++;
     }
-    return lead_groups_match_from(read, text, position, end, groups_left - 1);
+    return lead_groups_match_from(read, text, position, end, groups_left - 1, collapse);
 }
 
-static int lead_groups_match(th_phone_read read, const void *text, size_t start, size_t end) {
-    return lead_groups_match_from(read, text, start, end, 2);
+static int lead_groups_match(th_phone_read read, const void *text, size_t start, size_t end, int collapse) {
+    return lead_groups_match_from(read, text, start, end, 2, collapse);
+}
+
+/* Where a lead may start: MAX_LEAD_CHARS characters of the text as it renders, so a collapsed run counts once
+   however long it is. */
+static size_t lead_window(th_phone_read read, const void *text, size_t left_bound, size_t digits_start) {
+    size_t position = digits_start;
+    for (size_t width = 0; width < MAX_LEAD_CHARS && position > left_bound; width++) {
+        position--;
+        while (position > left_bound && is_collapsing_space(read(text, position)) &&
+               is_collapsing_space(read(text, position - 1))) {
+            position--;
+        }
+    }
+    return position;
 }
 
 /* MATCHING_BRACKETS over the candidate: an optional leading opener, an optional leading "text then closer", then at
@@ -783,9 +825,10 @@ static int brackets_match(th_phone_read read, const void *text, size_t start, si
     return 1;
 }
 
-static int second_number_start(th_phone_read read, const void *text, size_t len, size_t slash, size_t *cut_end) {
+static int second_number_start(th_phone_read read, const void *text, size_t len, size_t slash, size_t *cut_end,
+                               int collapse) {
     size_t position = slash + 1;
-    while (position < len && read(text, position) == ' ') {
+    while (position < len && (read(text, position) == ' ' || (collapse && is_collapsing_space(read(text, position))))) {
         position++;
     }
     if (position >= len || read(text, position) != 'x') {
@@ -825,7 +868,7 @@ static uint16_t extension_dfa(const th_phone_config *config) {
 }
 
 static int walk_extension(th_phone_read read, const void *text, size_t len, uint16_t grammar, size_t tail_start,
-                          size_t *tail_end, char *ext_digits, uint8_t *ext_len) {
+                          int collapse, size_t *tail_end, char *ext_digits, uint8_t *ext_len) {
     const th_phone_dfa *dfa = dfa_at(grammar);
     uint16_t state = 1;
     char digits[TH_PHONE_MAX_EXTENSION + 1];
@@ -833,6 +876,12 @@ static int walk_extension(th_phone_read read, const void *text, size_t len, uint
     int found = 0;
     for (size_t position = tail_start; position < len; position++) {
         uint32_t code = read(text, position);
+        if (collapse && is_collapsing_space(code)) {
+            while (position + 1 < len && is_collapsing_space(read(text, position + 1))) {
+                position++;
+            }
+            code = ' ';
+        }
         int value = th_phone_digit_value(code);
         state = dfa_step(dfa, state, extension_symbol(code));
         if (state == 0) {
@@ -854,10 +903,11 @@ static int walk_extension(th_phone_read read, const void *text, size_t len, uint
 }
 
 static int segment(th_phone_read read, const void *text, size_t len, uint16_t grammar, size_t left_bound,
-                   size_t digit_pos, run_record *run) {
+                   size_t digit_pos, int collapse, run_record *run) {
     memset(run, 0, sizeof(*run));
     size_t digits_start = digit_pos;
     size_t position = digits_start;
+    size_t width = 0; /* characters of the rendered text since the first digit, a collapsed run counting once */
     int separator_dots = 0;
     int separator_marker = 0;
     for (;;) {
@@ -880,6 +930,7 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
             break;
         }
         group->end = position;
+        width += group->count;
         group->separator_is_dots = (uint8_t)separator_dots;
         group->separator_has_extension_marker = (uint8_t)separator_marker;
         run->group_count++;
@@ -893,10 +944,10 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
         int cut = 0;
         while (probe < len && punctuation < MAX_LEAD_PUNCTUATION) {
             uint32_t code = read(text, probe);
-            if (!is_punctuation(code)) {
+            if (!is_separator(code, collapse)) {
                 break;
             }
-            if (code == '/' && second_number_start(read, text, len, probe, &run->second_number_cut)) {
+            if (code == '/' && second_number_start(read, text, len, probe, &run->second_number_cut, collapse)) {
                 cut = 1;
                 break;
             }
@@ -904,11 +955,12 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
             if (is_extension_marker(code)) {
                 separator_marker = 1;
             }
-            probe++;
+            probe = separator_end(read, text, probe, len, code, collapse);
             punctuation++;
+            width++;
         }
         if (cut || probe == position || probe >= len || th_phone_digit_value(read(text, probe)) < 0 ||
-            probe - digits_start > TH_PHONE_MAX_RUN_CHARS) {
+            width > TH_PHONE_MAX_RUN_CHARS) {
             break;
         }
         separator_dots = next_dots;
@@ -919,11 +971,14 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
     }
     run->end = run->groups[run->group_count - 1].end;
     size_t earliest = digits_start > left_bound + MAX_LEAD_CHARS ? digits_start - MAX_LEAD_CHARS : left_bound;
+    if (collapse) {
+        earliest = lead_window(read, text, left_bound, digits_start);
+    }
     /* the bracket rule belongs to parseAndVerify, which read_chunk applies per chunk: a lead whose bracket never
        closes still starts the candidate, and the text before that bracket is the chunk extractInnerMatch offers */
     run->start = digits_start;
     for (size_t candidate = earliest; candidate < digits_start; candidate++) {
-        if (lead_groups_match(read, text, candidate, digits_start)) {
+        if (lead_groups_match(read, text, candidate, digits_start, collapse)) {
             run->start = candidate;
             break;
         }
@@ -937,13 +992,13 @@ static int segment(th_phone_read read, const void *text, size_t len, uint16_t gr
     size_t tail_end;
     char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
     uint8_t ext_len;
-    if (walk_extension(read, text, len, grammar, run->end, &tail_end, ext_digits, &ext_len)) {
+    if (walk_extension(read, text, len, grammar, run->end, collapse, &tail_end, ext_digits, &ext_len)) {
         memcpy(run->extension, ext_digits, ext_len);
         run->extension_len = ext_len;
         run->extension_end = tail_end;
     } else if (run->group_count > 1 && run->groups[run->group_count - 1].separator_has_extension_marker &&
-               walk_extension(read, text, len, grammar, run->groups[run->group_count - 2].end, &tail_end, ext_digits,
-                              &ext_len) &&
+               walk_extension(read, text, len, grammar, run->groups[run->group_count - 2].end, collapse, &tail_end,
+                              ext_digits, &ext_len) &&
                tail_end >= run->end) {
         /* PATTERN reads `x1234` as a punctuation-separated digit block, so a `#` after it stays outside the match */
         run->group_count--;
@@ -985,7 +1040,7 @@ static int is_slash_date(th_phone_read read, const void *text, const run_record 
 /* PhoneNumberMatcher.TIME_STAMPS at the run's end followed by TIME_STAMPS_SUFFIX: eight digits shaped
    [12]ddd[01]d[0-3]d, split only after the year and after the month and only by a single `-` or `/`, then spaces, a
    two-digit hour starting 0-2, and `:MM` right after the run. Returns the count of groups it spans, 0 when none. */
-static size_t timestamp_groups(th_phone_read read, const void *text, size_t len, const run_record *run) {
+static size_t timestamp_groups(th_phone_read read, const void *text, size_t len, const run_record *run, int collapse) {
     if (run->group_count < 2) {
         return 0;
     }
@@ -994,7 +1049,8 @@ static size_t timestamp_groups(th_phone_read read, const void *text, size_t len,
         return 0;
     }
     for (size_t position = run->groups[run->group_count - 2].end; position < hour->start; position++) {
-        if (read(text, position) != ' ') {
+        uint32_t code = read(text, position);
+        if (code != ' ' && !(collapse && is_collapsing_space(code))) {
             return 0;
         }
     }
@@ -1052,16 +1108,17 @@ static void poison_ipv4(run_record *run) {
     }
 }
 
-static int is_space_separator(uint32_t code) {
-    return code == ' ' || code == 0xA0 || code == 0x3000;
+static int is_space_separator(uint32_t code, int collapse) {
+    return code == ' ' || code == 0xA0 || code == 0x3000 || (collapse && is_collapsing_space(code));
 }
 
 /* Does whitespace sit between a group and the one before it? An identifier label reaches over hyphens and dots
    (`Order 650-253-0000`), not over the space that starts a new token (`Order 12345, 650-253-0000`). */
-static int separator_has_space(th_phone_read read, const void *text, const run_record *run, size_t index) {
+static int separator_has_space(th_phone_read read, const void *text, const run_record *run, size_t index,
+                               int collapse) {
     for (size_t position = run->groups[index - 1].end; position < run->groups[index].start; position++) {
         uint32_t code = read(text, position);
-        if (is_space_separator(code)) {
+        if (is_space_separator(code, collapse)) {
             return 1;
         }
     }
@@ -1076,7 +1133,8 @@ static int label_before(th_phone_read read, const void *text, size_t start, cons
     size_t position = start;
     while (position > 0) {
         uint32_t code = read(text, position - 1);
-        if (!is_space_separator(code) && !(code < 0x80 && memchr(marks, (int)code, sizeof marks - 1) != NULL)) {
+        if (!is_space_separator(code, config->collapse_whitespace) &&
+            !(code < 0x80 && memchr(marks, (int)code, sizeof marks - 1) != NULL)) {
             break;
         }
         position--;
@@ -1173,7 +1231,7 @@ static void poison(th_phone_read read, const void *text, size_t len, const th_ph
             run->poison |= 7u << index;
         }
     }
-    size_t stamp = timestamp_groups(read, text, len, run);
+    size_t stamp = timestamp_groups(read, text, len, run, config->collapse_whitespace);
     if (stamp) {
         run->poison |= ((1u << stamp) - 1u) << (run->group_count - stamp);
     }
@@ -1186,7 +1244,7 @@ static void poison(th_phone_read read, const void *text, size_t len, const th_ph
         do {
             run->poison |= 1u << index;
             index++;
-        } while (index < run->group_count && !separator_has_space(read, text, run, index));
+        } while (index < run->group_count && !separator_has_space(read, text, run, index, config->collapse_whitespace));
     }
 }
 
@@ -1222,8 +1280,8 @@ static void push_chunk(chunk_list *chunks, size_t start, size_t end) {
 }
 
 /* A candidate ends on a digit or an extension's last character, not on a separator, so these runs stop inside it. */
-static size_t skip_space_separators(th_phone_read read, const void *text, size_t position) {
-    while (is_space_separator(read(text, position))) {
+static size_t skip_space_separators(th_phone_read read, const void *text, size_t position, int collapse) {
+    while (is_space_separator(read(text, position), collapse)) {
         position++;
     }
     return position;
@@ -1232,7 +1290,8 @@ static size_t skip_space_separators(th_phone_read read, const void *text, size_t
 /* The text ranges parseAndVerify sees for one candidate: the whole, then PhoneNumberMatcher.INNER_MATCHES in its
    order: the part after the first slash run, each bracketed part, the parts around a spaced hyphen, around a wide
    hyphen, between dots, between spaces; each rule first offers the text before its first match. */
-static void enumerate_chunks(th_phone_read read, const void *text, size_t start, size_t end, chunk_list *chunks) {
+static void enumerate_chunks(th_phone_read read, const void *text, size_t start, size_t end, int collapse,
+                             chunk_list *chunks) {
     chunks->count = 0;
     push_chunk(chunks, start, end);
     for (size_t position = start; position < end; position++) {
@@ -1259,16 +1318,17 @@ static void enumerate_chunks(th_phone_read read, const void *text, size_t start,
     for (size_t position = start; position + 1 < end; position++) {
         uint32_t code = read(text, position);
         uint32_t following = read(text, position + 1);
-        if ((is_space_separator(code) && following == '-') || (code == '-' && is_space_separator(following))) {
+        if ((is_space_separator(code, collapse) && following == '-') ||
+            (code == '-' && is_space_separator(following, collapse))) {
             push_chunk(chunks, start, position);
-            push_chunk(chunks, skip_space_separators(read, text, position + (code == '-' ? 1 : 2)), end);
+            push_chunk(chunks, skip_space_separators(read, text, position + (code == '-' ? 1 : 2), collapse), end);
             break;
         }
     }
     for (size_t position = start; position < end; position++) {
         if (is_wide_hyphen(read(text, position))) {
             push_chunk(chunks, start, position);
-            push_chunk(chunks, skip_space_separators(read, text, position + 1), end);
+            push_chunk(chunks, skip_space_separators(read, text, position + 1, collapse), end);
             break;
         }
     }
@@ -1282,7 +1342,7 @@ static void enumerate_chunks(th_phone_read read, const void *text, size_t start,
         while (read(text, position) == '.') {
             position++;
         }
-        chunk_start = skip_space_separators(read, text, position);
+        chunk_start = skip_space_separators(read, text, position, collapse);
         position = chunk_start;
     }
     if (chunk_start != NO_POSITION) {
@@ -1290,12 +1350,12 @@ static void enumerate_chunks(th_phone_read read, const void *text, size_t start,
     }
     chunk_start = NO_POSITION;
     for (size_t position = start; position < end;) {
-        if (!is_space_separator(read(text, position))) {
+        if (!is_space_separator(read(text, position), collapse)) {
             position++;
             continue;
         }
         push_chunk(chunks, chunk_start == NO_POSITION ? start : chunk_start, position);
-        chunk_start = skip_space_separators(read, text, position);
+        chunk_start = skip_space_separators(read, text, position, collapse);
         position = chunk_start;
     }
     if (chunk_start != NO_POSITION) {
@@ -1304,10 +1364,10 @@ static void enumerate_chunks(th_phone_read read, const void *text, size_t start,
 }
 
 /* PhoneNumberMatcher.PUB_PAGES on the chunk: "pages 1-5 (3 pages)", ASCII digits, hyphens, digits, up to four
-   spaces and a bracketed count, is not a number. Its \d and \s are ASCII, and of Java's \s only the space is
-   punctuation a candidate can hold. */
+   spaces and a bracketed count, is not a number. Its \d and \s are ASCII; of Java's \s only the space is
+   punctuation a candidate can hold, and under `collapse_whitespace` the rest of ASCII whitespace joins it. */
 static int is_pub_pages(th_phone_read read, const void *text, const run_record *run, size_t first, size_t last,
-                        size_t chunk_end) {
+                        size_t chunk_end, int collapse) {
     for (size_t index = first; index + 1 < last; index++) {
         const group_record *left = &run->groups[index];
         const group_record *right = &run->groups[index + 1];
@@ -1325,9 +1385,11 @@ static int is_pub_pages(th_phone_read read, const void *text, const run_record *
         if (!hyphens_only || !ascii_digits) {
             continue;
         }
-        /* a separator holds at most four characters, so fewer than the regex's four spaces can precede the bracket */
+        /* a separator holds at most four characters of the rendered text, so fewer than the regex's four spaces
+           can precede the bracket however long the run is */
         size_t probe = right->end;
-        while (probe < chunk_end && read(text, probe) == ' ') {
+        while (probe < chunk_end &&
+               (read(text, probe) == ' ' || (collapse && is_collapsing_space(read(text, probe))))) {
             probe++;
         }
         if (probe + 1 < chunk_end && read(text, probe) == '(' && read(text, probe + 1) < 0x80 &&
@@ -1592,9 +1654,11 @@ static size_t write_country_code(unsigned country_code, char *out) {
 }
 
 /* The candidate as the matcher normalizes it for the grouping checks: every digit an ASCII digit, every other code
-   point kept. A run may reach TH_PHONE_MAX_RUN_CHARS from its first digit and then hold one more group, after its
-   lead characters and before an extension; a chunk that read as a number is far shorter, its digits being a country
-   code, a prefix and a national number. */
+   point kept, and under `collapse_whitespace` a whitespace run written as its first character alone; the checks read
+   the candidate's digit runs, so which separator stands for the run does not reach them. A run may reach
+   TH_PHONE_MAX_RUN_CHARS from its first digit and then hold one more group, after its lead characters and before an
+   extension; a chunk that read as a number is far shorter, its digits being a country code, a prefix and a national
+   number. */
 #define CANDIDATE_CAPACITY (MAX_LEAD_CHARS + TH_PHONE_MAX_RUN_CHARS + TH_PHONE_MAX_GROUP_DIGITS + 128)
 
 typedef struct {
@@ -1602,13 +1666,15 @@ typedef struct {
     size_t len;
 } candidate_text;
 
-static void normalize_candidate(th_phone_read read, const void *text, size_t start, size_t end,
+static void normalize_candidate(th_phone_read read, const void *text, size_t start, size_t end, int collapse,
                                 candidate_text *candidate) {
     candidate->len = 0;
-    for (size_t position = start; position < end; position++) {
+    size_t position = start;
+    while (position < end) {
         uint32_t code = read(text, position);
         int value = th_phone_digit_value(code);
         candidate->data[candidate->len++] = value >= 0 ? (uint32_t)('0' + value) : code;
+        position = separator_end(read, text, position, end, code, collapse);
     }
 }
 
@@ -1788,7 +1854,7 @@ static int grouping_holds(th_phone_read read, const void *text, const th_phone_c
         return 1;
     }
     candidate_text candidate;
-    normalize_candidate(read, text, start, end, &candidate);
+    normalize_candidate(read, text, start, end, config->collapse_whitespace, &candidate);
     if (more_than_one_slash(&candidate, result)) {
         return 0;
     }
@@ -1848,15 +1914,16 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
         size_t tail_end;
         char ext_digits[TH_PHONE_MAX_EXTENSION + 1];
         uint8_t ext_len;
-        if (walk_extension(read, text, len, extension_dfa(config), run->groups[last - 2].end, &tail_end, ext_digits,
-                           &ext_len) &&
+        if (walk_extension(read, text, len, extension_dfa(config), run->groups[last - 2].end,
+                           config->collapse_whitespace, &tail_end, ext_digits, &ext_len) &&
             tail_end >= found->end) {
             memcpy(found->ext, ext_digits, ext_len);
             found->ext_len = ext_len;
             last--;
         }
     }
-    if (!brackets_match(read, text, start, found->end) || is_pub_pages(read, text, run, first, last, found->end) ||
+    if (!brackets_match(read, text, start, found->end) ||
+        is_pub_pages(read, text, run, first, last, found->end, config->collapse_whitespace) ||
         blocked_by_neighbors(read, text, len, config, start, found->end)) {
         return 0;
     }
@@ -1897,7 +1964,12 @@ static int read_chunk(th_phone_read read, const void *text, size_t len, const th
 int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_bound, size_t digit_pos,
                   const th_phone_config *config, th_phone_match *match, size_t *retry) {
     run_record run;
-    if (!segment(read, text, len, extension_dfa(config), left_bound, digit_pos, &run)) {
+    /* The two calls hand `collapse` in as a constant so the optimizer clones `segment` and folds the collapse tests
+       out of the common clone: the flag costs a branch here, not one per character of every run it walks. */
+    int found_run = config->collapse_whitespace
+                        ? segment(read, text, len, extension_dfa(config), left_bound, digit_pos, 1, &run)
+                        : segment(read, text, len, extension_dfa(config), left_bound, digit_pos, 0, &run);
+    if (!found_run) {
         size_t end = digit_pos;
         while (end < len && th_phone_digit_value(read(text, end)) >= 0) {
             end++;
@@ -1927,7 +1999,13 @@ int th_phone_find(th_phone_read read, const void *text, size_t len, size_t left_
         }
         size_t start = first == 0 ? run.start : run.groups[first].start;
         size_t end = end_group == run.group_count ? run.extension_end : run.groups[end_group - 1].end;
-        enumerate_chunks(read, text, start, end, &chunks);
+        /* split on the flag for the same reason the segment calls do: the common clone folds the collapse tests
+           out of the passes this makes over every candidate */
+        if (config->collapse_whitespace) {
+            enumerate_chunks(read, text, start, end, 1, &chunks);
+        } else {
+            enumerate_chunks(read, text, start, end, 0, &chunks);
+        }
         for (size_t index = 0; index < chunks.count; index++) {
             const text_range *range = &chunks.ranges[index];
             if (!read_chunk(read, text, len, config, &run, first, end_group, range->start, range->end, &found)) {
@@ -2085,7 +2163,7 @@ static int number_to_parse(th_phone_read read, const void *text, size_t start, s
         for (size_t position = first; position < last; position++) {
             uint32_t code = read(text, position);
             size_t cut;
-            if ((code == '/' || code == '\\') && second_number_start(read, text, last, position, &cut)) {
+            if ((code == '/' || code == '\\') && second_number_start(read, text, last, position, &cut, 0)) {
                 last = position;
             }
         }
@@ -2124,8 +2202,8 @@ static size_t viable_number_end(const th_phone_config *config, const candidate_t
     }
     for (size_t position = third_digit; position <= end; position++) {
         size_t tail_end;
-        if (walk_extension(read_candidate, number, number->len, extension_dfa(config), position, &tail_end, ext_digits,
-                           ext_len) &&
+        if (walk_extension(read_candidate, number, number->len, extension_dfa(config), position, 0, &tail_end,
+                           ext_digits, ext_len) &&
             tail_end == number->len) {
             return position;
         }

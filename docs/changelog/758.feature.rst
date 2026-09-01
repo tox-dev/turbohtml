@@ -1,0 +1,2 @@
+``PhoneNumbers(collapse_whitespace=True)`` reads a run of HTML whitespace between the parts of a number as the one space
+it renders as, so a number a source formatter or a template broke across a line still links.

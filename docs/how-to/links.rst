@@ -189,9 +189,30 @@ Use it for text with mistyped numbers; the default requires a number the plan as
 :doc:`/explanation/phone-detection` for the rules.
 
 ``require_national_prefix=False`` links a number written without the national prefix its format writes (``20 7946 0958``
-for a British text). :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads a string you already hold under
-the same rule: it accepts words before the number, a ``tel:`` scheme, brackets and an extension, and raises
-``ValueError`` when the string holds anything other than one number:
+for a British text).
+
+``collapse_whitespace=True`` reads a run of HTML whitespace as the one space it renders as, so a number a source
+formatter or a template broke across a line still links. Without it a separator holds at most four characters and a tab
+or a newline ends the number, which is what a browser's own rendering hides from the reader:
+
+.. testcode::
+
+    wrapped = "Call +41 79\n434 32 54 today"
+    print(linkify(wrapped, Linkify(phones=PhoneNumbers(regions=("CH",)))))
+    print(linkify(wrapped, Linkify(phones=PhoneNumbers(regions=("CH",), collapse_whitespace=True))))
+
+.. testoutput::
+
+    Call +41 79
+    434 32 54 today
+    Call <a href="tel:+41794343254">+41 79
+    434 32 54</a> today
+
+``U+00A0`` and ``U+3000`` survive rendering, so they stay separators of their own and never join a run.
+
+:meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` reads a string you already hold under the same rule: it
+accepts words before the number, a ``tel:`` scheme, brackets and an extension, and raises ``ValueError`` when the string
+holds anything other than one number:
 
 .. testcode::
 

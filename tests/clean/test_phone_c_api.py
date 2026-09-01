@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 _SPEC: Final = cast(
     "_PhoneSpec",
-    (("US",), True, False, True, True, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
+    (("US",), True, False, True, True, False, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
 )
 
 
@@ -44,6 +44,7 @@ def _spec(**overrides: object) -> _PhoneSpec:
                         "require_separators",
                         "skip_card_numbers",
                         "require_national_prefix",
+                        "collapse_whitespace",
                         "grouping",
                         "type_mask",
                         "labels",
@@ -70,13 +71,13 @@ def test_compile_returns_an_unconstructible_config() -> None:
     "spec",
     [
         pytest.param(list(_SPEC), id="list"),
-        pytest.param(_SPEC[:10], id="ten-items"),
-        pytest.param((*_SPEC, 0), id="twelve-items"),
+        pytest.param(_SPEC[:11], id="eleven-items"),
+        pytest.param((*_SPEC, 0), id="thirteen-items"),
         pytest.param(None, id="none"),
     ],
 )
 def test_compile_rejects_malformed_specs(spec: object) -> None:
-    with pytest.raises(TypeError, match="tuple of 11 items"):
+    with pytest.raises(TypeError, match="tuple of 12 items"):
         _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]
 
 
@@ -106,6 +107,7 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
         pytest.param(
             {"require_national_prefix": 1}, TypeError, "require_national_prefix must be bool", id="int-prefix-flag"
         ),
+        pytest.param({"collapse_whitespace": 1}, TypeError, "collapse_whitespace must be bool", id="int-collapse-flag"),
         pytest.param({"grouping": "1"}, TypeError, "grouping must be int", id="str-grouping"),
         pytest.param({"parsing_extensions": 1}, TypeError, "parsing_extensions must be bool", id="int-parsing-flag"),
         pytest.param({"grouping": 3}, ValueError, "grouping must be between 0 and 2", id="grouping-high"),
