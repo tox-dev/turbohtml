@@ -1,0 +1,6 @@
+Detect a URL whose authority is a single-label host or an IP literal when its scheme is written, so
+``http://localhost:8000/path``, ``http://intranet/`` and ``http://[::1]:8080/`` link. A bare domain still needs a dot
+and a known top-level domain to be told apart from an ordinary word.
+
+Recognize an internationalized top-level domain written as its Unicode label, so ``президент.рф`` links the way
+``президент.xn--p1ai`` already did.
