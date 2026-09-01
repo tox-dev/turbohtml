@@ -69,7 +69,7 @@ counterpart and supports the free-threaded build.
         :link: migration/index
         :link-type: doc
 
-        Port from the 65 libraries turbohtml replaces.
+        Port from the 66 libraries turbohtml replaces.
 
     .. grid-item-card:: Troubleshooting
         :link: how-to/troubleshooting
