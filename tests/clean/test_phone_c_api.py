@@ -183,7 +183,7 @@ def test_config_keeps_a_function_scoped_subclass_alive() -> None:
     config, alive = build()
     gc.collect()
     assert alive() is not None
-    spans = _linkify_find("650-253-0000", False, False, (), (), ("http",), config)  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
+    spans = _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
     assert type(spans[0][4]) is alive()
     del spans
     del config
@@ -226,13 +226,13 @@ class _Foreign(PhoneNumber):
 def test_factory_exception_propagates_from_find() -> None:
     config = _phone_config_compile(_spec(number_type=_Raising))
     with pytest.raises(RuntimeError, match="refused 1"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config)  # ruff:ignore[boolean-positional-value-in-call]
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_factory_returning_another_type_is_a_type_error() -> None:
     config = _phone_config_compile(_spec(number_type=_Foreign))
     with pytest.raises(TypeError, match="_from_native must return"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config)  # ruff:ignore[boolean-positional-value-in-call]
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_factory_exception_propagates_from_apply() -> None:
@@ -251,7 +251,7 @@ def test_has_never_calls_the_factory() -> None:
 )
 def test_entry_points_reject_a_foreign_config(phones: object) -> None:
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
-        _linkify_find("x", False, False, (), (), ("http",), phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_find("x", False, False, (), (), ("http",), phones, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
         _linkify_has("x", False, False, (), (), ("http",), phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
@@ -259,7 +259,7 @@ def test_entry_points_reject_a_foreign_config(phones: object) -> None:
 
 
 def test_entry_points_accept_none() -> None:
-    assert _linkify_find("650-253-0000", False, False, (), (), ("http",), None) == []  # ruff:ignore[boolean-positional-value-in-call]
+    assert _linkify_find("650-253-0000", False, False, (), (), ("http",), None, False) == []  # ruff:ignore[boolean-positional-value-in-call]
     assert _linkify_has("650-253-0000", False, False, (), (), ("http",), None) is False  # ruff:ignore[boolean-positional-value-in-call]
 
 
@@ -314,9 +314,16 @@ def test_apply_propagates_a_refusing_candidate_constructor() -> None:
 
 
 def test_find_span_shape_for_a_phone() -> None:
-    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]
+    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), _phone_config_compile(_SPEC), False)  # ruff:ignore[boolean-positional-value-in-call]
     assert spans == [
-        (5, 21, 4, "tel:+16502530000;ext=12", PhoneNumber(1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE))
+        (
+            5,
+            21,
+            4,
+            "tel:+16502530000;ext=12",
+            PhoneNumber(1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            False,
+        )
     ]
 
 

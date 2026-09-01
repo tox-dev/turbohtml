@@ -523,7 +523,7 @@ def test_scanner_url_schemes_restrict_authority(
 
 
 def test_scanner_omitting_url_schemes_matches_any_scheme() -> None:
-    assert _linkify_scan("xyzzy://example.com", False, False) == [(0, 19, 3, "xyzzy://example.com", None)]  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
+    assert _linkify_scan("xyzzy://example.com", False, False) == [(0, 19, 3, "xyzzy://example.com", None, False)]  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
 
 
 def test_scanner_rejects_non_str_text() -> None:
