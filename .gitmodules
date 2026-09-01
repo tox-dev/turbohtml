@@ -66,3 +66,7 @@
 	path = tests/conformance/python-phonenumbers
 	url = https://github.com/daviddrysdale/python-phonenumbers
 	shallow = true
+[submodule "tests/conformance/linkify-it"]
+	path = tests/conformance/linkify-it
+	url = https://github.com/markdown-it/linkify-it
+	shallow = true
