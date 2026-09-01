@@ -236,7 +236,9 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
             break;
         }
     }
-    if (dots < 1) {
+    /* A bare domain needs a dot to be told apart from an ordinary word; an authority written behind an explicit
+       scheme does not, so `http://localhost:8000/` and `http://intranet/` are the links their authors wrote. */
+    if (host_end == start || (require_tld && dots < 1)) {
         return -1;
     }
     if (require_tld && host_name_underscored(kind, data, previous_label_start, host_end)) {
@@ -246,6 +248,38 @@ static Py_ssize_t scan_host(int kind, const void *data, Py_ssize_t start, Py_ssi
         return -1;
     }
     return host_end;
+}
+
+/* Scan an RFC 3986 IP-literal host: ``[``, the hex digits, ``:`` and ``.`` of an
+   IPv6 address, an optional ``%`` zone id, then ``]``. Returns the index past the
+   ``]``, or -1. The address itself is not validated -- a link in prose is located,
+   not resolved -- but the brackets bound it, so nothing else in the text is
+   swallowed. */
+static Py_ssize_t scan_ip_literal(int kind, const void *data, Py_ssize_t start, Py_ssize_t len) {
+    Py_ssize_t pos = start + 1;
+    int zone = 0;
+    while (pos < len) {
+        Py_UCS4 c = READ(pos);
+        if (c == ']') {
+            return pos > start + 1 ? pos + 1 : -1;
+        }
+        if (c == '%' && !zone) {
+            zone = 1;
+        } else if (!(zone ? is_label_char(c) : is_ascii_hexdigit(c) || c == ':' || c == '.')) {
+            return -1;
+        }
+        pos++;
+    }
+    return -1;
+}
+
+/* Scan the host of a ``scheme://`` authority: an IP literal in brackets, else a
+   run of labels with no bare-domain TLD rule to meet. */
+static Py_ssize_t scan_authority_host(int kind, const void *data, Py_ssize_t start, Py_ssize_t len) {
+    if (start < len && READ(start) == '[') {
+        return scan_ip_literal(kind, data, start, len);
+    }
+    return scan_host(kind, data, start, len, 0, NULL);
 }
 
 /* Consume a run of URL tail characters from `begin`, balancing brackets and
@@ -391,7 +425,7 @@ static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t st
        the common case stays a single host scan. The last '@' before the path wins,
        so http://user:pass@host links the host, not the embedded email. */
     Py_ssize_t host_start = colon + 3;
-    Py_ssize_t host_end = scan_host(kind, data, host_start, len, 0, NULL);
+    Py_ssize_t host_end = scan_authority_host(kind, data, host_start, len);
     if (host_end < 0 || (host_end < len && (READ(host_end) == ':' || READ(host_end) == '@'))) {
         Py_ssize_t userinfo_end = -1;
         for (Py_ssize_t scan = host_start; scan < len; scan++) {
@@ -404,7 +438,7 @@ static int match_url(int kind, const void *data, Py_ssize_t colon, Py_ssize_t st
         }
         if (userinfo_end >= 0) {
             host_start = userinfo_end + 1;
-            host_end = scan_host(kind, data, host_start, len, 0, NULL);
+            host_end = scan_authority_host(kind, data, host_start, len);
         }
     }
     if (host_end < 0) {

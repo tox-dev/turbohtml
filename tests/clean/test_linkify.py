@@ -414,7 +414,7 @@ def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
         pytest.param("日http://example.com", False, False, [], id="non-ascii-before-scheme-blocks"),
         pytest.param("http://.example.com", False, False, [], id="host-starts-with-dot"),
         pytest.param("http://-example.com", False, False, [], id="host-starts-with-hyphen"),
-        pytest.param("http://localhost/x", False, False, [], id="host-without-dot"),
+        pytest.param("http://localhost/x", False, False, [(0, 18, 3)], id="host-without-dot"),
         pytest.param("x@example.com", False, True, [], id="bare-blocked-by-at-on-left"),
         pytest.param(".example.com", False, True, [], id="bare-blocked-by-dot-on-left"),
         pytest.param("see example.com here", False, True, [(4, 15, 0)], id="bare-domain"),
