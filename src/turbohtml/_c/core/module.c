@@ -166,15 +166,6 @@ PyDoc_STRVAR(annotation_tags_doc, "annotation_tags(text, spans, /)\n--\n\n"
                                   ":param spans: the (start, end, label) spans from the same call.\n"
                                   ":returns: the text with each span wrapped in <label>...</label> tags.");
 
-PyDoc_STRVAR(nofollow_doc,
-             "nofollow(link)\n--\n\n"
-             "Add ``rel=\"nofollow\"`` to a web link so search engines skip it, leaving ``mailto:`` and other "
-             "links alone.");
-PyDoc_STRVAR(target_blank_doc,
-             "target_blank(link)\n--\n\n"
-             "Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak "
-             "through.");
-
 static PyMethodDef html_methods[] = {
     {"escape", (PyCFunction)(void (*)(void))turbohtml_escape, METH_VARARGS | METH_KEYWORDS, escape_doc},
     {"unescape", turbohtml_unescape, METH_O, unescape_doc},
@@ -187,10 +178,8 @@ static PyMethodDef html_methods[] = {
     {"_register_xpath_string", turbohtml_register_xpath_string, METH_O, NULL},
     {"_register_links", turbohtml_register_links, METH_O, NULL},
     {"_register_selector_error", turbohtml_register_selector_error, METH_O, NULL},
-    /* the two shipped link callbacks: named as the public API spells them, so a traceback and the reference
-       docs read the way a caller wrote them */
-    {"nofollow", turbohtml_linkify_nofollow, METH_VARARGS, nofollow_doc},
-    {"target_blank", turbohtml_linkify_target_blank, METH_VARARGS, target_blank_doc},
+    {"_linkify_nofollow", turbohtml_linkify_nofollow, METH_O, NULL},
+    {"_linkify_target_blank", turbohtml_linkify_target_blank, METH_O, NULL},
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_feed", turbohtml_register_feed, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},

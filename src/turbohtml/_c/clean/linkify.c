@@ -971,12 +971,9 @@ static int candidate_is_web(PyObject *url) {
 }
 
 /* The `url` and `attrs` of a LinkCandidate as new references, or -1 with the error set. */
-static int candidate_parts(PyObject *args, const char *name, PyObject **link, PyObject **url, PyObject **attrs) {
-    if (!PyArg_ParseTuple(args, "O", link)) {
-        return -1;
-    }
-    *url = PyObject_GetAttrString(*link, "url");
-    *attrs = *url == NULL ? NULL : PyObject_GetAttrString(*link, "attrs");
+static int candidate_parts(PyObject *link, const char *name, PyObject **url, PyObject **attrs) {
+    *url = PyObject_GetAttrString(link, "url");
+    *attrs = *url == NULL ? NULL : PyObject_GetAttrString(link, "attrs");
     if (*attrs != NULL && PyUnicode_Check(*url) && PyDict_Check(*attrs)) {
         return 0;
     }
@@ -998,11 +995,10 @@ static int candidate_set(PyObject *attrs, const char *name, PyObject *value) {
 }
 
 /* nofollow(link) -> link: add rel="nofollow" to a web link, leaving mailto: and the rest alone. */
-PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *args) {
-    PyObject *link;
+PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *link) {
     PyObject *url;
     PyObject *attrs;
-    if (candidate_parts(args, "nofollow", &link, &url, &attrs) < 0) {
+    if (candidate_parts(link, "nofollow", &url, &attrs) < 0) {
         return NULL;
     }
     int web = candidate_is_web(url);
@@ -1035,11 +1031,10 @@ PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *args
 }
 
 /* target_blank(link) -> link: open a web link in a new tab, clearing a stale target from a non-web one. */
-PyObject *turbohtml_linkify_target_blank(PyObject *Py_UNUSED(module), PyObject *args) {
-    PyObject *link;
+PyObject *turbohtml_linkify_target_blank(PyObject *Py_UNUSED(module), PyObject *link) {
     PyObject *url;
     PyObject *attrs;
-    if (candidate_parts(args, "target_blank", &link, &url, &attrs) < 0) {
+    if (candidate_parts(link, "target_blank", &url, &attrs) < 0) {
         return NULL;
     }
     int web = candidate_is_web(url);
