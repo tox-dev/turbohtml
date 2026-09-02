@@ -491,6 +491,15 @@ def _build_document(
 ) -> Document: ...
 def _decode(data: bytes, label: str, /) -> str: ...
 def _detect(data: bytes, tld: str | None, /) -> tuple[str | None, bool, list[tuple[str, int]], bool]: ...
+def _detect_rank(
+    result: tuple[str | None, bool, list[tuple[str, int]], bool],
+    allowed: Iterable[str] | None,
+    excluded: Iterable[str],
+    language: str | None,
+    threshold: float,
+    languages: dict[str, str],
+    /,
+) -> list[tuple[str, float, str | None, bool, str]]: ...
 
 @final
 class _DetectStream:

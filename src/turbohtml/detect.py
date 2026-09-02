@@ -36,9 +36,10 @@ from __future__ import annotations
 import codecs
 import string
 from dataclasses import dataclass
+from itertools import starmap
 from typing import Final, Literal
 
-from ._html import _decode, _detect, _detect_language, _DetectStream, _is_normalized, _normalize
+from ._html import _decode, _detect, _detect_language, _detect_rank, _DetectStream, _is_normalized, _normalize
 
 __all__ = [
     "Detection",
@@ -310,8 +311,7 @@ class EncodingDetector:
     def close(self) -> EncodingMatch:
         """Read the detector's answer, cache it, and return it."""
         if self._result is None:
-            shaped = _shape(self._stream.close()) if self._fed else ([], False)
-            self._result = _rank(shaped, self._options)[0]
+            self._result = _rank(self._stream.close(), self._options)[0] if self._fed else _NO_MATCH
             self.done = True
         return self._result
 
@@ -326,58 +326,13 @@ class EncodingDetector:
 
 def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
     """Rank the candidates for ``data``, apply the options, and always return at least the no-match sentinel."""
-    return _rank(_candidates(data, options.tld), options)
+    return _rank(_detect(data, options.tld), options) if data else [_NO_MATCH]
 
 
-def _rank(shaped: tuple[list[tuple[str, float]], bool], options: Detection) -> list[EncodingMatch]:
-    """Apply the options to shaped candidates, and always return at least the no-match sentinel."""
-    ranked, had_bom = shaped
-    if (allowed := options.allowed) is not None:
-        permitted = {name.casefold() for name in allowed}
-        ranked = [(name, confidence) for name, confidence in ranked if name.casefold() in permitted]
-    if blocked := {name.casefold() for name in options.excluded}:
-        ranked = [(name, confidence) for name, confidence in ranked if name.casefold() not in blocked]
-    if (hint := options.language) is not None:
-        preferred = [pair for pair in ranked if pair[1] > 0.0 and _LANGUAGES.get(pair[0].casefold()) == hint]
-        ranked = preferred + [pair for pair in ranked if pair not in preferred]
-    matches = [
-        EncodingMatch(name, confidence, _LANGUAGES.get(name.casefold()), had_bom, f"whatwg-{name.casefold()}")
-        for name, confidence in ranked
-        if confidence >= options.threshold
-    ]
-    return matches or [_NO_MATCH]
-
-
-def _candidates(data: bytes, tld: str | None) -> tuple[list[tuple[str, float]], bool]:
-    """
-    Run the C sniff and shape its output into (canonical name, confidence) pairs plus the byte-order-mark flag.
-
-    A certain result (a byte-order mark, a declaration, a structural proof, or pure ASCII) is a single pair at
-    confidence 1.0; a mark makes it so and sets the flag, so the flag is only ever true for that lone certain pair. A
-    scored result normalizes each candidate's raw chardetng score to its share of the positive total, ordered
-    score-descending with the C emission order breaking ties exactly as the engine's strict-max does, and the engine's
-    winner moved to the front so index 0 always matches what ``parse(detect_encoding=True)`` would decode with. Two
-    candidates can share one encoding (the windows-1252 model runs once per language family), so the best-scored entry
-    per name wins. A stream with no non-ASCII byte carries no evidence, so it takes the spec's windows-1252 fallback,
-    which decodes ASCII identically -- the answer ``parse(detect_encoding=True)`` reaches for the same bytes.
-    """
-    return _shape(_detect(data, tld)) if data else ([], False)
-
-
-def _shape(result: tuple[str | None, bool, list[tuple[str, int]], bool]) -> tuple[list[tuple[str, float]], bool]:
-    """Shape one C sniff result, from either the one-shot detect or the streaming detector."""
-    winner, certain, scored, bom = result
-    if certain or winner is None:
-        return [(winner or "windows-1252", 1.0)], bom
-    unique: dict[str, int] = {}
-    for name, score in sorted(scored, key=lambda pair: -pair[1]):
-        unique.setdefault(name, score)
-    total = sum(score for score in unique.values() if score > 0)
-    ranked = [(name, score / total if score > 0 else 0.0) for name, score in unique.items()]
-    at = next((index for index, pair in enumerate(ranked) if pair[0] == winner), None)
-    if at is None:  # the windows-1252 fallback won without surviving as a candidate itself
-        return [(winner, 0.0), *ranked], bom
-    return [ranked[at], *ranked[:at], *ranked[at + 1 :]], bom
+def _rank(result: tuple[str | None, bool, list[tuple[str, int]], bool], options: Detection) -> list[EncodingMatch]:
+    """Shape one detector result, apply the options, and always return at least the no-match sentinel."""
+    rows = _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _LANGUAGES)
+    return list(starmap(EncodingMatch, rows)) or [_NO_MATCH]
 
 
 @dataclass(frozen=True, slots=True)
