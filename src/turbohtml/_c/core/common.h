@@ -207,6 +207,12 @@ int turbohtml_node_borrow(PyObject *module, PyObject *obj, struct th_tree **tree
 /* _bleach_attributes(attributes, mapping_type) translates bleach's flat, per-tag, or callable `attributes` into
    a Policy name allowlist and an optional attribute filter bound to the per-tag predicates (METH_VARARGS). */
 PyObject *turbohtml_bleach_attributes(PyObject *module, PyObject *args);
+
+/* _sanitize_policy(attributes, add_link_rel, set_attributes, attribute_values, allowed_styles, transform_tags,
+   transform_type) compiles a Policy's mappings into the forms _sanitize indexes: the rel value, the frozen value
+   sets, the lowercased style properties with their compiled patterns, and the normalized transform rules
+   (METH_VARARGS). */
+PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args);
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args);
 
 /* Implemented in annotation.c, the inscriptis annotation output processors over

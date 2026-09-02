@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import TypeAlias
 
-from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType
+from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType, Transform
 from turbohtml.extract._feed import Entry, Feed
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
@@ -151,6 +151,23 @@ def _register_locations(location_type: type, span_type: type, /) -> None: ...
 def _bleach_attributes(
     attributes: object, mapping_type: type, /
 ) -> tuple[dict[str, frozenset[str]], Callable[[str, str, str], str | None] | None]: ...
+def _sanitize_policy(
+    attributes: Mapping[str, frozenset[str]],
+    add_link_rel: Iterable[str],
+    set_attributes: Mapping[str, Mapping[str, str]],
+    attribute_values: Mapping[str, Mapping[str, Iterable[str]]],
+    allowed_styles: Mapping[str, Mapping[str, Iterable[str | re.Pattern[str]]]],
+    transform_tags: Mapping[str, str | Transform],
+    transform_type: type[Transform],
+    /,
+) -> tuple[
+    dict[str, frozenset[str]],
+    str | None,
+    dict[str, dict[str, str]],
+    dict[str, dict[str, frozenset[str]]],
+    dict[str, dict[str, tuple[re.Pattern[str], ...]]],
+    dict[str, tuple[str, dict[str, str]]],
+]: ...
 def _sanitize(
     source: str | Element,
     tags: frozenset[str],

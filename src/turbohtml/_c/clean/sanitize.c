@@ -2114,6 +2114,243 @@ static int require_prefixes(PyObject *prefixes) {
    sanitized snapshot; sanitizer.py serializes it. A str is parsed into the private output tree; an Element is
    copied under its tree lock before callbacks run. `removed` is a list the walk appends (tag, attr_or_None) records to,
    or None to skip the audit. */
+/* A fresh dict holding a mapping's items, the dict(mapping) copy the walk indexes. */
+static PyObject *policy_dict(PyObject *mapping) {
+    return PyObject_CallOneArg((PyObject *)&PyDict_Type, mapping);
+}
+
+/* The rel value add_link_rel asks for: its tokens sorted and space-joined, or None when there are none. */
+static PyObject *policy_link_rel(PyObject *tokens) {
+    PyObject *sorted_tokens = PySequence_List(tokens);
+    if (sorted_tokens == NULL || PyList_Sort(sorted_tokens) < 0) {
+        Py_XDECREF(sorted_tokens);
+        return NULL;
+    }
+    if (PyList_GET_SIZE(sorted_tokens) == 0) {
+        Py_DECREF(sorted_tokens);
+        Py_RETURN_NONE;
+    }
+    PyObject *space = PyUnicode_FromString(" ");
+    if (space == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(sorted_tokens); /* GCOVR_EXCL_LINE */
+        return NULL;              /* GCOVR_EXCL_LINE */
+    }
+    PyObject *joined = PyUnicode_Join(space, sorted_tokens);
+    Py_DECREF(space);
+    Py_DECREF(sorted_tokens);
+    return joined;
+}
+
+/* Rebuild a two-level mapping {tag: {name: value}} with `inner` applied to each leaf value. */
+static PyObject *policy_nested(PyObject *mapping, PyObject *(*inner)(PyObject *value, module_state *state),
+                               module_state *state) {
+    PyObject *items = PyMapping_Items(mapping);
+    if (items == NULL) {
+        return NULL;
+    }
+    PyObject *out = PyDict_New();
+    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(items); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(items); index++) {
+        PyObject *pair = PyList_GET_ITEM(items, index);
+        PyObject *leaves = PyMapping_Items(PyTuple_GET_ITEM(pair, 1));
+        PyObject *rebuilt = leaves == NULL ? NULL : PyDict_New();
+        int failed = rebuilt == NULL;
+        for (Py_ssize_t leaf = 0; !failed && leaf < PyList_GET_SIZE(leaves); leaf++) {
+            PyObject *entry = PyList_GET_ITEM(leaves, leaf);
+            PyObject *value = inner(PyTuple_GET_ITEM(entry, 1), state);
+            if (value == NULL) {
+                failed = 1;
+                break;
+            }
+            failed = PyDict_SetItem(rebuilt, PyTuple_GET_ITEM(entry, 0), value) < 0; /* GCOVR_EXCL_BR_LINE: alloc */
+            Py_DECREF(value);
+        }
+        if (!failed && PyDict_SetItem(out, PyTuple_GET_ITEM(pair, 0), rebuilt) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            failed = 1;                                                               /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
+        Py_XDECREF(leaves);
+        Py_XDECREF(rebuilt);
+        if (failed) {
+            Py_DECREF(out);
+            Py_DECREF(items);
+            return NULL;
+        }
+    }
+    Py_DECREF(items);
+    return out;
+}
+
+static PyObject *policy_str_leaf(PyObject *value, module_state *Py_UNUSED(state)) {
+    return Py_NewRef(value);
+}
+
+static PyObject *policy_frozenset_leaf(PyObject *value, module_state *Py_UNUSED(state)) {
+    return PyFrozenSet_New(value);
+}
+
+/* The compiled patterns an allowed_styles property lists: a compiled pattern is kept as is, a str is compiled. The
+   tuple is built fresh rather than patched in place: a tuple handed back by the sequence conversion is not a fresh
+   allocation on every interpreter, and only a fresh one takes PyTuple_SET_ITEM. */
+static PyObject *policy_patterns_leaf(PyObject *value, module_state *state) {
+    PyObject *listed = PySequence_Tuple(value);
+    if (listed == NULL) {
+        return NULL;
+    }
+    Py_ssize_t count = PyTuple_GET_SIZE(listed);
+    PyObject *patterns = PyTuple_New(count);
+    if (patterns == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(listed);  /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *pattern = PyTuple_GET_ITEM(listed, index);
+        PyObject *compiled = PyObject_TypeCheck(pattern, (PyTypeObject *)state->pattern_type)
+                                 ? Py_NewRef(pattern)
+                                 : PyObject_CallOneArg(state->re_compile, pattern);
+        if (compiled == NULL) {
+            Py_DECREF(listed);
+            Py_DECREF(patterns);
+            return NULL;
+        }
+        PyTuple_SET_ITEM(patterns, index, compiled);
+    }
+    Py_DECREF(listed);
+    return patterns;
+}
+
+/* allowed_styles with each property name lowercased, the spelling the walk looks a declaration up by. */
+static PyObject *policy_styles(PyObject *mapping, module_state *state) {
+    PyObject *nested = policy_nested(mapping, policy_patterns_leaf, state);
+    if (nested == NULL) {
+        return NULL;
+    }
+    PyObject *out = PyDict_New();
+    if (out == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(nested); /* GCOVR_EXCL_LINE */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t position = 0;
+    PyObject *tag, *props;
+    int failed = 0;
+    while (!failed && PyDict_Next(nested, &position, &tag, &props)) {
+        PyObject *lowered = PyDict_New();
+        if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            failed = 1;        /* GCOVR_EXCL_LINE */
+            break;             /* GCOVR_EXCL_LINE */
+        }
+        Py_ssize_t inner = 0;
+        PyObject *prop, *patterns;
+        while (PyDict_Next(props, &inner, &prop, &patterns)) {
+            PyObject *name = PyObject_CallMethod(prop, "lower", NULL);
+            if (name == NULL) {
+                failed = 1; /* a property name that is not a str */
+                break;
+            }
+            failed = PyDict_SetItem(lowered, name, patterns) < 0; /* GCOVR_EXCL_BR_LINE: a str key only fails on OOM */
+            Py_DECREF(name);
+        }
+        if (!failed && PyDict_SetItem(out, tag, lowered) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            failed = 1;                                         /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
+        Py_XDECREF(lowered);
+    }
+    Py_DECREF(nested);
+    if (failed) {
+        Py_DECREF(out);
+        return NULL;
+    }
+    return out;
+}
+
+/* transform_tags normalized to {source: (target_tag, added_attributes)}: a bare str renames, a Transform renames and
+   adds attributes, anything else is a TypeError and an empty target tag a ValueError. */
+static PyObject *policy_transforms(PyObject *mapping, PyObject *transform_type) {
+    PyObject *items = PyMapping_Items(mapping);
+    if (items == NULL) {
+        return NULL;
+    }
+    PyObject *out = PyDict_New();
+    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(items); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(items); index++) {
+        PyObject *source = PyTuple_GET_ITEM(PyList_GET_ITEM(items, index), 0);
+        PyObject *target = PyTuple_GET_ITEM(PyList_GET_ITEM(items, index), 1);
+        PyObject *name;
+        PyObject *attributes;
+        if (PyUnicode_Check(target)) {
+            name = Py_NewRef(target);
+            attributes = PyDict_New();
+        } else if (PyObject_IsInstance(target, transform_type) == 1) {
+            name = PyObject_GetAttrString(target, "tag");
+            PyObject *added = name == NULL ? NULL : PyObject_GetAttrString(target, "attributes");
+            attributes = added == NULL ? NULL : policy_dict(added);
+            Py_XDECREF(added);
+        } else {
+            PyErr_Format(PyExc_TypeError, "transform_tags[%R] must be a str or Transform, got %s", source,
+                         Py_TYPE(target)->tp_name);
+            name = NULL;
+            attributes = NULL;
+        }
+        int failed = name == NULL || attributes == NULL; /* GCOVR_EXCL_BR_LINE: a Transform's fields always read */
+        if (!failed && (!PyUnicode_Check(name) || PyUnicode_GET_LENGTH(name) == 0)) {
+            PyErr_Format(PyExc_ValueError, "transform_tags[%R] target tag must be a non-empty string", source);
+            failed = 1;
+        }
+        PyObject *rule = failed ? NULL : PyTuple_Pack(2, name, attributes);
+        failed = rule == NULL || PyDict_SetItem(out, source, rule) < 0; /* GCOVR_EXCL_BR_LINE: allocation */
+        Py_XDECREF(rule);
+        Py_XDECREF(name);
+        Py_XDECREF(attributes);
+        if (failed) {
+            Py_DECREF(out);
+            Py_DECREF(items);
+            return NULL;
+        }
+    }
+    Py_DECREF(items);
+    return out;
+}
+
+/* _sanitize_policy(attributes, add_link_rel, set_attributes, attribute_values, allowed_styles, transform_tags,
+   transform_type) -> (attributes, link_rel, set_attributes, attribute_values, allowed_styles, transform_tags): the
+   forms of a Policy the walk indexes, compiled once per Sanitizer. */
+PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args) {
+    PyObject *attributes, *add_link_rel, *set_attributes, *attribute_values, *allowed_styles, *transform_tags,
+        *transform_type;
+    if (!PyArg_ParseTuple(args, "OOOOOOO:_sanitize_policy", &attributes, &add_link_rel, &set_attributes,
+                          &attribute_values, &allowed_styles, &transform_tags, &transform_type)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    PyObject *parts[6] = {policy_dict(attributes), NULL, NULL, NULL, NULL, NULL};
+    if (parts[0] != NULL) {
+        parts[1] = policy_link_rel(add_link_rel);
+    }
+    if (parts[1] != NULL) {
+        parts[2] = policy_nested(set_attributes, policy_str_leaf, state);
+    }
+    if (parts[2] != NULL) {
+        parts[3] = policy_nested(attribute_values, policy_frozenset_leaf, state);
+    }
+    if (parts[3] != NULL) {
+        parts[4] = policy_styles(allowed_styles, state);
+    }
+    if (parts[4] != NULL) {
+        parts[5] = policy_transforms(transform_tags, transform_type);
+    }
+    PyObject *compiled =
+        parts[5] == NULL ? NULL : PyTuple_Pack(6, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+    for (size_t index = 0; index < 6; index++) {
+        Py_XDECREF(parts[index]);
+    }
+    return compiled;
+}
+
 /* The attribute filter a bleach predicate table compiles to: `predicates` is {tag: callable}, the tag's own entry
    winning and the "*" entry applying otherwise, so a wildcard callable never fails open. The predicate's truth
    keeps the value, anything else drops it. */

@@ -14,16 +14,16 @@ This module is the policy facade only; the walk that keeps, escapes, strips, or 
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
-from turbohtml._html import _sanitize
+from turbohtml._html import _sanitize, _sanitize_policy
 
 if TYPE_CHECKING:
+    import re
     from collections.abc import Callable, Mapping, Sequence
 
     from turbohtml._html import Element
@@ -282,36 +282,22 @@ class Sanitizer:
     def __init__(self, options: Policy | None = None) -> None:
         """Compile a policy into the form the C walk consumes."""
         self.policy = options if options is not None else Policy()
-        self._attributes = dict(self.policy.attributes)
-        self._link_rel = " ".join(sorted(self.policy.add_link_rel)) or None
-        self._set_attributes = {tag: dict(values) for tag, values in self.policy.set_attributes.items()}
-        self._attribute_values = {
-            tag: {attr: frozenset(values) for attr, values in attrs.items()}
-            for tag, attrs in self.policy.attribute_values.items()
-        }
-        self._allowed_styles = {
-            tag: {
-                prop.lower(): tuple(p if isinstance(p, re.Pattern) else re.compile(p) for p in patterns)
-                for prop, patterns in props.items()
-            }
-            for tag, props in self.policy.allowed_styles.items()
-        }
-        self._transform_tags = dict(starmap(self._compile_transform, self.policy.transform_tags.items()))
-
-    @staticmethod
-    def _compile_transform(source: str, target: Transform | str) -> tuple[str, tuple[str, dict[str, str]]]:
-        """Normalize one transform rule into ``(source, (target_tag, added_attributes))`` for the C walk."""
-        if isinstance(target, str):
-            name, attributes = target, {}
-        elif isinstance(target, Transform):
-            name, attributes = target.tag, dict(target.attributes)
-        else:
-            msg = f"transform_tags[{source!r}] must be a str or Transform, got {type(target).__name__}"
-            raise TypeError(msg)
-        if not name:
-            msg = f"transform_tags[{source!r}] target tag must be a non-empty string"
-            raise ValueError(msg)
-        return source, (name, attributes)
+        (
+            self._attributes,
+            self._link_rel,
+            self._set_attributes,
+            self._attribute_values,
+            self._allowed_styles,
+            self._transform_tags,
+        ) = _sanitize_policy(
+            self.policy.attributes,
+            self.policy.add_link_rel,
+            self.policy.set_attributes,
+            self.policy.attribute_values,
+            self.policy.allowed_styles,
+            self.policy.transform_tags,
+            Transform,
+        )
 
     def sanitize(self, html: str) -> str:
         """

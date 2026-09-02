@@ -274,6 +274,8 @@ static PyMethodDef html_methods[] = {
     {"_url_clean", turbohtml_url_clean, METH_VARARGS, NULL},
     {"_sanitize", turbohtml_sanitize, METH_VARARGS, NULL},
     {"_bleach_attributes", turbohtml_bleach_attributes, METH_VARARGS, NULL},
+
+    {"_sanitize_policy", turbohtml_sanitize_policy, METH_VARARGS, NULL},
     {"_grow_probe", turbohtml_grow_probe, METH_VARARGS, NULL},
     {"_schema_compile", turbohtml_schema_compile, METH_VARARGS, NULL},
     {"_schema_validate", turbohtml_schema_validate, METH_VARARGS, NULL},
