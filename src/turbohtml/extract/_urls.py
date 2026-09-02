@@ -8,30 +8,16 @@ domain-to-ASCII (host parsing, spec 3.5), default-port removal (port state), dot
 the path/query/fragment percent-encode sets (percent-encoded bytes, spec 1.3). On top of that sits the crawl-oriented
 canonicalization ``courlan`` and ``w3lib`` users expect -- query-parameter sorting, tracking-parameter removal, an
 optional strict parameter allowlist, and a URL-based language filter -- each documented where it goes beyond the spec.
+The pipeline runs in C (``_url_clean``, ``_url_normalize`` and ``Document._extract_links``); this module holds the
+option record and the two vocabularies it hands over.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Final, NamedTuple
-from urllib.parse import urlunsplit
+from typing import Final
 
-from turbohtml._html import (
-    _registrable_domain,
-    _url_is_tracker,
-    _url_join,
-    _url_language_matches,
-    _url_normalize_query,
-    _url_percent_decode,
-    _url_percent_encode,
-    _url_remove_dot_segments,
-    _url_scrub,
-    _url_split,
-    _url_to_ascii,
-    _url_variant_key,
-    parse,
-)
+from turbohtml._html import _url_clean, _url_normalize, parse
 
 __all__ = [
     "UrlCleaning",
@@ -74,46 +60,6 @@ _CONTENT_PARAMS: Final[frozenset[str]] = frozenset({
 """The content-identifying query parameters strict mode keeps; everything else is presumed decorative."""
 
 _LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
-
-# The WHATWG component percent-encode set (spec 1.3) each _encode call applies in C, mirroring the TH_URL_SET_* enum in
-# _c/url/url.h. The C encoder keeps the set's raw characters, UTF-8 percent-encodes the rest, and uppercases existing
-# %XX escapes, so a component that is already clean passes through unchanged.
-_SET_PATH: Final = 0
-_SET_FRAGMENT: Final = 2
-
-_DEFAULT_PORTS: Final[dict[str, int]] = {"ftp": 21, "http": 80, "ws": 80, "https": 443, "wss": 443}
-_WEB_SCHEMES: Final = ("http", "https")
-_WEB_PREFIXES: Final = ("http://", "https://")
-
-# The host kinds _url_split tags an authority with, mirroring the TH_HOST_* enum in _c/url/url.h: a registered name
-# reaches the domain-to-ASCII step, while an IPv4 or IPv6 literal is already ASCII and only needs lowercasing.
-_HOST_REGNAME: Final = 0
-_HOST_IPV6: Final = 2
-
-
-class _Split(NamedTuple):
-    """The components :func:`_url_split` reports for a URL, the fields the normalize and clean passes read."""
-
-    scheme: str
-    netloc: str
-    path: str
-    query: str
-    fragment: str
-    userinfo: str
-    host: str
-    port: str
-    has_port: bool
-    host_kind: int
-
-    @property
-    def hostname(self) -> str:
-        """The lowercased, bracket-stripped host that urllib's ``SplitResult.hostname`` returned, ``""`` for none."""
-        return self.host.lower()
-
-
-def _split(url: str) -> _Split:
-    """Split a URL into its components in C, the ``urllib.parse.urlsplit`` replacement; raises on an unbalanced host."""
-    return _Split(*_url_split(url))
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,24 +124,8 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     :returns: the cleaned, normalized URL, or ``None`` for anything that is not a fetchable web URL.
     :raises TypeError: if ``url`` is not a ``str``.
     """
-    if not isinstance(url, str):
-        msg = f"url must be a str, got {type(url).__name__}"
-        raise TypeError(msg)
     active = options or _DEFAULT
-    scrubbed = _url_scrub(url)
-    try:
-        parts = _split(scrubbed)
-    except ValueError:
-        return None
-    host = parts.hostname
-    if parts.scheme not in _WEB_SCHEMES or not host or ("." not in host and ":" not in parts.netloc):
-        return None
-    if active.language is not None and not _language_matches(parts, active.language, strict=active.strict):
-        return None
-    try:
-        return _normalize(parts, active)
-    except ValueError:
-        return None  # an unencodable component (a lone surrogate) is not a fetchable URL, as courlan also decides
+    return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
@@ -218,10 +148,7 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     :raises ValueError: if the URL cannot be split into components (e.g. an unclosed IPv6 bracket) or carries a
         character that cannot be percent-encoded (a lone surrogate).
     """
-    if not isinstance(url, str):
-        msg = f"url must be a str, got {type(url).__name__}"
-        raise TypeError(msg)
-    return _normalize(_split(url), options or _DEFAULT)
+    return _url_normalize(url, *_knobs(options or _DEFAULT))
 
 
 def extract_links(
@@ -253,145 +180,21 @@ def extract_links(
     :raises ValueError: if ``external_only`` is set without a ``base_url`` to define what external means.
     """
     active = options or _DEFAULT
-    if external_only and base_url is None:
-        msg = "external_only requires a base_url to compare hosts against"
-        raise ValueError(msg)
-    site = _site_of(base_url) if base_url is not None else ""
-    document = parse(html)
-    base = document.base_url(base_url or "") or None  # honor a <base href>, the document base URL (HTML spec 4.2.3)
-    found: set[str] = set()
-    seen: set[str] = set()
-    cleaned_of: dict[str, str | None] = {}  # pages repeat hrefs (navigation, pagination); clean each spelling once
-    for link in document.links():
-        if link.attribute != "href" or link.element.tag not in {"a", "area"}:
-            continue
-        attributes = link.element.attrs
-        if _has_nofollow(attributes.get("rel")):
-            continue
-        if active.language is not None and not _hreflang_matches(attributes.get("hreflang"), active.language):
-            continue
-        if link.url in cleaned_of:
-            cleaned = cleaned_of[link.url]
-        else:
-            candidate = link.url if base is None or link.url.startswith(_WEB_PREFIXES) else _url_join(base, link.url)
-            cleaned = cleaned_of[link.url] = clean_url(candidate, active)
-        if cleaned is None or (external_only and _site_of(cleaned) == site):
-            continue
-        if (key := _url_variant_key(cleaned)) not in seen:
-            seen.add(key)
-            found.add(cleaned)
-    return found
-
-
-def _language_matches(parts: _Split, language: str, *, strict: bool) -> bool:
-    """
-    Judge the URL's own language markers against the target language in C.
-
-    Three URL-based heuristics (content-based detection is out of scope): a ``lang``/``language`` query parameter
-    whose value does not start with the code, a leading path segment that is an ISO 639-1 tag of another language
-    (``/de/``, ``/en-us/``), and -- in strict mode -- a two-letter language subdomain (``de.example.org``).
-    """
-    return _url_language_matches(
-        parts.query, parts.path, parts.hostname, language, strict, _LANGUAGE_PARAMS, _ISO_639_1
+    return parse(html)._extract_links(  # ruff:ignore[private-member-access]  # the Document type's private C entry point
+        base_url, external_only, *_knobs(active), active.language, _ISO_639_1
     )
 
 
-def _normalize(parts: _Split, options: UrlCleaning) -> str:
-    """Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization."""
-    scheme = parts.scheme
-    netloc = _normalize_netloc(parts, scheme) if parts.netloc else ""
-    path = _encode(parts.path, _SET_PATH)
-    if netloc:
-        path = _url_remove_dot_segments(path)
-    query = _normalize_query(parts.query, options)
-    if netloc and scheme in _WEB_SCHEMES and not path:
-        path = "/"  # a special URL with a host never serializes an empty path (URL serializing, spec 4.5)
-    if not options.trailing_slash and not query and path.endswith("/") and path != "/":
-        path = path.rstrip("/")
-    fragment = "" if options.strict or options.strip_fragment else _normalize_fragment(parts.fragment, options)
-    return urlunsplit((scheme, netloc, path, query, fragment))
-
-
-def _normalize_netloc(parts: _Split, scheme: str) -> str:
-    """Lowercase the host into its ASCII form and drop an empty or scheme-default port, keeping userinfo verbatim."""
-    if parts.host_kind == _HOST_REGNAME:
-        host = _ascii_host(parts.host)
-    else:  # an IPv4/IPv6 literal is already ASCII, so it only needs lowercasing, and IPv6 keeps its brackets
-        host = f"[{parts.hostname}]" if parts.host_kind == _HOST_IPV6 else parts.hostname
-    prefix = f"{parts.userinfo}@" if parts.userinfo else ""
-    return f"{prefix}{host}{_port_suffix(parts, scheme)}"
-
-
-def _port_suffix(parts: _Split, scheme: str) -> str:
-    """Return ``:port``, or nothing for an empty or scheme-default port (port state, spec 4.4)."""
-    if not parts.has_port or not parts.port:
-        return ""
-    if not parts.port.isdigit():
-        return f":{parts.port}"
-    port = int(parts.port)
-    return "" if port == _DEFAULT_PORTS.get(scheme) else f":{port}"
-
-
-@lru_cache(maxsize=1024)  # a crawl resolves the same hosts over and over, and domain-to-ASCII is the pass's hot spot
-def _ascii_host(host: str) -> str:
-    """Convert a Unicode host to its ASCII (punycode) form the way the URL standard's host parser does (spec 3.5)."""
-    lowered = host.lower()
-    if lowered.isascii():
-        return lowered
-    try:
-        # UTS #46 ToASCII (Transitional_Processing=false) in C, the spec's domain-to-ASCII, not the IDNA-2003 idna codec
-        return _url_to_ascii(lowered)
-    except ValueError:  # a label carries a code point punycode cannot encode (an unpaired surrogate)
-        return lowered
-
-
-def _encode(text: str, url_set: int) -> str:
-    """Percent-encode a component's out-of-set characters in C, uppercasing existing escape hex (RFC 3986 6.2.2.1)."""
-    try:
-        return _url_percent_encode(text, url_set)
-    except UnicodeEncodeError as exc:
-        # the C encoder UTF-8-encodes the component; a lone surrogate has no encoding, so the URL is not serializable
-        msg = f"URL component {text!r} has a character that cannot be percent-encoded: {exc.reason}"
-        raise ValueError(msg) from exc
-
-
-def _normalize_query(query: str, options: UrlCleaning) -> str:
-    """Drop denied, tracker, or non-allowlisted parameters and sort the rest in C, keeping each pair's raw encoding."""
-    allow = {name.lower() for name in options.query_allow} if options.query_allow is not None else None
-    deny = {name.lower() for name in options.query_deny}
-    return _url_normalize_query(query, allow, deny, options.strict, _CONTENT_PARAMS, _LANGUAGE_PARAMS)
-
-
-def _normalize_fragment(fragment: str, options: UrlCleaning) -> str:
-    """Percent-encode the fragment, first scrubbing trackers from one shaped like a query string."""
-    if "=" in fragment:
-        if "&" in fragment:
-            return _normalize_query(fragment, options)
-        if _url_is_tracker(_url_percent_decode(fragment.partition("=")[0]).lower()):
-            return ""
-    return _encode(fragment, _SET_FRAGMENT)
-
-
-def _has_nofollow(rel: str | list[str] | None) -> bool:
-    """Whether a ``rel`` attribute value carries the ``nofollow`` token."""
-    tokens = rel.lower().split() if isinstance(rel, str) else [token.lower() for token in rel or []]
-    return "nofollow" in tokens
-
-
-def _hreflang_matches(hreflang: str | list[str] | None, language: str) -> bool:
-    """Whether an anchor's ``hreflang`` names the target language; a missing value or ``x-default`` always does."""
-    if not isinstance(hreflang, str) or not hreflang:
-        return True
-    code = hreflang.lower()
-    return code == "x-default" or code.partition("-")[0] == language
-
-
-def _site_of(url: str) -> str:
-    """
-    Return the registrable domain (eTLD+1) that defines a URL's ``external_only`` site, or ``""`` for no host.
-
-    The host is punycoded first so a Unicode ``base_url`` compares against the ASCII hosts :func:`clean_url` emits; the
-    eTLD+1 is then read in C from the shipped IANA and Public Suffix List tables (``www.example.com`` and
-    ``blog.example.com`` both collapse to ``example.com``, ``a.co.uk`` and ``b.co.uk`` stay distinct).
-    """
-    return _registrable_domain(_ascii_host(_split(url).hostname))
+def _knobs(
+    options: UrlCleaning,
+) -> tuple[bool, bool, bool, frozenset[str] | None, frozenset[str], frozenset[str], frozenset[str]]:
+    """Return the option fields and vocabularies every C entry point takes, in its argument order."""
+    return (
+        options.strict,
+        options.trailing_slash,
+        options.strip_fragment,
+        options.query_allow,
+        options.query_deny,
+        _CONTENT_PARAMS,
+        _LANGUAGE_PARAMS,
+    )

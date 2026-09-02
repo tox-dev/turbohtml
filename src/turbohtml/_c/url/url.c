@@ -61,7 +61,7 @@ Py_ssize_t th_url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ss
    encoding, so this raises the UnicodeEncodeError PyUnicode_AsUTF8AndSize sets), then rewrites an existing %XX to
    uppercase hex and percent-encodes every byte outside the set. Since '%' stays in every keep set, a valid escape
    survives; a stray '%' or a truncated %X is a literal byte the set keeps. */
-static PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
+PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
     Py_ssize_t len;
     const char *bytes = PyUnicode_AsUTF8AndSize(text, &len);
     if (bytes == NULL) {
@@ -136,7 +136,7 @@ static int decode_flush(const unsigned char *run, Py_ssize_t run_len, Py_UCS4 *o
    and keeping any other ASCII char or non-ASCII code point verbatim, then UTF-8 decodes each ASCII byte run with U+FFFD
    replacement. A non-ASCII input char ends the current run, matching the ascii/non-ascii split unquote makes, so a raw
    code point (even a lone surrogate) survives unencoded. */
-static PyObject *th_url_percent_decode_obj(PyObject *arg) {
+PyObject *th_url_percent_decode_obj(PyObject *arg) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
@@ -272,13 +272,14 @@ void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_
    lowercased; the host is the bracket-stripped ASCII span; every other component is the verbatim slice. Raises
    ValueError on an authority with an unbalanced '['/']' pair. The shim guarantees a str argument, as the other _html
    entry points assume. */
-PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
+int th_url_split(PyObject *arg, th_url_parts *out) {
     Py_ssize_t raw_len = PyUnicode_GET_LENGTH(arg);
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
     Py_UCS4 *work = PyMem_Malloc((size_t)(raw_len + 1) * sizeof(Py_UCS4));
-    if (work == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (work == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t read = 0;
     while (read < raw_len && input_char(kind, data, read) <= 0x20) {
@@ -334,7 +335,7 @@ PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
         if (has_open != has_close) {
             PyMem_Free(work);
             PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
-            return NULL;
+            return -1;
         }
     }
     Py_ssize_t hash = -1;
@@ -367,20 +368,37 @@ PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
         {auth.host_start, auth.host_end},
         {auth.port_start, auth.port_end},
     };
-    PyObject *parts[8];
-    for (int index = 0; index < 8; index++) {
-        parts[index] = span_str(work, spans[index][0], spans[index][1]);
-        if (parts[index] == NULL) {      /* GCOVR_EXCL_BR_LINE: only span_str allocation can fail */
-            while (index-- > 0) {        /* GCOVR_EXCL_LINE: allocation-failure unwind */
-                Py_DECREF(parts[index]); /* GCOVR_EXCL_LINE */
+    for (int index = 0; index < TH_URL_PART_COUNT; index++) {
+        out->part[index] = span_str(work, spans[index][0], spans[index][1]);
+        if (out->part[index] == NULL) {      /* GCOVR_EXCL_BR_LINE: only span_str allocation can fail */
+            while (index-- > 0) {            /* GCOVR_EXCL_LINE: allocation-failure unwind */
+                Py_DECREF(out->part[index]); /* GCOVR_EXCL_LINE */
             } /* GCOVR_EXCL_LINE */
             PyMem_Free(work); /* GCOVR_EXCL_LINE */
-            return NULL;      /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
         }
     }
-    PyObject *result = Py_BuildValue("(NNNNNNNNNi)", parts[0], parts[1], parts[2], parts[3], parts[4], parts[5],
-                                     parts[6], parts[7], PyBool_FromLong(auth.has_port), auth.kind);
+    out->has_port = auth.has_port;
+    out->kind = auth.kind;
     PyMem_Free(work);
+    return 0;
+}
+
+void th_url_parts_clear(th_url_parts *parts) {
+    for (int index = 0; index < TH_URL_PART_COUNT; index++) {
+        Py_DECREF(parts->part[index]);
+    }
+}
+
+PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
+    th_url_parts parts;
+    if (th_url_split(arg, &parts) < 0) {
+        return NULL;
+    }
+    PyObject *result =
+        Py_BuildValue("(OOOOOOOONi)", parts.part[0], parts.part[1], parts.part[2], parts.part[3], parts.part[4],
+                      parts.part[5], parts.part[6], parts.part[7], PyBool_FromLong(parts.has_port), parts.kind);
+    th_url_parts_clear(&parts);
     return result;
 }
 
@@ -867,7 +885,7 @@ static int tracker_word_at(const char *key, size_t start, size_t end) {
    returns 1 for a tracker, 0 otherwise, and -1 with a UnicodeEncodeError set when the key carries a lone surrogate (a
    raw surrogate the caller's URL held, which has no UTF-8 form). Exposed so the query normalizer decides a pair without
    materializing a Py_True/Py_False per key. */
-static int th_url_is_tracker_obj(PyObject *key_obj) {
+int th_url_is_tracker_obj(PyObject *key_obj) {
     Py_ssize_t size;
     const char *key = PyUnicode_AsUTF8AndSize(key_obj, &size);
     if (key == NULL) {
@@ -1141,16 +1159,11 @@ PyObject *turbohtml_url_variant_key(PyObject *Py_UNUSED(module), PyObject *arg) 
     return PyUnicode_Substring(arg, start, end);
 }
 
-/* Percent-encode the query pair query[start:end) for the query set, rewrapping the encoder's UnicodeEncodeError as the
-   ValueError the Python _encode raised, so a lone surrogate reports the same "cannot be percent-encoded" message. */
-static PyObject *normalize_query_encode_pair(PyObject *query, Py_ssize_t start, Py_ssize_t end) {
-    PyObject *pair = PyUnicode_Substring(query, start, end);
-    if (pair == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string cannot fail here */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    PyObject *encoded = th_url_percent_encode_obj(pair, TH_URL_SET_QUERY);
+/* Percent-encode one component for its set, rewrapping the encoder's UnicodeEncodeError as the ValueError
+   normalize_url raises, so a lone surrogate reports the "cannot be percent-encoded" message with the component. */
+PyObject *th_url_encode_component(PyObject *text, int set_id) {
+    PyObject *encoded = th_url_percent_encode_obj(text, set_id);
     if (encoded != NULL) {
-        Py_DECREF(pair);
         return encoded;
     }
     PyObject *type;
@@ -1159,13 +1172,23 @@ static PyObject *normalize_query_encode_pair(PyObject *query, Py_ssize_t start, 
     PyErr_Fetch(&type, &value, &traceback);
     PyErr_NormalizeException(&type, &value, &traceback);
     PyObject *reason = PyObject_GetAttrString(value, "reason"); /* UnicodeEncodeError always carries a reason str */
-    PyErr_Format(PyExc_ValueError, "URL component %R has a character that cannot be percent-encoded: %U", pair, reason);
+    PyErr_Format(PyExc_ValueError, "URL component %R has a character that cannot be percent-encoded: %U", text, reason);
     Py_XDECREF(reason);
     Py_DECREF(type);
     Py_DECREF(value);
     Py_XDECREF(traceback);
-    Py_DECREF(pair);
     return NULL;
+}
+
+/* Percent-encode the query pair query[start:end) for the query set. */
+static PyObject *encode_pair(PyObject *query, Py_ssize_t start, Py_ssize_t end) {
+    PyObject *pair = PyUnicode_Substring(query, start, end);
+    if (pair == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string cannot fail here */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *encoded = th_url_encode_component(pair, TH_URL_SET_QUERY);
+    Py_DECREF(pair);
+    return encoded;
 }
 
 /* _url_normalize_query(query, allow, deny, strict, content, language): drop denied, tracker, or non-allowlisted query
@@ -1183,6 +1206,11 @@ PyObject *turbohtml_url_normalize_query(PyObject *Py_UNUSED(module), PyObject *a
     if (!PyArg_ParseTuple(args, "UOOpOO", &query, &allow, &deny, &strict, &content, &language)) {
         return NULL;
     }
+    return th_url_normalize_query(query, allow, deny, strict, content, language);
+}
+
+PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
+                                 PyObject *language) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(query);
     int kind = PyUnicode_KIND(query);
     const void *data = PyUnicode_DATA(query);
@@ -1232,7 +1260,7 @@ PyObject *turbohtml_url_normalize_query(PyObject *Py_UNUSED(module), PyObject *a
             goto error;
         }
         if (drop == 0) {
-            PyObject *encoded = normalize_query_encode_pair(query, pair_start, index);
+            PyObject *encoded = encode_pair(query, pair_start, index);
             if (encoded == NULL) {
                 Py_DECREF(key);
                 goto error;
@@ -1406,16 +1434,25 @@ PyObject *turbohtml_url_language_matches(PyObject *Py_UNUSED(module), PyObject *
                           &iso_639_1)) {
         return NULL;
     }
+    int matches = th_url_language_matches(query, path, hostname, language, strict, language_params, iso_639_1);
+    if (matches < 0) { /* GCOVR_EXCL_BR_LINE: the filter only fails on the excluded alloc paths */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    return PyBool_FromLong(matches);
+}
+
+int th_url_language_matches(PyObject *query, PyObject *path, PyObject *hostname, PyObject *language, int strict,
+                            PyObject *language_params, PyObject *iso_639_1) {
     int rejected = language_query_rejects(query, language, language_params);
     if (rejected < 0) { /* GCOVR_EXCL_BR_LINE: the decode/lower/membership steps only fail on the excluded alloc path */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (rejected) {
-        Py_RETURN_FALSE;
+        return 0;
     }
     PyObject *lowered = PyObject_CallMethod(path, "lower", NULL);
     if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a path component */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t len = PyUnicode_GET_LENGTH(lowered);
     int kind = PyUnicode_KIND(lowered);
@@ -1442,10 +1479,10 @@ PyObject *turbohtml_url_language_matches(PyObject *Py_UNUSED(module), PyObject *
     }
     Py_DECREF(lowered);
     if (rejects < 0) { /* GCOVR_EXCL_BR_LINE: building a two-letter code and testing membership cannot error */
-        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (rejects) {
-        Py_RETURN_FALSE;
+        return 0;
     }
     if (strict) {
         Py_ssize_t host_len = PyUnicode_GET_LENGTH(hostname);
@@ -1460,12 +1497,12 @@ PyObject *turbohtml_url_language_matches(PyObject *Py_UNUSED(module), PyObject *
             code[1] = PyUnicode_READ(host_kind, host_data, 1);
             int label_rejects = language_code_rejects(code, language, iso_639_1);
             if (label_rejects < 0) { /* GCOVR_EXCL_BR_LINE: a two-letter code test cannot error */
-                return NULL;         /* GCOVR_EXCL_LINE: membership-failure path */
+                return -1;           /* GCOVR_EXCL_LINE: membership-failure path */
             }
             if (label_rejects) {
-                Py_RETURN_FALSE;
+                return 0;
             }
         }
     }
-    Py_RETURN_TRUE;
+    return 1;
 }

@@ -195,6 +195,9 @@ from ._stubs.features import (
     _sanitize as _sanitize,
 )
 from ._stubs.features import (
+    _url_clean as _url_clean,
+)
+from ._stubs.features import (
     _url_is_tracker as _url_is_tracker,
 )
 from ._stubs.features import (
@@ -202,6 +205,9 @@ from ._stubs.features import (
 )
 from ._stubs.features import (
     _url_language_matches as _url_language_matches,
+)
+from ._stubs.features import (
+    _url_normalize as _url_normalize,
 )
 from ._stubs.features import (
     _url_normalize_query as _url_normalize_query,

@@ -365,6 +365,21 @@ class Document(Node):
         extensive: bool,
         /,
     ) -> tuple[int, int, int, Signal] | None: ...
+    def _extract_links(
+        self,
+        base_url: str | None,
+        external_only: bool,
+        strict: bool,
+        trailing_slash: bool,
+        strip_fragment: bool,
+        allow: frozenset[str] | None,
+        deny: frozenset[str],
+        content: frozenset[str],
+        language_params: frozenset[str],
+        language: str | None,
+        iso_639_1: frozenset[str],
+        /,
+    ) -> set[str]: ...
     def feed(self) -> Feed | None: ...
     @property
     def errors(self) -> list[ParseError]: ...
