@@ -325,11 +325,14 @@ PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args);
 
 /* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind
    turbohtml.conformance (issue #541). _conformance_check(node) walks a parsed document or
-   subtree and returns a list of (code, severity, message, line, column) findings -- the
-   document-conformance requirements (img alt, obsolete markup, duplicate id, ARIA role,
-   heading and section structure, document title and language) the parser does not raise
-   as a ParseError. Matches METH_O. */
+   subtree and returns (valid, findings), each finding a (code, severity, message, line,
+   column) tuple -- the document-conformance requirements (img alt, obsolete markup,
+   duplicate id, ARIA role, heading and section structure, document title and language)
+   the parser does not raise as a ParseError; valid is whether none is an error. Matches
+   METH_O. _conformance_filter(messages, severity) returns the messages of one severity,
+   the report's errors/warnings/infos views (METH_VARARGS). */
 PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg);
+PyObject *turbohtml_conformance_filter(PyObject *module, PyObject *args);
 
 #define UCS2_LANES 4
 #define UCS4_LANES 2

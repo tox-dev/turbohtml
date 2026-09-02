@@ -262,6 +262,7 @@ static PyMethodDef html_methods[] = {
     {"_schema_compile", turbohtml_schema_compile, METH_VARARGS, NULL},
     {"_schema_validate", turbohtml_schema_validate, METH_VARARGS, NULL},
     {"_conformance_check", turbohtml_conformance_check, METH_O, NULL},
+    {"_conformance_filter", turbohtml_conformance_filter, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 

@@ -372,6 +372,9 @@ from ._stubs.validate import (
     _conformance_check as _conformance_check,
 )
 from ._stubs.validate import (
+    _conformance_filter as _conformance_filter,
+)
+from ._stubs.validate import (
     _schema_compile as _schema_compile,
 )
 from ._stubs.validate import (

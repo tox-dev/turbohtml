@@ -39,6 +39,7 @@ typedef struct {
     PyObject *findings;
     th_tree *tree;
     int failed;
+    int errors; /* how many findings are errors: the document is valid exactly when none is */
 } confctx;
 
 static int ucs4_ci_equals_ascii(const Py_UCS4 *text, Py_ssize_t len, const char *ascii) {
@@ -325,6 +326,9 @@ static void report(confctx *ctx, th_node *node, const char *code, const char *se
         ctx->failed = 1; /* GCOVR_EXCL_LINE */
     } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
     Py_XDECREF(tuple);
+    if (severity == SEVERITY_ERROR) {
+        ctx->errors++;
+    }
 }
 
 /* Whether any text descendant of root holds a non-whitespace character. Bounded to the
@@ -579,9 +583,9 @@ static void walk(confctx *ctx, th_node *root, th_node **html_out, int *has_lang,
     Py_DECREF(ids);
 }
 
-/* _conformance_check(node) -> [(code, severity, message, line, column), ...]. Runs the
-   authoring-conformance checks over a parsed document or subtree; the thin Python shim
-   shapes the findings into a ConformanceReport and derives the validity verdict. */
+/* _conformance_check(node) -> (valid, [(code, severity, message, line, column), ...]). Runs the
+   authoring-conformance checks over a parsed document or subtree; the document is valid
+   exactly when no finding is an error. The shim wraps the findings into records. */
 PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg) {
     th_tree *tree;
     th_node *node;
@@ -592,7 +596,7 @@ PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg) {
     if (findings == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    confctx ctx = {findings, tree, 0};
+    confctx ctx = {findings, tree, 0, 0};
     int is_document = node->type == TH_NODE_DOCUMENT;
     th_node *html = NULL;
     int has_lang = 0, has_title = 0;
@@ -612,5 +616,36 @@ PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg) {
         Py_DECREF(findings); /* GCOVR_EXCL_LINE */
         return NULL;         /* GCOVR_EXCL_LINE */
     }
-    return findings;
+    return Py_BuildValue("(NN)", PyBool_FromLong(ctx.errors == 0), findings);
+}
+
+/* _conformance_filter(messages, severity) -> tuple: the messages whose severity is the given
+   one, in order; the errors/warnings/infos views of a ConformanceReport. */
+PyObject *turbohtml_conformance_filter(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *messages;
+    PyObject *severity;
+    if (!PyArg_ParseTuple(args, "O!U:_conformance_filter", &PyTuple_Type, &messages, &severity)) {
+        return NULL;
+    }
+    PyObject *kept = PyList_New(0);
+    if (kept == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(messages); index++) {
+        PyObject *message = PyTuple_GET_ITEM(messages, index);
+        PyObject *own = PyObject_GetAttrString(message, "severity");
+        if (own == NULL) {
+            Py_DECREF(kept);
+            return NULL;
+        }
+        int matches = PyUnicode_Check(own) && PyUnicode_Compare(own, severity) == 0;
+        Py_DECREF(own);
+        if (matches && PyList_Append(kept, message) < 0) { /* GCOVR_EXCL_BR_LINE: append only fails on OOM */
+            Py_DECREF(kept);                               /* GCOVR_EXCL_LINE */
+            return NULL;                                   /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyObject *result = PyList_AsTuple(kept);
+    Py_DECREF(kept);
+    return result;
 }
