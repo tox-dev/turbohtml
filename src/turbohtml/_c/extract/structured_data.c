@@ -1558,8 +1558,12 @@ PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *Py_UNUSED(ignored
     for (Py_ssize_t index = 0; index < PyList_GET_SIZE(texts); index++) {
         PyObject *value = PyObject_CallOneArg(decoder, PyList_GET_ITEM(texts, index));
         if (value == NULL) {
-            /* not JSON at all, which is a block to skip rather than an error to raise */
-            PyErr_Clear();
+            if (!PyErr_ExceptionMatches(PyExc_ValueError)) {
+                Py_DECREF(texts);  /* a decoder failure that is not malformed JSON, such as a nesting depth past */
+                Py_DECREF(parsed); /* the interpreter's recursion budget, reaches the caller */
+                return NULL;
+            }
+            PyErr_Clear(); /* not JSON at all, which is a block to skip rather than an error to raise */
             continue;
         }
         int carries = PyDict_Check(value) || PyList_Check(value);

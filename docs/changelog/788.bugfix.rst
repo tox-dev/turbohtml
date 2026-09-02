@@ -1,0 +1,3 @@
+A ``<script type="application/ld+json">`` block that the decoder cannot process for a reason other than malformed JSON,
+such as nesting past the interpreter's recursion budget, now raises from :meth:`~turbohtml.Document.json_ld` and
+:func:`~turbohtml.extract.dates` instead of being skipped.
