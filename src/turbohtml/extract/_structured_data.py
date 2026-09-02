@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from turbohtml._html import _register_structured_data
+from turbohtml._html import _microdata_as_dict, _register_structured_data
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -55,7 +55,7 @@ class MicrodataItem:
 
     def json(self) -> str:
         """Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item."""
-        return json.dumps(_as_dict(self), indent=2)
+        return json.dumps(_microdata_as_dict(self), indent=2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,36 +168,4 @@ class OpenGraph(Mapping[str, str]):
         return all(self._properties.get(name) for name in _OG_REQUIRED)
 
 
-def _as_dict(item: MicrodataItem) -> dict[str, JSONValue]:
-    """Render the item as nested plain dicts: ``type`` (whitespace-split), ``id``, and its properties recursively."""
-    result: dict[str, JSONValue] = {}
-    if item.type is not None:
-        result["type"] = item.type.split()
-    if item.id is not None:
-        result["id"] = item.id
-    result["properties"] = {
-        name: [_as_dict(value) if isinstance(value, MicrodataItem) else value for value in values]
-        for name, values in item.properties.items()
-    }
-    return result
-
-
-def _parse_json_ld(texts: list[str]) -> list[JSONValue]:
-    """
-    Decode each JSON-LD block, skipping any that is not valid JSON or whose payload is not a node object.
-
-    A block whose JSON is a scalar or ``null`` (e.g. ``<script type="application/ld+json">null</script>``) is not a
-    JSON-LD node object and carries no data, so only ``dict`` and ``list`` payloads are kept.
-    """
-    parsed: list[JSONValue] = []
-    for text in texts:
-        try:
-            value: JSONValue = json.loads(text)
-        except ValueError:
-            continue
-        if isinstance(value, (dict, list)):
-            parsed.append(value)
-    return parsed
-
-
-_register_structured_data(_parse_json_ld, MicrodataItem, RdfaItem, StructuredData, OpenGraph)
+_register_structured_data(json.loads, MicrodataItem, RdfaItem, StructuredData, OpenGraph)

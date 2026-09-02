@@ -1,0 +1,3 @@
+Move the structured-data shaping into the C core: which JSON-LD blocks carry data, and rendering a
+:class:`~turbohtml.MicrodataItem` as nested plain dicts. Decoding each block stays with the standard library's JSON
+parser. Results are unchanged.

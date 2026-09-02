@@ -1449,13 +1449,129 @@ static PyObject *gather_dublin_core(PyObject *self) {
     return result;
 }
 
-/* Document.json_ld() -> list. Parses every JSON-LD block through the registered Python facade. */
+/* Render one Microdata item as nested plain dicts: `type` whitespace-split, `id`, and every property recursively.
+   A property value is either a string, which passes through, or a nested item, which shapes the same way. The engine
+   behind MicrodataItem.json(). */
+static PyObject *microdata_as_dict(PyObject *item, PyObject *item_type) {
+    PyObject *kind = PyObject_GetAttrString(item, "type");
+    PyObject *identifier = PyObject_GetAttrString(item, "id");
+    PyObject *properties = PyObject_GetAttrString(item, "properties");
+    PyObject *result = PyDict_New();
+    PyObject *shaped = PyDict_New();
+    PyObject *rendered = NULL;
+    /* GCOVR_EXCL_BR_START: the attributes exist on every registered item and dict allocation cannot be forced */
+    if (kind == NULL || identifier == NULL || properties == NULL || result == NULL || shaped == NULL) {
+        goto fail; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    if (kind != Py_None) { /* itemtype is a space-separated list of types, the way microdata.Item.json writes it */
+        PyObject *split = PyObject_CallMethod(kind, "split", NULL);
+        int stored = split == NULL ? -1 : PyDict_SetItemString(result, "type", split); /* GCOVR_EXCL_BR_LINE */
+        Py_XDECREF(split);
+        if (stored < 0) { /* GCOVR_EXCL_BR_LINE: str.split and the insert cannot fail */
+            goto fail;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (identifier != Py_None) {
+        if (PyDict_SetItemString(result, "id", identifier) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            goto fail;                                            /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_ssize_t position = 0;
+    PyObject *name;
+    PyObject *values;
+    while (PyDict_Next(properties, &position, &name, &values)) {
+        rendered = PyList_New(0);
+        if (rendered == NULL) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced */
+            goto fail;          /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < PyList_GET_SIZE(values); index++) {
+            PyObject *value = PyList_GET_ITEM(values, index);
+            /* a value is either the property's text, which passes through, or a nested item, which shapes the same */
+            int nested = PyObject_TypeCheck(value, (PyTypeObject *)item_type);
+            PyObject *entry = nested ? microdata_as_dict(value, item_type) : Py_NewRef(value);
+            int added = entry == NULL ? -1 : PyList_Append(rendered, entry); /* GCOVR_EXCL_BR_LINE: allocation */
+            Py_XDECREF(entry);
+            if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+                goto fail;   /* GCOVR_EXCL_LINE */
+            }
+        }
+        int stored = PyDict_SetItem(shaped, name, rendered);
+        Py_DECREF(rendered); /* never NULL here, so Py_CLEAR would add a branch that cannot go both ways */
+        rendered = NULL;
+        if (stored < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            goto fail;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (PyDict_SetItemString(result, "properties", shaped) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+        goto fail;                                                /* GCOVR_EXCL_LINE */
+    }
+    Py_DECREF(kind);
+    Py_DECREF(identifier);
+    Py_DECREF(properties);
+    Py_DECREF(shaped);
+    return result;
+fail: /* GCOVR_EXCL_START: every jump here is an allocation failure that cannot be forced from a test */
+    Py_XDECREF(kind);
+    Py_XDECREF(identifier);
+    Py_XDECREF(properties);
+    Py_XDECREF(shaped);
+    Py_XDECREF(rendered);
+    Py_XDECREF(result);
+    return NULL;
+    /* GCOVR_EXCL_STOP */
+}
+
+/* _microdata_as_dict(item) -> dict: the item as nested plain dicts, ready for json.dumps.
+
+   A nested property value is an item exactly when it shares the outer item's type, so the walk carries that type
+   rather than reaching for the registered one. */
+PyObject *turbohtml_microdata_as_dict(PyObject *Py_UNUSED(module), PyObject *item) {
+    PyObject *properties = PyObject_GetAttrString(item, "properties");
+    if (properties == NULL || !PyDict_Check(properties)) {
+        Py_XDECREF(properties);
+        PyErr_Clear();
+        PyErr_SetString(PyExc_TypeError, "expected a MicrodataItem");
+        return NULL;
+    }
+    Py_DECREF(properties);
+    return microdata_as_dict(item, (PyObject *)Py_TYPE(item));
+}
+
+/* Document.json_ld() -> list. Decodes every JSON-LD block, keeping the ones that carry data.
+
+   The decoder is the registered json.loads: reference JSON parsing is a solved standard problem and belongs to the
+   standard library, the way RFC 3986 reference resolution does. Which blocks survive is not -- a block whose JSON is
+   malformed, or whose payload is a scalar or null rather than a node object, carries nothing -- so that decision is
+   made here. */
 PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     PyObject *texts = gather_json_ld(self);
     if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *parsed = PyObject_CallOneArg(state_of(self)->json_ld_parser, texts);
+    PyObject *parsed = PyList_New(0);
+    if (parsed == NULL) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced to fail */
+        Py_DECREF(texts); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *decoder = state_of(self)->json_ld_parser;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(texts); index++) {
+        PyObject *value = PyObject_CallOneArg(decoder, PyList_GET_ITEM(texts, index));
+        if (value == NULL) {
+            /* not JSON at all, which is a block to skip rather than an error to raise */
+            PyErr_Clear();
+            continue;
+        }
+        int carries = PyDict_Check(value) || PyList_Check(value);
+        int added =
+            carries ? PyList_Append(parsed, value) : 0; /* GCOVR_EXCL_BR_LINE: append only fails on allocation */
+        Py_DECREF(value);
+        if (added < 0) {       /* GCOVR_EXCL_BR_LINE: allocation */
+            Py_DECREF(texts);  /* GCOVR_EXCL_LINE */
+            Py_DECREF(parsed); /* GCOVR_EXCL_LINE */
+            return NULL;       /* GCOVR_EXCL_LINE */
+        }
+    }
     Py_DECREF(texts);
     return parsed;
 }
