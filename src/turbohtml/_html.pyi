@@ -66,6 +66,9 @@ from ._stubs.dom import (
     _build_document as _build_document,
 )
 from ._stubs.dom import (
+    _codec_label as _codec_label,
+)
+from ._stubs.dom import (
     _collapse_whitespace as _collapse_whitespace,
 )
 from ._stubs.dom import (

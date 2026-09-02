@@ -58,6 +58,9 @@ PyObject *turbohtml_detect_rank(PyObject *module, PyObject *args);
 extern PyType_Spec detect_stream_spec;
 PyObject *turbohtml_decode(PyObject *module, PyObject *args);
 PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
+/* _codec_label(name) resolves a whatwg-* codec name to (delegate, label) for the codecs registry, or None when
+   the name is not one of ours; the label choice the registry search function used to make. METH_O. */
+PyObject *turbohtml_codec_label(PyObject *module, PyObject *name);
 
 /* Implemented in unicode/normalize.c. _normalize(form, text) applies one of the
    four Unicode normalization forms (form 0..3 = NFC, NFD, NFKC, NFKD) to text;

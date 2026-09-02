@@ -991,12 +991,17 @@ static PyObject *detect_row(PyObject *name, double confidence, PyObject *languag
                          codec);
 }
 
+/* The row of the no-match sentinel: no encoding, no confidence, no language, no mark, no codec. */
+static PyObject *detect_no_match(void) {
+    return Py_BuildValue("[(OdOOO)]", Py_None, 0.0, Py_None, Py_False, Py_None);
+}
+
 /* _detect_rank(result, allowed, excluded, language, threshold, languages) -> list[tuple]
 
    Shape one detector result and apply the Detection options to it: the allowlist, the exclusions, the language
    preference that floats a hinted encoding to the front, and the confidence floor. Each row carries what an
-   EncodingMatch holds, so the typed layer only constructs them. An empty list means every candidate was filtered
-   out, which the caller answers with its no-match sentinel. */
+   EncodingMatch holds, so the typed layer only constructs them. A None result (no bytes were ever seen) and a
+   ranking every candidate was filtered out of both yield the one no-match row. */
 PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *result;
     PyObject *allowed;
@@ -1004,8 +1009,15 @@ PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *language;
     double threshold;
     PyObject *languages;
-    if (!PyArg_ParseTuple(args, "O!OOOdO!:_detect_rank", &PyTuple_Type, &result, &allowed, &excluded, &language,
-                          &threshold, &PyDict_Type, &languages)) {
+    if (!PyArg_ParseTuple(args, "OOOOdO!:_detect_rank", &result, &allowed, &excluded, &language, &threshold,
+                          &PyDict_Type, &languages)) {
+        return NULL;
+    }
+    if (result == Py_None) {
+        return detect_no_match();
+    }
+    if (!PyTuple_Check(result)) {
+        PyErr_SetString(PyExc_TypeError, "_detect_rank() result must be a tuple or None");
         return NULL;
     }
     PyObject *winner = PyTuple_GET_ITEM(result, 0);
@@ -1074,6 +1086,10 @@ PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
         Py_DECREF(out); /* GCOVR_EXCL_LINE */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
+    if (PyList_GET_SIZE(out) == 0) {
+        Py_DECREF(out);
+        return detect_no_match(); /* every candidate was filtered out */
+    }
     return out;
 }
 
@@ -1112,6 +1128,10 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args) {
     if (PyObject_GetBuffer(data, &view, PyBUF_SIMPLE) < 0) {
         return NULL;
     }
+    if (view.len == 0) {
+        PyBuffer_Release(&view);
+        Py_RETURN_NONE; /* nothing to detect: the ranker answers with the no-match row */
+    }
     const unsigned char *bytes = view.buf;
     Py_ssize_t len = view.len;
     int certain, bom;
@@ -1136,7 +1156,23 @@ typedef struct {
     Py_ssize_t prefix_len;
     th_tld tld;
     int closed;
+    int fed; /* whether any bytes arrived: an unfed stream has no answer */
 } DetectStreamObject;
+
+/* Whether the leading bytes settle the stream whatever follows: a resolved byte-order mark. FF FE alone could still
+   open the FF FE 00 00 UTF-32LE mark, so it settles only once the next pair has ruled that out. */
+static int detect_bom_settles(const unsigned char *head, Py_ssize_t len) {
+    static const struct {
+        unsigned char bytes[4];
+        Py_ssize_t len;
+    } marks[] = {{{0xEF, 0xBB, 0xBF, 0x00}, 3}, {{0xFE, 0xFF, 0x00, 0x00}, 2}, {{0x00, 0x00, 0xFE, 0xFF}, 4}};
+    for (size_t index = 0; index < sizeof(marks) / sizeof(*marks); index++) {
+        if (len >= marks[index].len && memcmp(head, marks[index].bytes, (size_t)marks[index].len) == 0) {
+            return 1;
+        }
+    }
+    return len >= 4 && head[0] == 0xFF && head[1] == 0xFE;
+}
 
 static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     static char *keywords[] = {"", NULL};
@@ -1152,6 +1188,7 @@ static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject 
     self->prefix_len = 0;
     self->tld = tld_argument(label);
     self->closed = 0;
+    self->fed = 0;
     return (PyObject *)self;
 }
 
@@ -1171,13 +1208,18 @@ static PyObject *detect_stream_feed(PyObject *self, PyObject *arg) {
     if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
         return NULL;
     }
+    if (view.len == 0) {
+        PyBuffer_Release(&view);
+        Py_RETURN_FALSE; /* an empty chunk changes nothing */
+    }
+    detector->fed = 1;
     Py_ssize_t room = (Py_ssize_t)sizeof(detector->prefix) - detector->prefix_len;
     Py_ssize_t take = view.len < room ? view.len : room;
     memcpy(detector->prefix + detector->prefix_len, view.buf, (size_t)take);
     detector->prefix_len += take;
     th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
     PyBuffer_Release(&view);
-    Py_RETURN_NONE;
+    return PyBool_FromLong(detect_bom_settles(detector->prefix, detector->prefix_len));
 }
 
 static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
@@ -1187,6 +1229,9 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
         return NULL;
     }
     detector->closed = 1;
+    if (!detector->fed) {
+        Py_RETURN_NONE; /* no bytes were ever seen: the ranker answers with the no-match row */
+    }
     th_detect_stream_feed(&detector->stream, NULL, 0, 1);
     int certain, bom;
     const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
@@ -1204,11 +1249,13 @@ PyDoc_STRVAR(detect_stream_doc, "_DetectStream(tld, /)\n--\n\n"
                                 ":param tld: the rightmost DNS label of the host, lower-case ASCII, or None.");
 
 PyDoc_STRVAR(detect_stream_feed_doc, "feed(data, /)\n--\n\n"
-                                     "Score the next chunk of the stream.\n\n"
+                                     "Score the next chunk of the stream and report whether a leading byte-order\n"
+                                     "mark has settled it.\n\n"
                                      ":param data: the next bytes.");
 
 PyDoc_STRVAR(detect_stream_close_doc, "close()\n--\n\n"
-                                      "End the stream and return (encoding, certain, ranked, bom).\n\n"
+                                      "End the stream and return (encoding, certain, ranked, bom), or None when\n"
+                                      "no bytes were ever fed.\n\n"
                                       ":raises ValueError: if the detector is already closed.");
 
 static PyMethodDef detect_stream_methods[] = {
@@ -1256,7 +1303,8 @@ PyObject *turbohtml_detect_language(PyObject *module, PyObject *args) {
     PyObject *text;
     PyObject *allowed;
     PyObject *excluded;
-    if (!PyArg_ParseTuple(args, "UOO", &text, &allowed, &excluded)) {
+    double threshold;
+    if (!PyArg_ParseTuple(args, "UOOd", &text, &allowed, &excluded, &threshold)) {
         return NULL;
     }
     uint8_t allow[sizeof(th_lang_meta_table) / sizeof(th_lang_meta_table[0])];
@@ -1275,10 +1323,79 @@ PyObject *turbohtml_detect_language(PyObject *module, PyObject *args) {
     if (failed < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    const char *lang = result.lang < 0 ? NULL : th_lang_meta_table[result.lang].code;
-    const char *name = result.lang < 0 ? NULL : th_lang_meta_table[result.lang].name;
-    const char *script = result.script < 0 ? NULL : th_lang_script_names[result.script];
-    return Py_BuildValue("(zdzz)", lang, result.confidence, script, name);
+    if (result.lang < 0 || result.confidence < threshold) {
+        return Py_BuildValue("(OdOO)", Py_None, 0.0, Py_None, Py_None); /* no language, or too faint a signal */
+    }
+    /* a detected language always sits on a detected script: the scan gives up before scoring languages otherwise */
+    return Py_BuildValue("(sdss)", th_lang_meta_table[result.lang].code, result.confidence,
+                         th_lang_script_names[result.script], th_lang_meta_table[result.lang].name);
+}
+
+/* The names a byte-order mark reports, keyed the way CPython normalizes a codec name (lowercased, every
+   non-alphanumeric byte an underscore). The spec's label table does not carry them, and CPython's UTF-8 and UTF-16
+   decoders already agree with it byte for byte, so these delegate rather than going through the native decoders. */
+static const struct {
+    const char *normalized;
+    const char *codec;
+} CODEC_DELEGATES[] = {{"utf_8_sig", "utf-8-sig"},
+                       {"utf_16le", "utf-16-le"},
+                       {"utf_16be", "utf-16-be"},
+                       {"utf_32le", "utf-32-le"},
+                       {"utf_32be", "utf-32-be"}};
+
+/* _codec_label(name) -> (delegate, label) | None: resolve a whatwg-* codec name for the codecs registry. The name
+   arrives lowercased and underscored up to Python 3.14 and verbatim from 3.15 on, so it is normalized here.
+   Underscoring is lossy (shift_jis and shift-jis collapse), so both spellings are offered to the label table. A
+   delegate names the CPython codec a byte-order-mark encoding decodes through; otherwise the label is the spec
+   label the native decoder takes. */
+PyObject *turbohtml_codec_label(PyObject *Py_UNUSED(module), PyObject *name) {
+    if (!PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError, "a codec name must be a str");
+        return NULL;
+    }
+    PyObject *lowered = PyObject_CallMethod(name, "lower", NULL);
+    if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a str */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t len;
+    const char *utf8 = PyUnicode_AsUTF8AndSize(lowered, &len);
+    if (utf8 == NULL) {     /* GCOVR_EXCL_BR_LINE: a lone surrogate cannot reach a codec name */
+        Py_DECREF(lowered); /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    char folded[64];
+    static const char prefix[] = "whatwg_";
+    Py_ssize_t prefix_len = (Py_ssize_t)sizeof(prefix) - 1;
+    if (len >= (Py_ssize_t)sizeof(folded) || len <= prefix_len) {
+        Py_DECREF(lowered);
+        Py_RETURN_NONE; /* too long for any label, or no room for a label after the prefix */
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        folded[index] = utf8[index] == '-' ? '_' : utf8[index];
+    }
+    folded[len] = '\0';
+    Py_DECREF(lowered);
+    if (strncmp(folded, prefix, (size_t)prefix_len) != 0) {
+        Py_RETURN_NONE;
+    }
+    const char *rest = folded + prefix_len;
+    Py_ssize_t rest_len = len - prefix_len;
+    for (size_t index = 0; index < sizeof(CODEC_DELEGATES) / sizeof(*CODEC_DELEGATES); index++) {
+        if (strcmp(rest, CODEC_DELEGATES[index].normalized) == 0) {
+            return Py_BuildValue("(Os)", Py_True, CODEC_DELEGATES[index].codec);
+        }
+    }
+    if (th_encoding_lookup(rest, rest_len) != NULL) {
+        return Py_BuildValue("(Os)", Py_False, rest);
+    }
+    char dashed[64];
+    for (Py_ssize_t index = 0; index <= rest_len; index++) {
+        dashed[index] = rest[index] == '_' ? '-' : rest[index];
+    }
+    if (th_encoding_lookup(dashed, rest_len) != NULL) {
+        return Py_BuildValue("(Os)", Py_False, dashed);
+    }
+    Py_RETURN_NONE;
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
