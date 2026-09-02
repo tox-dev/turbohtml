@@ -18,7 +18,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, final
 
-from ._html import _css_computed_style, _css_parse_declarations, _css_parse_rules
+from ._html import (
+    _css_computed_style,
+    _css_declaration_index,
+    _css_declaration_text,
+    _css_parse_declarations,
+    _css_parse_rules,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -43,7 +49,7 @@ class StyleDeclaration:
     def __init__(self, items: tuple[tuple[str, str, bool], ...]) -> None:
         """Wrap the ``(name, value, important)`` triples the C parser produced."""
         self._items = items
-        self._last = {name: index for index, (name, _, _) in enumerate(items)}
+        self._last = _css_declaration_index(items)
 
     @classmethod
     def parse(cls, text: str) -> StyleDeclaration:
@@ -87,9 +93,7 @@ class StyleDeclaration:
     @property
     def text(self) -> str:
         """The declaration serialized as ``name: value`` pairs joined by ``"; "``."""
-        return "; ".join(
-            f"{name}: {value}{' !important' if important else ''}" for name, value, important in self._items
-        )
+        return _css_declaration_text(self._items)
 
     def __getitem__(self, name: str) -> str:
         """Return a property's winning value, raising :class:`KeyError` when it is not set."""

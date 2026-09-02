@@ -83,6 +83,10 @@ PyObject *turbohtml_xslt_resolve_imports(PyObject *module, PyObject *args);
    cascade for one element and returns its computed longhands (METH_O). */
 PyObject *turbohtml_css_parse_declarations(PyObject *module, PyObject *text);
 PyObject *turbohtml_css_parse_rules(PyObject *module, PyObject *text);
+/* _css_declaration_index(items) maps each property to its winning (last) declaration in first-seen order and
+   _css_declaration_text(items) serializes the declarations, the two StyleDeclaration accessors (both METH_O). */
+PyObject *turbohtml_css_declaration_index(PyObject *module, PyObject *items);
+PyObject *turbohtml_css_declaration_text(PyObject *module, PyObject *items);
 PyObject *turbohtml_css_computed_style(PyObject *module, PyObject *arg);
 
 /* CSS.escape per the CSSOM serialize-an-identifier rules, behind turbohtml.query.escape_identifier.

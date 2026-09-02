@@ -1,0 +1,2 @@
+Move :class:`~turbohtml.cssom.StyleDeclaration`'s accessors into the C core: which declaration wins a repeated property
+and the ``text`` serialization are computed there. Results are unchanged.
