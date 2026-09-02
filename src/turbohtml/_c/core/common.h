@@ -72,6 +72,9 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
 PyObject *turbohtml_matches_many(PyObject *module, PyObject *args);
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args);
+/* _select_limited(node, selector, limit) returns the first `limit` matching descendants of a node (all for
+   0), the Matcher.select limit applied inside the walk. METH_VARARGS. */
+PyObject *turbohtml_select_limited(PyObject *module, PyObject *args);
 PyObject *turbohtml_xslt_resolve_imports(PyObject *module, PyObject *args);
 
 /* Implemented in css/cssom/cssom.c: the CSS Object Model cascade (issue #546).
@@ -95,6 +98,9 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
    _linkify_apply snapshots targets and rewrites them around callback invocations. */
 PyObject *turbohtml_query_unique(PyObject *module, PyObject *elements);
 PyObject *turbohtml_query_siblings(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_parents(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_children(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_closest(PyObject *module, PyObject *args);
 PyObject *turbohtml_query_text(PyObject *module, PyObject *args);
 PyObject *turbohtml_query_attr(PyObject *module, PyObject *args);
 PyObject *turbohtml_query_has_class(PyObject *module, PyObject *args);

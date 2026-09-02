@@ -24,7 +24,10 @@ from turbohtml._html import (
     _matches_many,
     _query_add_class,
     _query_attr,
+    _query_children,
+    _query_closest,
     _query_has_class,
+    _query_parents,
     _query_remove_class,
     _query_siblings,
     _query_text,
@@ -145,7 +148,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
 
         :returns: a query over the parent elements.
         """
-        return Query(node.parent for node in self._nodes if isinstance(node.parent, Element))
+        return Query._wrap(_query_parents(self._nodes))  # a same-class factory
 
     def children(self, selector: str | None = None) -> Query:
         """
@@ -154,8 +157,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param selector: an optional CSS selector to keep only matching children.
         :returns: a query over the child elements.
         """
-        children = (child for node in self._nodes for child in node.children if isinstance(child, Element))
-        result = Query(children)
+        result = Query._wrap(_query_children(self._nodes))  # a same-class factory
         return result if selector is None else result.filter(selector)
 
     def siblings(self, selector: str | None = None) -> Query:
@@ -175,7 +177,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param selector: the CSS selector.
         :returns: a query over the nearest matching elements.
         """
-        return Query(found for node in self._nodes if (found := node.closest(selector)) is not None)
+        return Query._wrap(_query_closest(self._nodes, selector))  # a same-class factory
 
     def items(self) -> Iterator[Query]:
         """

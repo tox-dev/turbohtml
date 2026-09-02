@@ -23,7 +23,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
-from turbohtml._html import Document, Element, _css_escape_identifier, _matches_many, parse
+from turbohtml._html import (
+    Document,
+    Element,
+    _css_escape_identifier,
+    _matches_many,
+    _query_children,
+    _select_limited,
+    parse,
+)
 from turbohtml._internal._selectors import SelectorSyntaxError
 
 if TYPE_CHECKING:
@@ -136,8 +144,7 @@ class Matcher:
         :param limit: the most matches to return, or ``0`` for all.
         :returns: the matching descendants.
         """
-        results = node.select(self._selector)
-        return results if limit <= 0 else results[:limit]
+        return _select_limited(node, self._selector, limit)
 
     def select_one(self, node: Element | Document) -> Element | None:
         """
@@ -166,11 +173,9 @@ class Matcher:
             (soupsieve's rule for a single node).
         :returns: the members that match.
         """
-        if isinstance(iterable, list):
-            return _matches_many(iterable, self._selector)
         if isinstance(iterable, (Element, Document)):
-            iterable = (child for child in iterable.children if isinstance(child, Element))
-        return [node for node in iterable if node.matches(self._selector)]
+            return _matches_many(_query_children([iterable]), self._selector)
+        return _matches_many(list(iterable), self._selector)
 
     def closest(self, node: Element) -> Element | None:
         """
