@@ -188,6 +188,7 @@ static PyMethodDef html_methods[] = {
     {"_query_toggle_class", turbohtml_query_toggle_class, METH_VARARGS, NULL},
     {"_linkify_nofollow", turbohtml_linkify_nofollow, METH_O, NULL},
     {"_linkify_target_blank", turbohtml_linkify_target_blank, METH_O, NULL},
+    {"_microdata_as_dict", turbohtml_microdata_as_dict, METH_O, NULL},
     {"_register_structured_data", turbohtml_register_structured_data, METH_VARARGS, NULL},
     {"_register_feed", turbohtml_register_feed, METH_VARARGS, NULL},
     {"_register_article", turbohtml_register_article, METH_O, NULL},

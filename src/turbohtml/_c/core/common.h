@@ -226,6 +226,7 @@ PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject 
 PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwargs);
 PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *unused);
+PyObject *turbohtml_microdata_as_dict(PyObject *module, PyObject *item);
 PyObject *turbohtml_register_structured_data(PyObject *module, PyObject *args);
 
 /* Implemented in extract/feed.c, the engine behind Document.feed() (wired into the document method table in

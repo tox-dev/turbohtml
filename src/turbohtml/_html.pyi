@@ -141,6 +141,9 @@ from ._stubs.features import (
     _linkify_target_blank as _linkify_target_blank,
 )
 from ._stubs.features import (
+    _microdata_as_dict as _microdata_as_dict,
+)
+from ._stubs.features import (
     _phone_config_compile as _phone_config_compile,
 )
 from ._stubs.features import (
