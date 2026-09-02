@@ -213,6 +213,10 @@ PyObject *turbohtml_bleach_attributes(PyObject *module, PyObject *args);
    sets, the lowercased style properties with their compiled patterns, and the normalized transform rules
    (METH_VARARGS). */
 PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args);
+
+/* Implemented in dom/element.c. _build_element(tag, args, mapping_type) is the turbohtml.build call: a leading
+   mapping sets the attributes, a str argument becomes a Text child, a node passes through (METH_VARARGS). */
+PyObject *turbohtml_build_element(PyObject *module, PyObject *args);
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args);
 
 /* Implemented in annotation.c, the inscriptis annotation output processors over

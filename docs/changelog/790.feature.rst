@@ -1,0 +1,3 @@
+Move :mod:`turbohtml.build`'s argument sorting into the C core: a leading mapping becomes the attributes and a string
+becomes a text node there, for :data:`~turbohtml.build.E` and :func:`~turbohtml.build.document` alike. Results are
+unchanged.

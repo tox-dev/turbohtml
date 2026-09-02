@@ -2102,12 +2102,60 @@ static Py_UCS4 *shell_optional_ucs4(PyObject *arg, const char *what, Py_ssize_t 
 /* Append every node from children into section (a head or body element of the
    fresh shell), through the same adoption path as extend(). Returns 0, or -1 with
    an exception set when children is not iterable or holds a non-node. */
+/* The node list a builder's arguments become, from `first` on: a str becomes a Text node, anything else passes
+   through for the tree to accept or reject. With a `mapping_type`, a mapping past the first argument is the
+   TypeError the element builder raises for attributes out of place. */
+static PyObject *build_children(module_state *state, PyObject *items, Py_ssize_t first, PyObject *mapping_type) {
+    PyObject *sequence = PySequence_Fast(items, "children must be an iterable");
+    if (sequence == NULL) {
+        return NULL;
+    }
+    Py_ssize_t count = PySequence_Fast_GET_SIZE(sequence);
+    PyObject *children = PyList_New(count - first);
+    if (children == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(sequence); /* GCOVR_EXCL_LINE */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = first; index < count; index++) {
+        PyObject *item = PySequence_Fast_GET_ITEM(sequence, index);
+        PyObject *child;
+        if (PyUnicode_Check(item)) {
+            child = PyObject_CallOneArg(state->text_type, item);
+        } else {
+            int late_mapping = mapping_type == NULL ? 0 : PyObject_IsInstance(item, mapping_type);
+            if (late_mapping < 0) {
+                child = NULL; /* the shape test itself failed */
+            } else if (late_mapping) {
+                PyErr_SetString(PyExc_TypeError,
+                                "a mapping argument sets attributes and must come first, before any child");
+                child = NULL;
+            } else {
+                child = Py_NewRef(item);
+            }
+        }
+        if (child == NULL) {
+            Py_DECREF(children);
+            Py_DECREF(sequence);
+            return NULL;
+        }
+        PyList_SET_ITEM(children, index - first, child);
+    }
+    Py_DECREF(sequence);
+    return children;
+}
+
 static int shell_fill(module_state *state, PyObject *handle, th_node *section, PyObject *children) {
+    PyObject *nodes = build_children(state, children, 0, NULL);
+    if (nodes == NULL) {
+        return -1;
+    }
     PyObject *wrapper = node_wrap(state, handle, section);
     if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(nodes);  /* GCOVR_EXCL_LINE */
         return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *result = element_extend(wrapper, children);
+    PyObject *result = element_extend(wrapper, nodes);
+    Py_DECREF(nodes);
     Py_DECREF(wrapper);
     if (result == NULL) {
         return -1;
@@ -2741,4 +2789,34 @@ static PyObject *element_insert_adjacent_html(PyObject *self, PyObject *args) {
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_RETURN_NONE;
+}
+
+/* _build_element(tag, args, mapping_type) -> Element: the turbohtml.build call. A leading mapping among `args` sets
+   the attributes; every other argument is a child, a str becoming a Text node, a node passing through, and a
+   mapping past the first position a TypeError. `mapping_type` is collections.abc.Mapping. */
+PyObject *turbohtml_build_element(PyObject *module, PyObject *args) {
+    PyObject *tag, *parts, *mapping_type;
+    if (!PyArg_ParseTuple(args, "UO!O:_build_element", &tag, &PyTuple_Type, &parts, &mapping_type)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    PyObject *attrs = Py_None;
+    Py_ssize_t first = 0;
+    if (PyTuple_GET_SIZE(parts) > 0) {
+        int leading = PyObject_IsInstance(PyTuple_GET_ITEM(parts, 0), mapping_type);
+        if (leading < 0) {
+            return NULL;
+        }
+        if (leading) {
+            attrs = PyTuple_GET_ITEM(parts, 0);
+            first = 1;
+        }
+    }
+    PyObject *children = build_children(state, parts, first, mapping_type);
+    if (children == NULL) {
+        return NULL;
+    }
+    PyObject *element = PyObject_CallFunctionObjArgs(state->element_type, tag, attrs, children, NULL);
+    Py_DECREF(children);
+    return element;
 }

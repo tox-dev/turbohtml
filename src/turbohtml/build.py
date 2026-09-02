@@ -3,9 +3,8 @@ A terse builder for constructing HTML trees, the way ``lxml.builder.E`` did.
 
 This is a thin ergonomic layer over the existing element API: every ``E.<tag>(...)`` call builds a real
 :class:`turbohtml.Element` and appends its children through :meth:`turbohtml.Element.append`, so the result is an
-ordinary turbohtml tree that serializes with :meth:`turbohtml.Element.serialize`. The module is the one place a small
-amount of Python logic is justified, mirroring how ``lxml.builder.E`` is pure Python over its C tree; it adds no tree
-mechanics of its own.
+ordinary turbohtml tree that serializes with :meth:`turbohtml.Element.serialize`. Sorting a call's arguments into the
+attribute mapping and the children runs in C too; this module only names the tags.
 
 A call takes its arguments in order: a leading mapping is the element's attributes, a string becomes a
 :class:`turbohtml.Text` node, and any other node is appended as-is::
@@ -19,12 +18,12 @@ A call takes its arguments in order: a leading mapping is the element's attribut
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Final, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import Element, Text, _build_document
+from ._html import _build_document, _build_element
 
 if TYPE_CHECKING:
-    from ._html import Document, Node
+    from ._html import Document, Element, Node
 
 #: Attributes accepted by :class:`turbohtml.Element`: a name maps to a string, a token list, or ``None`` for a bare
 #: boolean attribute such as ``disabled``.
@@ -35,21 +34,6 @@ Attributes: TypeAlias = "Mapping[str, str | list[str] | None]"
 Content: TypeAlias = "Attributes | Node | str"
 
 
-def _is_attributes(arg: Content) -> TypeGuard[Attributes]:
-    """Treat a mapping argument as the element's attributes and any other argument as a child."""
-    return isinstance(arg, Mapping)
-
-
-def _to_node(arg: Content) -> Node:
-    """Turn one child argument into a node: a string becomes text, a node passes through, a mapping is rejected."""
-    if isinstance(arg, str):
-        return Text(arg)
-    if isinstance(arg, Mapping):
-        msg = "a mapping argument sets attributes and must come first, before any child"
-        raise TypeError(msg)
-    return arg
-
-
 def _build(tag: str, args: tuple[Content, ...]) -> Element:
     """
     Build one element: a leading mapping sets its attributes, and the rest become children in order.
@@ -58,12 +42,7 @@ def _build(tag: str, args: tuple[Content, ...]) -> Element:
         void element such as ``br`` or ``img`` is given children.
     :raises TypeError: if an attribute mapping is not the first argument.
     """
-    attrs: Attributes | None = None
-    children = args
-    if args and _is_attributes(args[0]):
-        attrs = args[0]
-        children = args[1:]
-    return Element(tag, attrs, [_to_node(arg) for arg in children])
+    return _build_element(tag, args, Mapping)
 
 
 class _TagFactory:
@@ -120,8 +99,8 @@ def document(
     title: str | None = None,
     lang: str | None = None,
     charset: str | None = "utf-8",
-    head: Iterable[Content] = (),
-    body: Iterable[Content] = (),
+    head: Iterable[Node | str] = (),
+    body: Iterable[Node | str] = (),
 ) -> Document:
     """
     Build a complete HTML5 document around the given head and body content.
@@ -149,7 +128,7 @@ def document(
     :raises TypeError: if ``title``, ``lang``, or ``charset`` is neither a str nor ``None``, or a head or body item is
         not a node or string.
     """
-    return _build_document([_to_node(item) for item in head], [_to_node(item) for item in body], title, lang, charset)
+    return _build_document(head, body, title, lang, charset)
 
 
 __all__ = [

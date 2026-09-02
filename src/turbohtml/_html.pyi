@@ -66,6 +66,9 @@ from ._stubs.dom import (
     _build_document as _build_document,
 )
 from ._stubs.dom import (
+    _build_element as _build_element,
+)
+from ._stubs.dom import (
     _codec_label as _codec_label,
 )
 from ._stubs.dom import (
