@@ -500,6 +500,14 @@ def _detect_rank(
     languages: dict[str, str],
     /,
 ) -> list[tuple[str, float, str | None, bool, str]]: ...
+def _boilerplate(
+    root: Element,
+    content: Element | None,
+    min_length: int,
+    max_link_density: float,
+    keep_headings: bool,
+    /,
+) -> list[tuple[str, bool, bool]]: ...
 
 @final
 class _DetectStream:
