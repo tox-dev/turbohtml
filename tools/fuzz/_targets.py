@@ -30,7 +30,7 @@ import turbohtml
 from turbohtml import clean
 
 # the harness targets the private URL/IDNA C bindings (th_url_split/join/percent, th_url_to_ascii) by design
-from turbohtml.extract._urls import (  # ruff:ignore[import-private-name]
+from turbohtml._html import (  # ruff:ignore[import-private-name]
     _url_join,
     _url_percent_decode,
     _url_percent_encode,

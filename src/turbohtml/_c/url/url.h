@@ -66,4 +66,45 @@ typedef struct {
    authority (after "scheme://" or "//", before the path/query/fragment) and owns the buffer. */
 void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_authority *out);
 
+/* The components url split reports, each a new str reference: the eight spans of urllib's SplitResult plus userinfo,
+   host and port, with the port presence flag and the TH_HOST_* kind of the host. th_url_parts_clear releases them. */
+enum {
+    TH_URL_SCHEME = 0,
+    TH_URL_NETLOC = 1,
+    TH_URL_PATH = 2,
+    TH_URL_QUERY = 3,
+    TH_URL_FRAGMENT = 4,
+    TH_URL_USERINFO = 5,
+    TH_URL_HOST = 6,
+    TH_URL_PORT = 7,
+    TH_URL_PART_COUNT = 8
+};
+
+typedef struct {
+    PyObject *part[TH_URL_PART_COUNT];
+    int has_port;
+    int kind;
+} th_url_parts;
+
+/* Split `url` (a str) into its components the way urllib.parse.urlsplit does, lowercasing the scheme and dropping the
+   tab and newline bytes the WHATWG parser removes. Returns -1 with a ValueError set for an unbalanced IPv6 bracket. */
+int th_url_split(PyObject *url, th_url_parts *out);
+void th_url_parts_clear(th_url_parts *parts);
+
+/* The per-component encoder and decoder bodies, and the tracker-name test, shared with the cleaning pipeline in
+   clean.c. th_url_encode_component rewraps the encoder's UnicodeEncodeError as the ValueError normalize_url raises for
+   a lone surrogate. th_url_is_tracker_obj returns 1 for a tracker, 0 otherwise, -1 with an error set. */
+PyObject *th_url_percent_encode_obj(PyObject *text, int set_id);
+PyObject *th_url_encode_component(PyObject *text, int set_id);
+PyObject *th_url_percent_decode_obj(PyObject *text);
+int th_url_is_tracker_obj(PyObject *key);
+
+/* The query filter and the language filter, the bodies behind _url_normalize_query and _url_language_matches, taken
+   as borrowed objects so the cleaning pipeline runs them without an argument tuple. th_url_language_matches returns 1
+   to keep, 0 to reject, -1 with an error set. */
+PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
+                                 PyObject *language);
+int th_url_language_matches(PyObject *query, PyObject *path, PyObject *hostname, PyObject *language, int strict,
+                            PyObject *language_params, PyObject *iso_639_1);
+
 #endif /* TURBOHTML_URL_H */

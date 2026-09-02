@@ -151,6 +151,15 @@ PyObject *turbohtml_url_scrub(PyObject *module, PyObject *arg);
 /* _url_variant_key(url): the scheme-and-trailing-slash-collapsed dedup key extract_links compares links by. METH_O. */
 PyObject *turbohtml_url_variant_key(PyObject *module, PyObject *arg);
 
+/* Implemented in url/clean.c, the crawl-oriented cleaning pipeline behind turbohtml.extract.clean_url, normalize_url
+   and extract_links. _url_normalize(url, strict, trailing_slash, strip_fragment, allow, deny, content,
+   language_params) returns the canonical spelling; _url_clean adds language and iso_639_1 and returns the cleaned
+   web URL or None; Document._extract_links(base_url, external_only, ...the same knobs) returns the cleaned,
+   deduplicated anchor set. */
+PyObject *turbohtml_url_normalize(PyObject *module, PyObject *args);
+PyObject *turbohtml_url_clean(PyObject *module, PyObject *args);
+PyObject *turbohtml_document_extract_links(PyObject *self, PyObject *args);
+
 /* _url_normalize_query(query, allow, deny, strict, content, language): drop denied, tracker, or non-allowlisted query
    parameters, encode the survivors, and sort them, the crawl cleaner's per-pair loop. Matches METH_VARARGS. */
 PyObject *turbohtml_url_normalize_query(PyObject *module, PyObject *args);

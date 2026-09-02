@@ -108,6 +108,30 @@ def _url_language_matches(
     /,
 ) -> bool: ...
 def _url_to_ascii(host: str, /) -> str: ...
+def _url_normalize(
+    url: str,
+    strict: bool,
+    trailing_slash: bool,
+    strip_fragment: bool,
+    allow: frozenset[str] | None,
+    deny: frozenset[str],
+    content: frozenset[str],
+    language_params: frozenset[str],
+    /,
+) -> str: ...
+def _url_clean(
+    url: str,
+    strict: bool,
+    trailing_slash: bool,
+    strip_fragment: bool,
+    allow: frozenset[str] | None,
+    deny: frozenset[str],
+    content: frozenset[str],
+    language_params: frozenset[str],
+    language: str | None,
+    iso_639_1: frozenset[str],
+    /,
+) -> str | None: ...
 def _register_links(link_type: type, /) -> None: ...
 def _microdata_as_dict(item: MicrodataItem, /) -> dict[str, JSONValue]: ...
 def _register_structured_data(

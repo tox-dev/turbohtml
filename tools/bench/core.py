@@ -944,7 +944,7 @@ def escape_identifier(idents: tuple[str, ...]) -> None:
 
 
 def idna(urls: tuple[str, ...]) -> None:
-    """Overflow the 1,024-entry cache so each IDNA conversion runs."""
+    """Run the domain-to-ASCII conversion over a batch of distinct Unicode hosts."""
     for url in urls:
         _normalize_url(url)
 

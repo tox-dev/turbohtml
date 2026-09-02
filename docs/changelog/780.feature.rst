@@ -1,0 +1,3 @@
+Move the URL cleaning pipeline into the C core: :func:`~turbohtml.extract.normalize_url`,
+:func:`~turbohtml.extract.clean_url` and :func:`~turbohtml.extract.extract_links` now run their normalization, gates and
+anchor walk in one C call each. Results are unchanged.
