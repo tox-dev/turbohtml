@@ -11,8 +11,8 @@ found. Each message carries a stable ``code``, a ``severity`` (``"error"``, ``"w
 ``"info"``), a human-readable ``message``, and the source ``line``/``column``, the way the Nu
 Html Checker (validator.nu) classifies its findings by type and subType.
 
-The whole walk runs in the C core; the Python layer only shapes the input and wraps the C
-findings into the report records. :func:`check_html` is the shorthand that parses a markup
+The walk, the verdict and the severity views run in the C core; the Python layer only
+wraps the C findings into the report records. :func:`check_html` is the shorthand that parses a markup
 string first.
 """
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 from itertools import starmap
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from ._html import _conformance_check, parse
+from ._html import _conformance_check, _conformance_filter, parse
 
 if TYPE_CHECKING:
     from ._html import Document, Node
@@ -75,17 +75,17 @@ class ConformanceReport(NamedTuple):
     @property
     def errors(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"error"`` messages -- the findings that make the document invalid."""
-        return tuple(message for message in self.messages if message.severity == "error")
+        return _conformance_filter(self.messages, "error")
 
     @property
     def warnings(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"warning"`` messages -- the authoring recommendations."""
-        return tuple(message for message in self.messages if message.severity == "warning")
+        return _conformance_filter(self.messages, "warning")
 
     @property
     def infos(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"info"`` messages -- the advisory notes."""
-        return tuple(message for message in self.messages if message.severity == "info")
+        return _conformance_filter(self.messages, "info")
 
 
 def check(document: Document | Node) -> ConformanceReport:
@@ -98,9 +98,8 @@ def check(document: Document | Node) -> ConformanceReport:
     :param document: a tree parsed with :func:`turbohtml.parse` (or an element within one).
     :returns: the :class:`ConformanceReport` with the verdict and every message.
     """
-    messages = tuple(starmap(ConformanceMessage, _conformance_check(document)))
-    valid = not any(message.severity == "error" for message in messages)
-    return ConformanceReport(valid, messages)
+    valid, findings = _conformance_check(document)
+    return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
 
 
 def check_html(markup: str) -> ConformanceReport:

@@ -1,0 +1,2 @@
+Move the conformance verdict and the severity views into the C core: :func:`~turbohtml.conformance.check` reads
+``valid`` from the walk, and ``errors``/``warnings``/``infos`` filter there. Results are unchanged.
