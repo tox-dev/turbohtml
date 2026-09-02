@@ -39,7 +39,16 @@ from dataclasses import dataclass
 from itertools import starmap
 from typing import Final, Literal
 
-from ._html import _decode, _detect, _detect_language, _detect_rank, _DetectStream, _is_normalized, _normalize
+from ._html import (
+    _codec_label,
+    _decode,
+    _detect,
+    _detect_language,
+    _detect_rank,
+    _DetectStream,
+    _is_normalized,
+    _normalize,
+)
 
 __all__ = [
     "Detection",
@@ -59,17 +68,6 @@ NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
 _FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
 
-# The names a byte-order mark reports, keyed the way CPython normalizes a codec name (lowercased, every non-alphanumeric
-# byte an underscore). The spec's label table does not carry them, and CPython's UTF-8 and UTF-16 decoders already agree
-# with it byte for byte, so these delegate rather than going through the native decoders.
-_BOM_CODECS: Final[dict[str, str]] = {
-    "utf_8_sig": "utf-8-sig",
-    "utf_16le": "utf-16-le",
-    "utf_16be": "utf-16-be",
-    "utf_32le": "utf-32-le",
-    "utf_32be": "utf-32-be",
-}
-
 
 def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]
     """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
@@ -83,21 +81,14 @@ def _search(name: str) -> codecs.CodecInfo | None:
 
     These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
     subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
-    codec at all.
-
-    The name arrives lowercased and underscored up to Python 3.14 and verbatim from 3.15 on, so normalize it here rather
-    than trust either. Underscoring is lossy -- ``shift_jis`` and ``shift-jis`` collapse -- so both spellings of the
-    label are offered to the C lookup, which knows every spec alias.
+    codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
+    names that delegate to CPython's own decoders.
     """
-    normalized = name.lower().replace("-", "_")
-    if not normalized.startswith("whatwg_"):
+    if (found := _codec_label(name)) is None:
         return None
-    normalized = normalized.removeprefix("whatwg_")
-    if (delegate := _BOM_CODECS.get(normalized)) is not None:
-        return codecs.CodecInfo(_refuse_encode, codecs.lookup(delegate).decode, name=name)
-    label = next((form for form in (normalized, normalized.replace("_", "-")) if _decodable(form)), None)
-    if label is None:
-        return None
+    delegate, label = found
+    if delegate:
+        return codecs.CodecInfo(_refuse_encode, codecs.lookup(label).decode, name=name)
 
     def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
         return _decode(data, label), len(data)
@@ -105,15 +96,6 @@ def _search(name: str) -> codecs.CodecInfo | None:
     # CodecInfo's decoder is typed against _typeshed.ReadableBuffer, which Sphinx cannot import when it walks the
     # annotations at doc-build time; bytes is what the codecs machinery ever passes a decode function.
     return codecs.CodecInfo(_refuse_encode, decode, name=name)  # ty: ignore[invalid-argument-type]
-
-
-def _decodable(label: str) -> bool:
-    """Report whether the C label table knows *label*, so the native decoder can be reached through it."""
-    try:
-        _decode(b"", label)
-    except LookupError:
-        return False
-    return True
 
 
 codecs.register(_search)
@@ -175,9 +157,6 @@ class EncodingMatch:
     language: str | None
     bom: bool = False
     codec: str | None = None
-
-
-_NO_MATCH: Final = EncodingMatch(None, 0.0, None)
 
 
 # Every character a DNS label may hold once it is lower-cased and Punycode-encoded (RFC 1123, plus RFC 3492's "xn--").
@@ -281,8 +260,6 @@ class EncodingDetector:
         """Start an empty stream with the given options."""
         self._options = options or _DEFAULT
         self._stream = _DetectStream(self._options.tld)
-        self._head = b""
-        self._fed = False
         self._result: EncodingMatch | None = None
         self.done = False
 
@@ -297,42 +274,35 @@ class EncodingDetector:
 
         :param data: the next bytes of the stream.
         """
-        if self.done or not data:
+        if self.done:
             return
-        self._fed = True
-        self._stream.feed(data)
-        if len(self._head) < 4:
-            self._head = (self._head + bytes(data))[:4]
-        if self._head.startswith((b"\xef\xbb\xbf", b"\xfe\xff", b"\x00\x00\xfe\xff", b"\xff\xfe\x00\x00")):
-            self.done = True  # a fully-resolved byte-order mark decides the stream, whatever follows
-        elif self._head.startswith(b"\xff\xfe") and len(self._head) >= 4:
-            self.done = True  # FF FE is UTF-16LE now that the next pair rules out the FF FE 00 00 UTF-32LE mark
+        self.done = self._stream.feed(data)
 
     def close(self) -> EncodingMatch:
         """Read the detector's answer, cache it, and return it."""
         if self._result is None:
-            self._result = _rank(self._stream.close(), self._options)[0] if self._fed else _NO_MATCH
+            self._result = _rank(self._stream.close(), self._options)[0]
             self.done = True
         return self._result
 
     def reset(self) -> None:
         """Forget the stream and the result so the instance can start over."""
         self._stream = _DetectStream(self._options.tld)
-        self._head = b""
-        self._fed = False
         self._result = None
         self.done = False
 
 
 def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
-    """Rank the candidates for ``data``, apply the options, and always return at least the no-match sentinel."""
-    return _rank(_detect(data, options.tld), options) if data else [_NO_MATCH]
+    """Rank the candidates for ``data`` and apply the options; C answers with the no-match row when nothing fits."""
+    return _rank(_detect(data, options.tld), options)
 
 
-def _rank(result: tuple[str | None, bool, list[tuple[str, int]], bool], options: Detection) -> list[EncodingMatch]:
-    """Shape one detector result, apply the options, and always return at least the no-match sentinel."""
+def _rank(
+    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
+) -> list[EncodingMatch]:
+    """Shape one detector result and apply the options; the rows always hold at least the no-match sentinel."""
     rows = _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _LANGUAGES)
-    return list(starmap(EncodingMatch, rows)) or [_NO_MATCH]
+    return list(starmap(EncodingMatch, rows))
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,9 +325,6 @@ class LanguageMatch:
     confidence: float
     script: str | None
     name: str | None = None
-
-
-_NO_LANGUAGE: Final = LanguageMatch(None, 0.0, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,10 +372,7 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     :raises TypeError: when ``text`` is not a ``str``.
     """
     settings = options or _DEFAULT_LANGUAGE
-    language, confidence, script, name = _detect_language(text, settings.allowed, settings.excluded)
-    if language is None or confidence < settings.threshold:
-        return _NO_LANGUAGE
-    return LanguageMatch(language, confidence, script, name)
+    return LanguageMatch(*_detect_language(text, settings.allowed, settings.excluded, settings.threshold))
 
 
 def normalize(form: NormalizationForm, text: str, /) -> str:

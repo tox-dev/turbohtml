@@ -51,8 +51,15 @@ def test_the_allowlist_drops_everything_else() -> None:
     assert [row[0] for row in rows] == ["koi8-r"]
 
 
-def test_an_empty_allowlist_keeps_nothing() -> None:
-    assert _detect_rank(_SCORED, (), (), None, 0.0, _LANGUAGES) == []
+_NO_MATCH = (None, 0.0, None, False, None)
+
+
+def test_an_empty_allowlist_leaves_the_no_match_row() -> None:
+    assert _detect_rank(_SCORED, (), (), None, 0.0, _LANGUAGES) == [_NO_MATCH]
+
+
+def test_no_result_is_the_no_match_row() -> None:
+    assert _detect_rank(None, None, (), None, 0.0, _LANGUAGES) == [_NO_MATCH]
 
 
 def test_the_exclusions_drop_their_own() -> None:

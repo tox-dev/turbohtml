@@ -240,6 +240,7 @@ static PyMethodDef html_methods[] = {
     {"_detect", turbohtml_detect_encoding, METH_VARARGS, NULL},
     {"_detect_rank", turbohtml_detect_rank, METH_VARARGS, NULL},
     {"_detect_language", turbohtml_detect_language, METH_VARARGS, NULL},
+    {"_codec_label", turbohtml_codec_label, METH_O, NULL},
     {"_normalize", turbohtml_normalize, METH_VARARGS, NULL},
     {"_collapse_whitespace", turbohtml_collapse_whitespace, METH_O, NULL},
     {"_is_normalized", turbohtml_is_normalized, METH_VARARGS, NULL},
