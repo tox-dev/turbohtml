@@ -565,6 +565,86 @@ static PyObject *css_decls_to_tuple(const css_decl *decls, Py_ssize_t count) {
     return result;
 }
 
+/* Borrow the ((name, value, important), ...) tuple a StyleDeclaration wraps, rejecting anything else. */
+static int css_declaration_items(PyObject *items) {
+    if (!PyTuple_Check(items)) {
+        PyErr_SetString(PyExc_TypeError, "declaration items must be a tuple of (name, value, important) triples");
+        return -1;
+    }
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(items); index++) {
+        PyObject *triple = PyTuple_GET_ITEM(items, index);
+        if (!PyTuple_Check(triple) || PyTuple_GET_SIZE(triple) != 3 || !PyUnicode_Check(PyTuple_GET_ITEM(triple, 0)) ||
+            !PyUnicode_Check(PyTuple_GET_ITEM(triple, 1))) {
+            PyErr_SetString(PyExc_TypeError, "declaration items must be a tuple of (name, value, important) triples");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* _css_declaration_index(items) -> {name: index}: the winning declaration of each property, a later duplicate
+   winning the way the cascade resolves it, keyed in first-seen order so iteration visits each property once. */
+PyObject *turbohtml_css_declaration_index(PyObject *Py_UNUSED(module), PyObject *items) {
+    if (css_declaration_items(items) < 0) {
+        return NULL;
+    }
+    PyObject *index_of = PyDict_New();
+    if (index_of == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(items); index++) {
+        PyObject *position = PyLong_FromSsize_t(index);
+        if (position == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(index_of); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;         /* GCOVR_EXCL_LINE */
+        }
+        int stored = PyDict_SetItem(index_of, PyTuple_GET_ITEM(PyTuple_GET_ITEM(items, index), 0), position);
+        Py_DECREF(position);
+        if (stored < 0) {        /* GCOVR_EXCL_BR_LINE: a str-keyed insert only fails on allocation failure */
+            Py_DECREF(index_of); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;         /* GCOVR_EXCL_LINE */
+        }
+    }
+    return index_of;
+}
+
+/* _css_declaration_text(items) -> str: the declarations serialized as "name: value" pairs, an important one
+   carrying its " !important" flag, joined by "; " in source order. */
+PyObject *turbohtml_css_declaration_text(PyObject *Py_UNUSED(module), PyObject *items) {
+    if (css_declaration_items(items) < 0) {
+        return NULL;
+    }
+    Py_ssize_t count = PyTuple_GET_SIZE(items);
+    PyObject *parts = PyList_New(count);
+    if (parts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *triple = PyTuple_GET_ITEM(items, index);
+        int important = PyObject_IsTrue(PyTuple_GET_ITEM(triple, 2));
+        if (important < 0) { /* the flag's truth test raised */
+            Py_DECREF(parts);
+            return NULL;
+        }
+        PyObject *part = th_str_format("%U: %U%s", PyTuple_GET_ITEM(triple, 0), PyTuple_GET_ITEM(triple, 1),
+                                       important ? " !important" : "");
+        if (part == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(parts); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        PyList_SET_ITEM(parts, index, part);
+    }
+    PyObject *separator = PyUnicode_FromString("; ");
+    if (separator == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(parts);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    PyObject *text = PyUnicode_Join(separator, parts);
+    Py_DECREF(separator);
+    Py_DECREF(parts);
+    return text;
+}
+
 PyObject *turbohtml_css_parse_declarations(PyObject *module, PyObject *text) {
     (void)module;
     if (!PyUnicode_Check(text)) {

@@ -222,6 +222,8 @@ static PyMethodDef html_methods[] = {
     {"_xslt_transform", turbohtml_xslt_transform, METH_VARARGS, NULL},
     {"_css_specificity", turbohtml_css_specificity, METH_VARARGS, NULL},
     {"_css_parse_declarations", turbohtml_css_parse_declarations, METH_O, NULL},
+    {"_css_declaration_index", turbohtml_css_declaration_index, METH_O, NULL},
+    {"_css_declaration_text", turbohtml_css_declaration_text, METH_O, NULL},
     {"_css_parse_rules", turbohtml_css_parse_rules, METH_O, NULL},
     {"_css_computed_style", turbohtml_css_computed_style, METH_O, NULL},
     {"_css_escape_identifier", turbohtml_css_escape_identifier, METH_O, NULL},

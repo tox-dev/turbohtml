@@ -228,6 +228,12 @@ from ._stubs.query import (
     _css_computed_style as _css_computed_style,
 )
 from ._stubs.query import (
+    _css_declaration_index as _css_declaration_index,
+)
+from ._stubs.query import (
+    _css_declaration_text as _css_declaration_text,
+)
+from ._stubs.query import (
     _css_escape_identifier as _css_escape_identifier,
 )
 from ._stubs.query import (
