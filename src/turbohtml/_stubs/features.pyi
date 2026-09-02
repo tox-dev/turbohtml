@@ -3,14 +3,14 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import TypeAlias
 
-from turbohtml.clean import PhoneNumber, PhoneType
+from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType
 from turbohtml.extract._feed import Entry, Feed
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
 from .dom import Element
 
 # (start, end, kind, href, phone): the scanner builds the href for every kind and sets the phone for kind 4
-_Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None]
+_Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None, bool]
 _PhoneSpec: TypeAlias = tuple[
     tuple[str, ...],
     bool,
@@ -45,8 +45,11 @@ def _linkify_find(
     schemes: tuple[str, ...],
     url_schemes: tuple[str, ...],
     phones: _PhoneConfig | None,
+    unique: bool,
     /,
 ) -> list[_Span]: ...
+def _linkify_nofollow(link: LinkCandidate, /) -> LinkCandidate: ...
+def _linkify_target_blank(link: LinkCandidate, /) -> LinkCandidate: ...
 def _linkify_has(
     text: str,
     emails: bool,

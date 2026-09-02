@@ -36,8 +36,10 @@ can see that a URL already sits inside an ``<a>`` or a ``<script>`` and leave it
 string cannot. The scan for link candidates is the trigger-then-expand model the Rust ``linkify`` crate uses, kept in C:
 it looks for the few bytes that can start a link (``:`` for a scheme, ``@`` for an email, ``.`` for a bare domain) and
 expands outward from each, rather than backtracking a regex. A bare domain counts only when its last label is a real
-TLD, matched against a generated IANA table the same way the tag and entity tables are built. The Python layer owns the
-tree walk and the callbacks; the C layer owns the byte scan.
+TLD, matched against a generated IANA table the same way the tag and entity tables are built -- in its punycode spelling
+or its Unicode one. That rule is what separates a domain from an ordinary word, so it applies only to a domain written
+on its own: an author who writes ``http://`` has already said the authority is a host, and ``localhost``, ``intranet``
+and ``[::1]`` are hosts. The Python layer owns the tree walk and the callbacks; the C layer owns the byte scan.
 
 Sanitizing untrusted HTML needs the tree, not the tokens. :mod:`turbohtml.clean` parses the input, walks the tree
 dropping everything not on an allowlist, and serializes once. There is no serialize-then-reparse round trip: that round

@@ -56,12 +56,16 @@ def width_prefix(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture
-def with_hrefs() -> Callable[[str, list[tuple[int, int, int]]], list[tuple[int, int, int, str, None]]]:
-    """Widen (start, end, kind) rows to the scanner's span shape: its href per kind, no phone for a URL or an email."""
+def with_hrefs() -> Callable[[str, list[tuple[int, int, int]]], list[tuple[int, int, int, str, None, bool]]]:
+    """Widen (start, end, kind) rows to the scanner's span shape: its href per kind, no phone, its address answer."""
 
-    def widen(text: str, spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, str, None]]:
+    def widen(text: str, spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, str, None, bool]]:
         prefixes = {0: "http://", 1: "mailto:"}
-        return [(start, end, kind, prefixes.get(kind, "") + text[start:end], None) for start, end, kind in spans]
+        emails = {1, 5}
+        return [
+            (start, end, kind, prefixes.get(kind, "") + text[start:end], None, kind in emails)
+            for start, end, kind in spans
+        ]
 
     return widen
 

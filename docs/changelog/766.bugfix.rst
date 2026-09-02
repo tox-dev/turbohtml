@@ -1,0 +1,3 @@
+Leave a URL whose scheme syntax is malformed entirely plain instead of linking its host on its own, so
+``https:/nonsense.com`` no longer renders as ``https:/<a href="http://nonsense.com">nonsense.com</a>``. Link a written
+``mailto:`` URI as one anchor covering its own scheme.

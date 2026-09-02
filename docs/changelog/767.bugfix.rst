@@ -1,7 +1,3 @@
-Leave a URL whose scheme syntax is malformed entirely plain instead of linking its host on its own, so
-``https:/nonsense.com`` no longer renders as ``https:/<a href="http://nonsense.com">nonsense.com</a>``. Link a written
-``mailto:`` URI as one anchor covering its own scheme.
-
 End a host before a trailing hyphen rather than dropping the whole link, so ``http://example.com-`` links
 ``http://example.com``. Treat a port outside 0-65535 as text, and stop reading an underscore in a host's last two labels
 as a bare domain, so ``_example.com`` stays plain while the ``_dmarc.example.com`` of a DNS record still links.

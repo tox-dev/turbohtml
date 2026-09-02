@@ -20,6 +20,8 @@ from turbohtml._html import (
     _linkify_apply,
     _linkify_find,
     _linkify_has,
+    _linkify_nofollow,
+    _linkify_target_blank,
     _phone_config_compile,
     _phone_number_check,
     _phone_number_format,
@@ -33,9 +35,6 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
     from turbohtml._html import _PhoneConfig
-
-# the two kinds the C scanner numbers as an address: a bare one and a written mailto: URI
-_EMAIL_KINDS: Final = (1, 5)
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
@@ -468,41 +467,27 @@ class LinkCandidate:
 Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
 
 
-def _is_web_url(url: str) -> bool:
-    """Is this an ``http``/``https`` URL? The scheme is matched case-insensitively, so ``HTTP://`` counts."""
-    return url[:6].lower().startswith(("http:", "https:"))
-
-
-def nofollow(link: LinkCandidate) -> LinkCandidate | None:
+#: The callbacks linkify applies when a caller passes none, matching bleach's default.
+def nofollow(link: LinkCandidate) -> LinkCandidate:
     """
     Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
 
     :param link: the link to adjust.
-    :returns: the link, with ``nofollow`` added when it is a web link.
+    :returns: the link, with ``nofollow`` added when it is a web link; never ``None``.
     """
-    if _is_web_url(link.url):
-        rels = link.attrs.get("rel", "").split()
-        if "nofollow" not in rels:
-            rels.append("nofollow")
-        link.attrs["rel"] = " ".join(rels)
-    return link
+    return _linkify_nofollow(link)
 
 
-def target_blank(link: LinkCandidate) -> LinkCandidate | None:
+def target_blank(link: LinkCandidate) -> LinkCandidate:
     """
     Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
 
     :param link: the link to adjust.
-    :returns: the link, with ``target`` set on a web link or cleared on a non-web link.
+    :returns: the link, with ``target`` set on a web link or cleared on a non-web link; never ``None``.
     """
-    if _is_web_url(link.url):
-        link.attrs["target"] = "_blank"
-    else:
-        link.attrs.pop("target", None)
-    return link
+    return _linkify_target_blank(link)
 
 
-#: The callbacks linkify applies when a caller passes none, matching bleach's default.
 DEFAULT_CALLBACKS: Final = (nofollow,)
 
 
@@ -515,7 +500,8 @@ class Linkify:
 
     :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
     :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-    :param parse_email: also autolink bare email addresses as ``mailto:`` links.
+    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
+        ``mailto:`` URI.
     :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
     :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
     :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
@@ -649,9 +635,9 @@ class LinkSpan:
     __hash__ = None  # a span carries offsets into one specific string, so it is not a stable dict key
 
 
-def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None]) -> LinkSpan:
-    start, end, kind, url, phone = span
-    return LinkSpan(start, end, text[start:end], url, kind in _EMAIL_KINDS, phone=phone)
+def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None, bool]) -> LinkSpan:
+    start, end, _kind, url, phone, is_email = span
+    return LinkSpan(start, end, text[start:end], url, is_email, phone=phone)
 
 
 class LinkDetector:
@@ -661,8 +647,10 @@ class LinkDetector:
     Unlike :class:`Linker`, which rewrites HTML, a detector only *locates* links and hands back :class:`LinkSpan`
     objects, leaving the text untouched.
 
-    :param emails: detect bare email addresses.
-    :param bare_domains: detect bare domains (``example.com``) with no explicit scheme.
+    :param emails: detect email addresses, bare or written as a ``mailto:`` URI; the URI's span covers its own
+        scheme, so it links as one whole.
+    :param bare_domains: detect bare domains (``example.com``) with no explicit scheme. A host behind a written
+        scheme needs no dot, so ``http://localhost:8000/`` and ``http://[::1]/`` are links either way.
     :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
     :param schemes: extra schemes to detect, both as scheme-less opaque URLs (``tel:``, ``bitcoin:``) and as
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
@@ -702,17 +690,26 @@ class LinkDetector:
             phones=self.phones,
         ), ()
 
-    def find(self, text: str) -> list[LinkSpan]:
+    def find(self, text: str, *, unique: bool = False) -> list[LinkSpan]:
         """
         Find every link in a run of text.
 
         :param text: the text to scan.
+        :param unique: keep only the first span of each distinct ``url``, so text repeating one address yields it
+            once; offsets then point at that first occurrence.
         :returns: every link as a :class:`LinkSpan`, in the order it appears.
         """
         return [
             _span_from_match(text, span)
             for span in _linkify_find(
-                text, self.emails, self.bare_domains, self._tlds, self._schemes, self._url_schemes, self._phone_config
+                text,
+                self.emails,
+                self.bare_domains,
+                self._tlds,
+                self._schemes,
+                self._url_schemes,
+                self._phone_config,
+                unique,
             )
         ]
 

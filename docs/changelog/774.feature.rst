@@ -1,0 +1,4 @@
+Move the work behind the shipped link callbacks :func:`~turbohtml.clean.nofollow` and
+:func:`~turbohtml.clean.target_blank` into the C core. They keep their names, their signatures and their behavior, with
+one correction: the web-scheme test now matches the whole scheme, so ``ht:`` and ``httpx:`` no longer count as web
+links.
