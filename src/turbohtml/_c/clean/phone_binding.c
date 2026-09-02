@@ -129,12 +129,33 @@ static int parse_flag(PyObject *value, const char *name, uint8_t *out) {
     return 0;
 }
 
-static int parse_type_mask(PyObject *value, const th_phone_config *config, uint16_t *out) {
-    if (!PyLong_CheckExact(value)) {
-        PyErr_SetString(PyExc_TypeError, "phone type mask must be int");
+/* The type mask from the wanted PhoneType members: None wants every type, else each member's bit is its index in
+   the recognizer's type table. The settings record has already rejected an empty set and UNKNOWN. */
+static int parse_type_mask(PyObject *wanted, PyObject *type_table, const th_phone_config *config, uint16_t *out) {
+    if (wanted == Py_None) {
+        *out = ALL_TYPES;
+        return 0;
+    }
+    if (!PyTuple_Check(type_table)) {
+        PyErr_SetString(PyExc_TypeError, "the phone type table must be a tuple");
         return -1;
     }
-    long mask = PyLong_AsLong(value);
+    PyObject *iterator = PyObject_GetIter(wanted);
+    if (iterator == NULL) {
+        return -1;
+    }
+    long mask = 0;
+    PyObject *member;
+    while ((member = PyIter_Next(iterator)) != NULL) {
+        Py_ssize_t index = PySequence_Index(type_table, member);
+        Py_DECREF(member);
+        if (index < 0) {
+            Py_DECREF(iterator);
+            return -1; /* not a PhoneType member */
+        }
+        mask |= 1L << index;
+    }
+    Py_DECREF(iterator);
     if (mask < 1 || mask > (long)ALL_TYPES) {
         PyErr_SetString(PyExc_ValueError, "phone type mask must be within 1..0x7FF");
         return -1;
@@ -264,7 +285,7 @@ static int fill_config(PhoneConfigObject *self, PyObject *spec) {
         parse_flag(PyTuple_GET_ITEM(spec, 4), "require_national_prefix", &config->require_national_prefix) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 5), "collapse_whitespace", &config->collapse_whitespace) < 0 ||
         parse_grouping(PyTuple_GET_ITEM(spec, 6), config, &config->grouping) < 0 ||
-        parse_type_mask(PyTuple_GET_ITEM(spec, 7), config, &config->type_mask) < 0 ||
+        parse_type_mask(PyTuple_GET_ITEM(spec, 7), PyTuple_GET_ITEM(spec, 10), config, &config->type_mask) < 0 ||
         parse_labels(PyTuple_GET_ITEM(spec, 8), self) < 0 ||
         parse_classes(PyTuple_GET_ITEM(spec, 9), PyTuple_GET_ITEM(spec, 10), self) < 0 ||
         parse_flag(PyTuple_GET_ITEM(spec, 11), "parsing_extensions", &config->parsing_extensions) < 0) {
@@ -492,4 +513,68 @@ int phone_register(PyObject *module, module_state *state) {
         return -1;                          /* GCOVR_EXCL_LINE */
     }
     return 0;
+}
+
+/* _phone_e164(country_code, national_number) -> str | None: the international number when it fits E.164's fifteen
+   digits, else None. */
+PyObject *turbohtml_phone_e164(PyObject *Py_UNUSED(module), PyObject *args) {
+    int country_code;
+    PyObject *national;
+    if (!PyArg_ParseTuple(args, "iU:_phone_e164", &country_code, &national)) {
+        return NULL;
+    }
+    PyObject *number = th_str_format("+%d%U", country_code, national);
+    if (number == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    if (PyUnicode_GET_LENGTH(number) - 1 > 15) {
+        Py_DECREF(number);
+        Py_RETURN_NONE;
+    }
+    return number;
+}
+
+/* _phone_regions(codes) -> tuple: the region codes stripped and upper-cased, each kept once in first-seen order.
+   Only an ASCII code is folded: `ß` would otherwise fold to South Sudan's `SS`. */
+PyObject *turbohtml_phone_regions(PyObject *Py_UNUSED(module), PyObject *codes) {
+    PyObject *iterator = PyObject_GetIter(codes);
+    if (iterator == NULL) {
+        return NULL;
+    }
+    PyObject *seen = PyDict_New();
+    if (seen == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(iterator); /* GCOVR_EXCL_LINE */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    PyObject *code;
+    while ((code = PyIter_Next(iterator)) != NULL) {
+        if (!PyUnicode_Check(code)) {
+            PyErr_SetString(PyExc_TypeError, "regions entries must be str");
+            Py_DECREF(code);
+            break;
+        }
+        PyObject *folded = code;
+        if (PyUnicode_IS_ASCII(code)) {
+            Py_SETREF(folded, PyObject_CallMethod(folded, "strip", NULL));
+            if (folded != NULL) { /* GCOVR_EXCL_BR_LINE: str.strip only fails on allocation failure */
+                Py_SETREF(folded, PyObject_CallMethod(folded, "upper", NULL));
+            }
+            if (folded == NULL) { /* GCOVR_EXCL_BR_LINE: str.upper only fails on allocation failure */
+                break;            /* GCOVR_EXCL_LINE */
+            }
+        }
+        int stored = PyDict_SetItem(seen, folded, Py_None);
+        Py_DECREF(folded);
+        if (stored < 0) { /* GCOVR_EXCL_BR_LINE: a str insert only fails on allocation failure */
+            break;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(iterator);
+    if (PyErr_Occurred()) {
+        Py_DECREF(seen);
+        return NULL;
+    }
+    PyObject *regions = PySequence_Tuple(seen);
+    Py_DECREF(seen);
+    return regions;
 }
