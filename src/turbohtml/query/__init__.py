@@ -18,7 +18,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast, overload
 
-from turbohtml._html import Document, Element, _matches_many, _select_many, parse
+from turbohtml._html import (
+    Document,
+    Element,
+    _matches_many,
+    _query_add_class,
+    _query_attr,
+    _query_has_class,
+    _query_remove_class,
+    _query_siblings,
+    _query_text,
+    _query_toggle_class,
+    _query_unique,
+    _select_many,
+    parse,
+)
 
 from ._match import (
     DEBUG,
@@ -57,29 +71,6 @@ __all__ = [
 ]
 
 
-def _unique(elements: Iterable[Element]) -> list[Element]:
-    """
-    Return the elements in order, dropping any later duplicate.
-
-    A fresh wrapper is handed out on each tree access, so two wrappers of one node
-    are distinct objects; equality and hashing compare the underlying node, so a
-    set of the elements deduplicates by node identity.
-    """
-    seen: set[Element] = set()
-    out: list[Element] = []
-    for element in elements:
-        if element not in seen:
-            seen.add(element)
-            out.append(element)
-    return out
-
-
-def _class_list(element: Element) -> list[str]:
-    """Read the ``class`` attribute, which the tree stores tokenized as a list or omits entirely."""
-    value = element.attrs.get("class")
-    return list(value) if isinstance(value, list) else []
-
-
 class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors pyquery's broad chainable method set
     """
     An ordered, duplicate-free set of elements with chainable traversal and mutation.
@@ -97,7 +88,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         elif isinstance(source, Element):
             self._nodes = [source]
         else:
-            self._nodes = _unique(source)
+            self._nodes = _query_unique(source)
 
     @classmethod
     def _wrap(cls, nodes: list[Element]) -> Query:
@@ -174,13 +165,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param selector: an optional CSS selector to keep only matching siblings.
         :returns: a query over the sibling elements.
         """
-        result = Query(
-            sibling
-            for node in self._nodes
-            if isinstance(node.parent, Element)
-            for sibling in node.parent.children
-            if isinstance(sibling, Element) and sibling != node
-        )
+        result = Query._wrap(_query_siblings(self._nodes))  # a same-class factory
         return result if selector is None else result.filter(selector)
 
     def closest(self, selector: str) -> Query:
@@ -214,10 +199,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :returns: the attribute value when reading, or the query when setting.
         """
         if value is None:
-            if not self._nodes:
-                return None
-            current = self._nodes[0].attrs.get(name)
-            return " ".join(current) if isinstance(current, list) else current
+            return _query_attr(self._nodes, name)
         for node in self._nodes:
             node.attrs[name] = value
         return self
@@ -234,7 +216,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :returns: the combined text when reading, or the query when setting.
         """
         if value is None:
-            return " ".join(node.text for node in self._nodes)
+            return _query_text(self._nodes)
         for node in self._nodes:
             node.text = value
         return self
@@ -254,7 +236,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param name: the class name.
         :returns: whether any wrapped element carries the class.
         """
-        return any(name in _class_list(node) for node in self._nodes)
+        return _query_has_class(self._nodes, name)
 
     def add_class(self, name: str) -> Query:
         """
@@ -263,11 +245,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param name: the class name to add.
         :returns: the query.
         """
-        for node in self._nodes:
-            classes = _class_list(node)
-            if name not in classes:
-                classes.append(name)
-                node.attrs["class"] = classes
+        _query_add_class(self._nodes, name)
         return self
 
     def remove_class(self, name: str) -> Query:
@@ -277,10 +255,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param name: the class name to remove.
         :returns: the query.
         """
-        for node in self._nodes:
-            classes = _class_list(node)
-            if name in classes:
-                node.attrs["class"] = [cls for cls in classes if cls != name]
+        _query_remove_class(self._nodes, name)
         return self
 
     def toggle_class(self, name: str) -> Query:
@@ -290,9 +265,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         :param name: the class name to toggle.
         :returns: the query.
         """
-        for node in self._nodes:
-            classes = _class_list(node)
-            node.attrs["class"] = [cls for cls in classes if cls != name] if name in classes else [*classes, name]
+        _query_toggle_class(self._nodes, name)
         return self
 
     def __iter__(self) -> Iterator[Element]:

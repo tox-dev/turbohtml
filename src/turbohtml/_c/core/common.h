@@ -91,6 +91,14 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
 
 /* Implemented in linkify.c. The scan methods find URL/email spans in text runs;
    _linkify_apply snapshots targets and rewrites them around callback invocations. */
+PyObject *turbohtml_query_unique(PyObject *module, PyObject *elements);
+PyObject *turbohtml_query_siblings(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_text(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_attr(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_has_class(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_add_class(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_remove_class(PyObject *module, PyObject *args);
+PyObject *turbohtml_query_toggle_class(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_scan(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_find(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args);
