@@ -132,6 +132,9 @@ from ._stubs.features import (
     _linkify_find as _linkify_find,
 )
 from ._stubs.features import (
+    _linkify_fold as _linkify_fold,
+)
+from ._stubs.features import (
     _linkify_has as _linkify_has,
 )
 from ._stubs.features import (
@@ -150,6 +153,9 @@ from ._stubs.features import (
     _phone_config_compile as _phone_config_compile,
 )
 from ._stubs.features import (
+    _phone_e164 as _phone_e164,
+)
+from ._stubs.features import (
     _phone_number_check as _phone_number_check,
 )
 from ._stubs.features import (
@@ -157,6 +163,9 @@ from ._stubs.features import (
 )
 from ._stubs.features import (
     _phone_parse as _phone_parse,
+)
+from ._stubs.features import (
+    _phone_regions as _phone_regions,
 )
 from ._stubs.features import (
     _PhoneConfig as _PhoneConfig,

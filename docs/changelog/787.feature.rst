@@ -1,0 +1,3 @@
+Move the link and phone detectors' configuration folding into the C core: tag, top-level-domain, scheme and word lists,
+region codes, the phone type mask and the E.164 check of :class:`~turbohtml.clean.PhoneNumber` are computed there.
+Results are unchanged.

@@ -1708,3 +1708,77 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     }
     Py_RETURN_NONE;
 }
+
+/* _linkify_fold(values, name, kind) -> tuple: the configuration names lowercased, deduplicated and sorted, the
+   spelling the scanner's tables index. kind 1 also strips a leading "." from a top-level domain, kind 2 a trailing
+   ":" from a scheme, and kind 3 surrounding whitespace from a word; kind 0 only lowercases. A value that is not a
+   str is a TypeError naming the field. */
+PyObject *turbohtml_linkify_fold(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *values;
+    const char *name;
+    int kind;
+    if (!PyArg_ParseTuple(args, "Osi:_linkify_fold", &values, &name, &kind)) {
+        return NULL;
+    }
+    PyObject *iterator = PyObject_GetIter(values);
+    if (iterator == NULL) {
+        return NULL;
+    }
+    PyObject *folded = PySet_New(NULL);
+    if (folded == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(iterator); /* GCOVR_EXCL_LINE */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    PyObject *value;
+    while ((value = PyIter_Next(iterator)) != NULL) {
+        if (!PyUnicode_Check(value)) {
+            PyErr_Format(PyExc_TypeError, "%s entries must be str", name);
+            Py_DECREF(value);
+            break;
+        }
+        PyObject *lowered = PyObject_CallMethod(value, kind == 3 ? "strip" : "lower", NULL);
+        Py_DECREF(value);
+        if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.strip and str.lower only fail on allocation failure */
+            break;             /* GCOVR_EXCL_LINE */
+        }
+        if (kind == 3) {
+            Py_SETREF(lowered, PyObject_CallMethod(lowered, "lower", NULL));
+            if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower only fails on allocation failure */
+                break;             /* GCOVR_EXCL_LINE */
+            }
+        }
+        Py_ssize_t start = 0;
+        Py_ssize_t end = PyUnicode_GET_LENGTH(lowered);
+        if (kind == 1 && end > 0 && PyUnicode_READ_CHAR(lowered, 0) == '.') {
+            start = 1;
+        }
+        while (kind == 2 && end > start && PyUnicode_READ_CHAR(lowered, end - 1) == ':') {
+            end--;
+        }
+        if (start != 0 || end != PyUnicode_GET_LENGTH(lowered)) {
+            Py_SETREF(lowered, PyUnicode_Substring(lowered, start, end));
+            if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: a substring only fails on allocation failure */
+                break;             /* GCOVR_EXCL_LINE */
+            }
+        }
+        int added = PySet_Add(folded, lowered);
+        Py_DECREF(lowered);
+        if (added < 0) { /* GCOVR_EXCL_BR_LINE: a str insert only fails on allocation failure */
+            break;       /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(iterator);
+    if (PyErr_Occurred()) {
+        Py_DECREF(folded);
+        return NULL;
+    }
+    PyObject *ordered = PySequence_List(folded);
+    Py_DECREF(folded);
+    if (ordered == NULL || PyList_Sort(ordered) < 0) { /* GCOVR_EXCL_BR_LINE: sorting str only fails on OOM */
+        Py_XDECREF(ordered);                           /* GCOVR_EXCL_LINE */
+        return NULL;                                   /* GCOVR_EXCL_LINE */
+    }
+    PyObject *result = PyList_AsTuple(ordered);
+    Py_DECREF(ordered);
+    return result;
+}

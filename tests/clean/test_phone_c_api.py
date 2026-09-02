@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 _SPEC: Final = cast(
     "_PhoneSpec",
-    (("US",), True, False, True, True, False, 0, 0x7FF, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
+    (("US",), True, False, True, True, False, 0, None, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
 )
 
 
@@ -82,6 +82,17 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
 
 
 @pytest.mark.parametrize(
+    "wanted",
+    [
+        pytest.param(None, id="unstated"),
+        pytest.param(frozenset(set(_PHONE_TYPES) - {PhoneType.UNKNOWN}), id="every-type-listed"),
+    ],
+)
+def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType] | None) -> None:
+    assert _phone_config_compile(_spec(require_valid=False, type_mask=wanted)) is not None
+
+
+@pytest.mark.parametrize(
     ("overrides", "error", "message"),
     [
         pytest.param({"regions": ["US"]}, TypeError, "regions must be a tuple", id="regions-list"),
@@ -118,12 +129,21 @@ def test_compile_rejects_malformed_specs(spec: object) -> None:
             "only be checked with require_valid",
             id="grouping-possible",
         ),
-        pytest.param({"type_mask": 0}, ValueError, "1..0x7FF", id="mask-zero"),
-        pytest.param({"type_mask": 0x800}, ValueError, "1..0x7FF", id="mask-too-wide"),
-        pytest.param({"type_mask": True}, TypeError, "type mask must be int", id="mask-bool"),
-        pytest.param({"type_mask": "7"}, TypeError, "type mask must be int", id="mask-str"),
+        pytest.param({"type_mask": frozenset()}, ValueError, "1..0x7FF", id="no-types"),
+        pytest.param({"type_mask": frozenset({PhoneType.UNKNOWN})}, ValueError, "1..0x7FF", id="unknown-type"),
+        pytest.param({"type_mask": 7}, TypeError, "not iterable", id="types-not-iterable"),
+        pytest.param({"type_mask": frozenset({"mobile"})}, ValueError, "not in sequence", id="type-not-in-the-table"),
         pytest.param(
-            {"type_mask": 2, "require_valid": False}, ValueError, "require_valid", id="selective-mask-in-possible-mode"
+            {"type_mask": frozenset({PhoneType.MOBILE}), "types": ["x"]},
+            TypeError,
+            "must be a tuple",
+            id="table-not-a-tuple",
+        ),
+        pytest.param(
+            {"type_mask": frozenset({PhoneType.MOBILE}), "require_valid": False},
+            ValueError,
+            "require_valid",
+            id="selective-mask-in-possible-mode",
         ),
         pytest.param({"labels": ["order"]}, TypeError, "labels must be a tuple", id="labels-list"),
         pytest.param(
@@ -160,7 +180,7 @@ def test_compile_accepts_the_bounds() -> None:
                 labels=tuple(
                     "l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256)
                 ),
-                type_mask=1,
+                type_mask=frozenset({PhoneType.FIXED_LINE}),
             )
         )
         is not None

@@ -115,6 +115,13 @@ PyObject *turbohtml_linkify_target_blank(PyObject *module, PyObject *link);
 PyObject *turbohtml_phone_config_compile(PyObject *module, PyObject *spec);
 PyObject *turbohtml_phone_number_check(PyObject *module, PyObject *args);
 PyObject *turbohtml_phone_number_format(PyObject *module, PyObject *args);
+/* _phone_e164(country_code, national_number) answers the E.164 form or None past fifteen digits; _phone_regions(codes)
+   strips, upper-cases (ASCII only) and deduplicates region codes in order; _linkify_fold(values, name, kind)
+   lowercases, deduplicates and sorts a configuration name list (kind 1 strips a leading ".", 2 a trailing ":", 3
+   surrounding whitespace). */
+PyObject *turbohtml_phone_e164(PyObject *module, PyObject *args);
+PyObject *turbohtml_phone_regions(PyObject *module, PyObject *codes);
+PyObject *turbohtml_linkify_fold(PyObject *module, PyObject *args);
 PyObject *turbohtml_phone_parse(PyObject *module, PyObject *args);
 PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args);
 

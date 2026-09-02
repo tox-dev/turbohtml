@@ -19,13 +19,16 @@ from typing import TYPE_CHECKING, Final, TypeAlias, cast
 from turbohtml._html import (
     _linkify_apply,
     _linkify_find,
+    _linkify_fold,
     _linkify_has,
     _linkify_nofollow,
     _linkify_target_blank,
     _phone_config_compile,
+    _phone_e164,
     _phone_number_check,
     _phone_number_format,
     _phone_parse,
+    _phone_regions,
     parse_fragment,
 )
 
@@ -104,8 +107,6 @@ _PHONE_TYPES: Final = (
     PhoneType.FIXED_LINE_OR_MOBILE,
     PhoneType.UNKNOWN,
 )
-_ALL_PHONE_TYPES: Final = 0x7FF
-_MAX_E164_DIGITS: Final = 15
 
 #: Words that mark the digits right after them as an identifier rather than a phone number.
 DEFAULT_PHONE_LABELS: Final = (
@@ -215,16 +216,7 @@ class PhoneNumbers:
             if not require_valid:
                 msg = "types needs require_valid=True"
                 raise ValueError(msg)
-        # folding case only on ASCII: `ß` would otherwise fold to South Sudan's `SS`
-        object.__setattr__(
-            self,
-            "regions",
-            tuple(
-                dict.fromkeys(
-                    code.strip().upper() if code.isascii() else code for code in _ordered_strings(regions, "regions")
-                )
-            ),
-        )
+        object.__setattr__(self, "regions", _phone_regions(_ordered_strings(regions, "regions")))
         object.__setattr__(self, "require_valid", require_valid)
         object.__setattr__(self, "require_separators", require_separators)
         object.__setattr__(self, "skip_card_numbers", skip_card_numbers)
@@ -235,11 +227,7 @@ class PhoneNumbers:
         object.__setattr__(
             self,
             "ignore_numbers_after",
-            tuple(
-                sorted({
-                    word.strip().lower() for word in _ordered_strings(ignore_numbers_after, "ignore_numbers_after")
-                })
-            ),
+            _linkify_fold(_ordered_strings(ignore_numbers_after, "ignore_numbers_after"), "ignore_numbers_after", 3),
         )
         # compiled once here, where a mistake raises, and handed to every scanner and parse that takes the settings
         object.__setattr__(self, "_config", _compile_settings(self, PhoneNumber))
@@ -368,8 +356,7 @@ class PhoneNumber:
     @property
     def e164(self) -> str | None:
         """The international number when it fits E.164's fifteen digits, else ``None``."""
-        number = self.international_number
-        return number if len(number) - 1 <= _MAX_E164_DIGITS else None
+        return _phone_e164(self.country_code, self.national_number)
 
     def format(self, style: PhoneFormat = PhoneFormat.INTERNATIONAL) -> str:
         """
@@ -420,7 +407,7 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, p
         phones.require_national_prefix,
         phones.collapse_whitespace,
         _PHONE_GROUPINGS.index(phones.grouping),
-        _ALL_PHONE_TYPES if phones.types is None else sum(1 << _PHONE_TYPES.index(member) for member in phones.types),
+        phones.types,
         phones.ignore_numbers_after,
         number_type,
         _PHONE_TYPES,
@@ -531,16 +518,12 @@ class Linker:
         """Compile a configuration into the form the walk consumes."""
         config = options if options is not None else Linkify()
         self.callbacks = tuple(config.callbacks)
-        self.skip_tags = (
-            tuple(sorted({tag.lower() for tag in config.skip_tags})) if config.skip_tags is not None else ()
-        )
+        self.skip_tags = _linkify_fold(config.skip_tags, "skip_tags", 0) if config.skip_tags is not None else ()
         self.parse_email = config.parse_email
         self.process_existing = config.process_existing
-        self.extra_tlds = tuple(sorted({tld.lower() for tld in config.extra_tlds})) if config.extra_tlds else ()
+        self.extra_tlds = _linkify_fold(config.extra_tlds, "extra_tlds", 0) if config.extra_tlds else ()
         self.url_schemes = (
-            tuple(sorted({scheme.lower() for scheme in config.schemes}))
-            if config.schemes is not None
-            else _DEFAULT_URL_SCHEMES
+            _linkify_fold(config.schemes, "schemes", 0) if config.schemes is not None else _DEFAULT_URL_SCHEMES
         )
         self.phones = config.phones
         self._phone_config = _compile_phones(config.phones)
@@ -674,10 +657,10 @@ class LinkDetector:
         self.bare_domains = bare_domains
         self.phones = phones
         self._phone_config = _compile_phones(phones)
-        self._tlds = tuple({tld.lower().removeprefix(".") for tld in tlds})
-        self._registered = tuple(sorted({scheme.lower().rstrip(":") for scheme in schemes}))
-        self._schemes = self._registered if phones is None else tuple(sorted({*self._registered, "tel"}))
-        self._url_schemes = tuple(sorted(set(_DEFAULT_URL_SCHEMES).union(self._registered)))
+        self._tlds = _linkify_fold(tlds, "tlds", 1)
+        self._registered = _linkify_fold(schemes, "schemes", 2)
+        self._schemes = self._registered if phones is None else _linkify_fold((*self._registered, "tel"), "schemes", 0)
+        self._url_schemes = _linkify_fold((*_DEFAULT_URL_SCHEMES, *self._registered), "schemes", 0)
 
     def __reduce__(self) -> tuple[Callable[[], LinkDetector], tuple[()]]:
         # the compiled phone configuration is a native object, so a copy or a pickle rebuilds from the settings
