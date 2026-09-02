@@ -241,6 +241,7 @@ static PyMethodDef html_methods[] = {
     {"_detect_rank", turbohtml_detect_rank, METH_VARARGS, NULL},
     {"_detect_language", turbohtml_detect_language, METH_VARARGS, NULL},
     {"_normalize", turbohtml_normalize, METH_VARARGS, NULL},
+    {"_collapse_whitespace", turbohtml_collapse_whitespace, METH_O, NULL},
     {"_is_normalized", turbohtml_is_normalized, METH_VARARGS, NULL},
     {"_linkify_scan", turbohtml_linkify_scan, METH_VARARGS, NULL},
     {"_linkify_find", turbohtml_linkify_find, METH_VARARGS, NULL},
