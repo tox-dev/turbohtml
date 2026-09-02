@@ -509,7 +509,7 @@ static PyMethodDef document_methods[] = {
      microdata_doc},
     {"rdfa", (PyCFunction)(void (*)(void))turbohtml_document_rdfa, METH_VARARGS | METH_KEYWORDS, rdfa_doc},
     {"dublin_core", turbohtml_document_dublin_core, METH_NOARGS, dublin_core_doc},
-    {"_date_meta", turbohtml_document_date_meta, METH_VARARGS, NULL},
+    {"_dates", turbohtml_document_dates, METH_VARARGS, NULL},
     {"feed", turbohtml_document_feed, METH_NOARGS, feed_doc},
     {NULL, NULL, 0, NULL},
 };

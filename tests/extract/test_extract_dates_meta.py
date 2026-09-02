@@ -1,6 +1,6 @@
 """The <meta> date stage's C walk: key classification, the pubdate flag, and the window boundary.
 
-These exercise the branches the C _date_meta walk adds -- an over-long or non-ASCII key, a valueless key, the
+These exercise the branches the C meta stage adds -- an over-long or non-ASCII key, a valueless key, the
 publication-wins-over-modification precedence, the pubdate="pubdate" flag's spellings, and the inclusive window
 edges -- through the public dates() API.
 """
@@ -54,10 +54,11 @@ def test_pubdate_flag_only_marks_the_literal_value(pubdate: str, expected: Publi
     assert dates(f'<meta {pubdate} content="2014-03-08">{_GOOD}') == expected
 
 
-def test_date_meta_rejects_a_non_integer_argument() -> None:
-    # the private C entry point takes eight ints; a wrong type must fail the argument parse, not read the tree
+def test_dates_rejects_a_non_integer_argument() -> None:
+    # the private C entry point takes eight ints and a flag; a wrong type must fail the parse, not read the tree
+    extensive = True
     with pytest.raises(TypeError):
-        parse("")._date_meta("published", 2016, 1, 1, 1, 2100, 1, 1)  # ty: ignore[invalid-argument-type]  # bad type
+        parse("")._dates("published", 2016, 1, 1, 1, 2100, 1, 1, extensive)  # ty: ignore[invalid-argument-type]  # bad type
 
 
 def test_http_equiv_last_modified_is_a_modification_key() -> None:

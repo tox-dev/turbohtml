@@ -1,29 +1,23 @@
-/* Date-string parsing for turbohtml._dates, the htmldate.find_date counterpart.
+/* Publication-date extraction for turbohtml.extract.dates, the htmldate.find_date counterpart.
 
-   The Python layer walks the parsed DOM -- <meta> tags, JSON-LD, <time> elements,
-   the canonical URL, and (as a last resort) visible text -- and hands each date
-   string here. This file is the pure string parser it delegates instead of the
-   `datetime` module and a stack of `re` patterns; it never touches a tree, so it
-   needs no critical section and is free-threading safe (its only inputs are
-   immutable str objects).
+   The shim parses the page, computes the [min, max] window and hands the tree here; Document._dates runs the
+   signals in htmldate's priority order -- a date in the canonical URL, then publication/modification <meta> tags,
+   then JSON-LD, then <time> elements and date-marked elements, then (as a last resort) the visible text -- and the
+   first stage that yields a date inside the window wins. Within a stage the wanted role (publication for
+   original=True, modification otherwise) or a generic date wins on sight and the first off-role date is the reserve.
 
-   Three surfaces mirror the three Python helpers the shim used:
-     _date_scan(text, year)     -> the first numeric date (ISO 8601, an 8-digit
-                                   stamp, or a day-month-year spelling), or None,
-                                   trying the patterns in that order.
-     _date_scan_all(text, year) -> every ISO, day-month-year, and written-out
-                                   date, in that pattern order, for the text
-                                   stage's frequency scoring.
+   The date-string parser the stages share is also exposed on its own, as the conformance surface for its grammar:
+     _date_scan(text, year)     -> the first numeric date (ISO 8601, an 8-digit stamp, or a day-month-year
+                                   spelling), or None, trying the patterns in that order.
+     _date_scan_all(text, year) -> every ISO, day-month-year, and written-out date, in that pattern order, the
+                                   sweep the text stage's frequency scoring reads.
      _date_url(url)             -> the /YYYY/MM/DD/ date a URL path carries.
-   `year` is the current year, the pivot _correct_year expands a two-digit year
-   against. Each surface returns (year, month, day) int tuples the shim wraps in
-   datetime.date; a calendar-impossible combination (Feb 30, a non-leap Feb 29)
-   is rejected the way date() raises.
+   `year` is the current year, the pivot a two-digit year expands against. Each returns (year, month, day) int
+   tuples; a calendar-impossible combination (Feb 30, a non-leap Feb 29) is rejected the way date() raises.
 
-   Two deliberate narrowings from the Python regexes, both documented and outside
-   any realistic date string: the digit guards and the day-month-year year run
-   read ASCII [0-9] rather than Unicode \d, and the whitespace between written-out
-   date tokens is ASCII [ \t\n\r\f\v] rather than Unicode \s. */
+   Two deliberate narrowings from the regexes the grammar was written from, both outside any realistic date string:
+   the digit guards and the day-month-year year run read ASCII [0-9] rather than Unicode \d, and the whitespace
+   between written-out date tokens is ASCII [ \t\n\r\f\v] rather than Unicode \s. */
 
 #include "core/ascii.h"
 #include "core/common.h"
@@ -36,6 +30,7 @@
 #include <string.h>
 
 #define CP(index) PyUnicode_READ(kind, data, (index))
+#define COUNT_OF(table) (sizeof(table) / sizeof(*(table)))
 
 /* Lowercase for the case-insensitive month vocabulary: the ASCII fold plus the
    Latin-1 uppercase block (0xC0-0xDE minus the 0xD7 multiplication sign), which
@@ -497,16 +492,6 @@ static int text_b(const void *data, int kind, Py_ssize_t len, Py_ssize_t pos, in
     return 0;
 }
 
-static int append_ymd(PyObject *list, int year, int month, int day) {
-    PyObject *item = Py_BuildValue("(iii)", year, month, day);
-    if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    int rc = PyList_Append(list, item);
-    Py_DECREF(item);
-    return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
-}
-
 /* The first numeric date in the text -- ISO, then the compact stamp, then the
    day-month-year spelling, each tried in turn. ISO and compact fall through to the
    next pattern when their first match is calendar-impossible; day-month-year is the
@@ -562,30 +547,21 @@ PyObject *turbohtml_date_scan(PyObject *Py_UNUSED(module), PyObject *args) {
     Py_RETURN_NONE;
 }
 
-/* _scan_all: every ISO, day-month-year, and written-out date, each pattern swept
-   independently over the whole text and appended in that order. A match whose
-   calendar is impossible is skipped but still advances the scan past its span,
-   the way re.finditer does. */
-PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
-    PyObject *text;
-    int current_year;
-    if (!PyArg_ParseTuple(args, "Ui:_date_scan_all", &text, &current_year)) {
-        return NULL;
-    }
-    int kind = PyUnicode_KIND(text);
-    const void *data = PyUnicode_DATA(text);
-    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
-    PyObject *found = PyList_New(0);
-    if (found == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+/* A visitor for scan_every_date: one calendar-valid date, returning -1 to stop the sweep with an error. */
+typedef int (*date_visitor)(void *context, int year, int month, int day);
+
+/* Every ISO, day-month-year, and written-out date in the text, each pattern swept independently over the whole
+   text and reported in that order. A match whose calendar is impossible is skipped but still advances the scan
+   past its span, the way re.finditer does. Returns -1 when the visitor did. */
+static int scan_every_date(const void *data, int kind, Py_ssize_t len, int current_year, date_visitor visit,
+                           void *context) {
     int year, month, day;
     Py_ssize_t end;
     Py_ssize_t pos = 0;
     while (pos < len) {
         if (iso_at(data, kind, len, pos, &year, &month, &day, &end)) {
-            if (ymd_valid(year, month, day) && append_ymd(found, year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE */
-                goto error;                                                               /* GCOVR_EXCL_LINE */
+            if (ymd_valid(year, month, day) && visit(context, year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE */
+                return -1;                                                             /* GCOVR_EXCL_LINE */
             }
             pos = end;
         } else {
@@ -599,8 +575,8 @@ PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
             dmy_at(data, kind, len, pos, &raw_day, &raw_month, &raw_year, &end)) {
             int resolved_year = correct_year(raw_year, current_year);
             if (dmy_resolve(raw_day, raw_month, resolved_year, &month, &day)) {
-                if (append_ymd(found, resolved_year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE */
-                    goto error;                                         /* GCOVR_EXCL_LINE */
+                if (visit(context, resolved_year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                                       /* GCOVR_EXCL_LINE */
                 }
             }
             pos = end;
@@ -620,15 +596,42 @@ PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
             pos++;
             continue;
         }
-        if (ymd_valid(year, month, day) && append_ymd(found, year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE */
-            goto error;                                                               /* GCOVR_EXCL_LINE */
+        if (ymd_valid(year, month, day) && visit(context, year, month, day) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                             /* GCOVR_EXCL_LINE */
         }
         pos = end;
     }
+    return 0;
+}
+
+static int append_ymd(void *context, int year, int month, int day) {
+    PyObject *item = Py_BuildValue("(iii)", year, month, day);
+    if (item == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int rc = PyList_Append((PyObject *)context, item);
+    Py_DECREF(item);
+    return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
+}
+
+/* _scan_all: every date the sweep reports, or an empty list. */
+PyObject *turbohtml_date_scan_all(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *text;
+    int current_year;
+    if (!PyArg_ParseTuple(args, "Ui:_date_scan_all", &text, &current_year)) {
+        return NULL;
+    }
+    PyObject *found = PyList_New(0);
+    if (found == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int status = scan_every_date(PyUnicode_DATA(text), PyUnicode_KIND(text), PyUnicode_GET_LENGTH(text), current_year,
+                                 append_ymd, found);
+    if (status < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(found); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
     return found;
-error:                /* GCOVR_EXCL_LINE: shared cleanup for the unreachable allocation-failure arms */
-    Py_DECREF(found); /* GCOVR_EXCL_LINE: allocation-failure path */
-    return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
 }
 
 /* A URL date, _URL_DATE = (?<!\d)(YEAR)[/_-](MONTH)[/_-](DAY)(?!\d), starting at
@@ -796,10 +799,10 @@ static int key_role(const Py_UCS4 *value, Py_ssize_t len) {
     if (value == NULL || !fold_key(value, len, folded)) {
         return META_NONE;
     }
-    if (key_in_set(folded, PUBLISHED_KEYS, sizeof(PUBLISHED_KEYS) / sizeof(*PUBLISHED_KEYS))) {
+    if (key_in_set(folded, PUBLISHED_KEYS, COUNT_OF(PUBLISHED_KEYS))) {
         return META_PUBLISHED;
     }
-    if (key_in_set(folded, MODIFIED_KEYS, sizeof(MODIFIED_KEYS) / sizeof(*MODIFIED_KEYS))) {
+    if (key_in_set(folded, MODIFIED_KEYS, COUNT_OF(MODIFIED_KEYS))) {
         return META_MODIFIED;
     }
     return META_NONE;
@@ -823,7 +826,7 @@ static int meta_role(th_tree *tree, th_node *node) {
         find_node_attr(node, TH_ATTR_HTTP_EQUIV),
     };
     int modified = 0;
-    for (size_t index = 0; index < sizeof(keys) / sizeof(*keys); index++) {
+    for (size_t index = 0; index < COUNT_OF(keys); index++) {
         if (keys[index] == NULL) {
             continue;
         }
@@ -876,26 +879,91 @@ static int date_at_least(int year, int month, int day, int min_year, int min_mon
     return day >= min_day;
 }
 
-/* Document._date_meta(want, current_year, min_y, min_m, min_d, max_y, max_m, max_d)
-   -> (year, month, day) or None.
+/* A candidate's role. The meta walk's enum names the two signed roles; a date with no publication or modification
+   marker is generic and satisfies whichever role the caller wanted. */
+enum { DATE_ROLE_GENERIC = 3 };
 
-   The <meta> stage of turbohtml.extract.dates, gathering and selection fused into
-   one walk. want is META_PUBLISHED (original=True) or META_MODIFIED; a candidate
-   whose role matches want wins on sight -- htmldate's _pick returns the first
-   wanted-role hit -- so the walk stops at the first such element instead of scoring
-   the rest. A date outside [min, max] is ignored; the first in-window off-role date
-   is the fallback _pick returns when no wanted-role date appears. */
-PyObject *turbohtml_document_date_meta(PyObject *self, PyObject *args) {
-    int want, current_year, min_year, min_month, min_day, max_year, max_month, max_day;
-    if (!PyArg_ParseTuple(args, "iiiiiiii:_date_meta", &want, &current_year, &min_year, &min_month, &min_day, &max_year,
-                          &max_month, &max_day)) {
+/* Is (year, month, day) inside the inclusive window? */
+static int date_within(int year, int month, int day, const int *low, const int *high) {
+    return date_at_least(year, month, day, low[0], low[1], low[2]) &&
+           date_at_least(high[0], high[1], high[2], year, month, day);
+}
+
+/* One stage's answer: the wanted-role date if the stage found one, else the first off-role date it saw. htmldate
+   returns the first wanted-role hit and falls back to whatever else the stage offered. */
+typedef struct {
+    int wanted;
+    int reserve;
+    int chosen[3];
+    int spare[3];
+} date_pick;
+
+/* Offer a candidate to the pick. Returns 1 once the wanted role is settled and the stage can stop. */
+static int pick_offer(date_pick *pick, int role, int year, int month, int day, int want) {
+    if (role == want || role == DATE_ROLE_GENERIC) {
+        pick->wanted = 1;
+        pick->chosen[0] = year;
+        pick->chosen[1] = month;
+        pick->chosen[2] = day;
+        return 1;
+    }
+    if (!pick->reserve) {
+        pick->reserve = 1;
+        pick->spare[0] = year;
+        pick->spare[1] = month;
+        pick->spare[2] = day;
+    }
+    return 0;
+}
+
+/* The date the pick settled on, or NULL when the stage found nothing in the window. */
+static const int *pick_result(const date_pick *pick) {
+    if (pick->wanted) {
+        return pick->chosen;
+    }
+    return pick->reserve ? pick->spare : NULL;
+}
+
+/* The value of the named attribute as code points, or NULL. A tokenized attribute (class) is joined on the fly by
+   the caller, so this hands back the raw storage. */
+static const Py_UCS4 *attr_text(th_tree *tree, th_node *node, const char *name, Py_ssize_t *out_len) {
+    const th_node_attr *found = named_attr(tree, node, name, (Py_ssize_t)strlen(name));
+    if (found == NULL) {
         return NULL;
     }
-    th_tree *tree = tree_of(self);
-    th_node *root = ((NodeObject *)self)->node;
-    int wanted_hit = 0, wanted_year = 0, wanted_month = 0, wanted_day = 0;
-    int reserve_hit = 0, reserve_year = 0, reserve_month = 0, reserve_day = 0;
-    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    *out_len = found->value_len;
+    return found->value;
+}
+
+/* Does the lowercased attribute text hold `needle`? Used for the class/id/itemprop marker vocabulary, which
+   htmldate matches as a case-insensitive substring rather than a whole token. */
+static int text_holds(const Py_UCS4 *text, Py_ssize_t len, const char *needle) {
+    Py_ssize_t width = (Py_ssize_t)strlen(needle);
+    for (Py_ssize_t start = 0; start + width <= len; start++) {
+        Py_ssize_t offset = 0;
+        while (offset < width && lower_ascii(text[start + offset]) == (Py_UCS4)(unsigned char)needle[offset]) {
+            offset++;
+        }
+        if (offset == width) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Does any of `words` appear in the attribute text? */
+static int text_holds_any(const Py_UCS4 *text, Py_ssize_t len, const char *const *words, size_t count) {
+    for (size_t index = 0; index < count; index++) {
+        if (text_holds(text, len, words[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The <meta> stage: a candidate of the wanted role ends the walk, the first in-window off-role date is the reserve. */
+static void dates_meta_stage(th_tree *tree, th_node *root, const int *low, const int *high, int current_year, int want,
+                             date_pick *pick) {
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_META) {
             continue;
@@ -910,33 +978,380 @@ PyObject *turbohtml_document_date_meta(PyObject *self, PyObject *args) {
             continue;
         }
         int year, month, day;
-        if (!scan_first_date(text, PyUnicode_4BYTE_KIND, len, current_year, &year, &month, &day)) {
+        if (!scan_first_date(text, PyUnicode_4BYTE_KIND, len, current_year, &year, &month, &day) ||
+            !date_within(year, month, day, low, high)) {
             continue;
         }
-        if (!date_at_least(year, month, day, min_year, min_month, min_day) ||
-            !date_at_least(max_year, max_month, max_day, year, month, day)) {
+        if (pick_offer(pick, role, year, month, day, want)) {
+            return;
+        }
+    }
+}
+
+/* The URL stage: the /YYYY/MM/DD/ a canonical link or og:url carries, the fastest and most trustworthy signal. */
+static void dates_url_stage(th_tree *tree, th_node *root, const int *low, const int *high, int want, date_pick *pick) {
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (role == want) {
-            wanted_hit = 1;
-            wanted_year = year;
-            wanted_month = month;
-            wanted_day = day;
+        const Py_UCS4 *url = NULL;
+        Py_ssize_t len = 0;
+        if (node->atom == TH_TAG_LINK) {
+            Py_ssize_t rel_len = 0;
+            const Py_UCS4 *rel = attr_text(tree, node, "rel", &rel_len);
+            if (rel != NULL && text_holds(rel, rel_len, "canonical")) {
+                url = attr_text(tree, node, "href", &len);
+            }
+        } else if (node->atom == TH_TAG_META) {
+            Py_ssize_t key_len = 0;
+            const Py_UCS4 *key = attr_text(tree, node, "property", &key_len);
+            if (key == NULL) {
+                key = attr_text(tree, node, "name", &key_len);
+            }
+            if (key != NULL && key_len == 6 && text_holds(key, key_len, "og:url")) {
+                url = attr_text(tree, node, "content", &len);
+            }
+        }
+        if (url == NULL) {
+            continue;
+        }
+        for (Py_ssize_t pos = 0; pos < len; pos++) {
+            int year, month, day;
+            if (!url_at(url, PyUnicode_4BYTE_KIND, len, pos, &year, &month, &day)) {
+                continue;
+            }
+            if (date_within(year, month, day, low, high)) {
+                pick_offer(pick, DATE_ROLE_GENERIC, year, month, day, want);
+                return;
+            }
             break;
         }
-        if (!reserve_hit) {
-            reserve_hit = 1;
-            reserve_year = year;
-            reserve_month = month;
-            reserve_day = day;
+    }
+}
+
+/* The scan_every_date visitor that keeps the first report: the first date of any spelling in a block of element
+   text, written-out months included. */
+typedef struct {
+    int found;
+    int year;
+    int month;
+    int day;
+} first_date_hit;
+
+static int first_date(void *context, int year, int month, int day) {
+    first_date_hit *hit = context;
+    if (!hit->found) {
+        hit->found = 1;
+        hit->year = year;
+        hit->month = month;
+        hit->day = day;
+    }
+    return 0;
+}
+
+/* The class/id/itemprop vocabulary of the temporal-markup stage, drawn from htmldate's but kept to the
+   high-precision markers (skipping its broad info/author/footer catch-alls, which pull in unrelated dates). Each
+   is matched as a case-insensitive substring of the attribute, the way a [class*=word i] selector reads it. */
+static const char *const CLASS_MARKERS[] = {"date",   "datum",    "publish",    "posted",  "pubdate",  "timestamp",
+                                            "byline", "dateline", "entry-date", "updated", "modified", "created"};
+static const char *const ID_MARKERS[] = {"date", "publish", "posted", "timestamp"};
+static const char *const PUBLISHED_MARKERS[] = {"publish",  "posted",  "pubdate", "entry-date",
+                                                "dateline", "created", "byline"};
+static const char *const MODIFIED_MARKERS[] = {"updated", "modified", "lastmod", "revised"};
+
+typedef struct {
+    const Py_UCS4 *classes;
+    Py_ssize_t class_len;
+    const Py_UCS4 *identity;
+    Py_ssize_t id_len;
+    const Py_UCS4 *prop;
+    Py_ssize_t prop_len;
+} date_markers;
+
+static int markers_temporal(th_node *node, const date_markers *markers) {
+    if (node->atom == TH_TAG_TIME) {
+        return 1;
+    }
+    if (markers->classes != NULL &&
+        text_holds_any(markers->classes, markers->class_len, CLASS_MARKERS, COUNT_OF(CLASS_MARKERS))) {
+        return 1;
+    }
+    if (markers->identity != NULL &&
+        text_holds_any(markers->identity, markers->id_len, ID_MARKERS, COUNT_OF(ID_MARKERS))) {
+        return 1;
+    }
+    return markers->prop != NULL && text_holds(markers->prop, markers->prop_len, "date");
+}
+
+static int markers_hold_any(const date_markers *markers, const char *const *words, size_t count) {
+    if (markers->classes != NULL && text_holds_any(markers->classes, markers->class_len, words, count)) {
+        return 1;
+    }
+    return markers->identity != NULL && text_holds_any(markers->identity, markers->id_len, words, count);
+}
+
+static int markers_role(th_tree *tree, th_node *node, const date_markers *markers) {
+    if (named_attr(tree, node, "pubdate", 7) != NULL) {
+        return META_PUBLISHED;
+    }
+    if (markers_hold_any(markers, PUBLISHED_MARKERS, COUNT_OF(PUBLISHED_MARKERS))) {
+        return META_PUBLISHED;
+    }
+    if (markers_hold_any(markers, MODIFIED_MARKERS, COUNT_OF(MODIFIED_MARKERS))) {
+        return META_MODIFIED;
+    }
+    return DATE_ROLE_GENERIC;
+}
+
+/* The temporal-markup stage: <time> elements, and elements whose class/id/itemprop marks them as a date. A
+   <time datetime> is the canonical spelling, but many pages date an article in a <span class="published"> or
+   <p class="entry-date"> instead. Each element contributes the date in its datetime/title attribute or its first
+   text date. Returns -1 on allocation failure. */
+static int dates_time_stage(th_tree *tree, th_node *root, const int *low, const int *high, int current_year, int want,
+                            date_pick *pick) {
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        date_markers markers = {0};
+        markers.classes = attr_text(tree, node, "class", &markers.class_len);
+        markers.identity = attr_text(tree, node, "id", &markers.id_len);
+        markers.prop = attr_text(tree, node, "itemprop", &markers.prop_len);
+        if (!markers_temporal(node, &markers)) {
+            continue;
+        }
+        Py_ssize_t raw_len = 0;
+        const Py_UCS4 *raw = attr_text(tree, node, "datetime", &raw_len);
+        if (raw == NULL) {
+            raw = attr_text(tree, node, "title", &raw_len);
+        }
+        first_date_hit hit = {0};
+        if (raw != NULL) {
+            hit.found =
+                scan_first_date(raw, PyUnicode_4BYTE_KIND, raw_len, current_year, &hit.year, &hit.month, &hit.day);
+        } else {
+            Py_ssize_t text_len = 0;
+            Py_UCS4 *text = th_node_text(tree, node, &text_len);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            (void)scan_every_date(text, PyUnicode_4BYTE_KIND, text_len, current_year, first_date, &hit);
+            PyMem_Free(text);
+        }
+        if (!hit.found || !date_within(hit.year, hit.month, hit.day, low, high)) {
+            continue;
+        }
+        if (pick_offer(pick, markers_role(tree, node, &markers), hit.year, hit.month, hit.day, want)) {
+            return 0;
         }
     }
+    return 0;
+}
+
+/* Offer the datePublished/dateModified strings of one JSON-LD node to the pick, recursing through @graph, nested
+   objects and lists in the order json.loads produced them. Returns 1 once the wanted role is settled. */
+static int dates_json_node(PyObject *node, const int *low, const int *high, int current_year, int want,
+                           date_pick *pick) {
+    if (PyList_Check(node)) {
+        for (Py_ssize_t index = 0; index < PyList_GET_SIZE(node); index++) {
+            if (dates_json_node(PyList_GET_ITEM(node, index), low, high, current_year, want, pick)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (!PyDict_Check(node)) {
+        return 0;
+    }
+    static const char *const keys[] = {"datePublished", "dateModified"};
+    static const int roles[] = {META_PUBLISHED, META_MODIFIED};
+    for (size_t index = 0; index < COUNT_OF(keys); index++) {
+        PyObject *value = PyDict_GetItemString(node, keys[index]);
+        if (value == NULL || !PyUnicode_Check(value)) {
+            continue;
+        }
+        int year, month, day;
+        if (scan_first_date(PyUnicode_DATA(value), PyUnicode_KIND(value), PyUnicode_GET_LENGTH(value), current_year,
+                            &year, &month, &day) &&
+            date_within(year, month, day, low, high) && pick_offer(pick, roles[index], year, month, day, want)) {
+            return 1;
+        }
+    }
+    Py_ssize_t position = 0;
+    PyObject *key, *value;
+    while (PyDict_Next(node, &position, &key, &value)) {
+        if ((PyList_Check(value) || PyDict_Check(value)) &&
+            dates_json_node(value, low, high, current_year, want, pick)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The text stage's tally: how often each in-window date recurs across the visible text, keyed by the ordinal
+   year * 10000 + month * 100 + day so a tie breaks by comparing keys. */
+typedef struct {
+    const int *low;
+    const int *high;
+    int *keys;
+    int *counts;
+    Py_ssize_t size;
+    Py_ssize_t capacity;
+} date_tally;
+
+static int tally_date(void *context, int year, int month, int day) {
+    date_tally *tally = context;
+    if (!date_within(year, month, day, tally->low, tally->high)) {
+        return 0;
+    }
+    int key = year * 10000 + month * 100 + day;
+    for (Py_ssize_t index = 0; index < tally->size; index++) {
+        if (tally->keys[index] == key) {
+            tally->counts[index]++;
+            return 0;
+        }
+    }
+    if (tally->size == tally->capacity) {
+        Py_ssize_t grown = tally->capacity == 0 ? 16 : tally->capacity * 2;
+        int *keys = PyMem_Realloc(tally->keys, (size_t)grown * sizeof(*keys));
+        if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        tally->keys = keys;
+        int *counts = PyMem_Realloc(tally->counts, (size_t)grown * sizeof(*counts));
+        if (counts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        tally->counts = counts;
+        tally->capacity = grown;
+    }
+    tally->keys[tally->size] = key;
+    tally->counts[tally->size] = 1;
+    tally->size++;
+    return 0;
+}
+
+/* Does the tallied date at `index` beat the one at `best`: more occurrences, or as many and earlier when a
+   publication date is wanted, later otherwise? */
+static int tally_prefers(const date_tally *tally, Py_ssize_t index, Py_ssize_t best, int want) {
+    if (tally->counts[index] != tally->counts[best]) {
+        return tally->counts[index] > tally->counts[best];
+    }
+    if (want == META_PUBLISHED) {
+        return tally->keys[index] < tally->keys[best];
+    }
+    return tally->keys[index] > tally->keys[best];
+}
+
+/* The extensive last resort: the date that recurs most across the body's visible text. Boilerplate pages carry no
+   date metadata, so the publication date is only in the prose -- but so is every comment and archive link; the
+   modal date (the byline, a permalink, a caption, the dateline) is the one htmldate's reference scoring settles
+   on. A tie breaks toward the earliest date when a publication date is wanted and the latest otherwise. Returns -1
+   on allocation failure. */
+static int dates_text_stage(th_tree *tree, th_node *root, const int *low, const int *high, int current_year, int want,
+                            date_pick *pick) {
+    date_tally tally = {low, high, NULL, NULL, 0, 0};
+    int status = 0;
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_BODY) {
+            continue;
+        }
+        Py_ssize_t len = 0;
+        Py_UCS4 *text = th_node_text(tree, node, &len);
+        if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            status = -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;          /* GCOVR_EXCL_LINE */
+        }
+        status = scan_every_date(text, PyUnicode_4BYTE_KIND, len, current_year, tally_date, &tally);
+        PyMem_Free(text);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            break;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        goto done;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (tally.size > 0) {
+        Py_ssize_t best = 0;
+        for (Py_ssize_t index = 1; index < tally.size; index++) {
+            if (tally_prefers(&tally, index, best, want)) {
+                best = index;
+            }
+        }
+        int key = tally.keys[best];
+        pick_offer(pick, DATE_ROLE_GENERIC, key / 10000, key / 100 % 100, key % 100, want);
+    }
+done:
+    PyMem_Free(tally.keys);
+    PyMem_Free(tally.counts);
+    return status;
+}
+
+/* The markup stages that need the tree: <time> elements, then (with extensive) the visible text. Returns -1 on
+   allocation failure. */
+static int dates_markup_stages(th_tree *tree, th_node *root, const int *low, const int *high, int current_year,
+                               int want, int extensive, date_pick *pick, const char **signal) {
+    *signal = "time";
+    if (dates_time_stage(tree, root, low, high, current_year, want, pick) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;                                                               /* GCOVR_EXCL_LINE */
+    }
+    if (pick_result(pick) != NULL || !extensive) {
+        return 0;
+    }
+    *signal = "text";
+    return dates_text_stage(tree, root, low, high, current_year, want, pick);
+}
+
+/* Document._dates(want, current_year, min_y, min_m, min_d, max_y, max_m, max_d, extensive)
+   -> (year, month, day, signal) or None.
+
+   The whole of turbohtml.extract.dates after parsing: the signals tried in htmldate's order -- a date in the
+   canonical URL, then publication/modification <meta> tags, then JSON-LD, then <time> elements, then (with
+   extensive) visible text -- and the first stage that yields a date inside [min, max] wins. want is META_PUBLISHED
+   (original=True) or META_MODIFIED; within a stage a candidate of the wanted or generic role wins on sight and the
+   first off-role one is the reserve. The tree-walking stages run under the document's critical section. */
+PyObject *turbohtml_document_dates(PyObject *self, PyObject *args) {
+    int want, current_year, extensive;
+    int low[3], high[3];
+    if (!PyArg_ParseTuple(args, "iiiiiiiip:_dates", &want, &current_year, &low[0], &low[1], &low[2], &high[0], &high[1],
+                          &high[2], &extensive)) {
+        return NULL;
+    }
+    th_tree *tree = tree_of(self);
+    th_node *root = ((NodeObject *)self)->node;
+    date_pick pick = {0};
+    const char *signal = "url";
+    const int *found;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    dates_url_stage(tree, root, low, high, want, &pick);
+    if ((found = pick_result(&pick)) == NULL) {
+        signal = "meta";
+        dates_meta_stage(tree, root, low, high, current_year, want, &pick);
+        found = pick_result(&pick);
+    }
     Py_END_CRITICAL_SECTION();
-    if (wanted_hit) {
-        return Py_BuildValue("(iii)", wanted_year, wanted_month, wanted_day);
+    if (found == NULL) {
+        signal = "json-ld";
+        PyObject *blocks = turbohtml_document_json_ld(self, NULL); /* runs Python code, so outside the section */
+        if (blocks == NULL) {
+            return NULL;
+        }
+        dates_json_node(blocks, low, high, current_year, want, &pick);
+        Py_DECREF(blocks);
+        found = pick_result(&pick);
     }
-    if (reserve_hit) {
-        return Py_BuildValue("(iii)", reserve_year, reserve_month, reserve_day);
+    if (found == NULL) {
+        int status;
+        Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+        status = dates_markup_stages(tree, root, low, high, current_year, want, extensive, &pick, &signal);
+        Py_END_CRITICAL_SECTION();
+        if (status < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        found = pick_result(&pick);
     }
-    Py_RETURN_NONE;
+    if (found == NULL) {
+        Py_RETURN_NONE;
+    }
+    return Py_BuildValue("(iiis)", found[0], found[1], found[2], signal);
 }
