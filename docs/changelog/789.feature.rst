@@ -1,0 +1,2 @@
+Move the whitespace fold of :meth:`turbohtml.migration.markupsafe.Markup.striptags` into the C core. Results are
+unchanged.

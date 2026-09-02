@@ -351,3 +351,36 @@ PyObject *turbohtml_is_normalized(PyObject *Py_UNUSED(module), PyObject *args) {
     }
     Py_RETURN_FALSE;
 }
+
+/* _collapse_whitespace(text) -> str: the text's whitespace-separated words joined by single spaces, the
+   " ".join(text.split()) fold, splitting on the Unicode White_Space characters str.split() splits on. */
+PyObject *turbohtml_collapse_whitespace(PyObject *Py_UNUSED(module), PyObject *text) {
+    if (!PyUnicode_Check(text)) {
+        PyErr_SetString(PyExc_TypeError, "text must be a str");
+        return NULL;
+    }
+    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+    int kind = PyUnicode_KIND(text);
+    const void *data = PyUnicode_DATA(text);
+    Py_UCS4 *out = PyMem_Malloc((size_t)(len > 0 ? len : 1) * sizeof(Py_UCS4));
+    if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t written = 0;
+    int pending_space = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (Py_UNICODE_ISSPACE(ch)) {
+            pending_space = written > 0; /* a run before the first word is dropped, one after it becomes a space */
+            continue;
+        }
+        if (pending_space) {
+            out[written++] = ' ';
+            pending_space = 0;
+        }
+        out[written++] = ch;
+    }
+    PyObject *result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, out, written);
+    PyMem_Free(out);
+    return result;
+}

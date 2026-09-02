@@ -64,6 +64,8 @@ PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
    _is_normalized(form, text) tests membership. Both match METH_VARARGS. */
 PyObject *turbohtml_normalize(PyObject *module, PyObject *args);
 PyObject *turbohtml_is_normalized(PyObject *module, PyObject *args);
+/* _collapse_whitespace(text) joins the text's words with single spaces, the str.split() fold (METH_O). */
+PyObject *turbohtml_collapse_whitespace(PyObject *module, PyObject *text);
 
 /* Implemented in css/select/to_xpath.c, which reuses the selector parser.
    _css_to_xpath(selector, prefix) translates a CSS selector list to an

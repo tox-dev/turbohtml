@@ -19,10 +19,10 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING, SupportsIndex, cast
 
+from turbohtml._html import _collapse_whitespace, _register_markup, parse_fragment, unescape
 from turbohtml._html import _markup_escape as escape
 from turbohtml._html import _markup_escape_silent as escape_silent
 from turbohtml._html import _markup_soft_str as soft_str
-from turbohtml._html import _register_markup, parse_fragment, unescape
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -159,7 +159,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :returns: the plain text, no longer safe markup.
         """
-        return " ".join(parse_fragment(str(self)).text.split())
+        return _collapse_whitespace(parse_fragment(str(self)).text)
 
     @classmethod
     def escape(cls, s: object, /) -> Markup:
