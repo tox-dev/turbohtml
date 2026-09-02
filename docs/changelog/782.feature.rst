@@ -1,0 +1,4 @@
+Move the query facade's traversal into the C core: :meth:`~turbohtml.query.Query.parent`,
+:meth:`~turbohtml.query.Query.children` and :meth:`~turbohtml.query.Query.closest` walk there, and a
+:class:`~turbohtml.query.Matcher` applies its ``limit`` and filters a node's children inside the walk. Results are
+unchanged.

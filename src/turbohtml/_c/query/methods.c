@@ -115,7 +115,7 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type) {
 }
 
 static int append_selected(PyObject *out, module_state *state, PyObject *handle, th_node *origin,
-                           sel_compiled *compiled) {
+                           sel_compiled *compiled, Py_ssize_t limit) {
     int error = 0;
     sel_has_memo has_memo = {0};
     const sel_simple *single = sel_single_simple(compiled);
@@ -132,6 +132,9 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
                 error = 1;                                                 /* GCOVR_EXCL_LINE */
                 break;                                                     /* GCOVR_EXCL_LINE */
             }
+            if (limit > 0 && PyList_GET_SIZE(out) == limit) {
+                break;
+            }
         }
     } else {
         for (th_node *node = origin->first_child; node != NULL; node = preorder_next(node, origin)) {
@@ -144,6 +147,9 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
                 error = 1;                                                 /* GCOVR_EXCL_LINE */
                 break;                                                     /* GCOVR_EXCL_LINE */
             }
+            if (limit > 0 && PyList_GET_SIZE(out) == limit) {
+                break;
+            }
         }
     }
     sel_has_memo_free(&has_memo);
@@ -153,7 +159,8 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
     return 0;
 }
 
-PyObject *node_select(PyObject *self, PyObject *arg) {
+/* The matching descendants of `self`, at most `limit` of them in document order (0 for all). */
+static PyObject *select_limited(PyObject *self, PyObject *arg, Py_ssize_t limit) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }
@@ -171,7 +178,7 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
     if (compiled == NULL) {
         error = -1;
     } else {
-        error = append_selected(out, state, handle, origin, compiled);
+        error = append_selected(out, state, handle, origin, compiled, limit);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {
@@ -179,6 +186,27 @@ PyObject *node_select(PyObject *self, PyObject *arg) {
         return NULL;
     }
     return out;
+}
+
+PyObject *node_select(PyObject *self, PyObject *arg) {
+    return select_limited(self, arg, 0);
+}
+
+/* _select_limited(node, selector, limit) -> list[Element]: the first `limit` matching descendants in document order,
+   or every one for a limit of 0 or less; the walk stops once it has enough. */
+PyObject *turbohtml_select_limited(PyObject *module, PyObject *args) {
+    PyObject *node;
+    PyObject *selector;
+    Py_ssize_t limit;
+    if (!PyArg_ParseTuple(args, "OUn:_select_limited", &node, &selector, &limit)) {
+        return NULL;
+    }
+    th_tree *tree;
+    th_node *borrowed;
+    if (turbohtml_node_borrow(module, node, &tree, &borrowed) < 0) {
+        return NULL;
+    }
+    return select_limited(node, selector, limit > 0 ? limit : 0);
 }
 
 typedef struct {
@@ -338,7 +366,7 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                         continue;
                     }
                     covered = origin;
-                    int append_error = append_selected(selected, state, anchor->handle, origin, compiled);
+                    int append_error = append_selected(selected, state, anchor->handle, origin, compiled, 0);
                     if (append_error < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                         error = 1;          /* GCOVR_EXCL_LINE */
                         break;              /* GCOVR_EXCL_LINE */

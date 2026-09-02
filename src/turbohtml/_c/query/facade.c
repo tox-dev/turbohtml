@@ -7,6 +7,7 @@
    Python layer holds and borrows each one's node, so the traversal walks the arena rather than the object graph. */
 
 #include "core/common.h"
+#include "dom/nodes.h"
 #include "dom/tree.h"
 
 #include <string.h>
@@ -118,6 +119,136 @@ PyObject *turbohtml_query_siblings(PyObject *module, PyObject *args) {
                 break;        /* GCOVR_EXCL_LINE */
             }
         }
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: the append only fails on allocation failure */
+            break;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(seen);
+    if (status < 0) {
+        Py_DECREF(out);
+        return NULL;
+    }
+    return out;
+}
+
+/* _query_parents(module, nodes) -> list[Element]: the element parent of every wrapped element, deduplicated,
+   since siblings share one. */
+PyObject *turbohtml_query_parents(PyObject *module, PyObject *args) {
+    PyObject *nodes;
+    if (!PyArg_ParseTuple(args, "O!", &PyList_Type, &nodes)) {
+        return NULL;
+    }
+    PyObject *out = PyList_New(0);
+    PyObject *seen = PySet_New(NULL);
+    /* GCOVR_EXCL_BR_START: list and set allocation cannot be forced to fail */
+    if (out == NULL || seen == NULL) {
+        Py_XDECREF(out);  /* GCOVR_EXCL_LINE */
+        Py_XDECREF(seen); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    int status = 0;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(nodes); index++) {
+        PyObject *owner = PyList_GET_ITEM(nodes, index);
+        th_node *node = facade_node(module, owner);
+        if (node == NULL) {
+            status = -1;
+            break;
+        }
+        th_node *parent = node->parent;
+        if (parent == NULL || parent->type != TH_NODE_ELEMENT) {
+            continue; /* the document root, or a fragment's top-level element */
+        }
+        PyObject *wrapper = turbohtml_node_wrap_in(owner, parent);
+        if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: wrapper allocation cannot be forced to fail */
+            status = -1;       /* GCOVR_EXCL_LINE */
+            break;             /* GCOVR_EXCL_LINE */
+        }
+        status = facade_keep_new(out, seen, wrapper, parent);
+        Py_DECREF(wrapper);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: the append only fails on allocation failure */
+            break;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(seen);
+    if (status < 0) {
+        Py_DECREF(out);
+        return NULL;
+    }
+    return out;
+}
+
+/* _query_children(module, nodes) -> list[Element]: the element children of every wrapped node, in order. A set of
+   distinct parents has distinct children, so nothing is deduplicated. */
+PyObject *turbohtml_query_children(PyObject *module, PyObject *args) {
+    PyObject *nodes;
+    if (!PyArg_ParseTuple(args, "O!", &PyList_Type, &nodes)) {
+        return NULL;
+    }
+    PyObject *out = PyList_New(0);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced to fail */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(nodes); index++) {
+        PyObject *owner = PyList_GET_ITEM(nodes, index);
+        th_node *node = facade_node(module, owner);
+        if (node == NULL) {
+            Py_DECREF(out);
+            return NULL;
+        }
+        for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+            if (child->type != TH_NODE_ELEMENT) {
+                continue;
+            }
+            PyObject *wrapper = turbohtml_node_wrap_in(owner, child);
+            if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: wrapper allocation cannot be forced to fail */
+                Py_DECREF(out);    /* GCOVR_EXCL_LINE */
+                return NULL;       /* GCOVR_EXCL_LINE */
+            }
+            int appended = PyList_Append(out, wrapper);
+            Py_DECREF(wrapper);
+            if (appended < 0) { /* GCOVR_EXCL_BR_LINE: the append only fails on allocation failure */
+                Py_DECREF(out); /* GCOVR_EXCL_LINE */
+                return NULL;    /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return out;
+}
+
+/* _query_closest(module, nodes, selector) -> list[Element]: the nearest self-or-ancestor of every wrapped element
+   that matches the selector, deduplicated, since siblings share one. */
+PyObject *turbohtml_query_closest(PyObject *module, PyObject *args) {
+    PyObject *nodes;
+    PyObject *selector;
+    if (!PyArg_ParseTuple(args, "O!U", &PyList_Type, &nodes, &selector)) {
+        return NULL;
+    }
+    PyObject *out = PyList_New(0);
+    PyObject *seen = PySet_New(NULL);
+    /* GCOVR_EXCL_BR_START: list and set allocation cannot be forced to fail */
+    if (out == NULL || seen == NULL) {
+        Py_XDECREF(out);  /* GCOVR_EXCL_LINE */
+        Py_XDECREF(seen); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    int status = 0;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(nodes); index++) {
+        PyObject *owner = PyList_GET_ITEM(nodes, index);
+        if (facade_node(module, owner) == NULL) {
+            status = -1;
+            break;
+        }
+        PyObject *found = node_css_closest(owner, selector);
+        if (found == NULL) {
+            status = -1; /* an invalid selector */
+            break;
+        }
+        if (found != Py_None) {
+            status = facade_keep_new(out, seen, found, facade_node(module, found));
+        }
+        Py_DECREF(found);
         if (status < 0) { /* GCOVR_EXCL_BR_LINE: the append only fails on allocation failure */
             break;        /* GCOVR_EXCL_LINE */
         }

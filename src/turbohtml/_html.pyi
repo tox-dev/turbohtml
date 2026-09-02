@@ -252,7 +252,16 @@ from ._stubs.query import (
     _query_attr as _query_attr,
 )
 from ._stubs.query import (
+    _query_children as _query_children,
+)
+from ._stubs.query import (
+    _query_closest as _query_closest,
+)
+from ._stubs.query import (
     _query_has_class as _query_has_class,
+)
+from ._stubs.query import (
+    _query_parents as _query_parents,
 )
 from ._stubs.query import (
     _query_remove_class as _query_remove_class,
@@ -274,6 +283,9 @@ from ._stubs.query import (
 )
 from ._stubs.query import (
     _register_xpath_string as _register_xpath_string,
+)
+from ._stubs.query import (
+    _select_limited as _select_limited,
 )
 from ._stubs.query import (
     _select_many as _select_many,

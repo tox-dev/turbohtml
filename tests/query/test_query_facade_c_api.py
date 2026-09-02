@@ -1,20 +1,29 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 import turbohtml
 from turbohtml._html import (
     _query_add_class,
     _query_attr,
+    _query_children,
+    _query_closest,
     _query_has_class,
+    _query_parents,
     _query_remove_class,
     _query_siblings,
     _query_text,
     _query_toggle_class,
     _query_unique,
+    _select_limited,
 )
 from turbohtml.build import E
 from turbohtml.query import Query
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def test_unique_keeps_the_first_of_each_node() -> None:
@@ -158,3 +167,76 @@ def test_the_query_facade_still_composes() -> None:
     assert query.add_class("z").has_class("z") is True
     assert query.attr("class") == "a z"
     assert query.remove_class("a").attr("class") == "z"
+
+
+def test_parents_deduplicates_a_shared_parent_and_skips_the_root() -> None:
+    document = turbohtml.parse("<div><p>a</p><p>b</p></div>")
+    first, second = document.find_all("p")
+    html = document.find("html")
+    assert html is not None
+    assert _query_parents([first, second, html]) == [first.parent]
+
+
+def test_the_document_has_no_parent() -> None:
+    assert _query_parents([turbohtml.parse("<p>a</p>")]) == []
+
+
+def test_children_keeps_only_element_children_in_order() -> None:
+    document = turbohtml.parse("<div>x<p>a</p>y<span>b</span></div><section><i>c</i></section>")
+    div, section = document.find("div"), document.find("section")
+    assert div is not None
+    assert section is not None
+    assert [child.tag for child in _query_children([div, section])] == ["p", "span", "i"]
+
+
+def test_children_of_a_document_is_its_root() -> None:
+    document = turbohtml.parse("<p>a</p>")
+    assert [child.tag for child in _query_children([document])] == ["html"]
+
+
+def test_closest_deduplicates_a_shared_ancestor_and_drops_a_miss() -> None:
+    document = turbohtml.parse("<div class=box><p>a</p><p>b</p></div><p>c</p>")
+    paragraphs = document.find_all("p")
+    assert _query_closest(paragraphs, ".box") == [paragraphs[0].parent]
+
+
+def test_closest_rejects_a_bad_selector() -> None:
+    with pytest.raises(Exception, match="selector"):
+        _query_closest(turbohtml.parse("<p>a</p>").find_all("p"), "p[")
+
+
+@pytest.mark.parametrize(
+    ("limit", "expected"),
+    [
+        pytest.param(0, ["a", "b", "c"], id="zero-is-all"),
+        pytest.param(-1, ["a", "b", "c"], id="negative-is-all"),
+        pytest.param(2, ["a", "b"], id="two"),
+        pytest.param(5, ["a", "b", "c"], id="more-than-there-are"),
+    ],
+)
+def test_select_limited_stops_after_the_limit(limit: int, expected: list[str]) -> None:
+    document = turbohtml.parse("<p>a</p><div><p>b</p></div><p>c</p>")
+    assert [node.text for node in _select_limited(document, "p", limit)] == expected
+
+
+def test_select_limited_stops_early_on_an_indexed_tree() -> None:
+    document = turbohtml.parse("".join(f"<p>{index}</p>" for index in range(2000)))
+    assert [node.text for node in _select_limited(document, "p", 1)] == ["0"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "args"),
+    [
+        pytest.param(_query_parents, (["p"],), id="parents-of-a-non-node"),
+        pytest.param(_query_children, (["p"],), id="children-of-a-non-node"),
+        pytest.param(_query_closest, (["p"], "p"), id="closest-of-a-non-node"),
+        pytest.param(_select_limited, ("p", "p", 0), id="select-from-a-non-node"),
+        pytest.param(_query_parents, ("p",), id="parents-of-a-non-list"),
+        pytest.param(_query_children, ("p",), id="children-of-a-non-list"),
+        pytest.param(_query_closest, ("p", "p"), id="closest-of-a-non-list"),
+        pytest.param(_select_limited, (turbohtml.parse(""), 5, 0), id="select-with-a-non-str-selector"),
+    ],
+)
+def test_the_entries_reject_a_non_node(entry: Callable[..., object], args: tuple[object, ...]) -> None:
+    with pytest.raises(TypeError):
+        entry(*args)
