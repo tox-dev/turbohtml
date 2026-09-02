@@ -7,6 +7,7 @@ from typing import Literal, TypeAlias, final
 from turbohtml._internal._locations import SourceLocation
 from turbohtml._internal._render import Canonical, Html, Markdown, PlainText
 from turbohtml.extract._article import Article as Article
+from turbohtml.extract._dates import Signal
 from turbohtml.extract._feed import Feed
 from turbohtml.extract._links import Link
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
@@ -351,7 +352,7 @@ class Document(Node):
     def microdata(self, base_url: str | None = None) -> list[MicrodataItem]: ...
     def rdfa(self, base_url: str | None = None) -> list[RdfaItem]: ...
     def dublin_core(self) -> dict[str, str]: ...
-    def _date_meta(
+    def _dates(
         self,
         want: int,
         current_year: int,
@@ -361,8 +362,9 @@ class Document(Node):
         max_year: int,
         max_month: int,
         max_day: int,
+        extensive: bool,
         /,
-    ) -> tuple[int, int, int] | None: ...
+    ) -> tuple[int, int, int, Signal] | None: ...
     def feed(self) -> Feed | None: ...
     @property
     def errors(self) -> list[ParseError]: ...

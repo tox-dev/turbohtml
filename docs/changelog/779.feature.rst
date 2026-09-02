@@ -1,0 +1,2 @@
+Move the publication-date stages into the C core: the canonical-URL, ``<meta>``, JSON-LD, ``<time>`` and visible-text
+signals :func:`~turbohtml.extract.dates` reads now run in one walk each. Results are unchanged.
