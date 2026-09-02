@@ -120,6 +120,9 @@ from ._stubs.dom import (
     parse_xml as parse_xml,
 )
 from ._stubs.features import (
+    _bleach_attributes as _bleach_attributes,
+)
+from ._stubs.features import (
     _date_scan as _date_scan,
 )
 from ._stubs.features import (

@@ -1,0 +1,3 @@
+Move the bleach shim's ``attributes`` translation into the C core: the flat, per-tag and callable shapes of
+:func:`turbohtml.migration.bleach.clean` compile there, and the per-tag predicates run through a C-bound filter. Results
+are unchanged.

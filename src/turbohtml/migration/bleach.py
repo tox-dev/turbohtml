@@ -12,12 +12,13 @@ negotiable.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
+from turbohtml._html import _bleach_attributes
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
 ALLOWED_TAGS = DEFAULT_TAGS
@@ -57,7 +58,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     if css_sanitizer is not None:  # CSS sanitizing is a separate sub-problem, not yet ported
         msg = "css_sanitizer is not implemented yet; drop the style attribute and <style> instead"
         raise NotImplementedError(msg)
-    names, attribute_filter = _convert_attributes(ALLOWED_ATTRIBUTES if attributes is None else attributes)
+    names, attribute_filter = _bleach_attributes(ALLOWED_ATTRIBUTES if attributes is None else attributes, Mapping)
     policy = Policy(
         tags=ALLOWED_TAGS if tags is None else frozenset(tags),
         attributes=names,
@@ -67,42 +68,6 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
         attribute_filter=attribute_filter,
     )
     return sanitize(text, policy)
-
-
-def _convert_attributes(
-    attributes: object,
-) -> tuple[Mapping[str, frozenset[str]], Callable[[str, str, str], str | None] | None]:
-    """Translate bleach's three ``attributes`` shapes into a name allowlist and an optional value filter."""
-    if callable(attributes):
-        predicate = cast("Callable[[str, str, str], bool]", attributes)
-        return {"*": frozenset({"*"})}, lambda tag, name, value: value if predicate(tag, name, value) else None
-    if isinstance(attributes, Mapping):
-        mapping = cast("Mapping[str, Iterable[str] | Callable[[str, str, str], bool]]", attributes)
-        names: dict[str, frozenset[str]] = {}
-        predicates: dict[str, Callable[[str, str, str], bool]] = {}
-        for tag, value in mapping.items():
-            if callable(value):
-                names[tag] = frozenset({"*"})
-                predicates[tag] = cast("Callable[[str, str, str], bool]", value)
-            else:
-                names[tag] = frozenset(cast("Iterable[str]", value))
-        return names, _per_tag_filter(predicates) if predicates else None
-    return {"*": frozenset(cast("Iterable[str]", attributes))}, None
-
-
-def _per_tag_filter(
-    predicates: dict[str, Callable[[str, str, str], bool]],
-) -> Callable[[str, str, str], str | None]:
-    """Fold per-tag bleach predicates into one value-rewriting filter, with the ``"*"`` predicate as the fallback."""
-
-    def attribute_filter(tag: str, name: str, value: str) -> str | None:
-        # a tag-specific predicate wins; otherwise the "*" predicate applies, so a wildcard callable does not fail open
-        predicate = predicates.get(tag) or predicates.get("*")
-        if predicate is None:
-            return value
-        return value if predicate(tag, name, value) else None
-
-    return attribute_filter
 
 
 __all__ = [
