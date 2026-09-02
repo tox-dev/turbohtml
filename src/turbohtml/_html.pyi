@@ -129,7 +129,13 @@ from ._stubs.features import (
     _linkify_has as _linkify_has,
 )
 from ._stubs.features import (
+    _linkify_nofollow as _linkify_nofollow,
+)
+from ._stubs.features import (
     _linkify_scan as _linkify_scan,
+)
+from ._stubs.features import (
+    _linkify_target_blank as _linkify_target_blank,
 )
 from ._stubs.features import (
     _phone_config_compile as _phone_config_compile,
