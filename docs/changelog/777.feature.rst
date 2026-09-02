@@ -1,0 +1,3 @@
+Move the boilerplate classifier into the C core: segmenting a page into paragraph units, collapsing each unit's text,
+and deciding which units are article content against the :class:`~turbohtml.extract.Extraction` thresholds. Results are
+unchanged.

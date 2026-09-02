@@ -67,6 +67,7 @@ py.extension_module(
         'src/turbohtml/_c/serialize/markdown.c',
         'src/turbohtml/_c/serialize/text.c',
         'src/turbohtml/_c/extract/readability.c',
+        'src/turbohtml/_c/extract/boilerplate.c',
         'src/turbohtml/_c/js/lexer.c',
         'src/turbohtml/_c/js/ast.c',
         'src/turbohtml/_c/js/parser.c',

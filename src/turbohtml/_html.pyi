@@ -60,6 +60,9 @@ from ._stubs.dom import (
     TreeWalker as TreeWalker,
 )
 from ._stubs.dom import (
+    _boilerplate as _boilerplate,
+)
+from ._stubs.dom import (
     _build_document as _build_document,
 )
 from ._stubs.dom import (

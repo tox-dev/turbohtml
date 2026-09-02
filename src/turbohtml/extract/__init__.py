@@ -32,9 +32,10 @@ records, the ``feedparser.parse`` entry point over :meth:`turbohtml.Document.fee
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, NamedTuple
+from itertools import starmap
+from typing import Final, NamedTuple, cast
 
-from turbohtml._html import Element, parse
+from turbohtml._html import Element, _boilerplate, parse
 
 from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates
@@ -46,6 +47,7 @@ from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 __all__ = [
     "Article",
     "DateExtraction",
+    "Element",
     "Entry",
     "Extraction",
     "Feed",
@@ -66,10 +68,6 @@ __all__ = [
     "normalize_url",
     "opengraph",
 ]
-
-_HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
-_UNITS: Final[list[str]] = [*_HEADINGS, "p", "li", "pre", "blockquote", "td", "dd", "dt", "figcaption"]
-"""The block elements a page segments into; a unit holding another unit is a container, not a paragraph."""
 
 
 class Paragraph(NamedTuple):
@@ -191,23 +189,12 @@ def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragra
     """
     thresholds = options or _DEFAULT
     document = parse(html)
-    content = document.main_content()
-    paragraphs = []
-    for unit in document.find_all(_UNITS):
-        if unit.find(_UNITS) is not None:  # a container whose nested units are the real paragraphs
-            continue
-        if text := " ".join(unit.text.split()):
-            paragraphs.append(Paragraph(text, _is_boilerplate(unit, text, content, thresholds), unit.tag in _HEADINGS))
-    return paragraphs
-
-
-def _is_boilerplate(unit: Element, text: str, content: Element | None, thresholds: Extraction) -> bool:
-    """Classify one non-blank unit: outside the content body, link-dense, or below the length floor is boilerplate."""
-    if content is None or content not in unit.ancestors:
-        return True
-    linked = sum(len(anchor.text) for anchor in unit.find_all("a"))
-    if linked and linked / len(unit.text) > thresholds.max_link_density:
-        return True
-    if unit.tag in _HEADINGS and thresholds.keep_headings:
-        return False
-    return len(text) < thresholds.min_length
+    rows = _boilerplate(
+        # a parsed document always has an <html> root, though the type admits None
+        cast("Element", document.root),
+        document.main_content(),
+        thresholds.min_length,
+        thresholds.max_link_density,
+        thresholds.keep_headings,
+    )
+    return list(starmap(Paragraph, rows))
