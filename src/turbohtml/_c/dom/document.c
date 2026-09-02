@@ -853,6 +853,230 @@ static PyObject *detect_result(const char *winner, int certain, const th_detect_
     return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom ? Py_True : Py_False);
 }
 
+/* One shaped candidate: a canonical encoding name and its share of the positive score total. */
+typedef struct {
+    PyObject *name; /* borrowed from the scored list the detector returned */
+    double confidence;
+} detect_candidate;
+
+/* Is `name`, case-folded, in `names`? A NULL set answers 0, so an absent option filters nothing. */
+static int detect_name_listed(PyObject *names, PyObject *name) {
+    if (names == NULL) {
+        return 0;
+    }
+    PyObject *folded = PyObject_CallMethod(name, "casefold", NULL);
+    if (folded == NULL) { /* GCOVR_EXCL_BR_LINE: casefold cannot fail for a str */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    int listed = PySequence_Contains(names, folded);
+    Py_DECREF(folded);
+    return listed; /* GCOVR_EXCL_BR_LINE: membership cannot fail for a str in a set */
+}
+
+/* The case-folded members of `names` as a set, or NULL when there are none to match against. */
+static PyObject *detect_folded_set(PyObject *names) {
+    if (names == Py_None) {
+        return NULL;
+    }
+    PyObject *folded = PySet_New(NULL);
+    /* GCOVR_EXCL_BR_START: allocation and iteration over a validated tuple cannot fail */
+    if (folded == NULL) {
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    PyObject *iterator = PyObject_GetIter(names);
+    if (iterator == NULL) {
+        Py_DECREF(folded); /* GCOVR_EXCL_LINE */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    PyObject *name;
+    while ((name = PyIter_Next(iterator)) != NULL) {
+        PyObject *lower = PyObject_CallMethod(name, "casefold", NULL);
+        int added = lower == NULL ? -1 : PySet_Add(folded, lower);
+        Py_XDECREF(lower);
+        Py_DECREF(name);
+        if (added < 0) {
+            Py_DECREF(iterator); /* GCOVR_EXCL_LINE */
+            Py_DECREF(folded);   /* GCOVR_EXCL_LINE */
+            return NULL;         /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(iterator);
+    /* GCOVR_EXCL_BR_STOP */
+    if (PySet_GET_SIZE(folded) == 0) { /* an empty option list filters nothing, so skip the lookups entirely */
+        Py_DECREF(folded);
+        return NULL;
+    }
+    return folded;
+}
+
+/* Shape the detector's scored candidates into `out`, returning how many it wrote or -1.
+
+   A certain result -- a byte-order mark, a declaration, a structural proof, or pure ASCII -- is one candidate at
+   confidence 1.0. Otherwise each candidate's raw score becomes its share of the positive total, the best-scored entry
+   per name wins (the windows-1252 model runs once per language family, so one encoding can appear twice), and the
+   detector's own winner moves to the front so index 0 matches what a decode would use. */
+static Py_ssize_t detect_shape(PyObject *winner, int certain, PyObject *scored, PyObject *fallback,
+                               detect_candidate *out) {
+    if (certain || winner == Py_None) {
+        /* no winner means the stream carried no non-ASCII byte, which takes the spec's windows-1252 fallback */
+        out[0].name = winner == Py_None ? fallback : winner;
+        out[0].confidence = 1.0;
+        return 1;
+    }
+    Py_ssize_t count = 0;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(scored); index++) {
+        PyObject *pair = PyList_GET_ITEM(scored, index);
+        PyObject *name = PyTuple_GET_ITEM(pair, 0);
+        double score = (double)PyLong_AsLongLong(PyTuple_GET_ITEM(pair, 1));
+        Py_ssize_t at = 0;
+        while (at < count && PyUnicode_Compare(out[at].name, name) != 0) {
+            at++;
+        }
+        if (at < count) { /* one encoding can be scored twice, since a model runs per language family */
+            out[at].confidence = score > out[at].confidence ? score : out[at].confidence;
+            continue;
+        }
+        out[count].name = name;
+        out[count].confidence = score;
+        count++;
+    }
+    /* score-descending, with the detector's emission order breaking ties: a stable insertion sort, which is what
+       Python's sorted() gave, and the candidate count is small enough that nothing cleverer pays for itself */
+    for (Py_ssize_t index = 1; index < count; index++) {
+        detect_candidate held = out[index];
+        Py_ssize_t at = index;
+        while (at > 0 && out[at - 1].confidence < held.confidence) {
+            out[at] = out[at - 1];
+            at--;
+        }
+        out[at] = held;
+    }
+    double total = 0.0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        total += out[index].confidence > 0.0 ? out[index].confidence : 0.0;
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        out[index].confidence = out[index].confidence > 0.0 ? out[index].confidence / total : 0.0;
+    }
+    Py_ssize_t at = 0;
+    while (at < count && PyUnicode_Compare(out[at].name, winner) != 0) {
+        at++;
+    }
+    if (at == count) { /* the windows-1252 fallback won without surviving as a candidate itself */
+        memmove(&out[1], &out[0], (size_t)count * sizeof(*out));
+        out[0].name = winner;
+        out[0].confidence = 0.0;
+        return count + 1;
+    }
+    detect_candidate first = out[at];
+    memmove(&out[1], &out[0], (size_t)at * sizeof(*out));
+    out[0] = first;
+    return count;
+}
+
+/* Build one EncodingMatch row: (name, confidence, language, had_bom, codec). */
+static PyObject *detect_row(PyObject *name, double confidence, PyObject *languages, int bom) {
+    PyObject *folded = PyObject_CallMethod(name, "casefold", NULL);
+    if (folded == NULL) { /* GCOVR_EXCL_BR_LINE: casefold cannot fail for a str */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *language = PyDict_GetItem(languages, folded); /* borrowed; NULL when the encoding names no language */
+    PyObject *codec = th_str_format("whatwg-%U", folded);
+    Py_DECREF(folded);
+    if (codec == NULL) { /* GCOVR_EXCL_BR_LINE: string allocation cannot be forced to fail */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    /* the language is borrowed and absent for an encoding that names none */
+    return Py_BuildValue("(OdOON)", name, confidence, language == NULL ? Py_None : language, bom ? Py_True : Py_False,
+                         codec);
+}
+
+/* _detect_rank(result, allowed, excluded, language, threshold, languages) -> list[tuple]
+
+   Shape one detector result and apply the Detection options to it: the allowlist, the exclusions, the language
+   preference that floats a hinted encoding to the front, and the confidence floor. Each row carries what an
+   EncodingMatch holds, so the typed layer only constructs them. An empty list means every candidate was filtered
+   out, which the caller answers with its no-match sentinel. */
+PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *result;
+    PyObject *allowed;
+    PyObject *excluded;
+    PyObject *language;
+    double threshold;
+    PyObject *languages;
+    if (!PyArg_ParseTuple(args, "O!OOOdO!:_detect_rank", &PyTuple_Type, &result, &allowed, &excluded, &language,
+                          &threshold, &PyDict_Type, &languages)) {
+        return NULL;
+    }
+    PyObject *winner = PyTuple_GET_ITEM(result, 0);
+    int certain = PyObject_IsTrue(PyTuple_GET_ITEM(result, 1));
+    PyObject *scored = PyTuple_GET_ITEM(result, 2);
+    int bom = PyObject_IsTrue(PyTuple_GET_ITEM(result, 3));
+    Py_ssize_t room = PyList_GET_SIZE(scored) + 1;
+    detect_candidate *shaped = PyMem_Malloc((size_t)room * sizeof(*shaped));
+    PyObject *out = PyList_New(0);
+    PyObject *permitted = detect_folded_set(allowed);
+    PyObject *blocked = detect_folded_set(excluded);
+    /* GCOVR_EXCL_BR_START: allocation cannot be forced to fail */
+    if (shaped == NULL || out == NULL || PyErr_Occurred() != NULL) {
+        PyMem_Free(shaped);    /* GCOVR_EXCL_LINE */
+        Py_XDECREF(out);       /* GCOVR_EXCL_LINE */
+        Py_XDECREF(permitted); /* GCOVR_EXCL_LINE */
+        Py_XDECREF(blocked);   /* GCOVR_EXCL_LINE */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    PyObject *fallback = PyUnicode_FromString("windows-1252");
+    if (fallback == NULL) {    /* GCOVR_EXCL_BR_LINE: string allocation cannot be forced to fail */
+        PyMem_Free(shaped);    /* GCOVR_EXCL_LINE */
+        Py_DECREF(out);        /* GCOVR_EXCL_LINE */
+        Py_XDECREF(permitted); /* GCOVR_EXCL_LINE */
+        Py_XDECREF(blocked);   /* GCOVR_EXCL_LINE */
+        return NULL;           /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t count = detect_shape(winner, certain, scored, fallback, shaped);
+    int status = 0;
+    /* the hinted language runs first, so a preferred candidate leads without disturbing the rest of the order */
+    for (int pass = 0; pass < (language == Py_None ? 1 : 2); pass++) {
+        for (Py_ssize_t index = 0; index < count; index++) {
+            PyObject *name = shaped[index].name;
+            double confidence = shaped[index].confidence;
+            if (confidence < threshold || (allowed != Py_None && detect_name_listed(permitted, name) != 1) ||
+                detect_name_listed(blocked, name) == 1) {
+                continue;
+            }
+            if (language != Py_None) {
+                PyObject *folded = PyObject_CallMethod(name, "casefold", NULL);
+                /* borrowed; NULL when the encoding names no language, which can never be the hinted one */
+                PyObject *named = PyDict_GetItem(languages, folded);
+                int preferred = confidence > 0.0 && named != NULL && PyObject_RichCompareBool(named, language, Py_EQ);
+                Py_DECREF(folded);
+                if (preferred != (pass == 0)) {
+                    continue;
+                }
+            }
+            PyObject *row = detect_row(name, confidence, languages, bom);
+            status = row == NULL ? -1 : PyList_Append(out, row); /* GCOVR_EXCL_BR_LINE: allocation */
+            Py_XDECREF(row);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: only an allocation failure sets it */
+                break;        /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: only an allocation failure sets it */
+            break;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyMem_Free(shaped);
+    Py_DECREF(fallback);
+    Py_XDECREF(permitted);
+    Py_XDECREF(blocked);
+    if (status < 0) {   /* GCOVR_EXCL_BR_LINE: every failure above is an allocation failure */
+        Py_DECREF(out); /* GCOVR_EXCL_LINE */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    return out;
+}
+
 /* Resolve a byte-order mark, then a <meta> prescan, over the stream's leading bytes; the
    caller supplies the detector's answer for when neither decides. */
 static const char *detect_declared(const unsigned char *prefix, Py_ssize_t prefix_len, int *certain, int *bom) {

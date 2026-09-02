@@ -51,6 +51,7 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
    is given; the turbohtml.detect facade shapes its (winner, certain, ranked scores, bom)
    tuple into EncodingMatch results. METH_VARARGS. */
 PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args);
+PyObject *turbohtml_detect_rank(PyObject *module, PyObject *args);
 
 /* The streaming encoding detector type, registered on the module as _DetectStream. */
 extern PyType_Spec detect_stream_spec;

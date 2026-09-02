@@ -1,0 +1,3 @@
+Move the encoding detector's candidate ranking into the C core: deduplicating the scored candidates, normalizing each
+score to its share, promoting the detector's own winner, and applying the :class:`~turbohtml.detect.Detection`
+allowlist, exclusions, language preference and confidence floor. Results are unchanged.
