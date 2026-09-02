@@ -879,12 +879,14 @@ static PyObject *detect_folded_set(PyObject *names) {
         return NULL;
     }
     PyObject *folded = PySet_New(NULL);
-    PyObject *iterator = folded == NULL ? NULL /* GCOVR_EXCL_LINE: set allocation cannot be forced */
-                                        : PyObject_GetIter(names);
     /* GCOVR_EXCL_BR_START: allocation and iteration over a validated tuple cannot fail */
+    if (folded == NULL) {
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    PyObject *iterator = PyObject_GetIter(names);
     if (iterator == NULL) {
-        Py_XDECREF(folded); /* GCOVR_EXCL_LINE */
-        return NULL;        /* GCOVR_EXCL_LINE */
+        Py_DECREF(folded); /* GCOVR_EXCL_LINE */
+        return NULL;       /* GCOVR_EXCL_LINE */
     }
     PyObject *name;
     while ((name = PyIter_Next(iterator)) != NULL) {
@@ -980,11 +982,13 @@ static PyObject *detect_row(PyObject *name, double confidence, PyObject *languag
     }
     PyObject *language = PyDict_GetItem(languages, folded); /* borrowed; NULL when the encoding names no language */
     PyObject *codec = th_str_format("whatwg-%U", folded);
-    PyObject *row = codec == NULL ? NULL /* GCOVR_EXCL_LINE: string allocation cannot be forced */
-                                  : Py_BuildValue("(OdOON)", name, confidence, language == NULL ? Py_None : language,
-                                                  bom ? Py_True : Py_False, codec);
     Py_DECREF(folded);
-    return row;
+    if (codec == NULL) { /* GCOVR_EXCL_BR_LINE: string allocation cannot be forced to fail */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    /* the language is borrowed and absent for an encoding that names none */
+    return Py_BuildValue("(OdOON)", name, confidence, language == NULL ? Py_None : language, bom ? Py_True : Py_False,
+                         codec);
 }
 
 /* _detect_rank(result, allowed, excluded, language, threshold, languages) -> list[tuple]
@@ -1033,8 +1037,8 @@ PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
     Py_ssize_t count = detect_shape(winner, certain, scored, fallback, shaped);
     int status = 0;
     /* the hinted language runs first, so a preferred candidate leads without disturbing the rest of the order */
-    for (int pass = 0; status == 0 && pass < (language == Py_None ? 1 : 2); pass++) {
-        for (Py_ssize_t index = 0; status == 0 && index < count; index++) {
+    for (int pass = 0; pass < (language == Py_None ? 1 : 2); pass++) {
+        for (Py_ssize_t index = 0; index < count; index++) {
             PyObject *name = shaped[index].name;
             double confidence = shaped[index].confidence;
             if (confidence < threshold || (allowed != Py_None && detect_name_listed(permitted, name) != 1) ||
@@ -1054,6 +1058,12 @@ PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
             PyObject *row = detect_row(name, confidence, languages, bom);
             status = row == NULL ? -1 : PyList_Append(out, row); /* GCOVR_EXCL_BR_LINE: allocation */
             Py_XDECREF(row);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: only an allocation failure sets it */
+                break;        /* GCOVR_EXCL_LINE */
+            }
+        }
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: only an allocation failure sets it */
+            break;        /* GCOVR_EXCL_LINE */
         }
     }
     PyMem_Free(shaped);
