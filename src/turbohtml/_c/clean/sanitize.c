@@ -2114,6 +2114,128 @@ static int require_prefixes(PyObject *prefixes) {
    sanitized snapshot; sanitizer.py serializes it. A str is parsed into the private output tree; an Element is
    copied under its tree lock before callbacks run. `removed` is a list the walk appends (tag, attr_or_None) records to,
    or None to skip the audit. */
+/* The attribute filter a bleach predicate table compiles to: `predicates` is {tag: callable}, the tag's own entry
+   winning and the "*" entry applying otherwise, so a wildcard callable never fails open. The predicate's truth
+   keeps the value, anything else drops it. */
+static PyObject *bleach_filter(PyObject *predicates, PyObject *args) {
+    PyObject *tag, *name, *value;
+    if (!PyArg_ParseTuple(args, "OOO:bleach_attribute_filter", &tag, &name, &value)) {
+        return NULL;
+    }
+    PyObject *predicate = PyDict_GetItemWithError(predicates, tag);
+    if (predicate == NULL) {
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the walk hands over str tags, which always hash */
+            return NULL;        /* GCOVR_EXCL_LINE */
+        }
+        predicate = PyDict_GetItemString(predicates, "*");
+    }
+    if (predicate == NULL) {
+        return Py_NewRef(value);
+    }
+    PyObject *verdict = PyObject_CallFunctionObjArgs(predicate, tag, name, value, NULL);
+    if (verdict == NULL) {
+        return NULL;
+    }
+    int keep = PyObject_IsTrue(verdict);
+    Py_DECREF(verdict);
+    if (keep < 0) {
+        return NULL;
+    }
+    return keep ? Py_NewRef(value) : Py_NewRef(Py_None);
+}
+
+static PyMethodDef BLEACH_FILTER_DEF = {"bleach_attribute_filter", bleach_filter, METH_VARARGS,
+                                        "The value filter a bleach predicate table compiles to."};
+
+/* The frozenset({"*"}) that admits every attribute name on a tag a predicate judges. */
+static PyObject *bleach_wildcard(void) {
+    PyObject *seed = Py_BuildValue("(s)", "*");
+    if (seed == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    PyObject *every = PyFrozenSet_New(seed);
+    Py_DECREF(seed);
+    return every;
+}
+
+/* Record one tag's allowlist entry: a callable admits every name and joins the predicate table, an iterable lists
+   the names. Returns -1 with an error set. */
+static int bleach_tag_entry(PyObject *names, PyObject *predicates, PyObject *tag, PyObject *value) {
+    PyObject *listed;
+    if (PyCallable_Check(value)) {
+        listed = bleach_wildcard();
+        if (listed != NULL && PyDict_SetItem(predicates, tag, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+            Py_CLEAR(listed);                                               /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
+    } else {
+        listed = PyFrozenSet_New(value);
+    }
+    if (listed == NULL) {
+        return -1; /* a value that is neither callable nor iterable */
+    }
+    int stored = PyDict_SetItem(names, tag, listed);
+    Py_DECREF(listed);
+    return stored; /* GCOVR_EXCL_BR_LINE: a dict insert only fails on allocation failure */
+}
+
+/* _bleach_attributes(attributes, mapping_type) -> (names, filter): translate bleach's three `attributes` shapes into
+   a name allowlist and an optional value filter. A callable admits every name and judges each value; a mapping
+   lists names per tag, a callable value standing for a per-tag judge; any other iterable lists names for every
+   tag. `mapping_type` is collections.abc.Mapping, the shape test bleach makes. */
+PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *attributes, *mapping_type;
+    if (!PyArg_ParseTuple(args, "OO:_bleach_attributes", &attributes, &mapping_type)) {
+        return NULL;
+    }
+    PyObject *names = PyDict_New();
+    PyObject *predicates = PyDict_New();
+    PyObject *result = NULL;
+    if (names == NULL || predicates == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        goto done;                             /* GCOVR_EXCL_LINE */
+    }
+    int failed;
+    if (PyCallable_Check(attributes)) {
+        PyObject *star = PyUnicode_FromString("*");
+        failed = star == NULL || bleach_tag_entry(names, predicates, star, attributes) < 0; /* GCOVR_EXCL_BR_LINE */
+        Py_XDECREF(star);
+    } else {
+        int is_mapping = PyObject_IsInstance(attributes, mapping_type);
+        if (is_mapping < 0) {
+            goto done;
+        }
+        if (is_mapping) {
+            PyObject *items = PyMapping_Items(attributes);
+            if (items == NULL) { /* GCOVR_EXCL_BR_LINE: a Mapping always answers items() */
+                goto done;       /* GCOVR_EXCL_LINE */
+            }
+            failed = 0;
+            for (Py_ssize_t index = 0; !failed && index < PyList_GET_SIZE(items); index++) {
+                PyObject *pair = PyList_GET_ITEM(items, index);
+                failed = bleach_tag_entry(names, predicates, PyTuple_GET_ITEM(pair, 0), PyTuple_GET_ITEM(pair, 1)) < 0;
+            }
+            Py_DECREF(items);
+        } else {
+            PyObject *star = PyUnicode_FromString("*");
+            failed = star == NULL || bleach_tag_entry(names, predicates, star, attributes) < 0; /* GCOVR_EXCL_BR_LINE */
+            Py_XDECREF(star);
+        }
+    }
+    if (failed) {
+        goto done;
+    }
+    PyObject *filter =
+        PyDict_GET_SIZE(predicates) == 0 ? Py_NewRef(Py_None) : PyCFunction_New(&BLEACH_FILTER_DEF, predicates);
+    if (filter == NULL) { /* GCOVR_EXCL_BR_LINE: the bound function only fails on allocation failure */
+        goto done;        /* GCOVR_EXCL_LINE */
+    }
+    result = PyTuple_Pack(2, names, filter);
+    Py_DECREF(filter);
+done:
+    Py_XDECREF(names);
+    Py_XDECREF(predicates);
+    return result;
+}
+
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *source;
     PyObject *removed = NULL;
