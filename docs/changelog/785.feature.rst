@@ -1,0 +1,2 @@
+Move the sanitizer's policy compilation into the C core: the ``rel`` value, the value allowlists, the style patterns and
+the transform rules a :class:`~turbohtml.clean.Sanitizer` indexes are built there. Results are unchanged.

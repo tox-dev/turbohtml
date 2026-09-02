@@ -207,6 +207,9 @@ from ._stubs.features import (
     _sanitize as _sanitize,
 )
 from ._stubs.features import (
+    _sanitize_policy as _sanitize_policy,
+)
+from ._stubs.features import (
     _url_clean as _url_clean,
 )
 from ._stubs.features import (
