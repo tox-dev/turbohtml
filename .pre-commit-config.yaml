@@ -19,11 +19,11 @@ repos:
       - id: codespell
         additional_dependencies: ["tomli>=2.4.1"]
   - repo: https://github.com/tox-dev/tox-toml-fmt
-    rev: "v1.10.0" # v1.9.3
+    rev: "v1.10.3" # v1.9.3
     hooks:
       - id: tox-toml-fmt
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.29.0" # v2.23.0
+    rev: "v2.29.3" # v2.23.0
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -33,7 +33,7 @@ repos:
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table|idna_table|normalize_table|encoding_tables|phone_table)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.16.5" # v0.15.16
+    rev: "v0.16.6" # v0.15.16
     hooks:
       - id: ruff-format
       - id: ruff-check
