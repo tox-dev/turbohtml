@@ -1,0 +1,3 @@
+Add :func:`~turbohtml.clean.sanitize_node` and :func:`~turbohtml.clean.sanitize_report_node`, the tree-to-tree sanitizer
+for a pipeline that parses once and serializes once; :func:`~turbohtml.clean.sanitize` and
+:func:`~turbohtml.clean.sanitize_report` also accept a parsed node.

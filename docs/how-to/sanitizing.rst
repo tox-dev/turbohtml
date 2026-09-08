@@ -220,3 +220,32 @@ in the order the walk reached it, so a policy can be tuned against evidence inst
 .. testoutput::
 
     [Removed(tag='p', attribute='onmouseover'), Removed(tag='b', attribute='onclick')]
+
+*********************************
+ Sanitize an already parsed tree
+*********************************
+
+When the HTML is already a tree -- because the same document goes through :func:`~turbohtml.clean.linkify`, a custom
+edit, or a minifying serialization afterwards -- :func:`turbohtml.clean.sanitize_node` sanitizes the node and returns
+the sanitized copy as a tree, the way DOMPurify's ``RETURN_DOM`` hands back a DOM instead of a string. The node passed
+in is the kept context, like the fragment root of :func:`~turbohtml.clean.sanitize`: the policy applies to its
+descendants and never to the node itself, so pass the ``body`` to clean what a page holds. The source is left as it was.
+
+.. testcode::
+
+    from turbohtml import Html, parse
+    from turbohtml.clean import Minify, Policy, sanitize_node
+
+    document = parse("<p onclick='x'>Hi <b>there</b></p><script>evil()</script>")
+    body = document.find("body")
+    clean = sanitize_node(body, Policy.relaxed())
+    print(clean.serialize(Html(layout=Minify())))
+
+.. testoutput::
+
+    <body><p>Hi <b>there</b></p>&lt;script&gt;evil()&lt;/script&gt;</body>
+
+Passing a :class:`~turbohtml.Document` makes the policy judge the ``html`` element itself, so a policy meant for whole
+documents lists ``html``, ``head`` and ``body``; a ``bleach``-style fragment allowlist would strip them.
+:func:`~turbohtml.clean.sanitize_report_node` pairs the copy with the :class:`~turbohtml.clean.Removed` records, and the
+string forms accept a node as well when a string is wanted at the end.

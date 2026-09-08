@@ -100,6 +100,11 @@ sanitizer keeps its parse-once-serialize-once shape: the tree the walk cleared i
 trip for a mutation-XSS vector to re-enter through. Every DOMPurify corpus vector, serialized this way, reparses through
 :func:`turbohtml.parse_xml` without error.
 
+**A tree in, a tree out.** The walk never needed a string: :func:`~turbohtml.clean.sanitize` parses one, and
+:func:`~turbohtml.clean.sanitize_node` takes a parsed node instead and returns the sanitized copy as a tree, in its own
+tree and with the source untouched. That is what lets sanitizing sit in a pipeline with linkifying and a minifying
+serialization without a parse and a serialization between each step.
+
 **Validated against DOMPurify.** ``tests/conformance/test_sanitizer_dompurify_conformance.py`` runs DOMPurify's own
 corpus (its ``test/fixtures/expect.mjs``, ~219 XSS vectors, vendored as a pinned submodule) through the sanitizer under
 every config, and diffs against a live DOMPurify Node build. The absolute result holds across the whole corpus and every

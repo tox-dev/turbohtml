@@ -44,7 +44,9 @@ from ._sanitizer import (
     Sanitizer,
     Transform,
     sanitize,
+    sanitize_node,
     sanitize_report,
+    sanitize_report_node,
 )
 
 __all__ = [
@@ -80,6 +82,8 @@ __all__ = [
     "minify_js",
     "nofollow",
     "sanitize",
+    "sanitize_node",
     "sanitize_report",
+    "sanitize_report_node",
     "target_blank",
 ]

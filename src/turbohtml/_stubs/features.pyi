@@ -7,7 +7,7 @@ from turbohtml.clean import LinkCandidate, PhoneNumber, PhoneType, Transform
 from turbohtml.extract._feed import Entry, Feed
 from turbohtml.extract._structured_data import JSONValue, MicrodataItem, OpenGraph, RdfaItem, StructuredData
 
-from .dom import Element
+from .dom import Element, Node
 
 # (start, end, kind, href, phone): the scanner builds the href for every kind and sets the phone for kind 4
 _Span: TypeAlias = tuple[int, int, int, str, PhoneNumber | None, bool]
@@ -169,7 +169,7 @@ def _sanitize_policy(
     dict[str, tuple[str, dict[str, str]]],
 ]: ...
 def _sanitize(
-    source: str | Element,
+    source: str | Node,
     tags: frozenset[str],
     attributes: Mapping[str, frozenset[str]],
     url_schemes: frozenset[str],
@@ -196,6 +196,6 @@ def _sanitize(
     allow_svg: bool,
     allow_mathml: bool,
     /,
-) -> Element: ...
+) -> Node: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...
 def annotation_tags(text: str, spans: Iterable[tuple[int, int, str]], /) -> str: ...

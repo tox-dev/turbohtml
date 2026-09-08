@@ -18,10 +18,18 @@ element or stripped attribute, the way DOMPurify populates ``DOMPurify.removed``
 
 .. autofunction:: sanitize_report
 
+:func:`sanitize_node` and :func:`sanitize_report_node` take an already parsed node and hand back the sanitized copy as a
+tree, so a pipeline of transforms parses once and serializes once; :func:`sanitize` and :func:`sanitize_report` accept a
+node too when a string is wanted at the end.
+
+.. autofunction:: sanitize_node
+
+.. autofunction:: sanitize_report_node
+
 .. autoclass:: Removed
 
 .. autoclass:: Sanitizer
-    :members: sanitize, sanitize_report
+    :members: sanitize, sanitize_report, sanitize_node, sanitize_report_node
 
 .. autoclass:: Policy
     :members: strict, basic, relaxed

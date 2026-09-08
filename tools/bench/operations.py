@@ -16,6 +16,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Final
 
 from bench import corpus
+from turbohtml import parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -326,6 +327,7 @@ OPERATIONS: dict[str, Operation] = {
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-named-props": Operation("sanitize (named-prop isolation)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
+    "sanitize-node": Operation("sanitize a parsed tree", "us"),
     "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
     "sanitize-transform": Operation("sanitize (tag transform)", "us"),
     "sanitize-custom-elements": Operation("sanitize (custom elements)", "us"),
@@ -1025,6 +1027,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
     "sanitize-named-props": lambda: (("clobbering 4 KiB", _SANITIZE_NAMED * 11),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
+    "sanitize-node": lambda: (("post 4 KiB", parse_fragment(_SANITIZE_POST * 20)),),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),
     "sanitize-custom-elements": lambda: (("custom 4 KiB", _SANITIZE_CUSTOM * 11),),

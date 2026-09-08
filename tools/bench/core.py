@@ -50,6 +50,8 @@ from turbohtml.validate import XMLSchema as _XMLSchema
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from turbohtml import Node
+
 _SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
 _SANITIZER_TEMPLATES = _clean.Sanitizer(replace(_clean.Policy.relaxed(), strip_template_markers=True))
 _SANITIZER_STYLES = _clean.Sanitizer(
@@ -493,6 +495,11 @@ def sanitize_named_props(text: str) -> None:
 def sanitize_report(text: str) -> None:
     """Sanitize with the audit trail on, exercising the removed-node collection."""
     _SANITIZER.sanitize_report(text)
+
+
+def sanitize_node(node: Node) -> None:
+    """Sanitize an already parsed subtree with the relaxed policy, the parse-once pipeline's step."""
+    _SANITIZER.sanitize_node(node)
 
 
 def sanitize_styles(text: str) -> None:
@@ -1037,6 +1044,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-named-props": (sanitize_named_props, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),
+    "sanitize-node": (sanitize_node, "turbohtml"),
     "sanitize-styles": (sanitize_styles, "turbohtml"),
     "sanitize-transform": (sanitize_transform, "turbohtml"),
     "sanitize-custom-elements": (sanitize_custom_elements, "turbohtml"),
