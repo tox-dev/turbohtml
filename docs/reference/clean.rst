@@ -200,11 +200,16 @@ to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascri
 
 .. autofunction:: linkify
 
+:func:`linkify_node` takes an already parsed node and links its text runs in place, so a pipeline of transforms parses
+once and serializes once; :func:`linkify` accepts a node too when a string is wanted at the end.
+
+.. autofunction:: linkify_node
+
 .. autoclass:: Linkify
     :members:
 
 .. autoclass:: Linker
-    :members: linkify
+    :members: linkify, linkify_node
 
 .. autoclass:: LinkCandidate
 

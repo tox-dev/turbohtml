@@ -140,6 +140,7 @@ _RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
     "sanitize-xml": ("sanitize-xml-spec", _spec),
     "linkify": ("linkify-spec", _spec),
     "sanitize-node": ("sanitize-node-spec", lambda: parse(_spec()).find("body")),
+    "linkify-node": ("linkify-node-spec", lambda: parse(_spec()).find("body")),
     "markdown-google": ("markdown-google-parse-spec", _spec),
     "article": ("article-parse-spec", _spec),
     "boilerplate": ("boilerplate-spec", _spec),

@@ -7,6 +7,7 @@ maps each operation to ``(timing function, label)``; the function takes the same
 
 from __future__ import annotations
 
+import copy
 import functools
 import re
 from dataclasses import replace
@@ -555,6 +556,11 @@ def linkify(text: str) -> None:
     _linkify(text)
 
 
+def linkify_node(node: Node) -> None:
+    """Linkify an already parsed subtree in place; each call links a fresh copy, since a linked tree offers nothing."""
+    _LINKER.linkify_node(copy.deepcopy(node))
+
+
 def linkify_traversal(case: tuple[str, str]) -> None:
     """Reuse compiled options so the benchmark isolates traversal."""
     kind, text = case
@@ -1052,6 +1058,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "markup": (markup, "turbohtml"),
     "markup-op": (markup_op, "turbohtml"),
     "linkify": (linkify, "turbohtml"),
+    "linkify-node": (linkify_node, "turbohtml"),
     "linkify-traversal": (linkify_traversal, "turbohtml"),
     "detect": (detect, "turbohtml"),
     "phone": (phone, "turbohtml"),

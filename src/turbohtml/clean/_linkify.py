@@ -9,6 +9,7 @@ an existing ``<a>``, a raw-text element (``<script>``/``<style>``), or a caller'
 
 from __future__ import annotations
 
+import copy
 import functools
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
     from typing_extensions import Self
 
-    from turbohtml._html import _PhoneConfig
+    from turbohtml._html import Node, _PhoneConfig
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
@@ -528,16 +529,35 @@ class Linker:
         self.phones = config.phones
         self._phone_config = _compile_phones(config.phones)
 
-    def linkify(self, text: str) -> str:
+    def linkify(self, text: str | Node) -> str:
         """
         Linkify HTML, leaving everything but eligible text runs untouched.
 
-        :param text: the HTML to linkify.
+        :param text: the HTML to linkify, or an already parsed node (see :meth:`linkify_node`), which skips the parse
+            and links a copy so the node is left as it was.
         :returns: the linkified HTML.
         """
-        root = parse_fragment(text)
+        root = parse_fragment(text) if isinstance(text, str) else copy.deepcopy(text)
+        return self.linkify_node(root).inner_html
+
+    def linkify_node(self, node: Node) -> Node:
+        """
+        Linkify an already parsed subtree in place and return the node, so it chains.
+
+        This is the tree form for a pipeline that parses once, runs several transforms, and serializes once. The
+        walk is the one :meth:`linkify` runs after parsing: it links only in text the reader sees, never inside an
+        existing ``<a>``, a raw-text element, or a tag in ``Linkify.skip_tags``, and it rewrites the tree under the
+        document's lock on the free-threaded build.
+
+        :param node: the element or document whose text runs to link.
+        :returns: the same node, now holding the links.
+        :raises TypeError: if ``node`` is not a node.
+        """
+        if isinstance(node, str):
+            msg = "linkify_node takes a parsed node; pass a str to linkify instead"
+            raise TypeError(msg)
         _linkify_apply(
-            root,
+            node,
             self.callbacks,
             self.parse_email,
             self.extra_tlds,
@@ -547,20 +567,35 @@ class Linker:
             LinkCandidate,
             self._phone_config,
         )
-        return root.inner_html
+        return node
 
 
-def linkify(text: str, options: Linkify | None = None) -> str:
+def linkify(text: str | Node, options: Linkify | None = None) -> str:
     """
     Find URLs, email addresses and phone numbers in HTML and wrap them in ``<a>`` links.
 
     Existing markup is left untouched.
 
-    :param text: the HTML to linkify.
+    :param text: the HTML to linkify, or an already parsed node (see :func:`linkify_node`), which skips the parse and
+        links a copy so the node is left as it was.
     :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
     :returns: the linkified HTML.
     """
     return Linker(options).linkify(text)
+
+
+def linkify_node(node: Node, options: Linkify | None = None) -> Node:
+    """
+    Find URLs, email addresses and phone numbers in an already parsed subtree and wrap them in ``<a>`` links, in place.
+
+    The tree form for a pipeline that parses once and serializes once; see :meth:`Linker.linkify_node`.
+
+    :param node: the element or document whose text runs to link.
+    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :returns: the same node, now holding the links.
+    :raises TypeError: if ``node`` is not a node.
+    """
+    return Linker(options).linkify_node(node)
 
 
 class LinkSpan:
@@ -732,6 +767,7 @@ __all__ = [
     "PhoneNumbers",
     "PhoneType",
     "linkify",
+    "linkify_node",
     "nofollow",
     "target_blank",
 ]

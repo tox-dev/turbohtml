@@ -61,7 +61,7 @@ def _linkify_has(
     /,
 ) -> bool: ...
 def _linkify_apply(
-    root: Element,
+    root: Node,
     callbacks: tuple[Callable[..., object], ...],
     parse_email: bool,
     extra_tlds: tuple[str, ...],

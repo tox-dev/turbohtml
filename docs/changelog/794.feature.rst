@@ -1,0 +1,2 @@
+Add :func:`~turbohtml.clean.linkify_node`, which links URLs, email addresses and phone numbers in an already parsed tree
+in place; :func:`~turbohtml.clean.linkify` also accepts a parsed node.

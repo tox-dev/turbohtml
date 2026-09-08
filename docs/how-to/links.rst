@@ -112,6 +112,31 @@ The native walk collects target references in document order. It copies each tar
 lock, releases the lock, then invokes Python. One :class:`~turbohtml.clean.Linker` can serve concurrent calls; candidate
 mutations remain local to each call.
 
+*****************************
+ Link an already parsed tree
+*****************************
+
+When the HTML is already a tree -- sanitized on the tree, edited, or about to be serialized with a minifying layout --
+:func:`turbohtml.clean.linkify_node` links its text runs in place and returns the node, so a pipeline parses once and
+serializes once. The walk is the one :func:`~turbohtml.clean.linkify` runs after parsing, so an existing ``<a>``, a
+raw-text element and ``Linkify.skip_tags`` are skipped the same way.
+
+.. testcode::
+
+    from turbohtml import Html, parse
+    from turbohtml.clean import Minify, linkify_node
+
+    document = parse("<p>See https://example.com for details.</p>")
+    body = document.find("body")
+    linkify_node(body)
+    print(body.serialize(Html(layout=Minify())))
+
+.. testoutput::
+
+    <body><p>See <a href=https://example.com rel=nofollow>https://example.com</a> for details.</body>
+
+The string form accepts a node as well; it links a copy and hands back the HTML, leaving the node as it was.
+
 **************************
  Find links in plain text
 **************************

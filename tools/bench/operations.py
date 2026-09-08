@@ -335,6 +335,7 @@ OPERATIONS: dict[str, Operation] = {
     "markup": Operation("markupsafe-compatible escape", "ns"),
     "markup-op": Operation("Markup operations", "ns"),
     "linkify": Operation("linkify HTML", "us"),
+    "linkify-node": Operation("linkify a parsed tree", "us"),
     "linkify-traversal": Operation("linkify with native tree traversal", "us"),
     "detect": Operation("detect links in text", "us"),
     "phone": Operation("detect phone numbers in text", "us"),
@@ -1040,6 +1041,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("join (escapes operands)", ("join", _MARKUP_JOIN_PARTS)),
     ),
     "linkify": lambda: _LINKIFY_CASES,
+    "linkify-node": lambda: (("markup (4 KiB)", parse_fragment(_LINKIFY_CASES[2][1])),),
     "linkify-traversal": lambda: _LINKIFY_TRAVERSAL_CASES,
     "detect": lambda: (
         ("find comment (1 link, 1 email)", ("find", _LINKIFY_CASES[0][1])),

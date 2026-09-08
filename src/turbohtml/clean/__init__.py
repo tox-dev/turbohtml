@@ -30,6 +30,7 @@ from ._linkify import (
     PhoneNumbers,
     PhoneType,
     linkify,
+    linkify_node,
     nofollow,
     target_blank,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "Sanitizer",
     "Transform",
     "linkify",
+    "linkify_node",
     "minify",
     "minify_css",
     "minify_css_inline",
