@@ -5,6 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Final
 
 import pytest
+from typing_extensions import assert_type
 
 from turbohtml import Document, Element, parse
 from turbohtml.query import Query
@@ -377,7 +378,7 @@ def test_prunes_relative_to_the_node_it_is_called_on() -> None:
 
 def test_returns_the_node_for_chaining() -> None:
     document = parse("<main><article>a</article></main>")
-    assert document.prune("article") is document
+    assert assert_type(document.prune("article"), Document) is document
 
 
 def test_keeps_a_deep_match_through_its_ancestor_chain() -> None:
@@ -451,7 +452,7 @@ def test_rejects_an_invalid_selector() -> None:
 def test_remove_drops_each_matching_subtree(markup: str, where: str | None, selector: str, expected: str) -> None:
     document = parse(markup)
     target = _body(document) if where is None else _node(document, where)
-    target.remove(selector)
+    assert assert_type(target.remove(selector), Element) is target
     assert target.serialize() == expected
 
 
@@ -512,7 +513,7 @@ def test_remove_drops_each_matching_subtree(markup: str, where: str | None, sele
 def test_strip_tags_unwraps_each_matching_element(markup: str, where: str | None, selector: str, expected: str) -> None:
     document = parse(markup)
     target = _body(document) if where is None else _node(document, where)
-    target.strip_tags(selector)
+    assert assert_type(target.strip_tags(selector), Element) is target
     assert target.serialize() == expected
 
 
@@ -591,7 +592,10 @@ def test_strip_tags_is_the_bulk_form_of_unwrap() -> None:
 @pytest.mark.parametrize("method", [pytest.param("remove", id="remove"), pytest.param("strip_tags", id="strip_tags")])
 def test_bulk_edit_returns_the_node_for_chaining(method: str) -> None:
     document = parse("<main><article><b>a</b></article></main>")
-    assert getattr(document, method)("article") is document
+    assert (
+        assert_type(document.remove("article") if method == "remove" else document.strip_tags("article"), Document)
+        is document
+    )
 
 
 @pytest.mark.parametrize("method", [pytest.param("remove", id="remove"), pytest.param("strip_tags", id="strip_tags")])

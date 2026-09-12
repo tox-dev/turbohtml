@@ -1,0 +1,1 @@
+Preserve the input node type in :func:`~turbohtml.clean.strip_comments_node` annotations.

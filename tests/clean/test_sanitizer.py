@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
+from typing_extensions import assert_type
 
 from turbohtml import Document, Element, parse, parse_fragment, parse_xml
 from turbohtml._html import _sanitize, _sanitize_policy
@@ -2039,7 +2040,7 @@ _POST = "<p onclick='x'>Hi <b>there</b> <script>evil()</script></p>"
 
 def test_node_form_returns_a_sanitized_copy_of_the_same_kind() -> None:
     root = parse_fragment(_POST)
-    clean = sanitize_node(root, Policy.relaxed())
+    clean = assert_type(sanitize_node(root, Policy.relaxed()), Element)
     assert isinstance(clean, Element)
     assert clean.inner_html == sanitize(_POST, Policy.relaxed())
 
@@ -2062,7 +2063,7 @@ def test_the_node_itself_is_the_kept_context() -> None:
 
 def test_a_document_has_its_html_element_judged() -> None:
     document = parse("<p onclick='x'>hi</p>")
-    clean = sanitize_node(document, Policy(tags=frozenset({"html", "head", "body", "p"})))
+    clean = assert_type(sanitize_node(document, Policy(tags=frozenset({"html", "head", "body", "p"}))), Document)
     assert isinstance(clean, Document)
     assert clean.serialize() == "<html><head></head><body><p>hi</p></body></html>"
 
@@ -2086,7 +2087,9 @@ def test_the_string_forms_accept_a_node() -> None:
 
 
 def test_the_report_form_pairs_the_copy_with_the_drops() -> None:
-    clean, removed = sanitize_report_node(parse_fragment(_POST), Policy.relaxed())
+    clean, removed = assert_type(
+        sanitize_report_node(parse_fragment(_POST), Policy.relaxed()), tuple[Element, list[Removed]]
+    )
     assert clean.inner_html == "<p>Hi <b>there</b> &lt;script&gt;evil()&lt;/script&gt;</p>"
     assert removed == [Removed(tag="p", attribute="onclick"), Removed(tag="script", attribute=None)]
 
@@ -2094,8 +2097,11 @@ def test_the_report_form_pairs_the_copy_with_the_drops() -> None:
 def test_a_reusable_sanitizer_offers_both_node_forms() -> None:
     sanitizer = Sanitizer(Policy.relaxed())
     root = parse_fragment(_POST)
-    assert sanitizer.sanitize_node(root).inner_html == sanitizer.sanitize(_POST)
-    assert sanitizer.sanitize_report_node(root)[1] == sanitizer.sanitize_report(_POST)[1]
+    assert assert_type(sanitizer.sanitize_node(root), Element).inner_html == sanitizer.sanitize(_POST)
+    assert (
+        assert_type(sanitizer.sanitize_report_node(root), tuple[Element, list[Removed]])[1]
+        == sanitizer.sanitize_report(_POST)[1]
+    )
 
 
 @pytest.mark.parametrize("entry", [sanitize_node, sanitize_report_node], ids=["sanitize_node", "sanitize_report_node"])
@@ -2930,3 +2936,20 @@ def test_attr_value_normalizes_every_shape() -> None:
 )
 def test_live_danger_labels_every_executable_construct(html: str, survived: list[str]) -> None:
     assert _live_danger(html) == survived
+
+
+@pytest.mark.parametrize("method", [False, True], ids=["function", "sanitizer"])
+def test_document_node_return_types(*, method: bool) -> None:
+    document: Final = parse("<p onclick='x'>hi</p>")
+    policy: Final = Policy(tags=frozenset({"html", "head", "body", "p"}))
+    sanitizer: Final = Sanitizer(policy)
+    cleaned: Final = assert_type(sanitizer.sanitize_node(document), Document)
+    result: Final = assert_type(
+        sanitizer.sanitize_report_node(document) if method else sanitize_report_node(document, policy),
+        tuple[Document, list[Removed]],
+    )
+    assert (cleaned.serialize(), result[0].serialize(), result[1]) == (
+        "<html><head></head><body><p>hi</p></body></html>",
+        "<html><head></head><body><p>hi</p></body></html>",
+        [Removed("p", "onclick")],
+    )

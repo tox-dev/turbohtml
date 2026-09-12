@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
+from typing_extensions import assert_type
 
-from turbohtml import Document, Text, parse, parse_fragment
+from turbohtml import Document, Element, Text, parse, parse_fragment
 from turbohtml._html import _linkify_find, _linkify_fold, _linkify_scan, _phone_e164, _phone_regions
 from turbohtml.clean import (
     DEFAULT_CALLBACKS,
@@ -1204,13 +1205,13 @@ _TEXT = "<p>See https://example.com and <a href='/x'>kept</a></p>"
 
 def test_node_form_links_in_place_and_returns_the_node() -> None:
     root = parse_fragment(_TEXT)
-    assert linkify_node(root) is root
+    assert assert_type(linkify_node(root), Element) is root
     assert root.inner_html == linkify(_TEXT)
 
 
 def test_a_document_links_its_body_text() -> None:
     document = parse(_TEXT)
-    linked = linkify_node(document)
+    linked = assert_type(linkify_node(document), Document)
     assert isinstance(linked, Document)
     assert linked.serialize().count("<a ") == 2
 
@@ -1231,7 +1232,10 @@ def test_options_apply_to_the_node_form() -> None:
 def test_a_reusable_linker_offers_the_node_form() -> None:
     linker = Linker()
     root = parse_fragment(_TEXT)
-    assert linker.linkify_node(root).inner_html == linker.linkify(_TEXT)
+    assert assert_type(linker.linkify_node(root), Element).inner_html == linker.linkify(_TEXT)
+    document: Final = parse(_TEXT)
+    assert assert_type(linker.linkify_node(document), Document) is document
+    assert document.serialize().count("<a ") == 2
 
 
 def test_the_node_form_refuses_a_str() -> None:

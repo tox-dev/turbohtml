@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from itertools import starmap
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeVar, overload
 
 from turbohtml._html import _sanitize, _sanitize_policy
 
@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from turbohtml._html import Node
+
+
+_NODE_T = TypeVar("_NODE_T", bound="Node")
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,7 +333,7 @@ class Sanitizer:
         html_out = self._render(self._filter(html, removed))
         return html_out, list(starmap(Removed, removed))
 
-    def sanitize_node(self, node: Node) -> Node:
+    def sanitize_node(self, node: _NODE_T) -> _NODE_T:
         """
         Sanitize an already parsed subtree and return the sanitized copy as a tree.
 
@@ -348,7 +351,7 @@ class Sanitizer:
         """
         return self._filter(_node_only(node), None)
 
-    def sanitize_report_node(self, node: Node) -> tuple[Node, list[Removed]]:
+    def sanitize_report_node(self, node: _NODE_T) -> tuple[_NODE_T, list[Removed]]:
         """
         Sanitize an already parsed subtree and report what the policy dropped.
 
@@ -367,6 +370,12 @@ class Sanitizer:
     def _render(self, root: Node) -> str:
         """Serialize the sanitized root's children as XML when the policy asks, else as HTML."""
         return root.inner_xml if self.policy.xml else root.inner_html
+
+    @overload
+    def _filter(self, html: _NODE_T, removed: list[tuple[str, str | None]] | None) -> _NODE_T: ...
+
+    @overload
+    def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Node: ...
 
     def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None) -> Node:
         """Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``."""
@@ -401,7 +410,7 @@ class Sanitizer:
         )
 
 
-def _node_only(node: Node) -> Node:
+def _node_only(node: _NODE_T) -> _NODE_T:
     """Reject a str where a parsed node is required, so a caller who meant the string form gets told which one."""
     if isinstance(node, str):
         msg = "sanitize_node takes a parsed node; pass a str to sanitize instead"
@@ -438,7 +447,7 @@ def sanitize_report(html: str | Node, options: Policy | None = None) -> tuple[st
     return Sanitizer(options).sanitize_report(html)
 
 
-def sanitize_node(node: Node, options: Policy | None = None) -> Node:
+def sanitize_node(node: _NODE_T, options: Policy | None = None) -> _NODE_T:
     """
     Sanitize an already parsed subtree against a policy and return the sanitized copy as a tree.
 
@@ -454,7 +463,7 @@ def sanitize_node(node: Node, options: Policy | None = None) -> Node:
     return Sanitizer(options).sanitize_node(node)
 
 
-def sanitize_report_node(node: Node, options: Policy | None = None) -> tuple[Node, list[Removed]]:
+def sanitize_report_node(node: _NODE_T, options: Policy | None = None) -> tuple[_NODE_T, list[Removed]]:
     """
     Sanitize an already parsed subtree and report what the policy dropped.
 

@@ -204,7 +204,22 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
             and not node.module.startswith("turbohtml")
         ):
             for name in node.names:
-                aliases[name.asname or name.name] = f"{node.module}.{name.name}"
+                module = "typing" if node.module == "typing_extensions" and name.name == "Self" else node.module
+                aliases[name.asname or name.name] = f"{module}.{name.name}"
+        elif (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "TypeVar"
+        ):
+            for keyword in node.value.keywords:
+                if keyword.arg == "bound":
+                    bound = (
+                        str(keyword.value.value)
+                        if isinstance(keyword.value, ast.Constant)
+                        else ast.unparse(keyword.value)
+                    )
+                    aliases.update({target.id: bound for target in node.targets if isinstance(target, ast.Name)})
     return aliases
 
 

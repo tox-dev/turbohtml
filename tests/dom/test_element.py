@@ -9,6 +9,7 @@ import pytest
 from bench.ci import benchmarks
 from bench.core import OPERATIONS
 from bench.operations import INPUTS
+from typing_extensions import assert_type
 
 from turbohtml import Comment, Document, Element, Namespace, Node, Text, parse, parse_xml
 from turbohtml.mutations import MutationObserver
@@ -1712,7 +1713,7 @@ def test_replace_with(html: str, replacements: list[Node], expected: str) -> Non
 def test_extract_detaches_and_returns_self() -> None:
     doc = parse("<div><span>s</span></div>")
     span = _found(doc, "span")
-    assert span.extract() is span
+    assert assert_type(span.extract(), Element) is span
     assert span.parent is None
     assert _found(doc, "div").html == "<div></div>"
 
@@ -1880,7 +1881,7 @@ def test_wrap_children_into_self_is_a_cycle() -> None:
 def test_unwrap_replaces_an_element_with_its_children() -> None:
     doc = parse("<div><b>x<i>y</i></b></div>")
     bold = _found(doc, "b")
-    assert bold.unwrap() is bold  # unwrap returns the now-detached element
+    assert assert_type(bold.unwrap(), Element) is bold
     assert _found(doc, "div").html == "<div>x<i>y</i></div>"
 
 
