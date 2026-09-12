@@ -38,6 +38,8 @@ static const char SEVERITY_INFO[] = "info";
 typedef struct {
     PyObject *findings;
     th_tree *tree;
+    th_node *heading_free_end;
+    int heading_free;
     int failed;
     int errors; /* how many findings are errors: the document is valid exactly when none is */
 } confctx;
@@ -509,12 +511,21 @@ static void check_heading(confctx *ctx, th_node *node) {
     }
 }
 
-static void check_section(confctx *ctx, th_node *node) {
+static void check_section(confctx *ctx, th_node *node, th_node *root) {
     if (!atom_in(node->atom, SECTION_ATOMS, SECTION_ATOM_COUNT)) {
         return;
     }
-    if (subtree_has_element(node, HEADING_ATOMS, HEADING_ATOM_COUNT)) {
-        return;
+    if (!ctx->heading_free) {
+        if (subtree_has_element(node, HEADING_ATOMS, HEADING_ATOM_COUNT)) {
+            return;
+        }
+        /* Descendant sections share this negative result until the walk leaves the subtree. */
+        th_node *end = node;
+        while (end != root && end->next_sibling == NULL) {
+            end = end->parent;
+        }
+        ctx->heading_free_end = end == root ? NULL : end->next_sibling;
+        ctx->heading_free = 1;
     }
     if (attr_by_name(ctx->tree, node, "aria-label") != NULL ||
         attr_by_name(ctx->tree, node, "aria-labelledby") != NULL || attr_by_name(ctx->tree, node, "title") != NULL) {
@@ -559,6 +570,9 @@ static void walk(confctx *ctx, th_node *root, th_node **html_out, int *has_lang,
     }
     th_node *node = root->type == TH_NODE_ELEMENT ? root : root->first_child;
     for (; node != NULL; node = next_preorder(node, root)) {
+        if (node == ctx->heading_free_end) {
+            ctx->heading_free = 0;
+        }
         if (ctx->failed) { /* GCOVR_EXCL_BR_LINE: failed is set only by an unforceable allocation failure */
             break;         /* GCOVR_EXCL_LINE */
         }
@@ -577,7 +591,7 @@ static void walk(confctx *ctx, th_node *root, th_node **html_out, int *has_lang,
         check_role(ctx, node);
         check_redundant_type(ctx, node);
         check_heading(ctx, node);
-        check_section(ctx, node);
+        check_section(ctx, node, root);
         check_duplicate_id(ctx, node, ids);
     }
     Py_DECREF(ids);
@@ -596,7 +610,7 @@ PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg) {
     if (findings == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    confctx ctx = {findings, tree, 0, 0};
+    confctx ctx = {.findings = findings, .tree = tree};
     int is_document = node->type == TH_NODE_DOCUMENT;
     th_node *html = NULL;
     int has_lang = 0, has_title = 0;

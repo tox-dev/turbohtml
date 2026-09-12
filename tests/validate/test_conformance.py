@@ -389,3 +389,44 @@ def test_conformance_verdict_matches_vnu(markup: str) -> None:
     assert check_html(markup).valid is not any(
         message["type"] == "error" for message in json.loads(completed.stderr)["messages"]
     )
+
+
+@pytest.mark.parametrize(
+    "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
+)
+@pytest.mark.parametrize("heading", [pytest.param(False, id="heading-free"), pytest.param(True, id="heading")])
+def test_conformance_nested_section_headings(depth: int, *, heading: bool) -> None:
+    content: Final = "<h2>Title</h2>" if heading else "<p>Text</p>"
+    assert codes(body("<section>" * depth + content + "</section>" * depth)) == (
+        [] if heading else ["section-no-heading"] * depth
+    )
+
+
+@pytest.mark.parametrize(
+    ("inner", "expected"),
+    [
+        pytest.param(
+            '<section id="x"><article id="x"></article></section><section><h2>Title</h2></section>',
+            ["section-no-heading", "section-no-heading", "duplicate-id"],
+            id="sibling-boundary-and-preorder",
+        ),
+        pytest.param(
+            "<div><section><article></article></section></div><section><h2></h2></section>",
+            ["section-no-heading", "section-no-heading", "empty-heading"],
+            id="ancestor-sibling-boundary",
+        ),
+        pytest.param(
+            '<section aria-label=""><article title="Title"><section></section></article></section>',
+            ["section-no-heading"],
+            id="labels-remain-local",
+        ),
+    ],
+)
+def test_conformance_section_scan_boundaries(inner: str, expected: list[str]) -> None:
+    assert codes(body(inner)) == expected
+
+
+def test_conformance_section_subtree_excludes_outer_heading() -> None:
+    root: Final = parse("<section><article></article></section><h2>Outside</h2>").find("section")
+    assert isinstance(root, Element)
+    assert [message.code for message in check(root).messages] == ["section-no-heading", "section-no-heading"]

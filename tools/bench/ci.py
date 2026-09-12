@@ -380,6 +380,11 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "is-valid-rng": ("is-valid-rng", 0),
     "is-valid-rng-valid": ("is-valid-rng", 1),
     "is-valid-rng-one-error": ("is-valid-rng", 2),
+    "conformance-sections-small": ("conformance", len(corpus.REAL_PAGES) + 1),
+    "conformance-sections-medium": ("conformance", len(corpus.REAL_PAGES) + 2),
+    "conformance-sections-large": ("conformance", len(corpus.REAL_PAGES) + 3),
+    "conformance-sections-shallow": ("conformance", len(corpus.REAL_PAGES) + 4),
+    "conformance-sections-heading": ("conformance", len(corpus.REAL_PAGES) + 5),
 }
 
 

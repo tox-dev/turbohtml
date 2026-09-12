@@ -2084,7 +2084,23 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "strip-comments": _readpath_cases,
     "whitespace-roundtrip": _readpath_cases,
     "transform-tree": _readpath_cases,
-    "conformance": _readpath_cases,
+    "conformance": lambda: (
+        *_readpath_cases(),
+        *(
+            (name, '<!doctype html><html lang="en"><title>Sections</title><body>' + content + "</body></html>")
+            for name, content in (
+                *(
+                    (
+                        f"{count} heading-free nested sections",
+                        "<section>" * count + "<p>Text</p>" + "</section>" * count,
+                    )
+                    for count in (8, 64, 512)
+                ),
+                ("512 heading-free sibling sections", "<section><p>Text</p></section>" * 512),
+                ("512 nested sections with heading", "<section>" * 512 + "<h2>Title</h2>" + "</section>" * 512),
+            )
+        ),
+    ),
     "serialize-xml": _readpath_cases,
     "canonicalize": _readpath_cases,
     "canonicalize-attrs": lambda: tuple(
