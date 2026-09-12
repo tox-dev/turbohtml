@@ -496,6 +496,8 @@ OPERATIONS: dict[str, Operation] = {
     "transform-sort": Operation("XSLT sort node sets", "ms"),
     "transform-key": Operation("build XSLT key indexes", "us"),
     "transform-scope": Operation("bind XSLT variables", "us"),
+    "transform-namespaces": Operation("copy XSLT namespace declarations", "us"),
+    "transform-namespaces-once": Operation("compile and apply a namespaced XSLT stylesheet", "us"),
     "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
     "transform-names-compile": Operation("compile XSLT declaration indexes", "us"),
     "transform-names": Operation("resolve XSLT declaration names", "us"),
@@ -1081,6 +1083,36 @@ def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
             "</xsl:template></xsl:stylesheet>"
         )
         cases.append((f"{count:,} {scope} variables", (sheet, "<r/>")))
+    return tuple(cases)
+
+
+def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
+    cases: Final[list[tuple[str, object]]] = []
+    for label, depth, count, namespaced, alternating in (
+        ("deep repeated leaf", 32, 512, True, False),
+        ("deep alternating leaves", 32, 512, True, True),
+        ("shallow repeated leaf", 1, 512, True, False),
+        ("single leaf", 1, 1, True, False),
+        ("namespace-free repeated leaf", 32, 512, False, False),
+    ):
+        prefix: Final = f"p{(depth - 1) % 8}:" if namespaced else ""
+        ancestors: Final = "".join(
+            f'<xsl:if test="1" xmlns:p{index % 8}="urn:{index}">' if namespaced else '<xsl:if test="1">'
+            for index in range(depth)
+        )
+        # Use each binding so competitors retain the same namespace declarations.
+        attributes: Final = (
+            "".join(f' p{index}:a=""' for index in range(min(depth - 1, 7) - 1, -1, -1)) if namespaced else ""
+        )
+        sheet: Final = (
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:output method="xml" omit-xml-declaration="yes"/><xsl:template match="/">'
+            f'<out><xsl:for-each select="r/n">{ancestors}<{prefix}leaf{attributes}/>'
+            + (f"<{prefix}other{attributes}/>" if alternating else "")
+            + "</xsl:if>" * depth
+            + "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
+        )
+        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, "<r>" + "<n/>" * count + "</r>")))
     return tuple(cases)
 
 
@@ -2456,6 +2488,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "transform-sort": _transform_sort_cases,
     "transform-key": _transform_key_cases,
     "transform-scope": _transform_scope_cases,
+    "transform-namespaces": _transform_namespace_cases,
+    "transform-namespaces-once": lambda: (_transform_namespace_cases()[3],),
     "transform-dense": _transform_dense_cases,
     "transform-names": _transform_name_cases,
     "transform-names-compile": lambda: (_transform_name_cases()[0],),

@@ -442,6 +442,12 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-scope-global": ("transform-scope", 2),
     "transform-scope-global-small": ("transform-scope", 3),
     "normalize-supplementary-prefix": ("normalize", 9),
+    "transform-namespaces": ("transform-namespaces", 0),
+    "transform-namespaces-alternating": ("transform-namespaces", 1),
+    "transform-namespaces-shallow": ("transform-namespaces", 2),
+    "transform-namespaces-small": ("transform-namespaces", 3),
+    "transform-namespaces-empty": ("transform-namespaces", 4),
+    "transform-namespaces-once": ("transform-namespaces-once", 0),
 }
 
 

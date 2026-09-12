@@ -2053,6 +2053,69 @@ def test_transform_literal_element_with_namespace_declaration() -> None:
     assert '<out xmlns:ex="urn:example"><inner>x</inner></out>' in result
 
 
+@pytest.mark.parametrize(
+    ("declarations", "leaf", "expected"),
+    [
+        pytest.param("", "<leaf/>", "<leaf/>", id="empty"),
+        pytest.param('xmlns:p="urn:p"', "<p:leaf/>", '<p:leaf xmlns:p="urn:p"/>', id="prefixed"),
+        pytest.param('xmlns="urn:default"', "<leaf/>", '<leaf xmlns="urn:default"/>', id="default"),
+        pytest.param(
+            'xmlns:p="urn:outer"',
+            '<p:leaf xmlns:p="urn:inner"/>',
+            '<p:leaf xmlns:p="urn:inner"/>',
+            id="nearest-binding",
+        ),
+        pytest.param(
+            'xmlns:a="urn:a" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d" xmlns:e="urn:e"',
+            "<e:leaf/>",
+            '<e:leaf xmlns:e="urn:e" xmlns:a="urn:a" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d"/>',
+            id="growth-and-self-prefix-first",
+        ),
+    ],
+)
+def test_transform_namespace_repeated_leaf(declarations: str, leaf: str, expected: str) -> None:
+    body: Final = (
+        f'<xsl:template match="/"><xsl:for-each select="r/n"><xsl:if test="1" {declarations}>'
+        f"{leaf}</xsl:if></xsl:for-each></xsl:template>"
+    )
+    assert _run("<r><n/><n/></r>", body, method="xml") == expected * 2
+
+
+def test_transform_namespace_alternating_literals() -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:if test="1" xmlns:p="urn:outer">'
+        '<p:first/><p:second xmlns:p="urn:inner"/></xsl:if></xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><n/><n/></r>", body, method="xml") == (
+        '<p:first xmlns:p="urn:outer"/><p:second xmlns:p="urn:inner"/>' * 2
+    )
+
+
+def test_transform_namespace_repeated_leaf_checks_each_output_parent() -> None:
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:element name="parent">'
+        '<xsl:attribute name="thing" namespace="urn:target">v</xsl:attribute><ns_1:leaf/>'
+        "</xsl:element></xsl:for-each></xsl:template>"
+    )
+    convert: Final = Transform(_sheet(body, method="xml", declare='xmlns:ns_1="urn:target"'))
+    assert convert(turbohtml.parse_xml("<r><n/><n/></r>")) == (
+        '<parent xmlns:ns_1="urn:target" ns_1:thing="v"><ns_1:leaf/></parent>'
+        '<parent xmlns:ns_2="urn:target" ns_2:thing="v"><ns_1:leaf xmlns:ns_1="urn:target"/></parent>'
+    )
+
+
+def test_transform_namespace_reuse_after_error() -> None:
+    body: Final = (
+        '<xsl:param name="fail" select="\'no\'"/><xsl:template match="/">'
+        '<xsl:for-each select="r/n"><p:leaf/><xsl:if test="$fail=\'yes\'">'
+        '<xsl:message terminate="yes">stop</xsl:message></xsl:if></xsl:for-each></xsl:template>'
+    )
+    convert: Final = Transform(_sheet(body, method="xml", declare='xmlns:p="urn:p"'))
+    with pytest.raises(RuntimeError, match="stop"):
+        convert(turbohtml.parse_xml("<r><n/></r>"), fail="'yes'")
+    assert convert(turbohtml.parse_xml("<r><n/><n/></r>")) == '<p:leaf xmlns:p="urn:p"/>' * 2
+
+
 def test_transform_literal_element_namespace_child_inherits_parent() -> None:
     body = '<xsl:template match="/"><a xmlns:p="urn:1"><p:b/></a></xsl:template>'
     assert _collapse(_run("<r/>", body, method="xml")) == '<a xmlns:p="urn:1"><p:b/></a>'
@@ -4484,14 +4547,40 @@ def test_transform_compile_reuses_documents_and_parameters() -> None:
     ] == ["one-1", "two-2"]
 
 
-def test_transform_compile_snapshots_stylesheet() -> None:
-    stylesheet = _stylesheet('<xsl:template match="/"><xsl:value-of select="\'before\'"/></xsl:template>')
-    convert = Transform(stylesheet)
-    value = stylesheet.find("xsl:value-of")
+@pytest.mark.parametrize(
+    ("body", "selector", "attribute", "replacement", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:value-of select="\'before\'"/></xsl:template>',
+            "xsl:value-of",
+            "select",
+            "'after'",
+            "before",
+            id="expression",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><p:leaf xmlns:p="urn:before"/></xsl:template>',
+            "p:leaf",
+            "xmlns:p",
+            "urn:after",
+            '<p:leaf xmlns:p="urn:before"/>',
+            id="namespace",
+        ),
+    ],
+)
+def test_transform_compile_snapshots_stylesheet(
+    body: str,
+    selector: str,
+    attribute: str,
+    replacement: str,
+    expected: str,
+) -> None:
+    stylesheet: Final = _sheet(body, method="xml")
+    convert: Final = Transform(stylesheet)
+    value: Final = stylesheet.find(selector)
     assert value is not None
-    value.attrs["select"] = "'after'"
-
-    assert convert(turbohtml.parse_xml("<r/>")) == "before"
+    value.attrs[attribute] = replacement
+    assert convert(turbohtml.parse_xml("<r/>")) == expected
 
 
 def test_transform_compile_rejects_invalid_import(tmp_path: Path) -> None:

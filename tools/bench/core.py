@@ -1086,6 +1086,11 @@ def transform(case: tuple[str, str]) -> str:
     return compiled(document)
 
 
+def _transform_compile_run(case: tuple[str, str]) -> str:
+    sheet, source = case
+    return _Transform(_xslt_sheet(sheet))(_xslt_sheet(source))
+
+
 def transform_reuse(case: tuple[str, str]) -> None:
     """Apply one compiled stylesheet ten times."""
     sheet, source = case
@@ -1706,6 +1711,8 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "transform-sort": (transform, "turbohtml"),
     "transform-key": (transform, "turbohtml"),
     "transform-scope": (transform, "turbohtml"),
+    "transform-namespaces": (transform, "turbohtml"),
+    "transform-namespaces-once": (_transform_compile_run, "turbohtml"),
     "transform-dense": (transform, "turbohtml"),
     "transform-number": (transform, "turbohtml"),
     "transform-rules": (transform, "turbohtml"),
