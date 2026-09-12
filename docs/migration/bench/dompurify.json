@@ -35,6 +35,26 @@
       "sanitize (template-safe) — late template in 64 KiB text",
       8.382760108816001e-05,
       0.2499945103772916
+    ],
+    [
+      "sanitize attribute allowlists — 1024 rejected attributes",
+      7.993436689919993e-05,
+      0.24678297228335092
+    ],
+    [
+      "sanitize attribute allowlists — 1024 allowed attributes",
+      0.00012592091527115676,
+      0.2483603679963077
+    ],
+    [
+      "sanitize attribute allowlists — four allowed attributes",
+      1.3826321240510235e-06,
+      0.23604699664671594
+    ],
+    [
+      "sanitize attribute allowlists — 256 elements with four allowed attributes",
+      9.399093976488378e-05,
+      0.25713804143015295
     ]
   ],
   "spread": [
@@ -67,7 +87,32 @@
       null,
       0.012628720661379213,
       0.006256659921553562
+    ],
+    [
+      null,
+      0.01713977479944024,
+      0.006753935876620346
+    ],
+    [
+      null,
+      0.007805024444669255,
+      0.021856438050513217
+    ],
+    [
+      null,
+      0.029896992541876374,
+      0.037501530499620704
+    ],
+    [
+      null,
+      0.006789075590053219,
+      0.05942314007188881
     ]
   ],
-  "row_notes": {}
+  "row_notes": {
+    "6": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "7": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "8": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "9": "includes Node startup and pipe I/O; not in-process JavaScript engine timing"
+  }
 }

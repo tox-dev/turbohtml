@@ -1081,6 +1081,15 @@ lxml trails by 1.3 to 2.1 times, selectolax by 1.6 to 3.5, parsel and pyquery by
     :file: bench/validate-rng.json
 
 .. bench-table::
+    :file: bench/is-valid.json
+
+.. bench-table::
+    :file: bench/is-valid-rng.json
+
+.. bench-table::
+    :file: bench/conformance.json
+
+.. bench-table::
     :file: bench/validate-rng-reuse.json
 
 .. bench-table::

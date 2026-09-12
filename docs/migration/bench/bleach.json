@@ -30,6 +30,26 @@
       "linkify HTML — markup (4 KiB)",
       0.00011087927229406584,
       0.0016154013672651975
+    ],
+    [
+      "sanitize attribute allowlists — 1024 rejected attributes",
+      7.993436689919993e-05,
+      0.015980368050804827
+    ],
+    [
+      "sanitize attribute allowlists — 1024 allowed attributes",
+      0.00012592091527115676,
+      0.017503871965648916
+    ],
+    [
+      "sanitize attribute allowlists — four allowed attributes",
+      1.3826321240510235e-06,
+      4.9086858117182906e-05
+    ],
+    [
+      "sanitize attribute allowlists — 256 elements with four allowed attributes",
+      9.399093976488378e-05,
+      0.00659353863375145
     ]
   ],
   "spread": [
@@ -57,6 +77,26 @@
       null,
       0.01391027709579616,
       0.00807868275609938
+    ],
+    [
+      null,
+      0.01713977479944024,
+      0.044790951815089956
+    ],
+    [
+      null,
+      0.007805024444669255,
+      0.009818151727960507
+    ],
+    [
+      null,
+      0.029896992541876374,
+      0.029170583163040005
+    ],
+    [
+      null,
+      0.006789075590053219,
+      0.007825560251501806
     ]
   ],
   "row_notes": {}

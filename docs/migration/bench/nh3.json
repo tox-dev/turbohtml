@@ -65,6 +65,26 @@
       "sanitize — post 4 KiB",
       5.786911852586248e-05,
       0.00020150472689313878
+    ],
+    [
+      "sanitize attribute allowlists — 1024 rejected attributes",
+      7.993436689919993e-05,
+      0.001111275445661401
+    ],
+    [
+      "sanitize attribute allowlists — 1024 allowed attributes",
+      0.00012592091527115676,
+      0.0011339127869784231
+    ],
+    [
+      "sanitize attribute allowlists — four allowed attributes",
+      1.3826321240510235e-06,
+      1.925379699230234e-06
+    ],
+    [
+      "sanitize attribute allowlists — 256 elements with four allowed attributes",
+      9.399093976488378e-05,
+      0.0002726348539757358
     ]
   ],
   "spread": [
@@ -127,6 +147,26 @@
       null,
       0.07033256013111998,
       0.07293692554531789
+    ],
+    [
+      null,
+      0.01713977479944024,
+      0.002438978472607218
+    ],
+    [
+      null,
+      0.007805024444669255,
+      0.005320212745097184
+    ],
+    [
+      null,
+      0.029896992541876374,
+      0.09361998356877715
+    ],
+    [
+      null,
+      0.006789075590053219,
+      0.012938479931469248
     ]
   ],
   "row_notes": {}

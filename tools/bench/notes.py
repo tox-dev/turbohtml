@@ -41,6 +41,9 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     "sanitize-node": {
         "lxml-html-clean": "blocklist policy rather than turbohtml's allowlist; not security equivalence"
     },
+    "sanitize-attributes": {
+        "DOMPurify": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    },
     "linkify-node": {"lxml-html-clean": "host exclusions disabled; URL/mailto linking but no bare email addresses"},
     "collapse-whitespace": {
         "lxml": "Python text/regex walk; parser recovery and text storage differ",
