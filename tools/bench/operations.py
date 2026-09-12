@@ -1524,6 +1524,7 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
         ("4,096 composable combining pairs", "e\u0301" * 4096),
         ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
         ("10,000 Hebrew combining marks", "\u05d0" + "\u05b1" * 5000 + "\u05b0" * 5000),
+        ("4,096 supplementary characters, composable suffix", "😀" * 4096 + "e\u0301"),
     )
 
 

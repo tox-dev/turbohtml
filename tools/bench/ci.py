@@ -441,6 +441,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-scope-local-small": ("transform-scope", 1),
     "transform-scope-global": ("transform-scope", 2),
     "transform-scope-global-small": ("transform-scope", 3),
+    "normalize-supplementary-prefix": ("normalize", 9),
 }
 
 
