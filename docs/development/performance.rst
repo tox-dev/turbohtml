@@ -529,6 +529,9 @@ repeated result includes any stylesheet analysis or XPath compilation left in th
 .. bench-table::
     :file: bench/xslt-dense.json
 
+.. bench-table::
+    :file: bench/xslt-text.json
+
 ************
  Node paths
 ************

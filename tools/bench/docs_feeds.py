@@ -237,6 +237,7 @@ TABLES: Final[dict[str, str | Combined]] = {
     "xslt-names": "transform-names",
     "xslt-names-compile": "transform-names-compile",
     "xslt-reuse": "transform-reuse",
+    "xslt-text": "transform-text",
     "unescaping": "unescape",
     "url-cleaning": "urls-clean",
     "markdown-wrap": "markdown-wrap",
