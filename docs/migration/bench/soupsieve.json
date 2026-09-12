@@ -160,6 +160,16 @@
       "select child and sibling relationships — 64 siblings with 64 descendants, + section a",
       2.8901645237056073e-05,
       0.0038663697881323364
+    ],
+    [
+      "select default form controls — 1 forms, 4096 spans, 128 buttons, button",
+      1.5261182796007706e-06,
+      0.002362451066498276
+    ],
+    [
+      "select default form controls — 1 form, 4096 spans, 128 explicit submit buttons",
+      2.028047010564175e-05,
+      0.013097341121465433
     ]
   ],
   "spread": [
@@ -317,6 +327,16 @@
       null,
       0.017949384350110092,
       0.003662131360603463
+    ],
+    [
+      null,
+      0.018629330046011305,
+      0.024947922055458194
+    ],
+    [
+      null,
+      0.01967096810184678,
+      0.00412187022234827
     ]
   ],
   "row_notes": {}

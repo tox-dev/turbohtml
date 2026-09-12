@@ -1877,21 +1877,30 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             for relative in ("+ a", "~ a", "+ section a")
         ),
     ),
-    "select-default": lambda: tuple(
-        (
-            f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
+    "select-default": lambda: (
+        *(
             (
-                selector,
-                ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+                f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
+                (
+                    selector,
+                    ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+                ),
+            )
+            for forms, prefix, buttons, selector in (
+                (1, 4096, 128, ":default"),
+                (1, 512, 64, ":default"),
+                (1, 8, 4, ":default"),
+                (128, 0, 1, ":default"),
+                (1, 4096, 128, "button"),
+            )
+        ),
+        (
+            "1 form, 4096 spans, 128 explicit submit buttons",
+            (
+                ":default",
+                "<form>" + "<span>x</span>" * 4096 + "<button type=submit>go</button>" * 128 + "</form>",
             ),
-        )
-        for forms, prefix, buttons, selector in (
-            (1, 4096, 128, ":default"),
-            (1, 512, 64, ":default"),
-            (1, 8, 4, ":default"),
-            (128, 0, 1, ":default"),
-            (1, 4096, 128, "button"),
-        )
+        ),
     ),
     "select-nth": lambda: tuple(
         (f"{selector} ({size:,} siblings)", (selector, f"<ul>{'<li class=x>value</li>' * size}</ul>"))

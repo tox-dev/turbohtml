@@ -108,6 +108,13 @@ def _find_attr_presence(case: tuple[str, bool]) -> None:
     _parsed(case[0]).find_all("p", attrs={"data-x": case[1]})
 
 
+def _select_default(case: tuple[str, str]) -> None:
+    if case[0] == ":default" and "<button>" in case[1]:
+        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        raise NotImplementedError(unsupported)
+    _select_relative(case)
+
+
 def _select_relative(case: tuple[str, str]) -> None:
     _parsed(case[1]).select(case[0])
 
@@ -353,6 +360,7 @@ OPERATIONS = {
     "find": (find, "BeautifulSoup (html.parser)"),
     "select": (select, "BeautifulSoup (html.parser)"),
     "select-relative": (_select_relative, "BeautifulSoup (html.parser)"),
+    "select-default": (_select_default, "BeautifulSoup (html.parser)"),
     "select-has": (select_has, "BeautifulSoup (html.parser)"),
     "find-text": (find_text, "BeautifulSoup (html.parser)"),
     "find-text-exact": (_find_text_exact, "BeautifulSoup (html.parser)"),

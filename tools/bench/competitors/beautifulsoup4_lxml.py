@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
+from typing import Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment
@@ -71,6 +72,13 @@ def _find_text_exact(case: tuple[str, str]) -> None:
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
     _parsed(case[0]).find_all("p", attrs={"data-x": case[1]})
+
+
+def _select_default(case: tuple[str, str]) -> None:
+    if case[0] == ":default" and "<button>" in case[1]:
+        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        raise NotImplementedError(unsupported)
+    _select_relative(case)
 
 
 def _select_relative(case: tuple[str, str]) -> None:
@@ -279,6 +287,7 @@ OPERATIONS = {
     "find": (find, "BeautifulSoup (lxml)"),
     "select": (select, "BeautifulSoup (lxml)"),
     "select-relative": (_select_relative, "BeautifulSoup (lxml)"),
+    "select-default": (_select_default, "BeautifulSoup (lxml)"),
     "select-has": (select_has, "BeautifulSoup (lxml)"),
     "find-text": (find_text, "BeautifulSoup (lxml)"),
     "find-text-exact": (_find_text_exact, "BeautifulSoup (lxml)"),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 import soupsieve
 from bs4 import BeautifulSoup
@@ -35,6 +36,13 @@ def select_has(text: str) -> None:
     _HAS.select(_parsed(text))
 
 
+def _select_default(case: tuple[str, str]) -> None:
+    if case[0] == ":default" and "<button>" in case[1]:
+        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        raise NotImplementedError(unsupported)
+    _select_relative(case)
+
+
 def _select_relative(case: tuple[str, str]) -> None:
     soupsieve.select(case[0], _parsed(case[1]))
 
@@ -56,6 +64,7 @@ OPERATIONS = {
     "find": (find, "soupsieve"),
     "select": (select, "soupsieve"),
     "select-relative": (_select_relative, "soupsieve"),
+    "select-default": (_select_default, "soupsieve"),
     "select-has": (select_has, "soupsieve"),
     "match": (match, "soupsieve"),
 }

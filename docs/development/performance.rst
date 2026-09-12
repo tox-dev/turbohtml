@@ -402,6 +402,9 @@ and child relationships, so the relational lookup keeps the same interned-atom c
 .. bench-table::
     :file: bench/select-relative.json
 
+.. bench-table::
+    :file: bench/select-default.json
+
 Per-element matching runs each anchor on the page through a compiled ``div a[href]`` matcher -- the shape a soupsieve
 port hits through :mod:`turbohtml.query` and its :meth:`Matcher.match <turbohtml.query.Matcher.match>` -- raced against
 selectolax's node match, soupsieve, BeautifulSoup, and pyquery. turbohtml answers each test with the same interned-atom
@@ -531,6 +534,9 @@ repeated result includes any stylesheet analysis or XPath compilation left in th
 
 .. bench-table::
     :file: bench/xslt-text.json
+
+.. bench-table::
+    :file: bench/xslt-sort.json
 
 ************
  Node paths

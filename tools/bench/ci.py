@@ -425,6 +425,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "select-default-small": ("select-default", 2),
     "select-default-many-forms": ("select-default", 3),
     "select-default-tag-control": ("select-default", 4),
+    "select-default-explicit-submit": ("select-default", 5),
 }
 
 
