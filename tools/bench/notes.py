@@ -32,6 +32,18 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     "canonicalize-deep": {
         "lxml method=c14n": "HTML parsing omits the empty head element and SVG/xlink namespace declarations",
     },
+    "transform-sort": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-text": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-key": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-scope": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
     "transform-number": {
         "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
     },

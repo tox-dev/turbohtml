@@ -552,6 +552,8 @@ OPERATIONS = {
     "transform": (transform, "lxml.etree"),
     "transform-number": (transform, "lxml.etree"),
     "transform-sort": (transform, "lxml.etree"),
+    "transform-key": (transform, "lxml.etree"),
+    "transform-scope": (transform, "lxml.etree"),
     "transform-rules": (transform, "lxml.etree"),
     "transform-names": (transform, "lxml.etree"),
     "transform-dense": (transform, "lxml.etree"),

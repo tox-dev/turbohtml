@@ -227,6 +227,12 @@ covers the memory model.
 is identical, because turbohtml runs the four forms in C over tables generated from the interpreter's own
 ``unicodedata``. A quick check returns already-normalized text untouched.
 
+.. bench-table::
+    :file: ../development/bench/normalize.json
+
+.. bench-table::
+    :file: ../development/bench/normalize-marks.json
+
 .. list-table::
     :header-rows: 1
     :widths: 50 50

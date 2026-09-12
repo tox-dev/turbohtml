@@ -69,5 +69,7 @@
       0.016341952452705887
     ]
   ],
-  "notes": {}
+  "notes": {
+    "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing"
+  }
 }

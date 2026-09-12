@@ -1895,6 +1895,51 @@
       "XSLT sort node sets — fraction expression sort (2,000 rows)",
       0.0007892408443694876,
       0.0010920484207114594
+    ],
+    [
+      "build XSLT key indexes — shared scalar key (8,192 nodes)",
+      0.00017879907543753384,
+      0.009131888669799082
+    ],
+    [
+      "build XSLT key indexes — shared attribute key (8,192 nodes)",
+      0.000268063470002744,
+      0.009625804904014027
+    ],
+    [
+      "build XSLT key indexes — repeated node-set keys (2,048 nodes)",
+      0.00030902206068124843,
+      0.0023872586270954343
+    ],
+    [
+      "build XSLT key indexes — unique keys (8,192 nodes)",
+      0.0006015569523090866,
+      0.001699334200869392
+    ],
+    [
+      "build XSLT key indexes — small shared key (4 nodes)",
+      6.966296564788385e-07,
+      5.4449573081427616e-06
+    ],
+    [
+      "bind XSLT variables — 1,024 local variables",
+      0.0007704838590143481,
+      0.0007373747415992208
+    ],
+    [
+      "bind XSLT variables — 4 local variables",
+      5.143963358970419e-07,
+      5.02077197891045e-06
+    ],
+    [
+      "bind XSLT variables — 1,024 global variables",
+      0.0007744719512932837,
+      0.00013257797570531693
+    ],
+    [
+      "bind XSLT variables — 4 global variables",
+      4.855540728006721e-07,
+      4.9593586351666845e-06
     ]
   ],
   "spread": [
@@ -3787,6 +3832,51 @@
       null,
       0.024244733073159407,
       0.0050994474892694635
+    ],
+    [
+      null,
+      0.012823085663552,
+      0.003744709421838981
+    ],
+    [
+      null,
+      0.008374968921608508,
+      0.003910014140171347
+    ],
+    [
+      null,
+      0.014669878484269204,
+      0.04058874118857978
+    ],
+    [
+      null,
+      0.030505383633210238,
+      0.012038831003928989
+    ],
+    [
+      null,
+      0.04339527812282516,
+      0.02365822284163848
+    ],
+    [
+      null,
+      0.0025116489135629397,
+      0.07084857254473009
+    ],
+    [
+      null,
+      0.01711571646048566,
+      0.011184747601677713
+    ],
+    [
+      null,
+      0.021304119424905527,
+      0.01619766156696525
+    ],
+    [
+      null,
+      0.022758779474267188,
+      0.012399669605370405
     ]
   ],
   "row_notes": {
@@ -3834,6 +3924,31 @@
     "274": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "311": "lxml HTML parsing omits the empty head element",
     "312": "lxml HTML parsing omits the empty head element; its SVG input also lacks SVG and xlink namespace declarations",
-    "313": "lxml HTML parsing omits the empty head element"
+    "313": "lxml HTML parsing omits the empty head element",
+    "368": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "369": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "370": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "371": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "372": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "373": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "374": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "375": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "376": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "377": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "378": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "379": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "380": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "381": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "382": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "383": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "384": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "385": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "386": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "362": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "363": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "364": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "365": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "366": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "367": "returns an XSLT result tree; conversion to a Python string is outside timing"
   }
 }

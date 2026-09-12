@@ -538,6 +538,12 @@ repeated result includes any stylesheet analysis or XPath compilation left in th
 .. bench-table::
     :file: bench/xslt-sort.json
 
+.. bench-table::
+    :file: bench/xslt-key.json
+
+.. bench-table::
+    :file: bench/xslt-scope.json
+
 ************
  Node paths
 ************

@@ -235,6 +235,8 @@ TABLES: Final[dict[str, str | Combined]] = {
     "xslt-dense": "transform-dense",
     "xslt-number": "transform-number",
     "xslt-sort": "transform-sort",
+    "xslt-key": "transform-key",
+    "xslt-scope": "transform-scope",
     "xslt-rules": "transform-rules",
     "xslt-names": "transform-names",
     "xslt-names-compile": "transform-names-compile",
