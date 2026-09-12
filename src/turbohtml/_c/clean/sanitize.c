@@ -281,12 +281,24 @@ static int name_has_allowed_prefix(sanitizer *s, const char *name, Py_ssize_t le
 
 /* Is `name` allowed on element `tag` by the policy? A "*" inside an attribute set allows every attribute name, and an
    allowlisted name prefix allows a whole family. Returns 1 allow, 0 drop, -1 error. */
-static int attr_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_t len) {
-    PyObject *attr = PyUnicode_FromStringAndSize(name, len);
-    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *name, Py_ssize_t len) {
     PyObject *sets[2] = {PyDict_GetItem(s->attributes, tag), s->wildcard_attrs};
+    if (sets[0] == NULL && sets[1] == NULL) {
+        int ascii = 1;
+        if (atom >= TH_ATTR__DYNAMIC_BASE) {
+            for (Py_ssize_t index = 0; ascii && index < len; index++) {
+                ascii = (unsigned char)name[index] < 0x80;
+            }
+        }
+        if (ascii) {
+            return PySet_GET_SIZE(s->attribute_prefixes) > 0 && name_has_allowed_prefix(s, name, len);
+        }
+    }
+    /* Non-ASCII names still need UTF-8 validation even without an exact-name rule. */
+    PyObject *attr = PyUnicode_FromStringAndSize(name, len);
+    if (attr == NULL) {
+        return -1;
+    }
     int allowed = 0;
     for (int which = 0; which < 2 && !allowed; which++) {
         if (sets[which] != NULL) {
@@ -1540,9 +1552,9 @@ static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObjec
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        int allowed = is_event_attribute(name, name_len) ? 0 : attr_allowed(s, tag, name, name_len);
-        if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: attr_allowed only fails on allocation failure */
-            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        int allowed = is_event_attribute(name, name_len) ? 0 : attr_allowed(s, tag, attr->name_atom, name, name_len);
+        if (allowed < 0) {
+            return -1;
         }
         if (allowed) {
             if (kept != index) {
@@ -1560,8 +1572,8 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
                     s->custom_attribute_check == Py_None && s->custom_element_check == Py_None;
     /* The private tree has no observers or cached lookups before sanitization returns. */
     if (compacted) {
-        if (compact_disallowed_attributes(s, element, tag) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (compact_disallowed_attributes(s, element, tag) < 0) {
+            return -1;
         }
     }
     Py_ssize_t index = 0;
@@ -1572,9 +1584,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         const char *name = compacted ? NULL : th_attr_name(s->tree, attr->name_atom, &name_len);
         int drop = !compacted && is_event_attribute(name, name_len);
         if (!compacted && !drop) {
-            int allowed = attr_allowed(s, tag, name, name_len);
-            if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: attr_allowed only fails on allocation failure */
-                return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            int allowed = attr_allowed(s, tag, attr->name_atom, name, name_len);
+            if (allowed < 0) {
+                return -1;
             }
             if (!allowed) {
                 /* an unlisted attribute survives on a kept custom element only when custom_attribute_check admits it,

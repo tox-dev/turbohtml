@@ -3047,3 +3047,46 @@ def test_document_node_return_types(*, method: bool) -> None:
         "<html><head></head><body><p>hi</p></body></html>",
         [Removed("p", "onclick")],
     )
+
+
+@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(32, id="compacted")])
+@pytest.mark.parametrize("prefix", [pytest.param("", id="rejected"), pytest.param("data-", id="allowed-prefix")])
+def test_kept_element_surrogate_attribute_name(count: int, prefix: str) -> None:
+    attributes: Final = " ".join(f'data-{index}="x"' for index in range(count - 1))
+    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
+    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
+        sanitize(f'<p {attributes} {prefix}\ud800="x">text</p>', policy)
+
+
+@pytest.mark.parametrize(
+    ("attributes", "prefixes", "expected"),
+    [
+        pytest.param({}, frozenset({"data-"}), '<p data-é="x">text</p>', id="unicode-prefix"),
+        pytest.param({"p": frozenset({"é"})}, frozenset(), '<p é="x">text</p>', id="unicode-exact"),
+        pytest.param({}, frozenset(), "<p>text</p>", id="unicode-rejected"),
+    ],
+)
+def test_unicode_attribute_name_policy(
+    attributes: dict[str, frozenset[str]], prefixes: frozenset[str], expected: str
+) -> None:
+    policy: Final = Policy(tags=frozenset({"p"}), attributes=attributes, attribute_prefixes=prefixes)
+    assert sanitize('<p class="x" é="x" data-é="x">text</p>', policy) == expected
+
+
+def test_attribute_name_allowlist_mutation_from_callback() -> None:
+    allowed: Final = {"data-first", "data-second"}
+
+    def change_allowed(_tag: str, name: str, value: str) -> str:
+        if name == "data-first":
+            allowed.remove("data-second")
+            allowed.add("data-third")
+        return value
+
+    policy: Final = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": cast("frozenset[str]", allowed)},
+        attribute_filter=change_allowed,
+    )
+    assert sanitize('<p data-first="1" data-second="2" data-third="3">text</p>', policy) == (
+        '<p data-first="1" data-third="3">text</p>'
+    )
