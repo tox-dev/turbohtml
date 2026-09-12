@@ -104,7 +104,6 @@ def _rows(
     does not measure an operation shows the sibling's shared figure rather than dropping the row for the ones that do.
     """
     covered = {operation for variant in variants for operation in variant}
-    labels = [next(iter(variant.values())) for variant in variants]
     # a leading metric only makes sense when every shared operation carries one; a library that spans a memory
     # operation and timing-only ones would otherwise emit rows of two different widths into one table
     wide = bool(_leading_metric(covered))
@@ -148,7 +147,14 @@ def _rows(
             # repeating one measurement across configurations says so beside any operation note
             caveats.append(
                 _merge_caveat(
-                    next((NOTES[operation][label] for label in labels if label in NOTES.get(operation, {})), None),
+                    next(
+                        (
+                            note
+                            for variant in variants
+                            if operation in variant and (note := NOTES.get(operation, {}).get(variant[operation]))
+                        ),
+                        None,
+                    ),
                     shared=shared,
                 )
             )
