@@ -35,6 +35,10 @@ static uint8_t ccc_of(Py_UCS4 cp) {
     if (cp < th_norm_ccc[0].code) {
         return 0;
     }
+    Py_UCS4 offset = cp - th_norm_ccc[0].code;
+    if (offset < sizeof(th_norm_ccc_dense)) {
+        return th_norm_ccc_dense[offset];
+    }
     int lo = 0;
     int hi = th_norm_ccc_count;
     while (lo < hi) {
