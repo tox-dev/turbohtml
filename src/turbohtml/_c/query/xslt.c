@@ -990,9 +990,7 @@ static xp_program *compile_pattern_new(engine *eng, const Py_UCS4 *src, Py_ssize
 
 /* ---- the XPath variable scope --------------------------------------------- */
 
-/* Push a binding (newest first, so the XPath evaluator's first-match lookup finds
-   the innermost scope). The binding takes ownership of value and rtf. Returns 0, or
-   -1 on allocation failure (value is freed). */
+/* Each binding owns its value; the output tree owns its result tree fragment. */
 static int scope_push(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, xp_result value, th_node *rtf) {
     if (eng->scope_len == eng->scope_cap) {
         Py_ssize_t cap = eng->scope_cap == 0 ? 8 : eng->scope_cap * 2;
@@ -1004,30 +1002,27 @@ static int scope_push(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, xp_
         eng->scope = grown;
         eng->scope_cap = cap;
     }
-    memmove(&eng->scope[1], &eng->scope[0], (size_t)eng->scope_len * sizeof(var_bind));
-    eng->scope[0].name = (Py_UCS4 *)name;
-    eng->scope[0].name_len = name_len;
-    eng->scope[0].value = value;
-    eng->scope[0].rtf = rtf;
-    eng->scope_len++;
+    var_bind *binding = &eng->scope[eng->scope_len++];
+    binding->name = (Py_UCS4 *)name;
+    binding->name_len = name_len;
+    binding->value = value;
+    binding->rtf = rtf;
     return 0;
 }
 
-/* Drop the front `n` bindings (the most recently pushed), freeing their values. */
 static void scope_drop(engine *eng, Py_ssize_t mark) {
     while (eng->scope_len > mark) {
-        xp_result_free(&eng->scope[0].value);
-        memmove(&eng->scope[0], &eng->scope[1], (size_t)(eng->scope_len - 1) * sizeof(var_bind));
-        eng->scope_len--;
+        xp_result_free(&eng->scope[--eng->scope_len].value);
     }
 }
 
-/* Build the xp_bindings view over the current scope for one evaluation. */
+/* XPath resolves the first match, so expose the innermost binding first. */
 static void scope_bindings(engine *eng, xp_binding *storage, xp_bindings *out) {
     for (Py_ssize_t index = 0; index < eng->scope_len; index++) {
-        storage[index].name = eng->scope[index].name;
-        storage[index].name_len = eng->scope[index].name_len;
-        storage[index].value = eng->scope[index].value;
+        const var_bind *binding = &eng->scope[eng->scope_len - index - 1];
+        storage[index].name = binding->name;
+        storage[index].name_len = binding->name_len;
+        storage[index].value = binding->value;
     }
     out->items = storage;
     out->len = eng->scope_len;
@@ -1915,7 +1910,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
     /* A lone $var that is a result tree fragment copies the fragment's children. */
     if (prog->nodes[prog->root].kind == XN_VAR) {
         const xn *var = &prog->nodes[prog->root];
-        for (Py_ssize_t index = 0; index < eng->scope_len; index++) {
+        for (Py_ssize_t index = eng->scope_len - 1; index >= 0; index--) {
             if (str_eq(eng->scope[index].name, eng->scope[index].name_len, var->str, var->str_len) &&
                 eng->scope[index].rtf != NULL) {
                 for (th_node *child = eng->scope[index].rtf->first_child; child != NULL; child = child->next_sibling) {

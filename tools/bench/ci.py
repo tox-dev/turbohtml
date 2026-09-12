@@ -437,6 +437,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "minify-css-nested-functions": ("minify-css", 16),
     "minify-css-nested-functions-small": ("minify-css", 17),
     "minify-css-shallow-functions": ("minify-css", 18),
+    "transform-scope": ("transform-scope", 0),
+    "transform-scope-local-small": ("transform-scope", 1),
+    "transform-scope-global": ("transform-scope", 2),
+    "transform-scope-global-small": ("transform-scope", 3),
 }
 
 

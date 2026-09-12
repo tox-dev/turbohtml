@@ -1705,6 +1705,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "transform-reuse": (transform_reuse, "turbohtml"),
     "transform-sort": (transform, "turbohtml"),
     "transform-key": (transform, "turbohtml"),
+    "transform-scope": (transform, "turbohtml"),
     "transform-dense": (transform, "turbohtml"),
     "transform-number": (transform, "turbohtml"),
     "transform-rules": (transform, "turbohtml"),

@@ -147,6 +147,57 @@ def test_transform_variable_select_and_reference() -> None:
     assert _run("<r/>", body) == "5"
 
 
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="small"), pytest.param(20, id="heap-view"), pytest.param(256, id="wide")]
+)
+def test_transform_variable_scope_restores_shadowed_bindings(count: int) -> None:
+    declarations: Final = "".join(f'<xsl:variable name="pad{index}" select="{index}"/>' for index in range(count))
+    body: Final = (
+        '<xsl:variable name="v" select="\'global\'"/><xsl:template match="/">'
+        f'{declarations}<xsl:value-of select="$pad0"/><xsl:value-of select="$pad{count - 1}"/>'
+        '<xsl:for-each select="r/n"><xsl:variable name="v" select="\'local\'"/>'
+        '<xsl:value-of select="$v"/></xsl:for-each><xsl:value-of select="$v"/></xsl:template>'
+    )
+    assert _run("<r><n/><n/></r>", body) == f"0{count - 1}locallocalglobal"
+
+
+@pytest.mark.parametrize("passed", [pytest.param(False, id="default"), pytest.param(True, id="override")])
+def test_transform_parameter_scope_default_and_restoration(*, passed: bool) -> None:
+    argument: Final = '<xsl:with-param name="a" select="\'passed\'"/>' if passed else ""
+    body: Final = (
+        '<xsl:variable name="a" select="\'global\'"/><xsl:template match="/">'
+        f'<xsl:call-template name="t">{argument}</xsl:call-template><xsl:value-of select="$a"/></xsl:template>'
+        '<xsl:template name="t"><xsl:param name="a" select="\'default\'"/>'
+        '<xsl:param name="b" select="concat($a,\'!\')"/><xsl:value-of select="$b"/></xsl:template>'
+    )
+    assert _run("<r/>", body) == ("passed!global" if passed else "default!global")
+
+
+def test_transform_copy_of_restores_shadowed_fragments() -> None:
+    body: Final = (
+        '<xsl:variable name="v"><global/></xsl:variable><xsl:template match="/"><out>'
+        '<xsl:for-each select="r/n"><xsl:variable name="v"><local/></xsl:variable>'
+        '<xsl:variable name="other" select="1"/><xsl:copy-of select="$v"/></xsl:for-each>'
+        '<xsl:copy-of select="$v"/></out></xsl:template>'
+    )
+    assert _collapse(_run("<r><n/><n/></r>", body, method="xml")) == "<out><local/><local/><global/></out>"
+
+
+def test_transform_variable_scope_recovers_after_error() -> None:
+    declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(20))
+    transform: Final = Transform(
+        _sheet(
+            '<xsl:param name="fail" select="\'no\'"/><xsl:template match="/">'
+            f'{declarations}<xsl:if test="$fail=\'yes\'"><xsl:message terminate="yes">stop</xsl:message></xsl:if>'
+            '<xsl:value-of select="$v19"/></xsl:template>'
+        )
+    )
+    document: Final = turbohtml.parse_xml("<r/>")
+    with pytest.raises(RuntimeError, match="stop"):
+        transform(document, fail="'yes'")
+    assert transform(document) == "19"
+
+
 def test_transform_variable_result_tree_fragment_string_value() -> None:
     body = (
         '<xsl:template match="/"><xsl:variable name="v"><a>x</a>'

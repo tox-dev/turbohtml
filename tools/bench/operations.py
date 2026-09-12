@@ -495,6 +495,7 @@ OPERATIONS: dict[str, Operation] = {
     "transform-reuse": Operation("apply one compiled 300-template stylesheet ten times", "us"),
     "transform-sort": Operation("XSLT sort node sets", "ms"),
     "transform-key": Operation("build XSLT key indexes", "us"),
+    "transform-scope": Operation("bind XSLT variables", "us"),
     "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
     "transform-names-compile": Operation("compile XSLT declaration indexes", "us"),
     "transform-names": Operation("resolve XSLT declaration names", "us"),
@@ -1066,6 +1067,21 @@ def _transform_key_cases() -> tuple[tuple[str, object], ...]:
             ("small shared key", "'same'", "same", "<i/>", 4),
         )
     )
+
+
+def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
+    cases: Final[list[tuple[str, object]]] = []
+    for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
+        declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
+        sheet: Final = (
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:output method="text"/>'
+            f'{declarations if scope == "global" else ""}<xsl:template match="/">'
+            f'{declarations if scope == "local" else ""}<xsl:value-of select="$v0 + $v{count - 1}"/>'
+            "</xsl:template></xsl:stylesheet>"
+        )
+        cases.append((f"{count:,} {scope} variables", (sheet, "<r/>")))
+    return tuple(cases)
 
 
 def _transform_cases() -> tuple[tuple[str, object], ...]:
@@ -2438,6 +2454,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "transform-reuse": _transform_compile_cases,
     "transform-sort": _transform_sort_cases,
     "transform-key": _transform_key_cases,
+    "transform-scope": _transform_scope_cases,
     "transform-dense": _transform_dense_cases,
     "transform-names": _transform_name_cases,
     "transform-names-compile": lambda: (_transform_name_cases()[0],),
