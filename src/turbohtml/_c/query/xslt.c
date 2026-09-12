@@ -2415,6 +2415,20 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                 fail_py(eng);
                 return -1;
             }
+            if (specs[spec].numeric && value.kind == XP_STRING) {
+                slot->key = NULL;
+                slot->number = parse_number(value.string, value.string_len);
+                xp_result_free(&value);
+                continue;
+            }
+            /* Bounded integers survive the existing decimal round-trip exactly. */
+            if (specs[spec].numeric && value.kind == XP_NUMBER && fabs(value.number) <= 9007199254740991.0 &&
+                value.number == floor(value.number)) {
+                slot->key = NULL;
+                slot->number = value.number;
+                xp_result_free(&value);
+                continue;
+            }
             slot->key = to_string(eng->src_tree, &value, &slot->key_len);
             xp_result_free(&value);
             if (slot->key == NULL) {                                              /* GCOVR_EXCL_BR_LINE: alloc */

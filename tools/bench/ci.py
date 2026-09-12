@@ -408,6 +408,14 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "minify-css-negative-exponent": ("minify-css", len(corpus.STYLESHEETS) + 7),
     "minify-css-dimension-exponent": ("minify-css", len(corpus.STYLESHEETS) + 8),
     "minify-css-unitless-exponent": ("minify-css", len(corpus.STYLESHEETS) + 9),
+    "transform-sort-integer-small": ("transform-sort", 2),
+    "transform-sort-integer-large": ("transform-sort", 3),
+    "transform-sort-string-small": ("transform-sort", 4),
+    "transform-sort-string-large": ("transform-sort", 5),
+    "transform-sort-text-small": ("transform-sort", 6),
+    "transform-sort-text-large": ("transform-sort", 7),
+    "transform-sort-fraction-small": ("transform-sort", 8),
+    "transform-sort-fraction-large": ("transform-sort", 9),
 }
 
 

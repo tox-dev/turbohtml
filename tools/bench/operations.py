@@ -1074,13 +1074,22 @@ _XSLT_SORT_SHEET: Final = (
 
 
 def _transform_sort_cases() -> tuple[tuple[str, object], ...]:
-    """Return shuffled numeric sorts at sizes that expose node-set scaling."""
     return tuple(
         (
-            f"numeric sort ({rows:,} rows)",
-            (_XSLT_SORT_SHEET, "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>"),
+            f"{label} ({rows:,} rows)",
+            (
+                _XSLT_SORT_SHEET.replace('select="@key" data-type="number"', f'select="{select}" data-type="{kind}"'),
+                "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>",
+            ),
         )
-        for rows in (120, 2_000)
+        for label, select, kind, sizes in (
+            ("numeric sort", "@key", "number", (120, 2_000)),
+            ("integer expression sort", "number(@key)", "number", (8, 2_000)),
+            ("string expression numeric sort", "string(@key)", "number", (8, 2_000)),
+            ("text sort", "@key", "text", (8, 2_000)),
+            ("fraction expression sort", "number(@key) div 7", "number", (8, 2_000)),
+        )
+        for rows in sizes
     )
 
 

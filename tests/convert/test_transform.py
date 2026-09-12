@@ -313,6 +313,42 @@ def test_transform_sort_data_type_and_order(data_type: str, order: str, expected
         assert _run('<r><n age="30"/><n age="25"/><n age="40"/></r>', body) == expected
 
 
+@pytest.mark.parametrize(
+    ("select", "keys", "ascending", "descending"),
+    [
+        pytest.param("number(@key)", ("2", "-1", "0"), "bca", "acb", id="integer"),
+        pytest.param("number(@key)", ("2.5", "1.25", "1.5"), "bca", "acb", id="fraction"),
+        pytest.param("number(@key)", ("-0", "0", "1"), "abc", "cab", id="signed-zero-ties"),
+        pytest.param(
+            "number(@key)",
+            ("9007199254740992", "9007199254740991", "-9007199254740991"),
+            "cba",
+            "abc",
+            id="integer-boundary",
+        ),
+        pytest.param("number(@key)", ("1", "bad", "bad"), "bca", "abc", id="nan-stability"),
+        pytest.param("number(@key) div 0", ("1", "-1", "0"), "abc", "abc", id="infinity-string-coercion"),
+        pytest.param("@key = 'true'", ("true", "false", "true"), "abc", "abc", id="boolean-string-coercion"),
+        pytest.param("string(@key)", ("2", "-1", "0"), "bca", "acb", id="string-key"),
+        pytest.param("string(@key)", ("", "bad", "1"), "abc", "cab", id="string-nan-stability"),
+    ],
+)
+@pytest.mark.parametrize("reverse", [False, True], ids=["ascending", "descending"])
+def test_transform_sort_numeric_expression_coercion(
+    select: str, keys: tuple[str, str, str], ascending: str, descending: str, *, reverse: bool
+) -> None:
+    source: Final = (
+        "<r>" + "".join(f'<n id="{name}" key="{key}"/>' for name, key in zip("abc", keys, strict=True)) + "</r>"
+    )
+    order: Final = "descending" if reverse else "ascending"
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
+        '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == (descending if reverse else ascending)
+
+
 def test_transform_sort_multiple_keys() -> None:
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'

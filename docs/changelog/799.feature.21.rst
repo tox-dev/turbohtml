@@ -1,0 +1,1 @@
+Avoid redundant string copies and integer conversions in :class:`~turbohtml.transform.Transform` numeric sorting.
