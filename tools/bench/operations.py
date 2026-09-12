@@ -494,6 +494,7 @@ OPERATIONS: dict[str, Operation] = {
     "transform-compile": Operation("compile an XSLT stylesheet with 300 templates", "us"),
     "transform-reuse": Operation("apply one compiled 300-template stylesheet ten times", "us"),
     "transform-sort": Operation("XSLT sort node sets", "ms"),
+    "transform-key": Operation("build XSLT key indexes", "us"),
     "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
     "transform-names-compile": Operation("compile XSLT declaration indexes", "us"),
     "transform-names": Operation("resolve XSLT declaration names", "us"),
@@ -1041,6 +1042,30 @@ def _transform_text_cases() -> tuple[tuple[str, object], ...]:
             )
             cases.append((f"{count} {kind} text nodes", (sheet, source)))
     return tuple(cases)
+
+
+def _transform_key_cases() -> tuple[tuple[str, object], ...]:
+    return tuple(
+        (
+            f"{label} ({count:,} nodes)",
+            (
+                (
+                    '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+                    f'<xsl:key name="k" match="i" use="{use}"/><xsl:output method="text"/>'
+                    f'<xsl:template match="/"><xsl:value-of select="count(key(&quot;k&quot;,&quot;{wanted}&quot;))"/>'
+                    "</xsl:template></xsl:stylesheet>"
+                ),
+                "<r>" + "".join(item.format(index=index) for index in range(count)) + "</r>",
+            ),
+        )
+        for label, use, wanted, item, count in (
+            ("shared scalar key", "'same'", "same", "<i/>", 8192),
+            ("shared attribute key", "@key", "same", '<i key="same"/>', 8192),
+            ("repeated node-set keys", "t", "same", "<i><t>same</t><t>other</t><t>same</t></i>", 2048),
+            ("unique keys", "@key", "k0", '<i key="k{index}"/>', 8192),
+            ("small shared key", "'same'", "same", "<i/>", 4),
+        )
+    )
 
 
 def _transform_cases() -> tuple[tuple[str, object], ...]:
@@ -2401,6 +2426,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "transform-compile": _transform_compile_cases,
     "transform-reuse": _transform_compile_cases,
     "transform-sort": _transform_sort_cases,
+    "transform-key": _transform_key_cases,
     "transform-dense": _transform_dense_cases,
     "transform-names": _transform_name_cases,
     "transform-names-compile": lambda: (_transform_name_cases()[0],),

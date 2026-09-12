@@ -429,6 +429,11 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "normalize-marks-large": ("normalize-marks", 2),
     "normalize-marks-small": ("normalize-marks", 0),
     "normalize-hebrew-marks": ("normalize", 8),
+    "transform-key": ("transform-key", 0),
+    "transform-key-attribute": ("transform-key", 1),
+    "transform-key-repeated": ("transform-key", 2),
+    "transform-key-unique": ("transform-key", 3),
+    "transform-key-small": ("transform-key", 4),
 }
 
 

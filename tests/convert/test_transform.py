@@ -792,6 +792,62 @@ def test_transform_key_deduplicates_a_node_under_one_value() -> None:
     assert _run("<r><i><t>same</t><t>same</t></i></r>", body) == "1"
 
 
+@pytest.mark.parametrize(
+    ("match", "use", "source", "wanted", "expected"),
+    [
+        pytest.param("i", "'same'", '<r><i id="a"/><i id="b"/><i id="c"/></r>', "same", "abc", id="scalar-key"),
+        pytest.param(
+            "i",
+            "t",
+            '<r><i id="a"><t>x</t><t>y</t><t>x</t></i><i id="b"><t>x</t><t>x</t></i></r>',
+            "x",
+            "ab",
+            id="interleaved-use-values",
+        ),
+        pytest.param(
+            "i",
+            "@a | @b",
+            '<r><i id="a" a="x" b="x"/><i id="b" a="x" b="y"/></r>',
+            "x",
+            "ab",
+            id="duplicate-attribute-values",
+        ),
+        pytest.param(
+            "/r/i | /r/i/@a | /r/i/@b",
+            "'same'",
+            '<r><i id="a" a="x" b="y"/><i id="b" a="x" b="y"/></r>',
+            "same",
+            "ab",
+            id="element-and-attribute-match-owners",
+        ),
+        pytest.param(
+            "id('c a b a')",
+            "'same'",
+            '<r><i id="a"/><i id="b"/><i id="c"/></r>',
+            "same",
+            "abc",
+            id="id-pattern-order-and-duplicates",
+        ),
+        pytest.param("i", "t", '<r><i id="a"/><i id="b"><t>x</t></i></r>', "x", "b", id="empty-use-node-set"),
+        pytest.param(
+            "i",
+            "t",
+            '<r><i id="a"><t/></i><i id="b"><t/><t/></i></r>',
+            "",
+            "ab",
+            id="empty-key-string",
+        ),
+    ],
+)
+def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str, wanted: str, expected: str) -> None:
+    body: Final = (
+        f'<xsl:key name="k" match="{match}" use="{use}"/>'
+        f'<xsl:template match="/"><xsl:for-each select="key(&quot;k&quot;,&quot;{wanted}&quot;)">'
+        '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == expected
+
+
 def test_transform_key_string_use_expression() -> None:
     body = (
         '<xsl:key name="k" match="i" use="string(@n)"/>'

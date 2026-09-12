@@ -1,0 +1,1 @@
+Avoid repeated duplicate scans when :class:`~turbohtml.transform.Transform` indexes XSLT keys.

@@ -320,10 +320,9 @@ typedef struct {
 } nodevec;
 
 static int nodevec_push(nodevec *vec, th_node *node) {
-    for (Py_ssize_t index = 0; index < vec->len; index++) {
-        if (vec->nodes[index] == node) {
-            return 0;
-        }
+    /* build_key processes each source node's values together in document order. */
+    if (vec->len > 0 && vec->nodes[vec->len - 1] == node) {
+        return 0;
     }
     if (vec->len == vec->cap) {
         Py_ssize_t cap = vec->cap == 0 ? 4 : vec->cap * 2;
