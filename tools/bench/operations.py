@@ -347,6 +347,7 @@ OPERATIONS: dict[str, Operation] = {
     "find-cold": Operation("query a cold 10,000-element tree", "us"),
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
+    "select-default": Operation("select default form controls", "us"),
     "select-nth": Operation("select sibling positions in wide trees", "ms"),
     "select-relative": Operation("select child and sibling relationships", "us"),
     "xpath-wide": Operation("order XPath results in wide trees", "ms"),
@@ -1875,6 +1876,22 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             for depth in (0, 64)
             for relative in ("+ a", "~ a", "+ section a")
         ),
+    ),
+    "select-default": lambda: tuple(
+        (
+            f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
+            (
+                selector,
+                ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+            ),
+        )
+        for forms, prefix, buttons, selector in (
+            (1, 4096, 128, ":default"),
+            (1, 512, 64, ":default"),
+            (1, 8, 4, ":default"),
+            (128, 0, 1, ":default"),
+            (1, 4096, 128, "button"),
+        )
     ),
     "select-nth": lambda: tuple(
         (f"{selector} ({size:,} siblings)", (selector, f"<ul>{'<li class=x>value</li>' * size}</ul>"))

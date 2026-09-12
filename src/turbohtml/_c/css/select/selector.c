@@ -1557,7 +1557,7 @@ static th_node *sel_first_submit(th_node *root) {
 
 /* :default: a default-checked checkbox/radio, a default-selected option, or a
    form's first submit button (HTML "the :default pseudo-class"). */
-static int sel_is_default(th_node *node) {
+static int sel_is_default(th_node *node, sel_default_memo *memo) {
     if (node->ns != TH_NS_HTML) {
         return 0;
     }
@@ -1569,7 +1569,20 @@ static int sel_is_default(th_node *node) {
     }
     if (sel_is_submit_control(node)) {
         th_node *form = sel_form_owner(node);
-        return form != NULL && sel_first_submit(form) == node;
+        if (form == NULL) {
+            return 0;
+        }
+        if (form->first_child == node) {
+            return 1;
+        }
+        if (memo == NULL) {
+            return sel_first_submit(form) == node;
+        }
+        if (memo->form != form) {
+            memo->form = form;
+            memo->first = sel_first_submit(form);
+        }
+        return memo->first == node;
     }
     return 0;
 }
@@ -1829,7 +1842,7 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_READ_WRITE:
         return sel_is_read_write(node);
     case PSEUDO_DEFAULT:
-        return sel_is_default(node);
+        return sel_is_default(node, ctx->default_memo);
     case PSEUDO_LANG:
         return sel_matches_lang(node, simple);
     case PSEUDO_DIR:
@@ -2304,7 +2317,7 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx) {
     /* inside a :has() relative selector the scope element is the anchor, so a written
        :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431) */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo};
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo, ctx->default_memo};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
@@ -2361,7 +2374,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 /* scope is the element :scope matches: the node the query was rooted at. A single
    test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 

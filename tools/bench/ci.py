@@ -420,6 +420,11 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "normalize-ascii-prefix-small": ("normalize", 5),
     "normalize-composable-pairs": ("normalize", 6),
     "normalize-hangul": ("normalize", 7),
+    "select-default": ("select-default", 0),
+    "select-default-medium": ("select-default", 1),
+    "select-default-small": ("select-default", 2),
+    "select-default-many-forms": ("select-default", 3),
+    "select-default-tag-control": ("select-default", 4),
 }
 
 

@@ -1563,6 +1563,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
     "select-nth": (_select_scaling, "turbohtml"),
+    "select-default": (_select_scaling, "turbohtml"),
     "select-relative": (_select_scaling, "turbohtml"),
     "xpath-wide": (_xpath_scaling, "turbohtml"),
     "xpath-distinct": (_xpath_scaling, "turbohtml"),

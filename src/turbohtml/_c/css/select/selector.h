@@ -129,6 +129,11 @@ typedef struct {
     int index;
 } sel_nth_memo;
 
+typedef struct {
+    th_node *form;
+    th_node *first;
+} sel_default_memo;
+
 /* Single-element matching has no query walk to reuse, so memo pointers can be NULL. */
 typedef struct {
     th_tree *tree;
@@ -136,6 +141,7 @@ typedef struct {
     int quirks;
     sel_has_memo *has_memo;
     sel_nth_memo *nth_memo;
+    sel_default_memo *default_memo;
 } sel_ctx;
 
 typedef struct {

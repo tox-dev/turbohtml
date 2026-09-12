@@ -1835,3 +1835,57 @@ def test_has_relative_axis_ignores_text_and_deeper_matches(relative: str, expect
         '<section id="later" class="hit"><b class="hit"></b></section></main>'
     )
     assert [node.attrs["id"] for node in document.select(f"section:has({relative})")] == expected
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param(":default", ["a", "c"], id="separate-forms"),
+        pytest.param("button:default", ["a", "c"], id="tag-index"),
+        pytest.param("form:has(:default)", ["first", "second"], id="scoped-has"),
+        pytest.param(":is(:default, button:default)", ["a", "c"], id="alternatives"),
+    ],
+)
+def test_default_query_matches_each_form(selector: str, expected: list[str]) -> None:
+    document: Final = parse(
+        '<form id="first"><span>x</span><button id="a">a</button><button id="b">b</button></form>'
+        '<form id="second"><button id="c">c</button><button id="d">d</button></form>'
+    )
+    assert [node.attrs["id"] for node in document.select(selector)] == expected
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected"),
+    [pytest.param("remove", ["b", "d"], id="remove"), pytest.param("prune", ["a", "c"], id="prune")],
+)
+def test_default_query_mutation_uses_original_matches(operation: str, expected: list[str]) -> None:
+    document: Final = parse(
+        '<form><button id="a">a</button><button id="b">b</button></form>'
+        '<form><button id="c">c</button><button id="d">d</button></form>'
+    )
+    getattr(document, operation)(":default")
+    assert [node.attrs["id"] for node in document.select(":default")] == expected
+
+
+def test_default_query_rechecks_changed_type() -> None:
+    document: Final = parse('<form><button id="a">a</button><button id="b">b</button></form>')
+    first: Final = document.select(":default")[0]
+    first.attrs["type"] = "button"
+    assert [node.attrs["id"] for node in document.select(":default")] == ["b"]
+
+
+def test_default_query_rechecks_nested_form_ownership() -> None:
+    document: Final = parse(
+        '<form id="outer"><button id="a">a</button><button id="b">b</button></form>'
+        '<form id="inner"><button id="c">c</button><button id="d">d</button></form>'
+    )
+    forms: Final = document.select("form")
+    assert [node.attrs["id"] for node in document.select(":default")] == ["a", "c"]
+    forms[1].append(document.select("button")[0])
+    forms[0].append(forms[1])
+    assert [node.attrs["id"] for node in document.select(":default")] == ["b", "c"]
+
+
+def test_default_individual_matches_submit_controls() -> None:
+    document: Final = parse("<form><button>a</button><button>b</button></form>")
+    assert [node.matches(":default") for node in document.select("button")] == [True, False]
