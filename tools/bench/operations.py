@@ -1024,8 +1024,8 @@ _XSLT_SOURCE = (
 
 
 def _transform_text_cases() -> tuple[tuple[str, object], ...]:
-    cases: list[tuple[str, object]] = []
-    payload = "payload " * 8
+    cases: Final[list[tuple[str, object]]] = []
+    payload: Final = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
         for count in (4096, 4):
             if kind == "builtin":
