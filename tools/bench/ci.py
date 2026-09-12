@@ -416,6 +416,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-sort-text-large": ("transform-sort", 7),
     "transform-sort-fraction-small": ("transform-sort", 8),
     "transform-sort-fraction-large": ("transform-sort", 9),
+    "normalize-ascii-prefix": ("normalize", 4),
+    "normalize-ascii-prefix-small": ("normalize", 5),
+    "normalize-composable-pairs": ("normalize", 6),
+    "normalize-hangul": ("normalize", 7),
 }
 
 

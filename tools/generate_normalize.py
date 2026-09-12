@@ -319,6 +319,7 @@ def _emit(
         "    uint32_t composed;\n"
         "} th_norm_comp_row;\n\n"
         f"static const int th_norm_comp_count = {len(pairs)};\n"
+        f"static const uint32_t th_norm_comp_second_min = 0x{min(second for _, second, _ in pairs):X};\n"
         f"static const th_norm_comp_row th_norm_comp[] = {{\n{comp_rows}\n}};\n\n"
         "/* NFC/NFKC quick-check, sorted by range: 0 Yes (absent), 1 No, 2 Maybe. Decompose forms need no table. */\n"
         "typedef struct {\n"

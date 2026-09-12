@@ -85,6 +85,9 @@ static int decomposes(Py_UCS4 cp, int compat) {
 /* The tabled canonical composition of the pair (first, second), or 0 when the sorted table pairs them into nothing; 0
    is a safe "no composition" sentinel because U+0000 is never a composition target. */
 static Py_UCS4 table_compose(Py_UCS4 first, Py_UCS4 second) {
+    if (second < th_norm_comp_second_min) {
+        return 0;
+    }
     int lo = 0;
     int hi = th_norm_comp_count;
     while (lo < hi) {

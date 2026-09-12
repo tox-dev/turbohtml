@@ -1466,6 +1466,10 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
         ("nfc french (4 kB)", french),
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
         ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
+        ("32 KiB ASCII prefix, composable suffix", "abc " * 8192 + "e\u0301"),
+        ("small ASCII prefix, composable suffix", "abc e\u0301"),
+        ("4,096 composable combining pairs", "e\u0301" * 4096),
+        ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
     )
 
 
