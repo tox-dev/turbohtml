@@ -903,6 +903,20 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
         ),
         pytest.param("<p>ab12</p>", "p", Formatter.NAMED_ENTITIES, "<p>ab12</p>", id="named-keeps-unnamed"),
         pytest.param(
+            "<p>é&amp;😀\u03b1a</p>",
+            "p",
+            Formatter.NAMED_ENTITIES,
+            "<p>&eacute;&amp;😀&alpha;a</p>",
+            id="named-mixed-text",
+        ),
+        pytest.param(
+            '<p title="é&amp;😀\u03b1a">x</p>',
+            "p",
+            Formatter.NAMED_ENTITIES,
+            '<p title="&eacute;&amp;😀&alpha;a">x</p>',
+            id="named-mixed-attribute",
+        ),
+        pytest.param(
             "<p>a&lt;b&gt;c&quot;d&amp;e</p>",
             "p",
             Formatter.NAMED_ENTITIES,

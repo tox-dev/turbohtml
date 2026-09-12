@@ -527,6 +527,7 @@ OPERATIONS: dict[str, Operation] = {
     "links-filter": Operation("extract filtered page links", "us"),
     "links-external": Operation("extract links outside the base site", "ms"),
     "serialize-attributes": Operation("serialize HTML attribute order", "us"),
+    "serialize-named": Operation("serialize HTML named entities", "us"),
 }
 
 
@@ -2547,6 +2548,15 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     ),
     "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
     "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
+    "serialize-named": lambda: tuple(
+        (label, "<html><head></head><body><p>" + text + "</p></body></html>")
+        for label, text in (
+            ("48k named characters", "é©\u03b1Ω∑€" * 8192),
+            ("48k ASCII characters", "abcxyz" * 8192),
+            ("48k unnamed characters", "😀" * 49152),
+            ("short mixed text", "café &amp; \u03b1 😀"),
+        )
+    ),
 }
 
 

@@ -155,14 +155,28 @@ static inline void sbuf_put_named_text(sbuf *out, const Py_UCS4 *text, Py_ssize_
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && !sbuf_named_special(text[index])) {
+        const char *name = NULL;
+        while (index < len) {
+            if (text[index] < 0x80) {
+                if (sbuf_named_special(text[index])) {
+                    break;
+                }
+            } else if ((name = th_entity_name(text[index])) != NULL) {
+                break;
+            }
             index++;
         }
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
         if (index < len) {
-            sbuf_put_special(out, text[index], TH_FMT_NAMED);
+            if (name != NULL) {
+                sbuf_putc(out, '&');
+                sbuf_puts(out, name);
+                sbuf_putc(out, ';');
+            } else {
+                sbuf_put_special(out, text[index], TH_FMT_NAMED);
+            }
             index++;
         }
     }

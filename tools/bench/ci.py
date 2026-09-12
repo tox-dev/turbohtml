@@ -385,6 +385,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "conformance-sections-large": ("conformance", len(corpus.REAL_PAGES) + 3),
     "conformance-sections-shallow": ("conformance", len(corpus.REAL_PAGES) + 4),
     "conformance-sections-heading": ("conformance", len(corpus.REAL_PAGES) + 5),
+    "serialize-named": ("serialize-named", 0),
+    "serialize-named-ascii": ("serialize-named", 1),
+    "serialize-named-unnamed": ("serialize-named", 2),
+    "serialize-named-small": ("serialize-named", 3),
 }
 
 

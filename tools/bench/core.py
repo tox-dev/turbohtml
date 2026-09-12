@@ -454,6 +454,10 @@ def serialize(text: str) -> None:
     _ = _parsed(text).html
 
 
+def _serialize_named(text: str) -> str:
+    return _parsed(text).serialize(turbohtml.Html(formatter=turbohtml.Formatter.NAMED_ENTITIES))
+
+
 def _serialize_attributes(case: tuple[str, bool]) -> str:
     return _parsed(case[0]).serialize(turbohtml.Html(sort_attributes=case[1]))
 
@@ -1719,4 +1723,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "serialize-attributes": (_serialize_attributes, "turbohtml"),
     "is-valid": (_is_valid, "turbohtml"),
     "is-valid-rng": (_is_valid_rng, "turbohtml"),
+    "serialize-named": (_serialize_named, "turbohtml"),
 }

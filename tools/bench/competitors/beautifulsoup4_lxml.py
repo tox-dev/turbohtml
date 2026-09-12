@@ -82,6 +82,10 @@ def text_content(text: str) -> None:
     _parsed(text).get_text()
 
 
+def _serialize_named(text: str) -> str:
+    return _parsed(text).decode(formatter="html")
+
+
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with BeautifulSoup's decode."""
     _parsed(text).decode()
@@ -298,4 +302,5 @@ OPERATIONS = {
     "socialcard": (socialcard, "BeautifulSoup (lxml)"),
     "extract-url": (extract_url, "BeautifulSoup (lxml)"),
     "links-absolutize": (Mutating(_fresh, links_absolutize), "BeautifulSoup (lxml)"),
+    "serialize-named": (_serialize_named, "BeautifulSoup (lxml)"),
 }
