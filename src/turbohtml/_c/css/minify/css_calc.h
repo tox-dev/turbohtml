@@ -118,9 +118,7 @@ static int css_num_to_rat(const css_char *text, Py_ssize_t len, crat *out) {
         }
     } else {
         for (int step = 0; step < -power; step++) {
-            if (css_mul_overflow(den, 10, &den)) {
-                return 0;
-            }
+            den *= 10;
         }
     }
     return rat_set(out, num, den);

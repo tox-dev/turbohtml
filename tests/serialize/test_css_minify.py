@@ -966,6 +966,7 @@ def test_number_exponent_bounds(source: str, expected: str) -> None:
         pytest.param("0" * 128 + "1", id="nonzero-after-buffer-boundary"),
         pytest.param("." + "0" * 128 + "1", id="long-fraction"),
         pytest.param("calc(1e19px + 1px)", id="rational-power-upper-bound"),
+        pytest.param("calc(99e17px + 1px)", id="rational-numerator-overflow"),
         pytest.param("calc(1e-19px + 1px)", id="rational-power-lower-bound"),
         pytest.param("calc(.01e-9223372036854775807px + 1px)", id="rational-power-subtract-overflow"),
         pytest.param("calc(1e9223372036854775808px + 1px)", id="rational-exponent-overflow"),
