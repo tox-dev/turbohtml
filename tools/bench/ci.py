@@ -434,6 +434,9 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-key-repeated": ("transform-key", 2),
     "transform-key-unique": ("transform-key", 3),
     "transform-key-small": ("transform-key", 4),
+    "minify-css-nested-functions": ("minify-css", 16),
+    "minify-css-nested-functions-small": ("minify-css", 17),
+    "minify-css-shallow-functions": ("minify-css", 18),
 }
 
 

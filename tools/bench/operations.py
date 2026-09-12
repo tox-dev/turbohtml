@@ -1373,6 +1373,17 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
                 ("unitless exponent", "z-index:1e4", 128),
             )
         ),
+        *(
+            (
+                f"{depth} nested variable fallbacks",
+                "a{width:" + "var(--x," * depth + "1px" + ")" * depth + "}",
+            )
+            for depth in (64, 4)
+        ),
+        (
+            "shallow transform and font functions",
+            'a{transform:translate(10px,0) scale(1,1)}@font-face{font-family:x;src:local("Arial")}',
+        ),
     )
 
 

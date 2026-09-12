@@ -974,3 +974,13 @@ def test_number_exponent_bounds(source: str, expected: str) -> None:
 )
 def test_number_outside_formatter_bounds_keeps_whole_token(value: str) -> None:
     assert minify_css_inline(f" x: {value} ; ") == f"x:{value}"
+
+
+@pytest.mark.parametrize("depth", [pytest.param(4, id="small"), pytest.param(64, id="deep")])
+def test_nested_function_spacing(depth: int) -> None:
+    argument: Final = "var(--x, " * depth + "1px" + ")" * depth
+    expected: Final = "width:" + "var(--x," * depth + "1px" + ")" * depth
+    assert (minify_css(f"a {{ width: {argument}; }}"), minify_css_inline(f" width: {argument}; ")) == (
+        f"a{{{expected}}}",
+        expected,
+    )

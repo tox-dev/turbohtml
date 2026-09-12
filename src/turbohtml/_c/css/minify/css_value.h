@@ -840,18 +840,16 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
-    css_buf function = {NULL, 0, 0, 0};
-    cbuf_put_run(&function, name_token->text, name_token->text_len);
-    cbuf_putc(&function, '(');
     css_buf args = {NULL, 0, 0, 0};
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
-    cbuf_put_run(&function, args.data, args.len);
+    *out_off = pool->len;
+    cbuf_put_run(pool, name_token->text, name_token->text_len);
+    cbuf_putc(pool, '(');
+    cbuf_put_run(pool, args.data, args.len);
     cbuf_free(&args);
-    cbuf_putc(&function, ')');
-    *out_off = pool_run(pool, function.data, function.len);
-    *out_len = function.len;
-    cbuf_free(&function);
+    cbuf_putc(pool, ')');
+    *out_len = pool->len - *out_off;
 }
 
 /* A calc() simplifier. It evaluates the expression exactly with rational arithmetic and bails -- keeping the input
