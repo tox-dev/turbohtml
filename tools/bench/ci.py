@@ -374,6 +374,12 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "urls-clean-encoded-parent-path": ("urls-clean", 7),
     "urls-clean-extension-path": ("urls-clean", 8),
     "sanitize-attributes-repeated": ("sanitize-attributes", 3),
+    "is-valid": ("is-valid", 0),
+    "is-valid-valid": ("is-valid", 1),
+    "is-valid-one-error": ("is-valid", 2),
+    "is-valid-rng": ("is-valid-rng", 0),
+    "is-valid-rng-valid": ("is-valid-rng", 1),
+    "is-valid-rng-one-error": ("is-valid-rng", 2),
 }
 
 

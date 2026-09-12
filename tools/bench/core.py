@@ -241,6 +241,13 @@ def validate(case: tuple[str, str]) -> None:
     validator.validate(turbohtml.parse_xml(document))
 
 
+def _is_valid(case: tuple[str, str]) -> None:
+    schema, document = case
+    if (validator := _VALIDATORS.get(schema)) is None:
+        validator = _VALIDATORS[schema] = _XMLSchema(schema)
+    validator.is_valid(turbohtml.parse_xml(document))
+
+
 _RNG_VALIDATORS: dict[str, _RelaxNG] = {}
 
 
@@ -251,6 +258,13 @@ def validate_rng(case: tuple[str, str]) -> None:
     if validator is None:
         validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
     validator.validate(turbohtml.parse_xml(document))
+
+
+def _is_valid_rng(case: tuple[str, str]) -> None:
+    schema, document = case
+    if (validator := _RNG_VALIDATORS.get(schema)) is None:
+        validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
+    validator.is_valid(turbohtml.parse_xml(document))
 
 
 def compile_rng(schema: str) -> None:
@@ -1703,4 +1717,6 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "links-filter": (links_filter, "turbohtml"),
     "links-external": (links_external, "turbohtml"),
     "serialize-attributes": (_serialize_attributes, "turbohtml"),
+    "is-valid": (_is_valid, "turbohtml"),
+    "is-valid-rng": (_is_valid_rng, "turbohtml"),
 }

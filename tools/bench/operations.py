@@ -317,6 +317,8 @@ OPERATIONS: dict[str, Operation] = {
     "parse-xml-text": Operation("parse XML text runs", "us"),
     "parse-xml-prefixes": Operation("parse XML namespace attributes", "us"),
     "parse-xml-names": Operation("parse growing XML names", "ms"),
+    "is-valid": Operation("XSD validation verdict", "us"),
+    "is-valid-rng": Operation("RELAX NG validation verdict", "us"),
     "validate": Operation("validate a document against an XSD schema", "us"),
     "validate-rng": Operation("validate a document against a RELAX NG schema", "us"),
     "validate-rng-reuse": Operation("validate repeated RELAX NG content models", "us"),
@@ -1681,8 +1683,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "validate": lambda: (
         ("catalog XSD + doc", (_VALIDATE_XSD, _VALIDATE_DOC)),
         ("1,024 global declarations", (_VALIDATE_GLOBAL_XSD, _VALIDATE_GLOBAL_DOC)),
+        *_validation_verdict_cases(_VALIDATE_XSD)[:1],
     ),
-    "validate-rng": lambda: (("catalog RNG + doc", (_VALIDATE_RNG, _VALIDATE_DOC)),),
+    "validate-rng": lambda: (
+        ("catalog RNG + doc", (_VALIDATE_RNG, _VALIDATE_DOC)),
+        *_validation_verdict_cases(_VALIDATE_RNG)[:1],
+    ),
     "validate-rng-reuse": _validate_rng_reuse_cases,
     "compile-rng-reuse": lambda: tuple((label, case[0]) for label, case in _validate_rng_reuse_cases()[::2]),
     "validate-facets": lambda: (
@@ -2523,4 +2529,14 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             (1024, "reversed", False),
         )
     ),
+    "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
+    "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
 }
+
+
+def _validation_verdict_cases(schema: str) -> tuple[tuple[str, tuple[str, str]], ...]:
+    return (
+        ("400 invalid quantities", (schema, _VALIDATE_DOC.replace("<qty>", "<qty>invalid"))),
+        ("valid catalog", (schema, _VALIDATE_DOC)),
+        ("one invalid quantity", (schema, _VALIDATE_DOC.replace("<qty>", "<qty>invalid", 1))),
+    )

@@ -557,4 +557,6 @@ OPERATIONS = {
     "transform-compile": (transform_compile, "lxml.etree"),
     "transform-names-compile": (transform_compile, "lxml.etree"),
     "transform-reuse": (transform_reuse, "lxml.etree"),
+    "is-valid": (validate, "lxml.etree.XMLSchema"),
+    "is-valid-rng": (_validate_rng, "lxml.etree.RelaxNG"),
 }

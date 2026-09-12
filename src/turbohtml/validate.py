@@ -87,7 +87,7 @@ class _Schema:
 
     def is_valid(self, document: Document | Node) -> bool:
         """Whether the document satisfies the schema."""
-        return _schema_validate(self._compiled, document)[0]
+        return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
     def assert_valid(self, document: Document | Node) -> None:
         """Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid."""

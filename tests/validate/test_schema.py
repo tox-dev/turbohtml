@@ -49,10 +49,12 @@ def rwrap(body: str) -> str:
         ),
     ],
 )
-def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG) -> None:
-    assert schema.validate(parse_xml("<a>" * 20 + "</a>" * 20)).valid
+@pytest.mark.parametrize("verdict_only", [pytest.param(False, id="report"), pytest.param(True, id="verdict")])
+def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG, *, verdict_only: bool) -> None:
+    validate = schema.is_valid if verdict_only else schema.validate
+    assert bool(validate(parse_xml("<a>" * 20 + "</a>" * 20)))
     with pytest.raises(RecursionError, match="schema validation"):
-        schema.validate(parse_xml("<a>" * 1200 + "</a>" * 1200))
+        validate(parse_xml("<a>" * 1200 + "</a>" * 1200))
 
 
 @pytest.mark.parametrize(

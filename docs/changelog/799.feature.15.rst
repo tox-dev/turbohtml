@@ -1,0 +1,2 @@
+Speed up :meth:`~turbohtml.validate.RelaxNG.is_valid` and :meth:`~turbohtml.validate.XMLSchema.is_valid` for invalid
+documents.

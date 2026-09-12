@@ -866,3 +866,30 @@ def test_rng_reference_nullability(combinator: str, left: str, right: str, *, ex
         f'<define name="left">{left}</define><define name="right">{right}</define></grammar>'
     )
     assert schema.validate(parse_xml('<r a=""/>')).valid is expected
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param("<doc><value>bad</value></doc>", id="datatype"),
+        pytest.param("<doc><unexpected/></doc>", id="nested-structure"),
+        pytest.param("<wrong/>", id="root-structure"),
+    ],
+)
+def test_is_valid_reuses_schema_after_failure(document: str) -> None:
+    schema = RelaxNG(wrap(f'<element name="value"><data type="int" datatypeLibrary="{DT}"/></element>'))
+    documents = (document, "<doc><value>7</value></doc>", document)
+    assert [schema.is_valid(parse_xml(xml)) for xml in documents] == [False, True, False]
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, False, id="many-errors"),
+        pytest.param(1, True, id="valid"),
+        pytest.param(2, False, id="one-error"),
+    ],
+)
+def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
+    source, document = cast("tuple[str, str]", INPUTS["is-valid-rng"]()[index][1])
+    assert RelaxNG(source).is_valid(parse_xml(document)) is expected
