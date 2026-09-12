@@ -59,6 +59,10 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 _SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
+_DISALLOWED_SANITIZERS: Final[dict[str, _clean.Sanitizer]] = {
+    mode.name.lower(): _clean.Sanitizer(_clean.Policy(tags=frozenset(), on_disallowed_tag=mode))
+    for mode in (_clean.OnDisallowed.ESCAPE, _clean.OnDisallowed.STRIP)
+}
 _SANITIZER_ATTRIBUTES: Final = _clean.Sanitizer(
     _clean.Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
 )
@@ -671,6 +675,11 @@ def syndication(text: str) -> None:
 def sanitize(text: str) -> None:
     """Sanitize with turbohtml's relaxed policy, reusing a prebuilt sanitizer."""
     _SANITIZER.sanitize(text)
+
+
+def _sanitize_disallowed(case: tuple[str, str]) -> str:
+    mode, text = case
+    return _DISALLOWED_SANITIZERS[mode].sanitize(text)
 
 
 def sanitize_attributes(text: str) -> None:
@@ -1625,6 +1634,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "microdata-itemref": (microdata, "turbohtml"),
     "syndication": (syndication, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
+    "sanitize-disallowed": (_sanitize_disallowed, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-named-props": (sanitize_named_props, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),

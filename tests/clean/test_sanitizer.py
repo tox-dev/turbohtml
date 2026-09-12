@@ -2992,3 +2992,35 @@ def test_attr_value_normalizes_every_shape() -> None:
 )
 def test_live_danger_labels_every_executable_construct(html: str, survived: list[str]) -> None:
     assert _live_danger(html) == survived
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
+)
+@pytest.mark.parametrize(
+    "mode", [pytest.param(OnDisallowed.ESCAPE, id="escape"), pytest.param(OnDisallowed.STRIP, id="strip")]
+)
+def test_escaped_opening_attribute_width(count: int, mode: OnDisallowed) -> None:
+    attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
+    expected: Final = f"&lt;x{attributes}&gt;text&lt;/x&gt;" if mode is OnDisallowed.ESCAPE else "text"
+    assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=mode)) == expected
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('bare empty=""', "bare empty", id="bare-and-empty"),
+        pytest.param('é="café" 東京="東京" 😀="😀"', 'é="café" 東京="東京" 😀="😀"', id="unicode-names-and-values"),
+        pytest.param("a='&lt;&amp;&quot;é東京😀'", 'a="&lt;&amp;"é東京😀"', id="raw-value-quoting"),
+    ],
+)
+def test_escaped_opening_raw_attributes(attributes: str, expected: str) -> None:
+    assert sanitize(f"<x {attributes}>text</x>") == f"&lt;x {expected}&gt;text&lt;/x&gt;"
+
+
+@pytest.mark.parametrize(
+    "name", [pytest.param("\ud800", id="high-surrogate"), pytest.param("\udfff", id="low-surrogate")]
+)
+def test_escaped_opening_surrogate_attribute_name(name: str) -> None:
+    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
+        sanitize(f'<x valid="v" {name}="v">text</x>')

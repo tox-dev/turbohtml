@@ -440,6 +440,7 @@ OPERATIONS: dict[str, Operation] = {
     "microdata-itemref": Operation("resolve Microdata item references", "ms"),
     "syndication": Operation("RSS/Atom feed parsing", "us"),
     "sanitize": Operation("sanitize", "us"),
+    "sanitize-disallowed": Operation("sanitize disallowed tags", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-named-props": Operation("sanitize (named-prop isolation)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
@@ -2166,6 +2167,14 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize": lambda: (
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),
+    ),
+    "sanitize-disallowed": lambda: tuple(
+        (
+            f"{mode} tag with {count} attributes",
+            (mode, "<x" + "".join(f' a{index}="value"' for index in range(count)) + ">text</x>"),
+        )
+        for mode in ("escape", "strip")
+        for count in (1, 64, 1024)
     ),
     "sanitize-templates": lambda: (
         ("templated 4 KiB", _SANITIZE_TEMPLATES * 20),

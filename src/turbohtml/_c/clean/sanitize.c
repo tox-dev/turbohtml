@@ -1694,14 +1694,20 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyObject *pieces = PyList_New(element->attr_count + 1);
+    if (pieces == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(out);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    PyList_SET_ITEM(pieces, 0, out);
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *name_str = PyUnicode_FromStringAndSize(name, name_len);
-        if (name_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(out);     /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;        /* GCOVR_EXCL_LINE */
+        if (name_str == NULL) {
+            Py_DECREF(pieces);
+            return NULL;
         }
         PyObject *piece;
         if (attr->value == NULL) {
@@ -1710,22 +1716,29 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
             PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
             if (value == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_DECREF(name_str); /* GCOVR_EXCL_LINE: allocation-failure path */
-                Py_DECREF(out);      /* GCOVR_EXCL_LINE */
+                Py_DECREF(pieces);   /* GCOVR_EXCL_LINE */
                 return NULL;         /* GCOVR_EXCL_LINE */
             }
             piece = th_str_format(" %U=\"%U\"", name_str, value);
             Py_DECREF(value);
         }
         Py_DECREF(name_str);
-        if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(out);  /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;     /* GCOVR_EXCL_LINE */
+        if (piece == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(pieces); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE */
         }
-        Py_SETREF(out, PyUnicode_Concat(out, piece));
-        Py_DECREF(piece);
-        if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
+        PyList_SET_ITEM(pieces, index + 1, piece);
+    }
+    PyObject *separator = PyUnicode_FromString("");
+    if (separator == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(pieces);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    out = PyUnicode_Join(separator, pieces);
+    Py_DECREF(separator);
+    Py_DECREF(pieces);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_SETREF(out, th_str_format("%U>", out));
     return out; /* NULL on allocation failure; the caller checks */

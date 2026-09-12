@@ -389,6 +389,12 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "serialize-named-ascii": ("serialize-named", 1),
     "serialize-named-unnamed": ("serialize-named", 2),
     "serialize-named-small": ("serialize-named", 3),
+    "sanitize-escape-attributes-small": ("sanitize-disallowed", 0),
+    "sanitize-escape-attributes-medium": ("sanitize-disallowed", 1),
+    "sanitize-escape-attributes-wide": ("sanitize-disallowed", 2),
+    "sanitize-strip-attributes-small": ("sanitize-disallowed", 3),
+    "sanitize-strip-attributes-medium": ("sanitize-disallowed", 4),
+    "sanitize-strip-attributes-wide": ("sanitize-disallowed", 5),
 }
 
 
