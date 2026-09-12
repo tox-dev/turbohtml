@@ -884,16 +884,15 @@ comparison is output size, where turbohtml stays within a couple percent and com
 
 ``csscompressor`` (the YUI port) and ``cssmin`` (its BSD descendant) rewrite values to their shortest form the way
 turbohtml does, but as pure-Python regex passes they turn quadratic on a large stylesheet and trail the C engine by tens
-to over a thousand times, ``cssmin`` and ``css-html-js-minify`` reaching roughly four seconds on the 745 kB
-``bulma.css`` where turbohtml takes 3.9 ms. ``rcssmin`` is a C extension and faster than turbohtml, though it only
-strips comments and whitespace, so it leaves a larger result everywhere except the custom-property-heavy ``bulma.css``.
+to over a thousand times, ``css-html-js-minify`` reaching roughly four seconds on the 745 kB ``bulma.css`` where
+turbohtml takes 3.8 ms. ``rcssmin`` is a C extension and faster than turbohtml, though it only strips comments and
+whitespace, so it leaves a larger result everywhere except the custom-property-heavy ``bulma.css``.
 ``css-html-js-minify`` is among the slowest of the set. The three pure-Python tools and rcssmin also break value safety:
 each rewrites the internal whitespace of a custom-property value, which `CSS Variables 1 §2
 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as the literal token stream that ``var()`` splices
 verbatim and ``getPropertyValue()`` reads back byte-exact, and ``cssmin`` and ``css-html-js-minify`` collapse whitespace
 inside strings, so their output can change the cascade where turbohtml's round-trips. That rewrite is also the only
-reason ``rcssmin`` and ``cssmin`` end 0.2% to 0.3% ahead on ``bulma.css``, whose declarations are almost entirely custom
-properties.
+reason ``rcssmin`` ends 0.2% ahead on ``bulma.css``, whose declarations are almost entirely custom properties.
 
 `lightningcss <https://pypi.org/project/lightningcss/>`_, the Rust binding, is a cascade-aware optimizer: it drops
 declarations overridden elsewhere in the sheet and rewrites syntax for a browser-target set, so it reaches a smaller
