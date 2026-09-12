@@ -1,0 +1,1 @@
+Prevent numeric exponent overflow in :func:`~turbohtml.clean.minify_css`.

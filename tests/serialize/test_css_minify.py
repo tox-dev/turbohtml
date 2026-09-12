@@ -925,3 +925,51 @@ def test_minify_css_unicode_range_union(ranges: tuple[str, ...], expected: str) 
     assert minify_css("@font-face{unicode-range:" + ",".join(ranges * 40) + "}") == (
         "@font-face{unicode-range:" + expected + "}"
     )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("width:calc(0e10000px + 1px)", "width:1px", id="zero-positive-exponent"),
+        pytest.param("width:calc(0e-10000px + 1px)", "width:1px", id="zero-negative-exponent"),
+        pytest.param("width:calc(0e999999999999999999999px + 1px)", "width:1px", id="zero-overflowing-exponent"),
+        pytest.param("width:-0e999999999999999999999px", "width:0", id="negative-zero-overflowing-exponent"),
+        pytest.param("width:calc(1e+2px + 2e+1px)", "width:120px", id="ordinary-arithmetic"),
+        pytest.param("width:calc(1e-2px + 2e-2px)", "width:.03px", id="negative-exponent-arithmetic"),
+        pytest.param("width:calc(.000000000000000001e18px + 1px)", "width:2px", id="exponent-cancels-fraction"),
+        pytest.param("width:calc(1e18px + 1px)", "width:1000000000000000001px", id="maximum-rational-integer-power"),
+        pytest.param("width:calc(1e-18px)", "width:1e-18px", id="maximum-rational-fraction-power"),
+        pytest.param("z-index:1e4", "z-index:10000", id="bounded-unitless-expansion"),
+        pytest.param("x:1e127", "x:1" + "0" * 127, id="maximum-integer-expansion"),
+        pytest.param("x:1e-127", "x:." + "0" * 126 + "1", id="maximum-fraction-expansion"),
+        pytest.param("x:" + "0" * 127 + "1", "x:1", id="maximum-mantissa"),
+    ],
+)
+def test_number_exponent_bounds(source: str, expected: str) -> None:
+    assert minify_css_inline(source) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("1e10000", id="oversized-unitless-expansion"),
+        pytest.param("1e128", id="integer-expansion-boundary"),
+        pytest.param("1e-128", id="fraction-expansion-boundary"),
+        pytest.param("1e10000px", id="large-dimension"),
+        pytest.param("1e9223372036854775808px", id="exponent-add-overflow"),
+        pytest.param("1e92233720368547758070px", id="exponent-multiply-overflow"),
+        pytest.param("10e9223372036854775807px", id="scale-add-overflow"),
+        pytest.param(".01e-9223372036854775807px", id="scale-subtract-overflow"),
+        pytest.param("1e2147483648px", id="exponent-int-upper-bound"),
+        pytest.param("1e-2147483648px", id="exponent-int-lower-bound"),
+        pytest.param("1" * 129, id="long-mantissa"),
+        pytest.param("0" * 128 + "1", id="nonzero-after-buffer-boundary"),
+        pytest.param("." + "0" * 128 + "1", id="long-fraction"),
+        pytest.param("calc(1e19px + 1px)", id="rational-power-upper-bound"),
+        pytest.param("calc(1e-19px + 1px)", id="rational-power-lower-bound"),
+        pytest.param("calc(.01e-9223372036854775807px + 1px)", id="rational-power-subtract-overflow"),
+        pytest.param("calc(1e9223372036854775808px + 1px)", id="rational-exponent-overflow"),
+    ],
+)
+def test_number_outside_formatter_bounds_keeps_whole_token(value: str) -> None:
+    assert minify_css_inline(f" x: {value} ; ") == f"x:{value}"

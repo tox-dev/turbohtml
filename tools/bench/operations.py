@@ -1323,6 +1323,21 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
             )
             for count, reverse in ((8, True), (1024, False), (1024, True))
         ),
+        *(
+            (
+                f"{count} rules, {label}",
+                "".join(f".number{index}{{{value.format(index=index)}}}" for index in range(1, count + 1)),
+            )
+            for label, value, count in (
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 1),
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 128),
+                ("zero exponent 2", "width:calc(0e2px + {index}px)", 128),
+                ("ordinary arithmetic", "width:calc(1e2px + {index}px)", 128),
+                ("negative exponent", "width:calc(1e-2px + {index}px)", 128),
+                ("large dimension exponent", "width:1e10000px", 128),
+                ("unitless exponent", "z-index:1e4", 128),
+            )
+        ),
     )
 
 

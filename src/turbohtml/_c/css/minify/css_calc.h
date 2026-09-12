@@ -67,12 +67,10 @@ static int rat_add(crat *out, crat left, crat right) {
     return rat_set(out, num, den);
 }
 
-/* Parse a CSS number string exactly into a rational; returns 0 on overflow. The text is a whole number token from the
-   tokenizer's css_scan_number grammar, so it always carries a digit, any exponent has digits, and the parse consumes
-   the entire string -- integer overflow is the only failure. */
+/* The tokenizer guarantees valid number syntax; values outside the rational's 64-bit range stay unfolded. */
 static int css_num_to_rat(const css_char *text, Py_ssize_t len, crat *out) {
     long long num = 0;
-    int frac_digits = 0;
+    long long frac_digits = 0;
     int negative = 0;
     Py_ssize_t index = 0;
     if (text[index] == '+' || text[index] == '-') { /* len >= 1: a NUM token's numeric part is never empty */
@@ -94,25 +92,23 @@ static int css_num_to_rat(const css_char *text, Py_ssize_t len, crat *out) {
             frac_digits++;
         }
     }
-    int exponent = 0;
-    int exp_negative = 0;
-    /* after the mantissa, the only remaining char a number token can carry is the exponent marker e/E */
-    if (index < len) {
-        index++;
-        /* css_scan_number includes the exponent marker only when digits follow, so a char is always present here */
-        if (text[index] == '+' || text[index] == '-') {
-            exp_negative = text[index] == '-';
-            index++;
-        }
-        /* the exponent's digit run is the final part of the numeric text, so every remaining char is a digit */
-        for (; index < len; index++) {
-            exponent = exponent * 10 + (text[index] - '0');
-        }
+    if (num == 0) {
+        out->num = 0;
+        out->den = 1;
+        return 1;
+    }
+    long long exponent = 0;
+    if (index < len && !css_parse_exponent(text + index + 1, len - index - 1, &exponent)) {
+        return 0;
     }
     if (negative) {
         num = -num;
     }
-    int power = (exp_negative ? -exponent : exponent) - frac_digits;
+    long long power;
+    /* A nonzero numerator or denominator cannot grow by more than 18 powers of ten. */
+    if (css_add_overflow(exponent, -frac_digits, &power) || power > 18 || power < -18) {
+        return 0;
+    }
     long long den = 1;
     if (power >= 0) {
         for (int step = 0; step < power; step++) {

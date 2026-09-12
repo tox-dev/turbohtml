@@ -401,6 +401,13 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-text-literal-small": ("transform-text", 3),
     "transform-text-explicit": ("transform-text", 4),
     "transform-text-explicit-small": ("transform-text", 5),
+    "minify-css-zero-exponent-single": ("minify-css", len(corpus.STYLESHEETS) + 3),
+    "minify-css-zero-exponent-many": ("minify-css", len(corpus.STYLESHEETS) + 4),
+    "minify-css-zero-exponent-small": ("minify-css", len(corpus.STYLESHEETS) + 5),
+    "minify-css-number-arithmetic": ("minify-css", len(corpus.STYLESHEETS) + 6),
+    "minify-css-negative-exponent": ("minify-css", len(corpus.STYLESHEETS) + 7),
+    "minify-css-dimension-exponent": ("minify-css", len(corpus.STYLESHEETS) + 8),
+    "minify-css-unitless-exponent": ("minify-css", len(corpus.STYLESHEETS) + 9),
 }
 
 
