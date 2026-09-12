@@ -1,0 +1,1 @@
+Infer :func:`~turbohtml.clean.transform_node` results from the input and callback types.

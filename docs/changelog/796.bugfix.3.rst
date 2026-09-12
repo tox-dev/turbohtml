@@ -1,0 +1,1 @@
+Preserve the input node type in :func:`~turbohtml.clean.linkify_node` annotations.

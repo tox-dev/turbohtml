@@ -6,8 +6,9 @@ from itertools import repeat
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
+from typing_extensions import assert_type
 
-from turbohtml import Comment, Element, Node, Text, parse_fragment, parse_xml
+from turbohtml import Comment, Document, Element, Node, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import collapse_whitespace_node, sanitize_node, strip_comments_node, transform_node
 from turbohtml.mutations import MutationObserver
 
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 )
 def test_collapse_text(source: str, expected: str) -> None:
     root: Final = parse_fragment(source)
-    assert collapse_whitespace_node(root).inner_html == expected
+    assert assert_type(collapse_whitespace_node(root), Element).inner_html == expected
 
 
 @pytest.mark.parametrize("tag", ["pre", "textarea", "listing", "title", "script", "style", "xmp", "plaintext"])
@@ -138,29 +139,38 @@ def test_strip_comments_observed() -> None:
 
 def test_strip_comments_keeps_context() -> None:
     root: Final = Comment("keep")
-    assert strip_comments_node(root) is root
+    assert assert_type(strip_comments_node(root), Comment) is root
 
 
 def test_transform_empty() -> None:
     root: Final = Text("a")
-    assert transform_node(root) is root
+    assert assert_type(transform_node(root), Text) is root
 
 
 def test_transform_native_mutator() -> None:
     root: Final = Element("p", children=[Text("a"), Text("b")])
-    assert transform_node(root, cast("Callable[[Node], None]", Element.normalize)).inner_html == "ab"
+    assert assert_type(transform_node(root, Element.normalize), Element).inner_html == "ab"
     assert len(root.children) == 1
 
 
 def test_transform_copy_before_mutating() -> None:
     root: Final = parse_fragment("<b>  a  </b><!--x-->")
-    result: Final = transform_node(root, sanitize_node, collapse_whitespace_node)
+    result: Final = assert_type(transform_node(root, sanitize_node, collapse_whitespace_node), Element)
     assert (root.inner_html, result.inner_xml) == ("<b>  a  </b><!--x-->", "<b> a </b>")
 
 
 def test_transform_order() -> None:
     root: Final = Element("p", children=[Text("a "), Comment("x"), Text(" b")])
     assert transform_node(root, strip_comments_node, collapse_whitespace_node).inner_html == "a b"
+
+
+def test_transform_replaces_node_type() -> None:
+    def replace(node: Node) -> Document:
+        return parse(node.serialize())
+
+    result: Final = assert_type(transform_node(Element("p"), replace, strip_comments_node), Element | Document)
+    assert isinstance(result, Document)
+    assert result.serialize() == "<html><head></head><body><p></p></body></html>"
 
 
 def test_transform_partial() -> None:

@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Final, TypeAlias, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, TypeVar, cast
 
 from turbohtml._html import (
     _linkify_apply,
@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
     from turbohtml._html import Node, _PhoneConfig
+
+_NODE_T = TypeVar("_NODE_T", bound="Node")
 
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
@@ -540,7 +542,7 @@ class Linker:
         root = parse_fragment(text) if isinstance(text, str) else copy.deepcopy(text)
         return self.linkify_node(root).inner_html
 
-    def linkify_node(self, node: Node) -> Node:
+    def linkify_node(self, node: _NODE_T) -> _NODE_T:
         """
         Linkify an already parsed subtree in place and return the node, so it chains.
 
@@ -584,7 +586,7 @@ def linkify(text: str | Node, options: Linkify | None = None) -> str:
     return Linker(options).linkify(text)
 
 
-def linkify_node(node: Node, options: Linkify | None = None) -> Node:
+def linkify_node(node: _NODE_T, options: Linkify | None = None) -> _NODE_T:
     """
     Find URLs, email addresses and phone numbers in an already parsed subtree and wrap them in ``<a>`` links, in place.
 

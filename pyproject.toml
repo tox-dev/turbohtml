@@ -99,6 +99,7 @@ test = [
   "pytest-mock>=3.15.1",
   "pytest-run-parallel>=0.9.1", # runs each test in many threads to surface free-threaded data races
   "tenacity>=9.1.4",            # the retry policy wrapping every tools/ HTTP fetch (httpfetch.py)
+  "typing-extensions>=4.15",
 ]
 type = [
   "ty>=0.0.57",

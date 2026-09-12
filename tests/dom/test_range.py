@@ -4,6 +4,7 @@ import sys
 from typing import TYPE_CHECKING, Final
 
 import pytest
+from typing_extensions import assert_type
 
 from turbohtml import (
     CData,
@@ -629,7 +630,7 @@ def test_surround_contents_selects_the_wrapper() -> None:
     div = _by_id(doc, "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 1)
-    wrapper = boundary.surround_contents(Element("section"))
+    wrapper = assert_type(boundary.surround_contents(Element("section")), Element)
     assert isinstance(wrapper, Element)
     assert wrapper.tag == "section"
     assert boundary.start_container == div

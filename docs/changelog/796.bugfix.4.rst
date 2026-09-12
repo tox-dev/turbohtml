@@ -1,0 +1,1 @@
+Preserve the input node type in :func:`~turbohtml.clean.collapse_whitespace_node` annotations.
