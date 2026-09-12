@@ -2170,7 +2170,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     ),
     "sanitize-disallowed": lambda: tuple(
         (
-            f"{mode} tag with {count} attributes",
+            f"{mode} tag with {count} attribute{'s' if count != 1 else ''}",
             (mode, "<x" + "".join(f' a{index}="value"' for index in range(count)) + ">text</x>"),
         )
         for mode in ("escape", "strip")

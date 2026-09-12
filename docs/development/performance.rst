@@ -611,6 +611,9 @@ BeautifulSoup and html5lib.
 .. bench-table::
     :file: bench/serialize-attributes.json
 
+.. bench-table::
+    :file: bench/serialize-named.json
+
 ***********
  Minifying
 ***********
@@ -1315,6 +1318,9 @@ already-linked tree. These operations can be stages in an application's cleanup 
 
 .. bench-table::
     :file: bench/sanitize-attributes.json
+
+.. bench-table::
+    :file: bench/sanitize-disallowed.json
 
 .. bench-table::
     :file: bench/linkify-node.json
