@@ -559,4 +559,5 @@ OPERATIONS = {
     "transform-reuse": (transform_reuse, "lxml.etree"),
     "is-valid": (validate, "lxml.etree.XMLSchema"),
     "is-valid-rng": (_validate_rng, "lxml.etree.RelaxNG"),
+    "transform-text": (transform, "lxml.etree"),
 }

@@ -4952,3 +4952,57 @@ def test_number_benchmark_lxml_current_expression() -> None:
         "</xsl:for-each></xsl:template></xsl:stylesheet>"
     )
     assert str(lxml.transform((sheet, '<root><p id="7"/></root>'))) == "1:7"
+
+
+@pytest.mark.parametrize(
+    ("index", "count"),
+    [
+        pytest.param(0, 4096, id="builtin-many"),
+        pytest.param(1, 4, id="builtin-small"),
+        pytest.param(2, 4096, id="literal-many"),
+        pytest.param(3, 4, id="literal-small"),
+        pytest.param(4, 4096, id="explicit-many"),
+        pytest.param(5, 4, id="explicit-small"),
+    ],
+)
+def test_transform_text_benchmark(index: int, count: int) -> None:
+    stylesheet, source = cast("tuple[str, str]", INPUTS["transform-text"]()[index][1])
+    assert Transform(parse_xml(stylesheet))(parse_xml(source)) == "payload " * (8 * count)
+
+
+@pytest.mark.parametrize(
+    ("location", "cdata"),
+    [
+        pytest.param("source", False, id="builtin"),
+        pytest.param("xsl:template", False, id="literal"),
+        pytest.param("xsl:template", True, id="cdata"),
+        pytest.param("xsl:text", False, id="explicit"),
+    ],
+)
+def test_transform_empty_character_data(location: str, *, cdata: bool) -> None:
+    stylesheet = _sheet('<xsl:template match="/"><xsl:text>kept</xsl:text><xsl:apply-templates/></xsl:template>')
+    source = parse_xml("<r/>")
+    parent = source.find("r") if location == "source" else stylesheet.find(location)
+    assert parent is not None
+    parent.append(turbohtml.CData("") if cdata else turbohtml.Text(""))
+    assert Transform(stylesheet)(source) == "kept"
+
+
+def test_transform_builtin_text_tracks_source_mutation() -> None:
+    convert = Transform(_sheet('<xsl:template match="/"><xsl:apply-templates/></xsl:template>'))
+    source = parse_xml("<r>before</r>")
+    root = source.find("r")
+    assert root is not None
+    before = convert(source)
+    root.text = "after é😀"
+    assert (before, convert(source)) == ("before", "after é😀")
+
+
+def test_transform_result_fragment_text_survives_output_growth() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:variable name="fragment"><xsl:apply-templates/></xsl:variable>'
+        '<xsl:copy-of select="$fragment"/><xsl:copy-of select="$fragment"/></xsl:template>'
+    )
+    payload = "é😀payload " * 64
+    source = "<r>" + ("<p>" + payload + "</p>") * 128 + "</r>"
+    assert _run(source, body) == payload * 256

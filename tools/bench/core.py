@@ -1734,4 +1734,5 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "is-valid": (_is_valid, "turbohtml"),
     "is-valid-rng": (_is_valid_rng, "turbohtml"),
     "serialize-named": (_serialize_named, "turbohtml"),
+    "transform-text": (transform, "turbohtml"),
 }

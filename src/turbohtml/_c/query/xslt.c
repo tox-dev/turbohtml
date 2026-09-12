@@ -3323,14 +3323,12 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
         return emit_text(eng, out_parent, attribute->value, attribute->value_len);
     }
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->src_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->src_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = emit_text(eng, out_parent, text, text_len);
-        PyMem_Free(text);
-        return rc;
+        return emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
         Py_ssize_t child_pos = 0;
@@ -3812,29 +3810,22 @@ static enum xsl_instr xsl_classify(const Py_UCS4 *local, Py_ssize_t len) {
 
 static int instantiate_non_element(engine *eng, th_node *node, th_node *out_parent) {
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = 0;
-        if (!ucs4_blank(text, text_len)) {
-            rc = emit_text(eng, out_parent, text, text_len);
-        }
-        PyMem_Free(text);
-        return rc;
+        return ucs4_blank(text, text_len) ? 0 : emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_CDATA) {
         /* A CDATA section in the stylesheet is significant character data (never stripped as
            whitespace); it emits as text, which cdata-section-elements may later re-wrap. */
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = emit_text(eng, out_parent, text, text_len);
-        PyMem_Free(text);
-        return rc;
+        return emit_text(eng, out_parent, text, text_len);
     }
     return 0;
 }
@@ -3872,17 +3863,14 @@ static int instantiate_classified(engine *eng, th_node *node, th_node *out_paren
         }
         return 0;
     case XSL_TEXT: {
-        Py_UCS4 *text;
-        Py_ssize_t text_len = 0;
-        int rc = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_TEXT) {
-                text = th_node_data(eng->sheet_tree, child, &text_len);
-                if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+                Py_ssize_t text_len = child->text_len;
+                const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, child);
+                if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
                     return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
                 }
-                rc = emit_text(eng, out_parent, text, text_len);
-                PyMem_Free(text);
+                int rc = emit_text(eng, out_parent, text, text_len);
                 if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
                     return rc; /* GCOVR_EXCL_LINE */
                 }

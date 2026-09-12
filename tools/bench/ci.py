@@ -395,6 +395,12 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "sanitize-strip-attributes-small": ("sanitize-disallowed", 3),
     "sanitize-strip-attributes-medium": ("sanitize-disallowed", 4),
     "sanitize-strip-attributes-wide": ("sanitize-disallowed", 5),
+    "transform-text": ("transform-text", 0),
+    "transform-text-builtin-small": ("transform-text", 1),
+    "transform-text-literal": ("transform-text", 2),
+    "transform-text-literal-small": ("transform-text", 3),
+    "transform-text-explicit": ("transform-text", 4),
+    "transform-text-explicit-small": ("transform-text", 5),
 }
 
 

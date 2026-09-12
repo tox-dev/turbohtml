@@ -529,6 +529,7 @@ OPERATIONS: dict[str, Operation] = {
     "links-external": Operation("extract links outside the base site", "ms"),
     "serialize-attributes": Operation("serialize HTML attribute order", "us"),
     "serialize-named": Operation("serialize HTML named entities", "us"),
+    "transform-text": Operation("XSLT text emission", "us"),
 }
 
 
@@ -1020,6 +1021,25 @@ _XSLT_SOURCE = (
     )
     + "</catalog>"
 )
+
+
+def _transform_text_cases() -> tuple[tuple[str, object], ...]:
+    cases: list[tuple[str, object]] = []
+    payload = "payload " * 8
+    for kind in ("builtin", "literal", "xsl:text"):
+        for count in (4096, 4):
+            if kind == "builtin":
+                body = "<xsl:apply-templates/>"
+                source = "<r>" + ("<p>" + payload + "</p>") * count + "</r>"
+            else:
+                body = (payload + "<!--gap-->" if kind == "literal" else "<xsl:text>" + payload + "</xsl:text>") * count
+                source = "<r/>"
+            sheet = (
+                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+            )
+            cases.append((f"{count} {kind} text nodes", (sheet, source)))
+    return tuple(cases)
 
 
 def _transform_cases() -> tuple[tuple[str, object], ...]:
@@ -2566,6 +2586,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             ("short mixed text", "café &amp; \u03b1 😀"),
         )
     ),
+    "transform-text": _transform_text_cases,
 }
 
 
