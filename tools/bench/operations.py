@@ -519,6 +519,7 @@ OPERATIONS: dict[str, Operation] = {
     "stream": Operation("push-parse a page in chunks", "us"),
     "encoding-result": Operation("construct the winning encoding result", "us"),
     "encoding-result-stream": Operation("construct the streamed encoding result", "us"),
+    "encoding-chunks": Operation("detect encoding across byte chunks", "us"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
     "decode": Operation("decode a legacy byte stream", "us"),
     "normalize": Operation("normalize text to Unicode NFC", "us"),
@@ -1721,6 +1722,18 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
     )
 
 
+def _encoding_chunks_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
+    ascii_body: Final = (_ENCODING_ASCII * 900).encode()[:65536]
+    japanese: Final = _ENCODING_JAPANESE.encode("shift_jis")
+    mixed: Final = japanese + ascii_body
+    return (
+        ("Japanese prefix, 64 KiB ASCII suffix, 4 KiB chunks", (4096, mixed)),
+        ("Japanese prefix, short ASCII suffix, 16-byte chunks", (16, japanese + b"plain ASCII suffix")),
+        ("Japanese prefix, 64 KiB ASCII suffix, one feed", (len(mixed), mixed)),
+        ("64 KiB ASCII, 4 KiB chunks", (4096, ascii_body)),
+    )
+
+
 def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
     return (
         ("short ambiguous legacy bytes", "déjà vu, bientôt à Paris".encode("cp1252")),
@@ -2646,6 +2659,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "stream": _stream_cases,
     "encoding-result": _encoding_result_cases,
     "encoding-result-stream": _encoding_result_cases,
+    "encoding-chunks": _encoding_chunks_cases,
     "encoding": _encoding_cases,
     "decode": _decode_cases,
     "normalize": _normalize_cases,

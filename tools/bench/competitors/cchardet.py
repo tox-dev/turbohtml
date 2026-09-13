@@ -14,6 +14,14 @@ def encoding(data: bytes) -> None:
     cchardet.detect(data)
 
 
+def _encoding_chunks(case: tuple[int, bytes]) -> None:
+    chunk_size, data = case
+    detector: Final = cchardet.UniversalDetector()
+    for start in range(0, len(data), chunk_size):
+        detector.feed(data[start : start + chunk_size])
+    detector.close()
+
+
 def _encoding_stream(data: bytes) -> None:
     detector: Final = cchardet.UniversalDetector()
     detector.feed(data)
@@ -22,6 +30,7 @@ def _encoding_stream(data: bytes) -> None:
 
 OPERATIONS = {
     "encoding-result-stream": (_encoding_stream, "faust-cchardet"),
+    "encoding-chunks": (_encoding_chunks, "faust-cchardet"),
     "encoding": (encoding, "faust-cchardet"),
     "encoding-result": (encoding, "faust-cchardet"),
 }

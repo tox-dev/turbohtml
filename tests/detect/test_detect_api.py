@@ -610,6 +610,28 @@ def test_chunked_feeds_equal_a_one_shot_detect() -> None:
     assert detector.done
 
 
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        pytest.param(
+            b"\xdf",
+            EncodingMatch("windows-1251", 0.2236681958618107, "Russian", codec="whatwg-windows-1251"),
+            id="disqualified-logical-hebrew",
+        ),
+        pytest.param(
+            b" ",
+            EncodingMatch("windows-1255", 0.2454175152749491, "Hebrew", codec="whatwg-windows-1255"),
+            id="surviving-logical-hebrew",
+        ),
+    ],
+)
+def test_streamed_hebrew_keeps_its_punctuation_tiebreak(prefix: bytes, expected: EncodingMatch) -> None:
+    detector: Final = EncodingDetector()
+    detector.feed(prefix)
+    detector.feed(("שלום! " * 16 + "!שלום").encode("iso-8859-8"))
+    assert detector.close() == expected
+
+
 def test_a_leading_bom_finishes_the_stream_early() -> None:
     detector = EncodingDetector()
     detector.feed(b"\xef\xbb\xbf")
@@ -690,6 +712,8 @@ _SAMPLES = [
     pytest.param(b"plain ascii only", id="ascii"),
     pytest.param("中文简体测试".encode("gbk"), id="gbk"),
     pytest.param("日本語のテキスト".encode("shift_jis"), id="shift_jis"),
+    pytest.param("日本語のテキスト and a longer plain ASCII suffix".encode("shift_jis"), id="shift-jis-before-ascii"),
+    pytest.param(b"\x81\n" + b"plain ASCII suffix " * 4, id="unmapped-byte-before-ascii"),
     pytest.param("한국어 텍스트".encode("euc-kr"), id="euc-kr"),
     pytest.param("中文字元測試".encode("big5"), id="big5"),
     pytest.param("Příliš žluťoučký kůň".encode("windows-1250"), id="windows-1250"),

@@ -454,6 +454,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "stream-nul-free": ("stream", 7),
     "stream-nul-ascii": ("stream", 8),
     "stream-nul-supplementary": ("stream", 9),
+    "encoding-chunks": ("encoding-chunks", 0),
+    "encoding-chunks-small": ("encoding-chunks", 1),
+    "encoding-chunks-single": ("encoding-chunks", 2),
+    "encoding-chunks-ascii": ("encoding-chunks", 3),
 }
 
 

@@ -1175,6 +1175,14 @@ def stream(text: str) -> None:
     parser.close()
 
 
+def _encoding_chunks(case: tuple[int, bytes]) -> None:
+    chunk_size, data = case
+    detector: Final = _EncodingDetector()
+    for start in range(0, len(data), chunk_size):
+        detector.feed(data[start : start + chunk_size])
+    detector.close()
+
+
 def _encoding_stream(data: bytes) -> None:
     detector: Final = _EncodingDetector()
     detector.feed(data)
@@ -1733,6 +1741,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "stream": (stream, "turbohtml"),
     "encoding-result": (encoding, "turbohtml"),
     "encoding-result-stream": (_encoding_stream, "turbohtml"),
+    "encoding-chunks": (_encoding_chunks, "turbohtml"),
     "encoding": (encoding, "turbohtml"),
     "decode": (decode, "turbohtml"),
     "detect-language": (detect_language, "turbohtml"),
