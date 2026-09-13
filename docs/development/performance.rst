@@ -117,10 +117,11 @@ scan alone (8x to 9x, the narrowest rows).
     :file: bench/linkify-3.json
 
 :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` against ``phonenumbers.parse`` followed by
-``is_valid_number`` (``is_possible_number`` on the possible row), over twenty held numbers from twenty regions, each in
-a written form of its own: national with the prefix, international, with an extension, bracketed. The port normalizes
-the string, strips prefixes and matches the plan's regular expressions one type at a time; turbohtml runs the same
-recognizer the scanner uses over the one string, 7x faster (5x on the possible row).
+``is_valid_number`` (``is_possible_number`` on the possible row). The first two rows use twenty held numbers in mixed
+regional forms: national with the prefix, international, with an extension, bracketed. The port normalizes the string,
+strips prefixes and matches the plan's regular expressions one type at a time; turbohtml runs the same recognizer the
+scanner uses over the one string, 8x faster (6x on the possible row). The digit-script rows repeat one US number twenty
+times.
 
 .. bench-table::
     :file: bench/linkify-4.json
@@ -133,6 +134,12 @@ leading-digits automaton per candidate format and splits the digits by the group
 
 .. bench-table::
     :file: bench/linkify-5.json
+
+Valid-number construction compares :class:`~turbohtml.clean.PhoneNumber` with ``phonenumbers.PhoneNumber`` followed by
+region and type checks. Both reuse cached fields to construct twenty valid US numbers.
+
+.. bench-table::
+    :file: bench/linkify-6.json
 
 **********
  Sanitize

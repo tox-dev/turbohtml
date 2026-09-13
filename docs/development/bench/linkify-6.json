@@ -1,0 +1,25 @@
+{
+  "label": "construct and validate phone numbers",
+  "parties": [
+    "turbohtml",
+    "phonenumbers"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "construct 20 US numbers",
+      1.0478293107259637e-05,
+      0.00011828812661936657
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.013444641623276098,
+      0.01375200672120848
+    ]
+  ],
+  "notes": {
+    "phonenumbers": "valid construction with region and type checks; excludes invalid-input exception behavior"
+  }
+}
