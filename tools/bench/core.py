@@ -228,6 +228,10 @@ def parse(text: str) -> None:
     turbohtml.parse(text)
 
 
+def _parse_encoded(case: tuple[str, bytes]) -> None:
+    turbohtml.parse(case[1], encoding=case[0])
+
+
 def parse_xml(text: str) -> None:
     """Parse a whole XML document into a navigable tree through turbohtml.parse_xml()."""
     turbohtml.parse_xml(text)
@@ -1541,6 +1545,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "shadow-slot": (_shadow_slot, "turbohtml"),
     "startup": (startup, "turbohtml"),
     "parse": (parse, "turbohtml"),
+    "parse-encoded": (_parse_encoded, "turbohtml"),
     "parse-formatting": (parse, "turbohtml"),
     "parse-foster": (parse, "turbohtml"),
     "parse-crlf": (parse, "turbohtml"),

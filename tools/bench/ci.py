@@ -470,6 +470,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "phone-parse-ascii": ("phone-parse", 3),
     "phone-parse-arabic-indic": ("phone-parse", 4),
     "phone-parse-mathematical": ("phone-parse", 5),
+    "parse-encoded": ("parse-encoded", 0),
+    "parse-encoded-be": ("parse-encoded", 1),
+    "parse-encoded-utf8": ("parse-encoded", 2),
+    "parse-encoded-large": ("parse-encoded", 3),
 }
 
 

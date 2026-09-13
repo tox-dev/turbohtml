@@ -1,0 +1,1 @@
+Use direct UTF decoders when :func:`~turbohtml.parse` reads UTF-8 or UTF-16 bytes.

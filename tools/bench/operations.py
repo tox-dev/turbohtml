@@ -303,6 +303,7 @@ OPERATIONS: dict[str, Operation] = {
     "shadow-fallback": Operation("flatten nested fallback slots", "us"),
     "startup": Operation("start a fresh Python process", "ms"),
     "parse": Operation("parse to a tree", "us"),
+    "parse-encoded": Operation("parse encoded bytes to a tree", "us"),
     "parse-formatting": Operation("parse under a formatting ancestor", "us"),
     "parse-foster": Operation("parse foster-parented text", "us"),
     "parse-crlf": Operation("parse normalized newlines", "us"),
@@ -1768,6 +1769,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ),
     ),
     "parse": _parse_cases,
+    "parse-encoded": lambda: (
+        ("tiny UTF-16LE", ("utf-16le", "<p>café</p>".encode("utf-16le"))),
+        ("tiny UTF-16BE", ("utf-16be", "<p>café</p>".encode("utf-16be"))),
+        ("tiny UTF-8", ("utf-8", "<p>café</p>".encode())),
+        ("16 KiB UTF-16LE", ("utf-16le", ("<p>" + "café" * 2048 + "</p>").encode("utf-16le"))),
+    ),
     "parse-foster": lambda: tuple(
         (
             f"{count:,} table rows / fostered text runs",
