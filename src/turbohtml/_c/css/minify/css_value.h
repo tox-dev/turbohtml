@@ -834,9 +834,7 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
     }
 }
 
-/* Render a function `name(args)` into the pool and return its (offset, length). The function text is assembled in a
-   local buffer first: minifying the arguments uses the pool as scratch, so building straight into the pool would
-   interleave that scratch into the function's bytes. */
+/* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
