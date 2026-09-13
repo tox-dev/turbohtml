@@ -102,10 +102,13 @@ int th_phone_digit_value(uint32_t code) {
     if (!(th_phone_nd_pages[page >> 3] >> (page & 7) & 1)) {
         return -1;
     }
-    for (size_t index = 0; index < TH_PHONE_ND_RANGE_COUNT; index++) {
+    for (size_t index = th_phone_nd_page_first[page]; index < TH_PHONE_ND_RANGE_COUNT; index++) {
         uint32_t first = th_phone_nd_ranges[3 * index];
+        if (code < first) {
+            return -1;
+        }
         uint32_t last = th_phone_nd_ranges[3 * index + 1];
-        if (code >= first && code <= last) {
+        if (code <= last) {
             return (int)(code - th_phone_nd_ranges[3 * index + 2]);
         }
     }
@@ -2311,12 +2314,9 @@ const char *th_phone_region_code(int index, size_t *len) {
 }
 
 static int group_of_code_value(unsigned country_code) {
-    for (size_t index = 0; index < TH_PHONE_GROUP_COUNT; index++) {
-        if (th_phone_groups[index].country_code == country_code) {
-            return (int)index;
-        }
-    }
-    return -1;
+    const uint8_t *table = country_code < 10 ? th_phone_cc1 : country_code < 100 ? th_phone_cc2 : th_phone_cc3;
+    int index = table[country_code];
+    return index == 0xFF ? -1 : index;
 }
 
 enum th_phone_check th_phone_number_check(unsigned country_code, const char *nsn, size_t nsn_len, const char *region,

@@ -821,6 +821,7 @@ def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
     if set(_LATIN_BLOCKS) - set(block_ranges):
         msg = "a Latin block named by isLatinLetter is missing from Blocks.txt"
         raise GenerationError(msg)
+    latin_ranges: Final = tuple(block_ranges[name] for name in _LATIN_BLOCKS)
     return _UnicodeTables(
         nd_ranges,
         pages,
@@ -829,7 +830,7 @@ def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
             code
             for code, category in categories.items()
             if (category.startswith("L") or category == "Mn")
-            and any(first <= code <= last for name, (first, last) in block_ranges.items() if name in _LATIN_BLOCKS)
+            and any(first <= code <= last for first, last in latin_ranges)
         }),
         _ranges({code for code, category in categories.items() if category.startswith("L")}),
         _ranges({code for code, category in categories.items() if category.startswith("N")}),
@@ -1358,6 +1359,16 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     )
     out(_array("uint16_t", "th_phone_nfa_classes", class_masks or [0]))
     out(_array("uint8_t", "th_phone_nd_pages", tables.unicode.nd_pages))
+    out(
+        _array(
+            "uint16_t",
+            "th_phone_nd_page_first",
+            [
+                next(index for index, (_first, last, _zero) in enumerate(tables.unicode.nd_ranges) if last >= page << 8)
+                for page in range((tables.unicode.nd_ranges[-1][1] >> 8) + 1)
+            ],
+        )
+    )
     out(
         _array(
             "uint32_t",

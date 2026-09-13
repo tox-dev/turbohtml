@@ -1,0 +1,1 @@
+Preserve prefix encoding errors when sanitizing attributes without exact-name rules.

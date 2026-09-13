@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import nh3
 
 REQUIREMENTS = ("nh3>=0.3.6",)
@@ -17,7 +19,14 @@ def escape(text: str) -> None:
     nh3.clean_text(text)
 
 
+def _sanitize_attributes(text: str) -> str:
+    return _ATTRIBUTE_CLEANER.clean(text)
+
+
+_ATTRIBUTE_CLEANER: Final = nh3.Cleaner(tags={"p"}, attributes={}, generic_attribute_prefixes={"data-"})
+
 OPERATIONS = {
     "sanitize": (sanitize, "nh3"),
     "escape": (escape, "nh3"),
+    "sanitize-attributes": (_sanitize_attributes, "nh3"),
 }

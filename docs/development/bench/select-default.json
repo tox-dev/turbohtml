@@ -1,0 +1,99 @@
+{
+  "label": "select default form controls",
+  "parties": [
+    "turbohtml",
+    "BeautifulSoup (html.parser)",
+    "BeautifulSoup (lxml)",
+    "soupsieve"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "1 forms, 4096 spans, 128 buttons, :default",
+      2.0103402055345516e-05,
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons"
+    ],
+    [
+      "1 forms, 512 spans, 64 buttons, :default",
+      2.401916927574632e-06,
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons"
+    ],
+    [
+      "1 forms, 8 spans, 4 buttons, :default",
+      1.3221638076969336e-07,
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons"
+    ],
+    [
+      "128 forms, 0 spans, 1 buttons, :default",
+      2.05030240222707e-06,
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons",
+      "SoupSieve requires explicit type=submit for default buttons"
+    ],
+    [
+      "1 forms, 4096 spans, 128 buttons, button",
+      1.5261182796007706e-06,
+      0.002953177731797041,
+      0.0029190769858663166,
+      0.002362451066498276
+    ],
+    [
+      "1 form, 4096 spans, 128 explicit submit buttons",
+      2.028047010564175e-05,
+      0.013879596376985623,
+      0.013895649734574059,
+      0.013097341121465433
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.01801487325684281,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      0.005759862263887469,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      0.009097903845630917,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      0.01016188335276638,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      0.018629330046011305,
+      0.0071221533776956395,
+      0.007189525635276154,
+      0.024947922055458194
+    ],
+    [
+      null,
+      0.01967096810184678,
+      0.008690219885874845,
+      0.02514394829426442,
+      0.00412187022234827
+    ]
+  ],
+  "notes": {}
+}

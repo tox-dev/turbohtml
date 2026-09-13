@@ -1,0 +1,1 @@
+Bound decimal expansion of exponent notation in :func:`~turbohtml.clean.minify_css`.

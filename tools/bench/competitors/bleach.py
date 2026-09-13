@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import bleach
 
 REQUIREMENTS = ("bleach>=6.4",)
@@ -17,4 +19,27 @@ def linkify(text: str) -> None:
     bleach.linkify(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "bleach"), "linkify": (linkify, "bleach")}
+def _sanitize_disallowed(case: tuple[str, str]) -> str:
+    mode, text = case
+    return _DISALLOWED_CLEANERS[mode].clean(text)
+
+
+def _sanitize_attributes(text: str) -> str:
+    return _ATTRIBUTE_CLEANER.clean(text)
+
+
+def _allow_data_attribute(_tag: str, name: str, _value: str) -> bool:
+    return name.startswith("data-")
+
+
+_DISALLOWED_CLEANERS: Final = {
+    mode: bleach.Cleaner(tags=frozenset(), strip=mode == "strip") for mode in ("escape", "strip")
+}
+_ATTRIBUTE_CLEANER: Final = bleach.Cleaner(tags={"p"}, attributes=_allow_data_attribute)
+
+OPERATIONS = {
+    "sanitize": (sanitize, "bleach"),
+    "sanitize-disallowed": (_sanitize_disallowed, "bleach"),
+    "linkify": (linkify, "bleach"),
+    "sanitize-attributes": (_sanitize_attributes, "bleach"),
+}

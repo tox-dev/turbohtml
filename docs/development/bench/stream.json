@@ -1,0 +1,115 @@
+{
+  "label": "push-parse a page in chunks",
+  "parties": [
+    "turbohtml",
+    "lxml"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "daring fireball (10 kB)",
+      3.481566199070585e-05,
+      "libxml2 produces a different tree for this HTML5 page"
+    ],
+    [
+      "ars technica (56 kB)",
+      0.00014673718921661324,
+      "libxml2 produces a different tree for this HTML5 page"
+    ],
+    [
+      "mozilla blog (95 kB)",
+      0.0003019413990538548,
+      "libxml2 produces a different tree for this HTML5 page"
+    ],
+    [
+      "whatwg spec (235 kB)",
+      0.0005119362659418888,
+      "libxml2 produces a different tree for this HTML5 page"
+    ],
+    [
+      "64 BMP paragraphs, early NUL",
+      0.000491436211935555,
+      0.0011069063580180227
+    ],
+    [
+      "one BMP paragraph, early NUL",
+      8.691091538300574e-06,
+      1.943506835999642e-05
+    ],
+    [
+      "64 BMP paragraphs, late NUL",
+      0.0004946259621950352,
+      0.0011088803168301335
+    ],
+    [
+      "64 BMP paragraphs, no NUL",
+      0.0004930973168484343,
+      0.0011291206859217102
+    ],
+    [
+      "64 ASCII paragraphs, early NUL",
+      0.00015107147551892316,
+      0.00013166988473282495
+    ],
+    [
+      "64 supplementary paragraphs, early NUL",
+      0.0006343395327045679,
+      0.001310752901493591
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.003826785253965017,
+      null
+    ],
+    [
+      null,
+      0.04025055961682032,
+      null
+    ],
+    [
+      null,
+      0.0028129779088584537,
+      null
+    ],
+    [
+      null,
+      0.015207566253975572,
+      null
+    ],
+    [
+      null,
+      0.0011784802143076278,
+      0.06643918525189381
+    ],
+    [
+      null,
+      0.0032164348571906815,
+      0.03352253185353262
+    ],
+    [
+      null,
+      0.001461308095082995,
+      0.029466904805814872
+    ],
+    [
+      null,
+      0.0014203077822318156,
+      0.0635577661753116
+    ],
+    [
+      null,
+      0.0076858233047420324,
+      0.04547615176729708
+    ],
+    [
+      null,
+      0.047560774931392394,
+      0.040085849116029054
+    ]
+  ],
+  "notes": {
+    "lxml": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match"
+  }
+}

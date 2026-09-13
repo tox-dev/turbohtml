@@ -35,6 +35,10 @@ static uint8_t ccc_of(Py_UCS4 cp) {
     if (cp < th_norm_ccc[0].code) {
         return 0;
     }
+    Py_UCS4 offset = cp - th_norm_ccc[0].code;
+    if (offset < sizeof(th_norm_ccc_dense)) {
+        return th_norm_ccc_dense[offset];
+    }
     int lo = 0;
     int hi = th_norm_ccc_count;
     while (lo < hi) {
@@ -85,6 +89,9 @@ static int decomposes(Py_UCS4 cp, int compat) {
 /* The tabled canonical composition of the pair (first, second), or 0 when the sorted table pairs them into nothing; 0
    is a safe "no composition" sentinel because U+0000 is never a composition target. */
 static Py_UCS4 table_compose(Py_UCS4 first, Py_UCS4 second) {
+    if (second < th_norm_comp_second_min) {
+        return 0;
+    }
     int lo = 0;
     int hi = th_norm_comp_count;
     while (lo < hi) {
@@ -158,20 +165,29 @@ static uint8_t quick_value(Py_UCS4 cp, int form) {
 /* Whether `input` is already in `form`: TH_QC_YES normalized, TH_QC_NO not, TH_QC_MAYBE undecided (a mark that may fold
    into a preceding starter, resolved by normalizing and comparing). Any combining mark out of canonical order settles
    it as not-normalized straight away. UAX #15 quick check. */
-static int quick_check(int kind, const void *data, Py_ssize_t len, int form) {
+static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_ssize_t *first_unsettled) {
     uint8_t last_class = 0;
     int result = TH_QC_YES;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 cp = PyUnicode_READ(kind, data, index);
         uint8_t klass = ccc_of(cp);
         if (klass != 0 && klass < last_class) {
+            if (result == TH_QC_YES) {
+                *first_unsettled = index;
+            }
             return TH_QC_NO;
         }
         uint8_t value = quick_value(cp, form);
         if (value == TH_QC_NO) {
+            if (result == TH_QC_YES) {
+                *first_unsettled = index;
+            }
             return TH_QC_NO;
         }
         if (value == TH_QC_MAYBE) {
+            if (result == TH_QC_YES) {
+                *first_unsettled = index;
+            }
             result = TH_QC_MAYBE;
         }
         last_class = klass;
@@ -293,40 +309,56 @@ static Py_ssize_t compose(Py_UCS4 *seq, Py_ssize_t len) {
     return out_len;
 }
 
-/* Build a str from the code points buf[0,len), binning the width by the widest code point seen. */
-static PyObject *build_result(const Py_UCS4 *buf, Py_ssize_t len) {
+/* Both spans determine the width: normalization can remove the input's widest character. */
+static PyObject *build_result(int input_kind, const void *input_data, Py_ssize_t prefix, const Py_UCS4 *buf,
+                              Py_ssize_t len) {
     Py_UCS4 maxchar = 0;
+    for (Py_ssize_t index = 0; index < prefix; index++) {
+        Py_UCS4 character = PyUnicode_READ(input_kind, input_data, index);
+        if (character > maxchar) {
+            maxchar = character;
+        }
+    }
     for (Py_ssize_t index = 0; index < len; index++) {
         if (buf[index] > maxchar) {
             maxchar = buf[index];
         }
     }
-    PyObject *result = PyUnicode_New(len, th_str_maxchar(maxchar));
+    PyObject *result = PyUnicode_New(prefix + len, th_str_maxchar(maxchar));
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int kind = PyUnicode_KIND(result);
     void *data = PyUnicode_DATA(result);
+    for (Py_ssize_t index = 0; index < prefix; index++) {
+        PyUnicode_WRITE(kind, data, index, PyUnicode_READ(input_kind, input_data, index));
+    }
     for (Py_ssize_t index = 0; index < len; index++) {
-        PyUnicode_WRITE(kind, data, index, buf[index]);
+        PyUnicode_WRITE(kind, data, prefix + index, buf[index]);
     }
     return result;
 }
 
-/* Normalize input[0,len) to `form`, returning a new str. Runs the full decompose -> reorder -> (compose) pipeline over
-   a scratch buffer bounded by len * TH_NORM_MAX_EXPANSION. */
-static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int form) {
+/* Keep the last settled starter with the suffix so marks and Hangul can compose across the first change. */
+static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int form, Py_ssize_t first_unsettled) {
+    Py_ssize_t prefix = first_unsettled;
+    while (prefix > 0) {
+        prefix--;
+        if (ccc_of(PyUnicode_READ(kind, data, prefix)) == 0) {
+            break;
+        }
+    }
     int compat = form == TH_NFKC || form == TH_NFKD;
     /* len is a code-point count from a live str, far under the overflow bound; keep the guard on one line for the gate
      */
     if (len > PY_SSIZE_T_MAX / (Py_ssize_t)(TH_NORM_MAX_EXPANSION * sizeof(Py_UCS4))) { /* GCOVR_EXCL_BR_LINE */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: a str this long cannot be allocated to reach here */
     }
-    Py_UCS4 *buf = PyMem_Malloc((size_t)len * TH_NORM_MAX_EXPANSION * sizeof(Py_UCS4));
+    Py_UCS4 *buf = PyMem_Malloc((size_t)(len - prefix) * TH_NORM_MAX_EXPANSION * sizeof(Py_UCS4));
     if (buf == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t count = decompose(kind, data, len, buf, compat);
+    Py_ssize_t count = decompose(kind, (const char *)data + prefix * kind, len - prefix, buf, compat);
     if (reorder(buf, count) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         PyMem_Free(buf);           /* GCOVR_EXCL_LINE: allocation failure */
         return PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation failure */
@@ -334,7 +366,7 @@ static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int 
     if (form == TH_NFC || form == TH_NFKC) {
         count = compose(buf, count);
     }
-    PyObject *result = build_result(buf, count);
+    PyObject *result = build_result(kind, data, prefix, buf, count);
     PyMem_Free(buf);
     return result;
 }
@@ -353,10 +385,11 @@ PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(text);
     int kind = PyUnicode_KIND(text);
     const void *data = PyUnicode_DATA(text);
-    if (quick_check(kind, data, len, form) == TH_QC_YES) {
+    Py_ssize_t first_unsettled;
+    if (quick_check(kind, data, len, form, &first_unsettled) == TH_QC_YES) {
         return Py_NewRef(text);
     }
-    return normalize_full(kind, data, len, form);
+    return normalize_full(kind, data, len, form, first_unsettled);
 }
 
 /* _is_normalized(form, text): True when text is already in form. A quick-check Maybe is settled by normalizing and
@@ -373,14 +406,15 @@ PyObject *turbohtml_is_normalized(PyObject *Py_UNUSED(module), PyObject *args) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(text);
     int kind = PyUnicode_KIND(text);
     const void *data = PyUnicode_DATA(text);
-    int quick = quick_check(kind, data, len, form);
+    Py_ssize_t first_unsettled;
+    int quick = quick_check(kind, data, len, form, &first_unsettled);
     if (quick == TH_QC_YES) {
         Py_RETURN_TRUE;
     }
     if (quick == TH_QC_NO) {
         Py_RETURN_FALSE;
     }
-    PyObject *normalized = normalize_full(kind, data, len, form);
+    PyObject *normalized = normalize_full(kind, data, len, form, first_unsettled);
     if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }

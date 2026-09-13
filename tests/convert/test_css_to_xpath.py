@@ -41,6 +41,12 @@ if TYPE_CHECKING:
         pytest.param("[data-x='a']", "descendant-or-self::*[@data-x = 'a']", id="attr-eq"),
         pytest.param('[data-x="it\'s"]', 'descendant-or-self::*[@data-x = "it\'s"]', id="literal-squote"),
         pytest.param("[data-x='say \"hi\"']", "descendant-or-self::*[@data-x = 'say \"hi\"']", id="literal-dquote"),
+        pytest.param(
+            r'[data-x="it\27 s\22 x"]',
+            "descendant-or-self::*[@data-x = concat('it',\"'\",'s\"x')]",
+            id="literal-mixed-quotes",
+        ),
+        pytest.param('[data-x=""]', "descendant-or-self::*[@data-x = '']", id="literal-empty"),
         pytest.param("div, p", "descendant-or-self::div | descendant-or-self::p", id="group-union"),
         pytest.param(":scope > div", "descendant-or-self::*[1]/div", id="scope-leading"),
         pytest.param("li:nth-child(n)", "descendant-or-self::li", id="nth-trivial"),

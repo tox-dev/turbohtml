@@ -1,0 +1,65 @@
+{
+  "label": "copy XSLT namespace declarations",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "deep repeated leaf (32 ancestors, 512 rows)",
+      0.0005409599606688668,
+      0.0011576126568494753
+    ],
+    [
+      "deep alternating leaves (32 ancestors, 512 rows)",
+      0.0013307433279502827,
+      0.0015877007930005977
+    ],
+    [
+      "shallow repeated leaf (1 ancestors, 512 rows)",
+      3.849517144279465e-05,
+      7.491626314504174e-05
+    ],
+    [
+      "single leaf (1 ancestors, 1 rows)",
+      6.684087777338495e-07,
+      4.934717179475949e-06
+    ],
+    [
+      "namespace-free repeated leaf (32 ancestors, 512 rows)",
+      0.00026438290073353227,
+      0.0006859570041039357
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.017556962510781975,
+      0.06893642183853893
+    ],
+    [
+      null,
+      0.009851587520450346,
+      0.017293581967762425
+    ],
+    [
+      null,
+      0.01333042123856617,
+      0.01258499941359848
+    ],
+    [
+      null,
+      0.021719025331626857,
+      0.026587376450318195
+    ],
+    [
+      null,
+      0.01875143199522395,
+      0.024037548700204248
+    ]
+  ],
+  "notes": {
+    "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing"
+  }
+}

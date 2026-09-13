@@ -30,6 +30,18 @@ def parse(text: str) -> None:
     lxml_html.document_fromstring(text)
 
 
+def _parse_encoded(case: tuple[str, bytes]) -> None:
+    lxml_html.document_fromstring(case[1], parser=lxml_html.HTMLParser(encoding=case[0]))
+
+
+def stream(text: str) -> None:
+    """Include parser setup and closing in the 4,096-character feed workload."""
+    parser: Final = lxml_etree.HTMLParser()
+    for start in range(0, len(text), 4096):
+        parser.feed(text[start : start + 4096])
+    parser.close()
+
+
 def fragment(text: str) -> None:
     """Parse a fragment with lxml.html's fromstring."""
     lxml_html.fromstring(text)
@@ -128,6 +140,10 @@ def select(text: str) -> None:
 def select_has(text: str) -> None:
     """Run the :has() relational selector with lxml's cssselect."""
     _parsed(text).cssselect("div:has(a)")
+
+
+def _select_relative(case: tuple[str, str]) -> None:
+    _parsed(case[1]).cssselect(case[0])
 
 
 def text_content(text: str) -> None:
@@ -248,6 +264,14 @@ def links_filter(text: str) -> None:
 def find_text(text: str) -> None:
     """Collect every element whose collected text contains the marker with lxml's XPath contains()."""
     _parsed(text).xpath('//*[contains(., "test")]')
+
+
+def _find_text_exact(case: tuple[str, str]) -> None:
+    _parsed(case[0]).xpath("//div[string(.) = $expected]", expected=case[1])
+
+
+def _find_attr_presence(case: tuple[str, bool]) -> None:
+    _parsed(case[0]).xpath("//p[@data-x]" if case[1] else "//p[not(@data-x)]")
 
 
 def socialcard(text: str) -> None:
@@ -378,6 +402,11 @@ def transform(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
     return compiled(document)
 
 
+def _transform_compile_run(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
+    sheet, source = case
+    return lxml_etree.XSLT(_xslt_sheet(sheet))(_xslt_sheet(source))
+
+
 def transform_reuse(case: tuple[str, str]) -> None:
     """Match turbohtml's ten-application reuse workload."""
     sheet, source = case
@@ -470,6 +499,8 @@ OPERATIONS = {
     "encode-inner-indent": (_encode_inner_indent, "lxml"),
     "strip-comments": (Mutating(lxml_html.document_fromstring, _strip_comments), "lxml"),
     "parse": (parse, "lxml"),
+    "parse-encoded": (_parse_encoded, "lxml"),
+    "stream": (stream, "lxml"),
     "parse-formatting": (parse, "lxml"),
     "parse-foster": (parse, "lxml"),
     "parse-crlf": (parse, "lxml"),
@@ -500,6 +531,8 @@ OPERATIONS = {
     "emit": (emit, "lxml"),
     "find": (find, "lxml"),
     "select": (select, "lxml"),
+    "select-nth": (_select_relative, "lxml"),
+    "select-relative": (_select_relative, "lxml"),
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),
     "serialize": (serialize, "lxml"),
@@ -522,6 +555,8 @@ OPERATIONS = {
     "links-rewrite": (links_rewrite, "lxml"),
     "links-filter": (links_filter, "lxml"),
     "find-text": (find_text, "lxml"),
+    "find-text-exact": (_find_text_exact, "lxml"),
+    "find-attr-presence": (_find_attr_presence, "lxml"),
     "socialcard": (socialcard, "lxml"),
     "extract-url": (extract_url, "lxml"),
     "path": (getpath, "lxml getpath"),
@@ -536,10 +571,18 @@ OPERATIONS = {
     "xpath-id-nodes": (_xpath_scaling, "lxml"),
     "transform": (transform, "lxml.etree"),
     "transform-number": (transform, "lxml.etree"),
+    "transform-sort": (transform, "lxml.etree"),
+    "transform-key": (transform, "lxml.etree"),
+    "transform-scope": (transform, "lxml.etree"),
+    "transform-namespaces": (transform, "lxml.etree"),
+    "transform-namespaces-once": (_transform_compile_run, "lxml.etree"),
     "transform-rules": (transform, "lxml.etree"),
     "transform-names": (transform, "lxml.etree"),
     "transform-dense": (transform, "lxml.etree"),
     "transform-compile": (transform_compile, "lxml.etree"),
     "transform-names-compile": (transform_compile, "lxml.etree"),
     "transform-reuse": (transform_reuse, "lxml.etree"),
+    "is-valid": (validate, "lxml.etree.XMLSchema"),
+    "is-valid-rng": (_validate_rng, "lxml.etree.RelaxNG"),
+    "transform-text": (transform, "lxml.etree"),
 }

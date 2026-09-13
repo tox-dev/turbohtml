@@ -1,0 +1,1 @@
+Reuse each form's first submit control when matching ``:default`` in :meth:`~turbohtml.Node.select`.

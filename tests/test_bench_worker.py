@@ -57,6 +57,20 @@ def test_worker_startup_uses_elapsed_time() -> None:
     assert ("startup" in core.OPERATIONS, "startup" in {name for name, _, _ in benchmarks()}) == (True, False)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("select-relative", id="relative-selector"),
+        pytest.param("find-text-exact", id="exact-text"),
+        pytest.param("find-attr-presence", id="attribute-presence"),
+    ],
+)
+def test_worker_explicit_case_registered_once(name: str) -> None:
+    assert [(run, load()) for identity, run, load in benchmarks() if identity == name] == [
+        (core.OPERATIONS[name][0], INPUTS[name]()[0][1]),
+    ]
+
+
 @pytest.mark.parametrize("mutating", [False, True], ids=["plain", "mutating"])
 @pytest.mark.parametrize("error_index", [0, 1], ids=["error-first", "error-middle"])
 def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mutating: bool) -> None:

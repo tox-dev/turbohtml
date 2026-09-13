@@ -8,8 +8,8 @@
   "rows": [
     [
       "sanitize (template-safe) — templated 4 KiB",
-      4.7955785909437054e-05,
-      0.42815119431664544
+      3.163507840990102e-05,
+      0.2888042014092207
     ],
     [
       "sanitize (named-prop isolation) — clobbering 4 KiB",
@@ -20,13 +20,48 @@
       "sanitize (custom elements) — custom 4 KiB",
       5.227134696876116e-05,
       0.4051728299818933
+    ],
+    [
+      "sanitize (template-safe) — plain 64 KiB text",
+      7.719591779202044e-05,
+      0.26205623264346894
+    ],
+    [
+      "sanitize (template-safe) — plain 64 KiB attribute",
+      0.00016243971087230116,
+      0.24195330908211568
+    ],
+    [
+      "sanitize (template-safe) — late template in 64 KiB text",
+      8.382760108816001e-05,
+      0.2499945103772916
+    ],
+    [
+      "sanitize attribute allowlists — 1024 rejected attributes",
+      6.839952595782961e-05,
+      0.24678297228335092
+    ],
+    [
+      "sanitize attribute allowlists — 1024 allowed attributes",
+      0.00011972109983086436,
+      0.2483603679963077
+    ],
+    [
+      "sanitize attribute allowlists — four allowed attributes",
+      1.2557918759685076e-06,
+      0.23604699664671594
+    ],
+    [
+      "sanitize attribute allowlists — 256 elements with four allowed attributes",
+      8.751180180865958e-05,
+      0.25713804143015295
     ]
   ],
   "spread": [
     [
       null,
-      0.08788182323758242,
-      0.1048101982200848
+      0.0192845960462544,
+      0.23382987812584138
     ],
     [
       null,
@@ -37,7 +72,47 @@
       null,
       0.0396668302574802,
       0.06365377101405542
+    ],
+    [
+      null,
+      0.012597835354968152,
+      0.0633527667614407
+    ],
+    [
+      null,
+      0.01618634093116919,
+      0.02530458210820494
+    ],
+    [
+      null,
+      0.012628720661379213,
+      0.006256659921553562
+    ],
+    [
+      null,
+      0.009813155084762411,
+      0.006753935876620346
+    ],
+    [
+      null,
+      0.022621336059425786,
+      0.021856438050513217
+    ],
+    [
+      null,
+      0.013133805043872586,
+      0.037501530499620704
+    ],
+    [
+      null,
+      0.01913532033632034,
+      0.05942314007188881
     ]
   ],
-  "row_notes": {}
+  "row_notes": {
+    "6": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "7": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "8": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
+    "9": "includes Node startup and pipe I/O; not in-process JavaScript engine timing"
+  }
 }

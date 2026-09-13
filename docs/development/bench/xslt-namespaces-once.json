@@ -1,0 +1,25 @@
+{
+  "label": "compile and apply a namespaced XSLT stylesheet",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "single leaf (1 ancestors, 1 rows)",
+      1.9006785280476872e-06,
+      9.069477295990206e-06
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.02320679064586275,
+      0.022347881302062358
+    ]
+  ],
+  "notes": {
+    "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing"
+  }
+}

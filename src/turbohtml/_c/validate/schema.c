@@ -315,11 +315,17 @@ typedef struct {
     struct th_schema *schema;
     pathbuf path;
     int failed;
+    int collect_errors;
+    Py_ssize_t error_count;
 } valctx;
 
 static void report(valctx *ctx, th_node *node, const char *type, const char *fmt, ...) {
     if (ctx->failed) { /* GCOVR_EXCL_BR_LINE: failed is set only by an unforceable allocation failure */
         return;        /* GCOVR_EXCL_LINE */
+    }
+    ctx->error_count++;
+    if (!ctx->collect_errors) {
+        return;
     }
     va_list args;
     va_start(args, fmt);
@@ -844,10 +850,13 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     return capsule;
 }
 
-PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args) {
+PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args, PyObject *kwargs) {
     PyObject *capsule, *node_obj;
-    if (!PyArg_ParseTuple(args, "OO", &capsule, &node_obj)) { /* GCOVR_EXCL_BR_LINE: the shim always passes two args */
-        return NULL;                                          /* GCOVR_EXCL_LINE */
+    int collect_errors = 1;
+    static char *keywords[] = {"schema", "node", "collect_errors", NULL};
+    if (!PyArg_ParseTupleAndKeywords(/* GCOVR_EXCL_BR_LINE: the shim supplies fixed argument types */
+                                     args, kwargs, "OO|$p", keywords, &capsule, &node_obj, &collect_errors)) {
+        return NULL; /* GCOVR_EXCL_LINE */
     }
     th_schema *schema = PyCapsule_GetPointer(capsule, CAPSULE_NAME);
     if (schema == NULL) { /* GCOVR_EXCL_BR_LINE: the shim always passes the capsule it compiled */
@@ -874,7 +883,7 @@ PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args) {
         }
         memcpy(local.defines.items, schema->defines.items, bytes);
     }
-    valctx ctx = {errors, tree, &local, {NULL, 0, 0}, 0};
+    valctx ctx = {errors, tree, &local, {NULL, 0, 0}, 0, collect_errors, 0};
     th_node *root = node->type == TH_NODE_DOCUMENT ? document_root(tree) : node;
     Py_BEGIN_CRITICAL_SECTION(turbohtml_node_handle(node_obj));
     if (root == NULL) { /* GCOVR_EXCL_BR_LINE: parse_xml rejects a rootless document, so the shim never passes one */
@@ -893,6 +902,6 @@ PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args) {
         Py_DECREF(errors);
         return NULL;
     }
-    int valid = PyList_GET_SIZE(errors) == 0;
+    int valid = ctx.error_count == 0;
     return Py_BuildValue("(ON)", valid ? Py_True : Py_False, errors);
 }

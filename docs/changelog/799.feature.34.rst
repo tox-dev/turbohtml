@@ -1,0 +1,1 @@
+Avoid rescanning ASCII hosts in :func:`~turbohtml.extract.normalize_url`.

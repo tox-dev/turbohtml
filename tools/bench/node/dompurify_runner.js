@@ -6,6 +6,7 @@
 const DOMPurify = require("isomorphic-dompurify");
 
 const CONFIGS = {
+  attributes: { ALLOWED_TAGS: ["p"], ALLOWED_ATTR: [], ALLOW_DATA_ATTR: true, ALLOW_ARIA_ATTR: false },
   templates: { SAFE_FOR_TEMPLATES: true },
   "named-props": { SANITIZE_NAMED_PROPS: true },
   "custom-elements": {

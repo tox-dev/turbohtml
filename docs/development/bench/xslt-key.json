@@ -1,0 +1,65 @@
+{
+  "label": "build XSLT key indexes",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "shared scalar key (8,192 nodes)",
+      0.00017879907543753384,
+      0.009131888669799082
+    ],
+    [
+      "shared attribute key (8,192 nodes)",
+      0.000268063470002744,
+      0.009625804904014027
+    ],
+    [
+      "repeated node-set keys (2,048 nodes)",
+      0.00030902206068124843,
+      0.0023872586270954343
+    ],
+    [
+      "unique keys (8,192 nodes)",
+      0.0006015569523090866,
+      0.001699334200869392
+    ],
+    [
+      "small shared key (4 nodes)",
+      6.966296564788385e-07,
+      5.4449573081427616e-06
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.012823085663552,
+      0.003744709421838981
+    ],
+    [
+      null,
+      0.008374968921608508,
+      0.003910014140171347
+    ],
+    [
+      null,
+      0.014669878484269204,
+      0.04058874118857978
+    ],
+    [
+      null,
+      0.030505383633210238,
+      0.012038831003928989
+    ],
+    [
+      null,
+      0.04339527812282516,
+      0.02365822284163848
+    ]
+  ],
+  "notes": {
+    "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing"
+  }
+}

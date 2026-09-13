@@ -1,0 +1,84 @@
+{
+  "label": "check HTML5 authoring conformance",
+  "parties": [
+    "turbohtml"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "daring fireball (10 kB)",
+      2.305379336024297e-06
+    ],
+    [
+      "ars technica (56 kB)",
+      9.456737939691115e-06
+    ],
+    [
+      "mozilla blog (95 kB)",
+      1.4397685165571753e-05
+    ],
+    [
+      "whatwg spec (235 kB)",
+      1.7587650695816137e-05
+    ],
+    [
+      "8 heading-free nested sections",
+      1.7081911281024986e-06
+    ],
+    [
+      "64 heading-free nested sections",
+      1.1571944339057913e-05
+    ],
+    [
+      "512 heading-free nested sections",
+      9.886091780231254e-05
+    ],
+    [
+      "512 heading-free sibling sections",
+      9.858452693833897e-05
+    ],
+    [
+      "512 nested sections with heading",
+      0.00012525467574657037
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.014955127601072676
+    ],
+    [
+      null,
+      0.016945603174427917
+    ],
+    [
+      null,
+      0.027917301540482314
+    ],
+    [
+      null,
+      0.009882541306903575
+    ],
+    [
+      null,
+      0.030877316585989113
+    ],
+    [
+      null,
+      0.005877004513993004
+    ],
+    [
+      null,
+      0.01824876186859647
+    ],
+    [
+      null,
+      0.01425561663412584
+    ],
+    [
+      null,
+      0.005286103425794886
+    ]
+  ],
+  "notes": {}
+}

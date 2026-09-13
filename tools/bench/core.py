@@ -59,6 +59,10 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 _SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
+_DISALLOWED_SANITIZERS: Final[dict[str, _clean.Sanitizer]] = {
+    mode.name.lower(): _clean.Sanitizer(_clean.Policy(tags=frozenset(), on_disallowed_tag=mode))
+    for mode in (_clean.OnDisallowed.ESCAPE, _clean.OnDisallowed.STRIP)
+}
 _SANITIZER_ATTRIBUTES: Final = _clean.Sanitizer(
     _clean.Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
 )
@@ -125,7 +129,7 @@ _PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
     "regions-8": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
 }
 _PHONE_STYLES: Final[dict[str, _clean.PhoneFormat]] = {style.value: style for style in _clean.PhoneFormat}
-_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # the format op times formatting, not the parse
+_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # exclude parsing from formatting and construction
 _LINKER: Final[_clean.Linker] = _clean.Linker()
 _LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
 _LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(
@@ -224,6 +228,10 @@ def parse(text: str) -> None:
     turbohtml.parse(text)
 
 
+def _parse_encoded(case: tuple[str, bytes]) -> None:
+    turbohtml.parse(case[1], encoding=case[0])
+
+
 def parse_xml(text: str) -> None:
     """Parse a whole XML document into a navigable tree through turbohtml.parse_xml()."""
     turbohtml.parse_xml(text)
@@ -241,6 +249,13 @@ def validate(case: tuple[str, str]) -> None:
     validator.validate(turbohtml.parse_xml(document))
 
 
+def _is_valid(case: tuple[str, str]) -> None:
+    schema, document = case
+    if (validator := _VALIDATORS.get(schema)) is None:
+        validator = _VALIDATORS[schema] = _XMLSchema(schema)
+    validator.is_valid(turbohtml.parse_xml(document))
+
+
 _RNG_VALIDATORS: dict[str, _RelaxNG] = {}
 
 
@@ -251,6 +266,13 @@ def validate_rng(case: tuple[str, str]) -> None:
     if validator is None:
         validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
     validator.validate(turbohtml.parse_xml(document))
+
+
+def _is_valid_rng(case: tuple[str, str]) -> None:
+    schema, document = case
+    if (validator := _RNG_VALIDATORS.get(schema)) is None:
+        validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
+    validator.is_valid(turbohtml.parse_xml(document))
 
 
 def compile_rng(schema: str) -> None:
@@ -415,6 +437,16 @@ def find_text(text: str) -> None:
     _parsed(text).find_all(text=_FIND_TEXT_PATTERN)
 
 
+def find_text_exact(case: tuple[str, str]) -> None:
+    """Reuse the parsed tree to isolate exact descendant-text matching."""
+    _parsed(case[0]).find_all("div", text=case[1])
+
+
+def find_attr_presence(case: tuple[str, bool]) -> None:
+    """Reuse the parsed tree to isolate presence checks from parsing attribute values."""
+    _parsed(case[0]).find_all("p", attrs={"data-x": case[1]})
+
+
 def find_text_overlap(text: str) -> None:
     """Exercise the overlap that makes a naive literal substring scan quadratic."""
     _parsed(text).find(text=_FIND_TEXT_OVERLAP_PATTERN)
@@ -428,6 +460,14 @@ def text_content(text: str) -> None:
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with turbohtml's html property."""
     _ = _parsed(text).html
+
+
+def _serialize_named(text: str) -> str:
+    return _parsed(text).serialize(turbohtml.Html(formatter=turbohtml.Formatter.NAMED_ENTITIES))
+
+
+def _serialize_attributes(case: tuple[str, bool]) -> str:
+    return _parsed(case[0]).serialize(turbohtml.Html(sort_attributes=case[1]))
 
 
 def _parse_inner(text: str) -> str:
@@ -641,6 +681,11 @@ def sanitize(text: str) -> None:
     _SANITIZER.sanitize(text)
 
 
+def _sanitize_disallowed(case: tuple[str, str]) -> str:
+    mode, text = case
+    return _DISALLOWED_SANITIZERS[mode].sanitize(text)
+
+
 def sanitize_attributes(text: str) -> None:
     """Reuse the policy to isolate attribute handling from sanitizer construction."""
     _SANITIZER_ATTRIBUTES.sanitize(text)
@@ -760,6 +805,14 @@ def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
         _clean.PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
 
 
+def phone_construct(held: tuple[tuple[str, str], ...]) -> None:
+    """Construct validated numbers from held public fields, excluding parsing."""
+    for region, text in held:
+        if (number := _PHONE_PARSED.get((region, text))) is None:
+            number = _PHONE_PARSED[region, text] = _clean.PhoneNumber.parse(text, regions=(region,))
+        _clean.PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
+
+
 def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     """Write each number in the case's layout with turbohtml's PhoneNumber.format."""
     style, held = case
@@ -844,6 +897,16 @@ def text_main(text: str) -> None:
 def text_annotated(text: str) -> None:
     """Render annotated layout text with turbohtml, recording spans for matching elements in C."""
     _whole(text).to_annotated_text(_ANNOTATION_RULES)
+
+
+def _text_annotation_rules(case: tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]) -> None:
+    text, rules = case
+    _whole(text).to_annotated_text(_annotation_rule_map(rules))
+
+
+@functools.cache
+def _annotation_rule_map(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, tuple[str, ...]]:
+    return dict(rules)
 
 
 def extract_attr(text: str) -> None:
@@ -1045,6 +1108,11 @@ def transform(case: tuple[str, str]) -> str:
     return compiled(document)
 
 
+def _transform_compile_run(case: tuple[str, str]) -> str:
+    sheet, source = case
+    return _Transform(_xslt_sheet(sheet))(_xslt_sheet(source))
+
+
 def transform_reuse(case: tuple[str, str]) -> None:
     """Apply one compiled stylesheet ten times."""
     sheet, source = case
@@ -1127,6 +1195,14 @@ def stream(text: str) -> None:
     for start in range(0, len(text), 4096):
         parser.feed(text[start : start + 4096])
     parser.close()
+
+
+def _encoding_chunks(case: tuple[int, bytes]) -> None:
+    chunk_size, data = case
+    detector: Final = _EncodingDetector()
+    for start in range(0, len(data), chunk_size):
+        detector.feed(data[start : start + chunk_size])
+    detector.close()
 
 
 def _encoding_stream(data: bytes) -> None:
@@ -1479,6 +1555,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "shadow-slot": (_shadow_slot, "turbohtml"),
     "startup": (startup, "turbohtml"),
     "parse": (parse, "turbohtml"),
+    "parse-encoded": (_parse_encoded, "turbohtml"),
     "parse-formatting": (parse, "turbohtml"),
     "parse-foster": (parse, "turbohtml"),
     "parse-crlf": (parse, "turbohtml"),
@@ -1522,6 +1599,8 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "select": (select, "turbohtml"),
     "select-has": (select_has, "turbohtml"),
     "select-nth": (_select_scaling, "turbohtml"),
+    "select-default": (_select_scaling, "turbohtml"),
+    "select-relative": (_select_scaling, "turbohtml"),
     "xpath-wide": (_xpath_scaling, "turbohtml"),
     "xpath-distinct": (_xpath_scaling, "turbohtml"),
     "xpath-set": (_xpath_scaling, "turbohtml"),
@@ -1542,6 +1621,8 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "computed-style-dense": (computed_style, "turbohtml"),
     "match": (match, "turbohtml"),
     "find-text": (find_text, "turbohtml"),
+    "find-text-exact": (find_text_exact, "turbohtml"),
+    "find-attr-presence": (find_attr_presence, "turbohtml"),
     "find-text-overlap": (find_text_overlap, "turbohtml"),
     "text-content": (text_content, "turbohtml"),
     "serialize": (serialize, "turbohtml"),
@@ -1590,6 +1671,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "microdata-itemref": (microdata, "turbohtml"),
     "syndication": (syndication, "turbohtml"),
     "sanitize": (sanitize, "turbohtml"),
+    "sanitize-disallowed": (_sanitize_disallowed, "turbohtml"),
     "sanitize-templates": (sanitize_templates, "turbohtml"),
     "sanitize-named-props": (sanitize_named_props, "turbohtml"),
     "sanitize-report": (sanitize_report, "turbohtml"),
@@ -1608,6 +1690,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "phone": (phone, "turbohtml"),
     "phone-parse": (phone_parse, "turbohtml"),
     "phone-format": (phone_format, "turbohtml"),
+    "phone-construct": (phone_construct, "turbohtml"),
     "normalize": (normalize, "turbohtml"),
     "normalize-dom": (Mutating(_normalization_tree, turbohtml.Element.normalize), "turbohtml"),
     "attribute-grow": (Mutating(_attribute_tree, _set_attributes), "turbohtml"),
@@ -1630,6 +1713,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "text-collapsed": (text_collapsed, "turbohtml"),
     "text-main": (text_main, "turbohtml"),
     "text-annotated": (text_annotated, "turbohtml"),
+    "text-annotation-rules": (_text_annotation_rules, "turbohtml"),
     "extract-attr": (extract_attr, "turbohtml"),
     "extract-text": (extract_text, "turbohtml"),
     "extract-url": (extract_url, "turbohtml"),
@@ -1658,6 +1742,10 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "transform-names-compile": (transform_compile, "turbohtml"),
     "transform-reuse": (transform_reuse, "turbohtml"),
     "transform-sort": (transform, "turbohtml"),
+    "transform-key": (transform, "turbohtml"),
+    "transform-scope": (transform, "turbohtml"),
+    "transform-namespaces": (transform, "turbohtml"),
+    "transform-namespaces-once": (_transform_compile_run, "turbohtml"),
     "transform-dense": (transform, "turbohtml"),
     "transform-number": (transform, "turbohtml"),
     "transform-rules": (transform, "turbohtml"),
@@ -1666,6 +1754,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "minify-css-conflicts": (minify_css, "turbohtml"),
     "minify-css-merges": (minify_css, "turbohtml"),
     "minify-js": (minify_js, "turbohtml"),
+    "minify-js-names": (minify_js, "turbohtml"),
     "minify-js-integers": (minify_js, "turbohtml"),
     "minify-js-sequences": (minify_js, "turbohtml"),
     "minify-js-guards": (minify_js, "turbohtml"),
@@ -1677,6 +1766,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "stream": (stream, "turbohtml"),
     "encoding-result": (encoding, "turbohtml"),
     "encoding-result-stream": (_encoding_stream, "turbohtml"),
+    "encoding-chunks": (_encoding_chunks, "turbohtml"),
     "encoding": (encoding, "turbohtml"),
     "decode": (decode, "turbohtml"),
     "detect-language": (detect_language, "turbohtml"),
@@ -1684,4 +1774,9 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "urls-clean": (urls_clean, "turbohtml"),
     "links-filter": (links_filter, "turbohtml"),
     "links-external": (links_external, "turbohtml"),
+    "serialize-attributes": (_serialize_attributes, "turbohtml"),
+    "is-valid": (_is_valid, "turbohtml"),
+    "is-valid-rng": (_is_valid_rng, "turbohtml"),
+    "serialize-named": (_serialize_named, "turbohtml"),
+    "transform-text": (transform, "turbohtml"),
 }

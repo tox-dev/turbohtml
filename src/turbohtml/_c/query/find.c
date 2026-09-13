@@ -3,11 +3,8 @@
 
 #include "dom/nodes.h"
 
-/* How the text= predicate is evaluated. A plain str matches the whole collected
-   text exactly and a literal (metacharacter-free, case-sensitive) regex matches a
-   substring of it, both decided in C against the gathered code points with no str
-   built and no Python call per element. Every other predicate (a non-literal regex,
-   a callable, a list) keeps the Python path that snapshots candidates under the lock. */
+/* Plain strings and literal regexes need no Python callback. Other predicates
+   snapshot candidates under the lock because callbacks can mutate the tree. */
 enum th_text_scan { TH_TEXT_PY = 0, TH_TEXT_EQ, TH_TEXT_SUBSTR };
 
 /* A compiled find()/find_all() query: the tag and class_ filters, the resolved
@@ -262,6 +259,13 @@ static int node_matches(module_state *state, th_node *node, const query_t *query
             int equal = attr != NULL && attr->value != NULL &&
                         ucs4_equals_pystr(attr->value, attr->value_len, query->filters[index]);
             if (!equal) {
+                return 0;
+            }
+            continue;
+        }
+        if (PyBool_Check(query->filters[index])) {
+            int present = find_node_attr(node, query->atoms[index]) != NULL;
+            if (present != (query->filters[index] == Py_True)) {
                 return 0;
             }
             continue;
@@ -740,21 +744,33 @@ static int scratch_ensure(Py_UCS4 **scratch, Py_ssize_t *cap, Py_ssize_t need) {
     return 0;
 }
 
-/* Test one candidate's collected text against the C-scan predicate without building
-   a str: an exact length+content match for TH_TEXT_EQ, a substring search for
-   TH_TEXT_SUBSTR. Returns 1/0, or -1 on a (test-unreachable) allocation failure. */
 static int text_scan_matches(th_tree *tree, th_node *node, const query_t *query, Py_UCS4 **scratch, Py_ssize_t *cap) {
-    Py_ssize_t text_len = subtree_text_len(node);
-    if (query->text_scan == TH_TEXT_EQ && text_len != query->text_needle_len) {
-        return 0;
+    if (query->text_scan == TH_TEXT_EQ) {
+        Py_ssize_t offset = 0;
+        for (th_node *descendant = node->first_child; descendant != NULL;
+             descendant = preorder_next(descendant, node)) {
+            if (descendant->type != TH_NODE_TEXT || descendant->text_len == 0) {
+                continue;
+            }
+            if (descendant->text_len > query->text_needle_len - offset) {
+                return 0;
+            }
+            const Py_UCS4 *text = th_node_realize_text(tree, descendant);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+                return -1;      /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (memcmp(text, query->text_needle + offset, (size_t)descendant->text_len * sizeof(Py_UCS4)) != 0) {
+                return 0;
+            }
+            offset += descendant->text_len;
+        }
+        return offset == query->text_needle_len;
     }
+    Py_ssize_t text_len = subtree_text_len(node);
     if (scratch_ensure(scratch, cap, text_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_node_collect_text(tree, node, *scratch);
-    if (query->text_scan == TH_TEXT_EQ) {
-        return text_len == 0 || memcmp(*scratch, query->text_needle, (size_t)text_len * sizeof(Py_UCS4)) == 0;
-    }
     return ucs4_contains(*scratch, text_len, query->text_needle, query->text_needle_len);
 }
 

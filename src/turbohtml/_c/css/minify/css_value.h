@@ -1,6 +1,8 @@
 #ifndef TURBOHTML_CSS_VALUE_H
 #define TURBOHTML_CSS_VALUE_H
 
+#include <limits.h>
+
 /* A rendered value component refers to its already-minified text by (offset, length) into a per-call code-point pool,
    so the pool can grow without invalidating earlier components. isfunc is 0, 1 (function/url, no following space) or
    2 (a comma/slash separator); kind drives the per-property handlers and the spacing rules. */
@@ -107,6 +109,19 @@ static void pool_put_int(css_buf *pool, int value) {
     }
 }
 
+static int css_parse_exponent(const css_char *text, Py_ssize_t len, long long *out) {
+    int negative = text[0] == '-';
+    Py_ssize_t index = text[0] == '+' || negative ? 1 : 0;
+    long long exponent = 0;
+    for (; index < len; index++) {
+        if (css_mul_overflow(exponent, 10, &exponent) || css_add_overflow(exponent, text[index] - '0', &exponent)) {
+            return 0;
+        }
+    }
+    *out = negative ? -exponent : exponent;
+    return 1;
+}
+
 /* Shorten a numeric run into the pool (CSS Syntax 3 §4.3.3, Values 4 §6.1): drop a leading +, drop redundant zeros,
    and use e-notation when shorter (only when scientific, i.e. for dimensions/percentages). Returns (offset, length). */
 static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t numlen, int scientific,
@@ -116,24 +131,9 @@ static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t num
     int negative = num[0] == '-';
     Py_ssize_t cursor = (num[0] == '+' || num[0] == '-') ? 1 : 0;
     Py_ssize_t mant_end = numlen;
-    int exponent = 0;
-    /* the tokenizer only folds an e/E into a number token when valid exponent digits follow (css_scan_number), so the
-       exponent here is always well-formed -- no malformed-exponent fallback is needed */
     for (Py_ssize_t index = cursor; index < numlen; index++) {
         if (num[index] == 'e' || num[index] == 'E') {
             mant_end = index;
-            Py_ssize_t exp_pos = index + 1;
-            int exp_neg = 0;
-            if (num[exp_pos] == '+' || num[exp_pos] == '-') {
-                exp_neg = num[exp_pos] == '-';
-                exp_pos++;
-            }
-            for (; exp_pos < numlen; exp_pos++) {
-                exponent = exponent * 10 + (int)(num[exp_pos] - '0');
-            }
-            if (exp_neg) {
-                exponent = -exponent;
-            }
             break;
         }
     }
@@ -150,15 +150,15 @@ static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t num
         if (!seen_dot) {
             int_len++;
         }
-        if (digit_count < (Py_ssize_t)(sizeof(digits) / sizeof(digits[0]))) {
-            digits[digit_count++] = num[index];
+        if (digit_count == (Py_ssize_t)(sizeof(digits) / sizeof(digits[0]))) {
+            goto preserve;
         }
+        digits[digit_count++] = num[index];
     }
     Py_ssize_t lead = 0;
     while (lead < digit_count && digits[lead] == '0') {
         lead++;
     }
-    Py_ssize_t point = int_len + exponent - lead;
     Py_ssize_t first = lead;
     Py_ssize_t last = digit_count;
     while (last > first && digits[last - 1] == '0') {
@@ -170,15 +170,28 @@ static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t num
         *out_len = pool->len - start;
         return;
     }
+    long long exponent = 0;
+    if (mant_end < numlen && !css_parse_exponent(num + mant_end + 1, numlen - mant_end - 1, &exponent)) {
+        goto preserve;
+    }
     Py_ssize_t significant = last - first;
-    Py_ssize_t scale = point - significant;
-    Py_ssize_t plain_len = scale >= 0 ? significant + scale : (-scale >= significant ? 1 - scale : significant + 1);
+    long long wide_scale;
+    if (css_add_overflow(exponent, int_len - lead - significant, &wide_scale) || wide_scale > INT_MAX ||
+        wide_scale < -INT_MAX) {
+        goto preserve;
+    }
+    Py_ssize_t scale = (Py_ssize_t)wide_scale;
+    long long plain_len =
+        scale >= 0 ? (long long)significant + scale : (-scale >= significant ? 1LL - scale : significant + 1);
     int use_sci = 0;
     if (scientific && scale != 0) {
         Py_ssize_t sci_len = significant + 1 + css_int_width((int)scale);
         if (sci_len < plain_len) {
             use_sci = 1;
         }
+    }
+    if (!use_sci && plain_len > (Py_ssize_t)(sizeof(digits) / sizeof(digits[0]))) {
+        goto preserve;
     }
     if (negative) {
         cbuf_putc(pool, '-');
@@ -203,6 +216,11 @@ static void css_format_number(css_buf *pool, const css_char *num, Py_ssize_t num
         cbuf_putc(pool, '.');
         cbuf_put_run(pool, digits + first + significant + scale, -scale);
     }
+    *out_off = start;
+    *out_len = pool->len - start;
+    return;
+preserve:
+    cbuf_put_run(pool, num, numlen);
     *out_off = start;
     *out_len = pool->len - start;
 }
@@ -816,24 +834,20 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
     }
 }
 
-/* Render a function `name(args)` into the pool and return its (offset, length). The function text is assembled in a
-   local buffer first: minifying the arguments uses the pool as scratch, so building straight into the pool would
-   interleave that scratch into the function's bytes. */
+/* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
-    css_buf function = {NULL, 0, 0, 0};
-    cbuf_put_run(&function, name_token->text, name_token->text_len);
-    cbuf_putc(&function, '(');
     css_buf args = {NULL, 0, 0, 0};
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
-    cbuf_put_run(&function, args.data, args.len);
+    *out_off = pool->len;
+    cbuf_put_run(pool, name_token->text, name_token->text_len);
+    cbuf_putc(pool, '(');
+    cbuf_put_run(pool, args.data, args.len);
     cbuf_free(&args);
-    cbuf_putc(&function, ')');
-    *out_off = pool_run(pool, function.data, function.len);
-    *out_len = function.len;
-    cbuf_free(&function);
+    cbuf_putc(pool, ')');
+    *out_len = pool->len - *out_off;
 }
 
 /* A calc() simplifier. It evaluates the expression exactly with rational arithmetic and bails -- keeping the input

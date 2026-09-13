@@ -724,3 +724,48 @@ def test_xml_find_all_matches_known_tag_below_subtree() -> None:
 @pytest.fixture
 def xml_case_document() -> Document:
     return parse_xml("<Root><div/><DIV/><custom/><Custom/></Root>")
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
+@pytest.mark.parametrize("keyword", [True, False], ids=["keyword", "attrs"])
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        pytest.param("custom", id="valueless"),
+        pytest.param('custom=""', id="empty"),
+        pytest.param('custom="café😀"', id="unicode"),
+        pytest.param(f'custom="{"x" * 4096}"', id="long"),
+    ],
+)
+def test_attribute_presence_ignores_value(attribute: str, *, present: bool, keyword: bool) -> None:
+    document: Final = parse(f"<p {attribute}>present</p><p>absent</p>")
+    matches: Final = (
+        document.find_all("p", custom=present) if keyword else document.find_all("p", attrs={"custom": present})
+    )
+    assert [node.text for node in matches] == ["present" if present else "absent"]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected", "matched"),
+    [
+        pytest.param("a<b>café</b>😀", "acafé😀", True, id="unicode-chunks"),
+        pytest.param("a<b>b</b>c", "ab", False, id="extra-text"),
+        pytest.param("a<b>b</b>", "abc", False, id="short-text"),
+        pytest.param("a<b>cd</b>", "ac", False, id="long-later-chunk"),
+        pytest.param("a<b>c</b>", "ab", False, id="different-later-chunk"),
+        pytest.param("a<!-- ignored --><b>&amp;</b>", "a&", True, id="comment-and-entity"),
+        pytest.param("a<template>b</template>c", "abc", True, id="template"),
+        pytest.param("<br>", "", True, id="textless"),
+    ],
+)
+def test_text_exact_across_descendants(markup: str, expected: str, *, matched: bool) -> None:
+    assert len(parse(f"<div>{markup}</div>").find_all("div", text=expected)) == int(matched)
+
+
+def test_text_exact_with_empty_text_node() -> None:
+    root: Final = Element("main")
+    child: Final = Element("p")
+    child.append(Text(""))
+    child.append(Text("match"))
+    root.append(child)
+    assert root.find_all("p", text="match") == [child]

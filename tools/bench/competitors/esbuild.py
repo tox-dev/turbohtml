@@ -31,6 +31,7 @@ OPERATIONS = {
     "minify-js-single-use": (minify_js, "esbuild"),
     "minify-js-sequences": (minify_js, "esbuild"),
     "minify-js": (minify_js, "esbuild"),
+    "minify-js-names": (minify_js, "esbuild"),
     "minify-css": (minify_css, "esbuild"),
     "minify-css-merges": (minify_css, "esbuild"),
     "minify-css-conflicts": (minify_css, "esbuild"),

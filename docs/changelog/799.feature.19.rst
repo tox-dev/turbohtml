@@ -1,0 +1,1 @@
+Speed up text emission in :class:`~turbohtml.transform.Transform`.

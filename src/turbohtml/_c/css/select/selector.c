@@ -1312,21 +1312,28 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
     }
     if (ctx->nth_memo != NULL) {
         const sel_nth_memo previous = *ctx->nth_memo;
-        if (previous.simple == simple && previous.scope == ctx->scope && previous.node->parent == node->parent &&
+        if (previous.simple == simple && previous.scope == ctx->scope &&
             (!of_type || sel_same_type(previous.node, node))) {
-            if (previous.node == node) {
-                return previous.index;
+            if (previous.node == node->prev_sibling) {
+                const int index = previous.index + (from_end ? -1 : 1);
+                *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                return index;
             }
-            int distance = 0;
-            for (th_node *sibling = previous.node->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
-                if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
-                    (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
-                    distance++;
+            if (previous.node->parent == node->parent) {
+                if (previous.node == node) {
+                    return previous.index;
                 }
-                if (sibling == node) {
-                    const int index = previous.index + (from_end ? -distance : distance);
-                    *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
-                    return index;
+                int distance = 0;
+                for (th_node *sibling = previous.node->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+                    if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
+                        (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
+                        distance++;
+                    }
+                    if (sibling == node) {
+                        const int index = previous.index + (from_end ? -distance : distance);
+                        *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                        return index;
+                    }
                 }
             }
         }
@@ -1557,7 +1564,7 @@ static th_node *sel_first_submit(th_node *root) {
 
 /* :default: a default-checked checkbox/radio, a default-selected option, or a
    form's first submit button (HTML "the :default pseudo-class"). */
-static int sel_is_default(th_node *node) {
+static int sel_is_default(th_node *node, sel_default_memo *memo) {
     if (node->ns != TH_NS_HTML) {
         return 0;
     }
@@ -1569,7 +1576,20 @@ static int sel_is_default(th_node *node) {
     }
     if (sel_is_submit_control(node)) {
         th_node *form = sel_form_owner(node);
-        return form != NULL && sel_first_submit(form) == node;
+        if (form == NULL) {
+            return 0;
+        }
+        if (form->first_child == node) {
+            return 1;
+        }
+        if (memo == NULL) {
+            return sel_first_submit(form) == node;
+        }
+        if (memo->form != form) {
+            memo->form = form;
+            memo->first = sel_first_submit(form);
+        }
+        return memo->first == node;
     }
     return 0;
 }
@@ -1829,7 +1849,7 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
     case PSEUDO_READ_WRITE:
         return sel_is_read_write(node);
     case PSEUDO_DEFAULT:
-        return sel_is_default(node);
+        return sel_is_default(node, ctx->default_memo);
     case PSEUDO_LANG:
         return sel_matches_lang(node, simple);
     case PSEUDO_DIR:
@@ -2304,17 +2324,26 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx) {
     /* inside a :has() relative selector the scope element is the anchor, so a written
        :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431) */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo};
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo, ctx->default_memo};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
-        /* the common shape -- a single descendant compound like :has(a) -- reduces to
-           "the anchor's subtree contains an element matching the compound", which is
-           independent of the anchor (no leading sibling reach, no :scope), so the
-           memoized subtree walk collapses the quadratic per-anchor re-scan */
         char lead_combinator = rel->compounds[0].combinator;
-        if (scoped.has_memo != NULL && rel->count == 1 && lead_combinator != '>' && lead_combinator != '+' &&
-            lead_combinator != '~' && !sel_rel_uses_scope(rel)) {
+        if (rel->count == 1 && (lead_combinator == '>' || lead_combinator == '+' || lead_combinator == '~')) {
+            th_node *candidate =
+                lead_combinator == '>' ? sel_first_element_child(anchor) : sel_next_element_sibling(anchor);
+            for (; candidate != NULL; candidate = sel_next_element_sibling(candidate)) {
+                if (sel_match_compound(candidate, &rel->compounds[0], &scoped)) {
+                    return 1;
+                }
+                if (lead_combinator == '+') {
+                    break;
+                }
+            }
+            continue;
+        }
+        /* Reuse anchor-independent subtree results for descendant compounds without :scope. */
+        if (scoped.has_memo != NULL && rel->count == 1 && !sel_rel_uses_scope(rel)) {
             if (sel_has_desc(anchor, rel, &rel->compounds[0], &scoped, 0)) {
                 return 1;
             }
@@ -2352,7 +2381,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 /* scope is the element :scope matches: the node the query was rooted at. A single
    test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 

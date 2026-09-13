@@ -1,0 +1,1 @@
+Skip disqualified encoding candidates in :class:`~turbohtml.detect.EncodingDetector`.

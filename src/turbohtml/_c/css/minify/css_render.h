@@ -569,6 +569,12 @@ static int css_parse_unicode_range(const css_char *data, Py_ssize_t len, long lo
     return 1;
 }
 
+static int css_unicode_range_cmp(const void *left_ptr, const void *right_ptr) {
+    const long long *left = left_ptr;
+    const long long *right = right_ptr;
+    return (left[0] > right[0]) - (left[0] < right[0]);
+}
+
 /* Minify a unicode-range value, returning 1 when handled (every token was a range), 0 to fall through. */
 static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
     Py_ssize_t capacity = 16;
@@ -608,17 +614,27 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
         css_parse_unicode_range(token->text, token->text_len, &ranges[count][0], &ranges[count][1]);
         count++;
     }
-    for (Py_ssize_t outer = 1; outer < count; outer++) {
-        long long low = ranges[outer][0];
-        long long high = ranges[outer][1];
-        Py_ssize_t inner = outer - 1;
-        while (inner >= 0 && ranges[inner][0] > low) {
-            ranges[inner + 1][0] = ranges[inner][0];
-            ranges[inner + 1][1] = ranges[inner][1];
-            inner--;
+    if (count > 64) {
+        Py_ssize_t index = 1;
+        while (index < count && ranges[index - 1][0] <= ranges[index][0]) {
+            index++;
         }
-        ranges[inner + 1][0] = low;
-        ranges[inner + 1][1] = high;
+        if (index < count) {
+            qsort(ranges, (size_t)count, sizeof(*ranges), css_unicode_range_cmp);
+        }
+    } else {
+        for (Py_ssize_t outer = 1; outer < count; outer++) {
+            long long low = ranges[outer][0];
+            long long high = ranges[outer][1];
+            Py_ssize_t inner = outer - 1;
+            while (inner >= 0 && ranges[inner][0] > low) {
+                ranges[inner + 1][0] = ranges[inner][0];
+                ranges[inner + 1][1] = ranges[inner][1];
+                inner--;
+            }
+            ranges[inner + 1][0] = low;
+            ranges[inner + 1][1] = high;
+        }
     }
     Py_ssize_t merged = 0;
     for (Py_ssize_t index = 0; index < count; index++) {

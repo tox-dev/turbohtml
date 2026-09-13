@@ -320,10 +320,9 @@ typedef struct {
 } nodevec;
 
 static int nodevec_push(nodevec *vec, th_node *node) {
-    for (Py_ssize_t index = 0; index < vec->len; index++) {
-        if (vec->nodes[index] == node) {
-            return 0;
-        }
+    /* build_key processes each source node's values together in document order. */
+    if (vec->len > 0 && vec->nodes[vec->len - 1] == node) {
+        return 0;
     }
     if (vec->len == vec->cap) {
         Py_ssize_t cap = vec->cap == 0 ? 4 : vec->cap * 2;
@@ -528,6 +527,13 @@ typedef struct {
     th_node *rtf;
 } var_bind;
 
+typedef struct {
+    const char *name;
+    Py_ssize_t name_len;
+    const Py_UCS4 *value;
+    Py_ssize_t value_len;
+} xslt_ns_decl;
+
 /* A named xsl:attribute-set (section 7.1.4). Its body holds xsl:attribute children; the
    precedence orders redefinitions across import boundaries (higher importer wins). */
 typedef struct {
@@ -657,6 +663,10 @@ typedef struct engine {
     int method_seen; /* whether xsl:output named a method, so html auto-selection is suppressed */
     int omit_xml_decl;
     int simplified; /* the document element is a literal result element (section 2.3) */
+    th_node *ns_cached_element;
+    xslt_ns_decl *ns_decls;
+    size_t ns_decls_len;
+    size_t ns_decls_cap;
     int ns_counter; /* serial for the generated ns_N prefixes xsl:attribute namespace fixup mints */
     int precedence; /* import precedence being assigned as declarations are walked */
 
@@ -991,9 +1001,7 @@ static xp_program *compile_pattern_new(engine *eng, const Py_UCS4 *src, Py_ssize
 
 /* ---- the XPath variable scope --------------------------------------------- */
 
-/* Push a binding (newest first, so the XPath evaluator's first-match lookup finds
-   the innermost scope). The binding takes ownership of value and rtf. Returns 0, or
-   -1 on allocation failure (value is freed). */
+/* Each binding owns its value; the output tree owns its result tree fragment. */
 static int scope_push(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, xp_result value, th_node *rtf) {
     if (eng->scope_len == eng->scope_cap) {
         Py_ssize_t cap = eng->scope_cap == 0 ? 8 : eng->scope_cap * 2;
@@ -1005,30 +1013,27 @@ static int scope_push(engine *eng, const Py_UCS4 *name, Py_ssize_t name_len, xp_
         eng->scope = grown;
         eng->scope_cap = cap;
     }
-    memmove(&eng->scope[1], &eng->scope[0], (size_t)eng->scope_len * sizeof(var_bind));
-    eng->scope[0].name = (Py_UCS4 *)name;
-    eng->scope[0].name_len = name_len;
-    eng->scope[0].value = value;
-    eng->scope[0].rtf = rtf;
-    eng->scope_len++;
+    var_bind *binding = &eng->scope[eng->scope_len++];
+    binding->name = (Py_UCS4 *)name;
+    binding->name_len = name_len;
+    binding->value = value;
+    binding->rtf = rtf;
     return 0;
 }
 
-/* Drop the front `n` bindings (the most recently pushed), freeing their values. */
 static void scope_drop(engine *eng, Py_ssize_t mark) {
     while (eng->scope_len > mark) {
-        xp_result_free(&eng->scope[0].value);
-        memmove(&eng->scope[0], &eng->scope[1], (size_t)(eng->scope_len - 1) * sizeof(var_bind));
-        eng->scope_len--;
+        xp_result_free(&eng->scope[--eng->scope_len].value);
     }
 }
 
-/* Build the xp_bindings view over the current scope for one evaluation. */
+/* XPath resolves the first match, so expose the innermost binding first. */
 static void scope_bindings(engine *eng, xp_binding *storage, xp_bindings *out) {
     for (Py_ssize_t index = 0; index < eng->scope_len; index++) {
-        storage[index].name = eng->scope[index].name;
-        storage[index].name_len = eng->scope[index].name_len;
-        storage[index].value = eng->scope[index].value;
+        const var_bind *binding = &eng->scope[eng->scope_len - index - 1];
+        storage[index].name = binding->name;
+        storage[index].name_len = binding->name_len;
+        storage[index].value = binding->value;
     }
     out->items = storage;
     out->len = eng->scope_len;
@@ -1916,7 +1921,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
     /* A lone $var that is a result tree fragment copies the fragment's children. */
     if (prog->nodes[prog->root].kind == XN_VAR) {
         const xn *var = &prog->nodes[prog->root];
-        for (Py_ssize_t index = 0; index < eng->scope_len; index++) {
+        for (Py_ssize_t index = eng->scope_len - 1; index >= 0; index--) {
             if (str_eq(eng->scope[index].name, eng->scope[index].name_len, var->str, var->str_len) &&
                 eng->scope[index].rtf != NULL) {
                 for (th_node *child = eng->scope[index].rtf->first_child; child != NULL; child = child->next_sibling) {
@@ -2414,6 +2419,20 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                 PyMem_Free(items);
                 fail_py(eng);
                 return -1;
+            }
+            if (specs[spec].numeric && value.kind == XP_STRING) {
+                slot->key = NULL;
+                slot->number = parse_number(value.string, value.string_len);
+                xp_result_free(&value);
+                continue;
+            }
+            /* Bounded integers survive the existing decimal round-trip exactly. */
+            if (specs[spec].numeric && value.kind == XP_NUMBER && fabs(value.number) <= 9007199254740991.0 &&
+                value.number == floor(value.number)) {
+                slot->key = NULL;
+                slot->number = value.number;
+                xp_result_free(&value);
+                continue;
             }
             slot->key = to_string(eng->src_tree, &value, &slot->key_len);
             xp_result_free(&value);
@@ -3323,14 +3342,12 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
         return emit_text(eng, out_parent, attribute->value, attribute->value_len);
     }
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->src_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->src_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = emit_text(eng, out_parent, text, text_len);
-        PyMem_Free(text);
-        return rc;
+        return emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
         Py_ssize_t child_pos = 0;
@@ -3506,11 +3523,8 @@ static int ns_decl_is_self_prefix(const th_node *lre, const char *name, Py_ssize
     return 1;
 }
 
-/* Copy one in-scope namespace declaration `attr` onto the output copy, honoring
-   exclude-result-prefixes, an inner override, namespace-alias remapping and the XSLT-namespace
-   drop, and de-duplicating against the output parent's in-scope declarations. */
-static int copy_one_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_node_attr *attr, const char *name,
-                            Py_ssize_t name_len, int prefixed, th_node *copy, th_node *out_parent) {
+static int cache_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_node_attr *attr, const char *name,
+                         Py_ssize_t name_len, int prefixed) {
     if (prefixed ? prefix_excluded(eng, name + 6, name_len - 6) : prefix_excluded(eng, "#default", 8)) {
         return 0;
     }
@@ -3534,27 +3548,31 @@ static int copy_one_ns_decl(engine *eng, th_node *lre, th_node *anc, const th_no
         alias_result_uri(eng, prefixed ? name + 6 : "#default", prefixed ? name_len - 6 : 8, &alias_len);
     const Py_UCS4 *value = aliased != NULL ? aliased : attr->value;
     Py_ssize_t value_len = aliased != NULL ? alias_len : attr->value_len;
-    if (overridden || (aliased == NULL && ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS)) ||
-        output_ns_in_scope(eng, out_parent, name, name_len, value, value_len)) {
+    if (overridden || (aliased == NULL && ucs4_ascii_eq(attr->value, attr->value_len, XSLT_NS))) {
         return 0;
     }
-    int rc = th_node_attr_set(eng->out_tree, copy, name, name_len, value, value_len, 1);
-    if (rc < 0) {                          /* GCOVR_EXCL_BR_LINE: alloc */
-        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    if (eng->ns_decls_len == eng->ns_decls_cap) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation size overflow */
+        if (!th_grow_cap(eng->ns_decls_len + 1, eng->ns_decls_cap, 4, sizeof(xslt_ns_decl), &capacity, &bytes)) {
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE: allocation size overflow */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        xslt_ns_decl *grown = PyMem_Realloc(eng->ns_decls, bytes);
+        if (grown == NULL) {                   /* GCOVR_EXCL_BR_LINE: alloc */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        eng->ns_decls = grown;
+        eng->ns_decls_cap = capacity;
     }
+    eng->ns_decls[eng->ns_decls_len++] = (xslt_ns_decl){name, name_len, value, value_len};
     return 0;
 }
 
-/* Copy the stylesheet namespace declarations in scope at literal result element `lre` onto
-   its output copy (XSLT 1.0 section 7.1.1): every in-scope namespace node except the XSLT
-   namespace itself and any exclude-result-prefixes namespace, de-duplicated against the
-   declarations already in scope on the output parent so a prefix is redeclared only where it
-   is not already bound to that URI. The element's own prefix declaration is emitted first (as
-   libxslt does). The html and text output methods carry no namespace nodes (matching libxslt). */
-static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_node *out_parent) {
-    if (eng->output_method != OUT_XML) {
-        return 0;
-    }
+static int cache_namespace_decls(engine *eng, th_node *lre) {
+    eng->ns_cached_element = NULL;
+    eng->ns_decls_len = 0;
     /* Two passes over the in-scope declarations (the walk stops at the attribute-less document
        node): the element's own-prefix binding first, then the rest in document order. */
     for (int self_pass = 1; self_pass >= 0; self_pass--) {
@@ -3571,12 +3589,37 @@ static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_nod
                 if (ns_decl_is_self_prefix(lre, name, name_len) != self_pass) {
                     continue;
                 }
-                int rc = copy_one_ns_decl(eng, lre, anc, attr, name, name_len, prefixed, copy, out_parent);
-                if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: copy_one_ns_decl only fails on an unforced allocation */
+                int rc = cache_ns_decl(eng, lre, anc, attr, name, name_len, prefixed);
+                if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: cache_ns_decl only fails on an unforced allocation */
                     return -1; /* GCOVR_EXCL_LINE */
                 }
             }
         }
+    }
+    eng->ns_cached_element = lre;
+    return 0;
+}
+
+/* The compiled stylesheet owns these spans; output bindings still depend on each result parent. */
+static int copy_namespace_decls(engine *eng, th_node *lre, th_node *copy, th_node *out_parent) {
+    if (eng->output_method != OUT_XML) {
+        return 0;
+    }
+    if (eng->ns_cached_element != lre) {
+        if (cache_namespace_decls(eng, lre) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                             /* GCOVR_EXCL_LINE */
+        }
+    }
+    for (size_t index = 0; index < eng->ns_decls_len; index++) {
+        const xslt_ns_decl *decl = &eng->ns_decls[index];
+        if (output_ns_in_scope(eng, out_parent, decl->name, decl->name_len, decl->value, decl->value_len)) {
+            continue;
+        }
+        /* GCOVR_EXCL_BR_START: alloc */
+        if (th_node_attr_set(eng->out_tree, copy, decl->name, decl->name_len, decl->value, decl->value_len, 1) < 0) {
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE: alloc */
+        }
+        /* GCOVR_EXCL_BR_STOP */
     }
     return 0;
 }
@@ -3812,29 +3855,22 @@ static enum xsl_instr xsl_classify(const Py_UCS4 *local, Py_ssize_t len) {
 
 static int instantiate_non_element(engine *eng, th_node *node, th_node *out_parent) {
     if (node->type == TH_NODE_TEXT) {
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = 0;
-        if (!ucs4_blank(text, text_len)) {
-            rc = emit_text(eng, out_parent, text, text_len);
-        }
-        PyMem_Free(text);
-        return rc;
+        return ucs4_blank(text, text_len) ? 0 : emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_CDATA) {
         /* A CDATA section in the stylesheet is significant character data (never stripped as
            whitespace); it emits as text, which cdata-section-elements may later re-wrap. */
-        Py_ssize_t text_len = 0;
-        Py_UCS4 *text = th_node_data(eng->sheet_tree, node, &text_len);
-        if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_ssize_t text_len = node->text_len;
+        const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, node);
+        if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        int rc = emit_text(eng, out_parent, text, text_len);
-        PyMem_Free(text);
-        return rc;
+        return emit_text(eng, out_parent, text, text_len);
     }
     return 0;
 }
@@ -3872,17 +3908,14 @@ static int instantiate_classified(engine *eng, th_node *node, th_node *out_paren
         }
         return 0;
     case XSL_TEXT: {
-        Py_UCS4 *text;
-        Py_ssize_t text_len = 0;
-        int rc = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
             if (child->type == TH_NODE_TEXT) {
-                text = th_node_data(eng->sheet_tree, child, &text_len);
-                if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+                Py_ssize_t text_len = child->text_len;
+                const Py_UCS4 *text = th_node_realize_text(eng->sheet_tree, child);
+                if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
                     return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
                 }
-                rc = emit_text(eng, out_parent, text, text_len);
-                PyMem_Free(text);
+                int rc = emit_text(eng, out_parent, text, text_len);
                 if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
                     return rc; /* GCOVR_EXCL_LINE */
                 }
@@ -4600,6 +4633,7 @@ static void engine_clear(engine *eng) {
     PyMem_Free(eng->stripped);
     scope_drop(eng, 0);
     PyMem_Free(eng->scope);
+    PyMem_Free(eng->ns_decls);
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
     }
@@ -4634,6 +4668,10 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree)
     eng->scope_cap = 0;
     eng->error = NULL;
     eng->py_error = 0;
+    eng->ns_cached_element = NULL;
+    eng->ns_decls = NULL;
+    eng->ns_decls_len = 0;
+    eng->ns_decls_cap = 0;
     eng->ns_counter = 0;
     eng->gen_counter = 0;
     eng->depth = 0;

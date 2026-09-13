@@ -48,6 +48,10 @@ def select_has(text: str) -> None:
     _parsed(text).css("div:has(a)")
 
 
+def _select_relative(case: tuple[str, str]) -> None:
+    _parsed(case[1]).css(case[0])
+
+
 def text_content(text: str) -> None:
     """Collect the document's visible text with selectolax's text() method."""
     tree = _parsed(text)
@@ -229,6 +233,8 @@ OPERATIONS = {
     "parse-scope": (parse, "selectolax"),
     "find": (find, "selectolax"),
     "select": (select, "selectolax"),
+    "select-nth": (_select_relative, "selectolax"),
+    "select-relative": (_select_relative, "selectolax"),
     "select-has": (select_has, "selectolax"),
     "text-content": (text_content, "selectolax"),
     "serialize": (serialize, "selectolax"),

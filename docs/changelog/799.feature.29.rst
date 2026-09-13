@@ -1,0 +1,1 @@
+Skip unchanged prefixes in :func:`~turbohtml.detect.normalize`.

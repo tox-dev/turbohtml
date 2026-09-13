@@ -8,7 +8,7 @@ binding's enum validation.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
@@ -516,3 +516,47 @@ def test_annotated_text_options_must_be_a_plain_text() -> None:
 def test_rules_are_required() -> None:
     with pytest.raises(TypeError):
         parse("<p>x</p>").to_annotated_text()  # ty: ignore[missing-argument]  # annotation_rules is required
+
+
+@pytest.mark.parametrize("count", [pytest.param(7, id="linear"), pytest.param(8, id="indexed")])
+@pytest.mark.parametrize(
+    ("html", "rules", "expected"),
+    [
+        pytest.param(
+            '<span data-x="yes" data-y="yes">x</span>',
+            {"#data-x": ["first"], "span": ["tag", "tag"], "#data-y": ["last"]},
+            ("x", [(0, 1, "last"), (0, 1, "tag"), (0, 1, "tag"), (0, 1, "first")]),
+            id="interleaved-and-duplicate-labels",
+        ),
+        pytest.param(
+            '<p data-x="yes">a <b data-x="yes">b</b></p>',
+            {"#data-x": ["wild"], "p": ["block"], "b": ["bold"]},
+            ("a b", [(2, 3, "bold"), (2, 3, "wild"), (0, 3, "block"), (0, 3, "wild")]),
+            id="nested-overlap",
+        ),
+        pytest.param(
+            '<span class="no yes other">x</span><span class="yesterday">y</span>',
+            {"span#class=yes": ["token"], "#class=no": ["wild"]},
+            ("xy", [(0, 1, "wild"), (0, 1, "token")]),
+            id="attribute-token",
+        ),
+        pytest.param(
+            "<table><tr><td>a <b>x</b></td></tr></table>",
+            {"b": ["bold"], "td": ["cell"]},
+            ("a x", [(0, 3, "cell")]),
+            id="table-cell-suppression",
+        ),
+        pytest.param(
+            '<svg data-x="yes"><desc>x</desc></svg>',
+            {"svg": ["foreign"], "#data-x": ["wild"]},
+            ("x", [(0, 1, "wild")]),
+            id="foreign-wildcard-only",
+        ),
+    ],
+)
+def test_annotation_rule_grouping_preserves_order(
+    count: int, html: str, rules: dict[str, list[str]], expected: tuple[str, list[tuple[int, int, str]]]
+) -> None:
+    unrelated: Final = ("h1", "h2", "h3", "h4", "h5", "h6", "aside", "nav")
+    padded: Final = {**rules, **{tag: [tag] for tag in unrelated[: count - len(rules)]}}
+    assert annotate(html, padded) == expected

@@ -8,7 +8,7 @@ from typing import Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment, UnicodeDammit
-from bs4.element import AttributeValueList, NavigableString, Tag
+from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
@@ -96,9 +96,36 @@ def find_text(text: str) -> None:
     _parsed(text).find_all(string=_FIND_TEXT_PATTERN)
 
 
+def _find_text_exact(case: tuple[str, str]) -> None:
+    _ = [
+        node
+        for node in _parsed(case[0]).find_all("div")
+        if node.get_text(types=(NavigableString, CData, Script, Stylesheet, TemplateString)) == case[1]
+    ]
+
+
+def _find_attr_presence(case: tuple[str, bool]) -> None:
+    _parsed(case[0]).find_all("p", attrs={"data-x": case[1]})
+
+
+def _select_default(case: tuple[str, str]) -> None:
+    if case[0] == ":default" and "<button>" in case[1]:
+        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        raise NotImplementedError(unsupported)
+    _select_relative(case)
+
+
+def _select_relative(case: tuple[str, str]) -> None:
+    _parsed(case[1]).select(case[0])
+
+
 def text_content(text: str) -> None:
     """Collect the document's visible text with BeautifulSoup's get_text()."""
     _parsed(text).get_text()
+
+
+def _serialize_named(text: str) -> str:
+    return _parsed(text).decode(formatter="html")
 
 
 def serialize(text: str) -> None:
@@ -332,8 +359,13 @@ OPERATIONS = {
     "emit": (emit, "BeautifulSoup (html.parser)"),
     "find": (find, "BeautifulSoup (html.parser)"),
     "select": (select, "BeautifulSoup (html.parser)"),
+    "select-nth": (_select_relative, "BeautifulSoup (html.parser)"),
+    "select-relative": (_select_relative, "BeautifulSoup (html.parser)"),
+    "select-default": (_select_default, "BeautifulSoup (html.parser)"),
     "select-has": (select_has, "BeautifulSoup (html.parser)"),
     "find-text": (find_text, "BeautifulSoup (html.parser)"),
+    "find-text-exact": (_find_text_exact, "BeautifulSoup (html.parser)"),
+    "find-attr-presence": (_find_attr_presence, "BeautifulSoup (html.parser)"),
     "text-content": (text_content, "BeautifulSoup (html.parser)"),
     "serialize": (serialize, "BeautifulSoup (html.parser)"),
     "class-edit": (class_edit, "BeautifulSoup (html.parser)"),
@@ -355,4 +387,5 @@ OPERATIONS = {
     "socialcard": (socialcard, "BeautifulSoup (html.parser)"),
     "extract-url": (extract_url, "BeautifulSoup (html.parser)"),
     "links-absolutize": (Mutating(_fresh, links_absolutize), "BeautifulSoup (html.parser)"),
+    "serialize-named": (_serialize_named, "BeautifulSoup (html.parser)"),
 }

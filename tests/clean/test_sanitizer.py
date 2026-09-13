@@ -1276,6 +1276,62 @@ def test_attribute_prefix_default_policy_drops_data_attributes() -> None:
     assert sanitize('<a href="http://x" data-id="1">y</a>') == '<a href="http://x">y</a>'
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("data-", id="ascii"),
+        pytest.param("é-", id="latin1"),
+        pytest.param("東京-", id="bmp"),
+        pytest.param("😀-", id="astral"),
+    ],
+)
+def test_attribute_prefix_unicode_names(prefix: str) -> None:
+    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({prefix}))
+    assert sanitize(f'<p {prefix}id="1" {prefix}role="2" other="3">x</p>', policy) == (
+        f'<p {prefix}id="1" {prefix}role="2">x</p>'
+    )
+
+
+def test_attribute_prefix_mutation_from_callback() -> None:
+    prefixes: Final = {"data-"}
+
+    def change_prefixes(_tag: str, name: str, value: str) -> str:
+        if name == "data-first":
+            prefixes.clear()
+            prefixes.add("aria-")
+        return value
+
+    policy: Final = Policy(
+        tags=frozenset({"p"}),
+        attributes={},
+        attribute_prefixes=cast("frozenset[str]", prefixes),
+        attribute_filter=change_prefixes,
+    )
+    assert sanitize('<p data-first="1" data-second="2" aria-label="3">x</p>', policy) == (
+        '<p data-first="1" aria-label="3">x</p>'
+    )
+
+
+@pytest.mark.parametrize(
+    "prefixes",
+    [pytest.param(frozenset({"\ud800"}), id="frozen"), pytest.param({"\ud800"}, id="mutable")],
+)
+@pytest.mark.parametrize(
+    "attributes",
+    [pytest.param({"a": frozenset({"href"})}, id="exact-rules"), pytest.param({}, id="no-exact-rules")],
+)
+@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(32, id="compacted")])
+def test_attribute_prefix_surrogate_raises(
+    prefixes: frozenset[str] | set[str], attributes: dict[str, frozenset[str]], count: int
+) -> None:
+    policy: Final = Policy(
+        tags=frozenset({"a"}), attributes=attributes, attribute_prefixes=cast("frozenset[str]", prefixes)
+    )
+    html: Final = "<a " + " ".join(f'data-{index}="1"' for index in range(count)) + ">x</a>"
+    with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
+        sanitize(html, policy)
+
+
 def test_attribute_prefix_empty_string_raises_valueerror() -> None:
     with pytest.raises(ValueError, match="attribute_prefixes must not contain an empty prefix"):
         sanitize("<a>y</a>", _prefix_policy(frozenset({""})))
@@ -2473,18 +2529,35 @@ _SANITIZER_TEMPLATES_ON = Policy(
         pytest.param("<p>a$</p>", "<p>a$</p>", id="dollar-at-end-of-text-kept"),
         pytest.param("<p>a&lt;</p>", "<p>a&lt;</p>", id="lt-at-end-of-text-kept"),
         pytest.param("<p>{{a}}{{b}}</p>", "<p>  </p>", id="two-runs-collapse-independently"),
+        pytest.param("<p>café {{x}} fin</p>", "<p>café   fin</p>", id="latin1-marker"),
+        pytest.param("<p>東京 ${x} fin</p>", "<p>東京   fin</p>", id="bmp-marker"),
+        pytest.param("<p>😀 &lt;%x%&gt; fin</p>", "<p>😀   fin</p>", id="astral-marker"),
+        pytest.param("<p>東京 {x} 😀 $x</p>", "<p>東京 {x} 😀 $x</p>", id="wide-false-openers"),
+        pytest.param("<p>{{t}}{x} $x &lt;x</p>", "<p> {x} $x &lt;x</p>", id="false-openers-after-marker"),
+        pytest.param("<p>" + "plain " * 100 + "{{x}}</p>", "<p>" + "plain " * 100 + " </p>", id="late-marker"),
     ],
 )
 def test_templates_text_run_collapses(fragment: str, expected: str) -> None:
     assert sanitize(fragment, _SANITIZER_TEMPLATES_ON) == expected
 
 
-def test_templates_attribute_value_with_marker_collapses() -> None:
-    assert sanitize('<a href="/x" title="{{t}}">k</a>', _SANITIZER_TEMPLATES_ON) == '<a href="/x" title=" ">k</a>'
-
-
-def test_templates_attribute_value_without_marker_unchanged() -> None:
-    assert sanitize('<a href="/x" title="plain">k</a>', _SANITIZER_TEMPLATES_ON) == '<a href="/x" title="plain">k</a>'
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("{{t}}", " ", id="marker"),
+        pytest.param("plain", "plain", id="plain"),
+        pytest.param("", "", id="empty"),
+        pytest.param("$", "$", id="single-opener"),
+        pytest.param("café {{t}} fin", "café   fin", id="latin1-marker"),
+        pytest.param("東京 ${t} fin", "東京   fin", id="bmp-marker"),
+        pytest.param("😀 {{t", "😀  ", id="astral-unclosed"),
+        pytest.param("東京 {x} 😀 $x", "東京 {x} 😀 $x", id="wide-false-openers"),
+    ],
+)
+def test_templates_attribute_value(value: str, expected: str) -> None:
+    assert sanitize(f'<a href="/x" title="{value}">k</a>', _SANITIZER_TEMPLATES_ON) == (
+        f'<a href="/x" title="{expected}">k</a>'
+    )
 
 
 def test_templates_valueless_attribute_survives() -> None:
@@ -2938,6 +3011,38 @@ def test_live_danger_labels_every_executable_construct(html: str, survived: list
     assert _live_danger(html) == survived
 
 
+@pytest.mark.parametrize(
+    "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
+)
+@pytest.mark.parametrize(
+    "mode", [pytest.param(OnDisallowed.ESCAPE, id="escape"), pytest.param(OnDisallowed.STRIP, id="strip")]
+)
+def test_escaped_opening_attribute_width(count: int, mode: OnDisallowed) -> None:
+    attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
+    expected: Final = f"&lt;x{attributes}&gt;text&lt;/x&gt;" if mode is OnDisallowed.ESCAPE else "text"
+    assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=mode)) == expected
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param('bare empty=""', "bare empty", id="bare-and-empty"),
+        pytest.param('é="café" 東京="東京" 😀="😀"', 'é="café" 東京="東京" 😀="😀"', id="unicode-names-and-values"),
+        pytest.param("a='&lt;&amp;&quot;é東京😀'", 'a="&lt;&amp;"é東京😀"', id="raw-value-quoting"),
+    ],
+)
+def test_escaped_opening_raw_attributes(attributes: str, expected: str) -> None:
+    assert sanitize(f"<x {attributes}>text</x>") == f"&lt;x {expected}&gt;text&lt;/x&gt;"
+
+
+@pytest.mark.parametrize(
+    "name", [pytest.param("\ud800", id="high-surrogate"), pytest.param("\udfff", id="low-surrogate")]
+)
+def test_escaped_opening_surrogate_attribute_name(name: str) -> None:
+    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
+        sanitize(f'<x valid="v" {name}="v">text</x>')
+
+
 @pytest.mark.parametrize("method", [False, True], ids=["function", "sanitizer"])
 def test_document_node_return_types(*, method: bool) -> None:
     document: Final = parse("<p onclick='x'>hi</p>")
@@ -2952,4 +3057,47 @@ def test_document_node_return_types(*, method: bool) -> None:
         "<html><head></head><body><p>hi</p></body></html>",
         "<html><head></head><body><p>hi</p></body></html>",
         [Removed("p", "onclick")],
+    )
+
+
+@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(32, id="compacted")])
+@pytest.mark.parametrize("prefix", [pytest.param("", id="rejected"), pytest.param("data-", id="allowed-prefix")])
+def test_kept_element_surrogate_attribute_name(count: int, prefix: str) -> None:
+    attributes: Final = " ".join(f'data-{index}="x"' for index in range(count - 1))
+    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
+    with pytest.raises(UnicodeDecodeError, match="invalid continuation byte"):
+        sanitize(f'<p {attributes} {prefix}\ud800="x">text</p>', policy)
+
+
+@pytest.mark.parametrize(
+    ("attributes", "prefixes", "expected"),
+    [
+        pytest.param({}, frozenset({"data-"}), '<p data-é="x">text</p>', id="unicode-prefix"),
+        pytest.param({"p": frozenset({"é"})}, frozenset(), '<p é="x">text</p>', id="unicode-exact"),
+        pytest.param({}, frozenset(), "<p>text</p>", id="unicode-rejected"),
+    ],
+)
+def test_unicode_attribute_name_policy(
+    attributes: dict[str, frozenset[str]], prefixes: frozenset[str], expected: str
+) -> None:
+    policy: Final = Policy(tags=frozenset({"p"}), attributes=attributes, attribute_prefixes=prefixes)
+    assert sanitize('<p class="x" é="x" data-é="x">text</p>', policy) == expected
+
+
+def test_attribute_name_allowlist_mutation_from_callback() -> None:
+    allowed: Final = {"data-first", "data-second"}
+
+    def change_allowed(_tag: str, name: str, value: str) -> str:
+        if name == "data-first":
+            allowed.remove("data-second")
+            allowed.add("data-third")
+        return value
+
+    policy: Final = Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": cast("frozenset[str]", allowed)},
+        attribute_filter=change_allowed,
+    )
+    assert sanitize('<p data-first="1" data-second="2" data-third="3">text</p>', policy) == (
+        '<p data-first="1" data-third="3">text</p>'
     )

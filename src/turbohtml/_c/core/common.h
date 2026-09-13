@@ -368,9 +368,9 @@ PyObject *turbohtml_register_css_minify(PyObject *module, PyObject *type);
    schema (kind 0 = XSD, 1 = RELAX NG) into a PyCapsule, raising ValueError on a
    malformed schema; _schema_validate(capsule, node) validates a parse_xml document or
    element against it, returning (valid, [errors]) where each error is a (message, path,
-   line, type) tuple. Both match METH_VARARGS. */
+   line, type) tuple. */
 PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args);
-PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args);
+PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args, PyObject *kwargs);
 
 /* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind
    turbohtml.conformance (issue #541). _conformance_check(node) walks a parsed document or

@@ -29,10 +29,11 @@ typedef struct {
     PyObject *remove_with_content; /* frozenset[str]: disallowed tags whose whole subtree is dropped, not escaped */
     PyObject *css_properties;      /* frozenset[str]: CSS property names kept when scrubbing a `style` attribute */
     PyObject *attribute_prefixes;  /* frozenset[str]: allow any attribute whose name starts with one of these */
-    PyObject *attribute_values;    /* dict[str, dict[str, frozenset[str]]]: per (tag, attr) literal value allowlist */
-    PyObject *allowed_styles;      /* dict[str, dict[str, tuple[re.Pattern, ...]]]: per (tag or "*") allowed style
-                                      properties, each mapped to the compiled patterns its value must match, or an empty
-                                      dict when no per-property value allowlist is in force */
+    PyObject *prefix_tuple;
+    PyObject *attribute_values; /* dict[str, dict[str, frozenset[str]]]: per (tag, attr) literal value allowlist */
+    PyObject *allowed_styles;   /* dict[str, dict[str, tuple[re.Pattern, ...]]]: per (tag or "*") allowed style
+                                   properties, each mapped to the compiled patterns its value must match, or an empty
+                                   dict when no per-property value allowlist is in force */
     PyObject *re_search; /* the interned "search" method name, for calling re.Pattern.search from the style scrubber */
     PyObject *media_hosts;    /* frozenset[str]: allowed hosts for an embedded-media (audio/video/source/track) src */
     PyObject *transform_tags; /* dict[str, tuple[str, dict[str, str]]]: source tag -> (target tag, added attributes),
@@ -235,10 +236,32 @@ static int is_srcset_attr(const char *name, Py_ssize_t len) {
     return 0;
 }
 
-/* Does `name` begin with any allowlisted attribute-name prefix (nh3's generic_attribute_prefixes, the `data-*` case)?
-   The prefixes are validated as non-empty str at setup, so each check is a byte-prefix compare. Returns 1 match, 0
-   none, -1 error. Only reached when the prefix set is non-empty, so a policy without prefixes never iterates. */
+static int attribute_prefix_matches(PyObject *prefix, const char *name, Py_ssize_t len) {
+    Py_ssize_t prefix_len = 0;
+    const char *prefix_bytes = PyUnicode_AsUTF8AndSize(prefix, &prefix_len);
+    if (prefix_bytes == NULL) {
+        return -1;
+    }
+    return len >= prefix_len && memcmp(name, prefix_bytes, (size_t)prefix_len) == 0;
+}
+
 static int name_has_allowed_prefix(sanitizer *s, const char *name, Py_ssize_t len) {
+    if (PyFrozenSet_CheckExact(s->attribute_prefixes)) {
+        if (s->prefix_tuple == NULL) {
+            s->prefix_tuple = PySequence_Tuple(s->attribute_prefixes);
+            if (s->prefix_tuple == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+        for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(s->prefix_tuple); index++) {
+            int matched = attribute_prefix_matches(PyTuple_GET_ITEM(s->prefix_tuple, index), name, len);
+            if (matched != 0) {
+                return matched;
+            }
+        }
+        return 0;
+    }
+    /* Callbacks can mutate sets; subclasses can override iteration. */
     PyObject *iterator = PyObject_GetIter(s->attribute_prefixes);
     if (iterator == NULL) { /* GCOVR_EXCL_BR_LINE: getting an iterator over a set cannot fail */
         return -1;          /* GCOVR_EXCL_LINE: error path */
@@ -246,31 +269,36 @@ static int name_has_allowed_prefix(sanitizer *s, const char *name, Py_ssize_t le
     int matched = 0;
     PyObject *prefix;
     while (!matched && (prefix = PyIter_Next(iterator)) != NULL) {
-        Py_ssize_t prefix_len = 0;
-        const char *prefix_bytes = PyUnicode_AsUTF8AndSize(prefix, &prefix_len);
-        if (prefix_bytes == NULL) { /* GCOVR_EXCL_BR_LINE: prefixes are validated as str at setup */
-            Py_DECREF(prefix);      /* GCOVR_EXCL_LINE: error path */
-            Py_DECREF(iterator);    /* GCOVR_EXCL_LINE */
-            return -1;              /* GCOVR_EXCL_LINE */
-        }
-        matched = len >= prefix_len && memcmp(name, prefix_bytes, (size_t)prefix_len) == 0;
+        matched = attribute_prefix_matches(prefix, name, len);
         Py_DECREF(prefix);
     }
     Py_DECREF(iterator);
-    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: set iteration raises no error of its own */
-        return -1;          /* GCOVR_EXCL_LINE: error path */
+    if (PyErr_Occurred()) {
+        return -1;
     }
     return matched;
 }
 
 /* Is `name` allowed on element `tag` by the policy? A "*" inside an attribute set allows every attribute name, and an
    allowlisted name prefix allows a whole family. Returns 1 allow, 0 drop, -1 error. */
-static int attr_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_t len) {
-    PyObject *attr = PyUnicode_FromStringAndSize(name, len);
-    if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
+static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *name, Py_ssize_t len) {
     PyObject *sets[2] = {PyDict_GetItem(s->attributes, tag), s->wildcard_attrs};
+    if (sets[0] == NULL && sets[1] == NULL) {
+        int ascii = 1;
+        if (atom >= TH_ATTR__DYNAMIC_BASE) {
+            for (Py_ssize_t index = 0; ascii && index < len; index++) {
+                ascii = (unsigned char)name[index] < 0x80;
+            }
+        }
+        if (ascii) {
+            return PySet_GET_SIZE(s->attribute_prefixes) > 0 ? name_has_allowed_prefix(s, name, len) : 0;
+        }
+    }
+    /* Non-ASCII names still need UTF-8 validation even without an exact-name rule. */
+    PyObject *attr = PyUnicode_FromStringAndSize(name, len);
+    if (attr == NULL) {
+        return -1;
+    }
     int allowed = 0;
     for (int which = 0; which < 2 && !allowed; which++) {
         if (sets[which] != NULL) {
@@ -1236,16 +1264,21 @@ static int sanitize_style_body(sanitizer *s, th_node *element) {
     return status;
 }
 
-/* SAFE_FOR_TEMPLATES. A template engine (Angular, Vue, Mustache, EJS, ERB) evaluates {{ }}, ${ }, and <% %> in the
-   strings it later renders, so a sanitized value that still carries one can re-inject once the output is fed through
-   that engine. Copy `in` to `out` -- caller-sized to `len`, since a run only ever shrinks -- replacing every such run,
-   its opening delimiter through the nearest matching close (or through the end when the run is left unclosed), with a
-   single space, matching DOMPurify's SAFE_FOR_TEMPLATES. Returns the written length and sets *changed when a run was
-   collapsed, so a caller rewrites the node only when the value held a marker. */
-static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_UCS4 *out, int *changed) {
-    Py_ssize_t write = 0;
-    *changed = 0;
-    Py_ssize_t read = 0;
+static Py_ssize_t template_start(const Py_UCS4 *data, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index + 1 < len; index++) {
+        if (((data[index] == '{' || data[index] == '$') && data[index + 1] == '{') ||
+            (data[index] == '<' && data[index + 1] == '%')) {
+            return index;
+        }
+    }
+    return len;
+}
+
+/* Template engines can evaluate markers after sanitization; collapse runs through their nearest close. */
+static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_UCS4 *out, Py_ssize_t start) {
+    memcpy(out, in, (size_t)start * sizeof(Py_UCS4));
+    Py_ssize_t write = start;
+    Py_ssize_t read = start;
     while (read < len) {
         Py_UCS4 opener = in[read];
         Py_UCS4 next = read + 1 < len ? in[read + 1] : 0;
@@ -1279,27 +1312,24 @@ static Py_ssize_t strip_template_markers(const Py_UCS4 *in, Py_ssize_t len, Py_U
             }
         }
         out[write++] = ' ';
-        *changed = 1;
         read = scan;
     }
     return write;
 }
 
-/* Collapse the template markers in one kept attribute's value, rewriting it in place when SAFE_FOR_TEMPLATES is on and
-   the value held a marker. Returns 0, or -1 on allocation failure. */
 static int strip_attr_templates(sanitizer *s, th_node *element, th_node_attr *attr) {
-    Py_UCS4 *out = PyMem_Malloc((size_t)(attr->value_len > 0 ? attr->value_len : 1) * sizeof(Py_UCS4));
+    Py_ssize_t start = template_start(attr->value, attr->value_len);
+    if (start == attr->value_len) {
+        return 0;
+    }
+    Py_UCS4 *out = PyMem_Malloc((size_t)attr->value_len * sizeof(Py_UCS4));
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int changed = 0;
-    Py_ssize_t out_len = strip_template_markers(attr->value, attr->value_len, out, &changed);
-    int status = 0;
-    if (changed) {
-        Py_ssize_t name_len = 0;
-        const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        status = th_node_attr_set(s->tree, element, name, name_len, out, out_len, 1);
-    }
+    Py_ssize_t out_len = strip_template_markers(attr->value, attr->value_len, out, start);
+    Py_ssize_t name_len = 0;
+    const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
+    int status = th_node_attr_set(s->tree, element, name, name_len, out, out_len, 1);
     PyMem_Free(out);
     return status;
 }
@@ -1522,9 +1552,9 @@ static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObjec
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-        int allowed = is_event_attribute(name, name_len) ? 0 : attr_allowed(s, tag, name, name_len);
-        if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: attr_allowed only fails on allocation failure */
-            return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        int allowed = is_event_attribute(name, name_len) ? 0 : attr_allowed(s, tag, attr->name_atom, name, name_len);
+        if (allowed < 0) {
+            return -1;
         }
         if (allowed) {
             if (kept != index) {
@@ -1542,8 +1572,8 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
                     s->custom_attribute_check == Py_None && s->custom_element_check == Py_None;
     /* The private tree has no observers or cached lookups before sanitization returns. */
     if (compacted) {
-        if (compact_disallowed_attributes(s, element, tag) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (compact_disallowed_attributes(s, element, tag) < 0) {
+            return -1;
         }
     }
     Py_ssize_t index = 0;
@@ -1554,9 +1584,9 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         const char *name = compacted ? NULL : th_attr_name(s->tree, attr->name_atom, &name_len);
         int drop = !compacted && is_event_attribute(name, name_len);
         if (!compacted && !drop) {
-            int allowed = attr_allowed(s, tag, name, name_len);
-            if (allowed < 0) { /* GCOVR_EXCL_BR_LINE: attr_allowed only fails on allocation failure */
-                return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            int allowed = attr_allowed(s, tag, attr->name_atom, name, name_len);
+            if (allowed < 0) {
+                return -1;
             }
             if (!allowed) {
                 /* an unlisted attribute survives on a kept custom element only when custom_attribute_check admits it,
@@ -1676,14 +1706,20 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyObject *pieces = PyList_New(element->attr_count + 1);
+    if (pieces == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(out);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    PyList_SET_ITEM(pieces, 0, out);
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *name_str = PyUnicode_FromStringAndSize(name, name_len);
-        if (name_str == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(out);     /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;        /* GCOVR_EXCL_LINE */
+        if (name_str == NULL) {
+            Py_DECREF(pieces);
+            return NULL;
         }
         PyObject *piece;
         if (attr->value == NULL) {
@@ -1692,22 +1728,29 @@ static PyObject *open_tag(sanitizer *s, th_node *element) {
             PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
             if (value == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 Py_DECREF(name_str); /* GCOVR_EXCL_LINE: allocation-failure path */
-                Py_DECREF(out);      /* GCOVR_EXCL_LINE */
+                Py_DECREF(pieces);   /* GCOVR_EXCL_LINE */
                 return NULL;         /* GCOVR_EXCL_LINE */
             }
             piece = th_str_format(" %U=\"%U\"", name_str, value);
             Py_DECREF(value);
         }
         Py_DECREF(name_str);
-        if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(out);  /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;     /* GCOVR_EXCL_LINE */
+        if (piece == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(pieces); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE */
         }
-        Py_SETREF(out, PyUnicode_Concat(out, piece));
-        Py_DECREF(piece);
-        if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
+        PyList_SET_ITEM(pieces, index + 1, piece);
+    }
+    PyObject *separator = PyUnicode_FromString("");
+    if (separator == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(pieces);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE */
+    }
+    out = PyUnicode_Join(separator, pieces);
+    Py_DECREF(separator);
+    Py_DECREF(pieces);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_SETREF(out, th_str_format("%U>", out));
     return out; /* NULL on allocation failure; the caller checks */
@@ -1991,27 +2034,25 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept, enu
     return status;
 }
 
-/* Rewrite one text node in place with its template markers collapsed, when SAFE_FOR_TEMPLATES is on and the node held a
-   marker. Returns 0, or -1 on allocation failure. */
 static int strip_text_templates(sanitizer *s, th_node *node) {
-    Py_ssize_t len = 0;
-    Py_UCS4 *data = th_node_data(s->tree, node, &len);
+    if (node->text_len < 2) {
+        return 0;
+    }
+    const Py_UCS4 *data = th_node_realize_text(s->tree, node);
     if (data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_UCS4 *out = PyMem_Malloc((size_t)len * sizeof(Py_UCS4)); /* a text node carries >= 1 point, so len >= 1 */
-    if (out == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(data); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;        /* GCOVR_EXCL_LINE */
+    Py_ssize_t start = template_start(data, node->text_len);
+    if (start == node->text_len) {
+        return 0;
     }
-    int changed = 0;
-    Py_ssize_t out_len = strip_template_markers(data, len, out, &changed);
-    int status = 0;
-    if (changed) {
-        status = th_node_set_data(s->tree, node, out, out_len);
+    Py_UCS4 *out = PyMem_Malloc((size_t)node->text_len * sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    Py_ssize_t out_len = strip_template_markers(data, node->text_len, out, start);
+    int status = th_node_set_data(s->tree, node, out, out_len);
     PyMem_Free(out);
-    PyMem_Free(data);
     return status;
 }
 
@@ -2571,6 +2612,7 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         return NULL;                                    /* GCOVR_EXCL_LINE */
     }
     int failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
+    Py_XDECREF(s.prefix_tuple);
     Py_DECREF(s.star);
     Py_DECREF(s.re_search);
     if (failed) {

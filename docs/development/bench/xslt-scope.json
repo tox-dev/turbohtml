@@ -1,0 +1,55 @@
+{
+  "label": "bind XSLT variables",
+  "parties": [
+    "turbohtml",
+    "lxml.etree"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "1,024 local variables",
+      0.0007704838590143481,
+      0.0007373747415992208
+    ],
+    [
+      "4 local variables",
+      5.143963358970419e-07,
+      5.02077197891045e-06
+    ],
+    [
+      "1,024 global variables",
+      0.0007744719512932837,
+      0.00013257797570531693
+    ],
+    [
+      "4 global variables",
+      4.855540728006721e-07,
+      4.9593586351666845e-06
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.0025116489135629397,
+      0.07084857254473009
+    ],
+    [
+      null,
+      0.01711571646048566,
+      0.011184747601677713
+    ],
+    [
+      null,
+      0.021304119424905527,
+      0.01619766156696525
+    ],
+    [
+      null,
+      0.022758779474267188,
+      0.012399669605370405
+    ]
+  ],
+  "notes": {
+    "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing"
+  }
+}

@@ -12,4 +12,7 @@ def normalize(text: str) -> None:
     unicodedata.normalize("NFC", text)
 
 
-OPERATIONS = {"normalize": (normalize, "unicodedata")}
+OPERATIONS = {
+    "normalize": (normalize, "unicodedata"),
+    "normalize-marks": (normalize, "unicodedata"),
+}

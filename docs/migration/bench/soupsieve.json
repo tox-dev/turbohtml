@@ -90,6 +90,106 @@
       "escape 1,000 raw CSS identifiers — mixed shapes (1,000)",
       6.690426293687324e-05,
       0.001079754202616338
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, > a",
+      1.3885563943105694e-07,
+      1.6842321175640034e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.0681020538398182e-07,
+      1.2365750627907346e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      1.1013886006920141e-07,
+      1.2300208188283554e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      2.77636203471765e-07,
+      3.315442313578387e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      7.404537988679275e-07,
+      0.0001792730543570542
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      6.391629377618576e-07,
+      0.0001325200806453116
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      6.399140752103941e-07,
+      0.00013025326544872465
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      6.734320119032115e-06,
+      0.0022917296567660137
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.928978808808419e-07,
+      0.0001443306545828212
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      3.672821787740569e-06,
+      0.0010475216464935027
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + section a",
+      1.890920160600255e-06,
+      0.0002396097545442899
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      4.909409281328436e-07,
+      0.002201493814936839
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.6347832121919055e-06,
+      0.0031003527001303155
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + section a",
+      2.8901645237056073e-05,
+      0.0038663697881323364
+    ],
+    [
+      "select default form controls — 1 forms, 4096 spans, 128 buttons, button",
+      1.5261182796007706e-06,
+      0.002362451066498276
+    ],
+    [
+      "select default form controls — 1 form, 4096 spans, 128 explicit submit buttons",
+      2.028047010564175e-05,
+      0.013097341121465433
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      0.0037711985648153736
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.363368524160857
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (100 siblings)",
+      1.4514325199499467e-06,
+      0.006094040471604482
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (1,000 siblings)",
+      1.37065455092511e-05,
+      0.5825016493326984
     ]
   ],
   "spread": [
@@ -177,7 +277,112 @@
       null,
       0.018333627446141816,
       0.007448910606025241
+    ],
+    [
+      null,
+      0.02314786359323234,
+      0.020450303682472467
+    ],
+    [
+      null,
+      0.030784628890710524,
+      0.005521281895904502
+    ],
+    [
+      null,
+      0.059736174292059976,
+      0.007007208455894854
+    ],
+    [
+      null,
+      0.008852151016689598,
+      0.004363402368136092
+    ],
+    [
+      null,
+      0.025870209813203208,
+      0.006299690285009781
+    ],
+    [
+      null,
+      0.04388805631356805,
+      0.01056361736684167
+    ],
+    [
+      null,
+      0.05860303187818175,
+      0.005927478610661847
+    ],
+    [
+      null,
+      0.006424903220778169,
+      0.008074768156847831
+    ],
+    [
+      null,
+      0.028210449952114074,
+      0.005870719616673203
+    ],
+    [
+      null,
+      0.020437377963544757,
+      0.010176993128239093
+    ],
+    [
+      null,
+      0.010683879761689257,
+      0.00924736320267648
+    ],
+    [
+      null,
+      0.02973841127722554,
+      0.022638544524819816
+    ],
+    [
+      null,
+      0.0010004073034455116,
+      0.012756430230160687
+    ],
+    [
+      null,
+      0.017949384350110092,
+      0.003662131360603463
+    ],
+    [
+      null,
+      0.018629330046011305,
+      0.024947922055458194
+    ],
+    [
+      null,
+      0.01967096810184678,
+      0.00412187022234827
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.01589883996536962
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.003548493934181583
+    ],
+    [
+      null,
+      0.007544874315735023,
+      0.009535950261662107
+    ],
+    [
+      null,
+      0.013001379470947901,
+      0.006738032964279711
     ]
   ],
-  "row_notes": {}
+  "row_notes": {
+    "33": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "34": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "35": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "36": "10,000-sibling cases exceed the sampling budget; no timings collected"
+  }
 }

@@ -21,4 +21,5 @@ OPERATIONS = {
     "minify-js-single-use": (minify_js, "rjsmin"),
     "minify-js-sequences": (minify_js, "rjsmin"),
     "minify-js": (minify_js, "rjsmin"),
+    "minify-js-names": (minify_js, "rjsmin"),
 }

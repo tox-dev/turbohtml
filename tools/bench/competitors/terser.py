@@ -23,4 +23,5 @@ OPERATIONS = {
     "minify-js-single-use": (minify_js, "terser"),
     "minify-js-sequences": (minify_js, "terser"),
     "minify-js": (minify_js, "terser"),
+    "minify-js-names": (minify_js, "terser"),
 }

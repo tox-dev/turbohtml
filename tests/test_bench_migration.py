@@ -115,6 +115,23 @@ def test_spread_aligns_with_every_variant(tmp_path: Path) -> None:
     assert feed["spread"] == [[None, 0.01, 0.02, 0.03]]
 
 
+def test_note_uses_the_operation_label(tmp_path: Path) -> None:
+    output: Final = tmp_path / "out"
+    output.mkdir()
+    emit_migration_feeds(
+        {
+            "transform-key|sample|turbohtml": {"mean": 1.0},
+            "transform-key|sample|lxml.etree": {"mean": 2.0},
+        },
+        _competitor_dir(tmp_path, {"lxml": {"parse": "lxml", "transform-key": "lxml.etree"}}),
+        output,
+        _docs_root(tmp_path, "lxml"),
+    )
+    assert json.loads((output / "lxml.json").read_text())["row_notes"] == {
+        "0": "returns an XSLT result tree; conversion to a Python string is outside timing"
+    }
+
+
 @pytest.mark.parametrize("operation", ["minify", "minify-css", "minify-js", "minify-js-sequences"])
 def test_size_operations_keep_output_bytes_and_timing_spread(tmp_path: Path, operation: str) -> None:
     feed: Final = _emit(

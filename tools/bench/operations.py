@@ -270,6 +270,7 @@ SIZE_OPS: Final[frozenset[str]] = frozenset({
     "minify-css-merges",
     "minify-js",
     "minify-js-integers",
+    "minify-js-names",
     "minify-js-sequences",
     "minify-js-guards",
     "minify-js-propagation",
@@ -302,6 +303,7 @@ OPERATIONS: dict[str, Operation] = {
     "shadow-fallback": Operation("flatten nested fallback slots", "us"),
     "startup": Operation("start a fresh Python process", "ms"),
     "parse": Operation("parse to a tree", "us"),
+    "parse-encoded": Operation("parse encoded bytes to a tree", "us"),
     "parse-formatting": Operation("parse under a formatting ancestor", "us"),
     "parse-foster": Operation("parse foster-parented text", "us"),
     "parse-crlf": Operation("parse normalized newlines", "us"),
@@ -316,6 +318,8 @@ OPERATIONS: dict[str, Operation] = {
     "parse-xml-text": Operation("parse XML text runs", "us"),
     "parse-xml-prefixes": Operation("parse XML namespace attributes", "us"),
     "parse-xml-names": Operation("parse growing XML names", "ms"),
+    "is-valid": Operation("XSD validation verdict", "us"),
+    "is-valid-rng": Operation("RELAX NG validation verdict", "us"),
     "validate": Operation("validate a document against an XSD schema", "us"),
     "validate-rng": Operation("validate a document against a RELAX NG schema", "us"),
     "validate-rng-reuse": Operation("validate repeated RELAX NG content models", "us"),
@@ -344,7 +348,9 @@ OPERATIONS: dict[str, Operation] = {
     "find-cold": Operation("query a cold 10,000-element tree", "us"),
     "select": Operation("select div a[href]", "us"),
     "select-has": Operation("select div:has(a)", "us"),
+    "select-default": Operation("select default form controls", "us"),
     "select-nth": Operation("select sibling positions in wide trees", "ms"),
+    "select-relative": Operation("select child and sibling relationships", "us"),
     "xpath-wide": Operation("order XPath results in wide trees", "ms"),
     "xpath-distinct": Operation("deduplicate XPath string values", "us"),
     "xpath-set": Operation("compare XPath node-set membership", "us"),
@@ -378,6 +384,8 @@ OPERATIONS: dict[str, Operation] = {
     "computed-style-dense": Operation("computed style over a property-dense sheet", "us"),
     "match": Operation("match each anchor against div a[href]", "us"),
     "find-text": Operation("find by text content", "us"),
+    "find-text-exact": Operation("find by exact descendant text", "us"),
+    "find-attr-presence": Operation("find by attribute presence", "us"),
     "find-text-overlap": Operation("find by overlapping literal regex", "us"),
     "text-content": Operation("collect visible text", "us"),
     "parse-inner": Operation("parse and serialize body children", "us"),
@@ -434,6 +442,7 @@ OPERATIONS: dict[str, Operation] = {
     "microdata-itemref": Operation("resolve Microdata item references", "ms"),
     "syndication": Operation("RSS/Atom feed parsing", "us"),
     "sanitize": Operation("sanitize", "us"),
+    "sanitize-disallowed": Operation("sanitize disallowed tags", "us"),
     "sanitize-templates": Operation("sanitize (template-safe)", "us"),
     "sanitize-named-props": Operation("sanitize (named-prop isolation)", "us"),
     "sanitize-report": Operation("sanitize with audit trail", "us"),
@@ -452,6 +461,7 @@ OPERATIONS: dict[str, Operation] = {
     "phone": Operation("detect phone numbers in text", "us"),
     "phone-parse": Operation("parse held phone numbers", "us"),
     "phone-format": Operation("format phone numbers", "us"),
+    "phone-construct": Operation("construct and validate phone numbers", "us"),
     "markdown-wrap": Operation("wrap short Markdown words", "us"),
     "markdown": Operation("HTML to Markdown", "us"),
     "markdown-google": Operation("Google Docs export to Markdown", "us"),
@@ -466,6 +476,7 @@ OPERATIONS: dict[str, Operation] = {
     "text-collapsed": Operation("collapsed word stream", "us"),
     "text-main": Operation("main-content text", "us"),
     "text-annotated": Operation("annotated layout text", "us"),
+    "text-annotation-rules": Operation("annotated layout text by rule distribution", "us"),
     "extract-attr": Operation("extract @href per match", "us"),
     "extract-text": Operation("extract text per match", "us"),
     "extract-url": Operation("extract URL hints", "us"),
@@ -486,6 +497,10 @@ OPERATIONS: dict[str, Operation] = {
     "transform-compile": Operation("compile an XSLT stylesheet with 300 templates", "us"),
     "transform-reuse": Operation("apply one compiled 300-template stylesheet ten times", "us"),
     "transform-sort": Operation("XSLT sort node sets", "ms"),
+    "transform-key": Operation("build XSLT key indexes", "us"),
+    "transform-scope": Operation("bind XSLT variables", "us"),
+    "transform-namespaces": Operation("copy XSLT namespace declarations", "us"),
+    "transform-namespaces-once": Operation("compile and apply a namespaced XSLT stylesheet", "us"),
     "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
     "transform-names-compile": Operation("compile XSLT declaration indexes", "us"),
     "transform-names": Operation("resolve XSLT declaration names", "us"),
@@ -495,6 +510,7 @@ OPERATIONS: dict[str, Operation] = {
     "minify-css-conflicts": Operation("merge CSS rules across disjoint declarations", "us"),
     "minify-css-merges": Operation("batch CSS rule merges", "us"),
     "minify-js": Operation("minify a JS library", "ms"),
+    "minify-js-names": Operation("minify JavaScript with function parameters", "us"),
     "minify-js-integers": Operation("print JavaScript integer arrays", "us"),
     "minify-js-unlink": Operation("remove mixed JavaScript declarators", "us"),
     "minify-js-unused-declarations": Operation("remove unused JavaScript declarators", "us"),
@@ -506,6 +522,7 @@ OPERATIONS: dict[str, Operation] = {
     "stream": Operation("push-parse a page in chunks", "us"),
     "encoding-result": Operation("construct the winning encoding result", "us"),
     "encoding-result-stream": Operation("construct the streamed encoding result", "us"),
+    "encoding-chunks": Operation("detect encoding across byte chunks", "us"),
     "encoding": Operation("detect a byte stream's encoding", "us"),
     "decode": Operation("decode a legacy byte stream", "us"),
     "normalize": Operation("normalize text to Unicode NFC", "us"),
@@ -519,6 +536,9 @@ OPERATIONS: dict[str, Operation] = {
     "urls-clean": Operation("clean and normalize 100 URLs", "us"),
     "links-filter": Operation("extract filtered page links", "us"),
     "links-external": Operation("extract links outside the base site", "ms"),
+    "serialize-attributes": Operation("serialize HTML attribute order", "us"),
+    "serialize-named": Operation("serialize HTML named entities", "us"),
+    "transform-text": Operation("XSLT text emission", "us"),
 }
 
 
@@ -562,6 +582,23 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     label, relative, encoding = corpus.CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
     pages.append((label, corpus.corpus_text(relative, encoding)))
     return tuple(pages)
+
+
+def _stream_cases() -> tuple[tuple[str, object], ...]:
+    wide_paragraph: Final = "<p>" + "名" * 4089 + "</p>"
+    wide_body: Final = wide_paragraph * 64
+    prefix: Final = "<html><head></head><body>"
+    suffix: Final = "</body></html>"
+    nul_element: Final = "<p data-x='\x00'></p>"
+    return (
+        *_readpath_cases(),
+        ("64 BMP paragraphs, early NUL", prefix + nul_element + wide_body + suffix),
+        ("one BMP paragraph, early NUL", prefix + nul_element + wide_paragraph + suffix),
+        ("64 BMP paragraphs, late NUL", prefix + wide_body + nul_element + suffix),
+        ("64 BMP paragraphs, no NUL", prefix + wide_body + suffix),
+        ("64 ASCII paragraphs, early NUL", prefix + nul_element + ("<p>" + "a" * 4089 + "</p>") * 64 + suffix),
+        ("64 supplementary paragraphs, early NUL", prefix + nul_element + ("<p>" + "😀" * 4089 + "</p>") * 64 + suffix),
+    )
 
 
 def _radio_group_cases() -> tuple[tuple[str, tuple[int, int, int, str]], ...]:
@@ -977,6 +1014,85 @@ def _dense_styled_page(sections: int) -> str:
     return f"<html><head><style>{_DENSE_SHEET}</style></head><body>{section * sections}</body></html>"
 
 
+def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
+    unrelated = (
+        *tuple(
+            (tag, (tag,))
+            for tag in (
+                "a",
+                "abbr",
+                "address",
+                "article",
+                "aside",
+                "audio",
+                "b",
+                "bdi",
+                "bdo",
+                "blockquote",
+                "button",
+                "canvas",
+                "caption",
+                "cite",
+                "code",
+                "col",
+                "colgroup",
+                "data",
+                "datalist",
+                "dd",
+                "del",
+                "details",
+                "dfn",
+                "dialog",
+                "div",
+                "dl",
+                "dt",
+                "em",
+                "fieldset",
+                "figcaption",
+                "figure",
+                "footer",
+                "form",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "header",
+                "hgroup",
+                "hr",
+                "i",
+                "iframe",
+                "img",
+                "input",
+                "ins",
+                "kbd",
+            )
+        ),
+        ("span", ("match",)),
+    )
+    attributes = " ".join(f'data-{index}="yes"' for index in range(49))
+    broad = f"<p>{f'<span {attributes}>x</span>' * 1_000}</p>"
+    return (
+        ("49 mostly irrelevant rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated)),
+        ("49 wildcard rules, 1,000 spans", (broad, tuple((f"#data-{index}", (str(index),)) for index in range(49)))),
+        (
+            "49 matching tag rules, 1,000 spans",
+            (broad, tuple((f"span#data-{index}", (str(index),)) for index in range(49))),
+        ),
+        ("49 mostly irrelevant rules, one span", ("<p><span>x</span></p>", unrelated)),
+        ("three rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated[-3:])),
+        (
+            "interleaved wildcard rules, alternating tags",
+            (
+                "<p>" + '<span data-x="yes">x</span><b data-x="yes">y</b>' * 500 + "</p>",
+                (("span", ("span",)), ("#data-x", ("wild",)), ("b", ("bold",)), *unrelated[:5]),
+            ),
+        ),
+        ("eight rules, one span", ("<p><span>x</span></p>", (*unrelated[:7], unrelated[-1]))),
+    )
+
+
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
     """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
     _name, relative, encoding = corpus.CORPUS_FILES[2]
@@ -1012,6 +1128,94 @@ _XSLT_SOURCE = (
 )
 
 
+def _transform_text_cases() -> tuple[tuple[str, object], ...]:
+    cases: Final[list[tuple[str, object]]] = []
+    payload: Final = "payload " * 8
+    for kind in ("builtin", "literal", "xsl:text"):
+        for count in (4096, 4):
+            if kind == "builtin":
+                body = "<xsl:apply-templates/>"
+                source = "<r>" + ("<p>" + payload + "</p>") * count + "</r>"
+            else:
+                body = (payload + "<!--gap-->" if kind == "literal" else "<xsl:text>" + payload + "</xsl:text>") * count
+                source = "<r/>"
+            sheet = (
+                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+            )
+            cases.append((f"{count} {kind} text nodes", (sheet, source)))
+    return tuple(cases)
+
+
+def _transform_key_cases() -> tuple[tuple[str, object], ...]:
+    return tuple(
+        (
+            f"{label} ({count:,} nodes)",
+            (
+                (
+                    '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+                    f'<xsl:key name="k" match="i" use="{use}"/><xsl:output method="text"/>'
+                    f'<xsl:template match="/"><xsl:value-of select="count(key(&quot;k&quot;,&quot;{wanted}&quot;))"/>'
+                    "</xsl:template></xsl:stylesheet>"
+                ),
+                "<r>" + "".join(item.format(index=index) for index in range(count)) + "</r>",
+            ),
+        )
+        for label, use, wanted, item, count in (
+            ("shared scalar key", "'same'", "same", "<i/>", 8192),
+            ("shared attribute key", "@key", "same", '<i key="same"/>', 8192),
+            ("repeated node-set keys", "t", "same", "<i><t>same</t><t>other</t><t>same</t></i>", 2048),
+            ("unique keys", "@key", "k0", '<i key="k{index}"/>', 8192),
+            ("small shared key", "'same'", "same", "<i/>", 4),
+        )
+    )
+
+
+def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
+    cases: Final[list[tuple[str, object]]] = []
+    for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
+        declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
+        sheet: Final = (
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:output method="text"/>'
+            f'{declarations if scope == "global" else ""}<xsl:template match="/">'
+            f'{declarations if scope == "local" else ""}<xsl:value-of select="$v0 + $v{count - 1}"/>'
+            "</xsl:template></xsl:stylesheet>"
+        )
+        cases.append((f"{count:,} {scope} variables", (sheet, "<r/>")))
+    return tuple(cases)
+
+
+def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
+    cases: Final[list[tuple[str, object]]] = []
+    for label, depth, count, namespaced, alternating in (
+        ("deep repeated leaf", 32, 512, True, False),
+        ("deep alternating leaves", 32, 512, True, True),
+        ("shallow repeated leaf", 1, 512, True, False),
+        ("single leaf", 1, 1, True, False),
+        ("namespace-free repeated leaf", 32, 512, False, False),
+    ):
+        prefix: Final = f"p{(depth - 1) % 8}:" if namespaced else ""
+        ancestors: Final = "".join(
+            f'<xsl:if test="1" xmlns:p{index % 8}="urn:{index}">' if namespaced else '<xsl:if test="1">'
+            for index in range(depth)
+        )
+        # Use each binding so competitors retain the same namespace declarations.
+        attributes: Final = (
+            "".join(f' p{index}:a=""' for index in range(min(depth - 1, 7) - 1, -1, -1)) if namespaced else ""
+        )
+        sheet: Final = (
+            '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+            '<xsl:output method="xml" omit-xml-declaration="yes"/><xsl:template match="/">'
+            f'<out><xsl:for-each select="r/n">{ancestors}<{prefix}leaf{attributes}/>'
+            + (f"<{prefix}other{attributes}/>" if alternating else "")
+            + "</xsl:if>" * depth
+            + "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
+        )
+        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, "<r>" + "<n/>" * count + "</r>")))
+    return tuple(cases)
+
+
 def _transform_cases() -> tuple[tuple[str, object], ...]:
     """Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog."""
     return (("catalog (120 rows)", (_XSLT_SHEET, _XSLT_SOURCE)),)
@@ -1044,13 +1248,22 @@ _XSLT_SORT_SHEET: Final = (
 
 
 def _transform_sort_cases() -> tuple[tuple[str, object], ...]:
-    """Return shuffled numeric sorts at sizes that expose node-set scaling."""
     return tuple(
         (
-            f"numeric sort ({rows:,} rows)",
-            (_XSLT_SORT_SHEET, "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>"),
+            f"{label} ({rows:,} rows)",
+            (
+                _XSLT_SORT_SHEET.replace('select="@key" data-type="number"', f'select="{select}" data-type="{kind}"'),
+                "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>",
+            ),
         )
-        for rows in (120, 2_000)
+        for label, select, kind, sizes in (
+            ("numeric sort", "@key", "number", (120, 2_000)),
+            ("integer expression sort", "number(@key)", "number", (8, 2_000)),
+            ("string expression numeric sort", "string(@key)", "number", (8, 2_000)),
+            ("text sort", "@key", "text", (8, 2_000)),
+            ("fraction expression sort", "number(@key) div 7", "number", (8, 2_000)),
+        )
+        for rows in sizes
     )
 
 
@@ -1282,8 +1495,44 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
 
 
 def _minify_cases() -> tuple[tuple[str, object], ...]:
-    """Return the real-world stylesheets the CSS-minify suite runs over (fetched and cached on first use)."""
-    return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS)
+    return (
+        *((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS),
+        *(
+            (
+                f"{count} {'reversed' if reverse else 'sorted'} Unicode ranges",
+                "@font-face{unicode-range:"
+                + ",".join(f"U+{index * 2:X}" for index in (reversed(range(count)) if reverse else range(count)))
+                + "}",
+            )
+            for count, reverse in ((8, True), (1024, False), (1024, True))
+        ),
+        *(
+            (
+                f"{count} rules, {label}",
+                "".join(f".number{index}{{{value.format(index=index)}}}" for index in range(1, count + 1)),
+            )
+            for label, value, count in (
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 1),
+                ("zero exponent 10000", "width:calc(0e10000px + {index}px)", 128),
+                ("zero exponent 2", "width:calc(0e2px + {index}px)", 128),
+                ("ordinary arithmetic", "width:calc(1e2px + {index}px)", 128),
+                ("negative exponent", "width:calc(1e-2px + {index}px)", 128),
+                ("large dimension exponent", "width:1e10000px", 128),
+                ("unitless exponent", "z-index:1e4", 128),
+            )
+        ),
+        *(
+            (
+                f"{depth} nested variable fallbacks",
+                "a{width:" + "var(--x," * depth + "1px" + ")" * depth + "}",
+            )
+            for depth in (64, 4)
+        ),
+        (
+            "shallow transform and font functions",
+            'a{transform:translate(10px,0) scale(1,1)}@font-face{font-family:x;src:local("Arial")}',
+        ),
+    )
 
 
 def _minify_js_cases() -> tuple[tuple[str, object], ...]:
@@ -1402,6 +1651,12 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
         ("nfc french (4 kB)", french),
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
         ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
+        ("32 KiB ASCII prefix, composable suffix", "abc " * 8192 + "e\u0301"),
+        ("small ASCII prefix, composable suffix", "abc e\u0301"),
+        ("4,096 composable combining pairs", "e\u0301" * 4096),
+        ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
+        ("10,000 Hebrew combining marks", "\u05d0" + "\u05b1" * 5000 + "\u05b0" * 5000),
+        ("4,096 supplementary characters, composable suffix", "😀" * 4096 + "e\u0301"),
     )
 
 
@@ -1549,6 +1804,18 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
     )
 
 
+def _encoding_chunks_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
+    ascii_body: Final = (_ENCODING_ASCII * 900).encode()[:65536]
+    japanese: Final = _ENCODING_JAPANESE.encode("shift_jis")
+    mixed: Final = japanese + ascii_body
+    return (
+        ("Japanese prefix, 64 KiB ASCII suffix, 4 KiB chunks", (4096, mixed)),
+        ("Japanese prefix, short ASCII suffix, 16-byte chunks", (16, japanese + b"plain ASCII suffix")),
+        ("Japanese prefix, 64 KiB ASCII suffix, one feed", (len(mixed), mixed)),
+        ("64 KiB ASCII, 4 KiB chunks", (4096, ascii_body)),
+    )
+
+
 def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
     return (
         ("short ambiguous legacy bytes", "déjà vu, bientôt à Paris".encode("cp1252")),
@@ -1582,6 +1849,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ),
     ),
     "parse": _parse_cases,
+    "parse-encoded": lambda: (
+        ("tiny UTF-16LE", ("utf-16le", "<p>café</p>".encode("utf-16le"))),
+        ("tiny UTF-16BE", ("utf-16be", "<p>café</p>".encode("utf-16be"))),
+        ("tiny UTF-8", ("utf-8", "<p>café</p>".encode())),
+        ("16 KiB UTF-16LE", ("utf-16le", ("<p>" + "café" * 2048 + "</p>").encode("utf-16le"))),
+    ),
     "parse-foster": lambda: tuple(
         (
             f"{count:,} table rows / fostered text runs",
@@ -1665,8 +1938,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "validate": lambda: (
         ("catalog XSD + doc", (_VALIDATE_XSD, _VALIDATE_DOC)),
         ("1,024 global declarations", (_VALIDATE_GLOBAL_XSD, _VALIDATE_GLOBAL_DOC)),
+        *_validation_verdict_cases(_VALIDATE_XSD)[:1],
     ),
-    "validate-rng": lambda: (("catalog RNG + doc", (_VALIDATE_RNG, _VALIDATE_DOC)),),
+    "validate-rng": lambda: (
+        ("catalog RNG + doc", (_VALIDATE_RNG, _VALIDATE_DOC)),
+        *_validation_verdict_cases(_VALIDATE_RNG)[:1],
+    ),
     "validate-rng-reuse": _validate_rng_reuse_cases,
     "compile-rng-reuse": lambda: tuple((label, case[0]) for label, case in _validate_rng_reuse_cases()[::2]),
     "validate-facets": lambda: (
@@ -1783,6 +2060,52 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find-cold": lambda: _FIND_COLD_CASES,
     "select": _readpath_cases,
     "select-has": _readpath_cases,
+    "select-relative": lambda: (
+        *tuple(
+            (
+                f"{size} nested elements, {relative}",
+                (f"div:has({relative})", "<div>" * size + "<a></a>" + "</div>" * size),
+            )
+            for size in (8, 100)
+            for relative in ("> a", "+ a", "~ a", "a")
+        ),
+        *tuple(
+            (
+                f"64 siblings with {depth} descendants, {relative}",
+                (
+                    f"section:has({relative})",
+                    ("<section>" + "<div>" * depth + "<a></a>" + "</div>" * depth + "</section>") * 64,
+                ),
+            )
+            for depth in (0, 64)
+            for relative in ("+ a", "~ a", "+ section a")
+        ),
+    ),
+    "select-default": lambda: (
+        *(
+            (
+                f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
+                (
+                    selector,
+                    ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+                ),
+            )
+            for forms, prefix, buttons, selector in (
+                (1, 4096, 128, ":default"),
+                (1, 512, 64, ":default"),
+                (1, 8, 4, ":default"),
+                (128, 0, 1, ":default"),
+                (1, 4096, 128, "button"),
+            )
+        ),
+        (
+            "1 form, 4096 spans, 128 explicit submit buttons",
+            (
+                ":default",
+                "<form>" + "<span>x</span>" * 4096 + "<button type=submit>go</button>" * 128 + "</form>",
+            ),
+        ),
+    ),
     "select-nth": lambda: tuple(
         (f"{selector} ({size:,} siblings)", (selector, f"<ul>{'<li class=x>value</li>' * size}</ul>"))
         for selector in ("li:nth-child(odd)", "li:nth-child(odd of .x)")
@@ -2007,6 +2330,22 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "computed-style-dense": lambda: (("dense sheet (9 kB)", _dense_styled_page(20)),),
     "match": _readpath_cases,
     "find-text": _readpath_cases,
+    "find-text-exact": lambda: (
+        ("flat matches", ("<div>needle</div>" * 1_000, "needle")),
+        ("nested matches", ("<div>" * 100 + "needle" + "</div>" * 100, "needle")),
+        ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle")),
+        ("wide early mismatch", ("<div>x" + "<b>needle</b>" * 1_000 + "</div>", "y" + "needle" * 1_000)),
+        ("wide match", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 1_000)),
+        ("wide late mismatch", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 999 + "needlx")),
+    ),
+    "find-attr-presence": lambda: tuple(
+        (
+            f"1,000 attributes, {size:,} characters, {present}",
+            (f'<p data-x="{"x" * size}">present</p><p>absent</p>' * 1_000, present),
+        )
+        for size in (0, 16, 4_096)
+        for present in (True, False)
+    ),
     "find-text-overlap": lambda: (("100 KiB overlapping miss", f"<p>{'a' * 100_000}</p>"),),
     "text-content": _readpath_cases,
     "serialize": _readpath_cases,
@@ -2025,7 +2364,23 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "strip-comments": _readpath_cases,
     "whitespace-roundtrip": _readpath_cases,
     "transform-tree": _readpath_cases,
-    "conformance": _readpath_cases,
+    "conformance": lambda: (
+        *_readpath_cases(),
+        *(
+            (name, '<!doctype html><html lang="en"><title>Sections</title><body>' + content + "</body></html>")
+            for name, content in (
+                *(
+                    (
+                        f"{count} heading-free nested sections",
+                        "<section>" * count + "<p>Text</p>" + "</section>" * count,
+                    )
+                    for count in (8, 64, 512)
+                ),
+                ("512 heading-free sibling sections", "<section><p>Text</p></section>" * 512),
+                ("512 nested sections with heading", "<section>" * 512 + "<h2>Title</h2>" + "</section>" * 512),
+            )
+        ),
+    ),
     "serialize-xml": _readpath_cases,
     "canonicalize": _readpath_cases,
     "canonicalize-attrs": lambda: tuple(
@@ -2091,7 +2446,20 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("comment", "<p>Thanks for the <a href='http://example.com'>link</a>! <script>evil()</script></p>"),
         ("post 4 KiB", _SANITIZE_POST * 20),
     ),
-    "sanitize-templates": lambda: (("templated 4 KiB", _SANITIZE_TEMPLATES * 20),),
+    "sanitize-disallowed": lambda: tuple(
+        (
+            f"{mode} tag with {count} attribute{'s' if count != 1 else ''}",
+            (mode, "<x" + "".join(f' a{index}="value"' for index in range(count)) + ">text</x>"),
+        )
+        for mode in ("escape", "strip")
+        for count in (1, 64, 1024)
+    ),
+    "sanitize-templates": lambda: (
+        ("templated 4 KiB", _SANITIZE_TEMPLATES * 20),
+        ("plain 64 KiB text", "<p>" + "Plain text " * 6_000 + "</p>"),
+        ("plain 64 KiB attribute", '<a title="' + "Plain text " * 6_000 + '">label</a>'),
+        ("late template in 64 KiB text", "<p>" + "Plain text " * 6_000 + "{{value}}</p>"),
+    ),
     "sanitize-named-props": lambda: (("clobbering 4 KiB", _SANITIZE_NAMED * 11),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-node": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
@@ -2099,6 +2467,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("1024 rejected attributes", "<p " + " ".join(f'a{index}="x"' for index in range(1_024)) + ">x</p>"),
         ("1024 allowed attributes", "<p " + " ".join(f'data-{index}="x"' for index in range(1_024)) + ">x</p>"),
         ("four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>'),
+        ("256 elements with four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 256),
     ),
     "sanitize-styles": lambda: (("styled 4 KiB", _SANITIZE_STYLES * 20),),
     "sanitize-transform": lambda: (("legacy 4 KiB", _SANITIZE_LEGACY * 13),),
@@ -2134,13 +2503,54 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "phone-parse": lambda: (
         ("20 held numbers, valid", ("valid", _PHONE_HELD)),
         ("20 held numbers, possible", ("possible", _PHONE_HELD)),
+        (
+            "20 held numbers, segmented digits",
+            (
+                "valid",
+                (
+                    (
+                        "US",
+                        (
+                            "+\U0001fbf1 \U0001fbf6\U0001fbf5\U0001fbf0-\U0001fbf2\U0001fbf5\U0001fbf3-"
+                            "\U0001fbf0\U0001fbf0\U0001fbf0\U0001fbf0"
+                        ),
+                    ),
+                )
+                * 20,
+            ),
+        ),
+        ("20 held numbers, ASCII digits", ("valid", (("US", "+1 650-253-0000"),) * 20)),
+        (
+            "20 held numbers, Arabic-Indic digits",
+            ("valid", (("US", "+\u0661 \u0666\u0665\u0660-\u0662\u0665\u0663-\u0660\u0660\u0660\u0660"),) * 20),
+        ),
+        (
+            "20 held numbers, mathematical monospace digits",
+            (
+                "valid",
+                (
+                    (
+                        "US",
+                        (
+                            "+\U0001d7f7 \U0001d7fc\U0001d7fb\U0001d7f6-\U0001d7f8\U0001d7fb\U0001d7f9-"
+                            "\U0001d7f6\U0001d7f6\U0001d7f6\U0001d7f6"
+                        ),
+                    ),
+                )
+                * 20,
+            ),
+        ),
     ),
     "phone-format": lambda: (
         ("20 numbers, international", ("international", _PHONE_HELD)),
         ("20 numbers, national", ("national", _PHONE_HELD)),
         ("20 numbers, RFC 3966", ("rfc3966", _PHONE_HELD)),
         ("20 numbers, E.164", ("e164", _PHONE_HELD)),
+        ("20 Uzbekistan numbers, international", ("international", (("UZ", "+998 90 123 45 67"),) * 20)),
+        ("20 US numbers, international", ("international", (("US", "+1 650-253-0000"),) * 20)),
+        ("20 Uzbekistan numbers, E.164", ("e164", (("UZ", "+998 90 123 45 67"),) * 20)),
     ),
+    "phone-construct": lambda: (("construct 20 US numbers", (("US", "+1 650-253-0000"),) * 20),),
     "markdown": lambda: (
         ("article (2 KiB)", ("default", _MARKDOWN_ARTICLE)),
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),
@@ -2196,6 +2606,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
     "text-main": lambda: (("main (4 KiB)", _TEXT_MAIN),),
+    "text-annotation-rules": _annotation_rule_cases,
     "text-annotated": lambda: (("annotated (4 KiB)", _TEXT_ANNOTATED),),
     "extract-attr": _readpath_cases,
     "extract-text": _readpath_cases,
@@ -2212,7 +2623,22 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "rewrite-attributes": lambda: (("1,000 new names", (1000, "<x></x>")), ("one new name", (1, "<x></x>"))),
     "path": _readpath_cases,
     "path-xpath": _readpath_cases,
-    "translate": lambda: _TRANSLATE_CASES,
+    "translate": lambda: (
+        *_TRANSLATE_CASES,
+        *tuple(
+            (f"{count} {kind} literals", ",".join([selector] * count))
+            for count in (1, 16, 128)
+            for kind, selector in (
+                ("ID", "#identifier"),
+                ("equality", '[data-x="value"]'),
+                ("long equality", '[data-x="' + "value" * 32 + '"]'),
+                ("mixed quotes", r'[data-x="it\27 s\22 x"]'),
+                ("case folded", '[data-x="VALUE" i]'),
+                ("class token", ".identifier"),
+                ("dash match", '[data-x|="en"]'),
+            )
+        ),
+    ),
     "specificity": lambda: _TRANSLATE_CASES,
     "xpath": _xpath_cases,
     "xpath-id": lambda: (("1,000 ids among 5,000 elements", _XPATH_ID_DOC),),
@@ -2220,6 +2646,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "transform-compile": _transform_compile_cases,
     "transform-reuse": _transform_compile_cases,
     "transform-sort": _transform_sort_cases,
+    "transform-key": _transform_key_cases,
+    "transform-scope": _transform_scope_cases,
+    "transform-namespaces": _transform_namespace_cases,
+    "transform-namespaces-once": lambda: (_transform_namespace_cases()[3],),
     "transform-dense": _transform_dense_cases,
     "transform-names": _transform_name_cases,
     "transform-names-compile": lambda: (_transform_name_cases()[0],),
@@ -2244,6 +2674,21 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-css-conflicts": _css_conflict_inputs,
     "minify-css-merges": _css_merge_inputs,
     "minify-js": _minify_js_cases,
+    "minify-js-names": lambda: (
+        *tuple(
+            (
+                f"{count} live parameters",
+                "function transform("
+                + ",".join(f"argument{index}" for index in range(count))
+                + "){return ["
+                + ",".join(f"argument{index}" for index in range(count))
+                + "]}",
+            )
+            for count in (8, 32, 54, 80)
+        ),
+        ("free-name conflicts", "function transform(value){return value+a+b+c}"),
+        ("no local bindings", "console.log(document.title)"),
+    ),
     "minify-js-integers": lambda: tuple(
         (
             f"{count} integers / {label}",
@@ -2341,9 +2786,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-js-sequences": lambda: tuple(
         (f"{count} expression statements", ";".join(f"f({index})" for index in range(count))) for count in (1000, 2)
     ),
-    "stream": _readpath_cases,
+    "stream": _stream_cases,
     "encoding-result": _encoding_result_cases,
     "encoding-result-stream": _encoding_result_cases,
+    "encoding-chunks": _encoding_chunks_cases,
     "encoding": _encoding_cases,
     "decode": _decode_cases,
     "normalize": _normalize_cases,
@@ -2391,10 +2837,76 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "urls-clean": lambda: (
         ("clean 100 URLs", ("clean", _URL_BATCH)),
         ("normalize 100 URLs", ("normalize", _URL_BATCH)),
+        *tuple(
+            (
+                f"normalize 100 URLs, 100 {kind} query keys",
+                ("normalize", ("https://example.org/?" + "&".join(f"{key}{index}=1" for index in range(100)),) * 100),
+            )
+            for kind, key in (("plain", "key"), ("escaped", "%6Bey"))
+        ),
+        *tuple(
+            (f"normalize 100 URLs, {name}", ("normalize", ("https://example.org/" + path,) * 100))
+            for name, path in (
+                ("8 KiB undotted paths", "a" * 8192),
+                ("short undotted paths", "products/item"),
+                ("8 KiB paths with parent segments", "a" * 8192 + "/../item"),
+                ("8 KiB paths with encoded parent segments", "a" * 8192 + "/%2e%2e/item"),
+                ("8 KiB paths with file extensions", "a" * 8192 + ".html"),
+            )
+        ),
+        *tuple(
+            (f"normalize 100 URLs, {name}", ("normalize", ("https://" + host + "/",) * 100))
+            for name, host in (
+                ("253-character ASCII hosts", ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org"))),
+                ("short ASCII hosts", "EXAMPLE.ORG"),
+                ("Unicode hosts", "MÜNCHEN.DE"),
+                ("Unicode hosts that lowercase to ASCII", "\u212a.EXAMPLE.ORG"),
+            )
+        ),
     ),
     "links-filter": _readpath_cases,
     "links-external": lambda: (
         ("900 mixed-site links", _EXTERNAL_LINKS_HTML),
         ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", "https://" + "s." * 64)),
     ),
+    "serialize-attributes": lambda: tuple(
+        (
+            f"{count} attributes, {order}, sorting {sorting}",
+            (
+                "<div "
+                + " ".join(
+                    f'a{index:04d}="value"'
+                    for index in (reversed(range(count)) if order == "reversed" else range(count))
+                )
+                + ">text</div>",
+                sorting,
+            ),
+        )
+        for count, order, sorting in (
+            (1024, "reversed", True),
+            (1024, "sorted", True),
+            (8, "reversed", True),
+            (1024, "reversed", False),
+        )
+    ),
+    "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
+    "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
+    "serialize-named": lambda: tuple(
+        (label, "<html><head></head><body><p>" + text + "</p></body></html>")
+        for label, text in (
+            ("48k named characters", "é©\u03b1Ω∑€" * 8192),
+            ("48k ASCII characters", "abcxyz" * 8192),
+            ("48k unnamed characters", "😀" * 49152),
+            ("short mixed text", "café &amp; \u03b1 😀"),
+        )
+    ),
+    "transform-text": _transform_text_cases,
 }
+
+
+def _validation_verdict_cases(schema: str) -> tuple[tuple[str, tuple[str, str]], ...]:
+    return (
+        ("400 invalid quantities", (schema, _VALIDATE_DOC.replace("<qty>", "<qty>invalid"))),
+        ("valid catalog", (schema, _VALIDATE_DOC)),
+        ("one invalid quantity", (schema, _VALIDATE_DOC.replace("<qty>", "<qty>invalid", 1))),
+    )

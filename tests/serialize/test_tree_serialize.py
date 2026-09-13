@@ -903,6 +903,20 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
         ),
         pytest.param("<p>ab12</p>", "p", Formatter.NAMED_ENTITIES, "<p>ab12</p>", id="named-keeps-unnamed"),
         pytest.param(
+            "<p>é&amp;😀\u03b1a</p>",
+            "p",
+            Formatter.NAMED_ENTITIES,
+            "<p>&eacute;&amp;😀&alpha;a</p>",
+            id="named-mixed-text",
+        ),
+        pytest.param(
+            '<p title="é&amp;😀\u03b1a">x</p>',
+            "p",
+            Formatter.NAMED_ENTITIES,
+            '<p title="&eacute;&amp;😀&alpha;a">x</p>',
+            id="named-mixed-attribute",
+        ),
+        pytest.param(
             "<p>a&lt;b&gt;c&quot;d&amp;e</p>",
             "p",
             Formatter.NAMED_ENTITIES,
@@ -1214,11 +1228,16 @@ def test_sort_attributes_orders_prefix_names(attrs: dict[str, str], expected: st
     assert Element("x", attrs).serialize(Html(sort_attributes=True)) == expected
 
 
-def test_sort_attributes_beyond_stack_buffer_uses_heap() -> None:
-    names: Final = [f"a{index:02d}" for index in range(70)]
-    element: Final = Element("x", dict.fromkeys(reversed(names), ""))
-    expected: Final = "<x " + " ".join(f'{name}=""' for name in names) + "></x>"
-    assert element.serialize(Html(sort_attributes=True)) == expected
+@pytest.mark.parametrize("count", [8, 64, 65, 1024])
+@pytest.mark.parametrize("reverse", [False, True], ids=["sorted", "reversed"])
+@pytest.mark.parametrize("xml", [False, True], ids=["html", "xml"])
+@pytest.mark.parametrize("encode", [False, True], ids=["serialize", "encode"])
+def test_sort_attributes_by_width(count: int, *, reverse: bool, xml: bool, encode: bool) -> None:
+    names: Final = sorted(f"a{index}" for index in range(count))
+    element: Final = Element("x", dict.fromkeys(reversed(names) if reverse else names, ""), children=[Text("x")])
+    options: Final = Html(xml=xml, sort_attributes=True)
+    result: Final = element.encode(options=options).decode() if encode else element.serialize(options)
+    assert result == "<x " + " ".join(f'{name}=""' for name in names) + ">x</x>"
 
 
 def test_sort_attributes_composes_with_indent() -> None:

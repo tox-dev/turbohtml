@@ -451,3 +451,44 @@ def test_encoding_sniffing(data: bytes, expected: str) -> None:
     encoding: Final = parse(data).encoding
     assert encoding is not None
     assert encoding.lower() == expected.lower()
+
+
+@pytest.mark.parametrize("encoding", ["utf-16le", "utf-16be"])
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("café😀", "café😀", id="supplementary"),
+        pytest.param("\ud800x", "�x", id="high-surrogate"),
+        pytest.param("\udc00x", "�x", id="low-surrogate"),
+        pytest.param("x\ufeffy", "x\ufeffy", id="internal-bom"),
+    ],
+)
+def test_explicit_utf16_text(encoding: str, text: str, expected: str) -> None:
+    paragraph: Final = parse(f"<p>{text}</p>".encode(encoding, "surrogatepass"), encoding=encoding).find("p")
+    assert paragraph is not None
+    assert paragraph.text == expected
+
+
+@pytest.mark.parametrize("encoding", ["utf-16le", "utf-16be"])
+def test_explicit_utf16_trailing_byte(encoding: str) -> None:
+    paragraph: Final = parse("<p>x".encode(encoding) + b"x", encoding=encoding).find("p")
+    assert paragraph is not None
+    assert paragraph.text == "x�"
+
+
+@pytest.mark.parametrize("encoding", ["utf-16le", "utf-16be", "utf-8"])
+def test_explicit_unicode_empty(encoding: str) -> None:
+    assert parse(b"", encoding=encoding).serialize() == "<html><head></head><body></body></html>"
+
+
+@pytest.mark.parametrize(
+    ("data", "encoding"),
+    [
+        pytest.param(b"\xff\xfe" + "<p>café</p>".encode("utf-16le"), "utf-16be", id="little-bom"),
+        pytest.param(b"\xfe\xff" + "<p>café</p>".encode("utf-16be"), "utf-16le", id="big-bom"),
+    ],
+)
+def test_utf16_bom_overrides_opposite_encoding(data: bytes, encoding: str) -> None:
+    paragraph: Final = parse(data, encoding=encoding).find("p")
+    assert paragraph is not None
+    assert paragraph.text == "café"

@@ -1,0 +1,1 @@
+Preserve numeric mantissas longer than 128 digits in :func:`~turbohtml.clean.minify_css`.

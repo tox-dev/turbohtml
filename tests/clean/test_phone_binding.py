@@ -925,6 +925,12 @@ def _detected(text: str, region: str) -> PhoneNumber:
             ("+12684601234", "+1 268-460-1234", "(268) 460-1234", "tel:+1-268-460-1234"),
             id="shared-code-uses-the-main-regions-formats",
         ),
+        pytest.param(
+            "+998 90 123 45 67",
+            "UZ",
+            ("+998901234567", "+998 90 123 45 67", "90 123 45 67", "tel:+998-90-123-45-67"),
+            id="last-country-code-group",
+        ),
     ],
 )
 def test_styles_write_each_layout(text: str, region: str, expected: tuple[str, str, str, str]) -> None:
@@ -971,8 +977,20 @@ def test_rfc3966_past_e164_is_a_local_number(text: str, expected: str) -> None:
     assert (parsed.country_code, parsed.national_number, parsed.extension) == (49, "200000000000000", number.extension)
 
 
-def test_hand_built_number_formats_too() -> None:
-    assert PhoneNumber(49, "30123456", None, "DE", PhoneType.FIXED_LINE).format(PhoneFormat.NATIONAL) == "030 123456"
+@pytest.mark.parametrize(
+    ("country_code", "national_number", "region", "number_type", "expected"),
+    [
+        pytest.param(49, "30123456", "DE", PhoneType.FIXED_LINE, "030 123456", id="de"),
+        pytest.param(1, "6502530000", "US", PhoneType.FIXED_LINE_OR_MOBILE, "(650) 253-0000", id="first-group"),
+        pytest.param(998, "901234567", "UZ", PhoneType.MOBILE, "90 123 45 67", id="last-group"),
+    ],
+)
+def test_hand_built_number_formats_too(
+    country_code: int, national_number: str, region: str, number_type: PhoneType, expected: str
+) -> None:
+    assert (
+        PhoneNumber(country_code, national_number, None, region, number_type).format(PhoneFormat.NATIONAL) == expected
+    )
 
 
 def test_style_must_be_a_phone_format() -> None:
@@ -1054,6 +1072,18 @@ def test_wrong_field_types(
         ),
         pytest.param(
             999, "6502530000", None, None, PhoneType.UNKNOWN, "country code 999 is not assigned", id="unassigned-code"
+        ),
+        pytest.param(
+            8, "6502530000", None, None, PhoneType.UNKNOWN, "country code 8 is not assigned", id="unassigned-one-digit"
+        ),
+        pytest.param(
+            99,
+            "6502530000",
+            None,
+            None,
+            PhoneType.UNKNOWN,
+            "country code 99 is not assigned",
+            id="unassigned-two-digit",
         ),
         pytest.param(1, "", None, "US", PhoneType.FIXED_LINE_OR_MOBILE, "2-17 digits", id="empty-nsn"),
         pytest.param(1, "6", None, "US", PhoneType.FIXED_LINE_OR_MOBILE, "2-17 digits", id="one-digit-nsn"),
@@ -1427,6 +1457,44 @@ def test_detected_numbers_round_trip_through_the_constructor() -> None:
             ("US",),
             (1, "6502530000", "12", "US", PhoneType.FIXED_LINE_OR_MOBILE),
             id="extension-before-isub",
+        ),
+        pytest.param(
+            "+\U0001fbf1 \U0001fbf6\U0001fbf5\U0001fbf0-\U0001fbf2\U0001fbf5\U0001fbf3-"
+            "\U0001fbf0\U0001fbf0\U0001fbf0\U0001fbf0",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="segmented-digits",
+        ),
+        pytest.param(
+            "+\u0661 \u0666\u0665\u0660-\u0662\u0665\u0663-\u0660\u0660\u0660\u0660",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="arabic-indic-digits",
+        ),
+        pytest.param(
+            "+\U0001d7f7 \U0001d7fc\U0001d7fb\U0001d7f6-\U0001d7f8\U0001d7fb\U0001d7f9-"
+            "\U0001d7f6\U0001d7f6\U0001d7f6\U0001d7f6",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="mathematical-monospace-digits",
+        ),
+        pytest.param(
+            "\U0001fbef+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="before-segmented-digits",
+        ),
+        pytest.param(
+            "\U0001fbfa+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="after-segmented-digits",
+        ),
+        pytest.param(
+            "\U0001d7cd+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="before-mathematical-digits",
         ),
         pytest.param(
             "030 12345678", ("US", "DE"), (49, "3012345678", None, "DE", PhoneType.FIXED_LINE), id="second-region"

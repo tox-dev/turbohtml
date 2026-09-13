@@ -115,19 +115,6 @@ static int str_holds(PyObject *text, Py_UCS4 needle) {
     return PyUnicode_FindChar(text, needle, 0, PyUnicode_GET_LENGTH(text), 1) >= 0;
 }
 
-static int str_is_ascii(PyObject *text) {
-    if (PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND) {
-        return 0;
-    }
-    const unsigned char *data = PyUnicode_1BYTE_DATA(text);
-    for (Py_ssize_t index = 0; index < PyUnicode_GET_LENGTH(text); index++) {
-        if (data[index] >= 0x80) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* The ASCII (punycode) form of a registered name the way the URL standard's host parser produces it (spec 3.5): the
    lowercased host when it is already ASCII, else UTS #46 ToASCII in C; a label punycode cannot encode (an unpaired
    surrogate) leaves the lowercased host as it is, which the later encode step then rejects. */
@@ -136,7 +123,7 @@ static PyObject *ascii_host(PyObject *host) {
     if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a host */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (str_is_ascii(lowered)) {
+    if (PyUnicode_IS_ASCII(lowered)) {
         return lowered;
     }
     PyObject *encoded = th_url_to_ascii(lowered);

@@ -763,11 +763,11 @@ static PyObject *th_decode(const th_encoding_entry *entry, const unsigned char *
         return len > 0 ? PyUnicode_FromOrdinal(0xFFFD) : PyUnicode_New(0, 0);
     }
     if (entry->kind == TH_DEC_UTF8) {
-        return PyUnicode_Decode((const char *)bytes, len, "utf-8", "replace");
+        return PyUnicode_DecodeUTF8((const char *)bytes, len, "replace");
     }
     if (entry->kind == TH_DEC_UTF16LE || entry->kind == TH_DEC_UTF16BE) {
-        return PyUnicode_Decode((const char *)bytes, len, entry->kind == TH_DEC_UTF16LE ? "utf-16-le" : "utf-16-be",
-                                "replace");
+        int byteorder = entry->kind == TH_DEC_UTF16LE ? -1 : 1;
+        return PyUnicode_DecodeUTF16((const char *)bytes, len, "replace", &byteorder);
     }
     /* ISO-2022-JP is the one legacy encoding whose escapes can reinterpret an all-ASCII stream */
     if (entry->kind != TH_DEC_ISO_2022_JP && th_decode_ascii_run(bytes, len) == len) {

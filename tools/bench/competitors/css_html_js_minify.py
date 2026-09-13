@@ -35,4 +35,5 @@ OPERATIONS = {
     "minify-js-single-use": (minify_js, "css-html-js-minify"),
     "minify-js-sequences": (minify_js, "css-html-js-minify"),
     "minify-js": (minify_js, "css-html-js-minify"),
+    "minify-js-names": (minify_js, "css-html-js-minify"),
 }

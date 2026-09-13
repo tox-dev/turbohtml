@@ -1,0 +1,1 @@
+Speed up :func:`~turbohtml.clean.sanitize` when checking allowed attribute prefixes.

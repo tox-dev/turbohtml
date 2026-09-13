@@ -129,6 +129,9 @@ static hslot *htab_slot(htab *table, const Py_UCS4 *name, Py_ssize_t len, int cr
 }
 
 static int is_reserved(const Py_UCS4 *name, Py_ssize_t len) {
+    if (len == 1) {
+        return 0;
+    }
     static const char *const words[] = {
         "break",   "case",   "catch",  "class",      "const",   "continue",   "debugger", "default",   "delete",
         "do",      "else",   "enum",   "export",     "extends", "false",      "finally",  "for",       "function",

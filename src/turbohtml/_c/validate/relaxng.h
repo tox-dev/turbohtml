@@ -941,12 +941,12 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
         after_attrs = rng_att_deriv(schema, after_attrs, &aname, value, element->attrs[index].value_len);
     }
     pattern *closed = rng_start_tag_close(schema, after_attrs);
-    Py_ssize_t before = PyList_GET_SIZE(ctx->errors);
+    Py_ssize_t before = ctx->error_count;
     pattern *content = rng_children_deriv(ctx, closed, element);
     pattern *ended = rng_end_tag_deriv(schema, content);
     /* endTagDeriv yields NotAllowed exactly when this element's own content failed; a
        non-nullable residual is just the continuation the parent's siblings must match. */
-    if (ended->type == P_NOTALLOWED && PyList_GET_SIZE(ctx->errors) == before) {
+    if (ended->type == P_NOTALLOWED && ctx->error_count == before) {
         char buffer[256];
         report(ctx, element, "structure", "content of element '%s' does not match the schema",
                name_utf8(element->text, element->text_len, buffer, sizeof(buffer)));
@@ -989,9 +989,9 @@ static int rng_compile(th_schema *schema) {
 
 static void rng_validate_root(valctx *ctx, th_node *root) {
     th_schema *schema = ctx->schema;
-    Py_ssize_t before = PyList_GET_SIZE(ctx->errors);
+    Py_ssize_t before = ctx->error_count;
     pattern *result = rng_child_element(ctx, schema->start, root);
-    if (!rng_nullable(schema, result) && PyList_GET_SIZE(ctx->errors) == before) {
+    if (!rng_nullable(schema, result) && ctx->error_count == before) {
         report(ctx, root, "structure", "document does not match the schema");
     }
 }

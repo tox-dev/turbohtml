@@ -138,9 +138,12 @@ static int decode_flush(const unsigned char *run, Py_ssize_t run_len, Py_UCS4 *o
    code point (even a lone surrogate) survives unencoded. */
 PyObject *th_url_percent_decode_obj(PyObject *arg) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
+    if (PyUnicode_FindChar(arg, '%', 0, len, 1) == -1) {
+        return Py_NewRef(arg);
+    }
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
-    size_t span = (size_t)(len > 0 ? len : 1);
+    size_t span = (size_t)len;
     Py_UCS4 *out = PyMem_Malloc(span * sizeof(Py_UCS4)); /* decoding never grows the code-point count */
     unsigned char *run = PyMem_Malloc(span);
     if (out == NULL || run == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -961,22 +964,17 @@ PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObjec
         return NULL;
     }
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
+    if (PyUnicode_FindChar(arg, '.', 0, len, 1) == -1 && PyUnicode_FindChar(arg, '%', 0, len, 1) == -1) {
+        return Py_NewRef(arg);
+    }
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
     Py_UCS4 *work = PyMem_Malloc((size_t)(len + 1) * sizeof(Py_UCS4));
     if (work == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int dotted = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         work[index] = PyUnicode_READ(kind, data, index);
-        if (work[index] == '.' || work[index] == '%') {
-            dotted = 1;
-        }
-    }
-    if (!dotted) { /* no segment can be dotted, so the path resolves to itself */
-        PyMem_Free(work);
-        return Py_NewRef(arg);
     }
     /* segment starts, so popping a ".." is dropping the last recorded start */
     Py_ssize_t *starts = PyMem_Malloc((size_t)(len + 2) * sizeof(Py_ssize_t));

@@ -44,6 +44,8 @@ DOCUMENTS = [
     pytest.param("<div><p>a<p>b<p>c</div>", id="implied-end-tags"),
     pytest.param("line one\r\nline two\rline three", id="cr-normalization"),
     pytest.param("<p>n\x00ul</p>", id="nul"),
+    pytest.param("<p>\x00</p><p>名名名\x00名</p>", id="nul-before-two-byte-chunks"),
+    pytest.param("<p>\x00</p><p>😀😀😀\x00😀</p>", id="nul-before-four-byte-chunks"),
     pytest.param("plain text with no tags at all", id="plain-text"),
 ]
 
@@ -682,6 +684,7 @@ def _tree_parse_errors_streamed(markup: str, chunk: int = 1) -> list[tuple[str, 
         pytest.param("<p a=1 a=2>\x02", id="both-kinds-interleaved"),
         pytest.param("a\r\n\x01b", id="control-after-a-crlf"),
         pytest.param("a\r\x01b", id="control-after-a-lone-cr"),
+        pytest.param("<p>\x00</p>名\r\n\x01😀\ud800<a b b>", id="errors-after-nul-with-width-changes"),
     ],
 )
 def test_a_streamed_document_reports_the_errors_parse_reports(markup: str) -> None:

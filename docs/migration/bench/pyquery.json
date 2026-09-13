@@ -575,6 +575,141 @@
       "collect selected nodes' parents — 1024 children, distinct parents",
       1.8144916635757604e-05,
       0.0029544495622152076
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, > a",
+      1.3885563943105694e-07,
+      1.4068037247720136e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.0681020538398182e-07,
+      1.47594333318087e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      1.1013886006920141e-07,
+      1.4091996519027816e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      2.77636203471765e-07,
+      1.4085534838651862e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      7.404537988679275e-07,
+      2.350804562685956e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      6.391629377618576e-07,
+      2.1818913353399694e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      6.399140752103941e-07,
+      2.0722343447706255e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      6.734320119032115e-06,
+      5.1269900798918876e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.928978808808419e-07,
+      0.00020405565048046506
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      3.672821787740569e-06,
+      2.500191156210955e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      4.909409281328436e-07,
+      0.0002222760076241078
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.6347832121919055e-06,
+      4.291325042042141e-05
+    ],
+    [
+      "find by exact descendant text — flat matches",
+      1.465933229383154e-05,
+      0.0010544909385619878
+    ],
+    [
+      "find by exact descendant text — nested matches",
+      9.168320977674208e-06,
+      0.0008188680020187652
+    ],
+    [
+      "find by exact descendant text — nested short expectation",
+      4.34875593965008e-06,
+      0.0008706396195824103
+    ],
+    [
+      "find by exact descendant text — wide early mismatch",
+      4.503052817147098e-06,
+      0.0002875287749096363
+    ],
+    [
+      "find by exact descendant text — wide match",
+      8.224252063371296e-06,
+      0.0003018298135278504
+    ],
+    [
+      "find by exact descendant text — wide late mismatch",
+      7.881415903909783e-06,
+      0.00029350617804387486
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, True",
+      1.2635586178551724e-05,
+      0.00029324431678408774
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, False",
+      1.2651004373272675e-05,
+      0.0003448299559067891
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, True",
+      1.2784605222767217e-05,
+      0.00029622155739161826
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, False",
+      1.2986442989415536e-05,
+      0.00035654633938975167
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
+      1.304712465355351e-05,
+      0.00029822118434215855
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
+      1.3004546701722575e-05,
+      0.00034314253078567464
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      7.223749796973304e-05
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.0028491268449215568
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
+      0.00012419139263405063,
+      0.24291483665971705
     ]
   ],
   "spread": [
@@ -1147,6 +1282,141 @@
       null,
       0.0074493507514251205,
       0.016638820076204264
+    ],
+    [
+      null,
+      0.02314786359323234,
+      0.011487283528560675
+    ],
+    [
+      null,
+      0.030784628890710524,
+      0.015149211656908733
+    ],
+    [
+      null,
+      0.059736174292059976,
+      0.022197706015417304
+    ],
+    [
+      null,
+      0.008852151016689598,
+      0.008706275652995935
+    ],
+    [
+      null,
+      0.025870209813203208,
+      0.12984852835152116
+    ],
+    [
+      null,
+      0.04388805631356805,
+      0.017665870999329574
+    ],
+    [
+      null,
+      0.05860303187818175,
+      0.014887375802601495
+    ],
+    [
+      null,
+      0.006424903220778169,
+      0.007633901764493497
+    ],
+    [
+      null,
+      0.028210449952114074,
+      0.02238821276660181
+    ],
+    [
+      null,
+      0.020437377963544757,
+      0.007843703959219104
+    ],
+    [
+      null,
+      0.02973841127722554,
+      0.026050629773566005
+    ],
+    [
+      null,
+      0.0010004073034455116,
+      0.01335696433472527
+    ],
+    [
+      null,
+      0.021414629544893777,
+      0.017561169771263516
+    ],
+    [
+      null,
+      0.005410608575666442,
+      0.01602385203977207
+    ],
+    [
+      null,
+      0.01596707712913634,
+      0.01436961776668667
+    ],
+    [
+      null,
+      0.0067346086808015805,
+      0.007702113079781476
+    ],
+    [
+      null,
+      0.011275564790704882,
+      0.09455875816505337
+    ],
+    [
+      null,
+      0.013426924511193756,
+      0.025704973135176206
+    ],
+    [
+      null,
+      0.013719477605957672,
+      0.005063538785604923
+    ],
+    [
+      null,
+      0.01017204520649642,
+      0.0168744654929906
+    ],
+    [
+      null,
+      0.0050139250400081355,
+      0.008472743032879908
+    ],
+    [
+      null,
+      0.01200418082093439,
+      0.03809604565241963
+    ],
+    [
+      null,
+      0.010811846894094968,
+      0.022066192657246582
+    ],
+    [
+      null,
+      0.008923983467745537,
+      0.009548104730281443
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.01598586352302171
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.020361509449324158
+    ],
+    [
+      null,
+      0.026028702535503465,
+      0.015437855733263776
     ]
   ],
   "row_notes": {}

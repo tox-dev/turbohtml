@@ -1,0 +1,1 @@
+Avoid shifting existing variable bindings when :class:`~turbohtml.transform.Transform` enters and leaves scopes.

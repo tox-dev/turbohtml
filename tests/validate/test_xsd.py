@@ -600,10 +600,12 @@ def test_occurs_multi_digit_and_bounds() -> None:
     assert not xsd_ok(schema, "<r><a>1</a><a>2</a><a>3</a><a>4</a></r>")
 
 
-def test_validate_rejects_non_node() -> None:
+@pytest.mark.parametrize("verdict_only", [pytest.param(False, id="report"), pytest.param(True, id="verdict")])
+def test_validate_rejects_non_node(*, verdict_only: bool) -> None:
     schema = XMLSchema(f'<xs:schema {XS}><xs:element name="v" type="xs:int"/></xs:schema>')
+    validate = schema.is_valid if verdict_only else schema.validate
     with pytest.raises(TypeError):
-        schema.validate("not a node")  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
+        validate("not a node")  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
 
 
 @pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]
@@ -1787,3 +1789,28 @@ def test_named_facet_probe_benchmark_output(index: int) -> None:
 )
 def test_xsd_long_decimal_bound(value: str, *, expected: bool) -> None:
     assert check(restricted('<xs:maxInclusive value="2"/>', "xs:decimal"), f"<v>{value}</v>").valid is expected
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param("<v>bad</v>", id="datatype"),
+        pytest.param("<v><unexpected/></v>", id="structure"),
+    ],
+)
+def test_is_valid_reuses_schema_after_failure(document: str) -> None:
+    schema = XMLSchema(typed("xs:int"))
+    assert [schema.is_valid(parse_xml(xml)) for xml in (document, "<v>7</v>", document)] == [False, True, False]
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        pytest.param(0, False, id="many-errors"),
+        pytest.param(1, True, id="valid"),
+        pytest.param(2, False, id="one-error"),
+    ],
+)
+def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
+    source, document = cast("tuple[str, str]", INPUTS["is-valid"]()[index][1])
+    assert XMLSchema(source).is_valid(parse_xml(document)) is expected

@@ -1,0 +1,1 @@
+Speed up boolean attribute filters in :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all`.

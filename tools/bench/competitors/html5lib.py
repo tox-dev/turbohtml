@@ -26,6 +26,10 @@ def parse(text: str) -> None:
     html5lib.parse(text)
 
 
+def _parse_encoded(case: tuple[str, bytes]) -> None:
+    html5lib.parse(case[1], override_encoding=case[0])
+
+
 @functools.cache
 def _parsed(text: str) -> Element:
     """Return a document parsed once, cached so the read-path operations time only the query."""
@@ -35,6 +39,12 @@ def _parsed(text: str) -> Element:
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with html5lib's etree serializer."""
     html5lib.serialize(_parsed(text))
+
+
+def _serialize_attributes(case: tuple[str, bool]) -> str:
+    return html5lib.serialize(
+        _parsed(case[0]), alphabetical_attributes=case[1], omit_optional_tags=False, quote_attr_values="always"
+    )
 
 
 def navigate(text: str) -> None:
@@ -119,6 +129,7 @@ OPERATIONS = {
     "encode-inner-minify": (_encode_inner_minify, "html5lib"),
     "whitespace-roundtrip": (_whitespace_roundtrip, "html5lib"),
     "parse": (parse, "html5lib"),
+    "parse-encoded": (_parse_encoded, "html5lib"),
     "parse-formatting": (parse, "html5lib"),
     "parse-foster": (parse, "html5lib"),
     "parse-crlf": (parse, "html5lib"),
@@ -129,4 +140,5 @@ OPERATIONS = {
     "tokenize": (tokenize, "html5lib"),
     "serialize": (serialize, "html5lib"),
     "navigate": (navigate, "html5lib"),
+    "serialize-attributes": (_serialize_attributes, "html5lib"),
 }

@@ -1,0 +1,1 @@
+Skip impossible composition lookups in :func:`~turbohtml.detect.normalize`.

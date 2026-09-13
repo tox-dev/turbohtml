@@ -1,0 +1,1 @@
+Speed up child and sibling ``:has()`` selectors in :meth:`~turbohtml.Node.select`.

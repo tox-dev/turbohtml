@@ -38,8 +38,13 @@ def sanitize_custom_elements(text: str) -> str:
     return _run("custom-elements", text)
 
 
+def _sanitize_attributes(text: str) -> str:
+    return _run("attributes", text)
+
+
 OPERATIONS = {
     "sanitize-templates": (sanitize_templates, "DOMPurify"),
     "sanitize-named-props": (sanitize_named_props, "DOMPurify"),
     "sanitize-custom-elements": (sanitize_custom_elements, "DOMPurify"),
+    "sanitize-attributes": (_sanitize_attributes, "DOMPurify"),
 }

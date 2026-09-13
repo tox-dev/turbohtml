@@ -1,0 +1,1 @@
+Speed up literal conversion in :func:`~turbohtml.convert.css_to_xpath`.

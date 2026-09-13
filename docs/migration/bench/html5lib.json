@@ -325,6 +325,46 @@
       "parse normalized newlines — 1,000 paragraphs / LF",
       6.902340084025127e-05,
       0.008114082290558145
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, reversed, sorting True",
+      4.670566222841899e-05,
+      0.0007274752060766332
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, sorted, sorting True",
+      1.621493360914883e-05,
+      0.0007424068738449326
+    ],
+    [
+      "serialize HTML attribute order — 8 attributes, reversed, sorting True",
+      1.068548335148023e-06,
+      1.701252745789361e-05
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, reversed, sorting False",
+      1.2422455284877287e-05,
+      0.0006061607526438214
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-16LE",
+      5.823027557916305e-07,
+      3.435845777251719e-05
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-16BE",
+      5.783582121369572e-07,
+      3.4354168363393e-05
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-8",
+      5.476649337735987e-07,
+      3.434125777346253e-05
+    ],
+    [
+      "parse encoded bytes to a tree — 16 KiB UTF-16LE",
+      2.3544885860241984e-06,
+      0.0004788699685226068
     ]
   ],
   "spread": [
@@ -647,6 +687,46 @@
       null,
       0.016147480479929033,
       0.03336306930333379
+    ],
+    [
+      null,
+      0.016429807436644614,
+      0.006927936846213506
+    ],
+    [
+      null,
+      0.05450659469715841,
+      0.02137223593707091
+    ],
+    [
+      null,
+      0.00837354875274473,
+      0.005446100941709912
+    ],
+    [
+      null,
+      0.003683335883646008,
+      0.006309862931941991
+    ],
+    [
+      null,
+      0.022358727685952876,
+      0.028482707474969622
+    ],
+    [
+      null,
+      0.012732253888137278,
+      0.031303101510084724
+    ],
+    [
+      null,
+      0.019591152468655126,
+      0.030961415654891522
+    ],
+    [
+      null,
+      0.01180908506426773,
+      0.03778333002914497
     ]
   ],
   "row_notes": {

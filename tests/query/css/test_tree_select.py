@@ -343,6 +343,9 @@ _PSEUDO = (
         pytest.param("li:nth-child(2n-1)", ["1", "3", "5"], id="nth-child-minus-b"),
         pytest.param("li:nth-last-child(1)", ["5"], id="nth-last-child"),
         pytest.param("li:nth-last-child(2)", ["4"], id="nth-last-child-second-from-end"),
+        pytest.param("li:nth-of-type(odd)", ["1", "3", "5"], id="adjacent-nth-of-type"),
+        pytest.param("li:nth-last-of-type(2)", ["4"], id="adjacent-nth-last-of-type"),
+        pytest.param("li:nth-last-child(2 of li)", ["4"], id="adjacent-nth-last-filtered"),
         # of-type with a builtin atom: two <p> siblings around a <span>
         pytest.param("p:first-of-type", ["a"], id="first-of-type"),
         pytest.param("p:last-of-type", [""], id="last-of-type"),
@@ -1790,6 +1793,7 @@ def test_xml_builtin_named_element_matches_only_its_spelling() -> None:
         pytest.param("li:nth-last-of-type(odd)", ["a", "e"], id="reverse-types"),
         pytest.param("li:nth-child(odd) ~ li", ["c", "e"], id="preceding-backtrack"),
         pytest.param("li:nth-child(4n+1) ~ li", ["c", "e"], id="preceding-recount"),
+        pytest.param("li:nth-child(4n+1) ~ :is(li, span)", ["b", "c", "d", "e"], id="preceding-repeat"),
         pytest.param("li:has(~ li:nth-child(odd of :scope ~ li))", ["a", "c"], id="changing-scope"),
         pytest.param("li:nth-last-child(odd of li)", ["a", "e"], id="reverse-filter"),
     ],
@@ -1804,6 +1808,18 @@ def test_nth_positions_across_query_orders(selector: str, expected: list[str]) -
 @pytest.mark.parametrize(
     ("selector", "expected"),
     [
+        pytest.param("li:nth-child(odd)", ["a", "c"], id="odd"),
+        pytest.param("li:nth-child(even)", ["b", "d"], id="even"),
+    ],
+)
+def test_nth_positions_restart_for_each_parent(selector: str, expected: list[str]) -> None:
+    document: Final[Document] = parse("<ul><li>a</li><li>b</li></ul><ul><li>c</li><li>d</li></ul>")
+    assert [element.text for element in document.select(selector)] == expected
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
         pytest.param(":nth-child(odd)", [True, False, True], id="children"),
         pytest.param(":nth-child(odd of li)", [True, False, True], id="filtered"),
     ],
@@ -1811,3 +1827,81 @@ def test_nth_positions_across_query_orders(selector: str, expected: list[str]) -
 def test_nth_positions_in_individual_matches(selector: str, expected: list[bool]) -> None:
     document: Final[Document] = parse("<ul><li>a</li><li>b</li><li>c</li></ul>")
     assert [element.matches(selector) for element in document.select("li")] == expected
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        pytest.param("> .hit", ["later"], id="direct-child"),
+        pytest.param("+ .hit", ["middle"], id="adjacent-sibling"),
+        pytest.param("~ .hit", ["anchor", "middle"], id="following-siblings"),
+        pytest.param("> .missing, + .hit", ["middle"], id="alternative-after-miss"),
+        pytest.param("+ .missing, ~ .hit", ["anchor", "middle"], id="later-sibling-alternative"),
+        pytest.param("> :is(.hit, .absent)", ["later"], id="nested-predicate"),
+        pytest.param("> :scope", [], id="scope-is-anchor"),
+        pytest.param("+ section .hit", ["middle"], id="complex-sibling-descendant"),
+        pytest.param("~ section .hit", ["anchor", "middle"], id="complex-following-sibling-descendant"),
+        pytest.param(".hit", ["anchor", "later"], id="descendant-control"),
+    ],
+)
+def test_has_relative_axis_ignores_text_and_deeper_matches(relative: str, expected: list[str]) -> None:
+    document: Final = parse(
+        '<main><section id="anchor"><div><b class="hit"></b></div></section>'
+        'text<!-- gap --><section id="middle"></section>more<!-- gap -->'
+        '<section id="later" class="hit"><b class="hit"></b></section></main>'
+    )
+    assert [node.attrs["id"] for node in document.select(f"section:has({relative})")] == expected
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param(":default", ["a", "c"], id="separate-forms"),
+        pytest.param("button:default", ["a", "c"], id="tag-index"),
+        pytest.param("form:has(:default)", ["first", "second"], id="scoped-has"),
+        pytest.param(":is(:default, button:default)", ["a", "c"], id="alternatives"),
+    ],
+)
+def test_default_query_matches_each_form(selector: str, expected: list[str]) -> None:
+    document: Final = parse(
+        '<form id="first"><span>x</span><button id="a">a</button><button id="b">b</button></form>'
+        '<form id="second"><button id="c">c</button><button id="d">d</button></form>'
+    )
+    assert [node.attrs["id"] for node in document.select(selector)] == expected
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected"),
+    [pytest.param("remove", ["b", "d"], id="remove"), pytest.param("prune", ["a", "c"], id="prune")],
+)
+def test_default_query_mutation_uses_original_matches(operation: str, expected: list[str]) -> None:
+    document: Final = parse(
+        '<form><button id="a">a</button><button id="b">b</button></form>'
+        '<form><button id="c">c</button><button id="d">d</button></form>'
+    )
+    getattr(document, operation)(":default")
+    assert [node.attrs["id"] for node in document.select(":default")] == expected
+
+
+def test_default_query_rechecks_changed_type() -> None:
+    document: Final = parse('<form><button id="a">a</button><button id="b">b</button></form>')
+    first: Final = document.select(":default")[0]
+    first.attrs["type"] = "button"
+    assert [node.attrs["id"] for node in document.select(":default")] == ["b"]
+
+
+def test_default_query_rechecks_nested_form_ownership() -> None:
+    document: Final = parse(
+        '<form id="outer"><button id="a">a</button><button id="b">b</button></form>'
+        '<form id="inner"><button id="c">c</button><button id="d">d</button></form>'
+    )
+    forms: Final = document.select("form")
+    assert [node.attrs["id"] for node in document.select(":default")] == ["a", "c"]
+    forms[1].append(document.select("button")[0])
+    forms[0].append(forms[1])
+    assert [node.attrs["id"] for node in document.select(":default")] == ["b", "c"]
+
+
+def test_default_individual_matches_submit_controls() -> None:
+    document: Final = parse("<form><button>a</button><button>b</button></form>")
+    assert [node.matches(":default") for node in document.select("button")] == [True, False]

@@ -181,9 +181,20 @@ def _article_inputs() -> list[object]:
 
 
 def _stylesheets() -> list[object]:
-    """Return the vendored stylesheets the CSS minifier trains on: a 6 kB reset and a 93 kB framework."""
+    """Include Unicode-range sorting when the vendored stylesheets omit it."""
     files = (_BENCH_DATA / "normalize.css" / "normalize.css", _BENCH_DATA / "pico" / "css" / "pico.css")
-    return [path.read_text(encoding="utf-8") for path in files if path.exists()]
+    return [
+        *(path.read_text(encoding="utf-8") for path in files if path.exists()),
+        *(
+            "@font-face{unicode-range:"
+            + ",".join(
+                f"U+{0x400 + index * 4:X}-{0x401 + index * 4:X}"
+                for index in (reversed(range(count)) if reverse else range(count))
+            )
+            + "}"
+            for count, reverse in ((8, True), (96, False), (96, True))
+        ),
+    ]
 
 
 def _scripts() -> list[object]:

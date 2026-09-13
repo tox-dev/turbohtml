@@ -18,6 +18,7 @@
 #include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 #include "data/entity_names.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "serialize/buffer.h" /* the sbuf struct and its reserve/append hot path */
@@ -154,14 +155,28 @@ static inline void sbuf_put_named_text(sbuf *out, const Py_UCS4 *text, Py_ssize_
     Py_ssize_t index = 0;
     while (index < len) {
         Py_ssize_t start = index;
-        while (index < len && !sbuf_named_special(text[index])) {
+        const char *name = NULL;
+        while (index < len) {
+            if (text[index] < 0x80) {
+                if (sbuf_named_special(text[index])) {
+                    break;
+                }
+            } else if ((name = th_entity_name(text[index])) != NULL) {
+                break;
+            }
             index++;
         }
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
         if (index < len) {
-            sbuf_put_special(out, text[index], TH_FMT_NAMED);
+            if (name != NULL) {
+                sbuf_putc(out, '&');
+                sbuf_puts(out, name);
+                sbuf_putc(out, ';');
+            } else {
+                sbuf_put_special(out, text[index], TH_FMT_NAMED);
+            }
             index++;
         }
     }
@@ -476,8 +491,7 @@ static inline int ser_name_cmp(const char *left, Py_ssize_t left_len, const char
     return left_len < right_len ? -1 : left_len > right_len;
 }
 
-/* Insertion-sort order[0..count) into ascending attribute-name order. Counts are
-   tiny, so the quadratic sort beats any setup an asymptotically faster one needs. */
+/* Small attribute sets avoid allocating and populating separate sort keys. */
 static inline void ser_sort_order(th_tree *tree, const th_node *node, Py_ssize_t *order, Py_ssize_t count) {
     for (Py_ssize_t index = 0; index < count; index++) {
         order[index] = index;
@@ -500,6 +514,44 @@ static inline void ser_sort_order(th_tree *tree, const th_node *node, Py_ssize_t
     }
 }
 
+typedef struct {
+    const char *name;
+    Py_ssize_t name_len;
+    Py_ssize_t index;
+} ser_attr_key;
+
+static inline int ser_attr_key_cmp(const void *left_ptr, const void *right_ptr) {
+    const ser_attr_key *left = left_ptr;
+    const ser_attr_key *right = right_ptr;
+    int order = ser_name_cmp(left->name, left->name_len, right->name, right->name_len);
+    /* Original positions preserve equal-name order without shared comparator state. */
+    return order + (order == 0) * ((left->index > right->index) - (left->index < right->index));
+}
+
+static inline int ser_sort_wide(th_tree *tree, const th_node *node, Py_ssize_t *order) {
+    ser_attr_key *keys = PyMem_Malloc((size_t)node->attr_count * sizeof(*keys));
+    if (keys == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int sorted = 1;
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        keys[index].name = th_attr_name(tree, node->attrs[index].name_atom, &keys[index].name_len);
+        keys[index].index = index;
+        if (sorted && index > 0 &&
+            ser_name_cmp(keys[index - 1].name, keys[index - 1].name_len, keys[index].name, keys[index].name_len) > 0) {
+            sorted = 0;
+        }
+    }
+    if (!sorted) {
+        qsort(keys, (size_t)node->attr_count, sizeof(*keys), ser_attr_key_cmp);
+    }
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        order[index] = keys[index].index;
+    }
+    PyMem_Free(keys);
+    return 0;
+}
+
 /* The order to emit node's attributes in: NULL means source order (sorting off, or
    fewer than two attributes), otherwise a filled index array -- the caller's stack
    buffer for up to MAX_SORTED_ATTRS attributes, else a heap block freed through
@@ -513,7 +565,12 @@ static inline Py_ssize_t *ser_attr_order(th_tree *tree, const th_node *node, int
     if (order == NULL) { /* GCOVR_EXCL_BR_LINE: only the heap path can fail, and OOM is unforceable */
         return NULL;     /* GCOVR_EXCL_LINE: degrade to source order on allocation failure */
     }
-    ser_sort_order(tree, node, order, node->attr_count);
+    if (node->attr_count <= MAX_SORTED_ATTRS) {
+        ser_sort_order(tree, node, order, node->attr_count);
+    } else if (ser_sort_wide(tree, node, order) < 0) { /* GCOVR_EXCL_BR_LINE: sort-key allocation failure */
+        PyMem_Free(order); /* GCOVR_EXCL_LINE: preserve source order when allocation fails */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
     return order;
 }
 

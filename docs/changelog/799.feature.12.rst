@@ -1,0 +1,1 @@
+Speed up Unicode range sorting in :func:`~turbohtml.clean.minify_css`.

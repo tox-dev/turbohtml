@@ -1,0 +1,1 @@
+Reuse namespace declarations for consecutive copies of a literal element in :class:`~turbohtml.transform.Transform`.

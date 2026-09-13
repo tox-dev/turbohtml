@@ -29,8 +29,39 @@ _BUILDER: Final = (
 )
 
 NOTES: Final[dict[str, dict[str, str]]] = {
+    "urls-clean": {"courlan": "retains Unicode hostnames instead of encoding them with IDNA"},
+    "select-nth": {
+        "BeautifulSoup (html.parser)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+        "BeautifulSoup (lxml)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+        "soupsieve": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    },
+    "encoding-chunks": {
+        "chardet": "misidentifies the two long Japanese inputs as ISO-8859-1; confidence and encoding labels differ",
+        "faust-cchardet": "decoded text matches all four inputs; confidence and encoding labels differ",
+    },
+    "stream": {
+        "lxml": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    },
     "canonicalize-deep": {
         "lxml method=c14n": "HTML parsing omits the empty head element and SVG/xlink namespace declarations",
+    },
+    "transform-sort": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-text": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-key": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-scope": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-namespaces": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-namespaces-once": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
     },
     "transform-number": {
         "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
@@ -40,6 +71,9 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     },
     "sanitize-node": {
         "lxml-html-clean": "blocklist policy rather than turbohtml's allowlist; not security equivalence"
+    },
+    "sanitize-attributes": {
+        "DOMPurify": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
     },
     "linkify-node": {"lxml-html-clean": "host exclusions disabled; URL/mailto linking but no bare email addresses"},
     "collapse-whitespace": {
@@ -110,6 +144,9 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     },
     "build-e": dict.fromkeys(("simple-html", "markyp", "yattag", "htbuilder", "htpy", "fast-html"), _BUILDER),
     "construct": dict.fromkeys(("simple-html", "markyp", "htbuilder", "htpy"), _BUILDER),
+    "phone-construct": {
+        "phonenumbers": "valid construction with region and type checks; excludes invalid-input exception behavior",
+    },
     "decode": {
         "stdlib": (
             "decodes with the nearest CPython codec under errors=replace, which is not the WHATWG decoder of that "

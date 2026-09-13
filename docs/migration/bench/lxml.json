@@ -38,18 +38,18 @@
     ],
     [
       "construct N elements (no serialize) — 100 rows",
-      4.288681538374325e-05,
-      9.604643921553209e-05
+      4.219751994583021e-05,
+      9.575969447913242e-05
     ],
     [
       "construct N elements (no serialize) — 1k rows",
-      0.0004355111897590784,
-      0.000955145454478649
+      0.000437543782557744,
+      0.0009651497689446842
     ],
     [
       "construct N elements (no serialize) — 10k rows",
-      0.0043399677733759745,
-      0.009755156041743854
+      0.0043844459645091165,
+      0.009474672087283883
     ],
     [
       "emit a built tree — 100 rows",
@@ -108,12 +108,12 @@
     ],
     [
       "validate a document against an XSD schema — catalog XSD + doc",
-      0.0011235829772582898,
+      0.0007804688580108632,
       0.0005285045170846085
     ],
     [
       "validate a document against an XSD schema — 1,024 global declarations",
-      8.927250746637583e-07,
+      6.639763114879571e-07,
       1.3847195077687501e-06
     ],
     [
@@ -753,7 +753,7 @@
     ],
     [
       "validate a document against a RELAX NG schema — catalog RNG + doc",
-      0.0004241588457565134,
+      0.00023780693212908469,
       0.0005815496542102967
     ],
     [
@@ -1655,6 +1655,386 @@
       "validate numeric values with optional bounds — 64 strings without bounds",
       1.7064670816087833e-05,
       1.0044044835429607e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, > a",
+      1.3885563943105694e-07,
+      1.3581776921493352e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.0681020538398182e-07,
+      1.4722000100183171e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      1.1013886006920141e-07,
+      1.3785711935554446e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      2.77636203471765e-07,
+      1.4137288838848386e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      7.404537988679275e-07,
+      2.169836085622971e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      6.391629377618576e-07,
+      2.1758631807718604e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      6.399140752103941e-07,
+      2.060276625570623e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      6.734320119032115e-06,
+      5.145949978668796e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.928978808808419e-07,
+      0.00020756266254314445
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      3.672821787740569e-06,
+      2.5135931257599015e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      4.909409281328436e-07,
+      0.0002277833592264263
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.6347832121919055e-06,
+      4.272336409864389e-05
+    ],
+    [
+      "find by exact descendant text — flat matches",
+      1.465933229383154e-05,
+      0.00026911498370433645
+    ],
+    [
+      "find by exact descendant text — nested matches",
+      9.168320977674208e-06,
+      4.2421886846000234e-05
+    ],
+    [
+      "find by exact descendant text — nested short expectation",
+      4.34875593965008e-06,
+      6.119884064522314e-05
+    ],
+    [
+      "find by exact descendant text — wide early mismatch",
+      4.503052817147098e-06,
+      3.4174374050621736e-05
+    ],
+    [
+      "find by exact descendant text — wide match",
+      8.224252063371296e-06,
+      3.523550583395263e-05
+    ],
+    [
+      "find by exact descendant text — wide late mismatch",
+      7.881415903909783e-06,
+      3.506196255405788e-05
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, True",
+      1.2635586178551724e-05,
+      0.00031470915382669773
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, False",
+      1.2651004373272675e-05,
+      0.00036238695607456367
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, True",
+      1.2784605222767217e-05,
+      0.00031086960848369927
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, False",
+      1.2986442989415536e-05,
+      0.0003503458993539728
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
+      1.304712465355351e-05,
+      0.0003142602406948451
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
+      1.3004546701722575e-05,
+      0.0003505390761423162
+    ],
+    [
+      "XSD validation verdict — 400 invalid quantities",
+      0.0007710722655550247,
+      0.000917664359955476
+    ],
+    [
+      "XSD validation verdict — valid catalog",
+      0.0007743082961345257,
+      0.00046597608752563247
+    ],
+    [
+      "XSD validation verdict — one invalid quantity",
+      0.0007692941088256097,
+      0.00046768613030205114
+    ],
+    [
+      "RELAX NG validation verdict — 400 invalid quantities",
+      0.0001011163534485604,
+      0.0015060744622132916
+    ],
+    [
+      "RELAX NG validation verdict — valid catalog",
+      0.00024016103092587096,
+      0.0005617793788890898
+    ],
+    [
+      "RELAX NG validation verdict — one invalid quantity",
+      0.00010161811995127816,
+      0.0005483278268911818
+    ],
+    [
+      "validate a document against an XSD schema — 400 invalid quantities",
+      0.0008623416888440261,
+      0.000927095539130581
+    ],
+    [
+      "validate a document against a RELAX NG schema — 400 invalid quantities",
+      0.00017209705945712508,
+      0.0014952922903527603
+    ],
+    [
+      "XSLT text emission — 4096 builtin text nodes",
+      0.0001585731678801494,
+      0.00011360877480607694
+    ],
+    [
+      "XSLT text emission — 4 builtin text nodes",
+      5.746664080152897e-07,
+      4.740023506736672e-06
+    ],
+    [
+      "XSLT text emission — 4096 literal text nodes",
+      0.00012135984295961559,
+      4.80831230381303e-05
+    ],
+    [
+      "XSLT text emission — 4 literal text nodes",
+      5.078079443610051e-07,
+      4.529830720893339e-06
+    ],
+    [
+      "XSLT text emission — 4096 xsl:text text nodes",
+      0.0001352608610242593,
+      4.797304535486546e-05
+    ],
+    [
+      "XSLT text emission — 4 xsl:text text nodes",
+      5.286906032964112e-07,
+      4.552906988308791e-06
+    ],
+    [
+      "XSLT sort node sets — numeric sort (120 rows)",
+      1.5148393856634357e-05,
+      3.643390744893319e-05
+    ],
+    [
+      "XSLT sort node sets — numeric sort (2,000 rows)",
+      0.00026170235889821925,
+      0.0005892434080578823
+    ],
+    [
+      "XSLT sort node sets — integer expression sort (8 rows)",
+      1.6473401377818202e-06,
+      7.443622172568591e-06
+    ],
+    [
+      "XSLT sort node sets — integer expression sort (2,000 rows)",
+      0.0003195154419775766,
+      0.0007379683695489803
+    ],
+    [
+      "XSLT sort node sets — string expression numeric sort (8 rows)",
+      1.5556967536412003e-06,
+      6.960268238505781e-06
+    ],
+    [
+      "XSLT sort node sets — string expression numeric sort (2,000 rows)",
+      0.0002931374517250636,
+      0.0005916446536199752
+    ],
+    [
+      "XSLT sort node sets — text sort (8 rows)",
+      1.4170255665154248e-06,
+      6.762354525828111e-06
+    ],
+    [
+      "XSLT sort node sets — text sort (2,000 rows)",
+      0.00028795773668358987,
+      0.0006282104357069329
+    ],
+    [
+      "XSLT sort node sets — fraction expression sort (8 rows)",
+      3.3337342989862386e-06,
+      8.857514488388082e-06
+    ],
+    [
+      "XSLT sort node sets — fraction expression sort (2,000 rows)",
+      0.0007892408443694876,
+      0.0010920484207114594
+    ],
+    [
+      "build XSLT key indexes — shared scalar key (8,192 nodes)",
+      0.00017879907543753384,
+      0.009131888669799082
+    ],
+    [
+      "build XSLT key indexes — shared attribute key (8,192 nodes)",
+      0.000268063470002744,
+      0.009625804904014027
+    ],
+    [
+      "build XSLT key indexes — repeated node-set keys (2,048 nodes)",
+      0.00030902206068124843,
+      0.0023872586270954343
+    ],
+    [
+      "build XSLT key indexes — unique keys (8,192 nodes)",
+      0.0006015569523090866,
+      0.001699334200869392
+    ],
+    [
+      "build XSLT key indexes — small shared key (4 nodes)",
+      6.966296564788385e-07,
+      5.4449573081427616e-06
+    ],
+    [
+      "bind XSLT variables — 1,024 local variables",
+      0.0007704838590143481,
+      0.0007373747415992208
+    ],
+    [
+      "bind XSLT variables — 4 local variables",
+      5.143963358970419e-07,
+      5.02077197891045e-06
+    ],
+    [
+      "bind XSLT variables — 1,024 global variables",
+      0.0007744719512932837,
+      0.00013257797570531693
+    ],
+    [
+      "bind XSLT variables — 4 global variables",
+      4.855540728006721e-07,
+      4.9593586351666845e-06
+    ],
+    [
+      "copy XSLT namespace declarations — deep repeated leaf (32 ancestors, 512 rows)",
+      0.0005409599606688668,
+      0.0011576126568494753
+    ],
+    [
+      "copy XSLT namespace declarations — deep alternating leaves (32 ancestors, 512 rows)",
+      0.0013307433279502827,
+      0.0015877007930005977
+    ],
+    [
+      "copy XSLT namespace declarations — shallow repeated leaf (1 ancestors, 512 rows)",
+      3.849517144279465e-05,
+      7.491626314504174e-05
+    ],
+    [
+      "copy XSLT namespace declarations — single leaf (1 ancestors, 1 rows)",
+      6.684087777338495e-07,
+      4.934717179475949e-06
+    ],
+    [
+      "copy XSLT namespace declarations — namespace-free repeated leaf (32 ancestors, 512 rows)",
+      0.00026438290073353227,
+      0.0006859570041039357
+    ],
+    [
+      "compile and apply a namespaced XSLT stylesheet — single leaf (1 ancestors, 1 rows)",
+      1.9006785280476872e-06,
+      9.069477295990206e-06
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, early NUL",
+      0.000491436211935555,
+      0.0011069063580180227
+    ],
+    [
+      "push-parse a page in chunks — one BMP paragraph, early NUL",
+      8.691091538300574e-06,
+      1.943506835999642e-05
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, late NUL",
+      0.0004946259621950352,
+      0.0011088803168301335
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, no NUL",
+      0.0004930973168484343,
+      0.0011291206859217102
+    ],
+    [
+      "push-parse a page in chunks — 64 ASCII paragraphs, early NUL",
+      0.00015107147551892316,
+      0.00013166988473282495
+    ],
+    [
+      "push-parse a page in chunks — 64 supplementary paragraphs, early NUL",
+      0.0006343395327045679,
+      0.001310752901493591
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      7.196651893082162e-05
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.002872743273655942
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
+      0.00012419139263405063,
+      0.2914823712975097
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-16LE",
+      5.823027557916305e-07,
+      2.220965598098701e-06
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-16BE",
+      5.783582121369572e-07,
+      2.2501451691544125e-06
+    ],
+    [
+      "parse encoded bytes to a tree — tiny UTF-8",
+      5.476649337735987e-07,
+      2.092269103452319e-06
+    ],
+    [
+      "parse encoded bytes to a tree — 16 KiB UTF-16LE",
+      2.3544885860241984e-06,
+      1.4012415569197856e-05
     ]
   ],
   "spread": [
@@ -1690,18 +2070,18 @@
     ],
     [
       null,
-      0.02944875019031374,
-      0.03767578123040454
+      0.01696569347467189,
+      0.042894598372049536
     ],
     [
       null,
-      0.024838279255060405,
-      0.020972531016407975
+      0.007436650103250212,
+      0.0326752561538221
     ],
     [
       null,
-      0.0409794960756543,
-      0.015366599297755084
+      0.022710628898535083,
+      0.022418487825082246
     ],
     [
       null,
@@ -1760,12 +2140,12 @@
     ],
     [
       null,
-      0.11111421779289148,
+      0.013157299498498766,
       0.13804164342884578
     ],
     [
       null,
-      0.05009758831692863,
+      0.03236372289966908,
       0.29029171043200047
     ],
     [
@@ -2405,7 +2785,7 @@
     ],
     [
       null,
-      0.02221021193242464,
+      0.014972946684321933,
       0.04344715996154836
     ],
     [
@@ -3307,6 +3687,386 @@
       null,
       0.011918319189185697,
       0.024331157228953685
+    ],
+    [
+      null,
+      0.02314786359323234,
+      0.006005238924169778
+    ],
+    [
+      null,
+      0.030784628890710524,
+      0.01529063278450851
+    ],
+    [
+      null,
+      0.059736174292059976,
+      0.018542929659792814
+    ],
+    [
+      null,
+      0.008852151016689598,
+      0.014153560059233038
+    ],
+    [
+      null,
+      0.025870209813203208,
+      0.02590889284570418
+    ],
+    [
+      null,
+      0.04388805631356805,
+      0.019211460421880325
+    ],
+    [
+      null,
+      0.05860303187818175,
+      0.01932058376050176
+    ],
+    [
+      null,
+      0.006424903220778169,
+      0.022625637858138904
+    ],
+    [
+      null,
+      0.028210449952114074,
+      0.01187352843655278
+    ],
+    [
+      null,
+      0.020437377963544757,
+      0.01676873794096937
+    ],
+    [
+      null,
+      0.02973841127722554,
+      0.027821880898948766
+    ],
+    [
+      null,
+      0.0010004073034455116,
+      0.009561236978062387
+    ],
+    [
+      null,
+      0.021414629544893777,
+      0.011444598855450839
+    ],
+    [
+      null,
+      0.005410608575666442,
+      0.02745551717372793
+    ],
+    [
+      null,
+      0.01596707712913634,
+      0.020813678054620584
+    ],
+    [
+      null,
+      0.0067346086808015805,
+      0.01761265376360765
+    ],
+    [
+      null,
+      0.011275564790704882,
+      0.011341716190415421
+    ],
+    [
+      null,
+      0.013426924511193756,
+      0.008260746851354537
+    ],
+    [
+      null,
+      0.013719477605957672,
+      0.02449566588982236
+    ],
+    [
+      null,
+      0.01017204520649642,
+      0.04074946454601625
+    ],
+    [
+      null,
+      0.0050139250400081355,
+      0.032793817957308014
+    ],
+    [
+      null,
+      0.01200418082093439,
+      0.011900521821297043
+    ],
+    [
+      null,
+      0.010811846894094968,
+      0.03788734516025972
+    ],
+    [
+      null,
+      0.008923983467745537,
+      0.017727758136390187
+    ],
+    [
+      null,
+      0.008163656766812176,
+      0.02492413341147565
+    ],
+    [
+      null,
+      0.006355233097232575,
+      0.018495789391509664
+    ],
+    [
+      null,
+      0.010179305869869208,
+      0.013794015333695989
+    ],
+    [
+      null,
+      0.01472900990286192,
+      0.008671133012313911
+    ],
+    [
+      null,
+      0.018044695574378294,
+      0.0617085093612168
+    ],
+    [
+      null,
+      0.007684862880519877,
+      0.009811202703632026
+    ],
+    [
+      null,
+      0.01365607121064988,
+      0.01451817036336882
+    ],
+    [
+      null,
+      0.007251044318922732,
+      0.006999642144518742
+    ],
+    [
+      null,
+      0.02197647704530393,
+      0.01981297185813028
+    ],
+    [
+      null,
+      0.014256580568830052,
+      0.01667788444587466
+    ],
+    [
+      null,
+      0.0060536058687067846,
+      0.012136091619843829
+    ],
+    [
+      null,
+      0.01669442033956768,
+      0.006307411201381808
+    ],
+    [
+      null,
+      0.028005530684501557,
+      0.02323975555054944
+    ],
+    [
+      null,
+      0.020033809763554403,
+      0.016341952452705887
+    ],
+    [
+      null,
+      0.02341723687334678,
+      0.012233214561533425
+    ],
+    [
+      null,
+      0.01986417316358122,
+      0.006857324830879186
+    ],
+    [
+      null,
+      0.01820602981365367,
+      0.011894453635874366
+    ],
+    [
+      null,
+      0.015453151015871257,
+      0.04232580584515241
+    ],
+    [
+      null,
+      0.018822357630322747,
+      0.01669717010420135
+    ],
+    [
+      null,
+      0.01141090332942026,
+      0.007463139005227656
+    ],
+    [
+      null,
+      0.012852353697993896,
+      0.034391933544762304
+    ],
+    [
+      null,
+      0.009122179683002732,
+      0.025468418918590297
+    ],
+    [
+      null,
+      0.008127386850787484,
+      0.011050784301100942
+    ],
+    [
+      null,
+      0.024244733073159407,
+      0.0050994474892694635
+    ],
+    [
+      null,
+      0.012823085663552,
+      0.003744709421838981
+    ],
+    [
+      null,
+      0.008374968921608508,
+      0.003910014140171347
+    ],
+    [
+      null,
+      0.014669878484269204,
+      0.04058874118857978
+    ],
+    [
+      null,
+      0.030505383633210238,
+      0.012038831003928989
+    ],
+    [
+      null,
+      0.04339527812282516,
+      0.02365822284163848
+    ],
+    [
+      null,
+      0.0025116489135629397,
+      0.07084857254473009
+    ],
+    [
+      null,
+      0.01711571646048566,
+      0.011184747601677713
+    ],
+    [
+      null,
+      0.021304119424905527,
+      0.01619766156696525
+    ],
+    [
+      null,
+      0.022758779474267188,
+      0.012399669605370405
+    ],
+    [
+      null,
+      0.017556962510781975,
+      0.06893642183853893
+    ],
+    [
+      null,
+      0.009851587520450346,
+      0.017293581967762425
+    ],
+    [
+      null,
+      0.01333042123856617,
+      0.01258499941359848
+    ],
+    [
+      null,
+      0.021719025331626857,
+      0.026587376450318195
+    ],
+    [
+      null,
+      0.01875143199522395,
+      0.024037548700204248
+    ],
+    [
+      null,
+      0.02320679064586275,
+      0.022347881302062358
+    ],
+    [
+      null,
+      0.0011784802143076278,
+      0.06643918525189381
+    ],
+    [
+      null,
+      0.0032164348571906815,
+      0.03352253185353262
+    ],
+    [
+      null,
+      0.001461308095082995,
+      0.029466904805814872
+    ],
+    [
+      null,
+      0.0014203077822318156,
+      0.0635577661753116
+    ],
+    [
+      null,
+      0.0076858233047420324,
+      0.04547615176729708
+    ],
+    [
+      null,
+      0.047560774931392394,
+      0.040085849116029054
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.01412226132874074
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.018266354468404272
+    ],
+    [
+      null,
+      0.026028702535503465,
+      0.25897620810591343
+    ],
+    [
+      null,
+      0.022358727685952876,
+      0.024752097608956507
+    ],
+    [
+      null,
+      0.012732253888137278,
+      0.026880115234135898
+    ],
+    [
+      null,
+      0.019591152468655126,
+      0.015738579903550244
+    ],
+    [
+      null,
+      0.01180908506426773,
+      0.024391443523874394
     ]
   ],
   "row_notes": {
@@ -3354,6 +4114,43 @@
     "274": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "311": "lxml HTML parsing omits the empty head element",
     "312": "lxml HTML parsing omits the empty head element; its SVG input also lacks SVG and xlink namespace declarations",
-    "313": "lxml HTML parsing omits the empty head element"
+    "313": "lxml HTML parsing omits the empty head element",
+    "368": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "369": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "370": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "371": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "372": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "373": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "374": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "375": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "376": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "377": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "378": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "379": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "380": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "381": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "382": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "383": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "384": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "385": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "386": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "387": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "388": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "389": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "390": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "391": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "392": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "393": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "394": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "395": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "396": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "397": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "398": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "362": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "363": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "364": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "365": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "366": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "367": "returns an XSLT result tree; conversion to a Python string is outside timing"
   }
 }

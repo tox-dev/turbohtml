@@ -36,6 +36,11 @@ _NODE = shutil.which("node")
             id="closure-capture",
         ),
         pytest.param("function f(p,q){return p+p+q}", "function f(a,b){return a+a+b}", id="frequency-shortest-name"),
+        pytest.param(
+            "function transform(value){return value+a+b+c}",
+            "function transform(d){return d+a+b+c}",
+            id="single-character-free-names",
+        ),
         pytest.param("function f(p){return p.toString()}", "function f(a){return a.toString()}", id="property-kept"),
         pytest.param("function f(){}", "function f(){}", id="nothing-renamable"),
         # a renamed shorthand binding must expand to key:value or it reads the wrong property

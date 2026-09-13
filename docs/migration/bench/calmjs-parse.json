@@ -127,6 +127,48 @@
       0.00022446345478025856,
       4277.0,
       0.03349665277055465
+    ],
+    [
+      "minify JavaScript with function parameters — 8 live parameters",
+      60.0,
+      2.1140319497921687e-06,
+      61.0,
+      0.0011595764179522423
+    ],
+    [
+      "minify JavaScript with function parameters — 32 live parameters",
+      156.0,
+      6.542487036872065e-06,
+      157.0,
+      0.0023412329649848593
+    ],
+    [
+      "minify JavaScript with function parameters — 54 live parameters",
+      244.0,
+      1.0531709036124918e-05,
+      247.0,
+      0.0026874074449854866
+    ],
+    [
+      "minify JavaScript with function parameters — 80 live parameters",
+      400.0,
+      1.8736200956936955e-05,
+      403.0,
+      0.003439738716527548
+    ],
+    [
+      "minify JavaScript with function parameters — free-name conflicts",
+      37.0,
+      1.1168857148765217e-06,
+      38.0,
+      0.000985199492333777
+    ],
+    [
+      "minify JavaScript with function parameters — no local bindings",
+      27.0,
+      6.718507069939742e-07,
+      28.0,
+      0.0008897093369644912
     ]
   ],
   "spread": [
@@ -248,6 +290,48 @@
       0.01132166475402571,
       null,
       0.0474552197325009
+    ],
+    [
+      null,
+      null,
+      0.03450388663816943,
+      null,
+      0.015003259330845094
+    ],
+    [
+      null,
+      null,
+      0.00716923877618138,
+      null,
+      0.22080863390119015
+    ],
+    [
+      null,
+      null,
+      0.009181367586762886,
+      null,
+      0.034779297911125336
+    ],
+    [
+      null,
+      null,
+      0.006243180682872456,
+      null,
+      0.01233865357558964
+    ],
+    [
+      null,
+      null,
+      0.016761979551737652,
+      null,
+      0.039268711129148634
+    ],
+    [
+      null,
+      null,
+      0.027179298078750316,
+      null,
+      0.019578086781316707
     ]
   ],
   "row_notes": {

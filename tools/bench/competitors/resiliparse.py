@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 from urllib.parse import urljoin
 
 from resiliparse.extract.html2text import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
@@ -55,6 +56,13 @@ def select(text: str) -> None:
 def select_has(text: str) -> None:
     """Run the :has() relational selector with resiliparse's query_selector_all."""
     _parsed(text).document.query_selector_all("div:has(a)")
+
+
+def _select_relative(case: tuple[str, str]) -> None:
+    if case[0] == "section:has(+ section a)":
+        msg: Final = "resiliparse returns no matches for section:has(+ section a)"
+        raise NotImplementedError(msg)
+    _parsed(case[1]).document.query_selector_all(case[0])
 
 
 def text_content(text: str) -> None:
@@ -162,6 +170,8 @@ OPERATIONS = {
     "text-main": (text_main, "resiliparse"),
     "find": (find, "resiliparse"),
     "select": (select, "resiliparse"),
+    "select-nth": (_select_relative, "resiliparse"),
+    "select-relative": (_select_relative, "resiliparse"),
     "select-has": (select_has, "resiliparse"),
     "text-content": (text_content, "resiliparse"),
     "serialize": (serialize, "resiliparse"),

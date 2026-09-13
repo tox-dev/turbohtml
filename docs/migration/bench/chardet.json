@@ -65,6 +65,16 @@
       "construct the winning encoding result — UTF-8 byte-order mark",
       7.512360047220076e-07,
       4.7859390576832084e-05
+    ],
+    [
+      "detect encoding across byte chunks — Japanese prefix, short ASCII suffix, 16-byte chunks",
+      5.174285249746428e-06,
+      0.00021018006729415598
+    ],
+    [
+      "detect encoding across byte chunks — 64 KiB ASCII, 4 KiB chunks",
+      0.002858975532641731,
+      0.00019324551736114395
     ]
   ],
   "spread": [
@@ -127,7 +137,20 @@
       null,
       0.018449962344121423,
       0.009248684430825205
+    ],
+    [
+      null,
+      0.0207020528486971,
+      0.01111006589119127
+    ],
+    [
+      null,
+      0.006545698720264135,
+      0.011088520663982228
     ]
   ],
-  "row_notes": {}
+  "row_notes": {
+    "12": "misidentifies the two long Japanese inputs as ISO-8859-1; confidence and encoding labels differ",
+    "13": "misidentifies the two long Japanese inputs as ISO-8859-1; confidence and encoding labels differ"
+  }
 }

@@ -117,10 +117,11 @@ scan alone (8x to 9x, the narrowest rows).
     :file: bench/linkify-3.json
 
 :meth:`PhoneNumber.parse <turbohtml.clean.PhoneNumber.parse>` against ``phonenumbers.parse`` followed by
-``is_valid_number`` (``is_possible_number`` on the possible row), over twenty held numbers from twenty regions, each in
-a written form of its own: national with the prefix, international, with an extension, bracketed. The port normalizes
-the string, strips prefixes and matches the plan's regular expressions one type at a time; turbohtml runs the same
-recognizer the scanner uses over the one string, 7x faster (5x on the possible row).
+``is_valid_number`` (``is_possible_number`` on the possible row). The first two rows use twenty held numbers in mixed
+regional forms: national with the prefix, international, with an extension, bracketed. The port normalizes the string,
+strips prefixes and matches the plan's regular expressions one type at a time; turbohtml runs the same recognizer the
+scanner uses over the one string, 8x faster (6x on the possible row). The digit-script rows repeat one US number twenty
+times.
 
 .. bench-table::
     :file: bench/linkify-4.json
@@ -133,6 +134,12 @@ leading-digits automaton per candidate format and splits the digits by the group
 
 .. bench-table::
     :file: bench/linkify-5.json
+
+Valid-number construction compares :class:`~turbohtml.clean.PhoneNumber` with ``phonenumbers.PhoneNumber`` followed by
+region and type checks. Both reuse cached fields to construct twenty valid US numbers.
+
+.. bench-table::
+    :file: bench/linkify-6.json
 
 **********
  Sanitize
@@ -324,6 +331,17 @@ lineage.
 .. bench-table::
     :file: bench/parsing.json
 
+Encoded-byte parsing includes decoding and parser creation with an explicit UTF-8, UTF-16LE or UTF-16BE encoding. The
+byte strings are prepared before timing.
+
+.. bench-table::
+    :file: bench/parse-encoded.json
+
+The ``stream`` workload feeds 4,096-character chunks and includes parser creation and closing.
+
+.. bench-table::
+    :file: bench/stream.json
+
 .. bench-table::
     :file: bench/parse-formatting.json
 
@@ -374,6 +392,9 @@ benchmark records hit positions and misses. It measures uncapped and limited col
 .. bench-table::
     :file: bench/querying.json
 
+.. bench-table::
+    :file: bench/find-attr-presence.json
+
 ``select`` runs the CSS selector ``div a[href]`` (turbohtml's :meth:`~turbohtml.Node.select`, resiliparse's and
 selectolax's ``css``, lxml's `cssselect <https://github.com/scrapy/cssselect>`_, parsel's ``css``, pyquery, and
 BeautifulSoup's `soupsieve <https://github.com/facelessuser/soupsieve>`_). Because turbohtml compiles the selector
@@ -395,6 +416,12 @@ and child relationships, so the relational lookup keeps the same interned-atom c
 
 .. bench-table::
     :file: bench/querying-3.json
+
+.. bench-table::
+    :file: bench/select-relative.json
+
+.. bench-table::
+    :file: bench/select-default.json
 
 Per-element matching runs each anchor on the page through a compiled ``div a[href]`` matcher -- the shape a soupsieve
 port hits through :mod:`turbohtml.query` and its :meth:`Matcher.match <turbohtml.query.Matcher.match>` -- raced against
@@ -450,6 +477,9 @@ per-element Python path.
 .. bench-table::
     :file: bench/querying-4.json
 
+.. bench-table::
+    :file: bench/find-text-exact.json
+
 :func:`turbohtml.convert.css_specificity` weighs a selector list's ``(a, b, c)`` specificity, raced against `cssselect
 <https://github.com/scrapy/cssselect>`_'s ``Selector.specificity()``, the computation lxml, parsel, and pyquery inherit.
 turbohtml parses the selector and sums the weights in one C pass, so it leads across the type, compound, structural,
@@ -457,6 +487,9 @@ complex, and grouped selectors below; cssselect parses in Python and builds a tr
 
 .. bench-table::
     :file: bench/css-specificity.json
+
+.. bench-table::
+    :file: bench/css-translation.json
 
 XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against lxml's libxml2 engine and parsel's
 wrapper of it (selectolax and BeautifulSoup have no XPath). One expression per feature class (name tests, the ``//``
@@ -516,6 +549,24 @@ repeated result includes any stylesheet analysis or XPath compilation left in th
 
 .. bench-table::
     :file: bench/xslt-dense.json
+
+.. bench-table::
+    :file: bench/xslt-text.json
+
+.. bench-table::
+    :file: bench/xslt-sort.json
+
+.. bench-table::
+    :file: bench/xslt-key.json
+
+.. bench-table::
+    :file: bench/xslt-scope.json
+
+.. bench-table::
+    :file: bench/xslt-namespaces.json
+
+.. bench-table::
+    :file: bench/xslt-namespaces-once.json
 
 ************
  Node paths
@@ -595,6 +646,12 @@ BeautifulSoup and html5lib.
 
 .. bench-table::
     :file: bench/serializing.json
+
+.. bench-table::
+    :file: bench/serialize-attributes.json
+
+.. bench-table::
+    :file: bench/serialize-named.json
 
 ***********
  Minifying
@@ -863,25 +920,23 @@ comparison is output size, where turbohtml stays within a couple percent and com
 
 ``csscompressor`` (the YUI port) and ``cssmin`` (its BSD descendant) rewrite values to their shortest form the way
 turbohtml does, but as pure-Python regex passes they turn quadratic on a large stylesheet and trail the C engine by tens
-to over four hundred times, ``cssmin`` and ``css-html-js-minify`` reaching roughly four seconds on the 745 kB
-``bulma.css`` where turbohtml takes 9 ms. ``rcssmin`` is a C extension and faster than turbohtml, though it only strips
-comments and whitespace, so it leaves a larger result everywhere except the custom-property-heavy ``bulma.css``.
+to over a thousand times, ``css-html-js-minify`` reaching roughly four seconds on the 745 kB ``bulma.css`` where
+turbohtml takes 3.8 ms. ``rcssmin`` is a C extension and faster than turbohtml, though it only strips comments and
+whitespace, so it leaves a larger result everywhere except the custom-property-heavy ``bulma.css``.
 ``css-html-js-minify`` is among the slowest of the set. The three pure-Python tools and rcssmin also break value safety:
 each rewrites the internal whitespace of a custom-property value, which `CSS Variables 1 §2
 <https://www.w3.org/TR/css-variables-1/#defining-variables>`_ keeps as the literal token stream that ``var()`` splices
 verbatim and ``getPropertyValue()`` reads back byte-exact, and ``cssmin`` and ``css-html-js-minify`` collapse whitespace
 inside strings, so their output can change the cascade where turbohtml's round-trips. That rewrite is also the only
-reason ``rcssmin`` and ``cssmin`` end 0.2% to 0.3% ahead on ``bulma.css``, whose declarations are almost entirely custom
-properties.
+reason ``rcssmin`` ends 0.2% ahead on ``bulma.css``, whose declarations are almost entirely custom properties.
 
 `lightningcss <https://pypi.org/project/lightningcss/>`_, the Rust binding, is a cascade-aware optimizer: it drops
 declarations overridden elsewhere in the sheet and rewrites syntax for a browser-target set, so it reaches a smaller
 size than turbohtml on most of the corpus (turbohtml comes out ahead on ``normalize.css``). That target-dependent
 optimization is the same idea as turbohtml's ``baseline`` option carried further, and it is in scope. Its Rust engine
-runs 1.3 to 2.4 times slower than turbohtml across the corpus, its per-target cascade pass the added cost, and it
-rejects ``foundation.css`` with a parse error on a media query the WHATWG recovery rules accept, where turbohtml
-minifies all six. turbohtml gives the smallest value-safe output at the most compatible baseline and recovers from
-malformed input.
+runs 2.7 times slower than turbohtml on ``animate.css``, its per-target cascade pass the added cost, and it rejects
+``foundation.css`` with a parse error on a media query the WHATWG recovery rules accept, where turbohtml minifies all
+six. turbohtml gives the smallest value-safe output at the most compatible baseline and recovers from malformed input.
 
 *************************
  JavaScript minification
@@ -903,6 +958,9 @@ with the time to produce it; both ratios are against turbohtml.
 
 .. bench-table::
     :file: bench/js-minification.json
+
+.. bench-table::
+    :file: bench/js-names.json
 
 .. bench-table::
     :file: bench/js-sequences.json
@@ -954,6 +1012,9 @@ score it and a CJK stream leaves several standing.
 .. bench-table::
     :file: bench/encoding-result-stream.json
 
+.. bench-table::
+    :file: bench/encoding-chunks.json
+
 *****************
  Legacy decoding
 *****************
@@ -976,11 +1037,11 @@ the one case where the CPython codec's table lookup edges ahead.
 :func:`turbohtml.extract.clean_url`, :func:`~turbohtml.extract.normalize_url`, and
 :func:`~turbohtml.extract.extract_links` against `courlan <https://github.com/adbar/courlan>`_, trafilatura's URL
 cleaner, and `w3lib <https://w3lib.readthedocs.io/>`_'s ``safe_url_string``/``canonicalize_url``, Scrapy's URL
-utilities. The per-URL pass wins 2.8x-7.5x by scanning each component once in C-backed regexes and percent-encoding only
-when a scan finds something to encode, where both competitors re-encode unconditionally through urllib's per-character
-quoters. Page-level filtered extraction parses the real WHATWG DOM and cleans each link, and finishes 2.2x-3.8x ahead of
-courlan's regex scan, because each distinct href is cleaned once and absolute links skip resolution. Every tree-based
-competitor here resolves each href against the base and deduplicates the result, the work
+utilities. The per-URL pass wins 1.8x-10.2x by scanning each component once in C-backed regexes and percent-encoding
+only when a scan finds something to encode, where both competitors re-encode unconditionally through urllib's
+per-character quoters. Page-level filtered extraction parses the real WHATWG DOM and cleans each link, and finishes
+2.2x-3.8x ahead of courlan's regex scan, because each distinct href is cleaned once and absolute links skip resolution.
+Every tree-based competitor here resolves each href against the base and deduplicates the result, the work
 :func:`~turbohtml.extract.extract_links` does, so the row compares the same answer rather than a bare attribute read:
 lxml trails by 1.3 to 2.1 times, selectolax by 1.6 to 3.5, parsel and pyquery by 2.2 to 3.8, and BeautifulSoup by 8.7 to
 38.0 depending on its tree builder.
@@ -1062,6 +1123,15 @@ lxml trails by 1.3 to 2.1 times, selectolax by 1.6 to 3.5, parsel and pyquery by
 
 .. bench-table::
     :file: bench/validate-rng.json
+
+.. bench-table::
+    :file: bench/is-valid.json
+
+.. bench-table::
+    :file: bench/is-valid-rng.json
+
+.. bench-table::
+    :file: bench/conformance.json
 
 .. bench-table::
     :file: bench/validate-rng-reuse.json
@@ -1289,6 +1359,9 @@ already-linked tree. These operations can be stages in an application's cleanup 
 
 .. bench-table::
     :file: bench/sanitize-attributes.json
+
+.. bench-table::
+    :file: bench/sanitize-disallowed.json
 
 .. bench-table::
     :file: bench/linkify-node.json

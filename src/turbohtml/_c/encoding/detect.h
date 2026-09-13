@@ -404,6 +404,10 @@ static void th_sb_ordinal(th_sb_candidate *cand, unsigned char byte, unsigned ch
 /* Feed the whole input to one single-byte candidate, accumulating its score or
    disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
 static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
+    /* The Hebrew tiebreak still reads punctuation from a disqualified logical candidate. */
+    if (!cand->alive && cand->kind != TH_SB_LOGICAL) {
+        return;
+    }
     const th_detect_single_byte *data = cand->data;
     int windows_1256 = cand->kind == TH_SB_ARABIC_FRENCH;
     for (Py_ssize_t index = 0; index < len; index++) {

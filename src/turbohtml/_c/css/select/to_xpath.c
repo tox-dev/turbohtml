@@ -153,6 +153,10 @@ static void xt_literal(xt_ctx *ctx, const Py_UCS4 *text, Py_ssize_t length) {
    case-insensitive comparisons lowercase both sides), space-padded for the ~= token
    test, or dash-suffixed for the |= prefix test. */
 static void xt_value_literal(xt_ctx *ctx, const Py_UCS4 *value, Py_ssize_t length, int fold, int pad, int dash) {
+    if (!fold && !pad && !dash) {
+        xt_literal(ctx, value, length);
+        return;
+    }
     Py_UCS4 *temp = PyMem_Malloc((size_t)(length + 3) * sizeof(Py_UCS4));
     if (temp == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
