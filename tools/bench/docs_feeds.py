@@ -186,6 +186,7 @@ TABLES: Final[dict[str, str | Combined]] = {
     "matching": "match",
     "minifying": "minify",
     "parsing": "parse",
+    "parse-encoded": "parse-encoded",
     "stream": "stream",
     "parse-formatting": "parse-formatting",
     "parse-foster": "parse-foster",

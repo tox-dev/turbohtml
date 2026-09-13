@@ -331,6 +331,12 @@ lineage.
 .. bench-table::
     :file: bench/parsing.json
 
+Encoded-byte parsing includes decoding and parser creation with an explicit UTF-8, UTF-16LE or UTF-16BE encoding. The
+byte strings are prepared before timing.
+
+.. bench-table::
+    :file: bench/parse-encoded.json
+
 The ``stream`` workload feeds 4,096-character chunks and includes parser creation and closing.
 
 .. bench-table::
