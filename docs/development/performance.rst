@@ -324,6 +324,11 @@ lineage.
 .. bench-table::
     :file: bench/parsing.json
 
+The ``stream`` workload feeds 4,096-character chunks and includes parser creation and closing.
+
+.. bench-table::
+    :file: bench/stream.json
+
 .. bench-table::
     :file: bench/parse-formatting.json
 
@@ -543,6 +548,12 @@ repeated result includes any stylesheet analysis or XPath compilation left in th
 
 .. bench-table::
     :file: bench/xslt-scope.json
+
+.. bench-table::
+    :file: bench/xslt-namespaces.json
+
+.. bench-table::
+    :file: bench/xslt-namespaces-once.json
 
 ************
  Node paths

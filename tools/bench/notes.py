@@ -29,6 +29,9 @@ _BUILDER: Final = (
 )
 
 NOTES: Final[dict[str, dict[str, str]]] = {
+    "stream": {
+        "lxml": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    },
     "canonicalize-deep": {
         "lxml method=c14n": "HTML parsing omits the empty head element and SVG/xlink namespace declarations",
     },
@@ -42,6 +45,12 @@ NOTES: Final[dict[str, dict[str, str]]] = {
         "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
     },
     "transform-scope": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-namespaces": {
+        "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    },
+    "transform-namespaces-once": {
         "lxml.etree": "returns an XSLT result tree; conversion to a Python string is outside timing",
     },
     "transform-number": {

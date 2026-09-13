@@ -398,6 +398,11 @@ def transform(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
     return compiled(document)
 
 
+def _transform_compile_run(case: tuple[str, str]) -> lxml_etree._XSLTResultTree:
+    sheet, source = case
+    return lxml_etree.XSLT(_xslt_sheet(sheet))(_xslt_sheet(source))
+
+
 def transform_reuse(case: tuple[str, str]) -> None:
     """Match turbohtml's ten-application reuse workload."""
     sheet, source = case
@@ -563,6 +568,8 @@ OPERATIONS = {
     "transform-sort": (transform, "lxml.etree"),
     "transform-key": (transform, "lxml.etree"),
     "transform-scope": (transform, "lxml.etree"),
+    "transform-namespaces": (transform, "lxml.etree"),
+    "transform-namespaces-once": (_transform_compile_run, "lxml.etree"),
     "transform-rules": (transform, "lxml.etree"),
     "transform-names": (transform, "lxml.etree"),
     "transform-dense": (transform, "lxml.etree"),

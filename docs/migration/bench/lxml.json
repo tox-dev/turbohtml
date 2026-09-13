@@ -1940,6 +1940,66 @@
       "bind XSLT variables — 4 global variables",
       4.855540728006721e-07,
       4.9593586351666845e-06
+    ],
+    [
+      "copy XSLT namespace declarations — deep repeated leaf (32 ancestors, 512 rows)",
+      0.0005409599606688668,
+      0.0011576126568494753
+    ],
+    [
+      "copy XSLT namespace declarations — deep alternating leaves (32 ancestors, 512 rows)",
+      0.0013307433279502827,
+      0.0015877007930005977
+    ],
+    [
+      "copy XSLT namespace declarations — shallow repeated leaf (1 ancestors, 512 rows)",
+      3.849517144279465e-05,
+      7.491626314504174e-05
+    ],
+    [
+      "copy XSLT namespace declarations — single leaf (1 ancestors, 1 rows)",
+      6.684087777338495e-07,
+      4.934717179475949e-06
+    ],
+    [
+      "copy XSLT namespace declarations — namespace-free repeated leaf (32 ancestors, 512 rows)",
+      0.00026438290073353227,
+      0.0006859570041039357
+    ],
+    [
+      "compile and apply a namespaced XSLT stylesheet — single leaf (1 ancestors, 1 rows)",
+      1.9006785280476872e-06,
+      9.069477295990206e-06
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, early NUL",
+      0.000491436211935555,
+      0.0011069063580180227
+    ],
+    [
+      "push-parse a page in chunks — one BMP paragraph, early NUL",
+      8.691091538300574e-06,
+      1.943506835999642e-05
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, late NUL",
+      0.0004946259621950352,
+      0.0011088803168301335
+    ],
+    [
+      "push-parse a page in chunks — 64 BMP paragraphs, no NUL",
+      0.0004930973168484343,
+      0.0011291206859217102
+    ],
+    [
+      "push-parse a page in chunks — 64 ASCII paragraphs, early NUL",
+      0.00015107147551892316,
+      0.00013166988473282495
+    ],
+    [
+      "push-parse a page in chunks — 64 supplementary paragraphs, early NUL",
+      0.0006343395327045679,
+      0.001310752901493591
     ]
   ],
   "spread": [
@@ -3877,6 +3937,66 @@
       null,
       0.022758779474267188,
       0.012399669605370405
+    ],
+    [
+      null,
+      0.017556962510781975,
+      0.06893642183853893
+    ],
+    [
+      null,
+      0.009851587520450346,
+      0.017293581967762425
+    ],
+    [
+      null,
+      0.01333042123856617,
+      0.01258499941359848
+    ],
+    [
+      null,
+      0.021719025331626857,
+      0.026587376450318195
+    ],
+    [
+      null,
+      0.01875143199522395,
+      0.024037548700204248
+    ],
+    [
+      null,
+      0.02320679064586275,
+      0.022347881302062358
+    ],
+    [
+      null,
+      0.0011784802143076278,
+      0.06643918525189381
+    ],
+    [
+      null,
+      0.0032164348571906815,
+      0.03352253185353262
+    ],
+    [
+      null,
+      0.001461308095082995,
+      0.029466904805814872
+    ],
+    [
+      null,
+      0.0014203077822318156,
+      0.0635577661753116
+    ],
+    [
+      null,
+      0.0076858233047420324,
+      0.04547615176729708
+    ],
+    [
+      null,
+      0.047560774931392394,
+      0.040085849116029054
     ]
   ],
   "row_notes": {
@@ -3944,6 +4064,18 @@
     "384": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "385": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "386": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "387": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "388": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "389": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "390": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "391": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "392": "returns an XSLT result tree; conversion to a Python string is outside timing",
+    "393": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "394": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "395": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "396": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "397": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
+    "398": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
     "362": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "363": "returns an XSLT result tree; conversion to a Python string is outside timing",
     "364": "returns an XSLT result tree; conversion to a Python string is outside timing",
