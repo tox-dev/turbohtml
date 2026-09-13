@@ -30,6 +30,14 @@ def parse(text: str) -> None:
     lxml_html.document_fromstring(text)
 
 
+def stream(text: str) -> None:
+    """Include parser setup and closing in the 4,096-character feed workload."""
+    parser: Final = lxml_etree.HTMLParser()
+    for start in range(0, len(text), 4096):
+        parser.feed(text[start : start + 4096])
+    parser.close()
+
+
 def fragment(text: str) -> None:
     """Parse a fragment with lxml.html's fromstring."""
     lxml_html.fromstring(text)
@@ -482,6 +490,7 @@ OPERATIONS = {
     "encode-inner-indent": (_encode_inner_indent, "lxml"),
     "strip-comments": (Mutating(lxml_html.document_fromstring, _strip_comments), "lxml"),
     "parse": (parse, "lxml"),
+    "stream": (stream, "lxml"),
     "parse-formatting": (parse, "lxml"),
     "parse-foster": (parse, "lxml"),
     "parse-crlf": (parse, "lxml"),

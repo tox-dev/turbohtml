@@ -448,6 +448,12 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-namespaces-small": ("transform-namespaces", 3),
     "transform-namespaces-empty": ("transform-namespaces", 4),
     "transform-namespaces-once": ("transform-namespaces-once", 0),
+    "stream-nul-bmp": ("stream", 4),
+    "stream-nul-bmp-small": ("stream", 5),
+    "stream-nul-late": ("stream", 6),
+    "stream-nul-free": ("stream", 7),
+    "stream-nul-ascii": ("stream", 8),
+    "stream-nul-supplementary": ("stream", 9),
 }
 
 

@@ -4432,7 +4432,9 @@ static void stream_sync_input(th_stream *stream) {
 }
 
 int th_stream_feed(th_stream *stream, int kind, const void *data, Py_ssize_t length) {
-    stream->tree->has_nul |= chunk_has_nul(kind, data, length);
+    if (!stream->tree->has_nul) {
+        stream->tree->has_nul = chunk_has_nul(kind, data, length);
+    }
     th_input_stream_errors_chunk(&stream->scan, kind, data, length, &stream->preprocessing);
     th_tok_feed(stream->sm, kind, data, length);
     stream_sync_input(stream);

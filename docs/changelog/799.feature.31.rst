@@ -1,0 +1,1 @@
+Skip repeated NUL scans in :class:`~turbohtml.IncrementalParser`.

@@ -580,6 +580,23 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     return tuple(pages)
 
 
+def _stream_cases() -> tuple[tuple[str, object], ...]:
+    wide_paragraph: Final = "<p>" + "名" * 4089 + "</p>"
+    wide_body: Final = wide_paragraph * 64
+    prefix: Final = "<html><head></head><body>"
+    suffix: Final = "</body></html>"
+    nul_element: Final = "<p data-x='\x00'></p>"
+    return (
+        *_readpath_cases(),
+        ("64 BMP paragraphs, early NUL", prefix + nul_element + wide_body + suffix),
+        ("one BMP paragraph, early NUL", prefix + nul_element + wide_paragraph + suffix),
+        ("64 BMP paragraphs, late NUL", prefix + wide_body + nul_element + suffix),
+        ("64 BMP paragraphs, no NUL", prefix + wide_body + suffix),
+        ("64 ASCII paragraphs, early NUL", prefix + nul_element + ("<p>" + "a" * 4089 + "</p>") * 64 + suffix),
+        ("64 supplementary paragraphs, early NUL", prefix + nul_element + ("<p>" + "😀" * 4089 + "</p>") * 64 + suffix),
+    )
+
+
 def _radio_group_cases() -> tuple[tuple[str, tuple[int, int, int, str]], ...]:
     return (
         ("document radios, index build and 64 changes", (4096, 1, 64, "document")),
@@ -2626,7 +2643,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-js-sequences": lambda: tuple(
         (f"{count} expression statements", ";".join(f"f({index})" for index in range(count))) for count in (1000, 2)
     ),
-    "stream": _readpath_cases,
+    "stream": _stream_cases,
     "encoding-result": _encoding_result_cases,
     "encoding-result-stream": _encoding_result_cases,
     "encoding": _encoding_cases,
