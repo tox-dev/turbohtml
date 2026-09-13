@@ -1459,6 +1459,44 @@ def test_detected_numbers_round_trip_through_the_constructor() -> None:
             id="extension-before-isub",
         ),
         pytest.param(
+            "+\U0001fbf1 \U0001fbf6\U0001fbf5\U0001fbf0-\U0001fbf2\U0001fbf5\U0001fbf3-"
+            "\U0001fbf0\U0001fbf0\U0001fbf0\U0001fbf0",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="segmented-digits",
+        ),
+        pytest.param(
+            "+\u0661 \u0666\u0665\u0660-\u0662\u0665\u0663-\u0660\u0660\u0660\u0660",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="arabic-indic-digits",
+        ),
+        pytest.param(
+            "+\U0001d7f7 \U0001d7fc\U0001d7fb\U0001d7f6-\U0001d7f8\U0001d7fb\U0001d7f9-"
+            "\U0001d7f6\U0001d7f6\U0001d7f6\U0001d7f6",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="mathematical-monospace-digits",
+        ),
+        pytest.param(
+            "\U0001fbef+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="before-segmented-digits",
+        ),
+        pytest.param(
+            "\U0001fbfa+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="after-segmented-digits",
+        ),
+        pytest.param(
+            "\U0001d7cd+1 650-253-0000",
+            ("US",),
+            (1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE),
+            id="before-mathematical-digits",
+        ),
+        pytest.param(
             "030 12345678", ("US", "DE"), (49, "3012345678", None, "DE", PhoneType.FIXED_LINE), id="second-region"
         ),
         pytest.param(

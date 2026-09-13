@@ -466,6 +466,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "phone-format-early-code": ("phone-format", 5),
     "phone-format-late-e164": ("phone-format", 6),
     "phone-construct": ("phone-construct", 0),
+    "phone-parse-segmented": ("phone-parse", 2),
+    "phone-parse-ascii": ("phone-parse", 3),
+    "phone-parse-arabic-indic": ("phone-parse", 4),
+    "phone-parse-mathematical": ("phone-parse", 5),
 }
 
 

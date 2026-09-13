@@ -2416,6 +2416,43 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "phone-parse": lambda: (
         ("20 held numbers, valid", ("valid", _PHONE_HELD)),
         ("20 held numbers, possible", ("possible", _PHONE_HELD)),
+        (
+            "20 held numbers, segmented digits",
+            (
+                "valid",
+                (
+                    (
+                        "US",
+                        (
+                            "+\U0001fbf1 \U0001fbf6\U0001fbf5\U0001fbf0-\U0001fbf2\U0001fbf5\U0001fbf3-"
+                            "\U0001fbf0\U0001fbf0\U0001fbf0\U0001fbf0"
+                        ),
+                    ),
+                )
+                * 20,
+            ),
+        ),
+        ("20 held numbers, ASCII digits", ("valid", (("US", "+1 650-253-0000"),) * 20)),
+        (
+            "20 held numbers, Arabic-Indic digits",
+            ("valid", (("US", "+\u0661 \u0666\u0665\u0660-\u0662\u0665\u0663-\u0660\u0660\u0660\u0660"),) * 20),
+        ),
+        (
+            "20 held numbers, mathematical monospace digits",
+            (
+                "valid",
+                (
+                    (
+                        "US",
+                        (
+                            "+\U0001d7f7 \U0001d7fc\U0001d7fb\U0001d7f6-\U0001d7f8\U0001d7fb\U0001d7f9-"
+                            "\U0001d7f6\U0001d7f6\U0001d7f6\U0001d7f6"
+                        ),
+                    ),
+                )
+                * 20,
+            ),
+        ),
     ),
     "phone-format": lambda: (
         ("20 numbers, international", ("international", _PHONE_HELD)),

@@ -1361,6 +1361,16 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(_array("uint8_t", "th_phone_nd_pages", tables.unicode.nd_pages))
     out(
         _array(
+            "uint16_t",
+            "th_phone_nd_page_first",
+            [
+                next(index for index, (_first, last, _zero) in enumerate(tables.unicode.nd_ranges) if last >= page << 8)
+                for page in range((tables.unicode.nd_ranges[-1][1] >> 8) + 1)
+            ],
+        )
+    )
+    out(
+        _array(
             "uint32_t",
             "th_phone_nd_ranges",
             [value for first, last, zero in tables.unicode.nd_ranges for value in (first, last, zero)],

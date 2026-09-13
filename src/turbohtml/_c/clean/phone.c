@@ -102,10 +102,13 @@ int th_phone_digit_value(uint32_t code) {
     if (!(th_phone_nd_pages[page >> 3] >> (page & 7) & 1)) {
         return -1;
     }
-    for (size_t index = 0; index < TH_PHONE_ND_RANGE_COUNT; index++) {
+    for (size_t index = th_phone_nd_page_first[page]; index < TH_PHONE_ND_RANGE_COUNT; index++) {
         uint32_t first = th_phone_nd_ranges[3 * index];
+        if (code < first) {
+            return -1;
+        }
         uint32_t last = th_phone_nd_ranges[3 * index + 1];
-        if (code >= first && code <= last) {
+        if (code <= last) {
             return (int)(code - th_phone_nd_ranges[3 * index + 2]);
         }
     }
