@@ -2724,6 +2724,15 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 ("8 KiB paths with file extensions", "a" * 8192 + ".html"),
             )
         ),
+        *tuple(
+            (f"normalize 100 URLs, {name}", ("normalize", ("https://" + host + "/",) * 100))
+            for name, host in (
+                ("253-character ASCII hosts", ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org"))),
+                ("short ASCII hosts", "EXAMPLE.ORG"),
+                ("Unicode hosts", "MÜNCHEN.DE"),
+                ("Unicode hosts that lowercase to ASCII", "\u212a.EXAMPLE.ORG"),
+            )
+        ),
     ),
     "links-filter": _readpath_cases,
     "links-external": lambda: (

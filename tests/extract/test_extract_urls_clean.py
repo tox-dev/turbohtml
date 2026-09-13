@@ -258,6 +258,12 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
     ("url", "expected"),
     [
         pytest.param("HTTPS://WWW.DWDS.DE/", "https://www.dwds.de/", id="scheme-and-host-lowercased"),
+        pytest.param(
+            "https://" + ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org")) + "/",
+            "https://" + ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 49, "example", "org")) + "/",
+            id="maximum-dns-host-length",
+        ),
+        pytest.param("https://\u212a.Example.ORG/", "https://k.example.org/", id="lowercase-narrows-host-to-ascii"),
         pytest.param("http://www.example.org:80/test.html", "http://www.example.org/test.html", id="http-default-port"),
         pytest.param("https://example.org:443/x", "https://example.org/x", id="https-default-port"),
         pytest.param("http://example.org:8080/x", "http://example.org:8080/x", id="other-port-kept"),

@@ -458,6 +458,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "encoding-chunks-small": ("encoding-chunks", 1),
     "encoding-chunks-single": ("encoding-chunks", 2),
     "encoding-chunks-ascii": ("encoding-chunks", 3),
+    "urls-ascii-host-long": ("urls-clean", 9),
+    "urls-ascii-host-short": ("urls-clean", 10),
+    "urls-unicode-host": ("urls-clean", 11),
+    "urls-unicode-ascii-host": ("urls-clean", 12),
 }
 
 
