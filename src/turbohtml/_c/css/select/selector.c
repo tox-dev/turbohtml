@@ -1312,21 +1312,28 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
     }
     if (ctx->nth_memo != NULL) {
         const sel_nth_memo previous = *ctx->nth_memo;
-        if (previous.simple == simple && previous.scope == ctx->scope && previous.node->parent == node->parent &&
+        if (previous.simple == simple && previous.scope == ctx->scope &&
             (!of_type || sel_same_type(previous.node, node))) {
-            if (previous.node == node) {
-                return previous.index;
+            if (previous.node == node->prev_sibling) {
+                const int index = previous.index + (from_end ? -1 : 1);
+                *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                return index;
             }
-            int distance = 0;
-            for (th_node *sibling = previous.node->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
-                if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
-                    (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
-                    distance++;
+            if (previous.node->parent == node->parent) {
+                if (previous.node == node) {
+                    return previous.index;
                 }
-                if (sibling == node) {
-                    const int index = previous.index + (from_end ? -distance : distance);
-                    *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
-                    return index;
+                int distance = 0;
+                for (th_node *sibling = previous.node->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+                    if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
+                        (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
+                        distance++;
+                    }
+                    if (sibling == node) {
+                        const int index = previous.index + (from_end ? -distance : distance);
+                        *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                        return index;
+                    }
                 }
             }
         }

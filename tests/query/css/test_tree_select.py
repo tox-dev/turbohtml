@@ -343,6 +343,9 @@ _PSEUDO = (
         pytest.param("li:nth-child(2n-1)", ["1", "3", "5"], id="nth-child-minus-b"),
         pytest.param("li:nth-last-child(1)", ["5"], id="nth-last-child"),
         pytest.param("li:nth-last-child(2)", ["4"], id="nth-last-child-second-from-end"),
+        pytest.param("li:nth-of-type(odd)", ["1", "3", "5"], id="adjacent-nth-of-type"),
+        pytest.param("li:nth-last-of-type(2)", ["4"], id="adjacent-nth-last-of-type"),
+        pytest.param("li:nth-last-child(2 of li)", ["4"], id="adjacent-nth-last-filtered"),
         # of-type with a builtin atom: two <p> siblings around a <span>
         pytest.param("p:first-of-type", ["a"], id="first-of-type"),
         pytest.param("p:last-of-type", [""], id="last-of-type"),
@@ -1790,6 +1793,7 @@ def test_xml_builtin_named_element_matches_only_its_spelling() -> None:
         pytest.param("li:nth-last-of-type(odd)", ["a", "e"], id="reverse-types"),
         pytest.param("li:nth-child(odd) ~ li", ["c", "e"], id="preceding-backtrack"),
         pytest.param("li:nth-child(4n+1) ~ li", ["c", "e"], id="preceding-recount"),
+        pytest.param("li:nth-child(4n+1) ~ :is(li, span)", ["b", "c", "d", "e"], id="preceding-repeat"),
         pytest.param("li:has(~ li:nth-child(odd of :scope ~ li))", ["a", "c"], id="changing-scope"),
         pytest.param("li:nth-last-child(odd of li)", ["a", "e"], id="reverse-filter"),
     ],
@@ -1798,6 +1802,18 @@ def test_nth_positions_across_query_orders(selector: str, expected: list[str]) -
     document: Final[Document] = parse(
         "<ul><li>a</li><!--gap--><span>b</span><li>c</li>text<span>d</span><li>e</li></ul>"
     )
+    assert [element.text for element in document.select(selector)] == expected
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param("li:nth-child(odd)", ["a", "c"], id="odd"),
+        pytest.param("li:nth-child(even)", ["b", "d"], id="even"),
+    ],
+)
+def test_nth_positions_restart_for_each_parent(selector: str, expected: list[str]) -> None:
+    document: Final[Document] = parse("<ul><li>a</li><li>b</li></ul><ul><li>c</li><li>d</li></ul>")
     assert [element.text for element in document.select(selector)] == expected
 
 
