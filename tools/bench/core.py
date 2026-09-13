@@ -129,7 +129,7 @@ _PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
     "regions-8": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
 }
 _PHONE_STYLES: Final[dict[str, _clean.PhoneFormat]] = {style.value: style for style in _clean.PhoneFormat}
-_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # the format op times formatting, not the parse
+_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # exclude parsing from formatting and construction
 _LINKER: Final[_clean.Linker] = _clean.Linker()
 _LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
 _LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(
@@ -799,6 +799,14 @@ def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     mode, held = case
     for region, text in held:
         _clean.PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
+
+
+def phone_construct(held: tuple[tuple[str, str], ...]) -> None:
+    """Construct validated numbers from held public fields, excluding parsing."""
+    for region, text in held:
+        if (number := _PHONE_PARSED.get((region, text))) is None:
+            number = _PHONE_PARSED[region, text] = _clean.PhoneNumber.parse(text, regions=(region,))
+        _clean.PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
 
 
 def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
@@ -1667,6 +1675,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "phone": (phone, "turbohtml"),
     "phone-parse": (phone_parse, "turbohtml"),
     "phone-format": (phone_format, "turbohtml"),
+    "phone-construct": (phone_construct, "turbohtml"),
     "normalize": (normalize, "turbohtml"),
     "normalize-dom": (Mutating(_normalization_tree, turbohtml.Element.normalize), "turbohtml"),
     "attribute-grow": (Mutating(_attribute_tree, _set_attributes), "turbohtml"),

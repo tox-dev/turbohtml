@@ -30,13 +30,30 @@ def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
         check(phonenumbers.parse(text, region))
 
 
+def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
+    """Validate constructed numbers against their held region and type."""
+    matches = True
+    for region, text in held:
+        if (number := _PARSED.get((region, text))) is None:
+            number = _PARSED[region, text] = phonenumbers.parse(text, region)
+        if (expected_type := _EXPECTED_TYPES.get((region, text))) is None:
+            expected_type = _EXPECTED_TYPES[region, text] = phonenumbers.number_type(number)
+        constructed: Final = phonenumbers.PhoneNumber(
+            country_code=number.country_code, national_number=number.national_number, extension=number.extension
+        )
+        matches &= phonenumbers.region_code_for_number(constructed) == region
+        matches &= phonenumbers.number_type(constructed) == expected_type
+    return matches
+
+
 _STYLES: Final = {
     "e164": PhoneNumberFormat.E164,
     "international": PhoneNumberFormat.INTERNATIONAL,
     "national": PhoneNumberFormat.NATIONAL,
     "rfc3966": PhoneNumberFormat.RFC3966,
 }
-_PARSED: Final[dict[tuple[str, str], phonenumbers.PhoneNumber]] = {}  # the format op times formatting, not the parse
+_PARSED: Final[dict[tuple[str, str], phonenumbers.PhoneNumber]] = {}  # exclude parsing from formatting and construction
+_EXPECTED_TYPES: Final[dict[tuple[str, str], int]] = {}
 
 
 def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
@@ -54,4 +71,5 @@ OPERATIONS = {
     "phone": (phone, "phonenumbers"),
     "phone-parse": (phone_parse, "phonenumbers"),
     "phone-format": (phone_format, "phonenumbers"),
+    "phone-construct": (phone_construct, "phonenumbers"),
 }

@@ -144,6 +144,9 @@ NOTES: Final[dict[str, dict[str, str]]] = {
     },
     "build-e": dict.fromkeys(("simple-html", "markyp", "yattag", "htbuilder", "htpy", "fast-html"), _BUILDER),
     "construct": dict.fromkeys(("simple-html", "markyp", "htbuilder", "htpy"), _BUILDER),
+    "phone-construct": {
+        "phonenumbers": "valid construction with region and type checks; excludes invalid-input exception behavior",
+    },
     "decode": {
         "stdlib": (
             "decodes with the nearest CPython codec under errors=replace, which is not the WHATWG decoder of that "

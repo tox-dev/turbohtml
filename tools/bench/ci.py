@@ -462,6 +462,10 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "urls-ascii-host-short": ("urls-clean", 10),
     "urls-unicode-host": ("urls-clean", 11),
     "urls-unicode-ascii-host": ("urls-clean", 12),
+    "phone-format-late-code": ("phone-format", 4),
+    "phone-format-early-code": ("phone-format", 5),
+    "phone-format-late-e164": ("phone-format", 6),
+    "phone-construct": ("phone-construct", 0),
 }
 
 
