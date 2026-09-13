@@ -291,7 +291,7 @@ static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *
             }
         }
         if (ascii) {
-            return PySet_GET_SIZE(s->attribute_prefixes) > 0 && name_has_allowed_prefix(s, name, len);
+            return PySet_GET_SIZE(s->attribute_prefixes) > 0 ? name_has_allowed_prefix(s, name, len) : 0;
         }
     }
     /* Non-ASCII names still need UTF-8 validation even without an exact-name rule. */

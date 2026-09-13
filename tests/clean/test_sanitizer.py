@@ -1316,9 +1316,20 @@ def test_attribute_prefix_mutation_from_callback() -> None:
     "prefixes",
     [pytest.param(frozenset({"\ud800"}), id="frozen"), pytest.param({"\ud800"}, id="mutable")],
 )
-def test_attribute_prefix_surrogate_raises(prefixes: frozenset[str] | set[str]) -> None:
+@pytest.mark.parametrize(
+    "attributes",
+    [pytest.param({"a": frozenset({"href"})}, id="exact-rules"), pytest.param({}, id="no-exact-rules")],
+)
+@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(32, id="compacted")])
+def test_attribute_prefix_surrogate_raises(
+    prefixes: frozenset[str] | set[str], attributes: dict[str, frozenset[str]], count: int
+) -> None:
+    policy: Final = Policy(
+        tags=frozenset({"a"}), attributes=attributes, attribute_prefixes=cast("frozenset[str]", prefixes)
+    )
+    html: Final = "<a " + " ".join(f'data-{index}="1"' for index in range(count)) + ">x</a>"
     with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
-        sanitize('<a data-id="1">x</a>', _prefix_policy(cast("frozenset[str]", prefixes)))
+        sanitize(html, policy)
 
 
 def test_attribute_prefix_empty_string_raises_valueerror() -> None:
