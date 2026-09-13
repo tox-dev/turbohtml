@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import cache
+
 import inscriptis
 from inscriptis.model.config import ParserConfig
 
@@ -21,4 +23,18 @@ def text_annotated(text: str) -> None:
     inscriptis.get_annotated_text(text, _ANNOTATION_CONFIG)
 
 
-OPERATIONS = {"text-render": (text_render, "inscriptis"), "text-annotated": (text_annotated, "inscriptis")}
+def _text_annotation_rules(case: tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]) -> None:
+    text, rules = case
+    inscriptis.get_annotated_text(text, _annotation_config(rules))
+
+
+@cache
+def _annotation_config(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> ParserConfig:
+    return ParserConfig(annotation_rules={name: list(labels) for name, labels in rules})
+
+
+OPERATIONS = {
+    "text-render": (text_render, "inscriptis"),
+    "text-annotated": (text_annotated, "inscriptis"),
+    "text-annotation-rules": (_text_annotation_rules, "inscriptis"),
+}

@@ -474,6 +474,13 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "parse-encoded-be": ("parse-encoded", 1),
     "parse-encoded-utf8": ("parse-encoded", 2),
     "parse-encoded-large": ("parse-encoded", 3),
+    "text-annotation-rules": ("text-annotation-rules", 0),
+    "text-annotation-rules-wildcard": ("text-annotation-rules", 1),
+    "text-annotation-rules-matching": ("text-annotation-rules", 2),
+    "text-annotation-rules-tiny": ("text-annotation-rules", 3),
+    "text-annotation-rules-few": ("text-annotation-rules", 4),
+    "text-annotation-rules-interleaved": ("text-annotation-rules", 5),
+    "text-annotation-rules-threshold": ("text-annotation-rules", 6),
 }
 
 

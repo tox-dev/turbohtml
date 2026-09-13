@@ -899,6 +899,16 @@ def text_annotated(text: str) -> None:
     _whole(text).to_annotated_text(_ANNOTATION_RULES)
 
 
+def _text_annotation_rules(case: tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]) -> None:
+    text, rules = case
+    _whole(text).to_annotated_text(_annotation_rule_map(rules))
+
+
+@functools.cache
+def _annotation_rule_map(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, tuple[str, ...]]:
+    return dict(rules)
+
+
 def extract_attr(text: str) -> None:
     """Read every anchor's href by selecting once and reading attr off each node."""
     for anchor in _parsed(text).select("a"):
@@ -1703,6 +1713,7 @@ OPERATIONS: dict[str, tuple[object, str]] = {
     "text-collapsed": (text_collapsed, "turbohtml"),
     "text-main": (text_main, "turbohtml"),
     "text-annotated": (text_annotated, "turbohtml"),
+    "text-annotation-rules": (_text_annotation_rules, "turbohtml"),
     "extract-attr": (extract_attr, "turbohtml"),
     "extract-text": (extract_text, "turbohtml"),
     "extract-url": (extract_url, "turbohtml"),

@@ -48,6 +48,7 @@ typedef struct {
     Py_ssize_t ref_cap;
     const text_rule *rules; /* annotation rules, or NULL when not annotating */
     Py_ssize_t n_rules;
+    Py_ssize_t *rule_index;
     text_span *spans; /* recorded labeled spans */
     Py_ssize_t span_count;
     Py_ssize_t span_cap;
@@ -259,8 +260,26 @@ static Py_ssize_t text_open_annotations(text_ctx *ctx, th_node *node) {
         return 0;
     }
     Py_ssize_t opened = 0;
-    for (Py_ssize_t rule_index = 0; rule_index < ctx->n_rules; rule_index++) {
-        if (!text_rule_matches(ctx, node, &ctx->rules[rule_index])) {
+    Py_ssize_t tagged = ctx->n_rules;
+    Py_ssize_t wildcard = ctx->n_rules;
+    if (ctx->rule_index != NULL) {
+        tagged = node->ns == TH_NS_HTML ? ctx->rule_index[node->atom] : ctx->n_rules;
+        wildcard = ctx->rule_index[th_tag_count + 1];
+    }
+    for (Py_ssize_t rule_index = 0; rule_index < ctx->n_rules;) {
+        if (ctx->rule_index != NULL) {
+            rule_index = tagged < wildcard ? tagged : wildcard;
+            if (rule_index == ctx->n_rules) {
+                break;
+            }
+            if (rule_index == tagged) {
+                tagged = ctx->rule_index[th_tag_count + 2 + rule_index];
+            } else {
+                wildcard = ctx->rule_index[th_tag_count + 2 + rule_index];
+            }
+        }
+        const text_rule *rule = &ctx->rules[rule_index++];
+        if (!text_rule_matches(ctx, node, rule)) {
             continue;
         }
         if (ctx->active_count == ctx->active_cap) {
@@ -281,7 +300,7 @@ static Py_ssize_t text_open_annotations(text_ctx *ctx, th_node *node) {
             ctx->active_cap = (Py_ssize_t)cap;
         }
         ctx->active[ctx->active_count].start = ctx->out.len;
-        ctx->active[ctx->active_count].rule = &ctx->rules[rule_index];
+        ctx->active[ctx->active_count].rule = rule;
         ctx->active_count++;
         opened++;
     }
@@ -806,7 +825,32 @@ Py_UCS4 *th_node_annotated_text(th_tree *tree, th_node *node, const text_opts *o
     ctx.opt = opt;
     ctx.rules = rules;
     ctx.n_rules = n_rules;
+    if (n_rules >= 8) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation size overflow */
+        if (!th_grow_cap((size_t)n_rules + (size_t)th_tag_count + 2, 0, 8, sizeof(Py_ssize_t), &capacity, &bytes)) {
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation size overflow */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation size overflow */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        ctx.rule_index = PyMem_Malloc(bytes);
+        if (ctx.rule_index == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            PyErr_NoMemory();         /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;              /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        for (int atom = 0; atom < th_tag_count + 2; atom++) {
+            ctx.rule_index[atom] = n_rules;
+        }
+        /* Keep span order stable across tag and wildcard rules. */
+        for (Py_ssize_t index = n_rules; index-- > 0;) {
+            int atom = rules[index].any_tag ? th_tag_count + 1 : rules[index].tag_atom;
+            ctx.rule_index[th_tag_count + 2 + index] = ctx.rule_index[atom];
+            ctx.rule_index[atom] = index;
+        }
+    }
     text_render_root(&ctx, node);
+    PyMem_Free(ctx.rule_index);
     PyMem_Free(ctx.prefix.data);
     PyMem_Free(ctx.refs);
     PyMem_Free(ctx.active);

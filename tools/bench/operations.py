@@ -476,6 +476,7 @@ OPERATIONS: dict[str, Operation] = {
     "text-collapsed": Operation("collapsed word stream", "us"),
     "text-main": Operation("main-content text", "us"),
     "text-annotated": Operation("annotated layout text", "us"),
+    "text-annotation-rules": Operation("annotated layout text by rule distribution", "us"),
     "extract-attr": Operation("extract @href per match", "us"),
     "extract-text": Operation("extract text per match", "us"),
     "extract-url": Operation("extract URL hints", "us"),
@@ -1011,6 +1012,85 @@ def _dense_styled_page(sections: int) -> str:
         "<ul class='u v w'><li class='u v w'>one</li><li class='u v w'>two</li></ul></div></section>"
     )
     return f"<html><head><style>{_DENSE_SHEET}</style></head><body>{section * sections}</body></html>"
+
+
+def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
+    unrelated = (
+        *tuple(
+            (tag, (tag,))
+            for tag in (
+                "a",
+                "abbr",
+                "address",
+                "article",
+                "aside",
+                "audio",
+                "b",
+                "bdi",
+                "bdo",
+                "blockquote",
+                "button",
+                "canvas",
+                "caption",
+                "cite",
+                "code",
+                "col",
+                "colgroup",
+                "data",
+                "datalist",
+                "dd",
+                "del",
+                "details",
+                "dfn",
+                "dialog",
+                "div",
+                "dl",
+                "dt",
+                "em",
+                "fieldset",
+                "figcaption",
+                "figure",
+                "footer",
+                "form",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "header",
+                "hgroup",
+                "hr",
+                "i",
+                "iframe",
+                "img",
+                "input",
+                "ins",
+                "kbd",
+            )
+        ),
+        ("span", ("match",)),
+    )
+    attributes = " ".join(f'data-{index}="yes"' for index in range(49))
+    broad = f"<p>{f'<span {attributes}>x</span>' * 1_000}</p>"
+    return (
+        ("49 mostly irrelevant rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated)),
+        ("49 wildcard rules, 1,000 spans", (broad, tuple((f"#data-{index}", (str(index),)) for index in range(49)))),
+        (
+            "49 matching tag rules, 1,000 spans",
+            (broad, tuple((f"span#data-{index}", (str(index),)) for index in range(49))),
+        ),
+        ("49 mostly irrelevant rules, one span", ("<p><span>x</span></p>", unrelated)),
+        ("three rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated[-3:])),
+        (
+            "interleaved wildcard rules, alternating tags",
+            (
+                "<p>" + '<span data-x="yes">x</span><b data-x="yes">y</b>' * 500 + "</p>",
+                (("span", ("span",)), ("#data-x", ("wild",)), ("b", ("bold",)), *unrelated[:5]),
+            ),
+        ),
+        ("eight rules, one span", ("<p><span>x</span></p>", (*unrelated[:7], unrelated[-1]))),
+    )
 
 
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
@@ -2526,6 +2606,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
     "text-main": lambda: (("main (4 KiB)", _TEXT_MAIN),),
+    "text-annotation-rules": _annotation_rule_cases,
     "text-annotated": lambda: (("annotated (4 KiB)", _TEXT_ANNOTATED),),
     "extract-attr": _readpath_cases,
     "extract-text": _readpath_cases,

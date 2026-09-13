@@ -1,0 +1,1 @@
+Reduce rule matching work in :meth:`~turbohtml.Node.to_annotated_text` with many annotation rules.
