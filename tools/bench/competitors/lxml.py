@@ -526,6 +526,7 @@ OPERATIONS = {
     "emit": (emit, "lxml"),
     "find": (find, "lxml"),
     "select": (select, "lxml"),
+    "select-nth": (_select_relative, "lxml"),
     "select-relative": (_select_relative, "lxml"),
     "select-has": (select_has, "lxml"),
     "text-content": (text_content, "lxml"),

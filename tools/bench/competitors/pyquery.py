@@ -249,6 +249,7 @@ OPERATIONS = {
     "parse-scope": (parse, "pyquery"),
     "find": (find, "pyquery"),
     "select": (select, "pyquery"),
+    "select-nth": (_select_relative, "pyquery"),
     "select-relative": (_select_relative, "pyquery"),
     "find-text": (find_text, "pyquery"),
     "find-text-exact": (_find_text_exact, "pyquery"),

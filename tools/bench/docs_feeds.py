@@ -153,6 +153,7 @@ TABLES: Final[dict[str, str | Combined]] = {
     "encoding-detection": "encoding",
     "encoding-result": "encoding-result",
     "encoding-result-stream": "encoding-result-stream",
+    "encoding-chunks": "encoding-chunks",
     "escaping": "escape",
     "extraction": "extract-attr",
     "extraction-2": "extract-text",

@@ -1,0 +1,65 @@
+{
+  "label": "detect encoding across byte chunks",
+  "parties": [
+    "turbohtml",
+    "faust-cchardet",
+    "chardet"
+  ],
+  "metrics": [],
+  "rows": [
+    [
+      "Japanese prefix, 64 KiB ASCII suffix, 4 KiB chunks",
+      0.0007124837908728902,
+      0.00012231814923779893,
+      "reports ISO-8859-1 for the known Shift_JIS text"
+    ],
+    [
+      "Japanese prefix, short ASCII suffix, 16-byte chunks",
+      5.174285249746428e-06,
+      1.1871311404121343e-05,
+      0.00021018006729415598
+    ],
+    [
+      "Japanese prefix, 64 KiB ASCII suffix, one feed",
+      0.0006471923692667284,
+      0.00011766638884106821,
+      "reports ISO-8859-1 for the known Shift_JIS text"
+    ],
+    [
+      "64 KiB ASCII, 4 KiB chunks",
+      0.002858975532641731,
+      5.174407787459737e-05,
+      0.00019324551736114395
+    ]
+  ],
+  "spread": [
+    [
+      null,
+      0.00607432537331624,
+      0.032191282286316694,
+      null
+    ],
+    [
+      null,
+      0.0207020528486971,
+      0.012265699483573218,
+      0.01111006589119127
+    ],
+    [
+      null,
+      0.018288261509646464,
+      0.00965017160026218,
+      null
+    ],
+    [
+      null,
+      0.006545698720264135,
+      0.001514405010806264,
+      0.011088520663982228
+    ]
+  ],
+  "notes": {
+    "faust-cchardet": "decoded text matches all four inputs; confidence and encoding labels differ",
+    "chardet": "misidentifies the two long Japanese inputs as ISO-8859-1; confidence and encoding labels differ"
+  }
+}

@@ -99,6 +99,9 @@ Performance
 .. bench-table::
     :file: bench/chardet.json
 
+.. bench-table::
+    :file: ../development/bench/encoding-chunks.json
+
 Certain input short-circuits before any scoring, so ASCII, valid UTF-8, and real web pages resolve 30x to 1500x ahead of
 chardet's prober ensemble; declaration-less legacy single-byte text still runs 3.9x to 5.4x ahead. Both libraries decode
 a 15-sample multilingual differential correctly, though chardet often names a sibling or superset where turbohtml

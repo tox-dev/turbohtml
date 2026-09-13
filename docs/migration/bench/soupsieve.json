@@ -170,6 +170,26 @@
       "select default form controls — 1 form, 4096 spans, 128 explicit submit buttons",
       2.028047010564175e-05,
       0.013097341121465433
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      0.0037711985648153736
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.363368524160857
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (100 siblings)",
+      1.4514325199499467e-06,
+      0.006094040471604482
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (1,000 siblings)",
+      1.37065455092511e-05,
+      0.5825016493326984
     ]
   ],
   "spread": [
@@ -337,7 +357,32 @@
       null,
       0.01967096810184678,
       0.00412187022234827
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.01589883996536962
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.003548493934181583
+    ],
+    [
+      null,
+      0.007544874315735023,
+      0.009535950261662107
+    ],
+    [
+      null,
+      0.013001379470947901,
+      0.006738032964279711
     ]
   ],
-  "row_notes": {}
+  "row_notes": {
+    "33": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "34": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "35": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "36": "10,000-sibling cases exceed the sampling budget; no timings collected"
+  }
 }

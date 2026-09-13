@@ -29,6 +29,15 @@ _BUILDER: Final = (
 )
 
 NOTES: Final[dict[str, dict[str, str]]] = {
+    "select-nth": {
+        "BeautifulSoup (html.parser)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+        "BeautifulSoup (lxml)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+        "soupsieve": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    },
+    "encoding-chunks": {
+        "chardet": "misidentifies the two long Japanese inputs as ISO-8859-1; confidence and encoding labels differ",
+        "faust-cchardet": "decoded text matches all four inputs; confidence and encoding labels differ",
+    },
     "stream": {
         "lxml": "libxml2 produces different trees for the four real-page inputs; only the six generated inputs match",
     },

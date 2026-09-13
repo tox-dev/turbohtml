@@ -1194,6 +1194,30 @@
       2.028047010564175e-05,
       0.013879596376985623,
       0.013895649734574059
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      0.005192766814919499,
+      0.0052111072024369305
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.5079093019206388,
+      0.5037960729872187
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (100 siblings)",
+      1.4514325199499467e-06,
+      0.006099283088284817,
+      0.006076495873761208
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (1,000 siblings)",
+      1.37065455092511e-05,
+      0.589741576249556,
+      0.5918145658603559
     ]
   ],
   "spread": [
@@ -2384,6 +2408,30 @@
       0.01967096810184678,
       0.008690219885874845,
       0.02514394829426442
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.003430574624971473,
+      0.00900964558392811
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.014373651302224478,
+      0.004966406973148894
+    ],
+    [
+      null,
+      0.007544874315735023,
+      0.004291729578859033,
+      0.008606727787215466
+    ],
+    [
+      null,
+      0.013001379470947901,
+      0.007244899301821215,
+      0.01157839386665138
     ]
   ],
   "row_notes": {
@@ -2434,6 +2482,10 @@
     "165": "BeautifulSoup (lxml): no measurement for this operation",
     "3": "same in both configurations, so measured once",
     "4": "same in both configurations, so measured once",
-    "5": "same in both configurations, so measured once"
+    "5": "same in both configurations, so measured once",
+    "198": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "199": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "200": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "201": "10,000-sibling cases exceed the sampling budget; no timings collected"
   }
 }

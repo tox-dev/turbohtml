@@ -63,6 +63,7 @@ OPERATIONS = {
     "escape-identifier": (escape_identifier, "soupsieve"),
     "find": (find, "soupsieve"),
     "select": (select, "soupsieve"),
+    "select-nth": (_select_relative, "soupsieve"),
     "select-relative": (_select_relative, "soupsieve"),
     "select-default": (_select_default, "soupsieve"),
     "select-has": (select_has, "soupsieve"),

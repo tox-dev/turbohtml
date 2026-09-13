@@ -170,6 +170,7 @@ OPERATIONS = {
     "text-main": (text_main, "resiliparse"),
     "find": (find, "resiliparse"),
     "select": (select, "resiliparse"),
+    "select-nth": (_select_relative, "resiliparse"),
     "select-relative": (_select_relative, "resiliparse"),
     "select-has": (select_has, "resiliparse"),
     "text-content": (text_content, "resiliparse"),

@@ -1,60 +1,168 @@
 {
   "label": "select sibling positions in wide trees",
   "parties": [
-    "turbohtml"
+    "turbohtml",
+    "pyquery",
+    "BeautifulSoup (html.parser)",
+    "resiliparse",
+    "BeautifulSoup (lxml)",
+    "lxml",
+    "parsel",
+    "selectolax",
+    "soupsieve"
   ],
   "metrics": [],
   "rows": [
     [
       "li:nth-child(odd) (100 siblings)",
-      1.5191597840432298e-06
+      1.058463864408073e-06,
+      7.223749796973304e-05,
+      0.005192766814919499,
+      5.424755200304314e-06,
+      0.0052111072024369305,
+      7.196651893082162e-05,
+      8.032730102058849e-05,
+      1.4297776099662466e-05,
+      0.0037711985648153736
     ],
     [
       "li:nth-child(odd) (1,000 siblings)",
-      1.286904091936473e-05
+      9.717604965449786e-06,
+      0.0028491268449215568,
+      0.5079093019206388,
+      0.0016944236652610318,
+      0.5037960729872187,
+      0.002872743273655942,
+      0.0029962154397556637,
+      0.0008704819342710834,
+      0.363368524160857
     ],
     [
       "li:nth-child(odd) (10,000 siblings)",
-      0.00019599071186651902
+      0.00012419139263405063,
+      0.24291483665971705,
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget",
+      0.2352750310092233,
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget",
+      0.2914823712975097,
+      0.24968303825395802,
+      0.33717395836720243,
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget"
     ],
     [
       "li:nth-child(odd of .x) (100 siblings)",
-      2.789364453311312e-06
+      1.4514325199499467e-06,
+      "Expected an argument, got <DELIM '.' at 20>",
+      0.006099283088284817,
+      3.5726714301631546e-05,
+      0.006076495873761208,
+      "Expected an argument, got <DELIM '.' at 20>",
+      "Expected an argument, got <DELIM '.' at 20>",
+      0.00017793844623762803,
+      0.006094040471604482
     ],
     [
       "li:nth-child(odd of .x) (1,000 siblings)",
-      3.4697216797970516e-05
+      1.37065455092511e-05,
+      "Expected an argument, got <DELIM '.' at 20>",
+      0.589741576249556,
+      0.0035828160847207378,
+      0.5918145658603559,
+      "Expected an argument, got <DELIM '.' at 20>",
+      "Expected an argument, got <DELIM '.' at 20>",
+      0.015914236995740794,
+      0.5825016493326984
     ],
     [
       "li:nth-child(odd of .x) (10,000 siblings)",
-      0.0003876347437653749
+      0.0001652694193315559,
+      "Expected an argument, got <DELIM '.' at 20>",
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget",
+      0.36916376745405916,
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget",
+      "Expected an argument, got <DELIM '.' at 20>",
+      "Expected an argument, got <DELIM '.' at 20>",
+      1.513120152890527,
+      "Not timed: 10,000-sibling SoupSieve workloads exceed the sampling budget"
     ]
   ],
   "spread": [
     [
       null,
-      0.10471345422941922
+      0.01647151667934757,
+      0.01598586352302171,
+      0.003430574624971473,
+      0.004922260294659562,
+      0.00900964558392811,
+      0.01412226132874074,
+      0.014310126283119444,
+      0.014255717509710187,
+      0.01589883996536962
     ],
     [
       null,
-      0.09721209799211271
+      0.016482107866996942,
+      0.020361509449324158,
+      0.014373651302224478,
+      0.055485294284788995,
+      0.004966406973148894,
+      0.018266354468404272,
+      0.02721117504557623,
+      0.02595189655631218,
+      0.003548493934181583
     ],
     [
       null,
-      0.18523843321643907
+      0.026028702535503465,
+      0.015437855733263776,
+      null,
+      0.0589815106176904,
+      null,
+      0.25897620810591343,
+      0.015255452135638607,
+      0.0681397148770639,
+      null
     ],
     [
       null,
-      0.13742978797217073
+      0.007544874315735023,
+      null,
+      0.004291729578859033,
+      0.006127001220792221,
+      0.008606727787215466,
+      null,
+      null,
+      0.01358496159075281,
+      0.009535950261662107
     ],
     [
       null,
-      0.06217931489689532
+      0.013001379470947901,
+      null,
+      0.007244899301821215,
+      0.028323419811176496,
+      0.01157839386665138,
+      null,
+      null,
+      0.010078543091511172,
+      0.006738032964279711
     ],
     [
       null,
-      0.08581945347981859
+      0.008926052392025858,
+      null,
+      null,
+      0.02683872198843588,
+      null,
+      null,
+      null,
+      0.020895833817099096,
+      null
     ]
   ],
-  "notes": {}
+  "notes": {
+    "BeautifulSoup (html.parser)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "BeautifulSoup (lxml)": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "soupsieve": "10,000-sibling cases exceed the sampling budget; no timings collected"
+  }
 }

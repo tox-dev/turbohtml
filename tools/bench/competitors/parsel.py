@@ -206,6 +206,7 @@ OPERATIONS = {
     "parse-scope": (parse, "parsel"),
     "find": (find, "parsel"),
     "select": (select, "parsel"),
+    "select-nth": (_select_relative, "parsel"),
     "select-relative": (_select_relative, "parsel"),
     "select-has": (select_has, "parsel"),
     "find-text": (find_text, "parsel"),

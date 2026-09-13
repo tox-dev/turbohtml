@@ -359,6 +359,7 @@ OPERATIONS = {
     "emit": (emit, "BeautifulSoup (html.parser)"),
     "find": (find, "BeautifulSoup (html.parser)"),
     "select": (select, "BeautifulSoup (html.parser)"),
+    "select-nth": (_select_relative, "BeautifulSoup (html.parser)"),
     "select-relative": (_select_relative, "BeautifulSoup (html.parser)"),
     "select-default": (_select_default, "BeautifulSoup (html.parser)"),
     "select-has": (select_has, "BeautifulSoup (html.parser)"),

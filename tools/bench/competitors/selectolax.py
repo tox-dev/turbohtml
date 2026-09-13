@@ -233,6 +233,7 @@ OPERATIONS = {
     "parse-scope": (parse, "selectolax"),
     "find": (find, "selectolax"),
     "select": (select, "selectolax"),
+    "select-nth": (_select_relative, "selectolax"),
     "select-relative": (_select_relative, "selectolax"),
     "select-has": (select_has, "selectolax"),
     "text-content": (text_content, "selectolax"),

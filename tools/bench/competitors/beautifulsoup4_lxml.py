@@ -286,6 +286,7 @@ OPERATIONS = {
     "parse-scope": (parse, "BeautifulSoup (lxml)"),
     "find": (find, "BeautifulSoup (lxml)"),
     "select": (select, "BeautifulSoup (lxml)"),
+    "select-nth": (_select_relative, "BeautifulSoup (lxml)"),
     "select-relative": (_select_relative, "BeautifulSoup (lxml)"),
     "select-default": (_select_default, "BeautifulSoup (lxml)"),
     "select-has": (select_has, "BeautifulSoup (lxml)"),

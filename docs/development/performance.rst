@@ -999,6 +999,9 @@ score it and a CJK stream leaves several standing.
 .. bench-table::
     :file: bench/encoding-result-stream.json
 
+.. bench-table::
+    :file: bench/encoding-chunks.json
+
 *****************
  Legacy decoding
 *****************

@@ -2000,6 +2000,21 @@
       "push-parse a page in chunks — 64 supplementary paragraphs, early NUL",
       0.0006343395327045679,
       0.001310752901493591
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
+      1.058463864408073e-06,
+      7.196651893082162e-05
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
+      9.717604965449786e-06,
+      0.002872743273655942
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
+      0.00012419139263405063,
+      0.2914823712975097
     ]
   ],
   "spread": [
@@ -3997,6 +4012,21 @@
       null,
       0.047560774931392394,
       0.040085849116029054
+    ],
+    [
+      null,
+      0.01647151667934757,
+      0.01412226132874074
+    ],
+    [
+      null,
+      0.016482107866996942,
+      0.018266354468404272
+    ],
+    [
+      null,
+      0.026028702535503465,
+      0.25897620810591343
     ]
   ],
   "row_notes": {
