@@ -29,6 +29,7 @@ _BUILDER: Final = (
 )
 
 NOTES: Final[dict[str, dict[str, str]]] = {
+    "urls-clean": {"courlan": "retains Unicode hostnames instead of encoding them with IDNA"},
     "select-nth": {
         "BeautifulSoup (html.parser)": "10,000-sibling cases exceed the sampling budget; no timings collected",
         "BeautifulSoup (lxml)": "10,000-sibling cases exceed the sampling budget; no timings collected",
