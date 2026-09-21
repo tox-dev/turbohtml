@@ -115,7 +115,7 @@ docs = [
   "sphinx-design>=0.7",                # the card grid on the landing page
   "sphinx-issues>=6",
   "sphinx-last-updated-by-git>=0.3.8", # stamp each page with its last git edit
-  "sphinx-llm>=0.4.1,<1.1",
+  "sphinx-llm>=0.4.1,!=1.1",
   "sphinx-notfound-page>=1.1",         # a versioned 404 page
   "sphinx-reredirects>=1.1",           # keep old URLs alive after a page moves
   "sphinx-sitemap>=2.9",               # emit sitemap.xml for crawlers
