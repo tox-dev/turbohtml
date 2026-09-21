@@ -12,7 +12,7 @@ def build_e(count: int) -> None:
     air = Airium()
     with air.ul():
         for index in range(count):
-            with air.li(klass="item", **{"data-i": str(index)}):
+            with air.get_tag_("li")(klass="item", **{"data-i": str(index)}):
                 air(f"item {index}")
     _ = str(air)
 
