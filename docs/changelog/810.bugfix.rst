@@ -1,2 +1,0 @@
-:class:`turbohtml.IncrementalParser` with ``source_locations=True`` reports the same absolute offsets as
-:func:`turbohtml.parse` when a tag spans two feeds, and ``to_source()`` on its document no longer reads freed memory.

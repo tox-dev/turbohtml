@@ -1,2 +1,0 @@
-Node insertion methods and ``Range.insert_node`` raise ``ValueError`` instead of putting a doctype outside a
-``Document``, or a second doctype, a second root element, or a ``Text`` node directly into a ``Document``.

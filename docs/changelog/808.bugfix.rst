@@ -1,2 +1,0 @@
-Keep the end tag of an element built with :mod:`turbohtml.build` when :func:`~turbohtml.clean.sanitize_node` escapes it,
-so ``<span>x</span>y`` no longer escapes as ``&lt;span&gt;xy``.

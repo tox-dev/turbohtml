@@ -1,2 +1,0 @@
-``NodeIterator`` follows the DOM pre-remove steps: removing an ancestor of its current node, even from inside the
-filter, moves the iterator out of the removed subtree so iteration continues with the remaining nodes.

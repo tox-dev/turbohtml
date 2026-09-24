@@ -1,3 +1,0 @@
-Apply each input type's value sanitization in ``Element.form_data()`` (newlines stripped, ``url``/``email`` trimmed,
-invalid ``number`` and date values emptied, ``range`` clamped), normalize textarea line breaks, and skip controls inside
-``<datalist>``.

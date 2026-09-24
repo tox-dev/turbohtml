@@ -1,3 +1,0 @@
-Parse well-formed feeds in ``turbohtml.extract.feed()`` as XML, so CDATA summaries and content keep their markup, a
-channel ``<image>`` no longer overrides the feed title and link, and ``parse_xml(...).feed()`` reads RSS ``<link>``
-text.

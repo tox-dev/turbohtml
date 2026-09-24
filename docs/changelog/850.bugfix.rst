@@ -1,3 +1,0 @@
-Pickling a ``Document``, fragment, or ``ShadowRoot`` rebuilds its structure instead of reparsing serialized markup:
-doctype identifiers, quirks mode, adjacent text, template contents, and foreign-element case survive, and elements
-holding a ``<template>`` pickle again.

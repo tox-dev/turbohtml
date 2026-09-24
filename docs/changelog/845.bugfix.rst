@@ -1,2 +1,0 @@
-Stop a ``rowspan`` at the end of its ``<thead>``/``<tbody>``/``<tfoot>`` in ``Element.rows()``, ``records()``, and
-``Node.tables()``, and return ``<tfoot>`` rows last, as the WHATWG table model does.

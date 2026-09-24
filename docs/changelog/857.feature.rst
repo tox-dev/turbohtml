@@ -1,2 +1,0 @@
-Add ``DocumentFragment``: ``Range.extract_contents`` and ``Range.clone_contents`` return one, and every insertion method
-moves a fragment's children into place and leaves it empty, as the DOM insert algorithm does.

@@ -1,2 +1,0 @@
-``Range`` operations raise ``IndexError`` or ``ValueError`` when a tree edit left a boundary past the end of its text,
-in another tree, or after the end, instead of reading out of bounds or crashing.

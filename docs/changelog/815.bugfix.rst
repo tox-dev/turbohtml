@@ -1,2 +1,0 @@
-Make :func:`~turbohtml.clean.sanitize` keep HTML content under MathML ``annotation-xml`` only while the output still
-carries an ``encoding`` of ``text/html`` or ``application/xhtml+xml``.

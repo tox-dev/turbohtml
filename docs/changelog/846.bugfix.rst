@@ -1,2 +1,0 @@
-Type ``Node.xpath()``, ``xpath_one()``, ``xpath_iter()``, and ``XPath.__call__`` with the full result union: numbers,
-booleans, and strings from scalar expressions, and any node kind in a node-set.

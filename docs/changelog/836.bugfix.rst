@@ -1,2 +1,0 @@
-``minify_js`` output is a fixed point again when a binding named ``undefined`` exists: reads that reach the global
-``undefined`` fold to ``void 0`` on the first pass instead of the second.

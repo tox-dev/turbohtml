@@ -1,2 +1,0 @@
-``minify_js`` and the HTML minifier read ``<!--`` and a line-leading ``-->`` as line comments in classic scripts, as
-Annex B requires; ``<script type=module>`` keeps them as operators.

@@ -1,2 +1,0 @@
-Make :func:`~turbohtml.clean.sanitize_node` and ``transform_tags`` scrub every text run of a kept ``<style>``, drop its
-element children, and escape a ``</style`` in its body so the stylesheet cannot close the element early.

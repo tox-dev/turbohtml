@@ -1,2 +1,0 @@
-XPath ``lang()`` and CSS ``:lang()`` honor ``xml:lang``: an XML tree reads it, and on an HTML tree it overrides ``lang``
-on SVG and MathML elements. ``//@xml:lang`` now matches those attributes.

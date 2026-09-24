@@ -1,2 +1,0 @@
-Appending a shadow host into its own shadow tree raises ``ValueError`` instead of creating a cycle that made
-``assigned_nodes(flatten=True)`` loop forever.

@@ -1,3 +1,0 @@
-``wrap``, ``wrap_siblings``, ``insert_before``, ``insert_after``, ``replace_with``, ``unwrap`` and ``Range.insert_node``
-no longer corrupt the tree or crash on the free-threaded build when another thread edits it while a node moves in from
-another tree.

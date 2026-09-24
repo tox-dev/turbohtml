@@ -1,2 +1,0 @@
-XPath name tests match SVG and MathML elements by their exact spelling: ``//foreignObject`` finds the SVG element and
-``//foreignobject`` no longer does.

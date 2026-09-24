@@ -1,2 +1,0 @@
-Make :func:`~turbohtml.clean.linkify` leave the text of ``xmp``, ``iframe``, ``noembed``, ``noframes``, ``plaintext``,
-``textarea``, ``title``, and scripting-parsed ``noscript`` untouched instead of dropping or nesting link text there.

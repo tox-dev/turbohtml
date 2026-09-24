@@ -1,2 +1,0 @@
-Minify writes no ``</plaintext>`` and no end tag after a ``<plaintext>`` element, which the parser would read back as
-text, so minifying such a page is idempotent.

@@ -1,2 +1,0 @@
-Compare attribute values exactly on a :func:`~turbohtml.parse_xml` tree: ``[type=checkbox]`` no longer matches
-``type="CheckBox"``, since the HTML case-insensitive value list applies to HTML documents only.

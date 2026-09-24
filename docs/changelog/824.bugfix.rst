@@ -1,2 +1,0 @@
-Make :func:`~turbohtml.clean.sanitize` and the bleach ``clean`` shim drop ``javascript:`` URLs even when ``url_schemes``
-or ``protocols`` lists ``javascript``, as the safety baseline documents.

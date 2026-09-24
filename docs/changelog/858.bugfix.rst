@@ -1,2 +1,0 @@
-Minify keeps the doctype's public and system identifiers and a ``</p>`` before a ``<table>`` in quirks mode, so the
-output reparses in the same document mode and to the same tree.

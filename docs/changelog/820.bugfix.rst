@@ -1,1 +1,0 @@
-``node.wrap(node)`` raises ``ValueError`` instead of making the node its own parent and looping.

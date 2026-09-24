@@ -1,3 +1,0 @@
-``minify_js`` keeps ``(0,o.f)()``, ``(1&&o.f)()`` and similar value callees, tags and ``delete``/``typeof`` operands as
-``(0,o.f)`` instead of unwrapping them to ``o.f``, which changed ``this``, deleted properties and turned indirect
-``eval`` direct.

@@ -1,2 +1,0 @@
-``minify_js`` keeps assignments to parameters in functions that read ``arguments``, which mirrors each parameter in
-sloppy code; ``function(a){a=2;return arguments[0]}`` used to lose the ``a=2``.

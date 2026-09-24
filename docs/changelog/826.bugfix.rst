@@ -1,2 +1,0 @@
-Make ``strip_template_markers`` in :func:`~turbohtml.clean.sanitize` catch a marker whose halves end up adjacent once a
-comment or disallowed element between them is removed, stripped, or escaped, and markers inside an escaped tag.

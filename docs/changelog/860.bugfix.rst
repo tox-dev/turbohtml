@@ -1,2 +1,0 @@
-``Formatter.NAMED_ENTITIES`` writes ``&lang;`` and ``&rang;`` for U+27E8 and U+27E9, their HTML5 meaning, and keeps
-U+2329 and U+232A literal, so the output reparses to the same text.

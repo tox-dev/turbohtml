@@ -1,2 +1,0 @@
-Nodes adopted between ``parse_xml`` and HTML trees take the destination tree's naming and raw-text rules, and
-``set_inner_html`` / ``insert_adjacent_html`` on an XML element use the XML fragment parser.

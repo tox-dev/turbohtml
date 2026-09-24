@@ -1,2 +1,0 @@
-Inserting a range's contents or a ``ShadowRoot`` no longer links the fragment node itself into the tree; its children
-move into place and a shadow root stays attached to its host.

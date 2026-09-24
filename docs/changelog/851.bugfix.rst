@@ -1,2 +1,0 @@
-Stop ``Html(layout=Indent())`` from adding whitespace inside inline content, which changed the rendered text
-(``<p>a<b>b</b>c</p>`` reparsed as "a b c"); it now breaks lines only between block-level elements.

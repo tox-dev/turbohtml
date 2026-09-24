@@ -1,2 +1,0 @@
-XPath ``round()`` no longer rounds up the largest doubles below a half or integers past 2^52, and returns negative zero
-for arguments in ``[-0.5, 0)``; ``substring()`` positions round the same way.

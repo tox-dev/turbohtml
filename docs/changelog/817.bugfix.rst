@@ -1,2 +1,0 @@
-Stop :func:`~turbohtml.clean.sanitize` from keeping an HTML ``mglyph`` or ``malignmark`` under a MathML ``mi``, ``mo``,
-``mn``, ``ms``, or ``mtext``, where a reparse turns it and its children into MathML.

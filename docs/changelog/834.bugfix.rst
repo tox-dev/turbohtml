@@ -1,2 +1,0 @@
-``Element`` and ``E`` keep the first of several attribute keys that differ only in ASCII case, matching the parser,
-instead of storing the attribute twice.

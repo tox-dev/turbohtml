@@ -1,2 +1,0 @@
-Stop :func:`~turbohtml.clean.sanitize` from appending another ``;}`` on every pass to a ``<style>`` body that ends
-inside an unterminated string or comment; the trailing declaration is now dropped.

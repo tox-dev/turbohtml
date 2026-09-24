@@ -1,2 +1,0 @@
-Skip a JSON-LD block that uses the non-JSON ``NaN``, ``Infinity``, or ``-Infinity`` literals in ``Document.json_ld()``,
-as the docs promise for invalid JSON, instead of returning ``nan`` or ``inf``.

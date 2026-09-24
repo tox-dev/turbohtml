@@ -1,2 +1,0 @@
-:func:`turbohtml.parse_fragment` keeps the SVG mixed case on its root, so an ``"svg foreignObject"`` context returns a
-``foreignObject`` element instead of ``foreignobject``.

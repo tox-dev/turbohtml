@@ -1,2 +1,0 @@
-Stop :func:`~turbohtml.clean.sanitize` from leaving a kept HTML element such as ``<style>`` directly under ``<svg>`` or
-``<math>`` when it escapes the ``desc``, ``title``, ``foreignObject``, or MathML text element that held it.

@@ -1,2 +1,0 @@
-``to_markdown()`` escapes text a CommonMark reader would parse as markup: list-item line starts such as ``1.``, ``~``,
-``<`` and ``&`` before markup, a heading's trailing ``#``, and unbalanced parentheses in link destinations.

@@ -1,2 +1,0 @@
-XPath number literals and ``number()`` convert decimals to the nearest double, so ``0.49999999999999994 < 0.5`` holds
-and ``number(string(x))`` round-trips.

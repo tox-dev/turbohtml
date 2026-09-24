@@ -1,2 +1,0 @@
-``Element.attrs`` implements the full ``MutableMapping`` interface: ``update``, ``pop``, ``popitem``, ``setdefault``,
-``clear``, ``copy``, equality with any mapping, and ``|`` / ``|=``.

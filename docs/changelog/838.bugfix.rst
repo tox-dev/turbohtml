@@ -1,2 +1,0 @@
-XPath predicates and steps on an attribute now use the attribute as the context node: ``//@n[. > 5]`` compares the
-attribute value and ``//@n/..`` returns the owner element.

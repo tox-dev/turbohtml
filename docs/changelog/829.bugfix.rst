@@ -1,2 +1,0 @@
-``minify_js`` keeps a function declared in a block, and the binding its name reaches outside the block, when mangling:
-Annex B makes the function visible after the block, so dropping or inlining it broke ``typeof g`` and calls there.

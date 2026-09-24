@@ -1,1 +1,0 @@
-List a microdata value once per property name when an ``itemprop`` attribute repeats a name, as in ``itemprop="a a"``.

@@ -1,2 +1,0 @@
-``minify_css`` keeps zero units inside ``round()``, ``abs()``, ``hypot()``, ``mod()``, ``rem()`` and the other CSS
-Values 4 math functions, where ``round(0px,1px)`` used to become the invalid ``round(0,1px)``.

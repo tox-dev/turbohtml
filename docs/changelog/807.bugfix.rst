@@ -1,2 +1,0 @@
-Stop :func:`~turbohtml.clean.sanitize` escape mode from rendering a start tag the source never wrote: the ``tbody`` a
-bare ``<table><tr>`` implies, a formatting element the parser clones, or the skeleton of an empty document.

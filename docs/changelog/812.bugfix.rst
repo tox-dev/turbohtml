@@ -1,2 +1,0 @@
-:class:`turbohtml.Tokenizer` with ``capture_source=True`` reports the full source of a tag split across two ``feed()``
-calls, where it used to truncate it or raise ``ValueError``.

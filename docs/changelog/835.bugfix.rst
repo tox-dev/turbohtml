@@ -1,2 +1,0 @@
-``Range.surround_contents`` raises ``ValueError`` for a wrapper that is not an element, such as a ``Text`` node, instead
-of silently dropping the range contents.

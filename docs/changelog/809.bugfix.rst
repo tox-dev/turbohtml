@@ -1,2 +1,0 @@
-Match elements named like HTML tags (``title``, ``p``, ``div``) with CSS selectors on a :func:`~turbohtml.parse_xml`
-tree, so ``select("title")`` from the document and combinators such as ``p > x`` find them.

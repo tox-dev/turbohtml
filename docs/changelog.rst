@@ -6,6 +6,141 @@
 
 .. towncrier release notes start
 
+**********************
+ v1.10.0 (2026-09-24)
+**********************
+
+Features - 1.10.0
+=================
+
+- Add ``DocumentFragment``: ``Range.extract_contents`` and ``Range.clone_contents`` return one, and every insertion
+  method moves a fragment's children into place and leaves it empty, as the DOM insert algorithm does. (:issue:`857`)
+
+Bug fixes - 1.10.0
+==================
+
+- Stop :func:`~turbohtml.clean.sanitize` escape mode from rendering a start tag the source never wrote: the ``tbody`` a
+  bare ``<table><tr>`` implies, a formatting element the parser clones, or the skeleton of an empty document.
+  (:issue:`807`)
+- Keep the end tag of an element built with :mod:`turbohtml.build` when :func:`~turbohtml.clean.sanitize_node` escapes
+  it, so ``<span>x</span>y`` no longer escapes as ``&lt;span&gt;xy``. (:issue:`808`)
+- Match elements named like HTML tags (``title``, ``p``, ``div``) with CSS selectors on a :func:`~turbohtml.parse_xml`
+  tree, so ``select("title")`` from the document and combinators such as ``p > x`` find them. (:issue:`809`)
+- :class:`turbohtml.IncrementalParser` with ``source_locations=True`` reports the same absolute offsets as
+  :func:`turbohtml.parse` when a tag spans two feeds, and ``to_source()`` on its document no longer reads freed memory.
+  (:issue:`810`)
+- Stop :func:`~turbohtml.clean.sanitize` from leaving a kept HTML element such as ``<style>`` directly under ``<svg>``
+  or ``<math>`` when it escapes the ``desc``, ``title``, ``foreignObject``, or MathML text element that held it.
+  (:issue:`811`)
+- :class:`turbohtml.Tokenizer` with ``capture_source=True`` reports the full source of a tag split across two ``feed()``
+  calls, where it used to truncate it or raise ``ValueError``. (:issue:`812`)
+- ``minify_css`` keeps the zero units the ``flex`` shorthand needs: ``flex:0px`` and ``flex:1 1 0px`` no longer change
+  grow or basis, and ``flex-basis:0%`` no longer becomes ``flex-basis:0``. (:issue:`813`)
+- ``minify_css`` keeps zero units inside ``round()``, ``abs()``, ``hypot()``, ``mod()``, ``rem()`` and the other CSS
+  Values 4 math functions, where ``round(0px,1px)`` used to become the invalid ``round(0,1px)``. (:issue:`814`)
+- Make :func:`~turbohtml.clean.sanitize` keep HTML content under MathML ``annotation-xml`` only while the output still
+  carries an ``encoding`` of ``text/html`` or ``application/xhtml+xml``. (:issue:`815`)
+- :class:`turbohtml.IncrementalParser` honors a byte-order mark at the start of bytes input: the mark picks the encoding
+  over the ``encoding`` argument and is stripped, as :func:`turbohtml.parse` does. (:issue:`816`)
+- Stop :func:`~turbohtml.clean.sanitize` from keeping an HTML ``mglyph`` or ``malignmark`` under a MathML ``mi``,
+  ``mo``, ``mn``, ``ms``, or ``mtext``, where a reparse turns it and its children into MathML. (:issue:`817`)
+- A ``colgroup`` fragment or a template holding a ``<col>`` keeps the whitespace that follows ignored text, so
+  ``parse_fragment("a b\nc", "colgroup")`` yields ``" \n"`` instead of an empty fragment. (:issue:`818`)
+- ``Range`` operations raise ``IndexError`` or ``ValueError`` when a tree edit left a boundary past the end of its text,
+  in another tree, or after the end, instead of reading out of bounds or crashing. (:issue:`819`)
+- ``node.wrap(node)`` raises ``ValueError`` instead of making the node its own parent and looping. (:issue:`820`)
+- :func:`turbohtml.parse_fragment` keeps the SVG mixed case on its root, so an ``"svg foreignObject"`` context returns a
+  ``foreignObject`` element instead of ``foreignobject``. (:issue:`821`)
+- Make :func:`~turbohtml.clean.sanitize_node` and ``transform_tags`` scrub every text run of a kept ``<style>``, drop
+  its element children, and escape a ``</style`` in its body so the stylesheet cannot close the element early.
+  (:issue:`822`)
+- Appending a shadow host into its own shadow tree raises ``ValueError`` instead of creating a cycle that made
+  ``assigned_nodes(flatten=True)`` loop forever. (:issue:`823`)
+- Make :func:`~turbohtml.clean.sanitize` and the bleach ``clean`` shim drop ``javascript:`` URLs even when
+  ``url_schemes`` or ``protocols`` lists ``javascript``, as the safety baseline documents. (:issue:`824`)
+- ``minify_js`` keeps ``(0,o.f)()``, ``(1&&o.f)()`` and similar value callees, tags and ``delete``/``typeof`` operands
+  as ``(0,o.f)`` instead of unwrapping them to ``o.f``, which changed ``this``, deleted properties and turned indirect
+  ``eval`` direct. (:issue:`825`)
+- Make ``strip_template_markers`` in :func:`~turbohtml.clean.sanitize` catch a marker whose halves end up adjacent once
+  a comment or disallowed element between them is removed, stripped, or escaped, and markers inside an escaped tag.
+  (:issue:`826`)
+- Make :func:`~turbohtml.clean.linkify` leave the text of ``xmp``, ``iframe``, ``noembed``, ``noframes``, ``plaintext``,
+  ``textarea``, ``title``, and scripting-parsed ``noscript`` untouched instead of dropping or nesting link text there.
+  (:issue:`827`)
+- Stop :func:`~turbohtml.clean.sanitize` from appending another ``;}`` on every pass to a ``<style>`` body that ends
+  inside an unterminated string or comment; the trailing declaration is now dropped. (:issue:`828`)
+- ``minify_js`` keeps a function declared in a block, and the binding its name reaches outside the block, when mangling:
+  Annex B makes the function visible after the block, so dropping or inlining it broke ``typeof g`` and calls there.
+  (:issue:`829`)
+- ``minify_js`` keeps assignments to parameters in functions that read ``arguments``, which mirrors each parameter in
+  sloppy code; ``function(a){a=2;return arguments[0]}`` used to lose the ``a=2``. (:issue:`830`)
+- ``minify_js`` accepts a raw U+2028 LINE SEPARATOR or U+2029 PARAGRAPH SEPARATOR inside a string literal, legal since
+  ES2019, instead of raising a lexical error. (:issue:`831`)
+- ``wrap``, ``wrap_siblings``, ``insert_before``, ``insert_after``, ``replace_with``, ``unwrap`` and
+  ``Range.insert_node`` no longer corrupt the tree or crash on the free-threaded build when another thread edits it
+  while a node moves in from another tree. (:issue:`832`)
+- ``minify_js`` and the HTML minifier read ``<!--`` and a line-leading ``-->`` as line comments in classic scripts, as
+  Annex B requires; ``<script type=module>`` keeps them as operators. (:issue:`833`)
+- ``Element`` and ``E`` keep the first of several attribute keys that differ only in ASCII case, matching the parser,
+  instead of storing the attribute twice. (:issue:`834`)
+- ``Range.surround_contents`` raises ``ValueError`` for a wrapper that is not an element, such as a ``Text`` node,
+  instead of silently dropping the range contents. (:issue:`835`)
+- ``minify_js`` output is a fixed point again when a binding named ``undefined`` exists: reads that reach the global
+  ``undefined`` fold to ``void 0`` on the first pass instead of the second. (:issue:`836`)
+- ``NodeIterator`` follows the DOM pre-remove steps: removing an ancestor of its current node, even from inside the
+  filter, moves the iterator out of the removed subtree so iteration continues with the remaining nodes. (:issue:`837`)
+- XPath predicates and steps on an attribute now use the attribute as the context node: ``//@n[. > 5]`` compares the
+  attribute value and ``//@n/..`` returns the owner element. (:issue:`838`)
+- Parse well-formed feeds in ``turbohtml.extract.feed()`` as XML, so CDATA summaries and content keep their markup, a
+  channel ``<image>`` no longer overrides the feed title and link, and ``parse_xml(...).feed()`` reads RSS ``<link>``
+  text. (:issue:`839`)
+- ``Element.attrs`` implements the full ``MutableMapping`` interface: ``update``, ``pop``, ``popitem``, ``setdefault``,
+  ``clear``, ``copy``, equality with any mapping, and ``|`` / ``|=``. (:issue:`840`)
+- XPath name tests match SVG and MathML elements by their exact spelling: ``//foreignObject`` finds the SVG element and
+  ``//foreignobject`` no longer does. (:issue:`841`)
+- ``to_markdown()`` escapes text a CommonMark reader would parse as markup: list-item line starts such as ``1.``, ``~``,
+  ``<`` and ``&`` before markup, a heading's trailing ``#``, and unbalanced parentheses in link destinations.
+  (:issue:`842`)
+- Nodes adopted between ``parse_xml`` and HTML trees take the destination tree's naming and raw-text rules, and
+  ``set_inner_html`` / ``insert_adjacent_html`` on an XML element use the XML fragment parser. (:issue:`843`)
+- Apply each input type's value sanitization in ``Element.form_data()`` (newlines stripped, ``url``/``email`` trimmed,
+  invalid ``number`` and date values emptied, ``range`` clamped), normalize textarea line breaks, and skip controls
+  inside ``<datalist>``. (:issue:`844`)
+- Stop a ``rowspan`` at the end of its ``<thead>``/``<tbody>``/``<tfoot>`` in ``Element.rows()``, ``records()``, and
+  ``Node.tables()``, and return ``<tfoot>`` rows last, as the WHATWG table model does. (:issue:`845`)
+- Type ``Node.xpath()``, ``xpath_one()``, ``xpath_iter()``, and ``XPath.__call__`` with the full result union: numbers,
+  booleans, and strings from scalar expressions, and any node kind in a node-set. (:issue:`846`)
+- List a microdata value once per property name when an ``itemprop`` attribute repeats a name, as in ``itemprop="a a"``.
+  (:issue:`847`)
+- Skip a JSON-LD block that uses the non-JSON ``NaN``, ``Infinity``, or ``-Infinity`` literals in
+  ``Document.json_ld()``, as the docs promise for invalid JSON, instead of returning ``nan`` or ``inf``. (:issue:`848`)
+- XPath ``round()`` no longer rounds up the largest doubles below a half or integers past 2^52, and returns negative
+  zero for arguments in ``[-0.5, 0)``; ``substring()`` positions round the same way. (:issue:`849`)
+- Pickling a ``Document``, fragment, or ``ShadowRoot`` rebuilds its structure instead of reparsing serialized markup:
+  doctype identifiers, quirks mode, adjacent text, template contents, and foreign-element case survive, and elements
+  holding a ``<template>`` pickle again. (:issue:`850`)
+- Stop ``Html(layout=Indent())`` from adding whitespace inside inline content, which changed the rendered text
+  (``<p>a<b>b</b>c</p>`` reparsed as "a b c"); it now breaks lines only between block-level elements. (:issue:`851`)
+- XPath ``lang()`` and CSS ``:lang()`` honor ``xml:lang``: an XML tree reads it, and on an HTML tree it overrides
+  ``lang`` on SVG and MathML elements. ``//@xml:lang`` now matches those attributes. (:issue:`852`)
+- Node insertion methods and ``Range.insert_node`` raise ``ValueError`` instead of putting a doctype outside a
+  ``Document``, or a second doctype, a second root element, or a ``Text`` node directly into a ``Document``.
+  (:issue:`853`)
+- Compare attribute values exactly on a :func:`~turbohtml.parse_xml` tree: ``[type=checkbox]`` no longer matches
+  ``type="CheckBox"``, since the HTML case-insensitive value list applies to HTML documents only. (:issue:`854`)
+- Minify keeps the ``</p>``, ``</li>`` or ``</dd>`` of the last child of a phrasing parent such as ``<span>`` or
+  ``<label>``, whose end tag does not close it on reparse. (:issue:`855`)
+- XPath number literals and ``number()`` convert decimals to the nearest double, so ``0.49999999999999994 < 0.5`` holds
+  and ``number(string(x))`` round-trips. (:issue:`856`)
+- Inserting a range's contents or a ``ShadowRoot`` no longer links the fragment node itself into the tree; its children
+  move into place and a shadow root stays attached to its host. (:issue:`857`)
+- Minify keeps the doctype's public and system identifiers and a ``</p>`` before a ``<table>`` in quirks mode, so the
+  output reparses in the same document mode and to the same tree. (:issue:`858`)
+- Minify writes no ``</plaintext>`` and no end tag after a ``<plaintext>`` element, which the parser would read back as
+  text, so minifying such a page is idempotent. (:issue:`859`)
+- ``Formatter.NAMED_ENTITIES`` writes ``&lang;`` and ``&rang;`` for U+27E8 and U+27E9, their HTML5 meaning, and keeps
+  U+2329 and U+232A literal, so the output reparses to the same text. (:issue:`860`)
+
 *********************
  v1.9.0 (2026-09-14)
 *********************

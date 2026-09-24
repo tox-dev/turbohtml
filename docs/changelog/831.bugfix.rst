@@ -1,2 +1,0 @@
-``minify_js`` accepts a raw U+2028 LINE SEPARATOR or U+2029 PARAGRAPH SEPARATOR inside a string literal, legal since
-ES2019, instead of raising a lexical error.

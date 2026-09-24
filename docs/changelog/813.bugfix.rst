@@ -1,2 +1,0 @@
-``minify_css`` keeps the zero units the ``flex`` shorthand needs: ``flex:0px`` and ``flex:1 1 0px`` no longer change
-grow or basis, and ``flex-basis:0%`` no longer becomes ``flex-basis:0``.

@@ -1,2 +1,0 @@
-A ``colgroup`` fragment or a template holding a ``<col>`` keeps the whitespace that follows ignored text, so
-``parse_fragment("a b\nc", "colgroup")`` yields ``" \n"`` instead of an empty fragment.

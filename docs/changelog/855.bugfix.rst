@@ -1,2 +1,0 @@
-Minify keeps the ``</p>``, ``</li>`` or ``</dd>`` of the last child of a phrasing parent such as ``<span>`` or
-``<label>``, whose end tag does not close it on reparse.
