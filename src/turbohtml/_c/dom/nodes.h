@@ -271,7 +271,7 @@ static inline PyObject *type_for_node(module_state *state, const th_node *node) 
     case TH_NODE_CONTENT:
         return (node->tag_flags & TH_SHADOW_ROOT) != 0 ? state->shadow_root_type : state->document_fragment_type;
     }
-    return state->node_type;
+    return state->node_type; /* GCOVR_EXCL_LINE: every node type returns above */
 }
 
 static inline PyObject *node_wrap(module_state *state, PyObject *handle, th_node *node) {
@@ -642,13 +642,12 @@ PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored));
 
 /* Prepare child_obj to become a child of dest_parent in anchor's tree, returning the
    th_node to link. Defined in element.c; shadow.c reuses it for ShadowRoot.append. */
-/* One pass importing every node argument in nodes (owned references, such as a list's items) that lives outside
-   dest_handle's tree: a node is deep-copied in and its wrapper re-pointed at the copy; a DocumentFragment's children
-   are copied into a new local fragment that replaces the argument, and the source fragment is emptied. Non-nodes and
-   Documents are left for the caller to reject. Returns how many it imported, or -1 on allocation failure. Importing
-   suspends the caller's critical section, so a caller that relinks around tree state it reads must repeat the pass
-   until it imports nothing. */
-Py_ssize_t import_foreign_nodes(PyObject *dest_handle, PyObject **nodes, Py_ssize_t count);
+/* Import the node argument *slot (an owned reference) when it lives outside dest_handle's tree: a node is deep-copied
+   in and its wrapper re-pointed at the copy; a DocumentFragment's children are copied into a new local fragment that
+   replaces *slot, and the source fragment is emptied. Non-nodes and Documents are left for the caller to reject.
+   Returns 1 when it imported, 0 when the argument needed no import, -1 on allocation failure. Importing suspends the
+   caller's critical section, so a caller that relinks around tree state it reads must repeat until it returns 0. */
+int import_foreign_node(PyObject *dest_handle, PyObject **slot);
 
 /* Prepare child_obj to become a child of dest_parent in anchor's tree, returning the th_node to link: a node of the
    same tree moves in place and one of another tree is imported. NULL with a TypeError on a non-node or a Document.

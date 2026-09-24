@@ -966,7 +966,7 @@ static th_node *insert_at_start(RangeObject *range, PyObject **node_ref) {
             PyErr_SetString(PyExc_ValueError, "cannot insert at this boundary point");
             return NULL;
         }
-        Py_ssize_t imported = import_foreign_nodes(range->start_handle, node_ref, 1);
+        int imported = import_foreign_node(range->start_handle, node_ref);
         node_obj = *node_ref;
         if (imported < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1073,7 +1073,7 @@ static int import_surround_parent(RangeObject *range, PyObject *new_parent) {
         if (check_boundaries(range) < 0 || reject_partial_non_text(range) < 0) {
             return -1;
         }
-        Py_ssize_t imported = import_foreign_nodes(range->start_handle, &new_parent, 1);
+        int imported = import_foreign_node(range->start_handle, &new_parent);
         if (imported <= 0) {
             return (int)imported;
         }

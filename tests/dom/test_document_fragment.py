@@ -115,6 +115,14 @@ def test_element_constructor_places_a_fragment_s_children() -> None:
     assert Element("p", children=[_fragment("b", "u"), Text("t")]).html == "<p><b></b><u></u>t</p>"
 
 
+def test_element_constructor_places_a_lone_fragment_s_children() -> None:
+    assert Element("p", children=[_fragment("b", "u")]).html == "<p><b></b><u></u></p>"
+
+
+def test_element_constructor_takes_a_tuple_of_one_child() -> None:
+    assert Element("p", children=(Text("t"),)).html == "<p>t</p>"
+
+
 def test_range_insert_of_a_fragment_extends_a_collapsed_range() -> None:
     _, target = _host_page()
     boundary = Range(target, 1)

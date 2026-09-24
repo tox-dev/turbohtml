@@ -1042,7 +1042,11 @@ static th_node *fieldset_first_legend(th_node *fieldset) {
     return NULL;
 }
 
+/* CPython 3.12+ defers collection callbacks until this C call returns, so the control walk skips a disabled fieldset's
+   subtree and no control needs to look up its ancestors. Older CPython, PyPy, and free-threaded builds walk instead. */
 #if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+#define FORM_WALKS_ANCESTOR_FIELDSETS 1
+
 static int control_in_first_legend(th_node *fieldset, th_node *control) {
     th_node *legend = fieldset_first_legend(fieldset);
     if (legend == NULL) {
@@ -1055,12 +1059,9 @@ static int control_in_first_legend(th_node *fieldset, th_node *control) {
     }
     return 0;
 }
-#endif
 
 /* Whether a disabling fieldset sits between a control and the form. */
 static int fieldset_disables(th_node *control, th_node *form) {
-    /* CPython 3.12+ defers collection callbacks until this C call returns. */
-#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
     for (th_node *ancestor = control->parent; ancestor != form; ancestor = ancestor->parent) {
         if (ancestor == NULL) {
             return 1;
@@ -1070,12 +1071,9 @@ static int fieldset_disables(th_node *control, th_node *form) {
             return 1;
         }
     }
-#else
-    (void)control;
-    (void)form;
-#endif
     return 0;
 }
+#endif
 
 /* The attributes a form control's submission reads, found in one pass over its attribute list (an element never
    holds two attributes of one name). */
@@ -1165,10 +1163,16 @@ static int collect_control(th_tree *tree, th_node *form, th_node *node, PyObject
     }
     control_attrs attrs = read_control_attrs(node);
     const th_node_attr *name = attrs.name;
-    if (name == NULL || name->value == NULL || name->value_len == 0 || attrs.disabled ||
-        fieldset_disables(node, form)) {
+    if (name == NULL || name->value == NULL || name->value_len == 0 || attrs.disabled) {
         return 0;
     }
+#ifdef FORM_WALKS_ANCESTOR_FIELDSETS
+    if (fieldset_disables(node, form)) {
+        return 0;
+    }
+#else
+    (void)form;
+#endif
     if (atom == TH_TAG_SELECT) {
         return collect_select(tree, node, name, pairs);
     }
@@ -2388,25 +2392,44 @@ th_node *adopt_child(NodeObject *anchor, th_node *dest_parent, PyObject *child_o
     return adopt_into(anchor, dest_parent, child_obj);
 }
 
-Py_ssize_t import_foreign_nodes(PyObject *dest_handle, PyObject **nodes, Py_ssize_t count) {
+int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
     module_state *state = state_of(dest_handle);
-    th_tree *dest_tree = ((HandleObject *)dest_handle)->tree;
+    PyObject *node = *slot;
+    if (!PyObject_TypeCheck(node, (PyTypeObject *)state->node_type) ||
+        ((NodeObject *)node)->node->type == TH_NODE_DOCUMENT || tree_of(node) == ((HandleObject *)dest_handle)->tree) {
+        return 0;
+    }
+    if (is_fragment_arg(state, node)) {
+        PyObject *local = import_fragment_children(dest_handle, (NodeObject *)node);
+        if (local == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        Py_SETREF(*slot, local);
+    } else if (import_node(dest_handle, (NodeObject *)node) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                                     /* GCOVR_EXCL_LINE: OOM path */
+    }
+    return 1;
+}
+
+/* import_foreign_node for every item of list, replacing an imported fragment by its local copy. Returns how many it
+   imported, or -1 on allocation failure. Reads and writes the items through the list accessors, not the item array,
+   which PyPy's C-API layer does not expose. */
+static Py_ssize_t import_foreign_list(PyObject *dest_handle, PyObject *list) {
     Py_ssize_t imported = 0;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        if (!PyObject_TypeCheck(nodes[index], (PyTypeObject *)state->node_type) ||
-            ((NodeObject *)nodes[index])->node->type == TH_NODE_DOCUMENT || tree_of(nodes[index]) == dest_tree) {
-            continue;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(list); index++) {
+        PyObject *item = PyList_GET_ITEM(list, index);
+        PyObject *slot = Py_NewRef(item);
+        int status = import_foreign_node(dest_handle, &slot);
+        if (status < 0) {    /* GCOVR_EXCL_BR_LINE: OOM only */
+            Py_DECREF(slot); /* GCOVR_EXCL_LINE */
+            return -1;       /* GCOVR_EXCL_LINE */
         }
-        if (is_fragment_arg(state, nodes[index])) {
-            PyObject *local = import_fragment_children(dest_handle, (NodeObject *)nodes[index]);
-            if (local == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            Py_SETREF(nodes[index], local);
-        } else if (import_node(dest_handle, (NodeObject *)nodes[index]) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
-            return -1;                                                             /* GCOVR_EXCL_LINE: OOM path */
+        if (slot != item) {
+            PyList_SetItem(list, index, slot);
+        } else {
+            Py_DECREF(slot);
         }
-        imported++;
+        imported += status;
     }
     return imported;
 }
@@ -2506,21 +2529,62 @@ static int insert_gathered(PyObject *self, th_node *parent, PyObject *list, th_n
     return 0;
 }
 
-/* Import every foreign argument in list, repeating the pass until it imports nothing (see import_foreign_nodes).
+/* Import every foreign argument in list, repeating the pass until it imports nothing (see import_foreign_node).
    Returns 0, or -1 on allocation failure. */
 static int import_all(PyObject *self, PyObject *list) {
     for (;;) {
-        Py_ssize_t imported =
-            import_foreign_nodes(((NodeObject *)self)->handle, ((PyListObject *)list)->ob_item, PyList_GET_SIZE(list));
+        Py_ssize_t imported = import_foreign_list(((NodeObject *)self)->handle, list);
         if (imported <= 0) {
             return (int)imported;
         }
     }
 }
 
+/* Append one node that is not a DocumentFragment as parent's last child: the same imports and checks as gathering it
+   into a list (see gather_insert), without the list or the scratch array. A foreign node is imported first, which
+   suspends the caller's critical section, and every check below then reads the tree afresh, so one import is enough.
+   The imported copy is fresh and nothing links to it, so it needs no ancestor walk. Returns 0, or -1 with an exception.
+ */
+static int append_one(PyObject *self, th_node *parent, PyObject *item) {
+    if (!PyObject_TypeCheck(item, (PyTypeObject *)state_of(self)->node_type)) {
+        PyErr_SetString(PyExc_TypeError, "child must be a node");
+        return -1;
+    }
+    NodeObject *child = (NodeObject *)item;
+    if (child->node->type == TH_NODE_DOCUMENT) {
+        PyErr_SetString(PyExc_TypeError, "a Document cannot be inserted as a child");
+        return -1;
+    }
+    th_tree *tree = tree_of(self);
+    int foreign = tree_of(item) != tree;
+    if (foreign && import_node(((NodeObject *)self)->handle, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
+        return -1;                                                             /* GCOVR_EXCL_LINE: OOM path */
+    }
+    th_node *node = child->node;
+    const char *message = NULL;
+    if (!foreign && th_node_contains(tree, node, parent)) {
+        message = "cannot insert a node into its own subtree";
+    } else if (node->type == TH_NODE_DOCTYPE) { /* no Document appends: a doctype is the only rule that can fail */
+        message = th_pre_insert_error(parent, &node, 1, NULL, NULL, NULL);
+    }
+    if (message != NULL) {
+        PyErr_SetString(PyExc_ValueError, message);
+        return -1;
+    }
+    handle_drop_index(((NodeObject *)self)->handle);
+    if (!foreign) {
+        th_node_remove_observed(tree, node);
+    }
+    th_node_append_child_observed(tree, parent, node);
+    return 0;
+}
+
 /* Import the foreign arguments in list, then append them all to parent (see insert_gathered). Returns 0, or -1 with
    an exception. */
 static int append_gathered(PyObject *self, th_node *parent, PyObject *list) {
+    if (PyList_GET_SIZE(list) == 1 && !is_fragment_arg(state_of(self), PyList_GET_ITEM(list, 0))) {
+        return append_one(self, parent, PyList_GET_ITEM(list, 0));
+    }
     if (import_all(self, list) < 0) { /* GCOVR_EXCL_BR_LINE: the import fails only on allocation failure */
         return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -2530,12 +2594,18 @@ static int append_gathered(PyObject *self, th_node *parent, PyObject *list) {
 /* Append child (a node, or a fragment whose children move) as this node's last child: the body of append() on an
    element, a DocumentFragment, and a ShadowRoot. */
 PyObject *node_append_child(PyObject *self, PyObject *child) {
+    int error;
+    if (!is_fragment_arg(state_of(self), child)) {
+        Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+        error = append_one(self, ((NodeObject *)self)->node, child) < 0;
+        Py_END_CRITICAL_SECTION();
+        return error ? NULL : Py_NewRef(Py_None);
+    }
     PyObject *list = PyList_New(1);
     if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyList_SET_ITEM(list, 0, Py_NewRef(child));
-    int error;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     error = append_gathered(self, ((NodeObject *)self)->node, list) < 0;
     Py_END_CRITICAL_SECTION();
@@ -2563,12 +2633,20 @@ static int append_build_children(PyObject *element, PyObject *tag, PyObject *chi
         PyErr_Format(PyExc_ValueError, "void element %R cannot have children", tag);
         return -1;
     }
+    int error;
+    PyObject *only = count == 1 ? PySequence_Fast_GET_ITEM(sequence, 0) : NULL;
+    if (only != NULL && !is_fragment_arg(state_of(element), only)) { /* one plain child needs no list */
+        Py_BEGIN_CRITICAL_SECTION(self->handle);
+        error = append_one(element, self->node, only) < 0;
+        Py_END_CRITICAL_SECTION();
+        Py_DECREF(sequence);
+        return error ? -1 : 0;
+    }
     PyObject *list = PySequence_List(sequence);
     Py_DECREF(sequence);
     if (list == NULL) { /* GCOVR_EXCL_BR_LINE: a fast sequence always converts */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int error;
     Py_BEGIN_CRITICAL_SECTION(self->handle);
     error = append_gathered(element, self->node, list) < 0;
     Py_END_CRITICAL_SECTION();
@@ -2857,10 +2935,7 @@ static th_node *sibling_parent(PyObject *self, PyObject *list) {
             PyErr_SetString(PyExc_ValueError, "node has no parent");
             return NULL;
         }
-        Py_ssize_t imported = list == NULL
-                                  ? 0
-                                  : import_foreign_nodes(((NodeObject *)self)->handle, ((PyListObject *)list)->ob_item,
-                                                         PyList_GET_SIZE(list));
+        Py_ssize_t imported = list == NULL ? 0 : import_foreign_list(((NodeObject *)self)->handle, list);
         if (imported < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -3304,7 +3379,7 @@ static PyObject *xml_fragment_source(PyObject *self, th_node *context, PyObject 
         Py_DECREF(escaped);
         if (declaration == NULL || PyList_Append(parts, declaration) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             Py_CLEAR(parts);                                                /* GCOVR_EXCL_LINE: OOM path */
-        }
+        } /* GCOVR_EXCL_LINE */
         Py_XDECREF(declaration);
     }
     Py_DECREF(declarations);

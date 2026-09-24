@@ -72,9 +72,6 @@ static enum input_state input_state_of(const th_node_attr *type) {
         {"time", 4, STATE_TIME},
         {"datetime-local", 14, STATE_DATETIME_LOCAL},
     };
-    if (type == NULL || type->value == NULL) {
-        return STATE_TEXT;
-    }
     for (size_t index = 0; index < sizeof(STATES) / sizeof(STATES[0]); index++) {
         if (type->value_len == STATES[index].len && ascii_ieq(type->value, type->value_len, STATES[index].name)) {
             return STATES[index].state;

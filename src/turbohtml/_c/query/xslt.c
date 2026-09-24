@@ -25,6 +25,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -2430,7 +2431,7 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                shortest decimal parses back to the same double), while "Infinity" and "-Infinity" read as NaN. */
             if (specs[spec].numeric && value.kind == XP_NUMBER) {
                 slot->key = NULL;
-                slot->number = isfinite(value.number) ? value.number : (double)NAN;
+                slot->number = fabs(value.number) <= DBL_MAX ? value.number : (double)NAN;
                 xp_result_free(&value);
                 continue;
             }

@@ -1554,6 +1554,11 @@ def test_extend_rejects_non_node_member() -> None:
         Element("ul").extend([Element("li"), 1])  # ty: ignore[invalid-argument-type]  # members must be nodes
 
 
+def test_constructor_rejects_a_non_node_among_several_children() -> None:
+    with pytest.raises(TypeError, match="must be a node"):
+        Element("p", children=[Text("a"), "x"])  # ty: ignore[invalid-argument-type]  # children must be nodes
+
+
 def test_extend_propagates_iterator_error() -> None:
     def boom() -> Iterator[Element]:
         yield Element("li")

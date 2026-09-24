@@ -87,6 +87,7 @@ def doc() -> turbohtml.Node:
         pytest.param("number('9007199254740993')", 9007199254740992.0, id="number-past-2-pow-53-ties-to-even"),
         pytest.param("12345678901234567890", 12345678901234567890.0, id="literal-past-2-pow-53"),
         pytest.param("number('0.0000000000000000000000000000001')", 1e-31, id="number-past-22-fraction-digits"),
+        pytest.param("0.0000000000000000000000000000001", 1e-31, id="literal-past-22-fraction-digits"),
         pytest.param("string(number(string(0.1 + 0.2))) = string(0.1 + 0.2)", True, id="string-number-round-trip"),
         pytest.param("number(//li)", 1.0, id="number-nodeset"),
         pytest.param("5 - 2", 3.0, id="subtraction"),
