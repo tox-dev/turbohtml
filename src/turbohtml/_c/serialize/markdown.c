@@ -593,7 +593,11 @@ static int md_css_px(const Py_UCS4 *value, Py_ssize_t len) {
 }
 
 static void md_render_inline(md_ctx *ctx, th_node *node);
-static int md_apply_converter(md_ctx *ctx, th_node *node);
+static int md_convert(md_ctx *ctx, th_node *node);
+
+static inline int md_apply_converter(md_ctx *ctx, th_node *node) {
+    return ctx->opt->converters != NULL && node->type == TH_NODE_ELEMENT && md_convert(ctx, node);
+}
 
 static void md_inline_children(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
@@ -1287,7 +1291,7 @@ static int md_item_is_loose(md_ctx *ctx, th_node *node) {
 /* Lay out one child of a block container: a block child recurses, and an inline
    child joins the paragraph-like run *in_run tracks, opening it on a fresh line
    unless it is whitespace alone. */
-static void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
+static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
     uint16_t atom = TH_TAG_UNKNOWN;
     int block = 0;
     if (child->type == TH_NODE_ELEMENT) {
@@ -1481,10 +1485,7 @@ static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text, int bl
    handled (its built-in rendering replaced, or the walk aborted by an error that
    leaves ctx->failed and a Python exception set), 0 when no converter applies and
    the caller should render the element normally. */
-static int md_apply_converter(md_ctx *ctx, th_node *node) {
-    if (ctx->opt->converters == NULL || node->type != TH_NODE_ELEMENT) {
-        return 0;
-    }
+static int md_convert(md_ctx *ctx, th_node *node) {
     PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->text_len);
     if (tag == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */

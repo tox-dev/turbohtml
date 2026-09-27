@@ -1,0 +1,2 @@
+Reduce Markdown conversion overhead by inlining child dispatch and skipping converter calls without configured
+converters.

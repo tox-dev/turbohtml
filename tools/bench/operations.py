@@ -2603,6 +2603,13 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("configured (4 KiB)", ("configured", _MARKDOWN_CONFIGURED)),
         ("8192 asterisks", ("escaped", "<p>" + "*" * 8192 + "</p>")),
         ("8192 letters", ("escaped", "<p>" + "a" * 8192 + "</p>")),
+        (
+            "100 blocks with inline emphasis",
+            (
+                "default",
+                "<h1>Heading</h1><p>Plain text with <strong>bold</strong> and <em>emphasis</em>.</p>" * 100,
+            ),
+        ),
     ),
     "markdown-wrap": lambda: (
         ("10000 words, width8192", (8192, "<p>" + "aa " * 10_000 + "</p>")),
