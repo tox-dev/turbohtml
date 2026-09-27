@@ -153,6 +153,14 @@ struct th_node *document_next(struct th_node *node) {
     return node->next_sibling;
 }
 
+struct th_node *tree_root(struct th_tree *tree, struct th_node *node) {
+    struct th_node *document = th_tree_document(tree);
+    while (node != document && node->parent != NULL) {
+        node = node->parent;
+    }
+    return node;
+}
+
 static int is_ancestor_of(struct th_node *candidate, struct th_node *node) {
     for (struct th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
         if (parent == candidate) {
@@ -858,7 +866,7 @@ static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_n
         }
         cur = base.nodes; /* take ownership */
     } else {
-        struct th_node *start = root->absolute ? th_tree_document(ctx->tree) : ctx->node;
+        struct th_node *start = root->absolute ? tree_root(ctx->tree, ctx->node) : ctx->node;
         if (ns_push(&cur, start, root->absolute ? -1 : ctx->attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;                                                   /* GCOVR_EXCL_LINE */
         }

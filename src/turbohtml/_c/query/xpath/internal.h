@@ -180,6 +180,11 @@ typedef struct {
    public xpath.h because the marshaling boundary also builds node-sets through it. */
 struct th_node *document_next(struct th_node *node);
 
+/* The root node XPath's `/` selects for node: the tree's document (or parsed
+   fragment root) when node sits under it, else the top of node's own subtree, the
+   way DOM's getRootNode() answers for a node built outside any document. */
+struct th_node *tree_root(struct th_tree *tree, struct th_node *node);
+
 /* The XPath string-value of a node-set member, freshly allocated. */
 Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len);
 Py_UCS4 *ucs4_dup(const Py_UCS4 *src, Py_ssize_t len);

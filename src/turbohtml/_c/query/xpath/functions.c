@@ -566,7 +566,7 @@ static int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
         return -1;                                                /* GCOVR_EXCL_LINE */
     }
     int rc = 0;
-    for (struct th_node *node = th_tree_document(ctx->tree); node != NULL; node = document_next(node)) {
+    for (struct th_node *node = tree_root(ctx->tree, ctx->node); node != NULL; node = document_next(node)) {
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }

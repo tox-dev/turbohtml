@@ -1,0 +1,2 @@
+An absolute XPath or ``id()`` evaluated on a node outside any document, such as an element built with ``Element(...)``
+or held by a ``DocumentFragment``, now starts at the root of that node's tree instead of crashing the interpreter.

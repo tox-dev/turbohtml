@@ -103,6 +103,42 @@ def test_root_node(doc: turbohtml.Node) -> None:
     assert doc.xpath("/") == [doc]
 
 
+def _detached_tree(holder: str) -> tuple[turbohtml.Node, Element]:
+    top: turbohtml.Node = turbohtml.DocumentFragment() if holder == "fragment" else Element("div")
+    top.append(Element("div") if holder == "fragment" else Element("span"))
+    parent = top.children[0]
+    assert isinstance(parent, Element)
+    parent.append(Element("p", {"id": "x"}))
+    paragraph = parent.children[0]
+    assert isinstance(paragraph, Element)
+    return top, paragraph
+
+
+@pytest.mark.parametrize("holder", [pytest.param("fragment", id="fragment"), pytest.param("element", id="element")])
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("//p", id="descendants"),
+        pytest.param("id('x')", id="id"),
+    ],
+)
+def test_absolute_path_outside_a_document_starts_at_its_root(holder: str, expression: str) -> None:
+    _, paragraph = _detached_tree(holder)
+    assert paragraph.xpath(expression) == [paragraph]
+
+
+@pytest.mark.parametrize("holder", [pytest.param("fragment", id="fragment"), pytest.param("element", id="element")])
+def test_root_outside_a_document_is_the_top_of_the_tree(holder: str) -> None:
+    top, paragraph = _detached_tree(holder)
+    assert paragraph.xpath("/") == [top]
+
+
+def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
+    bold = turbohtml.parse_fragment("<p><b>x</b></p>").select_one("b")
+    assert bold is not None
+    assert tags(bold.xpath("/p")) == ["p"]
+
+
 def test_attribute_values(doc: turbohtml.Node) -> None:
     assert doc.xpath("//a/@href") == ["/x", "/y"]
     assert doc.xpath("//a/@rel") == ["next"]

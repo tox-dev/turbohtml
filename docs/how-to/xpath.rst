@@ -33,7 +33,9 @@ complete XPath 1.0 core function library:
     3
 
 An absolute path starts at the document root and a leading ``//`` rescans the whole document, so write ``.//`` for
-descendants of the context node. Migrating from ``lxml``, ``parsel``, or ``pyquery`` keeps your existing expressions.
+descendants of the context node. For a node outside any document, such as an element built with ``Element(...)`` or one
+held by a ``DocumentFragment``, the root is the top of that node's own tree, as DOM's ``getRootNode()`` defines it.
+Migrating from ``lxml``, ``parsel``, or ``pyquery`` keeps your existing expressions.
 
 Two functions read the HTML document the way HTML means it, where ``lxml``'s legacy HTML parser returns nothing:
 ``lang()`` honors the HTML ``lang`` attribute (``lxml`` only consults ``xml:lang``), and ``namespace-uri()`` reports the
