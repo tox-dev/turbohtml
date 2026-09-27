@@ -62,9 +62,12 @@ typedef struct {
     Py_hash_t hash;
 } node_hash_override;
 
+/* An open-addressing table from a node imported into this tree to the hash its
+   wrapper carried in the source tree, so importing keeps hash() stable. A NULL
+   node marks an empty slot, and entries are never removed. */
 typedef struct {
+    size_t mask; /* capacity - 1; capacity is a power of two */
     Py_ssize_t len;
-    Py_ssize_t cap;
     node_hash_override items[];
 } node_hash_overrides;
 
@@ -98,11 +101,18 @@ typedef struct {
     void *css_computed;
 } HandleObject;
 
+static inline size_t hash_override_slot(const th_node *node, size_t mask) {
+    uint64_t mixed = (uint64_t)(uintptr_t)node * UINT64_C(0x9E3779B97F4A7C15);
+    return (size_t)(mixed >> 32) & mask;
+}
+
 static inline Py_hash_t handle_node_hash(const HandleObject *handle, const th_node *node) {
-    if (handle->hash_overrides != NULL) {
-        for (Py_ssize_t index = 0; index < handle->hash_overrides->len; index++) {
-            if (handle->hash_overrides->items[index].node == node) {
-                return handle->hash_overrides->items[index].hash;
+    const node_hash_overrides *overrides = handle->hash_overrides;
+    if (overrides != NULL) {
+        for (size_t slot = hash_override_slot(node, overrides->mask); overrides->items[slot].node != NULL;
+             slot = (slot + 1) & overrides->mask) {
+            if (overrides->items[slot].node == node) {
+                return overrides->items[slot].hash;
             }
         }
     }
@@ -110,25 +120,41 @@ static inline Py_hash_t handle_node_hash(const HandleObject *handle, const th_no
     return hash == -1 ? -2 : hash; /* GCOVR_EXCL_BR_LINE: an arena pointer is never (Py_hash_t)-1 */
 }
 
+/* Put node's hash in the first free slot of its probe run. A tree never frees a
+   node, and an imported node is always a fresh copy, so node is never already in
+   the table. */
+static inline void hash_override_put(node_hash_overrides *overrides, th_node *node, Py_hash_t hash) {
+    size_t slot = hash_override_slot(node, overrides->mask);
+    while (overrides->items[slot].node != NULL) {
+        slot = (slot + 1) & overrides->mask;
+    }
+    overrides->items[slot] = (node_hash_override){node, hash};
+    overrides->len++;
+}
+
 static inline int handle_add_hash_override(HandleObject *handle, th_node *node, Py_hash_t hash) {
     node_hash_overrides *overrides = handle->hash_overrides;
-    Py_ssize_t len = overrides == NULL ? 0 : overrides->len;
-    if (overrides == NULL || len == overrides->cap) {
-        size_t cap, bytes;
-        int grew = th_grow_cap((size_t)len + 1, overrides == NULL ? 0 : (size_t)overrides->cap, 8,
-                               sizeof(node_hash_override), &cap, &bytes);
-        if (!grew || bytes > SIZE_MAX - sizeof(node_hash_overrides)) { /* GCOVR_EXCL_BR_LINE: size overflow */
-            return -1;                                                 /* GCOVR_EXCL_LINE */
+    size_t capacity = overrides == NULL ? 0 : overrides->mask + 1;
+    if ((size_t)(overrides == NULL ? 0 : overrides->len) * 2 >= capacity) {
+        /* keep the load at or under a half, so a probe stays short */
+        size_t grown = capacity == 0 ? 16 : capacity * 2;
+        if (grown > (SIZE_MAX - sizeof(node_hash_overrides)) / sizeof(node_hash_override)) { /* GCOVR_EXCL_BR_LINE */
+            return -1; /* GCOVR_EXCL_LINE: a table this size cannot be allocated */
         }
-        overrides = PyMem_Realloc(overrides, sizeof(node_hash_overrides) + bytes);
-        if (overrides == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;           /* GCOVR_EXCL_LINE */
+        node_hash_overrides *table = PyMem_Calloc(1, sizeof(node_hash_overrides) + grown * sizeof(node_hash_override));
+        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE */
         }
-        overrides->cap = (Py_ssize_t)cap;
-        handle->hash_overrides = overrides;
+        table->mask = grown - 1;
+        for (size_t slot = 0; slot < capacity; slot++) {
+            if (overrides->items[slot].node != NULL) {
+                hash_override_put(table, overrides->items[slot].node, overrides->items[slot].hash);
+            }
+        }
+        PyMem_Free(overrides);
+        handle->hash_overrides = overrides = table;
     }
-    overrides->items[len] = (node_hash_override){node, hash};
-    overrides->len = len + 1;
+    hash_override_put(overrides, node, hash);
     return 0;
 }
 

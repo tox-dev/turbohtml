@@ -1493,6 +1493,18 @@ def test_append_preserves_node_hash() -> None:
     assert _found(second_destination, "span") in held
 
 
+def test_append_preserves_hashes_across_table_growth() -> None:
+    # enough imports into one tree to grow the hash table several times
+    nodes = [Element(f"x-{index}") for index in range(200)]
+    hashes = [hash(node) for node in nodes]
+    destination = Element("div")
+    own_hash = hash(destination)
+    for node in nodes:
+        destination.append(node)
+    assert [hash(child) for child in destination.children] == hashes
+    assert hash(destination) == own_hash
+
+
 def test_append_preserves_hashes_for_multiple_adoptions() -> None:
     nodes = [Element(f"x-{index}") for index in range(9)]
     held = set(nodes)

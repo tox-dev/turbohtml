@@ -1,0 +1,2 @@
+``hash()`` on a node no longer slows down as its tree takes in nodes from other trees: the hashes those nodes carried
+over now sit in a hash table instead of a list scanned on every call.
