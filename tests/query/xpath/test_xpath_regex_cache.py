@@ -26,6 +26,11 @@ def test_regex_evaluations_keep_flags_separate(flags: str) -> None:
     )
 
 
+def test_regex_dynamic_flags_keep_patterns_separate() -> None:
+    document: Final = parse_xml('<root><n flags="i">CAFÉ</n><n flags="">CAFÉ</n><n flags="i">CAFÉ</n></root>')
+    assert document.xpath("count(//n[re:test(., 'café', @flags)])") == 2
+
+
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
