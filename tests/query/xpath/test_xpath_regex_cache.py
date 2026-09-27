@@ -34,5 +34,5 @@ def test_regex_evaluations_keep_flags_separate(flags: str) -> None:
         pytest.param("re:test('x', 'X', '')", False, id="empty-flags"),
     ],
 )
-def test_regex_coerces_arguments(expression: str, expected: bool) -> None:
+def test_regex_coerces_arguments(expression: str, *, expected: bool) -> None:
     assert parse_xml("<root/>").xpath(expression) is expected
