@@ -598,6 +598,10 @@ static int eval_id(xp_ctx *ctx, xp_result *arg, xp_result *out) {
    exception set on failure. */
 static PyObject *exslt_pattern(struct th_tree *tree, xp_result *pattern_arg, xp_result *flags_arg, int *global) {
     *global = 0;
+    if (pattern_arg->kind == XP_STRING &&
+        (flags_arg == NULL || (flags_arg->kind == XP_STRING && flags_arg->string_len == 0))) {
+        return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, pattern_arg->string, pattern_arg->string_len);
+    }
     Py_ssize_t pat_len;
     Py_UCS4 *pattern = to_string(tree, pattern_arg, &pat_len);
     if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -650,8 +654,39 @@ static PyObject *exslt_pattern(struct th_tree *tree, xp_result *pattern_arg, xp_
     return result;
 }
 
-/* re:test(input, regex, flags?): true when the regex matches anywhere in input. */
-static int exslt_re_test(struct th_tree *tree, xp_result *args, int argc, xp_result *out) {
+static PyObject *exslt_compile_pattern(PyObject **cache, PyObject *pattern) {
+    if (*cache == NULL) {
+        *cache = PyDict_New();
+        if (*cache == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyObject *compiled = PyDict_GetItem(*cache, pattern);
+    if (compiled != NULL) {
+        return Py_NewRef(compiled);
+    }
+    PyObject *module = PyImport_ImportModule("re");
+    if (module == NULL) { /* GCOVR_EXCL_BR_LINE: stdlib import */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    compiled = PyObject_CallMethod(module, "compile", "O", pattern);
+    Py_DECREF(module);
+    if (compiled == NULL) {
+        return NULL;
+    }
+    /* Dynamic patterns must not retain one compiled object per input node. */
+    if (PyDict_Size(*cache) >= 128) {
+        PyDict_Clear(*cache);
+    }
+    if (PyDict_SetItem(*cache, pattern, compiled) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_DECREF(compiled);                             /* GCOVR_EXCL_LINE */
+        return NULL;                                     /* GCOVR_EXCL_LINE */
+    }
+    return compiled;
+}
+
+static int exslt_re_test(xp_ctx *ctx, xp_result *args, int argc, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
     int global;
     PyObject *pattern = exslt_pattern(tree, &args[1], argc >= 3 ? &args[2] : NULL, &global);
     Py_ssize_t input_len;
@@ -663,19 +698,21 @@ static int exslt_re_test(struct th_tree *tree, xp_result *args, int argc, xp_res
     }
     PyObject *input = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, input_text, input_len);
     PyMem_Free(input_text);
-    PyObject *re_module = PyImport_ImportModule("re");
-    if (input == NULL || re_module == NULL) { /* GCOVR_EXCL_BR_LINE: a UCS-4 alloc or re import cannot be forced */
-        Py_XDECREF(input);                    /* GCOVR_EXCL_LINE */
-        Py_XDECREF(re_module);                /* GCOVR_EXCL_LINE */
-        Py_DECREF(pattern);                   /* GCOVR_EXCL_LINE */
-        return -1;                            /* GCOVR_EXCL_LINE */
+    if (input == NULL) {    /* GCOVR_EXCL_BR_LINE: alloc */
+        Py_DECREF(pattern); /* GCOVR_EXCL_LINE */
+        return -1;          /* GCOVR_EXCL_LINE */
     }
-    PyObject *match = PyObject_CallMethod(re_module, "search", "OO", pattern, input);
-    Py_DECREF(re_module);
-    Py_DECREF(input);
+    PyObject *compiled = exslt_compile_pattern(ctx->regex_cache, pattern);
     Py_DECREF(pattern);
-    if (match == NULL) {
-        return -1; /* a malformed pattern set re.error */
+    if (compiled == NULL) {
+        Py_DECREF(input);
+        return -1;
+    }
+    PyObject *match = PyObject_CallMethod(compiled, "search", "O", input);
+    Py_DECREF(compiled);
+    Py_DECREF(input);
+    if (match == NULL) { /* GCOVR_EXCL_BR_LINE: compiled search over a str can only fail allocation */
+        return -1;       /* GCOVR_EXCL_LINE */
     }
     result_bool(out, match != Py_None);
     Py_DECREF(match);
@@ -1752,7 +1789,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         rc = eval_id(ctx, &args[0], out);
     } else if (func_is(fn, "re:test") || func_is(fn, "matches")) {
         /* fn:matches shares the EXSLT re:test regex pipeline (input, pattern, flags?) */
-        rc = exslt_re_test(ctx->tree, args, argc, out);
+        rc = exslt_re_test(ctx, args, argc, out);
     } else if (func_is(fn, "re:replace")) {
         rc = exslt_re_replace(ctx->tree, args, out);
     } else if (func_is(fn, "set:difference") || func_is(fn, "set:intersection") || func_is(fn, "set:has-same-node") ||

@@ -764,9 +764,18 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
         Py_ssize_t size = set->len;
         Py_ssize_t write_pos = 0;
         for (Py_ssize_t index = 0; index < set->len; index++) {
-            xp_ctx pctx = {
-                ctx->tree, set->items[index].node, set->items[index].attr, index + 1,          size,      ctx->feature,
-                ctx->vars, ctx->namespaces,        ctx->extension,         ctx->extension_ctx, ctx->depth};
+            xp_ctx pctx = {ctx->tree,
+                           set->items[index].node,
+                           set->items[index].attr,
+                           index + 1,
+                           size,
+                           ctx->feature,
+                           ctx->vars,
+                           ctx->namespaces,
+                           ctx->extension,
+                           ctx->extension_ctx,
+                           ctx->depth,
+                           ctx->regex_cache};
             xp_result value;
             int rc = eval_expr(prog, expr, &pctx, &value);
             if (rc < 0) {
@@ -1412,8 +1421,11 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos, Py_ssize_t size,
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature) {
-    xp_ctx ctx = {tree, context, -1, pos, size, feature, vars, namespaces, extension, extension_ctx, 0};
-    return eval_expr(prog, prog->root, &ctx, out);
+    PyObject *regex_cache = NULL;
+    xp_ctx ctx = {tree, context, -1, pos, size, feature, vars, namespaces, extension, extension_ctx, 0, &regex_cache};
+    int rc = eval_expr(prog, prog->root, &ctx, out);
+    Py_XDECREF(regex_cache);
+    return rc;
 }
 
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
