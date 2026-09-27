@@ -1,0 +1,2 @@
+An XPath descendant step without a predicate, such as the second step of ``.//div//a``, no longer runs in quadratic time
+when its context nodes nest inside one another.

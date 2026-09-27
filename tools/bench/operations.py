@@ -2112,10 +2112,16 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         for selector in ("li:nth-child(odd)", "li:nth-child(odd of .x)")
         for size in (100, 1_000, 10_000)
     ),
-    "xpath-wide": lambda: tuple(
-        (f"{expression} ({size:,} siblings)", (expression, f"<ul>{'<li>value</li>' * size}</ul>"))
-        for expression in ("//li", "//li | //ul")
-        for size in (100, 1_000, 10_000)
+    "xpath-wide": lambda: (
+        *(
+            (f"{expression} ({size:,} siblings)", (expression, f"<ul>{'<li>value</li>' * size}</ul>"))
+            for expression in ("//li", "//li | //ul")
+            for size in (100, 1_000, 10_000)
+        ),
+        *(
+            (f".//div//a ({size:,} nested contexts)", (".//div//a", f"<div>{'<div><a>x</a></div>' * size}</div>"))
+            for size in (100, 1_000, 10_000)
+        ),
     ),
     "xpath-distinct": lambda: (
         *(

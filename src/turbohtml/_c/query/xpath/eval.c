@@ -882,9 +882,22 @@ static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_n
             return resolved;
         }
         next.len = 0;
+        /* Without a predicate, a descendant step from a node inside another context
+           node's subtree finds only nodes that context already found. The contexts
+           are in document order, so skipping those keeps each subtree walked once and
+           the combined result already sorted, where nested contexts made it
+           quadratic. */
+        int skip_nested = step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
+        struct th_node *covered = NULL;
         for (Py_ssize_t index = 0; index < cur.len; index++) {
             Py_ssize_t before = next.len;
             xp_item item = cur.items[index];
+            if (skip_nested && item.attr == -1) {
+                if (covered != NULL && is_ancestor_of(covered, item.node)) {
+                    continue;
+                }
+                covered = item.node;
+            }
             int stepped = item.attr == -1 ? apply_step(&next, item.node, step->axis, step, &match)
                                           : apply_owned_step(&next, item, step, &match);
             if (stepped < 0) {          /* GCOVR_EXCL_BR_LINE: alloc */

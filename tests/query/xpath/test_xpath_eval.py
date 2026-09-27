@@ -139,6 +139,35 @@ def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
     assert tags(bold.xpath("/p")) == ["p"]
 
 
+_NESTED: Final = (
+    '<div id="o"><div id="i"><a id="1"></a><p id="p"></p></div><a id="2"></a></div><a id="3"></a>'
+    '<div id="s"><a id="4"></a></div>'
+)
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("//div//a", ["1", "2", "4"], id="descendant-from-nested-contexts"),
+        pytest.param(
+            "//div/descendant-or-self::*", ["o", "i", "1", "p", "2", "s", "4"], id="descendant-or-self-nested"
+        ),
+        pytest.param("//div/descendant::a[1]", ["1", "4"], id="predicate-per-nested-context"),
+        pytest.param("//div/descendant::a[last()]", ["1", "2", "4"], id="predicate-last-per-context"),
+        pytest.param("//div/@id/descendant-or-self::node()", ["o", "i", "s"], id="attribute-contexts"),
+    ],
+)
+def test_descendant_step_from_nested_contexts(expression: str, expected: list[str]) -> None:
+    found = turbohtml.parse(_NESTED).xpath(expression)
+    assert isinstance(found, list)
+    assert [node if isinstance(node, str) else _id_of(node) for node in found] == expected
+
+
+def _id_of(node: turbohtml.Node) -> str | None:
+    assert isinstance(node, Element)
+    return node.attr("id")
+
+
 def test_attribute_values(doc: turbohtml.Node) -> None:
     assert doc.xpath("//a/@href") == ["/x", "/y"]
     assert doc.xpath("//a/@rel") == ["next"]
