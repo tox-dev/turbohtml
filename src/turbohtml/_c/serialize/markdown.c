@@ -1274,48 +1274,55 @@ static int md_item_is_loose(md_ctx *ctx, th_node *node) {
     return 0;
 }
 
+/* Lay out one child of a block container: a block child recurses, and an inline
+   child joins the paragraph-like run *in_run tracks, opening it on a fresh line
+   unless it is whitespace alone. */
+static void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
+    uint16_t atom = TH_TAG_UNKNOWN;
+    int block = 0;
+    if (child->type == TH_NODE_ELEMENT) {
+        atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
+        if (is_md_skipped(child)) {
+            return;
+        }
+        block = is_md_block(atom);
+    } else if (child->type == TH_NODE_CONTENT) {
+        md_block_children(ctx, child);
+        return;
+    } else if (child->type != TH_NODE_TEXT) {
+        return;
+    }
+    if (block) {
+        *in_run = 0;
+        md_render_block(ctx, child);
+        return;
+    }
+    if (!*in_run) {
+        int only_ws = child->type == TH_NODE_TEXT;
+        if (only_ws) {
+            const Py_UCS4 *text = need_text(ctx->tree, child);
+            for (Py_ssize_t index = 0; index < child->text_len; index++) {
+                if (!is_space(text[index])) {
+                    only_ws = 0;
+                    break;
+                }
+            }
+        }
+        if (only_ws) {
+            return;
+        }
+        md_block_line(ctx, ctx->tight ? 0 : 1);
+        *in_run = 1;
+    }
+    md_render_inline(ctx, child);
+}
+
 /* Lay out the children of a block container: consecutive inline children form
    one paragraph-like run, and each block child recurses. */
 static void md_block_children(md_ctx *ctx, th_node *node) {
     int in_run = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        uint16_t atom = TH_TAG_UNKNOWN;
-        int block = 0;
-        if (child->type == TH_NODE_ELEMENT) {
-            atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
-            if (is_md_skipped(child)) {
-                continue;
-            }
-            block = is_md_block(atom);
-        } else if (child->type == TH_NODE_CONTENT) {
-            md_block_children(ctx, child);
-            continue;
-        } else if (child->type != TH_NODE_TEXT) {
-            continue;
-        }
-        if (block) {
-            in_run = 0;
-            md_render_block(ctx, child);
-            continue;
-        }
-        if (!in_run) {
-            int only_ws = child->type == TH_NODE_TEXT;
-            if (only_ws) {
-                const Py_UCS4 *text = need_text(ctx->tree, child);
-                for (Py_ssize_t index = 0; index < child->text_len; index++) {
-                    if (!is_space(text[index])) {
-                        only_ws = 0;
-                        break;
-                    }
-                }
-            }
-            if (only_ws) {
-                continue;
-            }
-            md_block_line(ctx, ctx->tight ? 0 : 1);
-            in_run = 1;
-        }
-        md_render_inline(ctx, child);
+        md_block_child(ctx, child, &in_run);
     }
 }
 
@@ -1467,6 +1474,138 @@ static int md_apply_converter(md_ctx *ctx, th_node *node) {
     return 1;
 }
 
+/* The layout state one list threads through its items, including the items it
+   finds inside a wrapper element it looks through. */
+typedef struct {
+    Py_ssize_t number;     /* the next ordered item's number */
+    Py_ssize_t sub_indent; /* how far content attached to the last item indents: its marker's width */
+    char bullet;
+    int ordered;
+    int loose;
+    int item_seen; /* an item has opened, so content between items continues it */
+    int in_run;    /* content between items is in the middle of an inline run */
+} md_list_state;
+
+/* Whether a list child is a wrapper around list items (`<ul><div><li>`), which the
+   list looks through so its items keep their markers and numbering. */
+static int md_is_item_wrapper(th_node *node) {
+    if (node->type != TH_NODE_ELEMENT || node->ns != TH_NS_HTML) {
+        return 0;
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* CommonMark: a list is loose (blank lines around every item and between an
+   item's blocks) when any item holds more than one paragraph. */
+static int md_list_is_loose(md_ctx *ctx, th_node *node) {
+    for (th_node *scan = node->first_child; scan != NULL; scan = scan->next_sibling) {
+        if (scan->type == TH_NODE_ELEMENT && scan->ns == TH_NS_HTML && scan->atom == TH_TAG_LI) {
+            if (md_item_is_loose(ctx, scan)) {
+                return 1;
+            }
+        } else if (md_is_item_wrapper(scan) && md_list_is_loose(ctx, scan)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
+    md_block_line(ctx, state->loose);
+    Py_ssize_t lead = 0;
+    if (ctx->opt->google_doc) {
+        /* Google Docs flattens nested lists, signaling depth with margin-left
+           instead, so each google_list_indent pixels add one indent level */
+        Py_ssize_t style_len;
+        const Py_UCS4 *style = md_attr(ctx->tree, child, "style", &style_len);
+        const Py_UCS4 *value;
+        Py_ssize_t value_len;
+        if (style != NULL && md_css_prop(style, style_len, "margin-left", &value, &value_len)) {
+            int nest = md_css_px(value, value_len) / ctx->opt->google_list_indent;
+            for (int level = 0; level < nest; level++) {
+                sbuf_puts(&ctx->out, "  ");
+            }
+            lead = (Py_ssize_t)nest * 2;
+        }
+    }
+    Py_ssize_t width;
+    if (state->ordered) {
+        width = lead + md_put_decimal(&ctx->out, state->number) + 2;
+        sbuf_puts(&ctx->out, ". ");
+        state->number++;
+    } else {
+        sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->bullet);
+        sbuf_putc(&ctx->out, ' ');
+        width = lead + 2;
+    }
+    /* the item's content starts its own line: `- 1. x` would nest an ordered list */
+    ctx->line_has_content = 0;
+    state->sub_indent = width;
+    state->item_seen = 1;
+    state->in_run = 0;
+    Py_ssize_t base = md_push_spaces(ctx, width);
+    int saved_tight = ctx->tight;
+    ctx->tight = !state->loose;
+    ctx->suppress_break = md_leads_with_inline(ctx, child);
+    if (!ctx->opt->wrap_list_items) {
+        ctx->no_wrap++;
+    }
+    md_block_children(ctx, child);
+    if (!ctx->opt->wrap_list_items) {
+        ctx->no_wrap--;
+    }
+    ctx->tight = saved_tight;
+    ctx->prefix.len = base;
+}
+
+/* Lay out a list's children. Content that is neither an item nor a nested list is
+   still rendered, the way a browser shows it: before the first item it is a block
+   of its own, and after an item it continues that item, indented under its marker
+   so the list stays one list. */
+static void md_list_children(md_ctx *ctx, th_node *node, md_list_state *state) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML) {
+            if (child->atom == TH_TAG_LI) {
+                md_render_item(ctx, child, state);
+                continue;
+            }
+            if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
+                /* a list nested directly in a list (a sibling of the <li>s, not wrapped
+                   in one) belongs to the preceding item as a sublist; the parser makes
+                   this shape, and dropping it would lose every nested item */
+                Py_ssize_t base = md_push_spaces(ctx, state->sub_indent);
+                int saved_tight = ctx->tight;
+                ctx->tight = 1;
+                /* the nested list re-applies the wrap guard per item, so none is needed here */
+                md_render_block(ctx, child);
+                ctx->tight = saved_tight;
+                ctx->prefix.len = base;
+                state->in_run = 0;
+                continue;
+            }
+            if (md_is_item_wrapper(child)) {
+                md_list_children(ctx, child, state);
+                continue;
+            }
+        }
+        if (!state->item_seen) {
+            md_block_child(ctx, child, &state->in_run);
+            continue;
+        }
+        Py_ssize_t base = md_push_spaces(ctx, state->sub_indent);
+        int saved_tight = ctx->tight;
+        ctx->tight = !state->loose;
+        md_block_child(ctx, child, &state->in_run);
+        ctx->tight = saved_tight;
+        ctx->prefix.len = base;
+    }
+}
+
 static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
     if (ctx->opt->google_doc) {
         /* a Google Docs export keeps the ol/ul element but states the real marker
@@ -1500,81 +1639,15 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
         }
     }
     Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
-    char bullet = ctx->opt->bullets[ctx->list_depth % bullets_len];
-    /* CommonMark: a list is loose (blank lines around every item and between an
-       item's blocks) when any item holds more than one paragraph */
-    int loose = 0;
-    for (th_node *scan = node->first_child; scan != NULL && !loose; scan = scan->next_sibling) {
-        if (scan->type == TH_NODE_ELEMENT && scan->ns == TH_NS_HTML && scan->atom == TH_TAG_LI) {
-            loose = md_item_is_loose(ctx, scan);
-        }
-    }
+    md_list_state state = {
+        .number = number,
+        .sub_indent = 2, /* how far a bare nested list indents: the last marker's width */
+        .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
+        .ordered = ordered,
+        .loose = md_list_is_loose(ctx, node),
+    };
     ctx->list_depth++;
-    Py_ssize_t sub_indent = 2; /* how far a bare nested list indents: the last marker's width */
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML) {
-            continue;
-        }
-        if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
-            /* a list nested directly in a list (a sibling of the <li>s, not wrapped
-               in one) belongs to the preceding item as a sublist; the parser makes
-               this shape, and dropping it would lose every nested item */
-            Py_ssize_t base = md_push_spaces(ctx, sub_indent);
-            int saved_tight = ctx->tight;
-            ctx->tight = 1;
-            /* the nested list re-applies the wrap guard per item, so none is needed here */
-            md_render_block(ctx, child);
-            ctx->tight = saved_tight;
-            ctx->prefix.len = base;
-            continue;
-        }
-        if (child->atom != TH_TAG_LI) {
-            continue;
-        }
-        md_block_line(ctx, loose);
-        Py_ssize_t lead = 0;
-        if (ctx->opt->google_doc) {
-            /* Google Docs flattens nested lists, signaling depth with margin-left
-               instead, so each google_list_indent pixels add one indent level */
-            Py_ssize_t style_len;
-            const Py_UCS4 *style = md_attr(ctx->tree, child, "style", &style_len);
-            const Py_UCS4 *value;
-            Py_ssize_t value_len;
-            if (style != NULL && md_css_prop(style, style_len, "margin-left", &value, &value_len)) {
-                int nest = md_css_px(value, value_len) / ctx->opt->google_list_indent;
-                for (int level = 0; level < nest; level++) {
-                    sbuf_puts(&ctx->out, "  ");
-                }
-                lead = (Py_ssize_t)nest * 2;
-            }
-        }
-        Py_ssize_t width;
-        if (ordered) {
-            width = lead + md_put_decimal(&ctx->out, number) + 2;
-            sbuf_puts(&ctx->out, ". ");
-            number++;
-        } else {
-            sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)bullet);
-            sbuf_putc(&ctx->out, ' ');
-            width = lead + 2;
-        }
-        /* the item's content starts its own line: `- 1. x` would nest an ordered list */
-        ctx->line_has_content = 0;
-        sub_indent = width;
-        Py_ssize_t base = md_push_spaces(ctx, width);
-        int saved_tight = ctx->tight;
-        ctx->tight = !loose;
-        ctx->suppress_break = md_leads_with_inline(ctx, child);
-        if (!ctx->opt->wrap_list_items) {
-            ctx->no_wrap++;
-        }
-        md_block_children(ctx, child);
-        if (!ctx->opt->wrap_list_items) {
-            ctx->no_wrap--;
-        }
-        ctx->tight = saved_tight;
-        ctx->prefix.len = base;
-    }
+    md_list_children(ctx, node, &state);
     ctx->list_depth--;
 }
 

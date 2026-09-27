@@ -203,6 +203,12 @@ backslash. The same cell context decides what becomes of a block the cell cannot
 source HTML, legal there because raw HTML is inline content, rather than dropping its grid or its bullets onto the row
 as literal text.
 
+A list's children are not always ``<li>`` elements: the parser keeps a ``<div>`` or bare text where the source put it,
+and page templates often wrap each item in its own element. Such content still renders, since a browser shows it. Text
+or a block before the first item becomes a block of its own, and one after an item continues that item, indented under
+its marker so the list stays one list rather than restarting. An element that holds ``<li>`` children is looked through,
+so ``<ol><div><li>a</li><li>b</li></div><li>c</li></ol>`` numbers ``1.``, ``2.``, ``3.``.
+
 The minimal escaping mode escapes what a CommonMark reader would act on, so the rendered page shows the source text. A
 line start counts after a list marker too, so ``<li>1. x</li>`` becomes ``- 1\. x`` and not a nested list. A ``~``
 always escapes because GFM strikes text through between tildes. A ``<`` escapes unless whitespace follows it, since it

@@ -223,6 +223,34 @@ def test_code(html: str, expected: str) -> None:
             "- a\n\n  b\n\n- c",
             id="one-loose-item-makes-the-list-loose",
         ),
+        pytest.param("<ul><div>x</div><li>y</li></ul>", "x\n\n- y", id="content-before-first-item"),
+        pytest.param("<ul><li>a</li>tail<li>b</li></ul>", "- a\n  tail\n- b", id="text-between-items"),
+        pytest.param("<ul><li>a</li><p>para</p><li>b</li></ul>", "- a\n  para\n- b", id="block-between-items"),
+        pytest.param(
+            "<ul><li><p>a</p><p>b</p></li><div>x</div><li>c</li></ul>",
+            "- a\n\n  b\n\n  x\n\n- c",
+            id="block-between-loose-items",
+        ),
+        pytest.param(
+            "<blockquote><ul><li>a</li>tail</ul></blockquote>", "> - a\n>   tail", id="text-after-quoted-item"
+        ),
+        pytest.param("<ul><div><li>z</li></div></ul>", "- z", id="item-inside-wrapper"),
+        pytest.param(
+            "<ol><div><li>a</li><li>b</li></div><li>c</li></ol>",
+            "1. a\n2. b\n3. c",
+            id="wrapped-items-keep-numbering",
+        ),
+        pytest.param(
+            "<ul><div><li><p>a</p><p>b</p></li></div><li>c</li></ul>",
+            "- a\n\n  b\n\n- c",
+            id="loose-item-inside-wrapper",
+        ),
+        pytest.param(
+            "<ul><div><span>s</span><svg></svg></div><li>a</li></ul>",
+            "s\n\n- a",
+            id="wrapper-without-items-is-content",
+        ),
+        pytest.param("<ul><li>a</li><svg><text>t</text></svg></ul>", "- a\n  t", id="svg-after-item"),
     ],
 )
 def test_lists(html: str, expected: str) -> None:
