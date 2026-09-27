@@ -1343,10 +1343,10 @@ static Py_ssize_t node_length(PyObject *self) {
 
 static PyObject *node_item(PyObject *self, Py_ssize_t index) {
     NodeObject *node = (NodeObject *)self;
-#ifdef PYPY_VERSION
+#if defined(PYPY_VERSION) && PYPY_VERSION_NUM < 0x08000000
     /* CPython's PySequence_GetItem adds sq_length to a negative subscript before dispatching here;
-       cpyext hands sq_item the raw index, so node[-1] would walk zero steps and answer the first
-       child. Do the adjustment cpyext skips: https://github.com/pypy/pypy/issues/5526 */
+       cpyext before PyPy 8.0 hands sq_item the raw index, so node[-1] would walk zero steps and
+       answer the first child. Do the adjustment it skips: https://github.com/pypy/pypy/issues/5526 */
     if (index < 0) {
         index += node_length(self);
     }

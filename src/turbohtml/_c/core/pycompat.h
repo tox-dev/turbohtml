@@ -10,8 +10,8 @@
 
    Four things differ. Each name below expands to the CPython spelling on CPython, so a CPython
    translation unit's preprocessed token stream is unchanged by this file and its codegen cannot
-   shift. dom/node.c handles a fifth difference where it bites, cpyext handing sq_item a raw negative
-   index: https://github.com/pypy/pypy/issues/5526
+   shift. dom/node.c handles a fifth difference where it bites, cpyext before PyPy 8.0 handing sq_item a
+   raw negative index: https://github.com/pypy/pypy/issues/5526
 
    Sealing. cpyext ignored Py_TPFLAGS_DISALLOW_INSTANTIATION before PyPy 7.3.21, so the sealed types
    constructed with no tree attached and segfaulted on first use, and 7.3.21 prints a debug line to
