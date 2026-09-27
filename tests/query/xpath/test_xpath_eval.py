@@ -155,6 +155,13 @@ _NESTED: Final = (
         pytest.param("//div/descendant::a[1]", ["1", "4"], id="predicate-per-nested-context"),
         pytest.param("//div/descendant::a[last()]", ["1", "2", "4"], id="predicate-last-per-context"),
         pytest.param("//div/@id/descendant-or-self::node()", ["o", "i", "s"], id="attribute-contexts"),
+        pytest.param(
+            "(//div | //div/@id)/descendant-or-self::node()",
+            ["o", "o", "i", "i", "1", "p", "2", "s", "s", "4"],
+            id="mixed-node-and-attribute-contexts",
+        ),
+        pytest.param("(//div | //div/@id)/descendant::a", ["1", "2", "4"], id="attributes-between-contexts"),
+        pytest.param("//a/descendant::*", [], id="leaf-contexts"),
     ],
 )
 def test_descendant_step_from_nested_contexts(expression: str, expected: list[str]) -> None:

@@ -1,0 +1,2 @@
+Predicate-free XPath descendant steps skip nested contexts during traversal. Deep trees no longer require a separate
+ancestor walk for each context.

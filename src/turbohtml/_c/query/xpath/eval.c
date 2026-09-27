@@ -192,6 +192,23 @@ static int emit_if_match(xp_nodeset *out, struct th_node *node, const xn *step, 
     return ns_push(out, node, -1);
 }
 
+static int apply_descendant_step(xp_nodeset *out, struct th_node *root, const xn *step, const step_match *match,
+                                 const xp_nodeset *contexts, Py_ssize_t *covered) {
+    while (*covered < contexts->len && contexts->items[*covered].node == root) {
+        (*covered)++;
+    }
+    struct th_node *node = step->axis == AX_DESCENDANT_OR_SELF ? root : root->first_child;
+    for (; node != NULL; node = descendant_next(node, root)) {
+        while (*covered < contexts->len && contexts->items[*covered].node == node) {
+            (*covered)++;
+        }
+        if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                   /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
 static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, const xn *step,
                       const step_match *match) {
     switch (axis) {
@@ -882,24 +899,24 @@ static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_n
             return resolved;
         }
         next.len = 0;
-        /* Without a predicate, a descendant step from a node inside another context
-           node's subtree finds only nodes that context already found. The contexts
-           are in document order, so skipping those keeps each subtree walked once and
-           the combined result already sorted, where nested contexts made it
-           quadratic. */
-        int skip_nested = step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
-        struct th_node *covered = NULL;
+        /* Mark covered contexts during the subtree walk: checking ancestry per context is quadratic on deep trees. */
+        int skip_nested =
+            cur.len > 1 && step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
+        Py_ssize_t covered = 0;
         for (Py_ssize_t index = 0; index < cur.len; index++) {
             Py_ssize_t before = next.len;
             xp_item item = cur.items[index];
+            int stepped;
             if (skip_nested && item.attr == -1) {
-                if (covered != NULL && is_ancestor_of(covered, item.node)) {
+                if (index < covered) {
                     continue;
                 }
-                covered = item.node;
-            }
-            int stepped = item.attr == -1 ? apply_step(&next, item.node, step->axis, step, &match)
+                covered = index + 1;
+                stepped = apply_descendant_step(&next, item.node, step, &match, &cur, &covered);
+            } else {
+                stepped = item.attr == -1 ? apply_step(&next, item.node, step->axis, step, &match)
                                           : apply_owned_step(&next, item, step, &match);
+            }
             if (stepped < 0) {          /* GCOVR_EXCL_BR_LINE: alloc */
                 xp_nodeset_free(&cur);  /* GCOVR_EXCL_LINE */
                 xp_nodeset_free(&next); /* GCOVR_EXCL_LINE */

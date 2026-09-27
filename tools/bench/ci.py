@@ -315,6 +315,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "select-nth-filtered": ("select-nth", 4),
     "xpath-wide-union": ("xpath-wide", 4),
     "xpath-wide-nested-descendants": ("xpath-wide", 8),
+    "xpath-deep-descendants": ("xpath-wide", 11),
     "microdata-itemref-interleaved": ("microdata-itemref", 2),
     "microdata-itemref-reversed": ("microdata-itemref", 1),
     "microdata-itemref-small": ("microdata-itemref", 3),

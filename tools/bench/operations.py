@@ -2122,6 +2122,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             (f".//div//a ({size:,} nested contexts)", (".//div//a", f"<div>{'<div><a>x</a></div>' * size}</div>"))
             for size in (100, 1_000, 10_000)
         ),
+        *(
+            (f".//div//a ({size:,} levels)", (".//div//a", "<div>" * size + "<a>x</a>" + "</div>" * size))
+            for size in (100, 1_000, 10_000)
+        ),
     ),
     "xpath-distinct": lambda: (
         *(
