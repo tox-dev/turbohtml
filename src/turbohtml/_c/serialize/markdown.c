@@ -112,21 +112,24 @@ typedef struct {
     int line_has_content; /* real content past the prefix/marker on the current line */
     Py_ssize_t line_start;
     Py_ssize_t line_checked;
-    int space_pending;   /* a collapsed-away whitespace run is owed one space */
-    int pending_word;    /* code points in the word the owed space precedes, for greedy wrapping */
-    int no_wrap;         /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
-    int inline_only;     /* >0 inside link text: a block flattens to inline, never opens a line */
-    int in_cell;         /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
-    int drop_space;      /* swallow the next pending space (block/inline start) without emitting */
-    int pending_loose;   /* the previous block wants a blank line after it */
-    int suppress_break;  /* the next block attaches to the current (list marker) line */
-    int tight;           /* inside a list item: inline runs do not add blank lines */
-    int list_depth;      /* nesting depth of the current list, for bullet cycling */
-    int g_bold;          /* google_doc: a CSS font-weight bold is in force from an ancestor */
-    int g_italic;        /* google_doc: a CSS font-style italic is in force from an ancestor */
-    int failed;          /* a reference buffer allocation failed */
-    uint8_t escape_mask; /* the MD_ASCII classes the options escape */
-    uint8_t run_stop;    /* the MD_ASCII classes that end a bulk-copied run */
+    int space_pending;          /* a collapsed-away whitespace run is owed one space */
+    int pending_word;           /* code points in the word the owed space precedes, for greedy wrapping */
+    int no_wrap;                /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
+    int inline_only;            /* >0 inside link text: a block flattens to inline, never opens a line */
+    int in_cell;                /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
+    int drop_space;             /* swallow the next pending space (block/inline start) without emitting */
+    int pending_loose;          /* the previous block wants a blank line after it */
+    int suppress_break;         /* the next block attaches to the current (list marker) line */
+    int tight;                  /* inside a list item: inline runs do not add blank lines */
+    int list_depth;             /* nesting depth of the current list, for bullet cycling */
+    Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
+    Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
+    char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
+    int g_bold;                 /* google_doc: a CSS font-weight bold is in force from an ancestor */
+    int g_italic;               /* google_doc: a CSS font-style italic is in force from an ancestor */
+    int failed;                 /* a reference buffer allocation failed */
+    uint8_t escape_mask;        /* the MD_ASCII classes the options escape */
+    uint8_t run_stop;           /* the MD_ASCII classes that end a bulk-copied run */
 } md_ctx;
 
 /* Emit a configured option string, which may hold non-ASCII (a typographic
@@ -1341,6 +1344,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     int saved_space = ctx->space_pending, saved_drop = ctx->drop_space, saved_loose = ctx->pending_loose;
     int saved_suppress = ctx->suppress_break, saved_tight = ctx->tight, saved_list_depth = ctx->list_depth;
     int saved_bold = ctx->g_bold, saved_italic = ctx->g_italic, saved_inline = ctx->inline_only;
+    char saved_list_marker = ctx->list_end_marker;
     ctx->out = (sbuf){0};
     ctx->prefix = (sbuf){0};
     ctx->pending = NULL;
@@ -1357,6 +1361,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     ctx->g_bold = 0;
     ctx->g_italic = 0;
     ctx->inline_only = 0;
+    ctx->list_end_marker = 0;
     md_block_children(ctx, node);
     Py_UCS4 *data = ctx->out.data;
     Py_ssize_t end = ctx->out.len;
@@ -1385,6 +1390,7 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     ctx->g_bold = saved_bold;
     ctx->g_italic = saved_italic;
     ctx->inline_only = saved_inline;
+    ctx->list_end_marker = saved_list_marker;
     return content;
 }
 
@@ -1480,6 +1486,7 @@ typedef struct {
     Py_ssize_t number;     /* the next ordered item's number */
     Py_ssize_t sub_indent; /* how far content attached to the last item indents: its marker's width */
     char bullet;
+    char delimiter; /* what follows an ordered item's number */
     int ordered;
     int loose;
     int item_seen; /* an item has opened, so content between items continues it */
@@ -1536,7 +1543,8 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     Py_ssize_t width;
     if (state->ordered) {
         width = lead + md_put_decimal(&ctx->out, state->number) + 2;
-        sbuf_puts(&ctx->out, ". ");
+        sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->delimiter);
+        sbuf_putc(&ctx->out, ' ');
         state->number++;
     } else {
         sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->bullet);
@@ -1643,12 +1651,30 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
         .number = number,
         .sub_indent = 2, /* how far a bare nested list indents: the last marker's width */
         .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
+        .delimiter = '.',
         .ordered = ordered,
         .loose = md_list_is_loose(ctx, node),
     };
+    /* CommonMark keeps items with the same bullet or ordered delimiter in one list,
+       blank line or not, so a list that follows one of its own kind with nothing in
+       between switches its marker to stay a separate list */
+    if (ctx->list_end_marker != 0 && ctx->list_end == ctx->out.len && ctx->list_end_prefix == ctx->prefix.len) {
+        if (ordered && ctx->list_end_marker == '.') {
+            state.delimiter = ')';
+        } else if (!ordered && ctx->list_end_marker == state.bullet) {
+            state.bullet = state.bullet == '-' ? '*' : '-';
+        }
+    }
+    Py_ssize_t start = ctx->out.len;
     ctx->list_depth++;
     md_list_children(ctx, node, &state);
     ctx->list_depth--;
+    if (ctx->out.len > start) {
+        /* a list with no items writes nothing, so the one before it stays the neighbor */
+        ctx->list_end = ctx->out.len;
+        ctx->list_end_prefix = ctx->prefix.len;
+        ctx->list_end_marker = ordered ? state.delimiter : state.bullet;
+    }
 }
 
 /* Render a cell's content into dst, collapsing internal whitespace to single spaces

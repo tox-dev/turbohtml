@@ -251,6 +251,40 @@ def test_code(html: str, expected: str) -> None:
             id="wrapper-without-items-is-content",
         ),
         pytest.param("<ul><li>a</li><svg><text>t</text></svg></ul>", "- a\n  t", id="svg-after-item"),
+        pytest.param("<ul><li>a</li></ul><ul><li>b</li></ul>", "- a\n* b", id="adjacent-bullet-lists-stay-apart"),
+        pytest.param("<ol><li>a</li></ol><ol><li>b</li></ol>", "1. a\n1) b", id="adjacent-ordered-lists-stay-apart"),
+        pytest.param(
+            "<ol><li>a</li></ol> <ol><li>b</li></ol><ol><li>c</li></ol>",
+            "1. a\n1) b\n1. c",
+            id="three-adjacent-lists-alternate",
+        ),
+        pytest.param(
+            "<ul><li>a</li></ul><ul></ul><ul><li>b</li></ul>",
+            "- a\n* b",
+            id="empty-list-between-adjacent-lists",
+        ),
+        pytest.param("<ul></ul><ul><li>a</li></ul>", "- a", id="list-after-empty-list"),
+        pytest.param("<ul><li>a</li></ul><ol><li>b</li></ol>", "- a\n1. b", id="bullet-then-ordered-keeps-markers"),
+        pytest.param(
+            "<ul><li>a</li></ul><p>x</p><ul><li>b</li></ul>",
+            "- a\n\nx\n\n- b",
+            id="lists-split-by-a-paragraph-keep-markers",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul><ul><li>c</li></ul></li></ul>",
+            "- a\n  - b\n  * c",
+            id="adjacent-sublists-stay-apart",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li></ul></li></ul><ul><li>c</li></ul>",
+            "- a\n  - b\n* c",
+            id="list-after-a-list-ending-in-a-sublist",
+        ),
+        pytest.param(
+            "<blockquote><ul><li>a</li></ul></blockquote><ul><li>b</li></ul>",
+            "> - a\n- b",
+            id="list-after-a-quoted-list-keeps-its-marker",
+        ),
     ],
 )
 def test_lists(html: str, expected: str) -> None:
@@ -864,6 +898,14 @@ def test_block_converter_multiline_keeps_prefix() -> None:
 def test_empty_converter_result_emits_nothing() -> None:
     out = parse("<section><div>x</div></section>").to_markdown(Markdown(converters={"div": lambda _e, _t: ""}))
     assert not out
+
+
+def test_converter_content_ignores_a_list_before_the_element() -> None:
+    # the converted content renders into its own buffer, so a list closed outside it is no neighbor of one inside
+    out = parse("<ul><li>a</li></ul><div>abc<ul><li>b</li></ul></div>").to_markdown(
+        Markdown(converters={"div": lambda _e, text: text})
+    )
+    assert out == "- a\n\nabc\n\n- b"
 
 
 def test_converter_on_root_element() -> None:
@@ -1605,6 +1647,12 @@ def test_heading_style(html: str, opts: Markdown, expected: str) -> None:
             Markdown(lists=Markdown.Lists(bullets="*+")),
             "* a\n  + b\n    * c",
             id="bullets-cycled-by-depth",
+        ),
+        pytest.param(
+            "<ul><li>a</li></ul><ul><li>b</li></ul>",
+            Markdown(lists=Markdown.Lists(bullets="*")),
+            "* a\n- b",
+            id="bullets-adjacent-list-switches-from-configured",
         ),
     ],
 )

@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` keeps two adjacent lists of the same kind apart: the second switches its bullet or
+ordered delimiter, since CommonMark joins items that share one into a single list.

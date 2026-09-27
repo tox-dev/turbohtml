@@ -191,8 +191,11 @@ the borrow-or-copy fast path Rust's ``htmd`` uses.
 Three places where the field is inconsistent, turbohtml does the correct thing: an inline code span is fenced with one
 more backtick than the longest run inside it (so ``` `a``b` ``` never splits), a ``|`` inside a table cell is escaped,
 and a nested ordered list keeps its own counter through the recursion stack rather than a single mutable field that a
-naive implementation corrupts on nesting. The output is opinionated GFM with no options, validated both by golden cases
-and by rendering it back to HTML with a reference Markdown engine and checking that no visible text was lost.
+naive implementation corrupts on nesting. Two lists of the same kind side by side stay two lists: CommonMark joins
+consecutive items that share a bullet character or ordered delimiter, blank line or not, so the second list switches its
+bullet (``-`` to ``*``) or its delimiter (``.`` to ``)``). The output is opinionated GFM with no options, validated both
+by golden cases and by rendering it back to HTML with a reference Markdown engine and checking that no visible text was
+lost.
 
 GFM puts that pipe escape on the cell's *content* ("include a pipe in a cell's content by escaping it, including inside
 other inline spans"), so turbohtml escapes where it writes the content -- prose, code spans, URLs, alt text, embedded
