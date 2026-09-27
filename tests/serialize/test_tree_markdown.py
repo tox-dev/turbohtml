@@ -99,11 +99,27 @@ def test_blocks_and_whitespace(html: str, expected: str) -> None:
         pytest.param("<p>a<b></b>b</p>", "ab", id="empty-emphasis-dropped"),
         pytest.param("<p><em>x <strong>y</strong></em></p>", "*x **y***", id="nested-emphasis"),
         pytest.param("<p><span>plain</span></p>", "plain", id="span-transparent"),
-        pytest.param("<p><mark>m</mark> <kbd>k</kbd></p>", "m k", id="passthrough-inline"),
+        pytest.param("<p><mark>m</mark></p>", "m", id="passthrough-inline"),
     ],
 )
 def test_inline_emphasis(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+@pytest.mark.parametrize("tag", ["code", "kbd", "samp"])
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        pytest.param("plain", "`plain`", id="plain"),
+        pytest.param("`edge`", "`` `edge` ``", id="backtick-edges"),
+        pytest.param("a``b", "```a``b```", id="backtick-run"),
+        pytest.param("a<br>b", "`a b`", id="line-break"),
+        pytest.param("", "", id="empty"),
+        pytest.param("<b>x</b>", "`x`", id="nested-markup"),
+    ],
+)
+def test_code_elements_preserve_text(tag: str, content: str, expected: str) -> None:
+    assert md(f"<{tag}>{content}</{tag}>") == expected
 
 
 @pytest.mark.parametrize(
@@ -667,7 +683,7 @@ def test_table_edge_cases(html: str, expected: str) -> None:
         pytest.param('<ol start="-5"><li>a</li></ol>', "1. a", id="ol-start-negative-ignored"),
         pytest.param("<pre><svg></svg>code</pre>", "```\ncode\n```", id="pre-foreign-first-child"),
         pytest.param("<p><a href>x</a></p>", "x", id="link-valueless-href"),
-        pytest.param("<p><code></code></p>", "``", id="code-span-empty"),
+        pytest.param("<p><code></code></p>", "", id="code-span-empty"),
         pytest.param("<p><code>a`</code></p>", "`` a` ``", id="code-span-ends-with-backtick"),
         pytest.param("<p>before<template>t</template>after</p>", "beforetafter", id="template-inline-content"),
         pytest.param("<pre></pre>", "```\n\n```", id="pre-empty"),

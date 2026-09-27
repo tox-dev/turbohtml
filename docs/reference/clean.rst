@@ -491,3 +491,5 @@ A drop-in for ``bleach.clean`` for projects migrating off bleach. It translates 
 event handler or a ``javascript:`` URL.
 
 .. autofunction:: clean
+
+.. autofunction:: attribute_policy

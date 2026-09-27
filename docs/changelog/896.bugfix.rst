@@ -1,0 +1,1 @@
+Render ``kbd`` and ``samp`` as Markdown code spans with safe backtick fences. Omit empty inline code spans.

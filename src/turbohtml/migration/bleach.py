@@ -11,32 +11,26 @@ negotiable.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Iterable, Mapping
+from typing import TypeAlias
 
 from turbohtml._html import _bleach_attributes
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
 ALLOWED_TAGS = DEFAULT_TAGS
 ALLOWED_ATTRIBUTES = DEFAULT_ATTRIBUTES
 ALLOWED_PROTOCOLS = DEFAULT_SCHEMES
 
-# bleach attributes come in three shapes: a flat list for every tag, a per-tag dict (whose values may themselves be a
-# list or a predicate), or a single predicate over (tag, name, value). The first element of each returned pair is the
-# static name allowlist (``"*"`` means any name), the second the predicate folded into a value-rewriting filter.
-_BleachAttributes = (
-    "Iterable[str] | Mapping[str, Iterable[str] | Callable[[str, str, str], bool]] | Callable[[str, str, str], bool]"
+_AttributeRules: TypeAlias = (
+    Iterable[str] | Mapping[str, Iterable[str] | Callable[[str, str, str], bool]] | Callable[[str, str, str], bool]
 )
 
 
 def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # this is bleach.clean's signature, kept verbatim for drop-in compatibility
     text: str,
     tags: Iterable[str] | None = None,
-    attributes: object = None,
+    attributes: _AttributeRules | None = None,
     protocols: Iterable[str] | None = None,
     strip: bool = False,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip a positional flag
     strip_comments: bool = True,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip_comments a positional flag
@@ -58,7 +52,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     if css_sanitizer is not None:  # CSS sanitizing is a separate sub-problem, not yet ported
         msg = "css_sanitizer is not implemented yet; drop the style attribute and <style> instead"
         raise NotImplementedError(msg)
-    names, attribute_filter = _bleach_attributes(ALLOWED_ATTRIBUTES if attributes is None else attributes, Mapping)
+    names, attribute_filter = attribute_policy(ALLOWED_ATTRIBUTES if attributes is None else attributes)
     policy = Policy(
         tags=ALLOWED_TAGS if tags is None else frozenset(tags),
         attributes=names,
@@ -70,9 +64,17 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     return sanitize(text, policy)
 
 
+def attribute_policy(
+    attributes: _AttributeRules,
+) -> tuple[dict[str, frozenset[str]], Callable[[str, str, str], str | None] | None]:
+    """Keep bleach attribute rules when configuring a native ``Policy``."""
+    return _bleach_attributes(attributes, Mapping)
+
+
 __all__ = [
     "ALLOWED_ATTRIBUTES",
     "ALLOWED_PROTOCOLS",
     "ALLOWED_TAGS",
+    "attribute_policy",
     "clean",
 ]

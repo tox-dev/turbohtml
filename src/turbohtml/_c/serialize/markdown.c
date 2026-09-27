@@ -663,10 +663,14 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
         PyMem_Free(content.data); /* GCOVR_EXCL_LINE: allocation-failure path */
         return;                   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    md_before_visible(ctx);
     Py_ssize_t len = content.len;
+    if (len == 0) {
+        PyMem_Free(content.data);
+        return;
+    }
+    md_before_visible(ctx);
     Py_ssize_t fence = md_max_backtick_run(content.data, len) + 1;
-    int pad = len > 0 && (content.data[0] == '`' || content.data[len - 1] == '`');
+    int pad = content.data[0] == '`' || content.data[len - 1] == '`';
     for (Py_ssize_t index = 0; index < fence; index++) {
         sbuf_putc(&ctx->out, '`');
     }
@@ -1060,6 +1064,8 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
         md_puts8(&ctx->out, opt->quote_close);
         return;
     case TH_TAG_CODE:
+    case TH_TAG_KBD:
+    case TH_TAG_SAMP:
         md_emit_code_span(ctx, node);
         return;
     case TH_TAG_A:

@@ -148,6 +148,22 @@ thread-safe policy, an :class:`~turbohtml.clean.OnDisallowed` enum that names es
 overloaded two booleans, and an ``attribute_filter`` that rewrites or drops a value where bleach's callable only
 returned a bool.
 
+To retain bleach attribute rules alongside native CSS settings, use ``attribute_policy``. Tag-specific and ``"*"`` rules
+both apply; either can admit an attribute. Callbacks run only if preceding rules did not admit it.
+
+.. testcode::
+
+    from turbohtml.clean import Policy, sanitize
+    from turbohtml.migration.bleach import attribute_policy
+
+    names, predicate = attribute_policy({"a": ["href"], "*": lambda _tag, name, _value: name == "style"})
+    policy = Policy(attributes=names, attribute_filter=predicate, css_properties=frozenset({"color"}))
+    print(sanitize('<a href="/x" style="color: red; position: fixed">link</a>', policy))
+
+.. testoutput::
+
+    <a href="/x" style="color: red">link</a>
+
 Linkifying
 ==========
 

@@ -1,0 +1,2 @@
+Add :func:`turbohtml.migration.bleach.attribute_policy` for retaining bleach attribute rules with native CSS settings.
+Combine tag and wildcard rules, and preserve literal ``*`` attribute names.
