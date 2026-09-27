@@ -1,0 +1,2 @@
+Negative child indexes on PyPy 8.0 no longer get the sequence length added twice, so ``node[-len(node) - 1]`` raises
+:class:`IndexError` again instead of returning a child.
