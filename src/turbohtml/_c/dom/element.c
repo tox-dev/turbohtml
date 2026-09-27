@@ -2038,12 +2038,21 @@ PyType_Spec element_spec = {
     .slots = element_slots,
 };
 
-/* Reject a tag or attribute name the HTML spec forbids, the way DOM
-   createElement / setAttribute raise InvalidCharacterError: empty, or carrying
-   whitespace, a control, "/", ">" or "<" (none of which round-trip through the
-   tokenizer), plus "=" or a quote in an attribute name. "<" is rejected in an
-   attribute name too: it is an unexpected-character-in-attribute-name parse
-   error, so a name carrying it reparses differently and is non-conforming. */
+/* Whether a character makes a tag or attribute name invalid, so DOM createElement /
+   setAttribute would raise InvalidCharacterError. A tag name must not carry
+   whitespace, a control, "/", ">", "<", "=" or a quote, none of which round-trip
+   through the tokenizer. An attribute name follows the DOM Standard's "valid
+   attribute local name": no ASCII whitespace, U+0000, "/", "=" or ">". A quote, "<"
+   or a control is allowed there, since the tokenizer produces such names from
+   markup and serializes them back unchanged. */
+static int name_rejects(Py_UCS4 character, int is_attr) {
+    if (is_attr) {
+        return is_space(character) || character == '\0' || character == '/' || character == '=' || character == '>';
+    }
+    return character <= ' ' || character == '/' || character == '>' || character == '<' || character == '=' ||
+           character == '"' || character == '\'';
+}
+
 static int validate_name(PyObject *name, int is_attr) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(name);
     if (len == 0) {
@@ -2054,11 +2063,7 @@ static int validate_name(PyObject *name, int is_attr) {
     const void *data = PyUnicode_DATA(name);
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = PyUnicode_READ(kind, data, index);
-        /* =, ", and ' break a tag name's serialization just as they do an attribute
-           name's, so both reject them (a tag <a"b> would round-trip as malformed markup) */
-        int bad = character <= ' ' || character == '/' || character == '>' || character == '<' || character == '=' ||
-                  character == '"' || character == '\'';
-        if (bad) {
+        if (name_rejects(character, is_attr)) {
             PyObject *ch = PyUnicode_FromOrdinal((int)character);
             if (ch != NULL) { /* GCOVR_EXCL_BR_LINE: a forbidden character is ASCII and always builds */
                 PyErr_Format(PyExc_ValueError, "%s name %R contains an invalid character: %R",

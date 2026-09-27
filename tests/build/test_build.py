@@ -111,9 +111,6 @@ def test_non_leading_mapping_is_rejected() -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        pytest.param("a<b", id="less-than"),  # <  is the issue #413 regression: it used to slip through
-        pytest.param('a"b', id="double-quote"),
-        pytest.param("a'b", id="single-quote"),
         pytest.param("a=b", id="equals"),
         pytest.param("a b", id="space"),
         pytest.param("a/b", id="slash"),

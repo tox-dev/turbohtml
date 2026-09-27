@@ -1,0 +1,2 @@
+Setting an attribute accepts every name the DOM Standard allows, including a quote, ``<`` or a control character the
+parser keeps from markup; only ASCII whitespace, U+0000, ``/``, ``=`` and ``>`` are rejected.

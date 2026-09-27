@@ -172,15 +172,40 @@ def test_element_tag_must_be_a_str() -> None:
         pytest.param("a b", id="space"),
         pytest.param("a/b", id="slash"),
         pytest.param("a>b", id="gt"),
-        pytest.param("a<b", id="lt"),
         pytest.param("a=b", id="eq"),
-        pytest.param('a"b', id="dquote"),
-        pytest.param("a'b", id="squote"),
+        pytest.param("=a", id="leading-eq"),
+        pytest.param("a\x00b", id="null"),
+        pytest.param("a\x0cb", id="form-feed"),
     ],
 )
 def test_element_attribute_name_is_rejected(name: str) -> None:
     with pytest.raises(ValueError, match=r"empty|invalid character"):
         Element("div", {name: "x"})
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<p zeitmaschine":=1>', id="quote"),
+        pytest.param("<p a'b=1>", id="apostrophe"),
+        pytest.param("<p a<b=1>", id="less-than"),
+        pytest.param("<p a\x01b=1>", id="control"),
+    ],
+)
+def test_attribute_name_the_parser_produces_can_be_set_again(markup: str) -> None:
+    paragraph = parse(markup).select_one("p")
+    assert paragraph is not None
+    name = next(iter(paragraph.attrs))
+    paragraph.attrs[name] = "v"
+    assert paragraph.attrs[name] == "v"
+
+
+@pytest.mark.parametrize("name", [pytest.param('a"b', id="quote"), pytest.param("a<b", id="less-than")])
+def test_element_accepts_a_parser_producible_attribute_name(name: str) -> None:
+    element = Element("div", {name: "x"})
+    reparsed = parse(element.html).select_one("div")
+    assert reparsed is not None
+    assert dict(reparsed.attrs) == {name: "x"}
 
 
 @pytest.mark.parametrize(
