@@ -815,13 +815,18 @@ static void md_emit_link(md_ctx *ctx, th_node *node) {
             return;
         }
     }
-    md_before_visible(ctx);
-    sbuf_putc(&ctx->out, '[');
-    ctx->line_has_content = 1;
-    ctx->drop_space = 1;
+    /* the opening bracket waits for the first visible character, as an emphasis
+       marker does, so a leading inner space lands before it: `x<a> t</a>` gives
+       `x [t](...)` */
+    md_pending frame = {"[", ctx->pending, 0};
+    ctx->pending = &frame;
     ctx->inline_only++;
     md_inline_children(ctx, node);
     ctx->inline_only--;
+    if (!frame.emitted) {
+        md_before_visible(ctx); /* link text with nothing visible still gets its brackets */
+    }
+    ctx->pending = frame.prev;
     if (title == NULL && opt->link_title) {
         title = href;
         title_len = href_len;
@@ -1381,20 +1386,63 @@ static PyObject *md_children_markdown(md_ctx *ctx, th_node *node) {
     return content;
 }
 
+/* Whether the content an element renders starts (from_start) or ends with
+   whitespace, judged by what comes first or last in document order: a text node's
+   edge character, a line break (which reads as whitespace), or an image or form
+   control (visible, so no). Any other empty element renders nothing and is
+   looked past. */
+static int md_edge_space(md_ctx *ctx, th_node *root, int from_start) {
+    th_node *node = from_start ? root->first_child : root->last_child;
+    while (node != NULL) {
+        if (node->type == TH_NODE_TEXT && node->text_len > 0) {
+            const Py_UCS4 *text = need_text(ctx->tree, node);
+            return is_space(text[from_start ? 0 : node->text_len - 1]);
+        }
+        if (node->type == TH_NODE_ELEMENT && !is_md_skipped(node)) {
+            uint16_t atom = node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN;
+            if (atom == TH_TAG_BR) {
+                return 1;
+            }
+            if (atom == TH_TAG_IMG || atom == TH_TAG_INPUT) {
+                return 0;
+            }
+            th_node *inner = from_start ? node->first_child : node->last_child;
+            if (inner != NULL) {
+                node = inner;
+                continue;
+            }
+        }
+        while (node != root && (from_start ? node->next_sibling : node->prev_sibling) == NULL) {
+            node = node->parent;
+        }
+        if (node == root) {
+            return 0;
+        }
+        node = from_start ? node->next_sibling : node->prev_sibling;
+    }
+    return 0;
+}
+
 /* Splice a converter's returned Markdown into the output at the element's position:
    a registered block tag opens its own block line, anything else flows inline. A
    newline inside the string starts a fresh continuation line so an outer list or
    blockquote prefix keeps applying; every other code point is copied verbatim,
    since the converter already produced final Markdown. An empty result emits
    nothing, leaving no stray blank line behind. */
-static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text) {
+static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text, int blank) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(text);
     if (len == 0) {
         return;
     }
-    if (node->ns == TH_NS_HTML && is_md_block(node->atom)) {
+    int inline_edges = !(node->ns == TH_NS_HTML && is_md_block(node->atom));
+    if (!inline_edges) {
         md_block_line(ctx, 1);
     } else {
+        /* the content reached the converter trimmed, so whitespace at its edges is
+           owed around the converted text instead, as it lands outside a marker */
+        if (ctx->line_has_content && md_edge_space(ctx, node, 1)) {
+            ctx->space_pending = 1;
+        }
         md_before_visible(ctx);
     }
     int kind = PyUnicode_KIND(text);
@@ -1407,6 +1455,10 @@ static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text) {
             md_put_literal(ctx, character);
             ctx->line_has_content = 1;
         }
+    }
+    /* content that is whitespace alone owes one space, already placed before it */
+    if (inline_edges && !blank && md_edge_space(ctx, node, 0)) {
+        ctx->space_pending = 1;
     }
 }
 
@@ -1445,6 +1497,7 @@ static int md_apply_converter(md_ctx *ctx, th_node *node) {
         ctx->failed = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
         return 1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    int blank = PyUnicode_GET_LENGTH(content) == 0;
     PyObject *result = PyObject_CallFunctionObjArgs(converter, element, content, NULL);
     Py_DECREF(element);
     Py_DECREF(content);
@@ -1462,7 +1515,7 @@ static int md_apply_converter(md_ctx *ctx, th_node *node) {
         return 1;
     }
     Py_DECREF(tag);
-    md_emit_converted(ctx, node, result);
+    md_emit_converted(ctx, node, result, blank);
     Py_DECREF(result);
     return 1;
 }

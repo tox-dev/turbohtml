@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` keeps whitespace at the edges of a link or a converted inline element outside its
+output, so ``x<a href="h"> t </a>y`` renders ``x [t](h) y`` where the leading space used to vanish.

@@ -141,8 +141,10 @@ nothing when the mapping is omitted.
     Watch [a clip](/clip.mp4) and MD (Markdown).
 
 Return ``""`` to drop an element, or return ``content`` unchanged to unwrap it. A registered block-level tag is laid out
-on its own line; any other tag flows inline. The callable runs inside the same per-tree lock the walk holds, so it may
-read the element's attributes and subtree freely.
+on its own line; any other tag flows inline. ``content`` arrives trimmed, and whitespace at the element's edges lands
+outside the returned text, the way it moves outside a ``**`` marker: ``x<u> t </u>y`` with a converter returning
+``f"<u>{content}</u>"`` gives ``x <u>t</u> y``. The callable runs inside the same per-tree lock the walk holds, so it
+may read the element's attributes and subtree freely.
 
 To unwrap whole tags without a callable, set the ``strip`` or ``convert`` field, the two mutually exclusive filters
 ``markdownify`` exposes under the same names (passing both raises ``ValueError`` when the ``Markdown`` is built).

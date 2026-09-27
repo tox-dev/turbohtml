@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 from types import MappingProxyType
 from typing import Final
 
-from turbohtml import Element, Markdown
+from turbohtml import Element, Markdown, Text
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -137,6 +137,11 @@ def test_inline_emphasis(html: str, expected: str) -> None:
             '![Alt text](/i.jpg "Optional title")',
             id="image-title",
         ),
+        pytest.param("x<a href='h'> t </a>y", "x [t](h) y", id="link-edge-spaces-move-outside"),
+        pytest.param("x<a href='h'><b> t</b></a>y", "x [**t**](h)y", id="link-space-inside-emphasis-moves-outside"),
+        pytest.param("<a href='h'> t</a>", "[t](h)", id="link-leading-space-at-line-start-dropped"),
+        pytest.param("x<a href='h'></a>y", "x[](h)y", id="link-empty-text-keeps-brackets"),
+        pytest.param("x<b><a href='h'> t</a></b>", "x **[t](h)**", id="link-inside-emphasis-opens-both"),
     ],
 )
 def test_links_and_images(html: str, expected: str) -> None:
@@ -776,6 +781,31 @@ def wrap(marker: str) -> Converter:
         pytest.param("<p>a<span>x</span>b</p>", "span", lambda _e, _t: "", "ab", id="inline-drop"),
         pytest.param("<p>a<u>keep</u>b</p>", "u", lambda _e, text: text, "akeepb", id="inline-unwrap"),
         pytest.param("<p>only <i>italic</i></p>", "i", wrap("/"), "only /italic/", id="inline-trailing"),
+        pytest.param("x<u> t </u>y", "u", wrap("_"), "x _t_ y", id="inline-edge-spaces-move-outside"),
+        pytest.param("<u> t</u>", "u", wrap("_"), "_t_", id="inline-leading-space-at-line-start-dropped"),
+        pytest.param("x<u><img src=i> t</u>y", "u", wrap("_"), "x_![](i) t_y", id="inline-image-edge-is-no-space"),
+        pytest.param("x<u><!--c--> t</u>y", "u", wrap("_"), "x _t_y", id="inline-edge-looks-past-a-comment"),
+        pytest.param("x<u><script>s</script> t</u>y", "u", wrap("_"), "x _t_y", id="inline-edge-looks-past-script"),
+        pytest.param("x<u><span> <b>t</b></span></u>y", "u", wrap("_"), "x _**t**_y", id="inline-edge-found-nested"),
+        pytest.param(
+            "x<u><b>t </b><span></span></u>y", "u", wrap("_"), "x_**t**_ y", id="inline-edge-looks-past-empty"
+        ),
+        pytest.param("x<u>t<br></u>y", "u", wrap("_"), "x_t_ y", id="inline-edge-break-reads-as-space"),
+        pytest.param("x<u> </u>y", "u", lambda _e, text: f"[{text}]", "x []y", id="inline-blank-owes-one-space"),
+        pytest.param("x<u><b><span></span></b> t</u>y", "u", wrap("_"), "x _t_y", id="inline-edge-climbs-out-of-empty"),
+        pytest.param(
+            "x<u>t <b><span></span></b></u>y", "u", wrap("_"), "x_t_ y", id="inline-end-edge-climbs-out-of-empty"
+        ),
+        pytest.param("x<u><span></span></u>y", "u", wrap("_"), "x__y", id="inline-edge-of-only-empty-elements"),
+        pytest.param("x<u></u>y", "u", wrap("_"), "x__y", id="inline-edge-of-empty-element"),
+        pytest.param("x<u><svg></svg> t</u>y", "u", wrap("_"), "x _t_y", id="inline-edge-looks-past-empty-foreign"),
+        pytest.param(
+            "x<u><input type=checkbox> t</u>y",
+            "u",
+            lambda _e, text: f"<{text}>",
+            "x<t>y",
+            id="inline-edge-form-control-is-no-space",
+        ),
     ],
 )
 def test_inline_converter(html: str, tag: str, converter: Converter, expected: str) -> None:
@@ -791,7 +821,7 @@ def test_inner_trailing_break_is_trimmed() -> None:
 def test_inner_all_whitespace_trims_to_empty() -> None:
     # a child that renders to only a break trims away entirely, so the hook sees ""
     out = parse("<p>a<i><br></i>b</p>").to_markdown(Markdown(converters={"i": lambda _e, content: f"[{content}]"}))
-    assert out == "a[]b"
+    assert out == "a []b"
 
 
 def test_custom_element_with_attribute() -> None:
@@ -843,6 +873,21 @@ def test_converter_on_root_element() -> None:
     assert section is not None
     out = section.to_markdown(Markdown(converters={"section": lambda _e, text: f"S[{text}]"}))
     assert out == "S[hi **there**]"
+
+
+def test_converter_edge_skips_empty_text_nodes() -> None:
+    document = parse("<p>x<u> t </u>y</p>")
+    underline = document.find("u")
+    assert underline is not None
+    underline.insert(0, Text(""))
+    underline.append(Text(""))
+    assert document.to_markdown(Markdown(converters={"u": wrap("_")})) == "x _t_ y"
+
+
+def test_converter_on_inline_root_owes_no_leading_space() -> None:
+    span = parse("<p><span> hi </span></p>").find("span")
+    assert span is not None
+    assert span.to_markdown(Markdown(converters={"span": wrap("_")})) == "_hi_"
 
 
 def test_converter_output_in_a_table_cell_escapes_its_pipes() -> None:
