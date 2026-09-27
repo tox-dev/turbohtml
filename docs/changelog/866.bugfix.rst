@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` ends each pipe-table row at its closing ``|`` with no trailing space, and a cell
+that holds a block no longer starts with two spaces.

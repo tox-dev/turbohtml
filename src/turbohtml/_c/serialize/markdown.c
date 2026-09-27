@@ -1681,11 +1681,14 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
     ctx->space_pending = saved_space;
     ctx->drop_space = saved_drop;
     ctx->in_cell = 0;
+    /* a block in the cell opens on a fresh line, so the rendering can start with a
+       whitespace run; only a run between two characters becomes a space */
     int space_run = 0;
+    int wrote = 0;
     for (Py_ssize_t index = 0; index < rendered.len; index++) {
         Py_UCS4 ch = rendered.data[index];
         if (ch == '\n' || ch == ' ') {
-            space_run = 1;
+            space_run = wrote;
             continue;
         }
         if (space_run) {
@@ -1693,6 +1696,7 @@ static void md_cell_text(md_ctx *ctx, th_node *node, sbuf *dst) {
             space_run = 0;
         }
         sbuf_putc(dst, ch);
+        wrote = 1;
     }
     PyMem_Free(rendered.data);
 }
@@ -1716,18 +1720,19 @@ static int md_row_is_header(th_node *row) {
 }
 
 static void md_emit_row(md_ctx *ctx, th_node *row, Py_ssize_t columns) {
-    sbuf_puts(&ctx->out, "| ");
+    sbuf_putc(&ctx->out, '|');
     Py_ssize_t emitted = 0;
     for (th_node *cell = row->first_child; cell != NULL; cell = cell->next_sibling) {
         if (cell->type != TH_NODE_ELEMENT || (cell->atom != TH_TAG_TD && cell->atom != TH_TAG_TH)) {
             continue;
         }
+        sbuf_putc(&ctx->out, ' ');
         md_cell_text(ctx, cell, &ctx->out);
-        sbuf_puts(&ctx->out, " | ");
+        sbuf_puts(&ctx->out, " |");
         emitted++;
     }
     for (; emitted < columns; emitted++) {
-        sbuf_puts(&ctx->out, " | ");
+        sbuf_puts(&ctx->out, "  |");
     }
     ctx->line_has_content = 1;
 }
@@ -1762,8 +1767,9 @@ static Py_ssize_t md_collect_rows(th_node *node, th_node **rows, Py_ssize_t *cou
 /* Emit one padded grid row: each cell's text then spaces out to the column
    width, wrapped in pipes. A NULL grid emits an all-spaces (empty header) row. */
 static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize_t columns, const Py_ssize_t *widths) {
-    sbuf_puts(&ctx->out, "| ");
+    sbuf_putc(&ctx->out, '|');
     for (Py_ssize_t column = 0; column < columns; column++) {
+        sbuf_putc(&ctx->out, ' ');
         Py_ssize_t len = 0;
         if (grid != NULL) {
             sbuf *cell = &grid[row * columns + column];
@@ -1773,7 +1779,7 @@ static void md_emit_padded_row(md_ctx *ctx, sbuf *grid, Py_ssize_t row, Py_ssize
         for (Py_ssize_t pad = len; pad < widths[column]; pad++) {
             sbuf_putc(&ctx->out, ' ');
         }
-        sbuf_puts(&ctx->out, " | ");
+        sbuf_puts(&ctx->out, " |");
     }
     ctx->line_has_content = 1;
 }
@@ -1811,12 +1817,13 @@ static void md_render_table_padded(md_ctx *ctx, th_node **rows, Py_ssize_t count
     Py_ssize_t body_start = has_header ? 1 : 0;
     md_emit_padded_row(ctx, has_header ? grid : NULL, 0, columns, widths);
     md_newline(ctx);
-    sbuf_puts(&ctx->out, "| ");
+    sbuf_putc(&ctx->out, '|');
     for (Py_ssize_t column = 0; column < columns; column++) {
+        sbuf_putc(&ctx->out, ' ');
         for (Py_ssize_t pad = 0; pad < widths[column]; pad++) {
             sbuf_putc(&ctx->out, '-');
         }
-        sbuf_puts(&ctx->out, " | ");
+        sbuf_puts(&ctx->out, " |");
     }
     ctx->line_has_content = 1;
     for (Py_ssize_t row = body_start; row < count; row++) {
@@ -1901,16 +1908,16 @@ static void md_render_table(md_ctx *ctx, th_node *node) {
         if (has_header) {
             md_emit_row(ctx, rows[0], columns);
         } else {
-            sbuf_puts(&ctx->out, "| ");
+            sbuf_putc(&ctx->out, '|');
             for (Py_ssize_t column = 0; column < columns; column++) {
-                sbuf_puts(&ctx->out, " | ");
+                sbuf_puts(&ctx->out, "  |");
             }
             ctx->line_has_content = 1;
         }
         md_newline(ctx);
-        sbuf_puts(&ctx->out, "| ");
+        sbuf_putc(&ctx->out, '|');
         for (Py_ssize_t column = 0; column < columns; column++) {
-            sbuf_puts(&ctx->out, "--- | ");
+            sbuf_puts(&ctx->out, " --- |");
         }
         ctx->line_has_content = 1;
         for (Py_ssize_t row = body_start; row < count; row++) {
