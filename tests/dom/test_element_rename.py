@@ -94,7 +94,9 @@ def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message
 @pytest.mark.parametrize(
     ("markup", "name", "expected"),
     [
-        pytest.param("<body><div  id=a>x</div></body>", "section", '<body><section id="a">x</section></body>', id="closed"),
+        pytest.param(
+            "<body><div  id=a>x</div></body>", "section", '<body><section id="a">x</section></body>', id="closed"
+        ),
         pytest.param("<body><p  id=a>x</body>", "section", '<body><section id="a">x</body>', id="implicitly-closed"),
         pytest.param("<body><br  id=a></body>", "hr", '<body><hr id="a"></body>', id="void"),
     ],
