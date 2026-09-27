@@ -161,6 +161,31 @@ static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t
 
 /* Construct an element node, with attr_count empty attribute slots to fill with
    th_tree_set_attr. A NULL known tag selects the generated immutable spelling. */
+int th_node_rename(th_tree *tree, th_node *node, const Py_UCS4 *tag, Py_ssize_t tag_len, uint16_t atom) {
+    if (tag != NULL) {
+        Py_UCS4 *owned = arena_alloc(tree, tag_len * (Py_ssize_t)sizeof(Py_UCS4));
+        if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        memcpy(owned, tag, (size_t)tag_len * sizeof(Py_UCS4));
+        node->text = owned;
+        node->text_len = tag_len;
+    } else {
+        node->text = (Py_UCS4 *)th_tag_wide_name(atom);
+        node->text_len = th_tag_table[atom - 1].name_len;
+    }
+    node->atom = atom;
+    th_src_loc *loc = tree->track_locations ? *node_loc(node) : NULL;
+    if (loc != NULL) {
+        loc->start_dirty = 1;
+        loc->end_dirty = loc->has_end_tag;
+    }
+    /* the category bits follow the new atom; the bits recording how the source opened
+       and closed the element stay, as its position in the source is unchanged */
+    node->tag_flags = th_tag_flags(atom) | (node->tag_flags & (TH_ELEM_CLOSED_BY_END_TAG | TH_ELEM_IMPLIED));
+    return 0;
+}
+
 th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_len, uint16_t atom,
                               Py_ssize_t attr_count) {
     th_node *node = node_new(tree, TH_NODE_ELEMENT);

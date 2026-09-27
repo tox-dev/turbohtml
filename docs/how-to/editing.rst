@@ -121,6 +121,25 @@ return it:
 
     <section><h2>Title</h2><div class="body"><p>one</p><p>two</p></div></section>
 
+*******************
+ Rename an element
+*******************
+
+Assign :attr:`~turbohtml.Element.tag` to rename an element in place. Its attributes, children, namespace and position
+stay, so a ``<div>`` of paragraphs becomes an ``<article>`` without rebuilding it. An HTML name is lowercased the way
+the parser stores it, while an SVG or MathML name keeps its case (``foreignObject``). A ``<template>`` holds its
+children in a separate content fragment, so renaming an element to or from ``template`` raises :exc:`ValueError`:
+
+.. testcode::
+
+    doc = turbohtml.parse('<div class="post"><p>one</p></div>')
+    doc.find("div").tag = "Article"
+    print(doc.find("article").html)
+
+.. testoutput::
+
+    <article class="post"><p>one</p></article>
+
 ****************************************
  Set an element's content from a string
 ****************************************

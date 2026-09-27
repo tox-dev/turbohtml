@@ -82,14 +82,13 @@ static void lossless_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
 
 /* Write an element's end tag: its verbatim source bytes when the source closed it,
    nothing when the source left it implicitly closed, and a canonical close tag for a
-   synthetic or inserted element the parse never located. */
+   synthetic or inserted element the parse never located, or for a source-closed one
+   renamed since. */
 static void lossless_close_tag(sbuf *out, th_tree *tree, th_node *node, const th_src_loc *loc) {
-    if (loc != NULL) {
-        if (loc->has_end_tag) {
-            sbuf_put_source(out, tree, loc->end_tag.start_offset, loc->end_tag.end_offset);
-        }
-    } else {
+    if (loc == NULL || loc->end_dirty) {
         ser_close_tag(out, node);
+    } else if (loc->has_end_tag) {
+        sbuf_put_source(out, tree, loc->end_tag.start_offset, loc->end_tag.end_offset);
     }
 }
 

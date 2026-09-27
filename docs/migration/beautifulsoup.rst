@@ -153,8 +153,8 @@ API mapping
 
     - - `BeautifulSoup <https://www.crummy.com/software/BeautifulSoup/>`__
       - turbohtml
-    - - ``tag.name``
-      - :attr:`~turbohtml.Element.tag`
+    - - ``tag.name``, ``tag.name = "x"``
+      - :attr:`~turbohtml.Element.tag`, ``element.tag = "x"``
     - - ``tag["class"]``, ``tag.get("x")``, ``tag.has_attr("x")``
       - :attr:`~turbohtml.Element.attrs` (``attrs["class"]``, ``attrs.get("x")``, ``"x" in attrs``)
     - - ``tag.string``, ``tag.get_text()``

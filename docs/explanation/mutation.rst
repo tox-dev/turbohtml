@@ -45,12 +45,15 @@ ancestor -- until its own turn comes.
 
 Construction reuses the same arena machinery: :class:`~turbohtml.Element`, :class:`~turbohtml.Text`, and the rest build
 a standalone single-node tree that owns its data, ready to adopt into a document, and tag and attribute names are
-ASCII-lowercased so they resolve to the same interned atoms the parser assigns. :attr:`Element.attrs
-<turbohtml.Element.attrs>` is a live mapping over the node's own attribute array (assignment and deletion edit the tree
-directly rather than a throwaway dict), and ``copy.copy`` and ``copy.deepcopy`` run through the same subtree copy, so a
-clone is always a standalone tree. :mod:`python:pickle` rebuilds that same structure node by node rather than
-serializing and reparsing: a document keeps its doctype identifiers, quirks mode, and adjacent text nodes, a template
-keeps its contents, a shadow root comes back attached to its host, and no node claims a source position it never had.
+ASCII-lowercased so they resolve to the same interned atoms the parser assigns. Assigning :attr:`Element.tag
+<turbohtml.Element.tag>` resolves the new name the same way and swaps the node's atom in place, so every tag-keyed path,
+from selector matching to the whole-document tag index it invalidates, sees the element under its new name.
+:attr:`Element.attrs <turbohtml.Element.attrs>` is a live mapping over the node's own attribute array (assignment and
+deletion edit the tree directly rather than a throwaway dict), and ``copy.copy`` and ``copy.deepcopy`` run through the
+same subtree copy, so a clone is always a standalone tree. :mod:`python:pickle` rebuilds that same structure node by
+node rather than serializing and reparsing: a document keeps its doctype identifiers, quirks mode, and adjacent text
+nodes, a template keeps its contents, a shadow root comes back attached to its host, and no node claims a source
+position it never had.
 
 Every insertion method follows the DOM insert algorithm for a :class:`~turbohtml.DocumentFragment`: the fragment is
 never linked itself; its children move in its place, in order, and it is left empty. A fragment from another tree has

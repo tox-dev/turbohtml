@@ -690,6 +690,7 @@ static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_
     loc->end_tag = (th_src_span){0};
     loc->has_end_tag = 0;
     loc->start_dirty = 0;
+    loc->end_dirty = 0;
     loc->attr_count = token->attr_count;
     loc->attrs = token->attr_count > 0 ? (th_src_attr *)(loc + 1) : NULL;
     if (token->attr_count > 0) {

@@ -197,6 +197,9 @@ typedef struct {
        serializer (th_node_serialize_source) rewrites the start tag from the current
        attributes instead of re-emitting its now-stale source bytes. */
     int start_dirty;
+    /* set once the element is renamed, so a source-closed element gets a canonical
+       end tag for its new name rather than the stale source bytes */
+    int end_dirty;
     Py_ssize_t attr_count;
     th_src_attr *attrs;
 } th_src_loc;
@@ -254,6 +257,10 @@ Py_UCS4 *th_node_realize_text(th_tree *tree, th_node *node);
    split point in attr_count). NULL on allocation failure. */
 th_node *th_tree_make_pi(th_tree *tree, const Py_UCS4 *target, Py_ssize_t target_len, const Py_UCS4 *data,
                          Py_ssize_t data_len);
+
+/* Rename an element in place: tag is the spelling to copy, or NULL for a known atom
+   that points at its table entry. -1 on allocation failure, leaving it unchanged. */
+int th_node_rename(th_tree *tree, th_node *node, const Py_UCS4 *tag, Py_ssize_t tag_len, uint16_t atom);
 
 /* Construct an element owning a copy of the tag name, with attr_count empty
    attribute slots; fill each with th_tree_set_attr. NULL on allocation failure. */

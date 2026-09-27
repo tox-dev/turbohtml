@@ -534,6 +534,8 @@ PyObject *element_get_attrs(PyObject *self, void *Py_UNUSED(closure)) {
 
 static int element_set_text(PyObject *self, PyObject *value, void *closure);
 
+static int element_set_tag(PyObject *self, PyObject *value, void *closure);
+
 static PyObject *element_get_field_value(PyObject *self, void *closure);
 
 static int element_set_field_value(PyObject *self, PyObject *value, void *closure);
@@ -556,7 +558,9 @@ PyDoc_STRVAR(checked_doc, "whether a checkbox or radio input is checked. Assigni
                           "form (or document), the radio-group exclusivity rule.");
 
 static PyGetSetDef element_getset[] = {
-    {"tag", element_get_tag, NULL, "the lowercased tag name", NULL},
+    {"tag", element_get_tag, element_set_tag,
+     "the lowercased tag name; assigning renames the element in place, keeping its namespace, attributes and children",
+     NULL},
     {"namespace", element_get_namespace, NULL, "the element's Namespace (HTML, SVG, or MATHML)", NULL},
     {"attrs", element_get_attrs, NULL,
      "the live mutable attribute mapping; token-list attributes (class, rel, ...) map to a list[str], a valueless "
@@ -2183,6 +2187,42 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
    whose UTF-8 exceeds this is treated as an unknown atom. */
 #define ELEMENT_TAG_LOWER_STACK_BYTES 64
 
+/* Resolve how an element stores tag: its atom, and the code points to copy (NULL
+   when a known HTML name can point at its lowercase table entry). xml keeps the
+   spelling and never resolves an atom; keep_case keeps the spelling but still
+   resolves the atom, for an SVG or MathML name. An HTML unknown tag is
+   ASCII-lowercased to match what the parser stores. -1 with MemoryError on
+   allocation failure. */
+static int tag_spelling(PyObject *tag, int xml, int keep_case, uint16_t *atom_out, Py_UCS4 **points_out) {
+    uint16_t atom = TH_TAG_UNKNOWN;
+    if (!xml) { /* an XML tree stores every element as an unknown atom, keeping its spelling */
+        Py_ssize_t utf8_len;
+        const char *utf8 = PyUnicode_AsUTF8AndSize(tag, &utf8_len);
+        char stack[ELEMENT_TAG_LOWER_STACK_BYTES];
+        if (utf8 != NULL && utf8_len <= (Py_ssize_t)sizeof(stack)) {
+            for (Py_ssize_t byte = 0; byte < utf8_len; byte++) {
+                stack[byte] = utf8[byte] >= 'A' && utf8[byte] <= 'Z' ? (char)(utf8[byte] + 32) : utf8[byte];
+            }
+            atom = th_tag_lookup(stack, utf8_len);
+        } else {
+            PyErr_Clear(); /* a surrogate or very long custom tag is not in the table */
+        }
+    }
+    Py_UCS4 *points = atom == TH_TAG_UNKNOWN || keep_case ? PyUnicode_AsUCS4Copy(tag) : NULL;
+    if ((atom == TH_TAG_UNKNOWN || keep_case) && points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t len = PyUnicode_GET_LENGTH(tag);
+    for (Py_ssize_t index = 0; !xml && !keep_case && index < len && points != NULL; index++) {
+        if (points[index] >= 'A' && points[index] <= 'Z') {
+            points[index] += 32;
+        }
+    }
+    *atom_out = atom;
+    *points_out = points;
+    return 0;
+}
+
 /* Build an Element wrapper for tag with attrs, without the public constructor's
    name validation. The parser and pickle reconstruction produce tag names (e.g.
    "a<b" from malformed input) that Element() rejects but that must round-trip
@@ -2212,32 +2252,12 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs, int x
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_tree_set_xml(tree, xml);
-    uint16_t atom = TH_TAG_UNKNOWN;
-    if (!xml) { /* an XML tree stores every element as an unknown atom, keeping its spelling */
-        Py_ssize_t utf8_len;
-        const char *utf8 = PyUnicode_AsUTF8AndSize(tag, &utf8_len);
-        char stack[ELEMENT_TAG_LOWER_STACK_BYTES];
-        if (utf8 != NULL && utf8_len <= (Py_ssize_t)sizeof(stack)) {
-            for (Py_ssize_t byte = 0; byte < utf8_len; byte++) {
-                stack[byte] = utf8[byte] >= 'A' && utf8[byte] <= 'Z' ? (char)(utf8[byte] + 32) : utf8[byte];
-            }
-            atom = th_tag_lookup(stack, utf8_len);
-        } else {
-            PyErr_Clear(); /* a surrogate or very long custom tag is not in the table */
-        }
-    }
-    Py_UCS4 *tag_points = atom == TH_TAG_UNKNOWN || keep_case ? PyUnicode_AsUCS4Copy(tag) : NULL;
-    if ((atom == TH_TAG_UNKNOWN || keep_case) && tag_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        th_tree_free(tree);                                            /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(keys);                                              /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                                   /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    /* An HTML unknown tag is ASCII-lowercased to match what the parser stores; a known
-       name already points at its lowercase entry, and an XML name keeps its case. */
-    for (Py_ssize_t index = 0; !xml && !keep_case && index < tag_len && tag_points != NULL; index++) {
-        if (tag_points[index] >= 'A' && tag_points[index] <= 'Z') {
-            tag_points[index] += 32;
-        }
+    uint16_t atom;
+    Py_UCS4 *tag_points;
+    if (tag_spelling(tag, xml, keep_case, &atom, &tag_points) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        th_tree_free(tree);                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(keys);                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_node *node = th_tree_make_element(tree, tag_points, tag_len, atom, attr_count);
     PyMem_Free(tag_points);
@@ -3250,6 +3270,47 @@ static int element_set_text(PyObject *self, PyObject *value, void *Py_UNUSED(clo
     Py_END_CRITICAL_SECTION();
     PyMem_Free(points);
     return error ? -1 : 0; /* GCOVR_EXCL_BR_LINE: error is set only on the excluded allocation failure */
+}
+
+/* Rename the element in place. A <template> owns a content fragment that no other
+   element has, so renaming to or from one would leave the tree half one shape. */
+static int element_set_tag(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+    if (value == NULL) {
+        PyErr_SetString(PyExc_TypeError, "cannot delete the tag");
+        return -1;
+    }
+    if (!PyUnicode_Check(value)) {
+        PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(value)->tp_name);
+        return -1;
+    }
+    if (validate_name(value, 0) < 0) {
+        return -1;
+    }
+    th_node *node = ((NodeObject *)self)->node;
+    th_tree *tree = tree_of(self);
+    int xml = th_tree_is_xml(tree);
+    uint16_t atom;
+    Py_UCS4 *points;
+    if (tag_spelling(value, xml, !xml && node->ns != TH_NS_HTML, &atom, &points) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int html = !xml && node->ns == TH_NS_HTML;
+    if (html && (node->atom == TH_TAG_TEMPLATE) != (atom == TH_TAG_TEMPLATE)) {
+        PyMem_Free(points);
+        PyErr_SetString(PyExc_ValueError, "cannot rename an element to or from template");
+        return -1;
+    }
+    int failed;
+    Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    failed = th_node_rename(tree, node, points, PyUnicode_GET_LENGTH(value), atom) < 0;
+    Py_END_CRITICAL_SECTION();
+    PyMem_Free(points);
+    if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    handle_drop_index(((NodeObject *)self)->handle);
+    return 0;
 }
 
 static PyObject *element_set_text_method(PyObject *self, PyObject *value) {

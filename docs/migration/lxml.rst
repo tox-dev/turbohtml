@@ -247,8 +247,8 @@ so you iterate :attr:`~turbohtml.Node.children` instead of reading two string fi
 
     - - `lxml <https://lxml.de/>`__
       - turbohtml
-    - - ``el.tag``
-      - :attr:`~turbohtml.Element.tag` (same)
+    - - ``el.tag``, ``el.tag = "x"``
+      - :attr:`~turbohtml.Element.tag` (same, assignable)
     - - ``el.get("x")``, ``el.attrib``, ``el.set("x", "v")``
       - :attr:`~turbohtml.Element.attrs` (``attrs.get("x")``, ``attrs["x"] = "v"``)
     - - ``el.classes.add("x")``, ``el.classes.discard("x")``, ``el.classes.toggle("x")``, ``"x" in el.classes``
