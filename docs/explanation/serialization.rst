@@ -201,7 +201,8 @@ the one most of the field picks. It cannot tell a literal pipe from one the writ
 ``\\|``, which a reader takes as a backslash followed by a live cell break, and each level of table nesting adds another
 backslash. The same cell context decides what becomes of a block the cell cannot hold: a nested table or list keeps its
 source HTML, legal there because raw HTML is inline content, rather than dropping its grid or its bullets onto the row
-as literal text.
+as literal text. A pipe table has no caption row either, so a ``<caption>`` renders as a paragraph above the grid, where
+a browser draws it by default wherever the source put it.
 
 The minimal escaping mode escapes what a CommonMark reader would act on, so the rendered page shows the source text. A
 line start counts after a list marker too, so ``<li>1. x</li>`` becomes ``- 1\. x`` and not a nested list. A ``~``

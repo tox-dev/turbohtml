@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` keeps a table's ``<caption>``, rendering it as a paragraph above the pipe table and
+the stripped table text.

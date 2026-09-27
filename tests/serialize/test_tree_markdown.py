@@ -291,6 +291,22 @@ def test_breaks_quotes_rules(html: str, expected: str) -> None:
             "| `a\\|b` |\n| --- |\n| c |",
             id="table-pipe-in-code-span-escaped",
         ),
+        pytest.param(
+            "<table><caption>Sales <b>2023</b></caption><tr><th>a</th></tr><tr><td>1</td></tr></table>",
+            "Sales **2023**\n\n| a |\n| --- |\n| 1 |",
+            id="table-caption-above-grid",
+        ),
+        pytest.param(
+            "<table><tr><th>a</th></tr><caption>late</caption></table>",
+            "late\n\n| a |\n| --- |",
+            id="table-caption-after-rows-still-above",
+        ),
+        pytest.param(
+            "<p>x</p><table><caption><p>one</p><p>two</p></caption><tr><td>1</td></tr></table>",
+            "x\n\none\n\ntwo\n\n| 1 |\n| --- |",
+            id="table-caption-with-blocks",
+        ),
+        pytest.param("<table><caption>only</caption></table>", "only", id="table-caption-without-rows"),
     ],
 )
 def test_tables(html: str, expected: str) -> None:
@@ -1762,6 +1778,18 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             Markdown(tables=Markdown.Tables(mode="strip")),
             "a b",
             id="table-strip",
+        ),
+        pytest.param(
+            "<table><caption>cap</caption><tr><td>a</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="strip")),
+            "cap\n\na",
+            id="table-strip-caption",
+        ),
+        pytest.param(
+            "<table><caption>cap</caption><tr><td>a</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "<table><caption>cap</caption><tbody><tr><td>a</td></tr></tbody></table>",
+            id="table-html-keeps-caption-once",
         ),
         pytest.param(
             "<table><tr><td>a</td></tr><tr><td>b</td></tr></table>",

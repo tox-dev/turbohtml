@@ -1757,6 +1757,17 @@ static void md_render_table_padded(md_ctx *ctx, th_node **rows, Py_ssize_t count
     PyMem_Free(widths);
 }
 
+/* A pipe table has no caption row, so each <caption> renders as a paragraph above
+   the grid, where CSS draws it (caption-side: top) wherever the source put it. The
+   HTML table mode keeps the caption inside the table's own markup. */
+static void md_render_captions(md_ctx *ctx, th_node *node) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && child->atom == TH_TAG_CAPTION) {
+            md_block_children(ctx, child);
+        }
+    }
+}
+
 static void md_render_table(md_ctx *ctx, th_node *node) {
     Py_ssize_t cap = 0;
     for (th_node *body = node->first_child; body != NULL; body = body->next_sibling) {
@@ -1772,11 +1783,14 @@ static void md_render_table(md_ctx *ctx, th_node *node) {
     }
     Py_ssize_t count = 0;
     Py_ssize_t columns = md_collect_rows(node, rows, &count);
+    const md_opts *opt = ctx->opt;
+    if (opt->table_mode != TH_MD_TABLE_HTML) {
+        md_render_captions(ctx, node);
+    }
     if (count == 0 || columns == 0) {
         PyMem_Free(rows);
         return;
     }
-    const md_opts *opt = ctx->opt;
     if (opt->table_mode == TH_MD_TABLE_HTML) {
         md_block_line(ctx, 1);
         md_emit_raw_html(ctx, node);
