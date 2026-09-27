@@ -1,11 +1,59 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import pytest
 
 from turbohtml._html import _bleach_attributes
-from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, ALLOWED_TAGS, clean
+from turbohtml.clean import Policy, sanitize
+from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, ALLOWED_TAGS, attribute_policy, clean
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+
+@pytest.mark.parametrize(
+    ("rules", "expected"),
+    [
+        pytest.param({"a": ["href"], "*": lambda *_: False}, '<a href="/x">text</a>', id="listed-tag"),
+        pytest.param({"a": lambda *_: False, "*": ["title"]}, '<a title="t">text</a>', id="listed-wildcard"),
+        pytest.param(
+            {"a": lambda _tag, name, _value: name == "href", "*": lambda _tag, name, _value: name == "title"},
+            '<a href="/x" title="t">text</a>',
+            id="combined-predicates",
+        ),
+        pytest.param(
+            {"a": [], "*": lambda _tag, name, _value: name == "title"}, '<a title="t">text</a>', id="empty-tag"
+        ),
+        pytest.param({"a": lambda *_: False}, "<a>text</a>", id="no-wildcard"),
+        pytest.param({"*": lambda _tag, name, _value: name == "href"}, '<a href="/x">text</a>', id="no-tag"),
+        pytest.param({"a": ["href", "title"]}, '<a href="/x" title="t">text</a>', id="no-predicates"),
+    ],
+)
+def test_attribute_policy_combines_tag_and_wildcard_rules(
+    rules: Mapping[str, Iterable[str] | Callable[[str, str, str], bool]], expected: str
+) -> None:
+    names, attribute_filter = attribute_policy(rules)
+    assert (
+        sanitize('<a href="/x" title="t" rel="r">text</a>', Policy(attributes=names, attribute_filter=attribute_filter))
+        == expected
+    )
+
+
+def test_attribute_policy_skips_wildcard_after_tag_match() -> None:
+    def unexpected(_tag: str, _name: str, _value: str) -> bool:
+        raise AssertionError
+
+    assert clean('<a href="/x">text</a>', attributes={"a": ["href"], "*": unexpected}) == '<a href="/x">text</a>'
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [pytest.param(["*"], id="flat"), pytest.param({"a": ["*"]}, id="tag"), pytest.param({"*": ["*"]}, id="wildcard")],
+)
+def test_attribute_star_is_literal(rules: list[str] | dict[str, list[str]]) -> None:
+    assert clean('<a href="/x" title="t" *="literal">text</a>', attributes=rules) == '<a *="literal">text</a>'
 
 
 def test_clean_defaults_match_bleach() -> None:

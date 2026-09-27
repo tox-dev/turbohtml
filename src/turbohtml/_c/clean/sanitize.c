@@ -2628,34 +2628,38 @@ PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args) {
     return compiled;
 }
 
-/* The attribute filter a bleach predicate table compiles to: `predicates` is {tag: callable}, the tag's own entry
-   winning and the "*" entry applying otherwise, so a wildcard callable never fails open. The predicate's truth
-   keeps the value, anything else drops it. */
-static PyObject *bleach_filter(PyObject *predicates, PyObject *args) {
+static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyObject *value);
+
+static PyObject *bleach_filter(PyObject *rules, PyObject *args) {
     PyObject *tag, *name, *value;
     if (!PyArg_ParseTuple(args, "OOO:bleach_attribute_filter", &tag, &name, &value)) {
         return NULL;
     }
-    PyObject *predicate = PyDict_GetItemWithError(predicates, tag);
-    if (predicate == NULL) {
-        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the walk hands over str tags, which always hash */
-            return NULL;        /* GCOVR_EXCL_LINE */
-        }
-        predicate = PyDict_GetItemString(predicates, "*");
+    PyObject *rule = PyDict_GetItemWithError(rules, tag);
+    if (rule == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: sanitizer tags are strings */
+        return NULL;                        /* GCOVR_EXCL_LINE */
     }
-    if (predicate == NULL) {
-        return Py_NewRef(value);
+    int keep = bleach_rule_keeps(rule, tag, name, value);
+    if (keep == 0) {
+        keep = bleach_rule_keeps(PyDict_GetItemString(rules, "*"), tag, name, value);
     }
-    PyObject *verdict = PyObject_CallFunctionObjArgs(predicate, tag, name, value, NULL);
+    return keep < 0 ? NULL : Py_NewRef(keep ? value : Py_None);
+}
+
+static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyObject *value) {
+    if (rule == NULL) {
+        return 0;
+    }
+    if (!PyCallable_Check(rule)) {
+        return PySet_Contains(rule, name); /* GCOVR_EXCL_BR_LINE: sanitizer attribute names are strings */
+    }
+    PyObject *verdict = PyObject_CallFunctionObjArgs(rule, tag, name, value, NULL);
     if (verdict == NULL) {
-        return NULL;
+        return -1;
     }
     int keep = PyObject_IsTrue(verdict);
     Py_DECREF(verdict);
-    if (keep < 0) {
-        return NULL;
-    }
-    return keep ? Py_NewRef(value) : Py_NewRef(Py_None);
+    return keep;
 }
 
 static PyMethodDef BLEACH_FILTER_DEF = {"bleach_attribute_filter", bleach_filter, METH_VARARGS,
@@ -2672,22 +2676,32 @@ static PyObject *bleach_wildcard(void) {
     return every;
 }
 
-/* Record one tag's allowlist entry: a callable admits every name and joins the predicate table, an iterable lists
-   the names. Returns -1 with an error set. */
-static int bleach_tag_entry(PyObject *names, PyObject *predicates, PyObject *tag, PyObject *value) {
+static int bleach_tag_entry(PyObject *names, PyObject *rules, PyObject *tag, PyObject *value, int *needs_filter) {
     PyObject *listed;
     if (PyCallable_Check(value)) {
+        *needs_filter = 1;
         listed = bleach_wildcard();
-        if (listed != NULL && PyDict_SetItem(predicates, tag, value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
-            Py_CLEAR(listed);                                               /* GCOVR_EXCL_LINE */
-        } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
     } else {
         listed = PyFrozenSet_New(value);
+        value = listed;
     }
     if (listed == NULL) {
         return -1; /* a value that is neither callable nor iterable */
     }
+    if (!*needs_filter) {
+        PyObject *star = PyUnicode_FromString("*");
+        if (star == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(listed); /* GCOVR_EXCL_LINE */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        /* Bleach treats an attribute named "*" literally; Policy uses it as a wildcard. */
+        *needs_filter = PySet_Contains(listed, star);
+        Py_DECREF(star);
+    }
     int stored = PyDict_SetItem(names, tag, listed);
+    if (stored == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        stored = PyDict_SetItem(rules, tag, value);
+    }
     Py_DECREF(listed);
     return stored; /* GCOVR_EXCL_BR_LINE: a dict insert only fails on allocation failure */
 }
@@ -2702,16 +2716,16 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
         return NULL;
     }
     PyObject *names = PyDict_New();
-    PyObject *predicates = PyDict_New();
+    PyObject *rules = PyDict_New();
+    PyObject *star = PyUnicode_FromString("*");
     PyObject *result = NULL;
-    if (names == NULL || predicates == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        goto done;                             /* GCOVR_EXCL_LINE */
+    if (names == NULL || rules == NULL || star == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        goto done;                                        /* GCOVR_EXCL_LINE */
     }
     int failed;
+    int needs_filter = 0;
     if (PyCallable_Check(attributes)) {
-        PyObject *star = PyUnicode_FromString("*");
-        failed = star == NULL || bleach_tag_entry(names, predicates, star, attributes) < 0; /* GCOVR_EXCL_BR_LINE */
-        Py_XDECREF(star);
+        failed = bleach_tag_entry(names, rules, star, attributes, &needs_filter) < 0;
     } else {
         int is_mapping = PyObject_IsInstance(attributes, mapping_type);
         if (is_mapping < 0) {
@@ -2725,20 +2739,18 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
             failed = 0;
             for (Py_ssize_t index = 0; !failed && index < PyList_GET_SIZE(items); index++) {
                 PyObject *pair = PyList_GET_ITEM(items, index);
-                failed = bleach_tag_entry(names, predicates, PyTuple_GET_ITEM(pair, 0), PyTuple_GET_ITEM(pair, 1)) < 0;
+                failed = bleach_tag_entry(names, rules, PyTuple_GET_ITEM(pair, 0), PyTuple_GET_ITEM(pair, 1),
+                                          &needs_filter) < 0;
             }
             Py_DECREF(items);
         } else {
-            PyObject *star = PyUnicode_FromString("*");
-            failed = star == NULL || bleach_tag_entry(names, predicates, star, attributes) < 0; /* GCOVR_EXCL_BR_LINE */
-            Py_XDECREF(star);
+            failed = bleach_tag_entry(names, rules, star, attributes, &needs_filter) < 0;
         }
     }
     if (failed) {
         goto done;
     }
-    PyObject *filter =
-        PyDict_GET_SIZE(predicates) == 0 ? Py_NewRef(Py_None) : PyCFunction_New(&BLEACH_FILTER_DEF, predicates);
+    PyObject *filter = needs_filter ? PyCFunction_New(&BLEACH_FILTER_DEF, rules) : Py_NewRef(Py_None);
     if (filter == NULL) { /* GCOVR_EXCL_BR_LINE: the bound function only fails on allocation failure */
         goto done;        /* GCOVR_EXCL_LINE */
     }
@@ -2746,7 +2758,8 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
     Py_DECREF(filter);
 done:
     Py_XDECREF(names);
-    Py_XDECREF(predicates);
+    Py_XDECREF(rules);
+    Py_XDECREF(star);
     return result;
 }
 
