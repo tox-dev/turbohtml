@@ -1,2 +1,2 @@
-Source installs on Windows activate MSVC even when MinGW is on ``PATH``.
-This prevents ARM64 builds from selecting an x64 compiler and failing to link Python.
+Source installs on Windows activate MSVC even when MinGW is on ``PATH``. This prevents ARM64 builds from selecting an
+x64 compiler and failing to link Python.
