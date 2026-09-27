@@ -218,7 +218,9 @@ line start counts after a list marker too, so ``<li>1. x</li>`` becomes ``- 1\. 
 always escapes because GFM strikes text through between tildes. A ``<`` escapes unless whitespace follows it, since it
 could open raw HTML or an autolink, and a ``&`` escapes when it starts an ``&name;`` or ``&#65;`` reference. A link
 destination keeps balanced parentheses bare, backslash-escapes unbalanced ones, and switches to the ``<...>`` form for a
-space or a leading ``<``.
+space or a leading ``<``. The ``none`` mode drops the prose escapes for output that nothing will parse as Markdown, and
+keeps only the cell pipe escape, since an unescaped ``|`` would split the row it sits in; link destinations, titles and
+image alt text keep their own escapes because their syntax needs them.
 
 The walk holds no state outside its stack frame (no module-level buffers, no per-converter object), so two threads
 exporting two trees never interfere, and the binding takes the same per-tree critical section

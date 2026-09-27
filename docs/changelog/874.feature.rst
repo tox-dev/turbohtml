@@ -1,0 +1,2 @@
+Add ``Markdown.Escaping(mode="none")``, which leaves prose as written in :meth:`~turbohtml.Node.to_markdown` apart from
+the ``asterisks`` and ``underscores`` choices and a ``|`` inside a table cell.

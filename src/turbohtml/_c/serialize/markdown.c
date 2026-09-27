@@ -128,6 +128,7 @@ typedef struct {
     int g_bold;                 /* google_doc: a CSS font-weight bold is in force from an ancestor */
     int g_italic;               /* google_doc: a CSS font-style italic is in force from an ancestor */
     int failed;                 /* a reference buffer allocation failed */
+    int escape_prose;           /* escape what a reader would parse in prose; off under Escaping(mode="none") */
     uint8_t escape_mask;        /* the MD_ASCII classes the options escape */
     uint8_t run_stop;           /* the MD_ASCII classes that end a bulk-copied run */
 } md_ctx;
@@ -377,7 +378,8 @@ static void md_put_char(md_ctx *ctx, Py_UCS4 ch, int escape) {
             return;
         }
     }
-    int line_start_marker = !ctx->line_has_content && (ch == '#' || ch == '>' || ch == '-' || ch == '+' || ch == '=');
+    int line_start_marker =
+        !ctx->line_has_content && (ch == '#' || ch == '>' || ch == '-' || ch == '+' || ch == '=') && ctx->escape_prose;
     if (escape || line_start_marker || (ctx->in_cell && ch == '|')) {
         sbuf_putc(&ctx->out, '\\');
     }
@@ -457,15 +459,15 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
             ctx->pending_word = (int)(word_end - index);
         }
         md_before_visible(ctx);
-        if (!ctx->line_has_content && ch >= '0' && ch <= '9') {
+        if (!ctx->line_has_content && ch >= '0' && ch <= '9' && ctx->escape_prose) {
             Py_ssize_t consumed = md_escape_line_number(ctx, text, index, len);
             if (consumed > 0) {
                 index += consumed;
                 continue;
             }
         }
-        int by_context =
-            ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && md_escape_by_context(text, index, len);
+        int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
+                         md_escape_by_context(text, index, len);
         md_put_char(ctx, ch, (kind & ctx->escape_mask) || by_context);
         index++;
         /* past the word's first character nothing is at a line start, so an escaped
@@ -2181,7 +2183,7 @@ static void md_render_block_body(md_ctx *ctx, th_node *node) {
         while (run > content && ctx->out.data[run - 1] == '#') {
             run--;
         }
-        if (run < ctx->out.len && (run == content || ctx->out.data[run - 1] == ' ')) {
+        if (ctx->escape_prose && run < ctx->out.len && (run == content || ctx->out.data[run - 1] == ' ')) {
             ctx->out.data[run] = '\\';
             sbuf_putc(&ctx->out, '#');
         }
@@ -2273,10 +2275,13 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     md_ctx ctx = {0};
     ctx.tree = tree;
     ctx.opt = opt;
-    ctx.escape_mask = MD_CH_ESCAPE | (opt->escape_asterisks ? MD_CH_ASTERISK : 0) |
+    /* mode="none" leaves prose as written apart from the asterisk and underscore
+       choices, keeping only the cell pipe escape a pipe table cannot do without */
+    ctx.escape_prose = opt->escape_mode != TH_MD_ESCAPE_NONE;
+    ctx.escape_mask = (ctx.escape_prose ? MD_CH_ESCAPE : 0) | (opt->escape_asterisks ? MD_CH_ASTERISK : 0) |
                       (opt->escape_underscores ? MD_CH_UNDERSCORE : 0) |
                       (opt->escape_mode == TH_MD_ESCAPE_ALL ? MD_CH_ALL : 0);
-    ctx.run_stop = ctx.escape_mask | MD_CH_CONTEXT | MD_CH_SPACE;
+    ctx.run_stop = ctx.escape_mask | (ctx.escape_prose ? MD_CH_CONTEXT : 0) | MD_CH_SPACE;
     sbuf_presize_for_root(&ctx.out, tree, node);
     if (node->type == TH_NODE_TEXT) {
         ctx.started = 1;

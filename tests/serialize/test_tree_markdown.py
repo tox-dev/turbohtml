@@ -478,6 +478,39 @@ def test_escaping_arrow_kept_without_transliteration() -> None:
     assert md("<p>a ←b</p>") == "a ←b"
 
 
+_NO_ESCAPING: Final[Markdown] = Markdown(escaping=Markdown.Escaping(mode="none"))
+
+
+@pytest.mark.parametrize(
+    ("html", "options", "expected"),
+    [
+        pytest.param("<p>see [22] a~b `c` \\ x</p>", _NO_ESCAPING, "see [22] a~b `c` \\ x", id="punctuation"),
+        pytest.param("<p>&amp;copy; &lt;b&gt;</p>", _NO_ESCAPING, "&copy; <b>", id="reference-and-tag-shapes"),
+        pytest.param("<p>- a</p><p>1. b</p><p># c</p>", _NO_ESCAPING, "- a\n\n1. b\n\n# c", id="line-start-markers"),
+        pytest.param("<h2>Issue #</h2>", _NO_ESCAPING, "## Issue #", id="heading-closing-hashes"),
+        pytest.param("<p>a*b_c</p>", _NO_ESCAPING, "a\\*b\\_c", id="asterisks-and-underscores-still-escaped"),
+        pytest.param(
+            "<p>a*b_c</p>",
+            Markdown(escaping=Markdown.Escaping(mode="none", asterisks=False, underscores=False)),
+            "a*b_c",
+            id="asterisks-and-underscores-off",
+        ),
+        pytest.param(
+            "<table><tr><td>a|b [x]</td></tr></table>", _NO_ESCAPING, "| a\\|b [x] |\n| --- |", id="cell-pipe"
+        ),
+        pytest.param(
+            "<p>x ←b</p>",
+            Markdown(escaping=Markdown.Escaping(mode="none"), document=Markdown.Document(transliterate=True)),
+            "x <-b",
+            id="transliterated-arrow",
+        ),
+        pytest.param('<img alt="a]b" src="s">', _NO_ESCAPING, "![a\\]b](s)", id="alt-text-keeps-its-syntax"),
+    ],
+)
+def test_escaping_none(html: str, options: Markdown, expected: str) -> None:
+    assert parse(html).to_markdown(options) == expected
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [

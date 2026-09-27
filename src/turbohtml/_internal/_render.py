@@ -169,12 +169,14 @@ class Markdown:
         """
         Which Markdown-significant characters are escaped.
 
-        :param mode: ``minimal`` escapes only what a parser needs, ``all`` escapes every Markdown character.
+        :param mode: ``minimal`` escapes only what a parser needs, ``all`` escapes every Markdown character, and
+            ``none`` leaves prose as written apart from the ``asterisks`` and ``underscores`` choices and a ``|``
+            inside a table cell.
         :param asterisks: escape literal ``*`` so it is not read as emphasis.
         :param underscores: escape literal ``_`` so it is not read as emphasis.
         """
 
-        mode: Literal["minimal", "all"] = "minimal"
+        mode: Literal["minimal", "all", "none"] = "minimal"
         asterisks: bool = True
         underscores: bool = True
 

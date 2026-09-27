@@ -18,6 +18,22 @@ Once you have the node you want, :meth:`~turbohtml.Node.to_markdown` turns it in
 
     Steep *green* tea for **3** minutes.
 
+Text that a Markdown reader would act on gets a backslash, so the rendered page shows what the HTML said. If nothing
+will render the result as Markdown, turn that off with a :class:`~turbohtml.Markdown` config:
+
+.. testcode::
+
+    from turbohtml import Markdown
+
+    note = turbohtml.parse("<p>Brew at 80°C [see note 2].</p>")
+    print(note.to_markdown())
+    print(note.to_markdown(Markdown(escaping=Markdown.Escaping(mode="none"))))
+
+.. testoutput::
+
+    Brew at 80°C \[see note 2\].
+    Brew at 80°C [see note 2].
+
 **********************
  Pull out the article
 **********************

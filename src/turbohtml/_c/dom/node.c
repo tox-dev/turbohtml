@@ -782,7 +782,7 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     static const char *const tables[] = {"markdown", "strip", "html"};
     static const char *const headers[] = {"first", "detect", "none"};
     static const char *const cells[] = {"html", "text"};
-    static const char *const escapes[] = {"minimal", "all"};
+    static const char *const escapes[] = {"minimal", "all", "none"};
     static const char *const breaks[] = {"spaces", "backslash"};
     static const char *const spacings[] = {"double", "single"};
     static const char *const strips[] = {"strip", "lstrip", "rstrip", "none"};
@@ -795,7 +795,7 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
         md_resolve_enum("table_mode", table, tables, 3, &opt.table_mode) < 0 ||
         md_resolve_enum("table_header", header, headers, 3, &opt.table_header) < 0 ||
         md_resolve_enum("cell_blocks", cell_blocks, cells, 2, &opt.cell_blocks) < 0 ||
-        md_resolve_enum("escape_mode", escape, escapes, 2, &opt.escape_mode) < 0 ||
+        md_resolve_enum("escape_mode", escape, escapes, 3, &opt.escape_mode) < 0 ||
         md_resolve_enum("line_break", brk, breaks, 2, &opt.line_break) < 0 ||
         md_resolve_enum("block_spacing", spacing, spacings, 2, &block_spacing) < 0 ||
         md_resolve_enum("document_strip", docstrip, strips, 4, &opt.document_strip) < 0) {

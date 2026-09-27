@@ -108,6 +108,22 @@ dashes, ellipsis, accented letters) to ASCII:
     The "quick" brown fox -- jumps
     over the lazy dog today.
 
+By default, prose escapes whatever a Markdown reader would act on, so the rendered page shows the source text. When the
+output feeds something that reads it as plain text, such as a search index or a model prompt, those backslashes are
+noise. ``Markdown.Escaping(mode="none")`` leaves prose as written; ``asterisks`` and ``underscores`` still decide ``*``
+and ``_``, and a ``|`` inside a table cell keeps its backslash so the row holds together:
+
+.. testcode::
+
+    doc = turbohtml.parse("<p>See [22] and #3: 1. mix, 2. bake.</p>")
+    print(doc.to_markdown())
+    print(doc.to_markdown(Markdown(escaping=Markdown.Escaping(mode="none"))))
+
+.. testoutput::
+
+    See \[22\] and #3: 1. mix, 2. bake.
+    See [22] and #3: 1. mix, 2. bake.
+
 To convert a Google Docs HTML export, use the ``Markdown.google_doc()`` preset (or set
 ``Markdown.GoogleDoc(enabled=True)``) so the inline-CSS styling it carries (font weight, font style, fixed-width fonts,
 and ``margin-left`` list nesting) turns into Markdown:

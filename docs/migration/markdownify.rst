@@ -146,7 +146,9 @@ map onto the grouped :class:`~turbohtml.Markdown` config fields with one name pe
       - ``Markdown.Inline(sub=..., sup=...)``
     - - ``escape_asterisks``, ``escape_underscores``
       - ``Markdown.Escaping(asterisks=..., underscores=...)``
-    - - ``escape_misc``
+    - - ``escape_misc=False`` (the default)
+      - ``Markdown.Escaping(mode="none")``
+    - - ``escape_misc=True``
       - ``Markdown.Escaping(mode="all")``
     - - ``autolinks``
       - ``Markdown.Links(autolink=...)``
