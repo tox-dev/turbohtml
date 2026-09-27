@@ -31,6 +31,23 @@ jobs:
           name: dist-sdist
           path: dist/*.tar.gz
           retention-days: 7
+  source-install:
+    name: Source install - Windows ARM64
+    needs: sdist
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          architecture: arm64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist-sdist
+          path: dist
+      - name: Install source distribution
+        run: python -m pip install --verbose (Get-ChildItem dist/*.tar.gz).FullName
+      - name: Check installed extension
+        run: python -c "from turbohtml import parse; assert parse('<p>ARM64</p>').select_one('p').text == 'ARM64'"
   wheels:
     name: 🎡 wheels - ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
@@ -63,7 +80,7 @@ jobs:
           retention-days: 7
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
-    needs: [sdist, wheels]
+    needs: [sdist, source-install, wheels]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     # one job per build artifact: signing every wheel in a single job exceeds the

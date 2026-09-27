@@ -3,7 +3,7 @@ project(
     'c',
     version: run_command(['tools/generate_version.py'], check: true).stdout().strip(),
     meson_version: '>=1.5.0',
-    default_options: ['c_std=c11', 'warning_level=2'],
+    default_options: ['c_std=c11', 'warning_level=2', 'vsenv=true'],
 )
 
 # Freeze the git-derived version into the sdist so wheels built from it need no git history.
