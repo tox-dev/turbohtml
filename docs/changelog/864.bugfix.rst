@@ -1,2 +1,2 @@
-:meth:`~turbohtml.Node.to_markdown` keeps a list's content that is not an ``<li>``: text or a block before the first item
-renders on its own, one after an item continues it, and items wrapped in another element keep their markers.
+:meth:`~turbohtml.Node.to_markdown` keeps a list's content that is not an ``<li>``: text or a block before the first
+item renders on its own, one after an item continues it, and items wrapped in another element keep their markers.
