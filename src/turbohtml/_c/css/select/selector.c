@@ -1310,17 +1310,30 @@ static int sel_nth_of_index(th_node *node, int from_end, const sel_simple *simpl
     return index;
 }
 
-/* Query walks advance through siblings, so the previous position avoids recounting their shared prefix. */
+/* Recounting sibling positions makes wide-tree traversal quadratic. */
 static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_simple *simple, const sel_ctx *ctx) {
     if (simple->sub != NULL && !sel_matches_alts(node, simple->sub, simple->sub_count, ctx)) {
         return 0;
     }
     if (ctx->nth_memo != NULL) {
         const sel_nth_memo previous = *ctx->nth_memo;
-        if (previous.simple == simple && previous.scope == ctx->scope &&
+        if (previous.simple == simple && (simple->sub == NULL || previous.scope == ctx->scope) &&
             (!of_type || sel_same_type(previous.node, node))) {
-            if (previous.node == node->prev_sibling) {
+            th_node *before = node->prev_sibling;
+            while (before != NULL && (before->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, before)))) {
+                before = before->prev_sibling;
+            }
+            if (previous.node == before) {
                 const int index = previous.index + (from_end ? -1 : 1);
+                *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                return index;
+            }
+            th_node *after = node->next_sibling;
+            while (after != NULL && (after->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, after)))) {
+                after = after->next_sibling;
+            }
+            if (previous.node == after) {
+                const int index = previous.index + (from_end ? 1 : -1);
                 *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
                 return index;
             }
@@ -2358,8 +2371,13 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
         if (rel->count == 1 && (lead_combinator == '>' || lead_combinator == '+' || lead_combinator == '~')) {
             th_node *candidate =
                 lead_combinator == '>' ? sel_first_element_child(anchor) : sel_next_element_sibling(anchor);
+            if (candidate == NULL) {
+                continue;
+            }
+            const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
             for (; candidate != NULL; candidate = sel_next_element_sibling(candidate)) {
-                if (sel_match_compound(candidate, &rel->compounds[0], &scoped)) {
+                if (target_atom != TH_TAG_UNKNOWN ? candidate->atom == target_atom
+                                                  : sel_match_compound(candidate, &rel->compounds[0], &scoped)) {
                     return 1;
                 }
                 if (lead_combinator == '+') {

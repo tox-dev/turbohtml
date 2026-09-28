@@ -184,6 +184,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "minify-css-merges-comments": ("minify-css-merges", 7),
     "computed-style-selectors-matching": ("computed-style-selectors", 1),
     "computed-style-selectors-shallow": ("computed-style-selectors", 3),
+    "computed-style-types-reverse": ("computed-style-selectors-reverse", 4),
     "query-root-groups-connected": ("query-root-groups", 1),
     "query-root-groups-small": ("query-root-groups", 2),
     "query-root-groups-documents": ("query-root-groups", 3),
