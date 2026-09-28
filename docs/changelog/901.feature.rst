@@ -1,0 +1,1 @@
+Add ``Policy.attribute_predicate`` to inspect attributes before allowlist and safety checks.
