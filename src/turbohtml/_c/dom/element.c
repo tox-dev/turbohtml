@@ -1490,7 +1490,7 @@ static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored))
         for (Py_ssize_t index = 0; index < pairs->count; index++) { /* GCOVR_EXCL_LINE */
             Py_DECREF(pairs->items[index]);                         /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
-    } else {
+    } else { /* GCOVR_EXCL_LINE: allocation failure cleanup */
         for (Py_ssize_t index = 0; index < pairs->count; index++) {
             PyList_SET_ITEM(out, index, pairs->items[index]);
         }
