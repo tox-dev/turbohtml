@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 from typing import TYPE_CHECKING, Final
 from weakref import finalize
 
@@ -44,6 +45,7 @@ def test_attribute_filters_survive_mapping_changes(
         )
         assert found is not None
         matches = [found]
+    gc.collect()
     assert ([node.text for node in matches], calls) == (
         ["keep"] * (2 if all_matches else 1),
         (["a", "b", "c", "d"] if all_matches or callable(text) else ["a", "b"]) + ["released"],
@@ -64,6 +66,7 @@ def test_filter_cleanup_preserves_result_storage(*, all_matches: bool) -> None:
         found: Final = root.find("p", attrs=attrs)
         assert found is not None
         matches = [found]
+    gc.collect()
     assert ([node.text for node in matches], target.text) == (["original"], "original")
 
 
@@ -79,4 +82,5 @@ def test_attribute_filter_snapshot_releases_on_error() -> None:
     finalize(attrs["data-b"], released.append, "released")
     with pytest.raises(LookupError):
         parse('<p data-a="a" data-b="b"></p>').find_all("p", attrs=attrs)
+    gc.collect()
     assert released == ["released"]
