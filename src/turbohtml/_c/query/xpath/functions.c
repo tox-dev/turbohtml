@@ -475,14 +475,16 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
             index++;
         }
         Py_ssize_t start = index;
+        uint64_t hash = 14695981039346656037u;
         while (index < list_len && !xp_is_space(list[index])) {
-            index++;
+            hash ^= list[index++];
+            hash *= 1099511628211u;
         }
         Py_ssize_t len = index - start;
         if (len == 0) {
             continue;
         }
-        size_t probe = id_token_hash(list + start, len) & *mask;
+        size_t probe = hash & *mask;
         while ((*slots)[probe].value != NULL &&
                ((*slots)[probe].len != len ||
                 memcmp((*slots)[probe].value, list + start, (size_t)len * sizeof(Py_UCS4)) != 0)) {
