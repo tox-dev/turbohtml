@@ -864,8 +864,8 @@ static int append_span(PyObject *spans, const scan_view *scan, Py_ssize_t start,
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
 }
 
-static int record_match(PyObject *spans, scan_view *scan, Py_ssize_t start, Py_ssize_t end,
-                        enum th_link_kind link_kind, const th_phone_match *number, Py_ssize_t *pos) {
+static int record_match(PyObject *spans, scan_view *scan, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind,
+                        const th_phone_match *number, Py_ssize_t *pos) {
     if (spans == NULL) {
         return 1;
     }
@@ -877,8 +877,8 @@ static int record_match(PyObject *spans, scan_view *scan, Py_ssize_t start, Py_s
     return 0;
 }
 
-static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds,
-                             PyObject *schemes, PyObject *url_schemes, PyObject *seen, PyObject *spans) {
+static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
+                             PyObject *url_schemes, PyObject *seen, PyObject *spans) {
     scan_view view = {
         .text = text,
         .kind = PyUnicode_KIND(text),
@@ -897,7 +897,7 @@ static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, 
     Py_ssize_t pos = 0;
     while (pos < scan->len) {
         pos = scan->kind == PyUnicode_2BYTE_KIND ? skip_ucs2(scan->data, pos, scan->len)
-                                                    : skip_ucs4(scan->data, pos, scan->len);
+                                                 : skip_ucs4(scan->data, pos, scan->len);
         if (pos >= scan->len) {
             break;
         }
@@ -1004,11 +1004,10 @@ static PyObject *collect_matches(PyObject *text, int parse_email, int bare_domai
         return NULL;       /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
-    int scan_status = phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
-                          ? scan_matches_wide(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, seen,
-                                              spans)
-                          : scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, phone, seen,
-                                         spans);
+    int scan_status =
+        phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
+            ? scan_matches_wide(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, seen, spans)
+            : scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, phone, seen, spans);
     Py_XDECREF(seen);
     if (scan_status < 0) {
         Py_DECREF(spans);
@@ -1186,11 +1185,10 @@ PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args) {
     if (phone_config_arg(module, phone_object, &phone) < 0) {
         return NULL;
     }
-    return PyBool_FromLong(phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
-                               ? scan_matches_wide(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL,
-                                                   NULL)
-                               : scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone, NULL,
-                                              NULL));
+    return PyBool_FromLong(
+        phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
+            ? scan_matches_wide(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL, NULL)
+            : scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone, NULL, NULL));
 }
 
 static int tag_matches_str(const th_node *node, PyObject *tag) {
