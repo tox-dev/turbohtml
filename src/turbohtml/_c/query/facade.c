@@ -226,14 +226,17 @@ PyObject *turbohtml_query_parents(PyObject *module, PyObject *args) {
                 continue; /* the document root, or a fragment's top-level element */
             }
 #ifndef Py_GIL_DISABLED
-            if (th_node_map_find(&seen, parent) != 0) {
-                continue;
+            /* Query inputs are unique, so an only child's parent cannot recur. */
+            if (parent->first_child != node || node->next_sibling != NULL) {
+                if (th_node_map_find(&seen, parent) != 0) {
+                    continue;
+                }
+                if (th_node_map_insert(&seen, parent, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory();                           /* GCOVR_EXCL_LINE */
+                    status = -1;                                /* GCOVR_EXCL_LINE */
+                    break;                                      /* GCOVR_EXCL_LINE */
+                } /* GCOVR_EXCL_LINE */
             }
-            if (th_node_map_insert(&seen, parent, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                PyErr_NoMemory();                           /* GCOVR_EXCL_LINE */
-                status = -1;                                /* GCOVR_EXCL_LINE */
-                break;                                      /* GCOVR_EXCL_LINE */
-            } /* GCOVR_EXCL_LINE */
 #endif
             PyObject *wrapper = turbohtml_node_wrap_in(owner, parent);
             if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: wrapper allocation cannot be forced to fail */
