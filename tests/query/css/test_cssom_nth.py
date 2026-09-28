@@ -20,6 +20,12 @@ from turbohtml.cssom import computed_style
         pytest.param(":nth-child(1 of :scope)", ("red",) * 4, id="scope"),
         pytest.param(":nth-child(2 of :scope)", ("blue",) * 4, id="scope-second"),
         pytest.param(":nth-child(2 of .hit)", ("blue", "blue", "red", "blue"), id="filtered"),
+        pytest.param(":nth-child(2 of :nth-child(odd))", ("blue", "blue", "red", "blue"), id="nested"),
+        pytest.param(":nth-last-child(2 of :nth-child(odd))", ("red", "blue", "blue", "blue"), id="nested-last"),
+        pytest.param(":nth-child(2 of :nth-of-type(odd))", ("blue", "blue", "red", "blue"), id="nested-type"),
+        pytest.param(
+            ":nth-child(1 of :is(:scope, :nth-child(even)))", ("red", "red", "blue", "blue"), id="nested-scope"
+        ),
     ],
 )
 def test_computed_style_sibling_positions(

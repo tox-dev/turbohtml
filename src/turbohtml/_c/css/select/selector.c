@@ -1326,7 +1326,8 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
             }
             if (previous.node == before) {
                 const int index = previous.index + (from_end ? -1 : 1);
-                *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                ctx->nth_memo->node = node;
+                ctx->nth_memo->index = index;
                 return index;
             }
             th_node *after = node->next_sibling;
@@ -1336,7 +1337,8 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
             }
             if (previous.node == after) {
                 const int index = previous.index + (from_end ? 1 : -1);
-                *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
+                ctx->nth_memo->node = node;
+                ctx->nth_memo->index = index;
                 return index;
             }
             if (previous.node->parent == node->parent) {
