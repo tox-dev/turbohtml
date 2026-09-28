@@ -1,0 +1,1 @@
+Fix XSLT transforms of standalone and detached nodes, including document fragments.
