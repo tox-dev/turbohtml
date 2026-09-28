@@ -35,10 +35,33 @@ def _submitted(markup: str) -> list[tuple[str, str]]:
         pytest.param("type=text", "", id="absent-value-is-empty"),
         pytest.param("type=url", "", id="url-absent"),
         pytest.param('type=url value=" &#10; "', "", id="url-all-whitespace"),
+        pytest.param('type=url value="   "', "", id="url-spaces"),
+        pytest.param('type=url value=" a "', "a", id="url-trimmed-single"),
     ],
 )
 def test_form_data_text_states(attrs: str, expected: str) -> None:
     assert _submitted(f"<input name=x {attrs}>") == [("x", expected)]
+
+
+@pytest.mark.parametrize("kind", ["text", "url", "email"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("a", id="single"),
+        pytest.param("hello", id="ascii"),
+        pytest.param("abcXYZ" * 512, id="long-ascii"),
+        pytest.param("h\x7fllo", id="ascii-boundary"),
+        pytest.param("h\x80llo", id="latin-boundary"),
+        pytest.param("hÿllo", id="latin"),
+        pytest.param("hĀllo", id="bmp-boundary"),
+        pytest.param("h漢llo", id="bmp"),
+        pytest.param("h😀llo", id="astral"),
+        pytest.param("a\tb漢c", id="control-before-unicode"),
+    ],
+)
+def test_form_data_text_value_width(kind: str, value: str) -> None:
+    assert _submitted(f'<input name=x type="{kind}" value="{value}">') == [("x", value)]
 
 
 @pytest.mark.parametrize(
