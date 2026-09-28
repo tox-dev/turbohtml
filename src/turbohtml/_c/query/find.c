@@ -7,9 +7,14 @@
    snapshot candidates under the lock because callbacks can mutate the tree. */
 enum th_text_scan { TH_TEXT_PY = 0, TH_TEXT_EQ, TH_TEXT_SUBSTR };
 
-/* A compiled find()/find_all() query: the tag and class_ filters, the resolved
-   (atom, filter) pairs for the named attribute filters, the axis to search, and
-   the result cap. Every filter PyObject is borrowed from the live call. */
+enum th_find_filter { TH_FIND_PY, TH_FIND_STRING, TH_FIND_PRESENT, TH_FIND_ABSENT };
+
+typedef struct {
+    uint32_t atom;
+    enum th_find_filter kind;
+    PyObject *filter;
+} find_attr;
+
 typedef struct {
     PyObject *tag;          /* tag filter, or NULL for no tag constraint */
     PyObject *class_filter; /* class_ filter, or NULL */
@@ -21,9 +26,7 @@ typedef struct {
     Py_ssize_t text_needle_len;
     enum th_axis axis;
     Py_ssize_t limit; /* -1 for unlimited */
-    uint32_t *atoms;  /* resolved name atoms for the attribute filters */
-    PyObject **filters;
-    int *filter_plain; /* per attribute filter: 1 when it is a single str */
+    find_attr *attrs;
     Py_ssize_t nattr;
     /* Fast path for a plain-string tag filter: resolve the name to an atom once
        so the per-node test is an integer compare instead of building a str for
@@ -41,9 +44,10 @@ typedef struct {
 } query_t;
 
 static void free_query(query_t *query) {
-    PyMem_Free(query->atoms);
-    PyMem_Free(query->filters);
-    PyMem_Free(query->filter_plain);
+    for (Py_ssize_t index = 0; index < query->nattr; index++) {
+        Py_DECREF(query->attrs[index].filter);
+    }
+    PyMem_Free(query->attrs);
     PyMem_Free(query->class_ucs4);
     PyMem_Free(query->text_needle);
 }
@@ -253,29 +257,30 @@ static int node_matches(module_state *state, th_node *node, const query_t *query
         }
     }
     for (Py_ssize_t index = 0; index < query->nattr; index++) {
-        if (query->filter_plain[index]) {
+        const find_attr *filter = &query->attrs[index];
+        if (filter->kind == TH_FIND_STRING) {
             /* a str filter matches only a present, valued attribute equal to it */
-            const th_node_attr *attr = find_node_attr(node, query->atoms[index]);
-            int equal = attr != NULL && attr->value != NULL &&
-                        ucs4_equals_pystr(attr->value, attr->value_len, query->filters[index]);
+            const th_node_attr *attr = find_node_attr(node, filter->atom);
+            int equal =
+                attr != NULL && attr->value != NULL && ucs4_equals_pystr(attr->value, attr->value_len, filter->filter);
             if (!equal) {
                 return 0;
             }
             continue;
         }
-        if (PyBool_Check(query->filters[index])) {
-            int present = find_node_attr(node, query->atoms[index]) != NULL;
-            if (present != (query->filters[index] == Py_True)) {
+        if (filter->kind == TH_FIND_PRESENT || filter->kind == TH_FIND_ABSENT) {
+            int present = find_node_attr(node, filter->atom) != NULL;
+            if (present != (filter->kind == TH_FIND_PRESENT)) {
                 return 0;
             }
             continue;
         }
         int owned;
-        PyObject *value = attr_value(node, query->atoms[index], &owned);
+        PyObject *value = attr_value(node, filter->atom, &owned);
         if (owned && value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        int matched = filter_matches(state, query->filters[index], value);
+        int matched = filter_matches(state, filter->filter, value);
         if (owned) {
             Py_DECREF(value);
         }
@@ -331,10 +336,11 @@ static int add_attr_filter(th_tree *tree, query_t *query, PyObject *key, PyObjec
     if (bytes == NULL) { /* GCOVR_EXCL_BR_LINE: a str always encodes to UTF-8 */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    query->atoms[query->nattr] = th_attr_lookup(tree, bytes, len);
-    query->filters[query->nattr] = filter;
-    query->filter_plain[query->nattr] = PyUnicode_Check(filter);
-    query->nattr++;
+    enum th_find_filter kind = PyUnicode_Check(filter) ? TH_FIND_STRING
+                               : filter == Py_True     ? TH_FIND_PRESENT
+                               : filter == Py_False    ? TH_FIND_ABSENT
+                                                       : TH_FIND_PY;
+    query->attrs[query->nattr++] = (find_attr){th_attr_lookup(tree, bytes, len), kind, Py_NewRef(filter)};
     return 0;
 }
 
@@ -425,9 +431,7 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
     query->text_needle_len = 0;
     query->axis = TH_AXIS_DESCENDANTS;
     query->limit = -1;
-    query->atoms = NULL;
-    query->filters = NULL;
-    query->filter_plain = NULL;
+    query->attrs = NULL;
     query->nattr = 0;
     query->tag_plain = 0;
     query->tag_exact = 0;
@@ -508,12 +512,10 @@ static int build_query(PyObject *self, PyObject *args, PyObject *kwargs, int is_
 
     Py_ssize_t capacity = named + (attrs_dict != NULL ? PyDict_GET_SIZE(attrs_dict) : 0);
     if (capacity > 0) {
-        query->atoms = PyMem_Malloc((size_t)capacity * sizeof(uint32_t));
-        query->filters = PyMem_Malloc((size_t)capacity * sizeof(PyObject *));
-        query->filter_plain = PyMem_Malloc((size_t)capacity * sizeof(int));
-        /* allocation failure cannot be forced from a test */
-        if (query->atoms == NULL || query->filters == NULL || query->filter_plain == NULL) { /* GCOVR_EXCL_BR_LINE */
-            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        query->attrs = PyMem_Malloc((size_t)capacity * sizeof(find_attr));
+        if (query->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();       /* GCOVR_EXCL_LINE */
+            return -1;              /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
     pos = 0;
@@ -913,6 +915,7 @@ PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
     th_node *origin = ((NodeObject *)self)->node;
     th_node *found = NULL;
     int error = 0;
+    PyObject *result = NULL;
     /* hold the per-tree lock across the walk so a concurrent extract() cannot rewire
        the child/sibling pointers mid-read (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(handle);
@@ -958,12 +961,12 @@ PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
             }
         }
     }
+    if (!error) {
+        result = node_wrap(state, handle, found);
+    }
     Py_END_CRITICAL_SECTION();
     free_query(&query);
-    if (error) {
-        return NULL;
-    }
-    return node_wrap(state, ((NodeObject *)self)->handle, found);
+    return result;
 }
 
 PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
