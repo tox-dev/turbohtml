@@ -1332,7 +1332,14 @@ static th_node *node_clone(th_tree *tree, const th_node *src) {
     node->tag_flags = (uint8_t)((src->tag_flags & ~TH_ELEM_CLOSED_BY_END_TAG) | TH_ELEM_IMPLIED);
     node->text = src->text;
     node->text_len = src->text_len;
-    node->attrs = src->attrs; /* attributes are immutable arena data; share them */
+    if (src->attr_count > 0) {
+        /* Mutations and sanitization can rewrite a reconstructed element's attribute slots. */
+        node->attrs = arena_alloc(tree, src->attr_count * (Py_ssize_t)sizeof(th_node_attr));
+        if (node->attrs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;           /* GCOVR_EXCL_LINE */
+        }
+        memcpy(node->attrs, src->attrs, (size_t)src->attr_count * sizeof(th_node_attr));
+    }
     node->attr_count = src->attr_count;
     if (tree->track_positions) {
         /* an adoption-agency clone stands in for the same source start tag, so it

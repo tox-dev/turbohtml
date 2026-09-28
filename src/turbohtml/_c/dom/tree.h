@@ -108,7 +108,7 @@ enum th_ns {
 
 struct th_node {
     uint8_t type;
-    uint8_t attr_capacity_shift; /* zero for exact-sized or shared arrays */
+    uint8_t attr_capacity_shift; /* zero for exact-sized arrays */
     uint16_t atom;               /* TH_TAG_* for elements, else TH_TAG_UNKNOWN */
     uint8_t tag_flags;           /* category bitmask from the atom table */
     uint8_t ns;                  /* enum th_ns: HTML / SVG / MathML */
