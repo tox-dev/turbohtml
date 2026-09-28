@@ -1892,8 +1892,14 @@ def test_linkify_wide_scan_options(text: str, options: Linkify, expected: str) -
 
 
 def test_linkify_wide_custom_scheme() -> None:
-    assert [(span.text, span.url) for span in LinkDetector(schemes=["tel"]).find("😀 tel:12345")] == [
+    assert [(span.text, span.url) for span in LinkDetector(schemes=["tel"]).find("😀 time: now and tel:12345")] == [
         ("tel:12345", "tel:12345")
+    ]
+
+
+def test_linkify_wide_invalid_email() -> None:
+    assert [(span.text, span.url) for span in LinkDetector().find("😀 a@b and name@example.com")] == [
+        ("name@example.com", "mailto:name@example.com")
     ]
 
 
