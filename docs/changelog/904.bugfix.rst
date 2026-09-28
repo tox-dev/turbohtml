@@ -1,0 +1,1 @@
+Reuse compiled stylesheet text to reduce XSLT allocations.
