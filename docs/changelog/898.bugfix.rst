@@ -1,0 +1,1 @@
+Reuse parent styles and CSS sibling positions across computed-style calls and reverse traversal.

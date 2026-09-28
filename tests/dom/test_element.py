@@ -2228,6 +2228,26 @@ def test_form_data_fieldset_shared_inputs(case_index: int) -> None:
     assert operation(source) == [*expected, ("tail", "ok")]
 
 
+@pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
+@pytest.mark.parametrize("control", ["input", "option"])
+def test_form_data_preserves_many_values_after_detaching_controls(count: int, control: str) -> None:
+    expected: Final = [("field", f"é水😀{index}") for index in range(count)]
+    markup: Final = "".join(
+        f'<input name="field" value="{value}"><input disabled name="skip">'
+        if control == "input"
+        else f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
+        for _, value in expected
+    )
+    form: Final = parse(
+        f"<form>{markup}</form>"
+        if control == "input"
+        else f'<form><select multiple name="field">{markup}</select></form>'
+    ).select("form")[0]
+    result: Final = form.form_data()
+    form.clear()
+    assert result == expected
+
+
 def test_form_data_fieldset_refreshes_after_enabling() -> None:
     form: Final = parse(
         '<form><fieldset disabled><legend><input name="first"></legend><input name="second"></fieldset></form>'
