@@ -1,1 +1,1 @@
-Add :attr:`~turbohtml.clean.Policy.attribute_predicate` to inspect attributes before allowlist and safety checks.
+Add ``Policy.attribute_predicate`` to inspect attributes before allowlist and safety checks.

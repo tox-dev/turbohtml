@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import weakref
 from typing import Final, cast
 
 import pytest
@@ -62,9 +64,9 @@ def test_predicate_exception_propagates(attribute: str) -> None:
 
 
 def test_predicate_truth_exception_propagates() -> None:
-    verdict: Final = memoryview(b"value")
-    verdict.release()
-    with pytest.raises(ValueError, match="released memoryview"):
+    verdict: Final = weakref.proxy(set())
+    gc.collect()
+    with pytest.raises(ReferenceError, match="no longer exists"):
         sanitize('<a title="x">x</a>', Policy(attribute_predicate=lambda *_: cast("bool", verdict)))
 
 
