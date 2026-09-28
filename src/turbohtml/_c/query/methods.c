@@ -1486,7 +1486,9 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
                     xp_result_free(result); /* GCOVR_EXCL_LINE */
                     return NULL;            /* GCOVR_EXCL_LINE */
                 }
+#ifndef PYPY_VERSION
                 PyObject **values = ((PyListObject *)out)->ob_item;
+#endif
                 for (Py_ssize_t index = 0; index < count; index++) {
                     PyObject *item = xpath_item_to_py(state, handle, tree, items[index]);
                     if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -1494,7 +1496,11 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
                         xp_result_free(result); /* GCOVR_EXCL_LINE */
                         return NULL;            /* GCOVR_EXCL_LINE */
                     }
+#ifdef PYPY_VERSION
+                    PyList_SET_ITEM(out, index, item);
+#else
                     values[index] = item;
+#endif
                 }
             }
 #endif
