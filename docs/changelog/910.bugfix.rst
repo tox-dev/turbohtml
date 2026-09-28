@@ -1,0 +1,1 @@
+Retain attribute predicates when callbacks clear the ``attrs`` mapping during ``find()`` or ``find_all()``.
