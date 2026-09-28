@@ -1430,8 +1430,8 @@ static int build_key(engine *eng, xslt_key *key) {
                 Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
                 if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    xp_result_free(&matched);                       /* GCOVR_EXCL_LINE */
-                    return -1;                                      /* GCOVR_EXCL_LINE */
+                    xp_result_free(&matched);                           /* GCOVR_EXCL_LINE */
+                    return -1;                                          /* GCOVR_EXCL_LINE */
                 }
                 break;
             }
