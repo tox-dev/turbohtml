@@ -769,6 +769,32 @@ static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssi
     return scan->bare_domains && match_domain(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
 }
 
+static inline int match_trigger_wide(const scan_view *scan, Py_UCS4 point, Py_ssize_t pos, Py_ssize_t *start,
+                                     Py_ssize_t *end, enum th_link_kind *link_kind) {
+    if (point == ':') {
+        if (match_url(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->url_schemes)) {
+            *link_kind = TH_LINK_HAS_SCHEME;
+            return 1;
+        }
+        if (scan->parse_email &&
+            match_mailto(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds)) {
+            *link_kind = TH_LINK_MAILTO;
+            return 1;
+        }
+        *link_kind = TH_LINK_SCHEME;
+        return scan->schemes != NULL &&
+               match_scheme_less(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->schemes);
+    }
+    if (point == '@') {
+        *link_kind = TH_LINK_EMAIL;
+        return scan->parse_email &&
+               match_email(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+    }
+    *link_kind = TH_LINK_URL;
+    return scan->bare_domains &&
+           match_domain(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+}
+
 /* Does a domain the `.` arm would link overlap the number just recognized? It keeps winning, so `1password.com` is
    what it was before phone detection was on. A `.` is the only trigger a number can hold or end on: `:` and `@` are
    not punctuation a run allows, and a number touching `@` was rejected with its neighbors. A domain found from a
@@ -781,7 +807,9 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
             continue;
         }
         memo->pos = probe;
-        memo->found = match_trigger(scan, '.', probe, &memo->start, &memo->end, &memo->link_kind, &memo->number);
+        memo->link_kind = TH_LINK_URL;
+        memo->found = scan->bare_domains && match_domain(scan->kind, scan->data, probe, scan->resume, scan->len,
+                                                         &memo->start, &memo->end, scan->extra_tlds);
         if (memo->found) {
             return 1;
         }
@@ -905,9 +933,8 @@ static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, 
         Py_ssize_t match_start = 0;
         Py_ssize_t match_end = 0;
         enum th_link_kind link_kind;
-        th_phone_match number = {0};
-        if (match_trigger(scan, point, pos, &match_start, &match_end, &link_kind, &number)) {
-            int status = record_match(spans, scan, match_start, match_end, link_kind, &number, &pos);
+        if (match_trigger_wide(scan, point, pos, &match_start, &match_end, &link_kind)) {
+            int status = record_match(spans, scan, match_start, match_end, link_kind, NULL, &pos);
             if (status != 0) {
                 return status;
             }
