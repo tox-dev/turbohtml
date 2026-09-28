@@ -553,16 +553,45 @@ static TH_NOINLINE PyObject *without_newlines(const Py_UCS4 *text, Py_ssize_t le
     return result;
 }
 
+static TH_NOINLINE PyObject *ascii_value(const Py_UCS4 *text, Py_ssize_t len, int trim) {
+    while (trim && len > 0 && is_space(*text)) {
+        text++;
+        len--;
+    }
+    while (trim && len > 0 && is_space(text[len - 1])) {
+        len--;
+    }
+    if (len <= 1) {
+        return ucs4_to_str(text, len);
+    }
+    PyObject *result = PyUnicode_New(len, 127);
+    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS1 *data = PyUnicode_1BYTE_DATA(result);
+    for (Py_ssize_t index = 0; index < len; index++) {
+        data[index] = (Py_UCS1)text[index];
+    }
+    return result;
+}
+
 /* The value with every LF and CR removed, and with leading and trailing ASCII whitespace stripped when trim is set. */
-static PyObject *strip_newlines(const Py_UCS4 *text, Py_ssize_t len, int trim) {
+static inline PyObject *strip_newlines(const Py_UCS4 *text, Py_ssize_t len, int trim) {
     Py_ssize_t newline = 0;
-    while (newline < len && text[newline] > '\r') { /* one compare per character skips everything above CR */
+    /* Proving ASCII here avoids a second character-width scan during conversion. */
+    while (newline < len && text[newline] > '\r' && text[newline] < 128) {
+        newline++;
+    }
+    if (newline == len) {
+        return ascii_value(text, len, trim);
+    }
+    while (newline < len && text[newline] > '\r') {
         newline++;
     }
     while (newline < len && text[newline] != '\n' && text[newline] != '\r') {
         newline++;
     }
-    if (newline == len) { /* most values carry no newline, so they need no copy */
+    if (newline == len) {
         return trim ? trimmed_str(text, len, 1) : ucs4_to_str(text, len);
     }
     return without_newlines(text, len, newline, trim);
