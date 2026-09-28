@@ -6141,8 +6141,7 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
         return NULL;
     }
     engine eng = {0};
-    PyObject *source_handle = turbohtml_node_handle(source_obj);
-    (void)source_handle; /* used only by the critical-section macro, a no-op on the GIL build */
+    PyObject *source_handle = Py_NewRef(turbohtml_node_handle(source_obj));
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(source_handle);
     if (engine_start_run(&eng, &compiled->model, src_tree, src_node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
@@ -6158,5 +6157,6 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
         PyErr_Format(PyExc_ValueError, "%s", eng.error);
     }
     engine_clear(&eng);
+    Py_DECREF(source_handle);
     return result;
 }
