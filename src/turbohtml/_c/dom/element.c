@@ -1317,12 +1317,14 @@ static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *valu
         Py_DECREF(value);   /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *pair = PyTuple_Pack(2, name_obj, value);
-    Py_DECREF(name_obj);
-    Py_DECREF(value);
-    if (pair == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *pair = PyTuple_New(2);
+    if (pair == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(name_obj); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(value);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyTuple_SET_ITEM(pair, 0, name_obj);
+    PyTuple_SET_ITEM(pair, 1, value);
 #ifdef FORM_WALKS_ANCESTOR_FIELDSETS
     int rc = PyList_Append(pairs, pair);
     Py_DECREF(pair);
