@@ -643,13 +643,14 @@ def _computed_style_selector_cases() -> tuple[tuple[str, str], ...]:
         (
             label,
             f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
-            + ("<div>" * count + leaf + "</div>" * count if nested else "<div></div>" * count),
+            + ("<div>" * count + leaf + "</div>" * count if nested else ("<div></div>" + leaf) * count),
         )
         for label, selector, count, nested, leaf in (
             ("deep missing :has / 512 elements", ":has(.hit)", 512, True, "<span></span>"),
             ("deep matching :has / 512 elements", ":has(.hit)", 512, True, '<span class="hit"></span>'),
             ("wide :nth-child / 4,096 elements", ":nth-child(odd)", 4_096, False, ""),
             ("shallow :has / 8 elements", ":has(.hit)", 8, True, '<span class="hit"></span>'),
+            ("mixed :nth-of-type / 4,096 pairs", ":nth-of-type(odd)", 4_096, False, "<span></span>"),
         )
     )
 
