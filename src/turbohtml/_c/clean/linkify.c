@@ -23,6 +23,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#define TH_FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define TH_FORCEINLINE inline
+#endif
+
 enum th_link_kind {
     /* A bare domain (``example.com``): no scheme of its own, so the Python layer prefixes ``http://``. */
     TH_LINK_URL = 0,
@@ -709,8 +717,22 @@ static Py_ssize_t skip_plain(const uint8_t *bytes, Py_ssize_t pos, Py_ssize_t le
     return pos;
 }
 
-static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
-                         enum th_link_kind *link_kind, th_phone_match *number) {
+static Py_ssize_t skip_ucs2(const Py_UCS2 *points, Py_ssize_t pos, Py_ssize_t len) {
+    while (pos < len && points[pos] != ':' && points[pos] != '@' && points[pos] != '.') {
+        pos++;
+    }
+    return pos;
+}
+
+static Py_ssize_t skip_ucs4(const Py_UCS4 *points, Py_ssize_t pos, Py_ssize_t len) {
+    while (pos < len && points[pos] != ':' && points[pos] != '@' && points[pos] != '.') {
+        pos++;
+    }
+    return pos;
+}
+
+static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start,
+                                        Py_ssize_t *end, enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
     const void *data = scan->data;
     if (c == ':') {
@@ -747,6 +769,32 @@ static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ss
     return scan->bare_domains && match_domain(kind, data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
 }
 
+static inline int match_trigger_wide(const scan_view *scan, Py_UCS4 point, Py_ssize_t pos, Py_ssize_t *start,
+                                     Py_ssize_t *end, enum th_link_kind *link_kind) {
+    if (point == ':') {
+        if (match_url(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->url_schemes)) {
+            *link_kind = TH_LINK_HAS_SCHEME;
+            return 1;
+        }
+        if (scan->parse_email &&
+            match_mailto(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds)) {
+            *link_kind = TH_LINK_MAILTO;
+            return 1;
+        }
+        *link_kind = TH_LINK_SCHEME;
+        return scan->schemes != NULL &&
+               match_scheme_less(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->schemes);
+    }
+    if (point == '@') {
+        *link_kind = TH_LINK_EMAIL;
+        return scan->parse_email &&
+               match_email(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+    }
+    *link_kind = TH_LINK_URL;
+    return scan->bare_domains &&
+           match_domain(scan->kind, scan->data, pos, scan->resume, scan->len, start, end, scan->extra_tlds);
+}
+
 /* Does a domain the `.` arm would link overlap the number just recognized? It keeps winning, so `1password.com` is
    what it was before phone detection was on. A `.` is the only trigger a number can hold or end on: `:` and `@` are
    not punctuation a run allows, and a number touching `@` was rejected with its neighbors. A domain found from a
@@ -759,7 +807,9 @@ static int token_overlaps(const scan_view *scan, Py_ssize_t start, Py_ssize_t en
             continue;
         }
         memo->pos = probe;
-        memo->found = match_trigger(scan, '.', probe, &memo->start, &memo->end, &memo->link_kind, &memo->number);
+        memo->link_kind = TH_LINK_URL;
+        memo->found = scan->bare_domains && match_domain(scan->kind, scan->data, probe, scan->resume, scan->len,
+                                                         &memo->start, &memo->end, scan->extra_tlds);
         if (memo->found) {
             return 1;
         }
@@ -842,6 +892,59 @@ static int append_span(PyObject *spans, const scan_view *scan, Py_ssize_t start,
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on allocation failure */
 }
 
+static int record_match(PyObject *spans, scan_view *scan, Py_ssize_t start, Py_ssize_t end, enum th_link_kind link_kind,
+                        const th_phone_match *number, Py_ssize_t *pos) {
+    if (spans == NULL) {
+        return 1;
+    }
+    if (append_span(spans, scan, start, end, link_kind, scan->phone, number) < 0) {
+        return -1;
+    }
+    *pos = end;
+    scan->resume = end;
+    return 0;
+}
+
+static int scan_matches_wide(PyObject *text, int parse_email, int bare_domains, PyObject *extra_tlds, PyObject *schemes,
+                             PyObject *url_schemes, PyObject *seen, PyObject *spans) {
+    scan_view view = {
+        .text = text,
+        .kind = PyUnicode_KIND(text),
+        .data = PyUnicode_DATA(text),
+        .len = PyUnicode_GET_LENGTH(text),
+        .parse_email = parse_email,
+        .bare_domains = bare_domains,
+        .extra_tlds = extra_tlds,
+        .schemes = schemes,
+        .url_schemes = url_schemes,
+        .phone = NULL,
+        .seen = seen,
+        .resume = 0,
+    };
+    scan_view *scan = &view;
+    Py_ssize_t pos = 0;
+    while (pos < scan->len) {
+        pos = scan->kind == PyUnicode_2BYTE_KIND ? skip_ucs2(scan->data, pos, scan->len)
+                                                 : skip_ucs4(scan->data, pos, scan->len);
+        if (pos >= scan->len) {
+            break;
+        }
+        Py_UCS4 point = PyUnicode_READ(scan->kind, scan->data, pos);
+        Py_ssize_t match_start = 0;
+        Py_ssize_t match_end = 0;
+        enum th_link_kind link_kind;
+        if (match_trigger_wide(scan, point, pos, &match_start, &match_end, &link_kind)) {
+            int status = record_match(spans, scan, match_start, match_end, link_kind, NULL, &pos);
+            if (status != 0) {
+                return status;
+            }
+        } else {
+            pos++;
+        }
+    }
+    return 0;
+}
+
 /* Scan one text run for links; with `spans` NULL, stop at the first (the presence test builds nothing). `resume`
    is the end of the last emitted span; `phone_retry` is where the recognizer said the next digit may start a probe,
    so a run it rejected is not probed again from each of its digits, while `.`, `@` and `:` inside it still reach
@@ -906,14 +1009,10 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
             }
         }
         if (found) {
-            if (spans == NULL) {
-                return 1;
+            int status = record_match(spans, &scan, match_start, match_end, link_kind, &number, &pos);
+            if (status != 0) {
+                return status;
             }
-            if (append_span(spans, &scan, match_start, match_end, link_kind, phone, &number) < 0) {
-                return -1;
-            }
-            pos = match_end;
-            scan.resume = match_end;
         } else {
             pos++;
         }
@@ -933,7 +1032,9 @@ static PyObject *collect_matches(PyObject *text, int parse_email, int bare_domai
     }
     /* GCOVR_EXCL_BR_STOP */
     int scan_status =
-        scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, phone, seen, spans);
+        phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
+            ? scan_matches_wide(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, seen, spans)
+            : scan_matches(text, parse_email, bare_domains, extra_tlds, schemes, url_schemes, phone, seen, spans);
     Py_XDECREF(seen);
     if (scan_status < 0) {
         Py_DECREF(spans);
@@ -1112,7 +1213,9 @@ PyObject *turbohtml_linkify_has(PyObject *module, PyObject *args) {
         return NULL;
     }
     return PyBool_FromLong(
-        scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone, NULL, NULL));
+        phone == NULL && PyUnicode_KIND(text) != PyUnicode_1BYTE_KIND
+            ? scan_matches_wide(text, emails, bare_domains, extra_tlds, schemes, url_schemes, NULL, NULL)
+            : scan_matches(text, emails, bare_domains, extra_tlds, schemes, url_schemes, phone, NULL, NULL));
 }
 
 static int tag_matches_str(const th_node *node, PyObject *tag) {

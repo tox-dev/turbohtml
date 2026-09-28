@@ -325,15 +325,56 @@ static int compare_roots(const void *left, const void *right) {
     return left_node == right_node ? 0 : node_order(left_node, right_node); /* GCOVR_EXCL_BR_LINE: qsort self-compare */
 }
 
-static void sort_roots(th_node **group, Py_ssize_t group_count) {
+static int sort_sibling_roots(th_node **group, Py_ssize_t group_count) {
+    th_node *parent = group[0]->parent;
+    for (Py_ssize_t index = 1; index < group_count; index++) {
+        if (group[index]->parent != parent) {
+            return 0;
+        }
+    }
+    th_node *after = parent->first_child;
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        after = after->next_sibling;
+    }
+    /* Unique roots cover their parent's children when the counts match. */
+    if (after == NULL) {
+        th_node *node = parent->first_child;
+        for (Py_ssize_t index = 0; index < group_count; index++) {
+            group[index] = node;
+            node = node->next_sibling;
+        }
+        return 1;
+    }
+    th_node_map selected = {0};
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        if (th_node_map_insert(&selected, group[index], 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(selected.entries);                         /* GCOVR_EXCL_LINE */
+            return -1;                                            /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_ssize_t position = 0;
+    for (th_node *node = parent->first_child; position < group_count; node = node->next_sibling) {
+        if (th_node_map_find(&selected, node) != 0) {
+            group[position++] = node;
+        }
+    }
+    PyMem_Free(selected.entries);
+    return 1;
+}
+
+static int sort_roots(th_node **group, Py_ssize_t group_count) {
     if (group_count >= 32) {
+        int sorted = sort_sibling_roots(group, group_count);
+        if (sorted != 0) {
+            return sorted < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
+        }
         for (Py_ssize_t index = 1; index < group_count; index++) {
             if (node_order(group[index], group[index - 1]) < 0) {
                 qsort(group, (size_t)group_count, sizeof(th_node *), compare_roots);
                 break;
             }
         }
-        return;
+        return 0;
     }
     for (Py_ssize_t index = 1; index < group_count; index++) {
         th_node *node = group[index];
@@ -344,6 +385,7 @@ static void sort_roots(th_node **group, Py_ssize_t group_count) {
         }
         group[position] = node;
     }
+    return 0;
 }
 
 #ifndef Py_GIL_DISABLED
@@ -490,7 +532,11 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 for (Py_ssize_t member = head; member != 0; member = roots[member - 1].next) {
                     group[group_count++] = roots[member - 1].node->node;
                 }
-                sort_roots(group, group_count);
+                if (sort_roots(group, group_count) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
+                    error = 1;                            /* GCOVR_EXCL_LINE */
+                    break;                                /* GCOVR_EXCL_LINE */
+                }
                 batches[tree_first].offset = PyList_GET_SIZE(out);
                 th_node *covered = NULL;
                 for (Py_ssize_t index = 0; index < group_count; index++) {

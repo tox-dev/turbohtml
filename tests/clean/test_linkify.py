@@ -1865,3 +1865,44 @@ def test_linkify_snapshot_outputs(case: int) -> None:
         source.replace("https://example.com", '<a href="https://example.com" rel="nofollow">https://example.com</a>'),
         source.replace("https://example.com", '<a href="https://example.com">https://example.com</a>'),
     )
+
+
+@pytest.mark.parametrize("prefix", ["中文 ", "😀 "], ids=["ucs2", "ucs4"])
+def test_linkify_wide_email(prefix: str) -> None:
+    assert Linker(Linkify(parse_email=True)).linkify(prefix + "name@example.com") == (
+        prefix + '<a href="mailto:name@example.com">name@example.com</a>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "options", "expected"),
+    [
+        pytest.param(
+            "😀 mailto:a@b.com",
+            Linkify(parse_email=True, callbacks=[]),
+            '😀 <a href="mailto:a@b.com">mailto:a@b.com</a>',
+            id="mailto",
+        ),
+        pytest.param("😀 mailto:bad", Linkify(parse_email=True, callbacks=[]), "😀 mailto:bad", id="invalid-mailto"),
+        pytest.param("😀 a@b.com", Linkify(parse_email=False, callbacks=[]), "😀 a@b.com", id="email-disabled"),
+    ],
+)
+def test_linkify_wide_scan_options(text: str, options: Linkify, expected: str) -> None:
+    assert Linker(options).linkify(text) == expected
+
+
+def test_linkify_wide_custom_scheme() -> None:
+    assert [(span.text, span.url) for span in LinkDetector(schemes=["tel"]).find("😀 time: now and tel:12345")] == [
+        ("tel:12345", "tel:12345")
+    ]
+
+
+def test_linkify_wide_invalid_email() -> None:
+    assert [(span.text, span.url) for span in LinkDetector().find("😀 a@b and name@example.com")] == [
+        ("name@example.com", "mailto:name@example.com")
+    ]
+
+
+@pytest.mark.parametrize("prefix", [pytest.param("中文 ", id="ucs2"), pytest.param("😀 ", id="ucs4")])
+def test_linkify_wide_presence(prefix: str) -> None:
+    assert LinkDetector().has_link(prefix + "https://example.com")
