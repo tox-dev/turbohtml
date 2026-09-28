@@ -37,3 +37,18 @@ def test_parent_after_sibling_changes() -> None:
     during: Final = list(Query([sibling, child]).parent())
     sibling.extract()
     assert (before, during, list(Query([sibling, child]).parent())) == ([parent], [parent], [parent])
+
+
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(0, id="empty"),
+        pytest.param(1, id="one"),
+        pytest.param(16, id="inline"),
+        pytest.param(17, id="spill"),
+        pytest.param(64, id="many"),
+    ],
+)
+def test_parent_many_distinct_nodes(count: int) -> None:
+    query: Final = Query("".join(f'<section id="{index}"><i></i></section>' for index in range(count)))("i")
+    assert [node.attrs["id"] for node in query.parent()] == [str(index) for index in range(count)]
