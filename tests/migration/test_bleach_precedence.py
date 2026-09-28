@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import weakref
 from collections import UserDict, defaultdict
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
@@ -69,9 +71,9 @@ def test_tag_predicate_error_precedes_wildcard() -> None:
 
 
 def test_tag_predicate_truth_error_precedes_wildcard() -> None:
-    verdict: Final = memoryview(b"value")
-    verdict.release()
-    with pytest.raises(ValueError, match="released memoryview"):
+    verdict: Final = weakref.proxy(set())
+    gc.collect()
+    with pytest.raises(ReferenceError, match="no longer exists"):
         clean('<a title="t">x</a>', attributes={"a": lambda *_: cast("bool", verdict), "*": ["title"]})
 
 
