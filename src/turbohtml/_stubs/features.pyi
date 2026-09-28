@@ -197,6 +197,7 @@ def _sanitize(
     allow_html: bool,
     allow_svg: bool,
     allow_mathml: bool,
+    attribute_predicate: Callable[[str, str, str], bool] | None,
     /,
 ) -> Node: ...
 def annotation_surface(text: str, spans: Iterable[tuple[int, int, str]], /) -> dict[str, list[str]]: ...

@@ -145,6 +145,9 @@ class Policy:
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
     :param strip_comments: drop HTML comments from the output.
     :param add_link_rel: ``rel`` tokens forced onto every kept ``<a href>`` (e.g. ``noopener``).
+    :param attribute_predicate: an optional predicate called once per attribute before allowlist and safety checks,
+        in source order, including transform-added attributes. False drops an attribute; True cannot bypass safety.
+        Attributes added by ``set_attributes`` do not pass through this predicate.
     :param attribute_filter: an optional rewrite for each surviving attribute, returning a replacement value or
         ``None`` to drop it. The replacement passes through the safety checks before serialization.
     :param set_attributes: attribute values forced onto every kept instance of a tag (added if absent, overwritten if
@@ -243,6 +246,7 @@ class Policy:
     allow_svg: bool = True
     allow_mathml: bool = True
     xml: bool = False
+    attribute_predicate: Callable[[str, str, str], bool] | None = None
 
     @classmethod
     def strict(cls) -> Policy:
@@ -408,6 +412,7 @@ class Sanitizer:
             policy.allow_html,
             policy.allow_svg,
             policy.allow_mathml,
+            policy.attribute_predicate,
         )
 
 
