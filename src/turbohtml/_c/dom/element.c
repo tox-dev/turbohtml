@@ -977,7 +977,8 @@ static PyObject *element_get_checked(PyObject *self, void *Py_UNUSED(closure)) {
 }
 
 static int radio_tree_connected(th_tree *tree, th_node *root) {
-    for (th_node *node = root; node != NULL; node = node->parent != NULL ? node->parent : th_shadow_host(tree, node)) {
+    for (th_node *node = root; node != NULL;
+         node = node->parent == NULL && th_node_is_shadow_root(node) ? th_shadow_host(tree, node) : node->parent) {
         if (node->type == TH_NODE_DOCUMENT) {
             return 1;
         }
