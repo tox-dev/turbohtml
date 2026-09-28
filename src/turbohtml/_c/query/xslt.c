@@ -2340,7 +2340,10 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
 
 typedef struct {
     Py_UCS4 *key;
-    Py_ssize_t key_len;
+    union {
+        Py_ssize_t key_len;
+        Py_ssize_t index;
+    };
     double number;
 } sort_item;
 
@@ -2395,6 +2398,31 @@ static int sort_row_order(const void *left_ptr, const void *right_ptr) {
     }
     /* Source order is the final key so qsort preserves XSLT stability. */
     return (left->index > right->index) - (left->index < right->index);
+}
+
+static inline int sort_number_compare(const sort_item *left, const sort_item *right, int descending) {
+    if (left->number < right->number) {
+        return descending ? 1 : -1;
+    }
+    if (left->number > right->number) {
+        return descending ? -1 : 1;
+    }
+    if (left->number != left->number) {
+        if (right->number == right->number) {
+            return descending ? 1 : -1;
+        }
+    } else if (right->number != right->number) {
+        return descending ? -1 : 1;
+    }
+    return (left->index > right->index) - (left->index < right->index);
+}
+
+static int sort_row_number_order(const void *left_ptr, const void *right_ptr) {
+    return sort_number_compare(left_ptr, right_ptr, 0);
+}
+
+static int sort_row_number_descending(const void *left_ptr, const void *right_ptr) {
+    return sort_number_compare(left_ptr, right_ptr, 1);
 }
 
 /* Compile the xsl:sort children of an instruction into sort specs. Returns the count
@@ -2461,6 +2489,9 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             if (specs[spec].numeric && value.kind == XP_STRING) {
                 slot->key = NULL;
                 slot->number = parse_number(value.string, value.string_len);
+                if (nspecs == 1) {
+                    slot->index = index;
+                }
                 xp_result_free(&value);
                 continue;
             }
@@ -2469,6 +2500,9 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             if (specs[spec].numeric && value.kind == XP_NUMBER) {
                 slot->key = NULL;
                 slot->number = fabs(value.number) <= DBL_MAX ? value.number : (double)NAN;
+                if (nspecs == 1) {
+                    slot->index = index;
+                }
                 xp_result_free(&value);
                 continue;
             }
@@ -2482,7 +2516,32 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                 return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
             slot->number = parse_number(slot->key, slot->key_len);
+            if (nspecs == 1 && specs[spec].numeric) {
+                slot->index = index;
+            }
         }
+    }
+    if (nspecs == 1 && specs[0].numeric) {
+        qsort(items, (size_t)set->len, sizeof(sort_item),
+              specs[0].descending ? sort_row_number_descending : sort_row_number_order);
+        xp_item *sorted = PyMem_Malloc((size_t)set->len * sizeof(xp_item));
+        if (sorted == NULL) {                                       /* GCOVR_EXCL_BR_LINE: alloc */
+            for (Py_ssize_t index = 0; index < set->len; index++) { /* GCOVR_EXCL_LINE */
+                PyMem_Free(items[index].key);                       /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE */
+            PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < set->len; index++) {
+            sorted[index] = set->items[items[index].index];
+        }
+        memcpy(set->items, sorted, (size_t)set->len * sizeof(xp_item));
+        PyMem_Free(sorted);
+        for (Py_ssize_t index = 0; index < set->len; index++) {
+            PyMem_Free(items[index].key);
+        }
+        PyMem_Free(items);
+        return 0;
     }
     sort_row *order = PyMem_Malloc((size_t)set->len * sizeof(sort_row));
     if (order == NULL) {                                                 /* GCOVR_EXCL_BR_LINE: alloc */

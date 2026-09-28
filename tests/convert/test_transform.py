@@ -423,6 +423,23 @@ def test_transform_sort_numeric_expression_coercion(
     assert _run(source, body) == (descending if reverse else ascending)
 
 
+@pytest.mark.parametrize("select", ["@key", "number(@key)", "string(@key)"], ids=["node", "number", "string"])
+@pytest.mark.parametrize("second_key", [False, True], ids=["one-key", "two-keys"])
+@pytest.mark.parametrize(("order", "expected"), [("ascending", "acdfbe"), ("descending", "bedfac")])
+def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str, *, second_key: bool) -> None:
+    source: Final = (
+        '<r><n id="a" key="bad"/><n id="b" key="2"/><n id="c" key="bad"/>'
+        '<n id="d" key="1"/><n id="e" key="2"/><n id="f" key="1"/></r>'
+    )
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
+        + ('<xsl:sort select="@id"/>' if second_key else "")
+        + '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == expected
+
+
 def test_transform_sort_multiple_keys() -> None:
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
