@@ -18,12 +18,13 @@ enum on_disallowed { ON_ESCAPE = 0, ON_STRIP = 1, ON_REMOVE = 2 };
 
 typedef struct {
     th_tree *tree;
-    PyObject *tags;             /* frozenset[str]: allowed element names */
-    PyObject *attributes;       /* Mapping[str, frozenset[str]]: per-tag allowed attribute names, "*" wildcards */
-    PyObject *wildcard_attrs;   /* attributes.get("*"), borrowed, or NULL */
-    PyObject *url_schemes;      /* frozenset[str]: allowed URL schemes, lowercase */
-    PyObject *star;             /* the interned "*" string, for the any-name wildcard */
-    PyObject *add_link_rel;     /* str to set as an <a> rel, or None */
+    PyObject *tags;           /* frozenset[str]: allowed element names */
+    PyObject *attributes;     /* Mapping[str, frozenset[str]]: per-tag allowed attribute names, "*" wildcards */
+    PyObject *wildcard_attrs; /* attributes.get("*"), borrowed, or NULL */
+    PyObject *url_schemes;    /* frozenset[str]: allowed URL schemes, lowercase */
+    PyObject *star;           /* the interned "*" string, for the any-name wildcard */
+    PyObject *add_link_rel;   /* str to set as an <a> rel, or None */
+    PyObject *attribute_predicate;
     PyObject *attribute_filter; /* callable (tag, name, value) -> str | None, or None */
     PyObject *set_attributes;   /* dict[str, dict[str, str]]: per-tag attribute values to force-set on kept elements */
     PyObject *remove_with_content; /* frozenset[str]: disallowed tags whose whole subtree is dropped, not escaped */
@@ -1634,7 +1635,12 @@ static int compact_disallowed_attributes(sanitizer *s, th_node *element, PyObjec
     return 0;
 }
 
+static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *tag);
+
 static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, int custom) {
+    if (s->attribute_predicate != Py_None && apply_attribute_predicate(s, element, tag) < 0) {
+        return -1;
+    }
     int compacted = element->attr_count >= 32 && s->removed == NULL && s->attribute_filter == Py_None &&
                     s->custom_attribute_check == Py_None && s->custom_element_check == Py_None;
     /* The private tree has no observers or cached lookups before sanitization returns. */
@@ -1747,6 +1753,41 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         return 0;
     }
     return apply_late_attribute_safety(s, element, tag);
+}
+
+static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *tag) {
+    Py_ssize_t kept = 0;
+    /* Safety checks can restart the attribute walk; predicates must run once on the original values. */
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        th_node_attr *attr = &element->attrs[index];
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
+        PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
+        PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+        if (key == NULL || value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_XDECREF(key);                /* GCOVR_EXCL_LINE */
+            Py_XDECREF(value);              /* GCOVR_EXCL_LINE */
+            return -1;                      /* GCOVR_EXCL_LINE */
+        }
+        PyObject *result = PyObject_CallFunctionObjArgs(s->attribute_predicate, tag, key, value, NULL);
+        Py_DECREF(key);
+        Py_DECREF(value);
+        int keep = result == NULL ? -1 : PyObject_IsTrue(result);
+        Py_XDECREF(result);
+        if (keep < 0) {
+            return -1;
+        }
+        if (keep) {
+            if (kept != index) {
+                element->attrs[kept] = *attr;
+            }
+            kept++;
+        } else if (record_removed(s, tag, name, name_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                           /* GCOVR_EXCL_LINE */
+        }
+    }
+    element->attr_count = kept;
+    return 0;
 }
 
 static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept);
@@ -2767,12 +2808,13 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *source;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOpOOpppp:_sanitize", &source, &s.tags, &s.attributes, &s.url_schemes,
-                          &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel, &s.attribute_filter,
-                          &s.set_attributes, &s.remove_with_content, &s.css_properties, &s.attribute_prefixes,
-                          &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed, &s.allowed_styles,
-                          &s.transform_tags, &s.isolate_named_props, &s.custom_element_check, &s.custom_attribute_check,
-                          &s.allow_customized_builtins, &s.allow_html, &s.allow_svg, &s.allow_mathml)) {
+    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOpOOppppO:_sanitize", &source, &s.tags, &s.attributes,
+                          &s.url_schemes, &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel,
+                          &s.attribute_filter, &s.set_attributes, &s.remove_with_content, &s.css_properties,
+                          &s.attribute_prefixes, &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed,
+                          &s.allowed_styles, &s.transform_tags, &s.isolate_named_props, &s.custom_element_check,
+                          &s.custom_attribute_check, &s.allow_customized_builtins, &s.allow_html, &s.allow_svg,
+                          &s.allow_mathml, &s.attribute_predicate)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;

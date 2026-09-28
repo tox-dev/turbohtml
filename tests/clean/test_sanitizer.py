@@ -2127,7 +2127,7 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     sanitized = _sanitize(
         root, tags, {}, schemes, allow_relative, OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
-        allow_customized_builtins, allow_html, allow_svg, allow_mathml,
+        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None,
     )  # fmt: skip
     assert root.inner_html == original
     return sanitized.inner_html
