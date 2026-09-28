@@ -1486,7 +1486,7 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
                     xp_result_free(result); /* GCOVR_EXCL_LINE */
                     return NULL;            /* GCOVR_EXCL_LINE */
                 }
-                PyObject **values = PySequence_Fast_ITEMS(out);
+                PyObject **values = ((PyListObject *)out)->ob_item;
                 for (Py_ssize_t index = 0; index < count; index++) {
                     PyObject *item = xpath_item_to_py(state, handle, tree, items[index]);
                     if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
