@@ -883,7 +883,7 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
     while (pos < scan.len) {
         if (phone == NULL && scan.kind != PyUnicode_1BYTE_KIND) {
             pos = scan.kind == PyUnicode_2BYTE_KIND ? skip_ucs2(scan.data, pos, scan.len)
-                                                      : skip_ucs4(scan.data, pos, scan.len);
+                                                    : skip_ucs4(scan.data, pos, scan.len);
             if (pos >= scan.len) {
                 break;
             }
