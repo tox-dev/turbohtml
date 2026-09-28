@@ -985,6 +985,29 @@ double to_number(struct th_tree *tree, const xp_result *value) {
 static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set) {
     for (int32_t pr = pred_head; pr >= 0; pr = prog->nodes[pr].next) {
         int32_t expr = prog->nodes[pr].first;
+        const xn *predicate = &prog->nodes[expr];
+        static const Py_UCS4 last[] = {'l', 'a', 's', 't'};
+        if (predicate->kind == XN_NUM || (predicate->kind == XN_FUNC && predicate->first < 0 &&
+                                          predicate->str_len == 4 && memcmp(predicate->str, last, sizeof(last)) == 0)) {
+            double position = predicate->kind == XN_NUM ? predicate->num : (double)set->len;
+            Py_ssize_t selected = position >= 1 && position <= (double)set->len && floor(position) == position
+                                      ? (Py_ssize_t)position - 1
+                                      : -1;
+            xp_item item = selected >= 0 ? set->items[selected] : (xp_item){NULL, -1};
+            if (set->snapshots) {
+                for (Py_ssize_t index = 0; index < set->len; index++) {
+                    if (index != selected) {
+                        item_release(set->items[index]);
+                    }
+                    set->items[index] = (xp_item){NULL, -1};
+                }
+            }
+            set->len = selected >= 0;
+            if (set->len) {
+                set->items[0] = item;
+            }
+            continue;
+        }
         Py_ssize_t size = set->len;
         Py_ssize_t write_pos = 0;
         for (Py_ssize_t index = 0; index < set->len; index++) {
