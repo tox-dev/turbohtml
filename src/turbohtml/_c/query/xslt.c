@@ -108,13 +108,7 @@ static void xb_free(xb *buf) {
 
 /* ---- UTF-8 <-> UCS-4 name helpers ----------------------------------------- */
 
-/* Encode a UCS-4 run as UTF-8 into a freshly PyMem-allocated NUL-terminated buffer,
-   the form the tree attribute API and atom lookups take. NULL on allocation failure. */
-static char *ucs4_to_utf8(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len) {
-    char *out = PyMem_Malloc((size_t)len * 4 + 1);
-    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return NULL;   /* GCOVR_EXCL_LINE */
-    }
+static Py_ssize_t write_utf8(const Py_UCS4 *src, Py_ssize_t len, char *out) {
     Py_ssize_t pos = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 ch = src[index];
@@ -135,7 +129,15 @@ static char *ucs4_to_utf8(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_le
         }
     }
     out[pos] = '\0';
-    *out_len = pos;
+    return pos;
+}
+
+static char *ucs4_to_utf8(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len) {
+    char *out = PyMem_Malloc((size_t)len * 4 + 1);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    *out_len = write_utf8(src, len, out);
     return out;
 }
 
@@ -580,14 +582,41 @@ typedef struct {
 } xslt_number_match;
 
 typedef struct {
+    int type;
+    int ns;
+    const Py_UCS4 *name;
+    Py_ssize_t name_len;
+    const Py_UCS4 *uri;
+    Py_ssize_t uri_len;
+} xslt_number_name;
+
+typedef struct {
+    const th_node *node;
+    uint32_t atom;
+    const th_node_attr *previous;
+} xslt_number_scope;
+
+typedef struct {
+    th_node_map positions;
+    xslt_number_name *names;
+    size_t name_capacity;
+    const th_node_attr **bindings;
+    size_t binding_capacity;
+    xslt_number_scope *scope;
+    size_t scope_count;
+    size_t scope_capacity;
+    char *prefix;
+    size_t prefix_capacity;
+    th_node *next;
+} xslt_number_index;
+
+typedef struct {
     th_node_map positions;
     th_node *last;
     long value;
     const Py_UCS4 *count_pattern;
     const Py_UCS4 *from_pattern;
-    int type;
-    const Py_UCS4 *name;
-    Py_ssize_t name_len;
+    xslt_number_name name;
 } xslt_number_prefix;
 
 /* A source text node detached by whitespace stripping (section 3.4), kept so the caller's
@@ -693,18 +722,18 @@ typedef struct engine {
     th_node_map any_positions;
     th_node *any_last;
     long any_count;
-    int any_type;
-    const Py_UCS4 *any_name;
-    Py_ssize_t any_name_len;
+    xslt_number_name any_name;
+    xslt_number_name current_number_name;
+    const th_node *current_number_node;
+    uint32_t default_namespace_atom;
+    xslt_number_index number_index;
 
     /* Reuse sibling counts to avoid quadratic scans during repeated numbering. */
     const th_node *number_memo_node;
     long number_memo_value;
     const th_node *number_memo_instruction;
-    int number_memo_type;
     int number_memo_has_count;
-    const Py_UCS4 *number_memo_name;
-    Py_ssize_t number_memo_name_len;
+    xslt_number_name number_memo_name;
 
     const char *error;
     int py_error;
@@ -2723,9 +2752,202 @@ static int get_number_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t le
     return 0;
 }
 
-/* Whether node counts under xsl:number: membership of the compiled count set when count was
-   given, else the default -- same node type and, for elements, the same name as the current
-   node (section 7.7). */
+static xslt_number_name number_local_name(const engine *eng, const th_node *node) {
+    xslt_number_name result = {.type = node->type};
+    if (node->type == TH_NODE_PI) {
+        result.name = node->text;
+        result.name_len = node->attr_count;
+    } else if (node->type == TH_NODE_ELEMENT) {
+        result.name = node->text;
+        result.name_len = node->text_len;
+        if (th_tree_is_xml(eng->src_tree)) {
+            Py_ssize_t prefix_len;
+            result.name = qname_local(node, &result.name_len, &prefix_len);
+        }
+    }
+    return result;
+}
+
+static int number_namespace_atom(engine *eng, const th_node *node, const xslt_number_name *name, uint32_t *atom) {
+    Py_ssize_t prefix_len = name->name == node->text ? 0 : name->name - node->text - 1;
+    if (prefix_len == 0) {
+        *atom = eng->default_namespace_atom;
+        return 0;
+    }
+    xslt_number_index *index = &eng->number_index;
+    size_t needed = (size_t)prefix_len * 4 + 7;
+    if (needed > index->prefix_capacity) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation failure */
+        if (!th_grow_cap(needed, index->prefix_capacity, 64, 1, &capacity, &bytes)) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        char *grown = PyMem_Realloc(index->prefix, bytes);
+        if (grown == NULL) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        index->prefix = grown;
+        index->prefix_capacity = capacity;
+        memcpy(index->prefix, "xmlns:", 6);
+    }
+    Py_ssize_t length = write_utf8(node->text, prefix_len, index->prefix + 6);
+    *atom = th_attr_lookup(eng->src_tree, index->prefix, length + 6);
+    return 0;
+}
+
+static int number_namespace_enter(engine *eng, const th_node *node) {
+    xslt_number_index *index = &eng->number_index;
+    for (Py_ssize_t offset = 0; offset < node->attr_count; offset++) {
+        const th_node_attr *attr = &node->attrs[offset];
+        Py_ssize_t length;
+        const char *name = th_attr_name(eng->src_tree, attr->name_atom, &length);
+        if (length < 5 || memcmp(name, "xmlns", 5) != 0 || (length != 5 && name[5] != ':')) {
+            continue;
+        }
+        if (attr->name_atom >= index->binding_capacity) {
+            size_t capacity;
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: allocation failure */
+            if (!th_grow_cap((size_t)attr->name_atom + 1, index->binding_capacity, 16, sizeof(*index->bindings),
+                             &capacity, &bytes)) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            const th_node_attr **grown = PyMem_Realloc(index->bindings, bytes);
+            if (grown == NULL) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            memset(grown + index->binding_capacity, 0, (capacity - index->binding_capacity) * sizeof(*grown));
+            index->bindings = grown;
+            index->binding_capacity = capacity;
+        }
+        if (index->scope_count == index->scope_capacity) {
+            size_t capacity;
+            size_t bytes;
+            /* GCOVR_EXCL_BR_START: allocation failure */
+            if (!th_grow_cap(index->scope_count + 1, index->scope_capacity, 16, sizeof(*index->scope), &capacity,
+                             &bytes)) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            xslt_number_scope *grown = PyMem_Realloc(index->scope, bytes);
+            if (grown == NULL) {
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+            /* GCOVR_EXCL_BR_STOP */
+            index->scope = grown;
+            index->scope_capacity = capacity;
+        }
+        index->scope[index->scope_count++] =
+            (xslt_number_scope){node, attr->name_atom, index->bindings[attr->name_atom]};
+        index->bindings[attr->name_atom] = attr;
+    }
+    return 0;
+}
+
+static int number_index_add(engine *eng, const th_node *node) {
+    xslt_number_index *index = &eng->number_index;
+    if (number_namespace_enter(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                               /* GCOVR_EXCL_LINE */
+    }
+    xslt_number_name name = number_local_name(eng, node);
+    if (node->ns != TH_NS_HTML) {
+        name.ns = node->ns;
+    } else if (name.name - node->text == 4 && ucs4_ascii_eq(node->text, 3, "xml")) {
+        static const Py_UCS4 xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
+                                          '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
+                                          '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
+        name.uri = xml_uri;
+        name.uri_len = sizeof(xml_uri) / sizeof(xml_uri[0]);
+    } else {
+        uint32_t atom;
+        if (number_namespace_atom(eng, node, &name, &atom) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                            /* GCOVR_EXCL_LINE */
+        }
+        if (atom < index->binding_capacity && index->bindings[atom] != NULL) {
+            name.uri = index->bindings[atom]->value;
+            name.uri_len = index->bindings[atom]->value_len;
+            if (ucs4_ascii_eq(name.uri, name.uri_len, XP_SVG_NS_URI)) {
+                name.ns = TH_NS_SVG;
+                name.uri_len = 0;
+            } else if (ucs4_ascii_eq(name.uri, name.uri_len, XP_MATHML_NS_URI)) {
+                name.ns = TH_NS_MATHML;
+                name.uri_len = 0;
+            }
+        }
+    }
+    if (index->positions.count == index->name_capacity) {
+        size_t capacity;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation failure */
+        if (!th_grow_cap(index->positions.count + 1, index->name_capacity, 16, sizeof(*index->names), &capacity,
+                         &bytes)) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        xslt_number_name *grown = PyMem_Realloc(index->names, bytes);
+        if (grown == NULL) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        index->names = grown;
+        index->name_capacity = capacity;
+    }
+    index->names[index->positions.count] = name;
+    return th_node_map_insert(&index->positions, node, (Py_ssize_t)index->positions.count + 1);
+}
+
+static int number_index_extend(engine *eng, const th_node *target) {
+    xslt_number_index *index = &eng->number_index;
+    if (th_node_map_find(&index->positions, target) != 0) {
+        return 0;
+    }
+    for (;;) {
+        th_node *node = index->next;
+        if (node->type == TH_NODE_ELEMENT) {
+            if (number_index_add(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                         /* GCOVR_EXCL_LINE */
+            }
+        }
+        int reached = node == target;
+        if (node->first_child != NULL) {
+            index->next = node->first_child;
+        } else {
+            for (;;) {
+                while (index->scope_count != 0 && index->scope[index->scope_count - 1].node == node) {
+                    const xslt_number_scope *scope = &index->scope[--index->scope_count];
+                    index->bindings[scope->atom] = scope->previous;
+                }
+                if (node->next_sibling != NULL || node->parent == NULL) {
+                    index->next = node->next_sibling;
+                    break;
+                }
+                node = node->parent;
+            }
+        }
+        if (reached) {
+            return 0;
+        }
+    }
+}
+
+static xslt_number_name number_name(const engine *eng, const th_node *node) {
+    if (node->type == TH_NODE_ELEMENT && eng->number_index.positions.count != 0) {
+        Py_ssize_t position = th_node_map_find(&eng->number_index.positions, node);
+        return eng->number_index.names[position - 1];
+    }
+    xslt_number_name name = number_local_name(eng, node);
+    name.ns = node->type == TH_NODE_ELEMENT ? node->ns : 0;
+    return name;
+}
+
+static int number_names_equal(const xslt_number_name *left, const xslt_number_name *right) {
+    return left->type == right->type && left->ns == right->ns && left->name_len == right->name_len &&
+           left->uri_len == right->uri_len &&
+           (left->name_len == 0 || memcmp(left->name, right->name, (size_t)left->name_len * sizeof(Py_UCS4)) == 0) &&
+           (left->uri_len == 0 || memcmp(left->uri, right->uri, (size_t)left->uri_len * sizeof(Py_UCS4)) == 0);
+}
+
 static int number_counts(const engine *eng, const match_set *count_set, int have_count, const th_node *node) {
     if (have_count) {
         return match_set_has(count_set, node, -1);
@@ -2733,12 +2955,11 @@ static int number_counts(const engine *eng, const match_set *count_set, int have
     if (node->type != eng->cur_node->type) {
         return 0;
     }
-    return node->type != TH_NODE_ELEMENT ||
-           (node->text_len == eng->cur_node->text_len &&
-            memcmp(node->text, eng->cur_node->text, (size_t)node->text_len * sizeof(Py_UCS4)) == 0);
+    xslt_number_name name = number_name(eng, node);
+    return number_names_equal(&name, &eng->current_number_name);
 }
 
-/* Default counts depend on node type and name, so different instructions can share them. */
+/* Default counts depend on expanded names, so different instructions can share them. */
 static int number_memo_applies(const engine *eng, const th_node *instruction, int have_count) {
     if (have_count != eng->number_memo_has_count) {
         return 0;
@@ -2746,20 +2967,18 @@ static int number_memo_applies(const engine *eng, const th_node *instruction, in
     if (have_count) {
         return eng->number_memo_instruction == instruction;
     }
-    return eng->number_memo_type == (int)eng->cur_node->type &&
-           (eng->cur_node->type != TH_NODE_ELEMENT || (eng->number_memo_name_len == eng->cur_node->text_len &&
-                                                       memcmp(eng->number_memo_name, eng->cur_node->text,
-                                                              (size_t)eng->cur_node->text_len * sizeof(Py_UCS4)) == 0));
+    return number_names_equal(&eng->number_memo_name, &eng->current_number_name);
 }
 
 static long level_number(engine *eng, const th_node *instruction, const match_set *count_set, int have_count,
                          th_node *node) {
+    if (!have_count && node == eng->number_memo_node && !eng->number_memo_has_count) {
+        return eng->number_memo_value;
+    }
     long count = 1;
     th_node *prev = node->prev_sibling;
-    int repeated = !have_count && node == eng->number_memo_node;
-    if ((repeated || (prev != NULL && prev == eng->number_memo_node)) &&
-        number_memo_applies(eng, instruction, have_count)) {
-        count = eng->number_memo_value + !repeated;
+    if (prev != NULL && prev == eng->number_memo_node && number_memo_applies(eng, instruction, have_count)) {
+        count = eng->number_memo_value + 1;
     } else {
         for (; prev != NULL; prev = prev->prev_sibling) {
             if (number_counts(eng, count_set, have_count, prev)) {
@@ -2770,10 +2989,8 @@ static long level_number(engine *eng, const th_node *instruction, const match_se
     eng->number_memo_node = node;
     eng->number_memo_value = count;
     eng->number_memo_instruction = instruction;
-    eng->number_memo_type = (int)eng->cur_node->type;
     eng->number_memo_has_count = have_count;
-    eng->number_memo_name = eng->cur_node->text;
-    eng->number_memo_name_len = eng->cur_node->text_len;
+    eng->number_memo_name = eng->current_number_name;
     return count;
 }
 
@@ -2793,18 +3010,13 @@ static th_node *doc_next(th_node *node) {
 }
 
 static int default_any_number(engine *eng, long *out) {
-    int repeated = eng->any_type == (int)eng->cur_node->type &&
-                   (eng->cur_node->type != TH_NODE_ELEMENT ||
-                    (eng->any_name_len == eng->cur_node->text_len &&
-                     memcmp(eng->any_name, eng->cur_node->text, (size_t)eng->any_name_len * sizeof(Py_UCS4)) == 0));
+    int repeated = number_names_equal(&eng->any_name, &eng->current_number_name);
     if (!repeated) {
         PyMem_Free(eng->any_positions.entries);
         eng->any_positions = (th_node_map){0};
         eng->any_last = NULL;
         eng->any_count = 0;
-        eng->any_type = (int)eng->cur_node->type;
-        eng->any_name = eng->cur_node->type == TH_NODE_ELEMENT ? eng->cur_node->text : NULL;
-        eng->any_name_len = eng->cur_node->type == TH_NODE_ELEMENT ? eng->cur_node->text_len : 0;
+        eng->any_name = eng->current_number_name;
     }
     if (eng->any_last == eng->cur_node) {
         *out = eng->any_count;
@@ -2857,18 +3069,11 @@ static int explicit_any_number(engine *eng, const Py_UCS4 *count_pattern, const 
     xslt_number_prefix *cache = &eng->explicit_any;
     int repeated = cache->last != NULL && cache->count_pattern == count_pattern &&
                    cache->from_pattern == from_pattern &&
-                   (count_pattern != NULL ||
-                    (cache->type == (int)eng->cur_node->type &&
-                     (eng->cur_node->type != TH_NODE_ELEMENT ||
-                      (cache->name_len == eng->cur_node->text_len &&
-                       memcmp(cache->name, eng->cur_node->text, (size_t)cache->name_len * sizeof(Py_UCS4)) == 0))));
+                   (count_pattern != NULL || number_names_equal(&cache->name, &eng->current_number_name));
     if (!repeated) {
         PyMem_Free(cache->positions.entries);
-        *cache = (xslt_number_prefix){.count_pattern = count_pattern,
-                                      .from_pattern = from_pattern,
-                                      .type = (int)eng->cur_node->type,
-                                      .name = eng->cur_node->text,
-                                      .name_len = eng->cur_node->text_len};
+        *cache = (xslt_number_prefix){
+            .count_pattern = count_pattern, .from_pattern = from_pattern, .name = eng->current_number_name};
         cache->value = unindexed_any_number(eng, &eng->number_count_match.matched, count_pattern != NULL,
                                             &eng->number_from_match.matched, from_pattern != NULL);
         cache->last = eng->cur_node;
@@ -2954,6 +3159,23 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
                 match_set_free(&from_set);
                 return -1;
             }
+        }
+        if (!have_count && eng->current_number_node != eng->cur_node) {
+            eng->current_number_name = number_local_name(eng, eng->cur_node);
+            if (eng->cur_node->type == TH_NODE_ELEMENT) {
+                eng->current_number_name.ns = eng->cur_node->ns;
+                if (th_tree_is_xml(eng->src_tree) &&
+                    (eng->number_index.positions.count != 0 || eng->current_number_name.name != eng->cur_node->text ||
+                     eng->default_namespace_atom != UINT32_MAX)) {
+                    if (number_index_extend(eng, eng->cur_node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                        match_set_free(&from_set);                     /* GCOVR_EXCL_LINE */
+                        PyErr_NoMemory();                              /* GCOVR_EXCL_LINE */
+                        return fail_py(eng);                           /* GCOVR_EXCL_LINE */
+                    }
+                    eng->current_number_name = number_name(eng, eng->cur_node);
+                }
+            }
+            eng->current_number_node = eng->cur_node;
         }
         Py_ssize_t level_len = 0;
         const Py_UCS4 *level = attr_lookup(eng->sheet_tree, instruction, "level", &level_len);
@@ -4614,6 +4836,11 @@ static void engine_clear(engine *eng) {
     match_set_free(&eng->number_from_match.matched);
     PyMem_Free(eng->explicit_any.positions.entries);
     PyMem_Free(eng->any_positions.entries);
+    PyMem_Free(eng->number_index.positions.entries);
+    PyMem_Free(eng->number_index.names);
+    PyMem_Free(eng->number_index.bindings);
+    PyMem_Free(eng->number_index.scope);
+    PyMem_Free(eng->number_index.prefix);
     for (Py_ssize_t index = 0; index < eng->nrules; index++) {
         match_set_free(&eng->rules[index].matched);
     }
@@ -4697,7 +4924,10 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree)
     eng->any_positions = (th_node_map){0};
     eng->any_last = NULL;
     eng->any_count = 0;
-    eng->any_type = -1;
+    eng->any_name = (xslt_number_name){.type = -1};
+    eng->default_namespace_atom = th_attr_lookup(src_tree, "xmlns", 5);
+    eng->current_number_node = NULL;
+    eng->number_index = (xslt_number_index){.next = eng->src_root};
     eng->number_memo_node = NULL;
     eng->number_memo_instruction = NULL;
     if (model->nrules > 0) {
