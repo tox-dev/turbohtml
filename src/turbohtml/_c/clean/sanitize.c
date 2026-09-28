@@ -2630,28 +2630,37 @@ PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args) {
 
 static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyObject *value);
 
-static PyObject *bleach_filter(PyObject *rules, PyObject *args) {
+static PyObject *bleach_filter(PyObject *bound, PyObject *args) {
     PyObject *tag, *name, *value;
     if (!PyArg_ParseTuple(args, "OOO:bleach_attribute_filter", &tag, &name, &value)) {
         return NULL;
     }
-    PyObject *rule = PyDict_GetItemWithError(rules, tag);
-    if (rule == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: sanitizer tags are strings */
-        return NULL;                        /* GCOVR_EXCL_LINE */
+    for (int index = 0; index < 2; index++) {
+        PyObject *key = index == 0 ? tag : PyTuple_GET_ITEM(bound, 1);
+        int present = PySequence_Contains(PyTuple_GET_ITEM(bound, 0), key);
+        if (present < 0) {
+            return NULL;
+        }
+        if (!present) {
+            continue;
+        }
+        PyObject *rule = PyObject_GetItem(PyTuple_GET_ITEM(bound, 0), key);
+        if (rule == NULL) {
+            return NULL;
+        }
+        int terminal = PyCallable_Check(rule);
+        int keep = bleach_rule_keeps(rule, tag, name, value);
+        Py_DECREF(rule);
+        if (keep != 0 || terminal) {
+            return keep < 0 ? NULL : Py_NewRef(keep ? value : Py_None);
+        }
     }
-    int keep = bleach_rule_keeps(rule, tag, name, value);
-    if (keep == 0) {
-        keep = bleach_rule_keeps(PyDict_GetItemString(rules, "*"), tag, name, value);
-    }
-    return keep < 0 ? NULL : Py_NewRef(keep ? value : Py_None);
+    Py_RETURN_NONE;
 }
 
 static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyObject *value) {
-    if (rule == NULL) {
-        return 0;
-    }
     if (!PyCallable_Check(rule)) {
-        return PySet_Contains(rule, name); /* GCOVR_EXCL_BR_LINE: sanitizer attribute names are strings */
+        return PySequence_Contains(rule, name);
     }
     PyObject *verdict = PyObject_CallFunctionObjArgs(rule, tag, name, value, NULL);
     if (verdict == NULL) {
@@ -2676,9 +2685,18 @@ static PyObject *bleach_wildcard(void) {
     return every;
 }
 
+static int bleach_static_rule(PyObject *value) {
+    return PyList_CheckExact(value) || PyTuple_CheckExact(value) || PySet_CheckExact(value) ||
+           PyFrozenSet_CheckExact(value);
+}
+
 static int bleach_tag_entry(PyObject *names, PyObject *rules, PyObject *tag, PyObject *value, int *needs_filter) {
     PyObject *listed;
-    if (PyCallable_Check(value)) {
+    if (!bleach_static_rule(value)) {
+        if (!PyCallable_Check(value) && Py_TYPE(value)->tp_iter == NULL && !PySequence_Check(value)) {
+            PyErr_SetString(PyExc_TypeError, "attribute rules must be callable or iterable");
+            return -1;
+        }
         *needs_filter = 1;
         listed = bleach_wildcard();
     } else {
@@ -2686,7 +2704,7 @@ static int bleach_tag_entry(PyObject *names, PyObject *rules, PyObject *tag, PyO
         value = listed;
     }
     if (listed == NULL) {
-        return -1; /* a value that is neither callable nor iterable */
+        return -1;
     }
     if (!*needs_filter) {
         PyObject *star = PyUnicode_FromString("*");
@@ -2724,6 +2742,7 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
     }
     int failed;
     int needs_filter = 0;
+    PyObject *filter_rules = rules;
     if (PyCallable_Check(attributes)) {
         failed = bleach_tag_entry(names, rules, star, attributes, &needs_filter) < 0;
     } else {
@@ -2731,16 +2750,30 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
         if (is_mapping < 0) {
             goto done;
         }
-        if (is_mapping) {
-            PyObject *items = PyMapping_Items(attributes);
-            if (items == NULL) { /* GCOVR_EXCL_BR_LINE: a Mapping always answers items() */
+        if (is_mapping && !PyDict_CheckExact(attributes)) {
+            filter_rules = attributes;
+            needs_filter = 1;
+            failed = 0;
+        } else if (is_mapping) {
+            PyObject *items = PyDict_Items(attributes);
+            if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 goto done;       /* GCOVR_EXCL_LINE */
             }
             failed = 0;
-            for (Py_ssize_t index = 0; !failed && index < PyList_GET_SIZE(items); index++) {
-                PyObject *pair = PyList_GET_ITEM(items, index);
-                failed = bleach_tag_entry(names, rules, PyTuple_GET_ITEM(pair, 0), PyTuple_GET_ITEM(pair, 1),
-                                          &needs_filter) < 0;
+            for (Py_ssize_t index = 0; index < PyList_GET_SIZE(items); index++) {
+                PyObject *rule = PyTuple_GET_ITEM(PyList_GET_ITEM(items, index), 1);
+                if (!bleach_static_rule(rule)) {
+                    filter_rules = attributes;
+                    needs_filter = 1;
+                    break;
+                }
+            }
+            if (filter_rules == rules) {
+                for (Py_ssize_t index = 0; !failed && index < PyList_GET_SIZE(items); index++) {
+                    PyObject *pair = PyList_GET_ITEM(items, index);
+                    failed = bleach_tag_entry(names, rules, PyTuple_GET_ITEM(pair, 0), PyTuple_GET_ITEM(pair, 1),
+                                              &needs_filter) < 0;
+                }
             }
             Py_DECREF(items);
         } else {
@@ -2750,7 +2783,24 @@ PyObject *turbohtml_bleach_attributes(PyObject *Py_UNUSED(module), PyObject *arg
     if (failed) {
         goto done;
     }
-    PyObject *filter = needs_filter ? PyCFunction_New(&BLEACH_FILTER_DEF, rules) : Py_NewRef(Py_None);
+    if (filter_rules != rules) {
+        PyDict_Clear(names);
+        PyObject *wildcard = bleach_wildcard();
+        if (wildcard == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto done;          /* GCOVR_EXCL_LINE */
+        }
+        int stored = PyDict_SetItem(names, star, wildcard);
+        Py_DECREF(wildcard);
+        if (stored < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto done;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyObject *bound = needs_filter ? PyTuple_Pack(2, filter_rules, star) : Py_NewRef(Py_None);
+    if (bound == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto done;       /* GCOVR_EXCL_LINE */
+    }
+    PyObject *filter = needs_filter ? PyCFunction_New(&BLEACH_FILTER_DEF, bound) : Py_NewRef(Py_None);
+    Py_DECREF(bound);
     if (filter == NULL) { /* GCOVR_EXCL_BR_LINE: the bound function only fails on allocation failure */
         goto done;        /* GCOVR_EXCL_LINE */
     }

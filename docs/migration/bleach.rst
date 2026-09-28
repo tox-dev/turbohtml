@@ -148,8 +148,10 @@ thread-safe policy, an :class:`~turbohtml.clean.OnDisallowed` enum that names es
 overloaded two booleans, and an ``attribute_filter`` that rewrites or drops a value where bleach's callable only
 returned a bool.
 
-To retain bleach attribute rules alongside native CSS settings, use ``attribute_policy``. Tag-specific and ``"*"`` rules
-both apply; either can admit an attribute. Callbacks run only if preceding rules did not admit it.
+To retain bleach attribute rules alongside native CSS settings, use ``attribute_policy``. A tag-specific callable
+decides whether to keep the attribute. A tag-specific list admits its listed names and falls back to the ``"*"`` rule
+for others. Static lists and sets compile to native allowlists. Callable and custom membership rules retain the source
+mapping, so changes during sanitization affect later attributes.
 
 .. testcode::
 
