@@ -709,6 +709,20 @@ static Py_ssize_t skip_plain(const uint8_t *bytes, Py_ssize_t pos, Py_ssize_t le
     return pos;
 }
 
+static Py_ssize_t skip_ucs2(const Py_UCS2 *points, Py_ssize_t pos, Py_ssize_t len) {
+    while (pos < len && points[pos] != ':' && points[pos] != '@' && points[pos] != '.') {
+        pos++;
+    }
+    return pos;
+}
+
+static Py_ssize_t skip_ucs4(const Py_UCS4 *points, Py_ssize_t pos, Py_ssize_t len) {
+    while (pos < len && points[pos] != ':' && points[pos] != '@' && points[pos] != '.') {
+        pos++;
+    }
+    return pos;
+}
+
 static int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start, Py_ssize_t *end,
                          enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
@@ -867,6 +881,13 @@ static int scan_matches(PyObject *text, int parse_email, int bare_domains, PyObj
     Py_ssize_t checked_until = 0;
     Py_ssize_t phone_retry = 0;
     while (pos < scan.len) {
+        if (phone == NULL && scan.kind != PyUnicode_1BYTE_KIND) {
+            pos = scan.kind == PyUnicode_2BYTE_KIND ? skip_ucs2(scan.data, pos, scan.len)
+                                                      : skip_ucs4(scan.data, pos, scan.len);
+            if (pos >= scan.len) {
+                break;
+            }
+        }
         if (scan.kind == PyUnicode_1BYTE_KIND && pos >= checked_until) {
             pos = skip_plain(scan.data, pos, scan.len, phone != NULL);
             checked_until = pos + TRIGGER_BLOCK;

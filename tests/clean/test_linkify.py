@@ -1865,3 +1865,10 @@ def test_linkify_snapshot_outputs(case: int) -> None:
         source.replace("https://example.com", '<a href="https://example.com" rel="nofollow">https://example.com</a>'),
         source.replace("https://example.com", '<a href="https://example.com">https://example.com</a>'),
     )
+
+
+@pytest.mark.parametrize("prefix", ["中文 ", "😀 "], ids=["ucs2", "ucs4"])
+def test_linkify_wide_email(prefix: str) -> None:
+    assert Linker(Linkify(parse_email=True)).linkify(prefix + "name@example.com") == (
+        prefix + '<a href="mailto:name@example.com">name@example.com</a>'
+    )
