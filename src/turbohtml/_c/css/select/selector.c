@@ -1311,48 +1311,50 @@ static int sel_nth_of_index(th_node *node, int from_end, const sel_simple *simpl
 }
 
 /* Recounting sibling positions makes wide-tree traversal quadratic. */
-static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_simple *simple, const sel_ctx *ctx) {
+static int sel_nth_index(th_node *node, int direction, int of_type, const sel_simple *simple, const sel_ctx *ctx) {
     if (simple->sub != NULL && !sel_matches_alts(node, simple->sub, simple->sub_count, ctx)) {
         return 0;
     }
     if (ctx->nth_memo != NULL) {
-        const sel_nth_memo previous = *ctx->nth_memo;
-        if (previous.simple == simple && (simple->sub == NULL || previous.scope == ctx->scope) &&
-            (!of_type || sel_same_type(previous.node, node))) {
+        sel_nth_memo *previous = ctx->nth_memo;
+        if (previous->simple == simple && (simple->sub == NULL || previous->scope == ctx->scope) &&
+            (!of_type || sel_same_type(previous->node, node))) {
             th_node *before = node->prev_sibling;
-            while (before != NULL && before != previous.node &&
+            while (before != NULL && before != previous->node &&
                    (before->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, before)))) {
                 before = before->prev_sibling;
             }
-            if (previous.node == before) {
-                const int index = previous.index + (from_end ? -1 : 1);
+            if (previous->node == before) {
+                const int index = previous->index + direction;
                 ctx->nth_memo->node = node;
                 ctx->nth_memo->index = index;
                 return index;
             }
             th_node *after = node->next_sibling;
-            while (after != NULL && after != previous.node &&
+            while (after != NULL && after != previous->node &&
                    (after->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, after)))) {
                 after = after->next_sibling;
             }
-            if (previous.node == after) {
-                const int index = previous.index + (from_end ? 1 : -1);
+            if (previous->node == after) {
+                const int index = previous->index - direction;
                 ctx->nth_memo->node = node;
                 ctx->nth_memo->index = index;
                 return index;
             }
-            if (previous.node->parent == node->parent) {
-                if (previous.node == node) {
-                    return previous.index;
+            if (previous->node->parent == node->parent) {
+                if (previous->node == node) {
+                    return previous->index;
                 }
+                const int previous_index = previous->index;
                 int distance = 0;
-                for (th_node *sibling = previous.node->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+                for (th_node *sibling = previous->node->next_sibling; sibling != NULL;
+                     sibling = sibling->next_sibling) {
                     if (sibling->type == TH_NODE_ELEMENT && (!of_type || sel_same_type(node, sibling)) &&
                         (simple->sub == NULL || sel_matches_alts(sibling, simple->sub, simple->sub_count, ctx))) {
                         distance++;
                     }
                     if (sibling == node) {
-                        const int index = previous.index + (from_end ? -distance : distance);
+                        const int index = previous_index + (direction < 0 ? -distance : distance);
                         *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
                         return index;
                     }
@@ -1360,8 +1362,8 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
             }
         }
     }
-    const int index = simple->sub == NULL ? sel_sibling_index(node, from_end, of_type)
-                                          : sel_nth_of_index(node, from_end, simple, ctx);
+    const int index = simple->sub == NULL ? sel_sibling_index(node, direction < 0, of_type)
+                                          : sel_nth_of_index(node, direction < 0, simple, ctx);
     if (ctx->nth_memo != NULL) {
         *ctx->nth_memo = (sel_nth_memo){node, ctx->scope, simple, index};
     }
@@ -1854,20 +1856,20 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
         return sel_no_sibling(node, 0, 1) && sel_no_sibling(node, 1, 1);
     case PSEUDO_NTH_CHILD:
         if (simple->sub != NULL) {
-            int of_index = sel_nth_index(node, 0, 0, simple, ctx);
-            return of_index != 0 && sel_nth_matches(simple->nth_a, simple->nth_b, of_index);
-        }
-        return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, 0, 0, simple, ctx));
-    case PSEUDO_NTH_LAST_CHILD:
-        if (simple->sub != NULL) {
             int of_index = sel_nth_index(node, 1, 0, simple, ctx);
             return of_index != 0 && sel_nth_matches(simple->nth_a, simple->nth_b, of_index);
         }
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, 1, 0, simple, ctx));
+    case PSEUDO_NTH_LAST_CHILD:
+        if (simple->sub != NULL) {
+            int of_index = sel_nth_index(node, -1, 0, simple, ctx);
+            return of_index != 0 && sel_nth_matches(simple->nth_a, simple->nth_b, of_index);
+        }
+        return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, -1, 0, simple, ctx));
     case PSEUDO_NTH_OF_TYPE:
-        return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, 0, 1, simple, ctx));
-    case PSEUDO_NTH_LAST_OF_TYPE:
         return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, 1, 1, simple, ctx));
+    case PSEUDO_NTH_LAST_OF_TYPE:
+        return sel_nth_matches(simple->nth_a, simple->nth_b, sel_nth_index(node, -1, 1, simple, ctx));
     /* §6.6 the scoping root: the element the query was rooted at, or, when the root is
        the document (or a fragment), the document element, as :root resolves to */
     case PSEUDO_SCOPE:
