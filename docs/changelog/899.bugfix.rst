@@ -1,0 +1,2 @@
+Reject unmatched brackets in URL authorities during sanitization, including rewritten and forced attributes. Preserve
+bracketed hostnames and brackets outside the authority.
