@@ -1872,3 +1872,8 @@ def test_linkify_wide_email(prefix: str) -> None:
     assert Linker(Linkify(parse_email=True)).linkify(prefix + "name@example.com") == (
         prefix + '<a href="mailto:name@example.com">name@example.com</a>'
     )
+
+
+@pytest.mark.parametrize("prefix", [pytest.param("中文 ", id="ucs2"), pytest.param("😀 ", id="ucs4")])
+def test_linkify_wide_presence(prefix: str) -> None:
+    assert LinkDetector().has_link(prefix + "https://example.com")
