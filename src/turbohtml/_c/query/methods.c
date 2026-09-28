@@ -1490,7 +1490,10 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
                 PyObject **values = ((PyListObject *)out)->ob_item;
 #endif
                 for (Py_ssize_t index = 0; index < count; index++) {
-                    PyObject *item = xpath_item_to_py(state, handle, tree, items[index]);
+                    xp_item source = items[index];
+                    PyObject *item = source.attr == -1 && source.node->type == TH_NODE_ELEMENT
+                                         ? element_wrap(state, handle, source.node)
+                                         : xpath_item_to_py(state, handle, tree, source);
                     if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
                         Py_DECREF(out);         /* GCOVR_EXCL_LINE */
                         xp_result_free(result); /* GCOVR_EXCL_LINE */
