@@ -3854,6 +3854,21 @@ static enum xsl_instr xsl_classify(const Py_UCS4 *local, Py_ssize_t len) {
     return XSL_OTHER;
 }
 
+static int emit_literal_text(engine *eng, th_node *out_parent, const th_node *literal) {
+    if (literal->text_len == 0) {
+        return 0;
+    }
+    th_node *node = th_tree_make_data_node(eng->out_tree, TH_NODE_TEXT, NULL, 0);
+    if (node == NULL) {                    /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    /* The compiled snapshot outlives serialization and result-tree cleanup. */
+    node->text = literal->text;
+    node->text_len = literal->text_len;
+    th_node_append_child(out_parent, node);
+    return 0;
+}
+
 static int instantiate_non_element(engine *eng, th_node *node, th_node *out_parent) {
     if (node->type == TH_NODE_TEXT) {
         Py_ssize_t text_len = node->text_len;
@@ -3861,7 +3876,7 @@ static int instantiate_non_element(engine *eng, th_node *node, th_node *out_pare
         if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        return ucs4_blank(text, text_len) ? 0 : emit_text(eng, out_parent, text, text_len);
+        return ucs4_blank(text, text_len) ? 0 : emit_literal_text(eng, out_parent, node);
     }
     if (node->type == TH_NODE_CDATA) {
         /* A CDATA section in the stylesheet is significant character data (never stripped as
@@ -3871,7 +3886,7 @@ static int instantiate_non_element(engine *eng, th_node *node, th_node *out_pare
         if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
             return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
         }
-        return emit_text(eng, out_parent, text, text_len);
+        return emit_literal_text(eng, out_parent, node);
     }
     return 0;
 }
@@ -3916,7 +3931,7 @@ static int instantiate_classified(engine *eng, th_node *node, th_node *out_paren
                 if (text == NULL && text_len != 0) {   /* GCOVR_EXCL_BR_LINE: alloc */
                     return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
                 }
-                int rc = emit_text(eng, out_parent, text, text_len);
+                int rc = emit_literal_text(eng, out_parent, child);
                 if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: alloc */
                     return rc; /* GCOVR_EXCL_LINE */
                 }
