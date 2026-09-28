@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import gc
 import re
 import sys
-import sysconfig
 from contextlib import nullcontext
 from typing import Final
 
@@ -13,10 +11,6 @@ from turbohtml import Element, parse_xml
 from turbohtml.transform import Transform
 
 
-@pytest.mark.skipif(
-    sys.implementation.name != "cpython" or bool(sysconfig.get_config_var("Py_GIL_DISABLED")),
-    reason="CPython GIL allocation-triggered collection",
-)
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
@@ -36,29 +30,15 @@ def test_transform_retains_source_during_regex(expression: str, expected: str | 
     )
     source: Final = parse_xml("<root><child>payload</child></root>").find("root")
     assert source is not None
-    destination: Final = Element("destination")
-    adopted = False
-
-    def adopt(phase: str, _info: dict[str, int]) -> None:
-        nonlocal adopted
-        if phase == "start" and not adopted:
-            frame = sys._getframe()
-            while frame is not None:
-                if frame.f_code in {re.compile.__code__, re.sub.__code__}:
-                    adopted = True
-                    destination.append(source)
-                    break
-                frame = frame.f_back
-
-    previous: Final = gc.get_threshold()
+    target: Final = Element("destination")
+    codes: Final = {re.compile.__code__, re.sub.__code__}
+    previous: Final = sys.getprofile()
     result: str | None = None
     re.purge()
     try:
-        gc.callbacks.append(adopt)
-        gc.set_threshold(1)
+        sys.setprofile(lambda frame, event, _: event == "call" and frame.f_code in codes and target.append(source))
         with pytest.raises(re.error) if expected is None else nullcontext():
             result = transform(source)
     finally:
-        gc.callbacks.remove(adopt)
-        gc.set_threshold(*previous)
-    assert (result, adopted, source.parent) == (None if expected is None else f"{expected}0", True, destination)
+        sys.setprofile(previous)
+    assert (result, source.parent) == (None if expected is None else f"{expected}0", target)
