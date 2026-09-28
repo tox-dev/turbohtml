@@ -10,6 +10,7 @@
 #include "css/select/selector.h"
 
 static int validate_name(PyObject *name, int is_attr);
+static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci);
 
 static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len, int *has_value);
 
@@ -975,37 +976,214 @@ static PyObject *element_get_checked(PyObject *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(present);
 }
 
-/* Remove the checked flag from the other same-name radios in the radio's owning
-   form (nearest ancestor form, else the document), enforcing group exclusivity. */
-static void clear_radio_group(HandleObject *handle, th_node *radio) {
+static int radio_tree_connected(th_tree *tree, th_node *root) {
+    for (th_node *node = root; node != NULL; node = node->parent != NULL ? node->parent : th_shadow_host(tree, node)) {
+        if (node->type == TH_NODE_DOCUMENT) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+typedef struct {
+    const Py_UCS4 *value;
+    Py_ssize_t len;
+    th_node *form;
+} radio_id;
+
+typedef struct {
+    th_tree *tree;
+    th_node *root;
+    radio_id *ids;
+    size_t mask;
+    int connected;
+    th_node_map ancestors;
+    int local_form;
+    th_node *resolved_form;
+} radio_group;
+
+static int radio_ids_build(radio_group *group) {
+    size_t count = 0;
+    for (th_node *node = group->root; node != NULL; node = preorder_next(node, group->root)) {
+        if (node->type == TH_NODE_ELEMENT && find_node_attr(node, TH_ATTR_ID) != NULL) {
+            count++;
+        }
+    }
+    size_t capacity = 8;
+    while (capacity < count * 2) {
+        capacity *= 2;
+    }
+    group->ids = PyMem_Calloc(capacity, sizeof(radio_id));
+    if (group->ids == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        PyErr_NoMemory();     /* GCOVR_EXCL_LINE */
+        return -1;            /* GCOVR_EXCL_LINE */
+    }
+    group->mask = capacity - 1;
+    for (th_node *node = group->root; node != NULL; node = preorder_next(node, group->root)) {
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+        if (id == NULL || id->value_len == 0) {
+            continue;
+        }
+        size_t slot = (size_t)path_id_hash(id->value, id->value_len, 0) & group->mask;
+        while (group->ids[slot].value != NULL &&
+               !ucs4_runs_equal(group->ids[slot].value, group->ids[slot].len, id->value, id->value_len)) {
+            slot = (slot + 1) & group->mask;
+        }
+        if (group->ids[slot].value == NULL) {
+            group->ids[slot] =
+                (radio_id){id->value, id->value_len, node->ns == TH_NS_HTML && node->atom == TH_TAG_FORM ? node : NULL};
+        }
+    }
+    return 0;
+}
+
+static int radio_form_owner(radio_group *group, th_node *radio, th_node **owner, int initial) {
+    *owner = NULL;
+    const th_node_attr *form = find_node_attr(radio, TH_ATTR_FORM);
+    if (form != NULL && group->connected < 0) {
+        group->connected = radio_tree_connected(group->tree, group->root);
+    }
+    if (form != NULL && group->connected) {
+        if (form->value_len == 0) {
+            return 0;
+        }
+        if (initial) {
+            for (th_node *node = group->root; node != NULL; node = preorder_next(node, group->root)) {
+                const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+                if (id != NULL && ucs4_runs_equal(form->value, form->value_len, id->value, id->value_len)) {
+                    *owner = node->ns == TH_NS_HTML && node->atom == TH_TAG_FORM ? node : NULL;
+                    group->resolved_form = *owner;
+                    break;
+                }
+            }
+            return 0;
+        }
+        if (group->ids == NULL && radio_ids_build(group) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return -1;                                          /* GCOVR_EXCL_LINE */
+        }
+        size_t slot = (size_t)path_id_hash(form->value, form->value_len, 0) & group->mask;
+        while (group->ids[slot].value != NULL) {
+            if (ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
+                *owner = group->ids[slot].form;
+                break;
+            }
+            slot = (slot + 1) & group->mask;
+        }
+        return 0;
+    }
+    for (th_node *ancestor = radio->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->ns == TH_NS_HTML && ancestor->atom == TH_TAG_FORM) {
+            *owner = ancestor;
+            break;
+        }
+    }
+    return 0;
+}
+
+static int radio_owner_matches(radio_group *group, th_node *radio, th_node *form, int *matches) {
+    const th_node_attr *explicit_form = find_node_attr(radio, TH_ATTR_FORM);
+    if (explicit_form != NULL && group->connected < 0) {
+        group->connected = radio_tree_connected(group->tree, group->root);
+    }
+    if (explicit_form != NULL && group->connected) {
+        if (form != NULL && form == group->resolved_form) {
+            const th_node_attr *id = find_node_attr(form, TH_ATTR_ID);
+            *matches = ucs4_runs_equal(explicit_form->value, explicit_form->value_len, id->value, id->value_len);
+            return 0;
+        }
+        th_node *owner;
+        if (radio_form_owner(group, radio, &owner, 0) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                       /* GCOVR_EXCL_LINE */
+        }
+        *matches = owner == form;
+        return 0;
+    }
+    if (group->local_form) {
+        *matches = 1;
+        return 0;
+    }
+    *matches = form == NULL;
+    th_node *ancestor = radio->parent;
+    size_t depth = 0;
+    for (; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->ns == TH_NS_HTML && ancestor->atom == TH_TAG_FORM) {
+            *matches = ancestor == form;
+            break;
+        }
+        Py_ssize_t cached = th_node_map_find(&group->ancestors, ancestor);
+        if (cached != 0) {
+            *matches = cached == 2;
+            break;
+        }
+        depth++;
+    }
+    /* Shallow groups avoid an allocation; deeper groups share ancestor walks. */
+    if (depth > 8 || group->ancestors.capacity != 0) {
+        for (th_node *node = radio->parent; node != ancestor; node = node->parent) {
+            if (th_node_map_insert(&group->ancestors, node, *matches + 1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                PyErr_NoMemory();                                                /* GCOVR_EXCL_LINE */
+                return -1;                                                       /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return 0;
+}
+
+static th_node *radio_next(th_node *node, th_node *scope, int local_form) {
+    if (local_form && node != scope && node->ns == TH_NS_HTML && node->atom == TH_TAG_FORM) {
+        while (node != scope && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        return node == scope ? NULL : node->next_sibling;
+    }
+    return preorder_next(node, scope);
+}
+
+static int clear_radio_group(HandleObject *handle, th_node *radio) {
     th_tree *tree = handle->tree;
     const th_node_attr *name = find_node_attr(radio, TH_ATTR_NAME);
     if (name == NULL || name->value == NULL || name->value_len == 0) {
-        return;
+        return 0;
     }
     th_node *root = radio;
-    th_node *form = NULL;
     for (th_node *ancestor = radio->parent; ancestor != NULL; ancestor = ancestor->parent) {
         root = ancestor;
-        if (form == NULL && ancestor->type == TH_NODE_ELEMENT && ancestor->atom == TH_TAG_FORM) {
-            form = ancestor;
-        }
     }
-    th_node *scope = form != NULL ? form : root;
+    radio_group group = {.tree = tree, .root = root, .connected = -1};
+    th_node *form;
+    if (radio_form_owner(&group, radio, &form, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return -1;                                       /* GCOVR_EXCL_LINE */
+    }
+    /* Forms without IDs cannot own controls outside their subtree. */
+    group.local_form = form != NULL && find_node_attr(form, TH_ATTR_ID) == NULL;
+    th_node *scope = group.local_form ? form : root;
     const int indexed = scope == root && handle->index_built && handle_index_usable(handle, root);
     Py_ssize_t cursor = indexed ? handle->index_offsets[TH_TAG_INPUT] : 0;
     const Py_ssize_t end = indexed ? handle->index_offsets[TH_TAG_INPUT + 1] : 0;
-    for (th_node *node = indexed ? handle->index_nodes[cursor] : preorder_next(scope, scope); node != NULL;
-         node = indexed ? (++cursor < end ? handle->index_nodes[cursor] : NULL) : preorder_next(node, scope)) {
+    int status = 0;
+    for (th_node *node = indexed ? handle->index_nodes[cursor] : scope; node != NULL;
+         node = indexed ? (++cursor < end ? handle->index_nodes[cursor] : NULL)
+                        : radio_next(node, scope, group.local_form)) {
         if (node == radio || node->atom != TH_TAG_INPUT || !input_type_is(node, "radio")) {
             continue;
         }
         const th_node_attr *other = find_node_attr(node, TH_ATTR_NAME);
         if (other != NULL && other->value != NULL &&
-            ucs4_runs_equal(name->value, name->value_len, other->value, other->value_len)) {
-            th_node_attr_del(tree, node, "checked", 7);
+            ucs4_runs_equal(name->value, name->value_len, other->value, other->value_len) &&
+            find_node_attr(node, TH_ATTR_CHECKED) != NULL) {
+            int matches;
+            status = radio_owner_matches(&group, node, form, &matches);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+                break;        /* GCOVR_EXCL_LINE */
+            }
+            if (matches) {
+                th_node_attr_del(tree, node, "checked", 7);
+            }
         }
     }
+    PyMem_Free(group.ids);
+    PyMem_Free(group.ancestors.entries);
+    return status;
 }
 
 static int element_set_checked(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
@@ -1028,13 +1206,13 @@ static int element_set_checked(PyObject *self, PyObject *value, void *Py_UNUSED(
     if (on) {
         rc = th_node_attr_set(tree, node, "checked", 7, NULL, 0, 0);
         if (rc >= 0 && input_type_is(node, "radio")) { /* GCOVR_EXCL_BR_LINE: attr_set only fails on OOM */
-            clear_radio_group((HandleObject *)((NodeObject *)self)->handle, node);
+            rc = clear_radio_group((HandleObject *)((NodeObject *)self)->handle, node);
         }
     } else {
         th_node_attr_del(tree, node, "checked", 7);
     }
     Py_END_CRITICAL_SECTION();
-    return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_attr_set only fails on OOM */
+    return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure */
 }
 
 static th_node *fieldset_first_legend(th_node *fieldset) {
