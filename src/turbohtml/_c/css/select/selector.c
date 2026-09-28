@@ -1320,7 +1320,8 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
         if (previous.simple == simple && (simple->sub == NULL || previous.scope == ctx->scope) &&
             (!of_type || sel_same_type(previous.node, node))) {
             th_node *before = node->prev_sibling;
-            while (before != NULL && (before->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, before)))) {
+            while (before != NULL && before != previous.node &&
+                   (before->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, before)))) {
                 before = before->prev_sibling;
             }
             if (previous.node == before) {
@@ -1329,7 +1330,8 @@ static int sel_nth_index(th_node *node, int from_end, int of_type, const sel_sim
                 return index;
             }
             th_node *after = node->next_sibling;
-            while (after != NULL && (after->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, after)))) {
+            while (after != NULL && after != previous.node &&
+                   (after->type != TH_NODE_ELEMENT || (of_type && !sel_same_type(node, after)))) {
                 after = after->next_sibling;
             }
             if (previous.node == after) {
