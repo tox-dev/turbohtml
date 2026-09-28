@@ -52,21 +52,21 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     if css_sanitizer is not None:  # CSS sanitizing is a separate sub-problem, not yet ported
         msg = "css_sanitizer is not implemented yet; drop the style attribute and <style> instead"
         raise NotImplementedError(msg)
-    names, attribute_filter = attribute_policy(ALLOWED_ATTRIBUTES if attributes is None else attributes)
+    names, attribute_predicate = attribute_policy(ALLOWED_ATTRIBUTES if attributes is None else attributes)
     policy = Policy(
         tags=ALLOWED_TAGS if tags is None else frozenset(tags),
         attributes=names,
         url_schemes=ALLOWED_PROTOCOLS if protocols is None else frozenset(protocols),
         on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
         strip_comments=strip_comments,
-        attribute_filter=attribute_filter,
+        attribute_predicate=attribute_predicate,
     )
     return sanitize(text, policy)
 
 
 def attribute_policy(
     attributes: _AttributeRules,
-) -> tuple[dict[str, frozenset[str]], Callable[[str, str, str], str | None] | None]:
+) -> tuple[dict[str, frozenset[str]], Callable[[str, str, str], bool] | None]:
     """Keep bleach attribute rules when configuring a native ``Policy``."""
     return _bleach_attributes(attributes, Mapping)
 

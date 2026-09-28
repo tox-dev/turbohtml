@@ -151,7 +151,8 @@ returned a bool.
 To retain bleach attribute rules alongside native CSS settings, use ``attribute_policy``. A tag-specific callable
 decides whether to keep the attribute. A tag-specific list admits its listed names and falls back to the ``"*"`` rule
 for others. Static lists and sets compile to native allowlists. Callable and custom membership rules retain the source
-mapping, so changes during sanitization affect later attributes.
+mapping, so changes during sanitization affect later attributes. Pass the returned predicate to ``attribute_predicate``
+to inspect source values before URL and CSS checks.
 
 .. testcode::
 
@@ -159,7 +160,7 @@ mapping, so changes during sanitization affect later attributes.
     from turbohtml.migration.bleach import attribute_policy
 
     names, predicate = attribute_policy({"a": ["href"], "*": lambda _tag, name, _value: name == "style"})
-    policy = Policy(attributes=names, attribute_filter=predicate, css_properties=frozenset({"color"}))
+    policy = Policy(attributes=names, attribute_predicate=predicate, css_properties=frozenset({"color"}))
     print(sanitize('<a href="/x" style="color: red; position: fixed">link</a>', policy))
 
 .. testoutput::

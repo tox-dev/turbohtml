@@ -34,9 +34,11 @@ if TYPE_CHECKING:
 def test_attribute_policy_preserves_tag_and_wildcard_precedence(
     rules: Mapping[str, Iterable[str] | Callable[[str, str, str], bool]], expected: str
 ) -> None:
-    names, attribute_filter = attribute_policy(rules)
+    names, attribute_predicate = attribute_policy(rules)
     assert (
-        sanitize('<a href="/x" title="t" rel="r">text</a>', Policy(attributes=names, attribute_filter=attribute_filter))
+        sanitize(
+            '<a href="/x" title="t" rel="r">text</a>', Policy(attributes=names, attribute_predicate=attribute_predicate)
+        )
         == expected
     )
 
@@ -146,10 +148,10 @@ def test_a_flat_list_admits_its_names_on_every_tag() -> None:
 
 
 def test_a_callable_admits_every_name_and_judges_each_value() -> None:
-    names, judge = _bleach_attributes(lambda _tag, name, _value: name == "href", Mapping)
+    names, judge = attribute_policy(lambda _tag, name, _value: name == "href")
     assert names == {"*": frozenset({"*"})}
     assert judge is not None
-    assert (judge("a", "href", "/x"), judge("a", "title", "t")) == ("/x", None)
+    assert (judge("a", "href", "/x"), judge("a", "title", "t")) == (True, False)
 
 
 def test_per_tag_callable_leaves_other_tag_lists_intact() -> None:
@@ -163,13 +165,13 @@ def test_per_tag_callable_leaves_other_tag_lists_intact() -> None:
 
 
 def test_a_wildcard_callable_is_the_fallback_for_other_tags() -> None:
-    _, judge = _bleach_attributes({"*": lambda _tag, name, _value: name == "title", "a": lambda *_: True}, Mapping)
+    _, judge = attribute_policy({"*": lambda _tag, name, _value: name == "title", "a": lambda *_: True})
     assert judge is not None
-    assert (judge("a", "x", "1"), judge("p", "title", "t"), judge("p", "x", "1")) == ("1", "t", None)
+    assert (judge("a", "x", "1"), judge("p", "title", "t"), judge("p", "x", "1")) == (True, True, False)
 
 
-def test_a_mapping_without_callables_binds_no_filter() -> None:
-    assert _bleach_attributes({"a": ["href"]}, Mapping)[1] is None
+def test_a_mapping_without_callables_binds_no_predicate() -> None:
+    assert attribute_policy({"a": ["href"]})[1] is None
 
 
 def test_a_predicate_error_propagates() -> None:
@@ -198,7 +200,7 @@ def test_a_verdict_that_cannot_be_judged_propagates() -> None:
         bound("a", "href", "/x")
 
 
-def test_the_filter_takes_three_arguments() -> None:
+def test_the_predicate_takes_three_arguments() -> None:
     _, bound = _bleach_attributes(lambda *_: True, Mapping)
     assert bound is not None
     with pytest.raises(TypeError):

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 import pytest
 
+from turbohtml.clean import Policy, sanitize
 from turbohtml.migration.bleach import attribute_policy, clean
 
 if TYPE_CHECKING:
@@ -55,7 +56,7 @@ def test_tag_predicate_runs_once(tag: str) -> None:
 
     _, predicate = attribute_policy({tag: reject})
     assert predicate is not None
-    assert (predicate(tag, "title", "t"), calls) == (None, [(tag, "title", "t")])
+    assert (predicate(tag, "title", "t"), calls) == (False, [(tag, "title", "t")])
 
 
 def test_tag_predicate_error_precedes_wildcard() -> None:
@@ -81,6 +82,49 @@ def test_tag_predicate_can_sanitize_with_another_policy() -> None:
         )
 
     assert clean('<a href="/x" title="t">x</a>', attributes={"a": keep_href, "*": ["title"]}) == '<a href="/x">x</a>'
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "expected"),
+    [
+        pytest.param("href", "javascript:bad()", '<a title="t">x</a>', id="unsafe-url"),
+        pytest.param("onclick", "bad()", '<a title="t">x</a>', id="event-handler"),
+        pytest.param("style", "color: red; position: fixed", '<a style="color: red" title="t">x</a>', id="css"),
+    ],
+)
+def test_predicate_sees_source_values_before_safety(name: str, value: str, expected: str) -> None:
+    calls: Final[list[tuple[str, str, str]]] = []
+
+    def keep(tag: str, attribute: str, source: str) -> bool:
+        calls.append((tag, attribute, source))
+        return True
+
+    assert (clean(f'<a {name}="{value}" title="t">x</a>', attributes=keep), calls) == (
+        expected,
+        [("a", name, value), ("a", "title", "t")],
+    )
+
+
+def test_predicate_observes_unfiltered_css() -> None:
+    names, predicate = attribute_policy(
+        lambda _tag, name, value: name == "style" and value == "color: red; position: fixed"
+    )
+    assert (
+        sanitize(
+            '<a style="color: red; position: fixed">x</a>',
+            Policy(attributes=names, attribute_predicate=predicate, css_properties=frozenset({"color"})),
+        )
+        == '<a style="color: red">x</a>'
+    )
+
+
+def test_rejected_url_predicate_changes_later_rules() -> None:
+    def keep(_tag: str, _name: str, _value: str) -> bool:
+        rules["b"] = ["title"]
+        return True
+
+    rules: Final[dict[str, list[str] | Callable[[str, str, str], bool]]] = {"a": keep}
+    assert clean('<a href="javascript:bad()">a</a><b title="B">b</b>', attributes=rules) == '<a>a</a><b title="B">b</b>'
 
 
 @pytest.mark.parametrize("replace", [pytest.param(False, id="mutate-list"), pytest.param(True, id="replace-rule")])
@@ -150,14 +194,14 @@ def test_policy_keeps_iterable_rule_state(position: int) -> None:
     )
 
 
-def test_attribute_filter_rejects_an_unhashable_tag() -> None:
+def test_attribute_predicate_rejects_an_unhashable_tag() -> None:
     _, predicate = attribute_policy(lambda *_: True)
     assert predicate is not None
     with pytest.raises(TypeError, match="unhashable"):
         predicate(cast("str", []), "title", "t")
 
 
-def test_attribute_filter_propagates_mapping_lookup_errors() -> None:
+def test_attribute_predicate_propagates_mapping_lookup_errors() -> None:
     with pytest.raises(LookupError, match="unavailable rule"):
         clean('<a title="t">x</a>', attributes=_UnavailableRules(a=lambda *_: True))
 

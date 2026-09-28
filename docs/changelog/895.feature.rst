@@ -1,2 +1,3 @@
 Add :func:`turbohtml.migration.bleach.attribute_policy` for retaining bleach attribute rules with native CSS settings.
-Preserve callable precedence and changes to rule mappings. Treat ``*`` as an attribute name.
+Preserve callable precedence, source values before safety checks, and changes to rule mappings. Treat ``*`` as an
+attribute name.
