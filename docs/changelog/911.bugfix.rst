@@ -1,0 +1,1 @@
+Count default XSLT numbers by expanded name and processing-instruction target.
