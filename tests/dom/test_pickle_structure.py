@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import copy
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Final, NoReturn
 
 import pytest
 
-from turbohtml import Doctype, Document, Element, Range, ShadowRoot, Text, parse, parse_xml
+from turbohtml import Doctype, Document, DocumentFragment, Element, Range, ShadowRoot, Text, parse, parse_xml
 from turbohtml._html import _reconstruct
+from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -164,3 +165,26 @@ def test_reconstruct_rejects_a_host_that_already_has_a_shadow_root() -> None:
 def test_pickled_xml_document_round_trips() -> None:
     document = parse_xml('<R a="1"><Q/>t</R>')
     assert _roundtrip(document).equals(document)
+
+
+@pytest.mark.parametrize(
+    ("select", "expected"),
+    [
+        pytest.param("count(/*)", "1", id="element-count"),
+        pytest.param("name(/*)", "b", id="element-name"),
+        pytest.param("count(/node())", "2", id="child-count"),
+        pytest.param("/b", "hello", id="root-path"),
+    ],
+)
+def test_pickled_fragment_transform_document_context(select: str, expected: str) -> None:
+    source: Final = DocumentFragment()
+    source.append(Element("b", children=[Text("hello")]))
+    source.append(Text("world"))
+    convert: Final = Transform(
+        parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:output method="text"/>'
+            f'<xsl:template match="/"><xsl:value-of select="{select}"/></xsl:template></xsl:stylesheet>'
+        )
+    )
+    assert convert(_roundtrip(source)) == expected
