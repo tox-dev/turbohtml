@@ -332,6 +332,19 @@ static int sort_sibling_roots(th_node **group, Py_ssize_t group_count) {
             return 0;
         }
     }
+    th_node *after = parent->first_child;
+    for (Py_ssize_t index = 0; index < group_count; index++) {
+        after = after->next_sibling;
+    }
+    /* Unique roots cover their parent's children when the counts match. */
+    if (after == NULL) {
+        th_node *node = parent->first_child;
+        for (Py_ssize_t index = 0; index < group_count; index++) {
+            group[index] = node;
+            node = node->next_sibling;
+        }
+        return 1;
+    }
     th_node_map selected = {0};
     for (Py_ssize_t index = 0; index < group_count; index++) {
         if (th_node_map_insert(&selected, group[index], 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */

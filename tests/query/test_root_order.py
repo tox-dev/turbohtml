@@ -9,21 +9,28 @@ from turbohtml.query import Query
 
 
 @pytest.mark.parametrize("count", [31, 32, 33], ids=["small", "threshold", "large"])
-@pytest.mark.parametrize("stride", [1, 19], ids=["dense", "sparse"])
+@pytest.mark.parametrize(
+    ("stride", "gap", "padding"),
+    [
+        pytest.param(1, "", 0, id="complete"),
+        pytest.param(1, "", 1, id="one-omitted"),
+        pytest.param(1, "text<!--gap-->", 2, id="dense"),
+        pytest.param(19, "text<!--gap-->", 2, id="sparse"),
+    ],
+)
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
-def test_find_sibling_root_order(count: int, stride: int, order: str) -> None:
+def test_find_sibling_root_order(count: int, stride: int, gap: str, padding: int, order: str) -> None:
     document: Final = parse(
-        "<main>"
-        + "".join(f"<div><i>{index}</i></div>text<!--gap-->" for index in range((count + 2) * stride))
-        + "</main>"
+        "<main>" + "".join(f"<div><i>{index}</i></div>{gap}" for index in range(count * stride + padding)) + "</main>"
     )
-    roots = document.select("div")[stride : (count + 1) * stride : stride]
+    start: Final = padding // 2
+    roots = document.select("div")[start : start + count * stride : stride]
     if order == "reversed":
         roots.reverse()
     elif order == "shuffled":
         roots = roots[::2] + roots[1::2]
     assert [node.text for node in Query([*roots, *roots]).find("i")] == [
-        str(index * stride) for index in range(1, count + 1)
+        str(start + index * stride) for index in range(count)
     ]
 
 
