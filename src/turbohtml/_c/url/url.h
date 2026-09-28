@@ -37,6 +37,21 @@ static inline int th_scheme_start(Py_UCS4 ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 }
 
+/* Bleach accepts bracketed hostnames such as [bad]. */
+static inline Py_ssize_t th_url_authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
+    int has_open = 0;
+    int has_close = 0;
+    for (; start < len; start++) {
+        Py_UCS4 ch = value[start];
+        if (ch == '/' || ch == '?' || ch == '#') {
+            break;
+        }
+        has_open |= ch == '[';
+        has_close |= ch == ']';
+    }
+    return has_open == has_close ? start : -1;
+}
+
 /* memchr against a literal set, never a chained ||: clang inlines this into the encode loop, where an ``a || b || c``
    of byte ranges fractures the macOS branch gate (a NUL byte or the terminator never matches). */
 static inline int th_url_in_set(unsigned char byte, const char *set, size_t set_len) {

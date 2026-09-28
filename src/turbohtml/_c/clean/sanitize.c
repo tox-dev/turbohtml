@@ -165,6 +165,19 @@ static int is_script_scheme(const char *scheme, size_t len) {
     return len == 10 && memcmp(scheme, "javascript", 10) == 0;
 }
 
+static int authority_allowed(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
+    for (int slash = 0; slash < 2; slash++) {
+        while (start < len && is_url_ignorable(value[start])) {
+            start++;
+        }
+        if (start == len || value[start] != '/') {
+            return 1;
+        }
+        start++;
+    }
+    return th_url_authority_end(value, start, len) >= 0;
+}
+
 /* Read the URL's scheme the way a browser does -- skipping the whitespace and control bytes it ignores -- and allow the
    attribute only if that scheme is on the allowlist, or there is no scheme and relative URLs are allowed. The parser
    has already resolved entity references, so the value arrives decoded. Returns 1 allow, 0 drop, -1 error. */
@@ -187,13 +200,13 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
             }
             int allowed = PySet_Contains(s->url_schemes, name);
             Py_DECREF(name);
-            return allowed;
+            return allowed > 0 ? authority_allowed(value, index + 1, len) : allowed;
         }
         int letter = th_scheme_start(c);
         /* before the colon, every byte must be a scheme byte and the first must be a letter (so 1http:// is relative)
          */
         if (started ? !th_scheme_char(c) : !letter) {
-            return s->allow_relative;
+            return s->allow_relative && (started || authority_allowed(value, index, len));
         }
         if (length < (Py_ssize_t)sizeof(scheme)) { /* cap the buffer but keep scanning, so an over-long scheme is */
             scheme[length++] = (char)(letter ? (c | 0x20) : c); /* recorded truncated and never matches the allowlist */

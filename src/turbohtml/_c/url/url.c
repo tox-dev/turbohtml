@@ -317,25 +317,9 @@ int th_url_split(PyObject *arg, th_url_parts *out) {
     Py_ssize_t rem = body;
     if (body + 1 < len && work[body] == '/' && work[body + 1] == '/') {
         netloc_start = body + 2;
-        netloc_end = len;
-        for (Py_ssize_t index = netloc_start; index < len; index++) {
-            Py_UCS4 ch = work[index];
-            if (ch == '/' || ch == '?' || ch == '#') {
-                netloc_end = index;
-                break;
-            }
-        }
+        netloc_end = th_url_authority_end(work, netloc_start, len);
         rem = netloc_end;
-        int has_open = 0;
-        int has_close = 0;
-        for (Py_ssize_t index = netloc_start; index < netloc_end; index++) {
-            if (work[index] == '[') {
-                has_open = 1;
-            } else if (work[index] == ']') {
-                has_close = 1;
-            }
-        }
-        if (has_open != has_close) {
+        if (netloc_end < 0) {
             PyMem_Free(work);
             PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
             return -1;
@@ -491,24 +475,8 @@ static int parse_ref(PyObject *src, url_ref *out) {
     out->has_netloc = 0;
     if (rest + 1 < len && buf[rest] == '/' && buf[rest + 1] == '/') {
         Py_ssize_t netloc_start = rest + 2;
-        Py_ssize_t netloc_end = len;
-        for (Py_ssize_t index = netloc_start; index < len; index++) {
-            Py_UCS4 ch = buf[index];
-            if (ch == '/' || ch == '?' || ch == '#') {
-                netloc_end = index;
-                break;
-            }
-        }
-        int has_open = 0;
-        int has_close = 0;
-        for (Py_ssize_t index = netloc_start; index < netloc_end; index++) {
-            if (buf[index] == '[') {
-                has_open = 1;
-            } else if (buf[index] == ']') {
-                has_close = 1;
-            }
-        }
-        if (has_open != has_close) {
+        Py_ssize_t netloc_end = th_url_authority_end(buf, netloc_start, len);
+        if (netloc_end < 0) {
             PyMem_Free(buf);
             PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
             return -1;
