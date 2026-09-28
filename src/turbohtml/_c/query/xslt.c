@@ -611,6 +611,7 @@ typedef struct {
 typedef struct engine {
     PyObject *module;
     th_tree *src_tree;
+    th_tree *source_snapshot;
     th_tree *sheet_tree;
     th_tree *out_tree;
     th_tree *merged_tree; /* holds copies of the principal + imported stylesheets when importing */
@@ -4654,6 +4655,9 @@ static void engine_clear(engine *eng) {
     if (eng->out_tree != NULL) {
         th_tree_free(eng->out_tree);
     }
+    if (eng->source_snapshot != NULL) {
+        th_tree_free(eng->source_snapshot);
+    }
     /* snapshot_principal_stylesheet allocates this tree before model cleanup. */
     /* GCOVR_EXCL_BR_START */
     if (eng->owns_model && eng->merged_tree != NULL) {
@@ -4662,7 +4666,7 @@ static void engine_clear(engine *eng) {
     /* GCOVR_EXCL_BR_STOP */
 }
 
-static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree) {
+static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree, th_node *src_node) {
     *eng = *model;
     eng->owns_model = 0;
     eng->src_tree = src_tree;
@@ -4701,6 +4705,26 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree)
     eng->any_type = -1;
     eng->number_memo_node = NULL;
     eng->number_memo_instruction = NULL;
+    th_node *root = src_node;
+    while (root->parent != NULL) {
+        root = root->parent;
+    }
+    if (root != eng->src_root || root->type == TH_NODE_CONTENT) {
+        eng->source_snapshot = th_tree_new_rooted(TH_NODE_DOCUMENT, th_tree_is_xml(src_tree), th_tree_quirks(src_tree));
+        if (eng->source_snapshot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return -1;                      /* GCOVR_EXCL_LINE */
+        }
+        eng->src_root = th_tree_document(eng->source_snapshot);
+        for (th_node *child = root->type == TH_NODE_CONTENT ? root->first_child : root; child != NULL;
+             child = child->next_sibling) {
+            th_node *copy = th_tree_copy_node(eng->source_snapshot, src_tree, child);
+            if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+                return -1;      /* GCOVR_EXCL_LINE */
+            }
+            th_node_append_child(eng->src_root, copy);
+        }
+        eng->src_tree = eng->source_snapshot;
+    }
     if (model->nrules > 0) {
         eng->rules = PyMem_Malloc((size_t)model->nrules * sizeof(xslt_rule));
         if (eng->rules == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
@@ -6116,17 +6140,16 @@ PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
     if (turbohtml_node_borrow(module, source_obj, &src_tree, &src_node) < 0) {
         return NULL;
     }
-    (void)src_node; /* the transform roots at the source tree's document node */
     engine eng = {0};
-    if (engine_start_run(&eng, &compiled->model, src_tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        engine_clear(&eng);                                       /* GCOVR_EXCL_LINE */
-        return PyErr_NoMemory();                                  /* GCOVR_EXCL_LINE */
-    }
     PyObject *source_handle = turbohtml_node_handle(source_obj);
     (void)source_handle; /* used only by the critical-section macro, a no-op on the GIL build */
     PyObject *result = NULL;
     Py_BEGIN_CRITICAL_SECTION(source_handle);
-    result = run_transform(&eng, compiled->sheet_root, params);
+    if (engine_start_run(&eng, &compiled->model, src_tree, src_node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_NoMemory();                                                   /* GCOVR_EXCL_LINE */
+    } else { /* GCOVR_EXCL_LINE: allocation-failure block end */
+        result = run_transform(&eng, compiled->sheet_root, params);
+    }
     Py_END_CRITICAL_SECTION();
     /* fail() sets eng.error without a Python exception; fail_py() sets the exception and
        leaves eng.error NULL. The two are exclusive, so eng.error != NULL implies no
