@@ -726,6 +726,7 @@ typedef struct engine {
     xslt_number_name current_number_name;
     const th_node *current_number_node;
     uint32_t default_namespace_atom;
+    int number_namespaces;
     xslt_number_index number_index;
 
     /* Reuse sibling counts to avoid quadratic scans during repeated numbering. */
@@ -2768,6 +2769,20 @@ static xslt_number_name number_local_name(const engine *eng, const th_node *node
     return result;
 }
 
+static int number_has_namespaces(engine *eng) {
+    if (eng->number_namespaces < 0) {
+        eng->default_namespace_atom = th_attr_lookup(eng->src_tree, "xmlns", 5);
+        eng->number_namespaces = eng->default_namespace_atom != UINT32_MAX;
+        uint32_t count = th_tree_attr_generation(eng->src_tree);
+        for (uint32_t index = 0; !eng->number_namespaces && index < count; index++) {
+            Py_ssize_t length;
+            const char *name = th_attr_name(eng->src_tree, TH_ATTR__DYNAMIC_BASE + index, &length);
+            eng->number_namespaces = length > 6 && memcmp(name, "xmlns:", 6) == 0;
+        }
+    }
+    return eng->number_namespaces;
+}
+
 static int number_namespace_atom(engine *eng, const th_node *node, const xslt_number_name *name, uint32_t *atom) {
     Py_ssize_t prefix_len = name->name == node->text ? 0 : name->name - node->text - 1;
     if (prefix_len == 0) {
@@ -2932,13 +2947,11 @@ static int number_index_extend(engine *eng, const th_node *target) {
 }
 
 static xslt_number_name number_name(const engine *eng, const th_node *node) {
-    if (node->type == TH_NODE_ELEMENT && eng->number_index.positions.count != 0) {
+    if (node->type == TH_NODE_ELEMENT) {
         Py_ssize_t position = th_node_map_find(&eng->number_index.positions, node);
         return eng->number_index.names[position - 1];
     }
-    xslt_number_name name = number_local_name(eng, node);
-    name.ns = node->type == TH_NODE_ELEMENT ? node->ns : 0;
-    return name;
+    return number_local_name(eng, node);
 }
 
 static int number_names_equal(const xslt_number_name *left, const xslt_number_name *right) {
@@ -2948,6 +2961,19 @@ static int number_names_equal(const xslt_number_name *left, const xslt_number_na
            (left->uri_len == 0 || memcmp(left->uri, right->uri, (size_t)left->uri_len * sizeof(Py_UCS4)) == 0);
 }
 
+static int number_counts_name(const engine *eng, const th_node *node) {
+    if (node->type == TH_NODE_ELEMENT && eng->number_index.positions.count == 0) {
+        xslt_number_name name = number_local_name(eng, node);
+        if (node->ns == TH_NS_HTML && name.name - node->text == 4 && ucs4_ascii_eq(node->text, 3, "xml")) {
+            return 0;
+        }
+        return node->ns == eng->current_number_name.ns && name.name_len == eng->current_number_name.name_len &&
+               memcmp(name.name, eng->current_number_name.name, (size_t)name.name_len * sizeof(Py_UCS4)) == 0;
+    }
+    xslt_number_name name = number_name(eng, node);
+    return number_names_equal(&name, &eng->current_number_name);
+}
+
 static int number_counts(const engine *eng, const match_set *count_set, int have_count, const th_node *node) {
     if (have_count) {
         return match_set_has(count_set, node, -1);
@@ -2955,8 +2981,12 @@ static int number_counts(const engine *eng, const match_set *count_set, int have
     if (node->type != eng->cur_node->type) {
         return 0;
     }
-    xslt_number_name name = number_name(eng, node);
-    return number_names_equal(&name, &eng->current_number_name);
+    if (node->type == TH_NODE_ELEMENT && eng->number_index.positions.count == 0 &&
+        node->text_len == eng->current_number_name.name_len) {
+        return node->ns == eng->current_number_name.ns &&
+               memcmp(node->text, eng->current_number_name.name, (size_t)node->text_len * sizeof(Py_UCS4)) == 0;
+    }
+    return number_counts_name(eng, node);
 }
 
 /* Default counts depend on expanded names, so different instructions can share them. */
@@ -3052,15 +3082,20 @@ static int default_any_number(engine *eng, long *out) {
 static long unindexed_any_number(const engine *eng, const match_set *count_matches, int have_count,
                                  const match_set *from_matches, int have_from) {
     long counter = 0;
-    for (th_node *node = eng->src_root;; node = doc_next(node)) {
-        if (have_from && match_set_has(from_matches, node, -1)) {
-            counter = 0;
-        }
+    for (th_node *node = eng->cur_node;;) {
         if (number_counts(eng, count_matches, have_count, node)) {
             counter++;
         }
-        if (node == eng->cur_node) {
+        if (node == eng->src_root || (have_from && match_set_has(from_matches, node, -1))) {
             return counter;
+        }
+        if (node->prev_sibling != NULL) {
+            node = node->prev_sibling;
+            while (node->last_child != NULL) {
+                node = node->last_child;
+            }
+        } else {
+            node = node->parent;
         }
     }
 }
@@ -3165,8 +3200,8 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
             if (eng->cur_node->type == TH_NODE_ELEMENT) {
                 eng->current_number_name.ns = eng->cur_node->ns;
                 if (th_tree_is_xml(eng->src_tree) &&
-                    (eng->number_index.positions.count != 0 || eng->current_number_name.name != eng->cur_node->text ||
-                     eng->default_namespace_atom != UINT32_MAX)) {
+                    (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
+                     eng->current_number_name.name != eng->cur_node->text)) {
                     if (number_index_extend(eng, eng->cur_node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                         match_set_free(&from_set);                     /* GCOVR_EXCL_LINE */
                         PyErr_NoMemory();                              /* GCOVR_EXCL_LINE */
@@ -4925,7 +4960,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree)
     eng->any_last = NULL;
     eng->any_count = 0;
     eng->any_name = (xslt_number_name){.type = -1};
-    eng->default_namespace_atom = th_attr_lookup(src_tree, "xmlns", 5);
+    eng->number_namespaces = -1;
     eng->current_number_node = NULL;
     eng->number_index = (xslt_number_index){.next = eng->src_root};
     eng->number_memo_node = NULL;

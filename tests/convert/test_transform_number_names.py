@@ -234,3 +234,54 @@ def test_transform_number_shared_namespace_index() -> None:
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         assert list(executor.map(run, ["urn:x", "urn:y", "urn:x", "urn:y"])) == ["1,2,", "1,1,", "1,2,", "1,1,"]
+
+
+@pytest.mark.parametrize("level", ["single", "multiple", "any"])
+@pytest.mark.parametrize(
+    ("children", "expected"),
+    [
+        pytest.param('<a:n xmlns:a="urn:x"/><n/>', "1", id="prefixed"),
+        pytest.param("<xml:n/><n/>", "1", id="reserved"),
+        pytest.param("<long/><n/>", "1", id="different-length"),
+        pytest.param('<n title="x" longattribute="y"/><n/>', "2", id="ordinary-attributes"),
+    ],
+)
+def test_transform_number_unprefixed_selection(level: str, children: str, expected: str) -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/n[last()]">'
+        f'<xsl:number level="{level}" from="root"/>'
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
+    assert Transform(sheet)(parse_xml(f"<root>{children}</root>")) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "foreign", "expected"),
+    [
+        pytest.param("a:title", False, "2", id="unbound"),
+        pytest.param("abc:title", False, "2", id="three-char-prefix"),
+        pytest.param("a:other", False, "1", id="distinct-local"),
+        pytest.param("xml:title", False, "1", id="reserved"),
+        pytest.param("a:title", True, "2", id="foreign-unbound"),
+        pytest.param("xml:title", True, "2", id="foreign-reserved"),
+    ],
+)
+def test_transform_number_renamed_prefix(name: str, expected: str, *, foreign: bool) -> None:
+    source: Final = parse_xml("<root/>")
+    root: Final = source.root
+    assert root is not None
+    for index in range(2):
+        node = parse_fragment("<svg><title/></svg>").select_one("title") if foreign else parse_xml("<title/>").root
+        assert node is not None
+        root.append(node)
+        if index == 0:
+            node.tag = name
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/*[last()]"><xsl:number from="root"/>'
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
+    assert Transform(sheet)(source) == expected
