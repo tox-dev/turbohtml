@@ -922,6 +922,20 @@ def test_transform_key_deduplicates_a_node_under_one_value() -> None:
             "ab",
             id="empty-key-string",
         ),
+        pytest.param(
+            "i",
+            "@k",
+            '<r><i id="a" k=""/><i id="b"/></r>',
+            "",
+            "a",
+            id="empty-attribute-excludes-missing",
+        ),
+        pytest.param("i", "@*", '<r><i id="a" k=""/></r>', "", "a", id="wildcard-empty-attribute"),
+        pytest.param("i", "@k[1]", '<r><i id="a" k=""/></r>', "", "a", id="filtered-empty-attribute"),
+        pytest.param("i", "@k/..", '<r><i id="a" k="">x</i></r>', "x", "a", id="attribute-parent"),
+        pytest.param("i", "(@k)/..", '<r><i id="a" k="">x</i></r>', "x", "a", id="filtered-path-base"),
+        pytest.param("i", "/r/i/@k", '<r><i id="a" k="x"/></r>', "x", "a", id="absolute-attribute"),
+        pytest.param("i", "@xml:lang", '<r><i id="a" xml:lang="en"/></r>', "en", "a", id="prefixed-attribute"),
     ],
 )
 def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str, wanted: str, expected: str) -> None:
@@ -931,6 +945,15 @@ def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str,
         '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
     )
     assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize("use", ["@k", "@*"], ids=["named", "wildcard"])
+def test_transform_key_valueless_html_attribute(use: str) -> None:
+    body = (
+        f'<xsl:key name="k" match="i" use="{use}"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k',''))\"/></xsl:template>"
+    )
+    assert Transform(_sheet(body))(turbohtml.parse("<r><i k></i><i></i></r>")) == "1"
 
 
 def test_transform_key_string_use_expression() -> None:

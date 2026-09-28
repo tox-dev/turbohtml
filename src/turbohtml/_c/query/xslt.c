@@ -1414,8 +1414,29 @@ static int build_key(engine *eng, xslt_key *key) {
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
         return fail_py(eng);                                      /* GCOVR_EXCL_LINE */
     }
+    uint32_t use_atom;
+    int direct_attribute = xp_single_attribute_atom(key->use_prog, eng->src_tree, &use_atom);
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
         th_node *node = matched.nodes.items[index].node;
+        if (direct_attribute) {
+            th_node_attr *attributes;
+            Py_ssize_t count = th_node_attributes(node, &attributes);
+            for (Py_ssize_t slot = 0; slot < count; slot++) {
+                if (attributes[slot].name_atom != use_atom) {
+                    continue;
+                }
+                const Py_UCS4 empty = 0;
+                const Py_UCS4 *value = attributes[slot].value == NULL ? &empty : attributes[slot].value;
+                Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
+                nodevec *bucket = strmap_bucket(&key->table, value, value_len);
+                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    xp_result_free(&matched);                       /* GCOVR_EXCL_LINE */
+                    return -1;                                      /* GCOVR_EXCL_LINE */
+                }
+                break;
+            }
+            continue;
+        }
         xp_result used;
         int use_status = eval_program(eng, key->use_prog, node, 1, 1, &used);
         if (use_status < 0) {
@@ -1425,14 +1446,28 @@ static int build_key(engine *eng, xslt_key *key) {
         int rc = 0;
         if (used.kind == XP_NODESET) {
             for (Py_ssize_t slot = 0; slot < used.nodes.len; slot++) {
+                xp_item item = used.nodes.items[slot];
                 Py_ssize_t value_len = 0;
-                Py_UCS4 *value = item_string(eng->src_tree, used.nodes.items[slot], &value_len);
-                if (value == NULL) { /* GCOVR_EXCL_START: alloc */
-                    rc = -1;
-                    break;
-                } /* GCOVR_EXCL_STOP */
+                Py_UCS4 *owned = NULL;
+                const Py_UCS4 *value;
+                if (xp_is_attribute(item.attr)) {
+                    const th_node_attr *attribute = xp_item_attribute(eng->src_tree, item);
+                    value = attribute->value;
+                    value_len = value == NULL ? 0 : attribute->value_len;
+                } else {
+                    owned = item_string(eng->src_tree, item, &value_len);
+                    if (owned == NULL) { /* GCOVR_EXCL_START: alloc */
+                        rc = -1;
+                        break;
+                    } /* GCOVR_EXCL_STOP */
+                    value = owned;
+                }
+                Py_UCS4 empty = 0;
+                if (value == NULL) {
+                    value = &empty;
+                }
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
-                PyMem_Free(value);
+                PyMem_Free(owned);
                 if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_START: alloc */
                     rc = -1;
                     break;

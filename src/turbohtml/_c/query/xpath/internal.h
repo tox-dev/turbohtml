@@ -254,5 +254,6 @@ double to_number(struct th_tree *tree, const xp_result *value);
 int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */

@@ -251,6 +251,20 @@ static uint32_t resolve_attr_atom(struct th_tree *tree, const Py_UCS4 *name, Py_
     return th_attr_lookup(tree, buf, len);
 }
 
+int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom) {
+    const xn *path = &prog->nodes[prog->root];
+    if (path->kind != XN_PATH || path->absolute || path->second >= 0) {
+        return 0;
+    }
+    const xn *step = &prog->nodes[path->first];
+    if (step->axis != AX_ATTRIBUTE || step->test != NT_NAME || step->prefix_len != 0 || step->first >= 0 ||
+        step->next >= 0) {
+        return 0;
+    }
+    *atom = resolve_attr_atom(tree, step->str, step->str_len);
+    return 1;
+}
+
 /* A step's name test resolved once before the axis walk: the local part (the suffix
    after any "prefix:"), its interned atoms, and the namespace constraint a bound prefix
    adds. With no prefix the test matches by local name in any namespace, as before. */
