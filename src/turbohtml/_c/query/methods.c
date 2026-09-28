@@ -1479,19 +1479,22 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
             if (smart_strings) {
                 out = xpath_snapshot_to_py(state, handle, tree, smart_strings, &result->nodes, NULL);
             } else {
-                out = PyList_New(result->nodes.len);
+                const Py_ssize_t count = result->nodes.len;
+                const xp_item *items = result->nodes.items;
+                out = PyList_New(count);
                 if (out == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
                     xp_result_free(result); /* GCOVR_EXCL_LINE */
                     return NULL;            /* GCOVR_EXCL_LINE */
                 }
-                for (Py_ssize_t index = 0; index < result->nodes.len; index++) {
-                    PyObject *item = xpath_item_to_py(state, handle, tree, result->nodes.items[index]);
+                PyObject **values = PySequence_Fast_ITEMS(out);
+                for (Py_ssize_t index = 0; index < count; index++) {
+                    PyObject *item = xpath_item_to_py(state, handle, tree, items[index]);
                     if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
                         Py_DECREF(out);         /* GCOVR_EXCL_LINE */
                         xp_result_free(result); /* GCOVR_EXCL_LINE */
                         return NULL;            /* GCOVR_EXCL_LINE */
                     }
-                    PyList_SET_ITEM(out, index, item);
+                    values[index] = item;
                 }
             }
 #endif
