@@ -715,6 +715,14 @@ typedef struct engine {
     int gen_counter;
     int depth;
 
+    struct {
+        uint32_t count;
+        uint32_t from;
+        uint32_t level;
+        uint32_t format;
+        uint32_t grouping_separator;
+        uint32_t grouping_size;
+    } number_attrs;
     xslt_number_match number_count_match;
     xslt_number_match number_from_match;
     xslt_number_prefix explicit_any;
@@ -860,16 +868,7 @@ static int is_any_xsl_dynamic(const engine *eng, const th_node *node) {
     return node_prefix_is_xsl(eng->sheet_tree, node, prefix_len);
 }
 
-/* The value of node's attribute named `name` (ASCII), or NULL when absent. Returns a
-   borrowed pointer into the tree; *out_len receives the length. A valueless attribute
-   reports an empty (non-NULL) run. */
-static const Py_UCS4 *attr_lookup(th_tree *tree, const th_node *node, const char *name, Py_ssize_t name_len,
-                                  Py_ssize_t *out_len) {
-    Py_ssize_t index = th_node_attr_find(tree, (th_node *)node, name, name_len);
-    if (index < 0) {
-        return NULL;
-    }
-    const th_node_attr *attr = &node->attrs[index];
+static const Py_UCS4 *attribute_value(const th_node_attr *attr, Py_ssize_t *out_len) {
     static const Py_UCS4 empty = 0;
     /* XML forbids a valueless attribute, so a parse_xml stylesheet never has one. */
     if (attr->value == NULL) { /* GCOVR_EXCL_BR_LINE */
@@ -878,6 +877,27 @@ static const Py_UCS4 *attr_lookup(th_tree *tree, const th_node *node, const char
     }
     *out_len = attr->value_len;
     return attr->value;
+}
+
+static const Py_UCS4 *attr_lookup(th_tree *tree, const th_node *node, const char *name, Py_ssize_t name_len,
+                                  Py_ssize_t *out_len) {
+    Py_ssize_t index = th_node_attr_find(tree, (th_node *)node, name, name_len);
+    return index < 0 ? NULL : attribute_value(&node->attrs[index], out_len);
+}
+
+static const Py_UCS4 *number_attr(const engine *eng, const th_node *node, uint32_t atom, const char *name,
+                                  Py_ssize_t *out_len) {
+    if (node->ns != TH_NS_HTML) {
+        return attr_lookup(eng->sheet_tree, node, name, (Py_ssize_t)strlen(name), out_len);
+    }
+    if (atom != UINT32_MAX) {
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            if (node->attrs[index].name_atom == atom) {
+                return attribute_value(&node->attrs[index], out_len);
+            }
+        }
+    }
+    return NULL;
 }
 
 /* ---- error helpers -------------------------------------------------------- */
@@ -2915,6 +2935,9 @@ static int number_index_add(engine *eng, const th_node *node) {
 
 static int number_index_extend(engine *eng, const th_node *target) {
     xslt_number_index *index = &eng->number_index;
+    if (index->positions.count == 0) {
+        index->next = eng->src_root;
+    }
     if (th_node_map_find(&index->positions, target) != 0) {
         return 0;
     }
@@ -3152,7 +3175,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     long values[64];
     Py_ssize_t nvalues = 0;
     Py_ssize_t value_len = 0;
-    const Py_UCS4 *value_expr = attr_lookup(eng->sheet_tree, instruction, "value", 5, &value_len);
+    const Py_UCS4 *value_expr = number_attr(eng, instruction, TH_ATTR_VALUE, "value", &value_len);
     match_set count_set = {0};
     match_set from_set = {0};
     const match_set *count_matches = &count_set;
@@ -3177,9 +3200,9 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         values[nvalues++] = 1;
     } else {
         Py_ssize_t count_len = 0;
-        const Py_UCS4 *count = attr_lookup(eng->sheet_tree, instruction, "count", 5, &count_len);
+        const Py_UCS4 *count = number_attr(eng, instruction, eng->number_attrs.count, "count", &count_len);
         Py_ssize_t from_len = 0;
-        const Py_UCS4 *from = attr_lookup(eng->sheet_tree, instruction, "from", 4, &from_len);
+        const Py_UCS4 *from = number_attr(eng, instruction, eng->number_attrs.from, "from", &from_len);
         /* Compilation validates the count and from patterns before a run. */
         if (count != NULL) {
             have_count = 1;
@@ -3214,7 +3237,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
             eng->current_number_node = eng->cur_node;
         }
         Py_ssize_t level_len = 0;
-        const Py_UCS4 *level = attr_lookup(eng->sheet_tree, instruction, "level", 5, &level_len);
+        const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
         if (level != NULL && ucs4_ascii_eq(level, level_len, "any")) {
             long counter = 0;
             if (!have_count && !have_from) {
@@ -3271,11 +3294,13 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     match_set_free(&count_set);
     match_set_free(&from_set);
     Py_ssize_t format_len = 0;
-    const Py_UCS4 *format = attr_lookup(eng->sheet_tree, instruction, "format", 6, &format_len);
+    const Py_UCS4 *format = number_attr(eng, instruction, eng->number_attrs.format, "format", &format_len);
     Py_ssize_t gsep_len = 0;
-    const Py_UCS4 *gsep = attr_lookup(eng->sheet_tree, instruction, "grouping-separator", 18, &gsep_len);
+    const Py_UCS4 *gsep =
+        number_attr(eng, instruction, eng->number_attrs.grouping_separator, "grouping-separator", &gsep_len);
     Py_ssize_t gsize_len = 0;
-    const Py_UCS4 *gsize_text = attr_lookup(eng->sheet_tree, instruction, "grouping-size", 13, &gsize_len);
+    const Py_UCS4 *gsize_text =
+        number_attr(eng, instruction, eng->number_attrs.grouping_size, "grouping-size", &gsize_len);
     long gsize = gsize_text != NULL ? parse_grouping_size(gsize_text, gsize_len) : 0;
     xb buffer = {0};
     int formatted = format_multi(&buffer, format, format_len, values, nvalues, gsep, gsep_len, gsize);
@@ -4963,7 +4988,7 @@ static int engine_start_run(engine *eng, const engine *model, th_tree *src_tree)
     eng->any_name = (xslt_number_name){.type = -1};
     eng->number_namespaces = -1;
     eng->current_number_node = NULL;
-    eng->number_index = (xslt_number_index){.next = eng->src_root};
+    eng->number_index = (xslt_number_index){0};
     eng->number_memo_node = NULL;
     eng->number_memo_instruction = NULL;
     if (model->nrules > 0) {
@@ -6347,6 +6372,13 @@ PyObject *turbohtml_xslt_compile(PyObject *module, PyObject *args) {
         PyMem_Free(compiled);
         return NULL;
     }
+    compiled->model.number_attrs.count = th_attr_lookup(compiled->model.sheet_tree, "count", 5);
+    compiled->model.number_attrs.from = th_attr_lookup(compiled->model.sheet_tree, "from", 4);
+    compiled->model.number_attrs.level = th_attr_lookup(compiled->model.sheet_tree, "level", 5);
+    compiled->model.number_attrs.format = th_attr_lookup(compiled->model.sheet_tree, "format", 6);
+    compiled->model.number_attrs.grouping_separator =
+        th_attr_lookup(compiled->model.sheet_tree, "grouping-separator", 18);
+    compiled->model.number_attrs.grouping_size = th_attr_lookup(compiled->model.sheet_tree, "grouping-size", 13);
     PyObject *capsule = PyCapsule_New(compiled, XSLT_CAPSULE, xslt_compiled_free);
     if (capsule == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         engine_clear(&compiled->model); /* GCOVR_EXCL_LINE */

@@ -285,3 +285,53 @@ def test_transform_number_renamed_prefix(name: str, expected: str, *, foreign: b
         "</xsl:for-each></xsl:template></xsl:stylesheet>"
     )
     assert Transform(sheet)(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("attributes", "source", "expected"),
+    [
+        pytest.param(
+            'count="n" from="root" level="any" format="01"',
+            "<root><n/><n/></root>",
+            "00,01,02,",
+            id="patterns",
+        ),
+        pytest.param('value="1234" grouping-separator="-" grouping-size="3"', "<root/>", "1-234,", id="grouping"),
+    ],
+)
+def test_transform_number_keeps_stylesheet_attributes(attributes: str, source: str, expected: str) -> None:
+    stylesheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        f'<xsl:for-each select="//*"><xsl:number {attributes}/>,</xsl:for-each>'
+        "</xsl:template></xsl:stylesheet>"
+    )
+    transform: Final = Transform(stylesheet)
+    instruction: Final = stylesheet.find("xsl:number")
+    assert instruction is not None
+    instruction.attrs.clear()
+    assert transform(parse_xml(source)) == expected
+
+
+@pytest.mark.parametrize("container", ["svg", "math"])
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        pytest.param({"COUNT": "n", "FROM": "root", "LEVEL": "any", "FORMAT": "01"}, "0102", id="patterns"),
+        pytest.param({"VALUE": "1234", "GROUPING-SEPARATOR": "-", "GROUPING-SIZE": "3"}, "1-2341-234", id="value"),
+    ],
+)
+def test_transform_number_adopted_instruction(container: str, attributes: dict[str, str], expected: str) -> None:
+    stylesheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/n"/></xsl:template></xsl:stylesheet>'
+    )
+    target: Final = stylesheet.find("xsl:for-each")
+    instruction: Final = parse_fragment(f"<{container}><title/></{container}>").select_one("title")
+    assert target is not None
+    assert instruction is not None
+    target.append(instruction)
+    instruction.tag = "xsl:number"
+    instruction.attrs.update(attributes)
+    assert Transform(stylesheet)(parse_xml("<root><n/><n/></root>")) == expected
