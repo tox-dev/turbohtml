@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -2375,3 +2376,111 @@ def test_radio_group_document_scope_keeps_other_names_and_types(*, indexed: bool
         document.select("input")
     radios[1].checked = True
     assert [node.checked for node in radios] == [False, True, True, True]
+
+
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        pytest.param("values", ["old", ["before", "value"], "tail"], id="values"),
+        pytest.param("items", [("id", "old"), ("class", ["before", "value"]), ("title", "tail")], id="items"),
+        pytest.param("copy", {"id": "old", "class": ["before", "value"], "title": "tail"}, id="copy"),
+    ],
+)
+@pytest.mark.parametrize("offset", [0, 1, 2, 3])
+def test_attrs_snapshot_during_collection(
+    method: str,
+    expected: list[str | list[str] | tuple[str, str | list[str]]] | dict[str, str | list[str]],
+    offset: int,
+) -> None:
+    thresholds: Final = gc.get_threshold()
+    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    gc.disable()
+    gc.collect()
+    attrs: Final = Element("a", {"id": "old", "class": "before value", "title": "tail"}).attrs
+    collect: Final = getattr(attrs, method)
+    changed = False
+
+    def replace_values(phase: str, _info: dict[str, int]) -> None:
+        nonlocal changed
+        if phase == "start" and not changed:
+            changed = True
+            attrs["id"] = "new"
+            attrs["class"] = "after value"
+            attrs["title"] = "changed"
+
+    # Exhaust freelists so list and tuple allocations can trigger collection.
+    lists: Final[list[list[None]]] = [[] for _ in range(512)]
+    tuples: Final = [(index, None) for index in range(4096)]
+    gc.callbacks.append(replace_values)
+    try:
+        gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
+        gc.enable()
+        result: Final = collect()
+        gc.collect()
+    finally:
+        gc.disable()
+        gc.callbacks.remove(replace_values)
+        gc.set_threshold(*thresholds)
+        restore_gc()
+        lists.clear()
+        tuples.clear()
+    assert (changed, result, attrs.copy()) == (
+        True,
+        expected,
+        {"id": "new", "class": ["after", "value"], "title": "changed"},
+    )
+
+
+@pytest.mark.parametrize("method", ["keys", "values", "items", "copy"])
+def test_attrs_empty_snapshot(method: str) -> None:
+    attrs: Final = Element("div").attrs
+    assert getattr(attrs, method)() == ({} if method == "copy" else [])
+
+
+@pytest.mark.parametrize("method", ["iter", "keys"])
+def test_attrs_names_snapshot(method: str) -> None:
+    attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
+    snapshot: Final = iter(attrs) if method == "iter" else attrs.keys()
+    attrs["later"] = "third"
+    assert list(snapshot) == ["id", "data-name"]
+
+
+@pytest.mark.parametrize("threaded", [pytest.param(False, id="same-thread"), pytest.param(True, id="other-thread")])
+@pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
+@pytest.mark.parametrize("kind", [pytest.param("radio", id="radio"), pytest.param("checkbox", id="checkbox")])
+def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, threaded: bool) -> None:
+    source = parse(f'<form><input type="{kind}" name="group" {"" if checked else "checked"}></form>')
+    destination = parse(f'<form><input type="{kind}" name="group" checked></form>')
+    field = source.select("input")[0]
+    form = destination.select("form")[0]
+
+    class AdoptingTruth:
+        def __bool__(self) -> bool:
+            if threaded:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    executor.submit(form.append, field).result(timeout=5)
+            else:
+                form.append(field)
+            return checked
+
+    field.checked = cast("bool", AdoptingTruth())
+    assert [item.checked for item in destination.select("input")] == [kind != "radio" or not checked, checked]
+
+
+@pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
+@pytest.mark.parametrize("mutation", [pytest.param("tag", id="tag"), pytest.param("type", id="type")])
+def test_checked_truth_callback_invalidates_input(mutation: str, *, checked: bool) -> None:
+    document = parse("<input type=radio>")
+    field = document.select("input")[0]
+
+    class MutatingTruth:
+        def __bool__(self) -> bool:
+            if mutation == "tag":
+                field.tag = "div"
+            else:
+                field.attrs["type"] = "text"
+            return checked
+
+    with pytest.raises(TypeError, match="checked can only be set on a checkbox or radio input"):
+        field.checked = cast("bool", MutatingTruth())

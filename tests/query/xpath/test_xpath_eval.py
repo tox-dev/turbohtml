@@ -13,31 +13,21 @@ construction (mirroring ``lxml.etree.XPath``).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import gc
+import sys
+from functools import partial
+from operator import ge, gt, le, lt
+from typing import TYPE_CHECKING, Final, cast
+from weakref import finalize, ref
 
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, XPath, XPathString
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-    from types import SimpleNamespace
-from operator import ge, gt, le, lt
-from typing import TYPE_CHECKING, Final
-
-from turbohtml import parse_xml
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-from turbohtml import parse
-
-if TYPE_CHECKING:
-    from types import SimpleNamespace
-
+from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
+    from types import SimpleNamespace
 
 
 HTML = (
@@ -1352,3 +1342,636 @@ def _normalize_lxml(result: Iterable[object]) -> list[str]:
             tag: Final = getattr(item, "tag", None)
             out.append(tag if isinstance(tag, str) else f"<{type(item).__name__}>")
     return out
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
+def test_xpath_callback_attribute_union(*, compiled: bool, smart: bool, change: str) -> None:
+    source: Final = Element("section", {"id": "old", "other": "value"})
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        if change in {"remove", "readd"}:
+            del source.attrs["id"]
+        if change in {"replace", "readd"}:
+            source.attrs["id"] = "new"
+        if change == "unrelated":
+            source.attrs["other"] = "changed"
+        return []
+
+    extensions: Final[dict[tuple[str | None, str], Callable[..., list[Element]]]] = {(None, "mutate"): mutate}
+    expression: Final = "@id | mutate() | @id"
+    result: Final = (
+        XPath(expression, extensions=extensions, smart_strings=smart)(source)
+        if compiled
+        else source.xpath(expression, extensions={(None, "mutate"): mutate}, smart_strings=smart)
+    )
+    assert result == ["old"]
+    if smart:
+        assert isinstance(result, list)
+        assert isinstance(result[0], XPathString)
+        assert (result[0].getparent(), result[0].attrname) == (source, "id")
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("name((@id | mutate())[1])", "id"),
+        ("str:concat(@id | mutate())", "old"),
+        ("set:distinct(@id | mutate())", ["old"]),
+        ("set:intersection(@id | mutate(), @id)", ["old"]),
+        ("set:difference(@id | mutate(), @id)", []),
+        ("@id = string(mutate())", False),
+    ],
+)
+def test_xpath_callback_attribute_consumers(expression: str, *, expected: str | bool | list[str]) -> None:
+    source: Final = Element("section", {"id": "old"})
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        source.attrs["id"] = "new"
+        return []
+
+    assert source.xpath(expression, extensions={(None, "mutate"): mutate}) == expected
+
+
+def test_xpath_callback_translate_uses_prior_attribute_value() -> None:
+    source: Final = Element("section", {"id": "old"})
+
+    def mutate(_context: SimpleNamespace) -> str:
+        assert source.xpath("string(@id)") == "old"
+        source.attrs["id"] = "new"
+        return "o"
+
+    assert source.xpath("translate(@id, mutate(), 'O')", extensions={(None, "mutate"): mutate}) == "Old"
+
+
+@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
+    source: Final = Element("section", {"id": "old"}, children=[Element("b")])
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(source)
+        return []
+
+    result: Final = source.xpath(". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=smart)
+    assert isinstance(result, list)
+    assert result[0] == source
+    assert isinstance(result[0], Element)
+    result[0].attrs["live"] = "yes"
+    assert target.select("section[live=yes]") == [source]
+    assert result[1] == "old"
+    if smart:
+        assert isinstance(result[1], XPathString)
+        assert result[1].getparent() == source
+
+
+@pytest.mark.parametrize("size", [3, 24])
+@pytest.mark.parametrize("operation", ["set:intersection", "set:difference"])
+def test_xpath_callback_attribute_membership(size: int, operation: str) -> None:
+    source: Final = Element("section", {f"attr{index}": str(index) for index in range(size)})
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        for index in range(size):
+            source.attrs[f"attr{index}"] = "changed"
+        return []
+
+    result: Final = source.xpath(f"{operation}(@* | mutate(), @*)", extensions={(None, "mutate"): mutate})
+    assert result == ([str(index) for index in range(size)] if operation == "set:intersection" else [])
+
+
+def test_xpath_callback_preserves_adopted_context() -> None:
+    source: Final = Element("section")
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(source)
+        return []
+
+    def inspect(context: SimpleNamespace) -> bool:
+        context.context_node.attrs["live"] = "yes"
+        return context.context_node == source and target.select("section[live=yes]") == [source]
+
+    assert (
+        source.xpath("count(. | adopt()) + inspect()", extensions={(None, "adopt"): adopt, (None, "inspect"): inspect})
+        == 2
+    )
+
+
+def test_xpath_callback_attribute_ordinal_collision() -> None:
+    source: Final = Element("section", {"old": "first"})
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        del source.attrs["old"]
+        source.attrs["new"] = "second"
+        return []
+
+    assert source.xpath("@* | mutate() | @*", extensions={(None, "mutate"): mutate}) == ["first", "second"]
+
+
+def test_xpath_callback_shrinks_parsed_attributes() -> None:
+    source: Final = parse('<section a="one" b="two" c="three" d="four"></section>').select("section")[0]
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        for name in ("a", "b", "c", "d"):
+            del source.attrs[name]
+        source.attrs["new"] = "changed"
+        return []
+
+    assert source.xpath("@* | mutate()", extensions={(None, "mutate"): mutate}) == ["one", "two", "three", "four"]
+
+
+def test_xpath_callback_result_finalizer_adopts_node() -> None:
+    source: Final = Element("section", children=[Element("b")])
+    child: Final = source.children[0]
+    assert isinstance(child, Element)
+    target: Final = Element("main")
+
+    def produce(_context: SimpleNamespace) -> Iterator[Element]:
+        result = (node for node in (child,))
+        finalize(result, target.append, child)
+        return result
+
+    result: Final = source.xpath("produce()", extensions={(None, "produce"): produce})
+    assert isinstance(result, list)
+    assert result[0] == child
+    assert isinstance(result[0], Element)
+    result[0].attrs["live"] = "yes"
+    assert child.attrs["live"] == "yes"
+
+
+def test_xpath_callback_preserves_text_parent() -> None:
+    source: Final = Element("section", children=[Text("body")])
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(source)
+        return []
+
+    def empty(_context: SimpleNamespace) -> list[Element]:
+        return []
+
+    result: Final = source.xpath(
+        "text() | adopt() | empty()", extensions={(None, "adopt"): adopt, (None, "empty"): empty}, smart_strings=True
+    )
+    assert isinstance(result, list)
+    assert isinstance(result[0], XPathString)
+    result[0].getparent().attrs["live"] = "yes"
+    assert (str(result[0]), target.select("section[live=yes]")) == ("body", [source])
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("set:leading(@*, .)", []),
+        ("@*[position() > 1 and keep()]", ["two", "three"]),
+        ("@*/../@*", ["one", "two", "three"]),
+    ],
+)
+def test_xpath_callback_attribute_paths(expression: str, expected: list[str]) -> None:
+    source: Final = Element("section", {"first": "one", "second": "two", "third": "three"})
+
+    def keep(_context: SimpleNamespace) -> bool:
+        return True
+
+    assert source.xpath(expression, extensions={(None, "keep"): keep}) == expected
+
+
+def test_xpath_callback_adopts_variable_node() -> None:
+    source: Final = Element("section", children=[Element("b")])
+    child: Final = source.children[0]
+    assert isinstance(child, Element)
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(child)
+        return []
+
+    result: Final = source.xpath("adopt() | $node", extensions={(None, "adopt"): adopt}, node=child)
+    assert isinstance(result, list)
+    assert isinstance(result[0], Element)
+    result[0].attrs["live"] = "yes"
+    assert target.select("b[live=yes]") == [child]
+
+
+def test_xpath_callback_sparse_attribute_union() -> None:
+    source: Final = Element("section", {f"data-item-{index}": str(index) for index in range(48)})
+    for index in range(48):
+        if index % 16:
+            del source.attrs[f"data-item-{index}"]
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        for name in source.attrs:
+            source.attrs[name] = "changed"
+        return []
+
+    assert source.xpath("@* | mutate() | @*", extensions={(None, "mutate"): mutate}) == ["0", "16", "32"]
+
+
+@pytest.mark.parametrize("expression", ["@second | empty() | @first", "@first | empty() | @second"])
+def test_xpath_callback_attribute_union_order(expression: str) -> None:
+    source: Final = Element("section", {"first": "one", "second": "two"})
+
+    def empty(_context: SimpleNamespace) -> list[Element]:
+        return []
+
+    assert source.xpath(expression, extensions={(None, "empty"): empty}) == ["one", "two"]
+
+
+def test_xpath_callback_reuses_attribute_name() -> None:
+    source: Final = Element("section", {"new": "placeholder", "old": "first"})
+    del source.attrs["new"]
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        del source.attrs["old"]
+        source.attrs["new"] = "second"
+        return []
+
+    assert source.xpath("@* | mutate() | @*", extensions={(None, "mutate"): mutate}) == ["second", "first"]
+
+
+def test_xpath_callback_mixed_attribute_namespace() -> None:
+    source: Final = Element("section", {"id": "value"})
+
+    def empty(_context: SimpleNamespace) -> list[Element]:
+        return []
+
+    assert source.xpath("@id | namespace::* | empty()", extensions={(None, "empty"): empty}) == [
+        "value",
+        "http://www.w3.org/XML/1998/namespace",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected", "moved"),
+    [
+        pytest.param("@id[self::node()[move()]]", ["old"], True, id="attribute-self"),
+        pytest.param("@id[parent::section[move()]]", ["old"], True, id="attribute-parent"),
+        pytest.param("@id[child::node()[move()]]", [], False, id="empty-first-step"),
+    ],
+)
+def test_xpath_callback_initial_attribute_context(expression: str, expected: list[str], *, moved: bool) -> None:
+    source: Final = Element("section", {"id": "old"})
+    target: Final = Element("main")
+
+    def move(_context: SimpleNamespace) -> bool:
+        target.append(source)
+        del source.attrs["id"]
+        return True
+
+    result: Final = source.xpath(expression, extensions={(None, "move"): move})
+    assert (result, tuple(target.children)) == (expected, (source,) if moved else ())
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+def test_xpath_extension_keeps_source_arena(*, compiled: bool) -> None:
+    source: Final = Element("section")
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> float:
+        target.append(source)
+        return 41.0
+
+    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
+        (None, "adopt"): adopt
+    }
+    result: Final = (
+        XPath("adopt() + count(.)", extensions=extensions)(source)
+        if compiled
+        else source.xpath("adopt() + count(.)", extensions=extensions)
+    )
+    assert (result, target.children) == (42.0, (source,))
+
+
+def test_xpath_extension_keeps_cached_program() -> None:
+    source: Final = Element("section")
+
+    def evict(_context: SimpleNamespace) -> float:
+        for index in range(80):
+            source.xpath(str(index))
+        return 41.0
+
+    assert source.xpath("evict() + 1", extensions={(None, "evict"): evict}) == pytest.approx(42.0)
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+def test_xpath_extension_keeps_removed_callable(*, compiled: bool) -> None:
+    source: Final = Element("section")
+    extensions: Final[
+        dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]
+    ] = {}
+
+    def remove(_context: SimpleNamespace) -> bool:
+        extensions.clear()
+        return function() is not None
+
+    extensions[None, "remove"] = partial(remove)
+    function: Final = ref(extensions[None, "remove"])
+    result: Final = (
+        XPath("remove()", extensions=extensions)(source)
+        if compiled
+        else source.xpath("remove()", extensions=extensions)
+    )
+    gc.collect()
+    assert (result, function()) == (True, None)
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+def test_xpath_extension_validates_yielded_owner(*, compiled: bool) -> None:
+    source: Final = Element("section", children=[Element("b")])
+    child: Final = source.children[0]
+    target: Final = Element("main")
+
+    def move_after_yield(_context: SimpleNamespace) -> Iterator[Element]:
+        assert isinstance(child, Element)
+        yield child
+        target.append(child)
+
+    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
+        (None, "move"): move_after_yield
+    }
+    invoke: Final = (
+        partial(XPath("move()", extensions=extensions), source)
+        if compiled
+        else partial(source.xpath, "move()", extensions=extensions)
+    )
+    with pytest.raises(ValueError, match="different document"):
+        invoke()
+    assert target.children == (child,)
+
+
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
+@pytest.mark.parametrize("offset", [0, 1, 2, 4, 32])
+def test_xpath_extension_snapshots_arguments(offset: int) -> None:
+    thresholds: Final = gc.get_threshold()
+    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    gc.disable()
+    gc.collect()
+    source: Final = Element("section", children=[Element("a", {"id": "old"}), Element("b")])
+    first, second = source.children
+    target: Final = Element("main")
+    changed = False
+
+    def inspect(_context: SimpleNamespace, attrs: list[str], nodes: list[Element]) -> bool:
+        return attrs == ["old"] and nodes == [second]
+
+    extensions: Final[dict[tuple[str | None, str], Callable[..., bool]]] = {(None, "inspect"): inspect}
+    selector: Final = XPath("inspect(.//a/@id, .//b)", extensions=extensions)
+    context: Final = (source,)
+
+    def adopt(phase: str, _info: dict[str, int]) -> None:
+        nonlocal changed
+        if phase == "start" and not changed:
+            changed = True
+            target.append(source)
+            assert isinstance(first, Element)
+            first.attrs["id"] = "changed"
+
+    reserve: Final[list[list[None]]] = [[] for _ in range(512)]
+    gc.callbacks.append(adopt)
+    try:
+        gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
+        gc.enable()
+        result: Final = selector(*context)
+        gc.collect()
+    finally:
+        gc.disable()
+        gc.callbacks.remove(adopt)
+        gc.set_threshold(*thresholds)
+        restore_gc()
+        reserve.clear()
+    assert (changed, result, target.children) == (True, True, (source,))
+
+
+@pytest.mark.parametrize(
+    ("kind", "error", "match"),
+    [
+        ("type", TypeError, "extension result must be"),
+        ("owner", ValueError, "different document"),
+        ("iterator", LookupError, "iteration resumed"),
+    ],
+    ids=["type", "owner", "iterator"],
+)
+def test_xpath_extension_validates_iterator(kind: str, error: type[Exception], match: str) -> None:
+    source: Final = Element("section")
+
+    def invalid(_context: SimpleNamespace) -> Iterator[Element]:
+        yield cast("Element", 42) if kind == "type" else Element("other") if kind == "owner" else source
+        msg = "iteration resumed"
+        raise LookupError(msg)
+
+    with pytest.raises(error, match=match):
+        source.xpath("invalid()", extensions={(None, "invalid"): invalid})
+
+
+def test_xpath_frame_completed_arguments_keep_adopted_node() -> None:
+    source: Final = Element("section", children=[Element("b")])
+    child: Final = source.children[0]
+    target: Final = Element("main")
+
+    def empty(_context: SimpleNamespace) -> list[Element]:
+        return []
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(child)
+        return []
+
+    def inspect(_context: SimpleNamespace, _first: list[Element], nodes: list[Element], _last: list[Element]) -> bool:
+        nodes[0].attrs["live"] = "yes"
+        return target.select("b[live=yes]") == [child]
+
+    assert (
+        source.xpath(
+            "inspect(empty(), .//b, adopt())",
+            extensions={(None, "empty"): empty, (None, "adopt"): adopt, (None, "inspect"): inspect},
+        )
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [pytest.param("div/b[adopt()]", id="contexts"), pytest.param("div[seen()]/b[adopt()]", id="steps")],
+)
+def test_xpath_frame_path_candidates_keep_adopted_nodes(expression: str) -> None:
+    source: Final = Element(
+        "section", children=[Element("div", children=[Element("b", {"id": str(index)})]) for index in range(2)]
+    )
+    target: Final = Element("main")
+
+    def seen(_context: SimpleNamespace) -> bool:
+        return True
+
+    def adopt(context: SimpleNamespace) -> bool:
+        target.append(context.context_node)
+        return True
+
+    result: Final = source.xpath(expression, extensions={(None, "seen"): seen, (None, "adopt"): adopt})
+    assert isinstance(result, list)
+    for node in result:
+        assert isinstance(node, Element)
+        node.attrs["live"] = "yes"
+    assert [node.attrs["id"] for node in target.select("b[live=yes]")] == ["0", "1"]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("(.//b)[adopt()]", id="callback-first"),
+        pytest.param("(@id | .//b)[self::b and adopt()]", id="attribute-first"),
+    ],
+)
+def test_xpath_frame_filter_compaction_keeps_adopted_node(expression: str) -> None:
+    source: Final = Element(
+        "section", {"id": "root"}, children=[Element("b", {"id": str(index)}) for index in range(3)]
+    )
+    target: Final = Element("main")
+
+    def adopt(context: SimpleNamespace) -> bool:
+        target.append(context.context_node)
+        return context.context_node.attrs["id"] == "2"
+
+    result: Final = source.xpath(expression, extensions={(None, "adopt"): adopt})
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], Element)
+    result[0].attrs["live"] = "yes"
+    assert [node.attrs["id"] for node in target.select("b[live=yes]")] == ["2"]
+
+
+def test_xpath_frame_path_retains_accepted_nodes_after_compaction() -> None:
+    source: Final = Element(
+        "section",
+        children=[
+            Element("div", children=[Element("b", {"id": str(index * 3 + child)}) for child in range(3)])
+            for index in range(8)
+        ],
+    )
+    target: Final = Element("main")
+
+    def adopt(context: SimpleNamespace) -> bool:
+        target.append(context.context_node)
+        return True
+
+    def keep(context: SimpleNamespace) -> bool:
+        return int(context.context_node.attrs["id"]) % 2 == 1
+
+    result: Final = source.xpath("div/b[adopt()][keep()]", extensions={(None, "adopt"): adopt, (None, "keep"): keep})
+    assert isinstance(result, list)
+    for node in result:
+        assert isinstance(node, Element)
+        node.attrs["live"] = "yes"
+    assert [node.attrs["id"] for node in target.select("b[live=yes]")] == [str(index) for index in range(1, 24, 2)]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("//i[2]/@id", ["b"], id="literal"),
+        pytest.param("//i[1.5]/@id", [], id="fraction"),
+        pytest.param("//i[0]/@id", [], id="zero"),
+        pytest.param("//i[999999999999999999999]/@id", [], id="large"),
+        pytest.param("//i[last()]/@id", ["c"], id="last"),
+        pytest.param("//i[2][last()]/@id", ["b"], id="literal-last"),
+        pytest.param("//i[last()][2]/@id", [], id="last-literal"),
+        pytest.param("//i[@id='c']/preceding-sibling::i[1]/@id", ["b"], id="reverse-first"),
+        pytest.param("//i[@id='c']/preceding-sibling::i[last()]/@id", ["a"], id="reverse-last"),
+        pytest.param("(//i[@id='c']/preceding-sibling::i)[last()]/@id", ["b"], id="sorted-filter"),
+        pytest.param("//missing[last()]/@id", [], id="empty-last"),
+        pytest.param("//missing[1]/@id", [], id="empty-literal"),
+    ],
+)
+def test_xpath_positional_predicate(expression: str, expected: list[str]) -> None:
+    root: Final = parse('<main><i id="a"></i><i id="b"></i><i id="c"></i></main>')
+    assert root.xpath(expression) == expected
+
+
+@pytest.mark.parametrize("predicate", ["1", "last()", "0", "1.5"])
+@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+def test_xpath_positional_attribute_snapshot(predicate: str, *, smart: bool) -> None:
+    root: Final = Element("main", {"first": "a", "middle": "b", "last": "c"})
+    target: Final = Element("section")
+
+    def move(_context: SimpleNamespace) -> bool:
+        target.append(root)
+        root.attrs.clear()
+        return True
+
+    result: Final = root.xpath(f"@*[{predicate}][move()]", extensions={(None, "move"): move}, smart_strings=smart)
+    assert result == {"1": ["a"], "last()": ["c"], "0": [], "1.5": []}[predicate]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [pytest.param("custom:last", ["a"], id="extension"), pytest.param("last", ["b"], id="builtin")],
+)
+def test_xpath_positional_extension_resolution(name: str, expected: list[str]) -> None:
+    root: Final = parse('<main><i id="a"></i><i id="b"></i></main>')
+
+    def last(_context: SimpleNamespace) -> int:
+        return 1
+
+    assert root.xpath(f"//i[{name}()]/@id", extensions={(None, name): last}) == expected
+
+
+def test_xpath_positional_last_arity() -> None:
+    with pytest.raises(ValueError, match=r"last\(\) takes 0 arguments, got 1"):
+        Element("main").xpath("self::*[last(1)]")
+
+
+@pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
+@pytest.mark.parametrize("smart_strings", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("mixed", [False, True], ids=["nodes", "mixed"])
+@pytest.mark.parametrize("offset", [0, 1, 2, 4])
+def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, mixed: bool) -> None:
+    thresholds: Final = gc.get_threshold()
+    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    gc.disable()
+    gc.collect()
+    document: Final = parse('<section><a id="old">first</a><b>second</b></section>')
+    section: Final = document.select("section")[0]
+    first, second = section.select("*")
+    target: Final = Element("main")
+    selector: Final = XPath("//a/@id | //a/text() | //b" if mixed else "//a | //b", smart_strings=smart_strings)
+    context: Final = (document,)
+    changed = False
+
+    def adopt(phase: str, _info: dict[str, int]) -> None:
+        nonlocal changed
+        if phase == "start" and not changed:
+            changed = True
+            target.append(section)
+            first.attrs["id"] = "changed"
+
+    # Empty lists exhaust the freelist before the result allocation.
+    reserve: Final[list[list[None]]] = [[] for _ in range(512)]
+    gc.callbacks.append(adopt)
+    try:
+        gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
+        gc.enable()
+        result: Final = selector(*context)
+        gc.collect()
+    finally:
+        gc.disable()
+        gc.callbacks.remove(adopt)
+        gc.set_threshold(*thresholds)
+        restore_gc()
+        reserve.clear()
+    assert (changed, result, target.select("b"), document.select("b")) == (
+        True,
+        ["old", "first", second] if mixed else [first, second],
+        [second],
+        [],
+    )
+    if smart_strings and mixed:
+        assert isinstance(result, list)
+        assert [(item.getparent(), item.attrname) for item in result if isinstance(item, XPathString)] == [
+            (first, "id"),
+            (first, None),
+        ]
+
+
+@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+def test_xpath_empty_smart_snapshot(*, compiled: bool) -> None:
+    document: Final = parse("<section></section>")
+    assert (XPath("//a", smart_strings=True)(document) if compiled else document.xpath("//a", smart_strings=True)) == []
