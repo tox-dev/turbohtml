@@ -9,7 +9,6 @@
 
 #include "css/select/selector.h"
 
-static int validate_name(PyObject *name, int is_attr);
 static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci);
 
 static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len, int *has_value);
@@ -123,13 +122,13 @@ TH_NODE_API(static, int, attrs_ass_subscript, (PyObject * self, PyObject *key, P
         PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
         return -1;
     }
-    if (validate_name(key, 1) < 0) {
+    if (th_validate_markup_name(key, 1) < 0) {
         return -1;
     }
     Py_ssize_t len;
     char *name = attr_key_utf8(tree, key, &len);
     if (name == NULL) { /* GCOVR_EXCL_BR_LINE: a validated name is a str that encodes */
-        return -1;      /* GCOVR_EXCL_LINE: unreachable after validate_name */
+        return -1;      /* GCOVR_EXCL_LINE: unreachable after th_validate_markup_name */
     }
     Py_UCS4 *points;
     Py_ssize_t value_len;
@@ -2358,7 +2357,7 @@ static int name_rejects(Py_UCS4 character, int is_attr) {
            character == '"' || character == '\'';
 }
 
-static int validate_name(PyObject *name, int is_attr) {
+int th_validate_markup_name(PyObject *name, int is_attr) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(name);
     if (len == 0) {
         PyErr_SetString(PyExc_ValueError, is_attr ? "attribute name must not be empty" : "tag must not be empty");
@@ -2371,8 +2370,10 @@ static int validate_name(PyObject *name, int is_attr) {
         if (name_rejects(character, is_attr)) {
             PyObject *ch = PyUnicode_FromOrdinal((int)character);
             if (ch != NULL) { /* GCOVR_EXCL_BR_LINE: a forbidden character is ASCII and always builds */
-                PyErr_Format(PyExc_ValueError, "%s name %R contains an invalid character: %R",
-                             is_attr ? "attribute" : "tag", name, ch);
+                PyErr_Format(PyExc_ValueError, "%s name %R contains an invalid character: %R (%s)",
+                             is_attr ? "attribute" : "tag", name, ch,
+                             is_attr ? "an attribute name cannot hold ASCII whitespace, NUL, '/', '=' or '>'"
+                                     : "a tag name cannot hold a space, a C0 control, '/', '<', '>', '=' or a quote");
                 Py_DECREF(ch);
             }
             return -1;
@@ -2443,7 +2444,7 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
             PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
             return -1;
         }
-        if (validate_name(name, 1) < 0) {
+        if (th_validate_markup_name(name, 1) < 0) {
             return -1;
         }
         Py_ssize_t name_len;
@@ -2588,7 +2589,7 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(tag)->tp_name);
         return NULL;
     }
-    if (validate_name(tag, 0) < 0) {
+    if (th_validate_markup_name(tag, 0) < 0) {
         return NULL;
     }
     PyObject *element = make_element(type, tag, attrs, 0, 0); /* the public constructor builds HTML elements */
@@ -3711,7 +3712,7 @@ TH_NODE_API(static, int, element_set_tag, (PyObject * self, PyObject *value, voi
         PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(value)->tp_name);
         return -1;
     }
-    if (validate_name(value, 0) < 0) {
+    if (th_validate_markup_name(value, 0) < 0) {
         return -1;
     }
     th_node *node = ((NodeObject *)self)->node;

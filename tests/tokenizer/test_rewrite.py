@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import parse
+from turbohtml import Comment, parse, parse_fragment
 from turbohtml._internal._selectors import SelectorSyntaxError
 from turbohtml.rewrite import Element, rewrite
 
@@ -123,6 +123,21 @@ def test_rewrite_set_attribute_escapes_value() -> None:
 def test_rewrite_set_attribute_empty_name_raises() -> None:
     with pytest.raises(ValueError, match="empty"):
         rewrite("<p>x</p>", elements=[("p", _set("", "v"))])
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("data-x onclick", id="space"),
+        pytest.param("a>", id="greater-than"),
+        pytest.param("a/", id="slash"),
+        pytest.param("x=y", id="equals"),
+        pytest.param("a\0", id="nul"),
+    ],
+)
+def test_rewrite_set_attribute_rejects_name_the_dom_rejects(name: str) -> None:
+    with pytest.raises(ValueError, match="invalid character"):
+        rewrite("<img>", elements=[("img", _set(name, "v"))])
 
 
 def test_rewrite_set_attribute_non_str_name_raises() -> None:
@@ -503,6 +518,41 @@ def test_rewrite_comment_handler() -> None:
         comment.set_text(" edited ")
 
     assert rewrite("<p>a<!-- keep -->b</p>", comments=handler) == "<p>a<!-- edited -->b</p>"
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        pytest.param(">x", "'>' at index 0", id="starts-greater-than"),
+        pytest.param("->x", "'->' at index 0", id="starts-dash-greater-than"),
+        pytest.param("a-->b", "'-->' at index 1", id="close"),
+        pytest.param("a--!>b", "'--!>' at index 1", id="bang-close"),
+    ],
+)
+def test_rewrite_comment_set_text_rejects_early_close(text: str, found: str) -> None:
+    # rewrite writes the comment back between `<!--` and `-->`, and each of these would close it early
+    with pytest.raises(ValueError, match=f"^comment text has {found}, which ends an HTML comment early"):
+        rewrite("<p><!--n--></p>", comments=lambda comment: comment.set_text(text))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("-", id="dash"),
+        pytest.param("-x", id="starts-dash"),
+        pytest.param("--", id="double-dash"),
+        pytest.param("a--!", id="ends-bang"),
+        pytest.param("a--!x", id="bang-not-closing"),
+        pytest.param("a--x", id="dashes-not-closing"),
+        # a nested `<!--` and a trailing `<!-` are parse errors inside a comment, but neither ends it
+        pytest.param("a<!--", id="nested-open"),
+        pytest.param("a<!-", id="ends-partial-open"),
+    ],
+)
+def test_rewrite_comment_set_text_round_trips(text: str) -> None:
+    out = rewrite("<p><!--n--></p>", comments=lambda comment: comment.set_text(text))
+    assert [node.data for node in parse_fragment(out, "div").descendants if isinstance(node, Comment)] == [text]
 
 
 def test_rewrite_comment_remove_and_before() -> None:

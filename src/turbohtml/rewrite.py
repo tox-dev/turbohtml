@@ -51,6 +51,9 @@ then raises :class:`ValueError` if that text would end the element early (``</sc
 
 The handle is valid only for the duration of the handler call; stashing it and using it afterwards raises
 :class:`RuntimeError`.
+
+:meth:`~Element.set_attribute` raises :class:`ValueError` for a name the DOM API rejects, and :meth:`~Element.set_text`
+raises it for comment text that would end the comment early.
 """
 
 

@@ -229,6 +229,10 @@ th_tree *th_tree_parse(int kind, const void *data, Py_ssize_t length, int positi
    allocation failure (no Python error is set). */
 th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length);
 
+/* Every writer of a tag or attribute name shares one rule, so a name the DOM API refuses cannot reach the output
+   through another API. Returns 0, or -1 with ValueError set. */
+int th_validate_markup_name(PyObject *name, int is_attr);
+
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
 th_tree *th_tree_new(void);

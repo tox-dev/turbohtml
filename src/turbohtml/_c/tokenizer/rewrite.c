@@ -644,11 +644,7 @@ static PyObject *rw_set_attribute(rw_handle *self, PyObject *args) {
     }
     char buf[256];
     Py_ssize_t len = rw_name_bytes(name, buf, sizeof(buf));
-    if (len < 0) {
-        return NULL;
-    }
-    if (len == 0) {
-        PyErr_SetString(PyExc_ValueError, "attribute name must not be empty");
+    if (len < 0 || th_validate_markup_name(name, 1) < 0) {
         return NULL;
     }
     uint32_t atom = th_attr_atom(buf, (size_t)len);
@@ -848,6 +844,34 @@ static PyObject *rw_text_get(rw_handle *self, void *Py_UNUSED(closure)) {
     return th_str_from_kind(self->token->text.kind, self->token->text.data, self->token->text.len);
 }
 
+/* The HTML tokenizer ends a comment at a leading `>` or `->` and at `-->` or `--!>` anywhere, so the rest would parse
+   as markup. Returns where the first such sequence starts (stored in *sequence), or -1 when there is none. */
+static Py_ssize_t rw_comment_early_end(PyObject *text, const char **sequence) {
+    int kind = PyUnicode_KIND(text);
+    const void *data = PyUnicode_DATA(text);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+    Py_ssize_t start = len > 0 && PyUnicode_READ(kind, data, 0) == '-' ? 1 : 0;
+    if (start < len && PyUnicode_READ(kind, data, start) == '>') {
+        *sequence = start == 0 ? ">" : "->";
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index + 2 < len; index++) {
+        if (PyUnicode_READ(kind, data, index) != '-' || PyUnicode_READ(kind, data, index + 1) != '-') {
+            continue;
+        }
+        Py_UCS4 next = PyUnicode_READ(kind, data, index + 2);
+        if (next == '>') {
+            *sequence = "-->";
+            return index;
+        }
+        if (next == '!' && index + 3 < len && PyUnicode_READ(kind, data, index + 3) == '>') {
+            *sequence = "--!>";
+            return index;
+        }
+    }
+    return -1;
+}
+
 static PyObject *rw_set_text(rw_handle *self, PyObject *value) {
     if (!self->live) {
         PyErr_SetString(PyExc_RuntimeError, "the handle is only valid inside its handler call");
@@ -859,6 +883,14 @@ static PyObject *rw_set_text(rw_handle *self, PyObject *value) {
     }
     if (!PyUnicode_Check(value)) {
         PyErr_SetString(PyExc_TypeError, "text must be str");
+        return NULL;
+    }
+    const char *sequence;
+    Py_ssize_t early_end;
+    if (self->kind == RW_COMMENT && (early_end = rw_comment_early_end(value, &sequence)) >= 0) {
+        PyErr_Format(PyExc_ValueError,
+                     "comment text has '%s' at index %zd, which ends an HTML comment early; remove or change it",
+                     sequence, early_end);
         return NULL;
     }
     self->set_text_raw = rw_raw_target(self, 0) != NULL;

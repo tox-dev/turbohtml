@@ -1,0 +1,2 @@
+Raise ``ValueError`` in :func:`~turbohtml.rewrite.rewrite` when ``set_attribute`` gets a name, or a comment's
+``set_text`` gets text, that would inject markup.

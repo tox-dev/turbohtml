@@ -129,7 +129,8 @@ the memory model and the streamable-selector constraint, and :doc:`/how-to/rewri
 
     .. py:method:: set_attribute(name, value)
 
-        Set (or add) an element attribute.
+        Set (or add) an element attribute. A name that is empty or holds ASCII whitespace, NUL, ``/``, ``=`` or ``>``
+        raises :exc:`ValueError`, since the start tag would not parse back to one attribute of that name.
 
     .. py:method:: remove_attribute(name)
 
@@ -137,7 +138,8 @@ the memory model and the streamable-selector constraint, and :doc:`/how-to/rewri
 
     .. py:method:: set_text(value)
 
-        Replace a text or comment node's body.
+        Replace a text or comment node's body. Comment text that starts with ``>`` or ``->``, or holds ``-->`` or
+        ``--!>``, raises :exc:`ValueError`, since the HTML tokenizer ends the comment there.
 
     .. py:method:: before(content, *, html=False)
 
