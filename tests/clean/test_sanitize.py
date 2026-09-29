@@ -483,15 +483,15 @@ def test_style_scrubbing(style: str, expected: str | None) -> None:
         assert expected in out
 
 
-def test_style_unterminated_string_is_safe() -> None:
-    # an unterminated string runs to the end; the declaration's property still gates it
-    out = sanitize('<p style="color: red; font-family: \'unterminated">x</p>', _style_policy())
-    assert "color: red" in out
-    assert sanitize(out, _style_policy()) == out  # idempotent
-
-
-def test_style_unterminated_comment_is_safe() -> None:
-    out = sanitize('<p style="color: red; width: 1px /* unterminated">x</p>', _style_policy())
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<p style="color: red; font-family: \'unterminated">x</p>', id="string"),
+        pytest.param('<p style="color: red; width: 1px /* unterminated">x</p>', id="comment"),
+    ],
+)
+def test_style_unterminated_token_is_safe(source: str) -> None:
+    out = sanitize(source, _style_policy())
     assert "color: red" in out
     assert sanitize(out, _style_policy()) == out
 
@@ -512,14 +512,15 @@ def test_style_scrubbed_before_attribute_filter_sees_it() -> None:
     assert seen == ["style=color: red"]  # the filter sees the already-scrubbed value
 
 
-def test_style_comment_with_lone_asterisk() -> None:
-    # a '*' inside a comment that is not the closing '*/' must not end the comment early
-    assert "color: red" in sanitize('<p style="color: red /* a*b */">x</p>', _style_policy())
-
-
-def test_style_unterminated_comment_ending_in_asterisk() -> None:
-    # a '*' as the final byte of an unterminated comment has no following '/'
-    assert "color: red" in sanitize('<p style="color: red /* x *">x</p>', _style_policy())
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<p style="color: red /* a*b */">x</p>', id="interior-asterisk"),
+        pytest.param('<p style="color: red /* x *">x</p>', id="unterminated-final-asterisk"),
+    ],
+)
+def test_style_comment_asterisk_does_not_end_declaration(source: str) -> None:
+    assert "color: red" in sanitize(source, _style_policy())
 
 
 def test_style_slash_not_starting_a_comment() -> None:

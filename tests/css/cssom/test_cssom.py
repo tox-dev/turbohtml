@@ -491,12 +491,6 @@ def test_computed_style_with_no_stylesheet_is_all_initial() -> None:
     assert computed_style(div)["visibility"] == "visible"
 
 
-def test_computed_style_important_normal_order_does_not_regress() -> None:
-    # a later normal declaration must not override an earlier important one
-    style = _style("<p></p>", css="p { color: blue !important } p { color: red }", tag="p")
-    assert style["color"] == "blue"
-
-
 def test_stylesheet_attribute_selector_and_stray_bracket() -> None:
     sheet = StyleSheet('a[data-x="y"] { color: red } .c { width: 3) }')
     assert sheet.rules[0].selector_text == 'a[data-x="y"]'

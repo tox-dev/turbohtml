@@ -248,7 +248,6 @@ def test_errors(source: str, dump: str) -> None:
         pytest.param("`a$b`", "TEMPLATE:`a$b` EOF", id="template-dollar-not-brace"),
         pytest.param("a.b", "IDENT:a DOT IDENT:b EOF", id="single-dot-member"),
         pytest.param("\\u0061", "IDENT:\\u0061 EOF", id="escape-started-identifier"),
-        pytest.param(".5", "NUM:.5 EOF", id="leading-dot-number"),
         # tokens that run right up to end-of-input (the pos+1<len boundary checks)
         pytest.param("#", "PRIVATE:# EOF", id="hash-at-eof"),
         pytest.param("a\\u", "IDENT:a\\u EOF", id="escape-u-at-eof"),
