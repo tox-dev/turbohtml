@@ -1863,6 +1863,8 @@ def test_xml_builtin_named_element_matches_only_its_spelling() -> None:
         pytest.param("ul > :nth-of-type(odd)", ["a", "b", "e"], id="mixed-types"),
         pytest.param("li:nth-of-type(odd)", ["a", "e"], id="interleaved-types"),
         pytest.param("li:nth-last-of-type(odd)", ["a", "e"], id="reverse-types"),
+        pytest.param("li.hit:nth-of-type(odd)", ["a", "e"], id="filtered-types"),
+        pytest.param("li.hit:nth-last-of-type(odd)", ["a", "e"], id="filtered-reverse-types"),
         pytest.param("li:nth-child(odd) ~ li", ["c", "e"], id="preceding-backtrack"),
         pytest.param("li:nth-child(4n+1) ~ li", ["c", "e"], id="preceding-recount"),
         pytest.param("li:nth-child(4n+1) ~ :is(li, span)", ["b", "c", "d", "e"], id="preceding-repeat"),
@@ -1872,7 +1874,7 @@ def test_xml_builtin_named_element_matches_only_its_spelling() -> None:
 )
 def test_nth_positions_across_query_orders(selector: str, expected: list[str]) -> None:
     document: Final[Document] = parse(
-        "<ul><li>a</li><!--gap--><span>b</span><li>c</li>text<span>d</span><li>e</li></ul>"
+        '<ul><li class="hit">a</li><!--gap--><span>b</span><li>c</li>text<span>d</span><li class="hit">e</li></ul>'
     )
     assert [element.text for element in document.select(selector)] == expected
 

@@ -1268,6 +1268,17 @@ typedef struct {
     int disabled;
 } control_attrs;
 
+#ifdef FORM_WALKS_ANCESTOR_FIELDSETS
+typedef PyObject form_pairs;
+#else
+typedef struct {
+    PyObject **items;
+    PyObject **local;
+    Py_ssize_t count;
+    Py_ssize_t capacity;
+} form_pairs;
+#endif
+
 static control_attrs read_control_attrs(const th_node *node) {
     control_attrs found = {0};
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
@@ -1297,7 +1308,7 @@ static control_attrs read_control_attrs(const th_node *node) {
 
 /* Append a (name, value) pair, taking ownership of value and stealing nothing from
    name. Returns 0, or -1 with an exception set. */
-static int emit_pair(PyObject *pairs, const th_node_attr *name, PyObject *value) {
+static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *value) {
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: a value builder only fails on OOM */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1306,20 +1317,47 @@ static int emit_pair(PyObject *pairs, const th_node_attr *name, PyObject *value)
         Py_DECREF(value);   /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *pair = PyTuple_Pack(2, name_obj, value);
-    Py_DECREF(name_obj);
-    Py_DECREF(value);
-    if (pair == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *pair = PyTuple_New(2);
+    if (pair == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(name_obj); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(value);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyTuple_SET_ITEM(pair, 0, name_obj);
+    PyTuple_SET_ITEM(pair, 1, value);
+#ifdef FORM_WALKS_ANCESTOR_FIELDSETS
     int rc = PyList_Append(pairs, pair);
     Py_DECREF(pair);
     return rc; /* GCOVR_EXCL_BR_LINE: PyList_Append only fails on OOM */
+#else
+    if (pairs->count == pairs->capacity) {
+        size_t capacity, bytes; /* GCOVR_EXCL_BR_START: address-space limit */
+        if (!th_grow_cap((size_t)pairs->count + 1, (size_t)pairs->capacity, 16, sizeof(PyObject *), &capacity,
+                         &bytes)) {
+            Py_DECREF(pair);  /* GCOVR_EXCL_LINE */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_BR_STOP */
+        PyObject **items = PyMem_Realloc(pairs->items == pairs->local ? NULL : pairs->items, bytes);
+        if (items == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(pair);  /* GCOVR_EXCL_LINE */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        if (pairs->items == pairs->local) {
+            memcpy(items, pairs->local, (size_t)pairs->count * sizeof(PyObject *));
+        }
+        pairs->items = items;
+        pairs->capacity = (Py_ssize_t)capacity;
+    }
+    pairs->items[pairs->count++] = pair;
+    return 0;
+#endif
 }
 
 /* Append the submitted option(s) of a select as (name, value) pairs: every selected
    non-disabled option for a multiple select, else the resolved single selection. */
-static int collect_select(th_tree *tree, th_node *select, const th_node_attr *name, PyObject *pairs) {
+static int collect_select(th_tree *tree, th_node *select, const th_node_attr *name, form_pairs *pairs) {
     if (find_node_attr(select, TH_ATTR_MULTIPLE) != NULL) {
         for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
             if (option_disabled(option) || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
@@ -1339,7 +1377,7 @@ static int collect_select(th_tree *tree, th_node *select, const th_node_attr *na
 }
 
 /* Append node's submission pair(s) to pairs when it is a successful control. */
-static int collect_control(th_tree *tree, th_node *form, th_node *node, PyObject *pairs) {
+static int collect_control(th_tree *tree, th_node *form, th_node *node, form_pairs *pairs) {
     uint16_t atom = node->atom;
     if (atom != TH_TAG_INPUT && atom != TH_TAG_TEXTAREA && atom != TH_TAG_SELECT) {
         return 0;
@@ -1420,10 +1458,17 @@ static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored))
         return NULL;
     }
     th_tree *tree = tree_of(self);
-    PyObject *pairs = PyList_New(0);
+#ifdef FORM_WALKS_ANCESTOR_FIELDSETS
+    form_pairs *pairs = PyList_New(0);
     if (pairs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+#else
+    /* Older runtimes must preserve allocation-triggered callbacks during collection. */
+    PyObject *local[16];
+    form_pairs buffer = {.items = local, .local = local, .count = 0, .capacity = 16};
+    form_pairs *pairs = &buffer;
+#endif
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     th_node *control = next_form_control(node, node);
@@ -1435,11 +1480,28 @@ static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored))
         control = next_form_control(control, node);
     }
     Py_END_CRITICAL_SECTION();
+#ifdef FORM_WALKS_ANCESTOR_FIELDSETS
     if (error) {          /* GCOVR_EXCL_BR_LINE: error is set only on an allocation failure */
         Py_DECREF(pairs); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     return pairs;
+#else
+    PyObject *out = error ? NULL : PyList_New(pairs->count);        /* GCOVR_EXCL_BR_LINE: allocation failure */
+    if (out == NULL) {                                              /* GCOVR_EXCL_BR_LINE: allocation failure */
+        for (Py_ssize_t index = 0; index < pairs->count; index++) { /* GCOVR_EXCL_LINE */
+            Py_DECREF(pairs->items[index]);                         /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE */
+    } else { /* GCOVR_EXCL_LINE: allocation failure cleanup */
+        for (Py_ssize_t index = 0; index < pairs->count; index++) {
+            PyList_SET_ITEM(out, index, pairs->items[index]);
+        }
+    }
+    if (pairs->items != local) {
+        PyMem_Free(pairs->items);
+    }
+    return out;
+#endif
 }
 
 PyDoc_STRVAR(rows_doc, "rows()\n--\n\n"
