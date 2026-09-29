@@ -1840,7 +1840,7 @@ static int collect_bleach_origins(sanitizer *s, th_node *root) {
     return 0;
 }
 
-static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *attr) {
+static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *attr, Py_ssize_t name_length) {
     const th_src_loc *location = th_node_source_location(s->tree, element);
     th_src_span origin_span;
     if (location == NULL) {
@@ -1863,7 +1863,7 @@ static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *
             continue;
         }
         th_src_span span = location == NULL ? origin_span : location->attrs[index].span;
-        Py_ssize_t start = span.start_offset;
+        Py_ssize_t start = span.start_offset + name_length;
         Py_ssize_t end = span.end_offset;
         while (start < end && PyUnicode_READ(kind, data, start) != '=') {
             start++;
@@ -1908,8 +1908,8 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
-        PyObject *value = s->bleach_raw_values
-                              ? bleach_raw_value(s, element, attr)
+        PyObject *value = s->bleach_raw_values && key != NULL
+                              ? bleach_raw_value(s, element, attr, PyUnicode_GET_LENGTH(key))
                               : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
         if (key == NULL || value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_XDECREF(key);                /* GCOVR_EXCL_LINE */

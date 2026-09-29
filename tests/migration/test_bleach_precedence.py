@@ -134,6 +134,8 @@ def test_predicate_observes_unfiltered_css() -> None:
         pytest.param("<a title>x</a>", "", '<a title="">x</a>', 1, id="valueless"),
         pytest.param("<a title=>x</a>", "", '<a title="">x</a>', 1, id="empty-unquoted"),
         pytest.param("<a title = >x</a>", "", '<a title="">x</a>', 1, id="empty-spaced"),
+        pytest.param('<a =foo="bar">x</a>', "bar", '<a =foo="bar">x</a>', 1, id="equals-name"),
+        pytest.param("<a =x>x</a>", "", '<a =x="">x</a>', 1, id="equals-name-valueless"),
         pytest.param('<a title="">x</a>', "", '<a title="">x</a>', 1, id="empty-quoted"),
         pytest.param('<a title =  "&amp;">x</a>', "&amp;", '<a title="&amp;">x</a>', 1, id="spaced-equals"),
         pytest.param(
