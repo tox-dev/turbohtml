@@ -441,6 +441,28 @@ PyObject *turbohtml_query_closest(PyObject *module, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O!U", &PyList_Type, &nodes, &selector)) {
         return NULL;
     }
+#ifndef Py_GIL_DISABLED
+    uint16_t tag = TH_TAG_UNKNOWN;
+    Py_ssize_t len = PyUnicode_GET_LENGTH(selector);
+    char lowered[32];
+    if (len > 0 && len < (Py_ssize_t)sizeof(lowered)) {
+        int kind = PyUnicode_KIND(selector);
+        const void *data = PyUnicode_DATA(selector);
+        if (is_ascii_alpha(PyUnicode_READ(kind, data, 0))) {
+            Py_ssize_t index = 0;
+            for (; index < len; index++) {
+                Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+                if (!is_ascii_alpha(ch) && !is_ascii_digit(ch) && ch != '-') {
+                    break;
+                }
+                lowered[index] = (char)lower_ascii(ch);
+            }
+            if (index == len) {
+                tag = th_tag_lookup(lowered, len);
+            }
+        }
+    }
+#endif
     PyObject *out = PyList_New(0);
 #ifndef Py_GIL_DISABLED
     th_node_map seen = {0};
@@ -466,9 +488,18 @@ PyObject *turbohtml_query_closest(PyObject *module, PyObject *args) {
         }
 #ifndef Py_GIL_DISABLED
         th_node *node;
-        if (node_css_closest_borrowed(owner, selector, &node) < 0) {
-            status = -1;
-            break;
+        if (tag != TH_TAG_UNKNOWN && !th_tree_is_xml(((HandleObject *)((NodeObject *)owner)->handle)->tree)) {
+            node = ((NodeObject *)owner)->node;
+            for (; node != NULL; node = node->parent) {
+                if (node->type == TH_NODE_ELEMENT && node->atom == tag) {
+                    break;
+                }
+            }
+        } else {
+            if (node_css_closest_borrowed(owner, selector, &node) < 0) {
+                status = -1;
+                break;
+            }
         }
         if (node == NULL || th_node_map_find(&seen, node) != 0) {
             continue;
