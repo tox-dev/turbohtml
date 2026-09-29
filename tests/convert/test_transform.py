@@ -440,6 +440,59 @@ def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str
     assert _run(source, body) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r><n id="a" key="z"/><n id="b"/><n id="c" key="a"/><n id="d" key=""/></r>',
+            "bdca",
+            id="missing-and-empty",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n id="a" p:key="z"/><n id="b" key="a"/></r>',
+            "ab",
+            id="unprefixed-namespace",
+        ),
+        pytest.param(
+            '<r><n id="a" key="z"/><n id="b" key="a"/></r>',
+            "ba",
+            id="present",
+        ),
+    ],
+)
+def test_transform_sort_static_attribute(source: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run(source, body) == expected
+
+
+def test_transform_sort_static_attribute_tracks_mutation() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
+    convert = Transform(_sheet(body))
+    assert convert(document) == "ba"
+    document.select("n")[0].attrs["key"] = "0"
+    assert convert(document) == "ab"
+    document.select("n")[1].attrs["key"] = None
+    assert convert(document) == "ba"
+
+
+def test_transform_sort_static_attribute_on_attribute_context() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n/@id">'
+        '<xsl:sort select="@key"/><xsl:value-of select="."/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run('<r><n id="b" key="a"/><n id="a" key="b"/></r>', body) == "ba"
+
+
 def test_transform_sort_multiple_keys() -> None:
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'

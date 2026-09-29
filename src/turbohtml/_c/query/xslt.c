@@ -2351,6 +2351,8 @@ typedef struct {
     xp_program *prog;
     int numeric;
     int descending;
+    int direct_attribute;
+    uint32_t attribute_atom;
 } sort_spec;
 
 typedef struct {
@@ -2457,6 +2459,7 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
         specs[count].prog = prog;
         specs[count].numeric = type != NULL && ucs4_ascii_eq(type, type_len, "number");
         specs[count].descending = order != NULL && ucs4_ascii_eq(order, order_len, "descending");
+        specs[count].direct_attribute = xp_single_attribute_atom(prog, eng->src_tree, &specs[count].attribute_atom);
         count++;
     }
     return count;
@@ -2474,6 +2477,33 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
     for (Py_ssize_t index = 0; index < set->len; index++) {
         for (int spec = 0; spec < nspecs; spec++) {
             sort_item *slot = &items[index * nspecs + spec];
+            if (specs[spec].direct_attribute && set->items[index].attr == -1) {
+                th_node_attr *attributes;
+                Py_ssize_t count = th_node_attributes(set->items[index].node, &attributes);
+                const Py_UCS4 *text = NULL;
+                Py_ssize_t text_len = 0;
+                for (Py_ssize_t attribute = 0; attribute < count; attribute++) {
+                    if (attributes[attribute].name_atom == specs[spec].attribute_atom) {
+                        text = attributes[attribute].value;
+                        text_len = text == NULL ? 0 : attributes[attribute].value_len;
+                        break;
+                    }
+                }
+                slot->key = ucs4_dup(text, text_len);
+                if (slot->key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_LINE */
+                        PyMem_Free(items[done].key);                                  /* GCOVR_EXCL_LINE */
+                    } /* GCOVR_EXCL_LINE */
+                    PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
+                    return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+                }
+                slot->key_len = text_len;
+                slot->number = parse_number(slot->key, slot->key_len);
+                if (nspecs == 1 && specs[spec].numeric) {
+                    slot->index = index;
+                }
+                continue;
+            }
             xp_result value;
             int status = eval_program(eng, specs[spec].prog, set->items[index].node, index + 1, set->len, &value);
             if (status < 0) {
