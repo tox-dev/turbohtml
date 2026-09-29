@@ -1006,6 +1006,22 @@ TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObj
     if (use_index && query_is_simple_tag(&query)) {
         Py_SETREF(out, node_wrap_indexed(state, handle, query.tag_atom, query.limit));
         error = out == NULL;
+    } else if (use_index && query.nattr == 1 && query.class_ucs4 == NULL && query.class_filter == NULL &&
+               (query.attrs[0].kind == TH_FIND_PRESENT || query.attrs[0].kind == TH_FIND_ABSENT)) {
+        Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
+        for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
+            if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
+                break;
+            }
+            th_node *node = handle_obj->index_nodes[pos];
+            if ((find_node_attr(node, query.attrs[0].atom) != NULL) != (query.attrs[0].kind == TH_FIND_PRESENT)) {
+                continue;
+            }
+            if (append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                error = 1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
     } else if (use_index) {
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {

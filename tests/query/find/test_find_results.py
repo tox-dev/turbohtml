@@ -44,13 +44,25 @@ def test_find_all_results_after_mutation() -> None:
 
 
 @pytest.mark.parametrize("limit", [0, 1, 2, 9])
-def test_find_all_filtered_result_limit(limit: int) -> None:
-    document: Final = parse("<p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p>")
+@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
+@pytest.mark.parametrize("indexed", [True, False], ids=["indexed", "subtree"])
+def test_find_all_filtered_result_limit(limit: int, *, present: bool, indexed: bool) -> None:
+    document: Final = parse("<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>")
     document.find_all("span")
-    assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": True}, limit=limit)] == [
-        "a",
-        "c",
-    ][:limit]
+    origin: Final = document if indexed else document.find("section")
+    assert origin is not None
+    assert [element.attrs["id"] for element in origin.find_all("p", attrs={"data-x": present}, limit=limit)] == (
+        ["a", "c"] if present else ["b", "d"]
+    )[:limit]
+
+
+def test_find_all_filtered_result_after_attribute_mutation() -> None:
+    document: Final = parse("<p id='a' data-x></p><p id='b'></p><p id='c' data-x></p>")
+    document.find_all("span")
+    target: Final = document.find("p", id="b")
+    assert target is not None
+    target.attrs["data-x"] = None
+    assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": True})] == ["a", "b", "c"]
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
