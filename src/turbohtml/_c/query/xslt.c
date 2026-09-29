@@ -1571,6 +1571,10 @@ static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_resu
    source root once and recording the selected items. */
 static int build_rule(engine *eng, xslt_rule *rule) {
     rule->built = 1;
+    const xn *pattern = &rule->prog->nodes[rule->prog->root];
+    if (pattern->kind == XN_PATH && pattern->first < 0) {
+        return match_set_add(&rule->matched, eng->src_root, -1);
+    }
     xp_result matched;
     const char *feature = NULL;
     xslt_pattern_scope scope = {.eng = eng, .instruction = rule->body};

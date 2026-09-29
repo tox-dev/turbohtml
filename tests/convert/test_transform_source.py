@@ -67,6 +67,17 @@ def test_transform_source_root(source: Callable[[], Node], expected: str, select
     assert (convert(node), str(node), convert(node)) == (expected, original, expected)
 
 
+def test_transform_html_nonroot_pattern() -> None:
+    convert: Final = Transform(
+        parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:output method="text"/><xsl:template match="p"><xsl:text>hit</xsl:text></xsl:template>'
+            "</xsl:stylesheet>"
+        )
+    )
+    assert convert(parse_fragment("<p>x</p>")) == "hit"
+
+
 @pytest.mark.parametrize("fail", [pytest.param(False, id="success"), pytest.param(True, id="termination")])
 def test_transform_standalone_text_preserves_source(*, fail: bool) -> None:
     source: Final = Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
