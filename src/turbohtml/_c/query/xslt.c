@@ -30,6 +30,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <sys/stat.h>
+
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
@@ -6117,6 +6119,15 @@ static int import_open_root(import_policy *policy) {
     return policy->root_final == NULL ? -1 : 0;
 }
 
+static int import_windows_descriptor(HANDLE handle, PyObject *path) {
+    int descriptor = _open_osfhandle((intptr_t)handle, _O_RDONLY | _O_BINARY);
+    if (descriptor < 0) {
+        CloseHandle(handle);
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+    }
+    return descriptor;
+}
+
 static int import_open_file(import_policy *policy, PyObject *path) {
     HANDLE handle = import_windows_open(path, GENERIC_READ | FILE_READ_ATTRIBUTES,
                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL);
@@ -6136,12 +6147,13 @@ static int import_open_file(import_policy *policy, PyObject *path) {
         PyErr_Format(PyExc_ValueError, "xsl:import path escapes import_root: %S", path);
         return -1;
     }
-    int descriptor = _open_osfhandle((intptr_t)handle, _O_RDONLY | _O_BINARY);
-    if (descriptor < 0) {
-        CloseHandle(handle);
-        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
-    }
-    return descriptor;
+    return import_windows_descriptor(handle, path);
+}
+
+static int import_open_path(PyObject *path) {
+    HANDLE handle = import_windows_open(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                        FILE_ATTRIBUTE_NORMAL);
+    return handle == INVALID_HANDLE_VALUE ? -1 : import_windows_descriptor(handle, path);
 }
 #else
 static PyObject *import_fs_bytes(PyObject *path) {
@@ -6188,7 +6200,7 @@ static int import_open_beneath(int anchor, PyObject *path, PyObject *error_path,
             *separator = '\0';
         }
         int last_component = separator == NULL;
-        int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW;
+        int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK;
         if (!last_component || require_directory) {
             flags |= O_DIRECTORY;
         }
@@ -6231,6 +6243,23 @@ static int import_open_root(import_policy *policy) {
     return policy->root_fd < 0 ? -1 : 0;
 }
 
+static int import_open_path(PyObject *path) {
+    PyObject *bytes = import_fs_bytes(path);
+    if (bytes == NULL) { /* GCOVR_EXCL_BR_LINE: pathlib paths encode unless allocation fails */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    int descriptor;
+    do {
+        Py_BEGIN_ALLOW_THREADS descriptor = open(PyBytes_AS_STRING(bytes), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+        Py_END_ALLOW_THREADS
+    } while (descriptor < 0 && errno == EINTR); /* GCOVR_EXCL_BR_LINE: requires a signal during open */
+    if (descriptor < 0) {
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+    }
+    Py_DECREF(bytes);
+    return descriptor;
+}
+
 static int import_open_file(import_policy *policy, PyObject *path) {
     PyObject *relative = PyObject_CallMethod(path, "relative_to", "O", policy->root);
     if (relative == NULL) { /* GCOVR_EXCL_BR_LINE: import_check_root established containment */
@@ -6242,7 +6271,25 @@ static int import_open_file(import_policy *policy, PyObject *path) {
 }
 #endif
 
+static int import_descriptor_is_regular(int descriptor) {
+#ifdef _WIN32
+    struct _stat64 info = {0};
+    (void)_fstat64(descriptor, &info);
+    return (info.st_mode & _S_IFMT) == _S_IFREG;
+#else
+    struct stat info = {0};
+    (void)fstat(descriptor, &info);
+    return S_ISREG(info.st_mode);
+#endif
+}
+
 static PyObject *import_read_descriptor(int descriptor, PyObject *path) {
+    /* a FIFO or a device such as /dev/zero has no end of file, so reading one hangs or exhausts memory */
+    if (!import_descriptor_is_regular(descriptor)) {
+        import_descriptor_close(descriptor);
+        PyErr_Format(PyExc_ValueError, "xsl:import target is not a regular file: %S", path);
+        return NULL;
+    }
     char *data = NULL;
     size_t length = 0;
     size_t capacity = 0;
@@ -6273,13 +6320,13 @@ static PyObject *import_read_descriptor(int descriptor, PyObject *path) {
         if (count < 0 && errno == EINTR) { /* GCOVR_EXCL_BR_LINE: requires a signal during the read syscall */
             continue;                      /* GCOVR_EXCL_LINE */
         }
-        if (count < 0) {
-            int error = errno;
-            PyMem_Free(data);
-            import_descriptor_close(descriptor);
-            errno = error;
-            PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
-            return NULL;
+        if (count < 0) { /* GCOVR_EXCL_BR_LINE: a regular file read fails only on an I/O error a test cannot force */
+            int error = errno;                                         /* GCOVR_EXCL_LINE */
+            PyMem_Free(data);                                          /* GCOVR_EXCL_LINE */
+            import_descriptor_close(descriptor);                       /* GCOVR_EXCL_LINE */
+            errno = error;                                             /* GCOVR_EXCL_LINE */
+            PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path); /* GCOVR_EXCL_LINE */
+            return NULL;                                               /* GCOVR_EXCL_LINE */
         }
         if (count == 0) {
             break;
@@ -6293,10 +6340,7 @@ static PyObject *import_read_descriptor(int descriptor, PyObject *path) {
 }
 
 static PyObject *import_read_text(import_policy *policy, PyObject *path) {
-    if (policy->root == NULL) {
-        return PyObject_CallMethod(path, "read_text", "s", "utf-8");
-    }
-    int descriptor = import_open_file(policy, path);
+    int descriptor = policy->root == NULL ? import_open_path(path) : import_open_file(policy, path);
     if (descriptor < 0) {
         return NULL;
     }

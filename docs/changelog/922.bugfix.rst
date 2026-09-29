@@ -1,0 +1,1 @@
+Refuse an ``xsl:import`` of a FIFO, device or directory with ``ValueError`` instead of hanging or exhausting memory.

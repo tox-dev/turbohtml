@@ -2838,10 +2838,31 @@ def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     assert _canon(result) == "ok"
 
 
-def test_transform_import_root_rejects_directory(tmp_path: Path) -> None:
+_IMPORT_CONFINEMENT: Final = [pytest.param(True, id="import-root"), pytest.param(False, id="unconfined")]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="FIFOs are POSIX")
+@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
+def test_transform_import_rejects_fifo(tmp_path: Path, *, confined: bool) -> None:  # pragma: no cover - POSIX FIFO
+    os.mkfifo(tmp_path / "base.xsl")
+    with pytest.raises(ValueError, match="not a regular file"):
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows refuses to open a directory for reading")
+@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
+def test_transform_import_rejects_directory(  # pragma: no cover - POSIX opens a directory
+    tmp_path: Path, *, confined: bool
+) -> None:
     (tmp_path / "base.xsl").mkdir()
-    with pytest.raises(OSError, match=r"base\.xsl"):
-        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+    with pytest.raises(ValueError, match="not a regular file"):
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX device path")
+def test_transform_import_rejects_device_file(tmp_path: Path) -> None:  # pragma: no cover - POSIX device path
+    with pytest.raises(ValueError, match="not a regular file"):
+        Transform(_import_sheet(os.devnull), base_url=str(tmp_path / "main.xsl"))
 
 
 def test_transform_import_root_rejects_invalid_utf8(tmp_path: Path) -> None:
@@ -2864,19 +2885,25 @@ def test_transform_import_accepts_filesystem_root(tmp_path: Path) -> None:  # pr
 
 
 @pytest.mark.parametrize(
-    ("href", "content", "error", "match"),
+    ("href", "content", "raises"),
     [
-        pytest.param("x", None, FileNotFoundError, r"[/\\]x", id="missing file"),
-        pytest.param("imported.xsl", "<broken>", turbohtml.HTMLParseError, "xml-premature-eof", id="malformed XML"),
+        pytest.param("x", None, pytest.RaisesExc(FileNotFoundError, match=r"[/\\]x"), id="missing file"),
+        pytest.param(
+            "imported.xsl",
+            "<broken>",
+            pytest.RaisesExc(turbohtml.HTMLParseError, match="xml-premature-eof"),
+            id="malformed XML",
+        ),
     ],
 )
+@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
 def test_transform_import_reports_file_error(
-    tmp_path: Path, href: str, content: str | None, error: type[Exception], match: str
+    tmp_path: Path, href: str, content: str | None, raises: pytest.RaisesExc[Exception], *, confined: bool
 ) -> None:
     if content is not None:
         (tmp_path / href).write_text(content, encoding="utf-8")
-    with pytest.raises(error, match=match):
-        Transform(_import_sheet(href), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)
+    with raises:
+        Transform(_import_sheet(href), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
 
 
 def test_transform_import_rejects_malformed_url() -> None:
