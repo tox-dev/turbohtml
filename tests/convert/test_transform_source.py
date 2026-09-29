@@ -67,6 +67,17 @@ def test_transform_source_root(source: Callable[[], Node], expected: str, select
     assert (convert(node), str(node), convert(node)) == (expected, original, expected)
 
 
+def test_transform_html_nonroot_pattern() -> None:
+    convert: Final = Transform(
+        parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:output method="text"/><xsl:template match="p"><xsl:text>hit</xsl:text></xsl:template>'
+            "</xsl:stylesheet>"
+        )
+    )
+    assert convert(parse_fragment("<p>x</p>")) == "hit"
+
+
 @pytest.mark.parametrize("fail", [pytest.param(False, id="success"), pytest.param(True, id="termination")])
 def test_transform_standalone_text_preserves_source(*, fail: bool) -> None:
     source: Final = Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
@@ -105,3 +116,24 @@ def test_transform_fragment_document_context(select: str, expected: str) -> None
         )
     )
     assert convert(_fragment()) == expected
+
+
+@pytest.mark.parametrize("level", ["single", "multiple", "any"])
+@pytest.mark.parametrize("child", [False, True], ids=["root", "child"])
+def test_transform_detached_namespace_numbering(level: str, *, child: bool) -> None:
+    document: Final = parse_xml(
+        '<outer><root xmlns:a="urn:same" xmlns:b="urn:same"><a:n/><b:n/><a:n xmlns:a="urn:other"/></root></outer>'
+    )
+    root: Final = document.find("root")
+    assert root is not None
+    document.remove("root")
+    source: Final = root.children[0] if child else root
+    convert: Final = Transform(
+        parse_xml(
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+            '<xsl:output method="text"/><xsl:template match="/">'
+            f'<xsl:for-each select="root/*"><xsl:number level="{level}"/>'
+            "<xsl:text>,</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+        )
+    )
+    assert (convert(source), convert(source)) == ("1,2,1,", "1,2,1,")

@@ -185,6 +185,9 @@ typedef struct {
     PyObject **regex_cache;
     xp_live_registry *live;
     xp_before_python_fn before_python;
+    xp_name_test_fn name_test;
+    void *name_test_ctx;
+    int strict_no_ns;
 } xp_ctx;
 
 struct xp_live_frame {
