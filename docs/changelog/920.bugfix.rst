@@ -1,0 +1,1 @@
+Check ``<meta http-equiv="refresh">`` redirect URLs against ``url_schemes``.

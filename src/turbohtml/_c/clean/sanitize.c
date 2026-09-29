@@ -277,6 +277,79 @@ static int is_srcset_attr(const char *name, Py_ssize_t len) {
     return 0;
 }
 
+static Py_ssize_t skip_space(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t len) {
+    while (pos < len && is_space(value[pos])) {
+        pos++;
+    }
+    return pos;
+}
+
+/* A <meta http-equiv=refresh> navigates to the URL inside its content attribute, so that URL gets the same scheme
+   check as an href. The span follows the HTML "shared declarative refresh steps"; returns 0 when content names no URL,
+   which refreshes the current document. */
+static int refresh_url(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end) {
+    Py_ssize_t pos = skip_space(value, 0, len);
+    Py_ssize_t digits = pos;
+    while (pos < len && is_ascii_digit(value[pos])) {
+        pos++;
+    }
+    if (pos == digits && (pos == len || value[pos] != '.')) {
+        return 0;
+    }
+    while (pos < len && (is_ascii_digit(value[pos]) || value[pos] == '.')) {
+        pos++;
+    }
+    if (pos < len) {
+        if (value[pos] != ';' && value[pos] != ',' && !is_space(value[pos])) {
+            return 0;
+        }
+        pos = skip_space(value, pos, len);
+        if (pos < len && (value[pos] == ';' || value[pos] == ',')) {
+            pos++;
+        }
+        pos = skip_space(value, pos, len);
+    }
+    *start = pos;
+    *end = len;
+    if (pos < len && lower_ascii(value[pos]) == 'u') {
+        /* anything short of "url" then "=" is itself the URL, read from the "u" */
+        if (pos + 2 >= len || lower_ascii(value[pos + 1]) != 'r' || lower_ascii(value[pos + 2]) != 'l') {
+            return 1;
+        }
+        pos = skip_space(value, pos + 3, len);
+        if (pos == len || value[pos] != '=') {
+            return 1;
+        }
+        pos = skip_space(value, pos + 1, len);
+        *start = pos;
+    }
+    if (pos < len && (value[pos] == '"' || value[pos] == '\'')) {
+        Py_UCS4 quote = value[pos];
+        *start = ++pos;
+        while (pos < len && value[pos] != quote) {
+            pos++;
+        }
+        *end = pos;
+    }
+    return *start < *end;
+}
+
+static int is_refresh_meta(sanitizer *s, th_node *element) {
+    if (element->atom != TH_TAG_META) {
+        return 0;
+    }
+    Py_ssize_t index = th_node_attr_find(s->tree, element, "http-equiv", 10);
+    if (index < 0 || element->attrs[index].value_len != 7) {
+        return 0;
+    }
+    for (Py_ssize_t pos = 0; pos < 7; pos++) {
+        if (lower_ascii(element->attrs[index].value[pos]) != (Py_UCS4) "refresh"[pos]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int attribute_prefix_matches(PyObject *prefix, const char *name, Py_ssize_t len) {
     Py_ssize_t prefix_len = 0;
     const char *prefix_bytes = PyUnicode_AsUTF8AndSize(prefix, &prefix_len);
@@ -1581,6 +1654,16 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
         int keep = s->bleach_url_policy && !isolate /* GCOVR_EXCL_BR_LINE: migration does not rewrite attributes */
                        ? bleach_url_allowed(s, element, attr, name, name_len)
                        : scheme_allowed(s, attr->value, attr->value_len);
+        if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
+            return ATTRIBUTE_SAFETY_ERROR; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        url_disallowed = !keep;
+    }
+    Py_ssize_t url_start = 0;
+    Py_ssize_t url_end = 0;
+    if (!drop && name_len == 7 && memcmp(name, "content", 7) == 0 && is_refresh_meta(s, element) &&
+        refresh_url(attr->value, attr->value_len, &url_start, &url_end)) {
+        int keep = scheme_allowed(s, attr->value + url_start, url_end - url_start);
         if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
             return ATTRIBUTE_SAFETY_ERROR; /* GCOVR_EXCL_LINE: allocation-failure path */
         }

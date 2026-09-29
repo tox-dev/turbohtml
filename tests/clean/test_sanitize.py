@@ -1014,6 +1014,53 @@ def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool)
     assert (attr in out) is kept
 
 
+@pytest.mark.parametrize(
+    ("content", "kept"),
+    [
+        pytest.param("0;url=javascript:alert(1)", False, id="script-url"),
+        pytest.param("0; URL = 'javascript:alert(1)'", False, id="quoted-uppercase-prefix"),
+        pytest.param("0,javascript:alert(1)", False, id="comma-bare-url"),
+        pytest.param("0 javascript:alert(1)", False, id="space-bare-url"),
+        pytest.param(".5;url=data:text/html,x", False, id="fractional-time-data-url"),
+        pytest.param("0;url:alert(1)", False, id="url-word-without-equals-is-the-url"),
+        pytest.param("0 ;url=javascript:alert(1)", False, id="space-before-separator"),
+        pytest.param("0;url=&quot;javascript:alert(1)&quot;", False, id="double-quoted-url"),
+        pytest.param("0;url='javascript:alert(1)", False, id="unterminated-quote"),
+        pytest.param("0;url=https://example.org/", True, id="allowed-scheme"),
+        pytest.param("0;url=/local", True, id="relative"),
+        pytest.param("5", True, id="time-only"),
+        pytest.param("5 ", True, id="time-trailing-space"),
+        pytest.param("", True, id="empty"),
+        pytest.param("0;url", True, id="url-word-alone"),
+        pytest.param("0;u", True, id="short-u"),
+        pytest.param("0;urx=javascript:x", True, id="u-prefix-not-url"),
+        pytest.param("0;uxl=javascript:x", True, id="u-then-not-r"),
+        pytest.param("0;url=", True, id="empty-url"),
+        pytest.param("0;url=''", True, id="empty-quoted-url"),
+        pytest.param("0;url='java'script:x", True, id="quote-ends-url"),
+        pytest.param("x;url=javascript:x", True, id="no-time-no-refresh"),
+        pytest.param("0x;url=javascript:x", True, id="bad-separator-no-refresh"),
+    ],
+)
+def test_meta_refresh_url_is_scheme_checked(content: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+    html = f'<meta http-equiv="Refresh" content="{content}">'
+    out = sanitize(html, _allow_all({"meta"}, {"http-equiv", "content"}))
+    assert out == (html if kept else '<meta http-equiv="Refresh">')
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param('<meta name="description" content="0;url=javascript:x">', id="no-http-equiv"),
+        pytest.param('<meta http-equiv="content-type" content="0;url=javascript:x">', id="other-http-equiv"),
+        pytest.param('<meta http-equiv="refrezh" content="0;url=javascript:x">', id="near-miss-http-equiv"),
+        pytest.param('<x http-equiv="refresh" content="0;url=javascript:x"></x>', id="not-meta"),
+    ],
+)
+def test_meta_content_without_refresh_is_not_scheme_checked(html: str) -> None:
+    assert sanitize(html, _allow_all({"meta", "x"}, {"http-equiv", "content", "name"})) == html
+
+
 def test_eleven_char_non_srcset_attribute_is_not_url_checked() -> None:
     # placeholder is eleven characters but is not imagesrcset, so its value is never scheme-checked.
     policy = _allow_all({"x"}, {"placeholder"})
