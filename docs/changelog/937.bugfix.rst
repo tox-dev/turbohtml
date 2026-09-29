@@ -1,0 +1,2 @@
+Leave out an XSLT element, attribute or processing instruction whose computed name is invalid, keeping an element's
+content, instead of writing the name as markup.

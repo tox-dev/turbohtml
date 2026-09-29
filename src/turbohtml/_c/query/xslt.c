@@ -21,6 +21,7 @@
 #include "dom/nodes.h"
 #include "dom/tree.h"
 #include "tokenizer/binding.h"
+#include "tokenizer/xml_names.h"
 #include "query/xpath/internal.h"
 
 #include <errno.h>
@@ -147,7 +148,7 @@ static char *ucs4_to_utf8(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_le
    treats a known void element (br, img, ...) correctly. TH_TAG_UNKNOWN for a name
    that is not a known HTML tag; the name is matched ASCII-case-insensitively. */
 static uint16_t atom_for_name(const Py_UCS4 *name, Py_ssize_t len) {
-    if (len == 0 || len > 64) {
+    if (len > 64) {
         return TH_TAG_UNKNOWN;
     }
     char lowered[64];
@@ -2251,6 +2252,60 @@ static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t na
     return rc;
 }
 
+enum computed_name { NAME_ELEMENT, NAME_ATTRIBUTE, NAME_NAMESPACED_ATTRIBUTE, NAME_PI_TARGET };
+
+/* A node name an XSLT instruction computes reaches the output unescaped, so XSLT 1.0 7.1.2, 7.1.3 and 7.3 hold it to
+   these Namespaces in XML productions. */
+static int xml_is_ncname(const Py_UCS4 *name, Py_ssize_t len) {
+    if (len == 0 || name[0] == ':' || !is_name_start(name[0])) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < len; index++) {
+        if (name[index] == ':' || !is_name_char(name[index])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int xml_is_qname(const Py_UCS4 *name, Py_ssize_t len) {
+    for (Py_ssize_t colon = 0; colon < len; colon++) {
+        if (name[colon] == ':') {
+            return xml_is_ncname(name, colon) && xml_is_ncname(name + colon + 1, len - colon - 1);
+        }
+    }
+    return xml_is_ncname(name, len);
+}
+
+/* A computed name reaches the output unescaped, so source data could spell extra markup. A name with the xmlns prefix
+   would declare a namespace; only an attribute with a namespace URI may keep it, since 7.1.3 re-prefixes that one. */
+static int computed_name_valid(enum computed_name kind, const Py_UCS4 *name, Py_ssize_t len) {
+    if (kind == NAME_PI_TARGET) {
+        return xml_is_ncname(name, len) &&
+               !(len == 3 && lower_ascii(name[0]) == 'x' && lower_ascii(name[1]) == 'm' && lower_ascii(name[2]) == 'l');
+    }
+    return xml_is_qname(name, len) && !(kind != NAME_ELEMENT && ucs4_ascii_eq(name, len, "xmlns")) &&
+           !(kind != NAME_NAMESPACED_ATTRIBUTE && len > 6 && ucs4_ascii_eq(name, 6, "xmlns:"));
+}
+
+/* XSLT 1.0 7.1.2 recovery for an invalid element name: the content lands in the parent without the element. It is
+   built in a fragment first, where xsl:attribute finds no element and drops the attributes the element would carry. */
+static int instantiate_without_element(engine *eng, th_node *instruction, th_node *out_parent) {
+    th_node *holder = th_tree_make_fragment(eng->out_tree);
+    if (holder == NULL) {                  /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    if (instantiate_body(eng, instruction, holder) < 0) {
+        return -1;
+    }
+    while (holder->first_child != NULL) {
+        th_node *child = holder->first_child;
+        th_node_remove(child);
+        th_node_append_child(out_parent, child);
+    }
+    return 0;
+}
+
 /* xsl:element name={avt}: create an element and instantiate its body inside it. */
 static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t name_len = 0;
@@ -2262,6 +2317,10 @@ static int do_element(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t resolved_len = 0;
     if (eval_avt(eng, name_avt, name_len, &name, &resolved_len) < 0) {
         return -1;
+    }
+    if (!computed_name_valid(NAME_ELEMENT, name, resolved_len)) {
+        PyMem_Free(name);
+        return instantiate_without_element(eng, instruction, out_parent);
     }
     uint16_t atom = atom_for_name(name, resolved_len);
     th_node *element = th_tree_make_element(eng->out_tree, name, resolved_len, atom, 0);
@@ -2374,23 +2433,28 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
     if (eval_avt(eng, name_avt, name_len, &name, &resolved_len) < 0) {
         return -1;
     }
-    Py_UCS4 *value;
-    Py_ssize_t value_len = 0;
-    if (instantiate_string(eng, instruction, &value, &value_len) < 0) {
-        PyMem_Free(name);
-        return -1;
-    }
     Py_ssize_t ns_avt_len = 0;
     const Py_UCS4 *ns_avt = attr_lookup(eng->sheet_tree, instruction, "namespace", 9, &ns_avt_len);
     Py_UCS4 *nsuri = NULL;
     Py_ssize_t nsuri_len = 0;
     if (ns_avt != NULL && eval_avt(eng, ns_avt, ns_avt_len, &nsuri, &nsuri_len) < 0) {
         PyMem_Free(name);
-        PyMem_Free(value);
         return -1;
     }
     /* eval_avt yields a NULL buffer for an empty result, so a namespace="" attribute leaves nsuri
        NULL and falls through to a plain name; a non-NULL nsuri always has a positive length. */
+    if (!computed_name_valid(nsuri != NULL ? NAME_NAMESPACED_ATTRIBUTE : NAME_ATTRIBUTE, name, resolved_len)) {
+        PyMem_Free(name);
+        PyMem_Free(nsuri);
+        return 0; /* XSLT 1.0 7.1.3 recovery: skip the attribute */
+    }
+    Py_UCS4 *value;
+    Py_ssize_t value_len = 0;
+    if (instantiate_string(eng, instruction, &value, &value_len) < 0) {
+        PyMem_Free(name);
+        PyMem_Free(nsuri);
+        return -1;
+    }
     if (nsuri != NULL) {
         int rc = do_attribute_ns(eng, out_parent, name, resolved_len, nsuri, nsuri_len, value, value_len);
         PyMem_Free(name);
@@ -2506,6 +2570,10 @@ static int do_pi(engine *eng, th_node *instruction, th_node *out_parent) {
     Py_ssize_t target_len = 0;
     if (eval_avt(eng, name_avt, name_len, &target, &target_len) < 0) {
         return -1;
+    }
+    if (!computed_name_valid(NAME_PI_TARGET, target, target_len)) {
+        PyMem_Free(target);
+        return 0; /* XSLT 1.0 7.3 recovery: ignore the instruction */
     }
     Py_UCS4 *raw;
     Py_ssize_t raw_len = 0;

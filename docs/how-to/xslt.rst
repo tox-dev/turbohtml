@@ -95,6 +95,11 @@ An ``xsl:attribute-set`` whose ``use-attribute-sets`` chain leads back to itself
 The ``html`` method ends a processing instruction at its first ``>`` and has no escape for one, so a result holding such
 a processing instruction raises :exc:`ValueError`.
 
+A name that ``xsl:element``, ``xsl:attribute`` or ``xsl:processing-instruction`` computes at run time must be a QName,
+or for a processing instruction a PITarget (not ``xml`` in any case). An attribute name must not be ``xmlns``, and only
+an attribute with a ``namespace`` may use the ``xmlns`` prefix. The transform leaves out a node with any other name and
+keeps an element's content in its place.
+
 *********************
  Import a stylesheet
 *********************

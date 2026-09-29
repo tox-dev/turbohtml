@@ -197,14 +197,12 @@ th_node *th_tree_make_element(th_tree *tree, const Py_UCS4 *tag, Py_ssize_t tag_
         node->tag_flags |= TH_ELEM_CLOSED_BY_END_TAG;
     }
     if (atom == TH_TAG_UNKNOWN || tag != NULL) {
-        if (tag_len > 0) {
-            Py_UCS4 *owned = arena_alloc(tree, tag_len * (Py_ssize_t)sizeof(Py_UCS4));
-            if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            memcpy(owned, tag, (size_t)tag_len * sizeof(Py_UCS4));
-            node->text = owned;
+        Py_UCS4 *owned = arena_alloc(tree, tag_len * (Py_ssize_t)sizeof(Py_UCS4));
+        if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        memcpy(owned, tag, (size_t)tag_len * sizeof(Py_UCS4));
+        node->text = owned;
         node->text_len = tag_len;
     } else {
         node->text = (Py_UCS4 *)th_tag_wide_name(atom);

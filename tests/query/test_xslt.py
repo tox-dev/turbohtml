@@ -1916,6 +1916,91 @@ def test_transform_element_with_empty_name() -> None:
     assert "x" in _run("<r/>", body, method="xml")
 
 
+def _run_computed_name(instruction: str, name: str) -> str:
+    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
+    return _run(f"<n>{name}</n>", body, method="xml")
+
+
+_COMPUTED_ELEMENT: Final = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
+_COMPUTED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}">v</xsl:attribute>'
+_COMPUTED_NAMESPACED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
+_COMPUTED_PI: Final = '<xsl:processing-instruction name="{/n}">d</xsl:processing-instruction>'
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("b onclick", id="space"),
+        pytest.param("a&gt;b", id="greater-than"),
+        pytest.param("", id="empty"),
+        pytest.param("p:q:r", id="two-colons"),
+        pytest.param(":a", id="leading-colon"),
+        pytest.param("a:", id="trailing-colon"),
+        pytest.param("xmlns:a", id="xmlns-prefix"),
+        pytest.param("1a", id="digit-start"),
+    ],
+)
+def test_transform_invalid_element_name_keeps_content_only(name: str) -> None:
+    # XSLT 1.0 7.1.2 recovery: the content without the element or the attributes it would carry
+    assert _run_computed_name(_COMPUTED_ELEMENT, name) == "<r>e</r>"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("p:q", '<r><p:q a="1">e</p:q></r>', id="qname"),
+        pytest.param("é", '<r><é a="1">e</é></r>', id="non-ascii"),
+    ],
+)
+def test_transform_valid_element_name_is_kept(name: str, expected: str) -> None:
+    assert _run_computed_name(_COMPUTED_ELEMENT, name) == expected
+
+
+@pytest.mark.parametrize(
+    ("instruction", "name", "expected"),
+    [
+        pytest.param(_COMPUTED_ATTRIBUTE, "b onclick", "<r/>", id="space-dropped"),
+        pytest.param(_COMPUTED_ATTRIBUTE, "xmlns", "<r/>", id="xmlns-dropped"),
+        pytest.param(_COMPUTED_ATTRIBUTE, "xmlns:foo", "<r/>", id="xmlns-prefix-dropped"),
+        pytest.param(_COMPUTED_ATTRIBUTE, "p:q", '<r p:q="v"/>', id="qname-kept"),
+        pytest.param(_COMPUTED_NAMESPACED_ATTRIBUTE, "xmlns", "<r/>", id="namespaced-xmlns-dropped"),
+        pytest.param(
+            _COMPUTED_NAMESPACED_ATTRIBUTE,
+            "xmlns:foo",
+            '<r xmlns:ns_1="urn:x" ns_1:foo="v"/>',
+            id="namespaced-xmlns-prefix-replaced",
+        ),
+    ],
+)
+def test_transform_computed_attribute_name(instruction: str, name: str, expected: str) -> None:
+    # XSLT 1.0 7.1.3 recovery: skip an attribute with an invalid name
+    assert _run_computed_name(instruction, name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("b onclick", "<r/>", id="space-dropped"),
+        pytest.param("p:q", "<r/>", id="colon-dropped"),
+        pytest.param("XmL", "<r/>", id="xml-any-case-dropped"),
+        pytest.param(":a", "<r/>", id="leading-colon-dropped"),
+        pytest.param("xmlfoo", "<r><?xmlfoo d?></r>", id="xml-prefix-kept"),
+        pytest.param("abc", "<r><?abc d?></r>", id="three-letters-kept"),
+        pytest.param("xab", "<r><?xab d?></r>", id="x-then-other-kept"),
+        pytest.param("xmz", "<r><?xmz d?></r>", id="xm-then-other-kept"),
+    ],
+)
+def test_transform_computed_pi_target(name: str, expected: str) -> None:
+    # XSLT 1.0 7.3 recovery: ignore an instruction whose name is not a PITarget
+    assert _run_computed_name(_COMPUTED_PI, name) == expected
+
+
+def test_transform_invalid_element_name_still_runs_its_content() -> None:
+    body = '<xsl:element name="{/n}"><xsl:message terminate="yes">stop</xsl:message></xsl:element>'
+    with pytest.raises(RuntimeError, match="stop"):
+        _run_computed_name(body, "b onclick")
+
+
 def test_transform_html_source_with_template_content() -> None:
     source = turbohtml.parse("<html><body><template><p>hi</p></template></body></html>")
     sheet = _sheet('<xsl:template match="/"><xsl:apply-templates/></xsl:template>')
