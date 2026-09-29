@@ -1940,7 +1940,8 @@ static Py_ssize_t bleach_uri_entity(const Py_UCS4 *value, Py_ssize_t len, Py_ssi
     char name[HTML5_MAX_NAME_LEN];
     Py_ssize_t count = 0;
     while (end < len && count < (Py_ssize_t)sizeof(name) &&
-           ((value[end] >= 'a' && value[end] <= 'z') || (value[end] >= 'A' && value[end] <= 'Z') ||
+           ((value[end] >= 'a' && value[end] <= 'z') ||  /* GCOVR_EXCL_BR_LINE: GCC short-circuit edge */
+            (value[end] >= 'A' && value[end] <= 'Z') ||  /* GCOVR_EXCL_BR_LINE: GCC splits the short-circuit edge */
             (value[end] >= '0' && value[end] <= '9'))) { /* GCOVR_EXCL_BR_LINE: LLVM splits the short-circuit edge */
         name[count++] = (char)value[end++];
     }
@@ -2017,10 +2018,8 @@ static int bleach_url_has_raw_amp(sanitizer *s, th_node *element, th_node_attr *
     th_src_span span;
     if (location == NULL) {
         bleach_origin key = {.value = attr->value, .name_atom = attr->name_atom};
-        bleach_origin *found = s->bleach_origins == NULL /* GCOVR_EXCL_BR_LINE: clone origins are collected first */
-                                   ? NULL
-                                   : bsearch(&key, s->bleach_origins, (size_t)s->bleach_origin_count,
-                                             sizeof(bleach_origin), compare_bleach_origins);
+        bleach_origin *found = bsearch(&key, s->bleach_origins, (size_t)s->bleach_origin_count, sizeof(bleach_origin),
+                                       compare_bleach_origins);
         if (found == NULL) { /* GCOVR_EXCL_BR_LINE: parser clones share the source attribute buffer */
             return 1;        /* GCOVR_EXCL_LINE: clone origins are collected first */
         }
@@ -3346,8 +3345,11 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         th_tree_free(s.tree);                           /* GCOVR_EXCL_LINE */
         return NULL;                                    /* GCOVR_EXCL_LINE */
     }
-    int failed = (s.bleach_raw_values || s.bleach_raw_urls) && retained_source != NULL &&
-                 collect_bleach_origins(&s, root) < 0; /* GCOVR_EXCL_BR_LINE: origin-map allocation failure */
+    int failed = 0;
+    if ((s.bleach_raw_values || s.bleach_raw_urls) &&
+        retained_source != NULL) {                     /* GCOVR_EXCL_BR_LINE: raw checks require source text */
+        failed = collect_bleach_origins(&s, root) < 0; /* GCOVR_EXCL_BR_LINE: origin-map allocation failure */
+    }
     if (!failed) { /* GCOVR_EXCL_BR_LINE: only origin-map allocation failure skips the walk */
         failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
     }
