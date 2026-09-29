@@ -202,7 +202,33 @@ typedef struct {
     Py_ssize_t len;
     Py_ssize_t cap;
     int failed;
+    int depth; /* parser recursion depth, kept on the vector every parser holds to avoid a thread-local lookup */
 } token_vec;
+
+/* Untrusted nesting drives the parsers into C recursion. 100 sits between rust-cssparser's 75 and WebKit's 128; the
+   deepest shape, nested @media, then needs about 42 KiB of stack with clang -O3, a third of a 128 KiB thread. */
+#define CSS_MAX_NESTING 100
+
+static inline int css_nesting_enter(token_vec *vec) {
+    if (vec->depth >= CSS_MAX_NESTING) {
+        return 0;
+    }
+    vec->depth++;
+    return 1;
+}
+
+static inline void css_nesting_leave(token_vec *vec) {
+    vec->depth--;
+}
+
+/* Keeps a helper's locals out of a recursive caller's frame, where inlining multiplies them by the nesting depth. */
+#if defined(_MSC_VER)
+#define CSS_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define CSS_NOINLINE __attribute__((noinline))
+#else
+#define CSS_NOINLINE
+#endif
 
 static void token_vec_push(token_vec *vec, css_token token) {
     if (vec->len == vec->cap) {

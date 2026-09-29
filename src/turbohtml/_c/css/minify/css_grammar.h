@@ -488,6 +488,14 @@ static void css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
 
 /* Parse a declaration list (between { }); appends declarations (and nested rules) to decls. */
 static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) {
+    if (!css_nesting_enter(cur->vec)) {
+        /* over-nested: drop this block's remaining declarations rather than recurse into a C stack overflow */
+        css_read_until(cur, "}");
+        if (cur->index < cur->vec->len) {
+            cur->index++;
+        }
+        return;
+    }
     comp_vec scratch = {NULL, 0, 0, 0}; /* reused across this list's values, freed once below */
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
@@ -550,6 +558,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
         }
     }
     css_free(scratch.items);
+    css_nesting_leave(cur->vec);
 }
 
 /* A top-level node collected before serialization, so adjacent qualified rules can be merged. is_rule holds a
@@ -679,12 +688,13 @@ static void css_rule_hash_add(uint32_t *table, size_t mask, uint32_t hash) {
 
 /* Re-minify "prev_body;it_body" so a same-selector merge dedups overlapping declarations the same way one rule would.
  */
-static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_item *it, int baseline) {
+static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_item *it, int baseline, int depth) {
     css_buf combined = {NULL, 0, 0, 0};
     cbuf_put_run(&combined, pool->data + prev->body_off, prev->body_len);
     cbuf_putc(&combined, ';');
     cbuf_put_run(&combined, pool->data + it->body_off, it->body_len);
-    token_vec tokens = {NULL, 0, 0, 0};
+    /* the merged body parses below the rule list that holds it, so it inherits that list's depth */
+    token_vec tokens = {NULL, 0, 0, 0, depth};
     css_tokenize(combined.data, combined.len, &tokens);
     cursor inner = {&tokens, 0, baseline};
     decl_vec decls = {NULL, 0, 0, 0};
@@ -892,9 +902,8 @@ static int css_summaries_conflict(const css_buf *pool, const rule_item *first, c
    A rule may merge with an earlier one across intervening rules, but only while every rule between them sets no
    property the moved body sets (so the cascade cannot change); an opaque node (a bang comment) or a conflicting rule
    ends the reach. Consecutive @media blocks with an identical prelude fold into one wrapper. */
-static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline) {
+CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
     css_body_summary *summaries = NULL;
-    uint32_t stack_hashes[1024];
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
     if (items->len > 32) {
@@ -902,8 +911,9 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
         while (hash_cap < (size_t)items->len * 4) {
             hash_cap *= 2;
         }
-        hashes = hash_cap <= sizeof(stack_hashes) / sizeof(stack_hashes[0]) ? stack_hashes
-                                                                            : css_malloc(hash_cap * sizeof(uint32_t));
+        /* on the heap: css_parse_rules recurses per nested block, and a 4 KiB table inlined into its frame cost each
+           level that much stack */
+        hashes = css_malloc(hash_cap * sizeof(uint32_t));
         if (hashes != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure falls back to the backward scan */
             memset(hashes, 0, hash_cap * sizeof(uint32_t));
         }
@@ -966,7 +976,7 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
                 break;
             }
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-                css_merge_rule_bodies(pool, target, it, baseline);
+                css_merge_rule_bodies(pool, target, it, baseline, depth);
                 it->dropped = 1;
                 merged = target;
                 break;
@@ -1032,9 +1042,7 @@ static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baselin
         }
         css_free(summaries);
     }
-    if (hashes != NULL && hashes != stack_hashes) {
-        css_free(hashes);
-    }
+    css_free(hashes);
 }
 
 /* An empty conditional group rule (@media/@supports/@container with a `{}` body) has no effect, so it is dropped. Other
@@ -1057,6 +1065,15 @@ static int css_is_empty_conditional_atrule(const css_char *text, Py_ssize_t len)
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. */
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, css_buf *out) {
+    if (!css_nesting_enter(cur->vec)) {
+        /* over-nested: drop the remaining rules rather than overflow the C stack; only a nested call bails, so
+           consume its closing brace when the input has one */
+        css_read_until(cur, "}");
+        if (cur->index < cur->vec->len) {
+            cur->index++;
+        }
+        return;
+    }
     rule_vec items = {NULL, 0, 0, 0};
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
@@ -1101,7 +1118,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
             }
         }
     }
-    css_merge_adjacent_rules(pool, &items, cur->baseline);
+    css_merge_adjacent_rules(pool, &items, cur->baseline, cur->vec->depth);
     int prev_at_statement = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
@@ -1123,6 +1140,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
         }
     }
     css_free(items.items);
+    css_nesting_leave(cur->vec);
 }
 
 #endif /* TURBOHTML_CSS_GRAMMAR_H */

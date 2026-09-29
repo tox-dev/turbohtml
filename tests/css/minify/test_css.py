@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -722,6 +724,111 @@ def test_logical_shorthand_kept_when_physical_alias_present() -> None:
 
 def test_minify_css_inline_takes_baseline() -> None:
     assert minify_css_inline("top:0;right:0;bottom:0;left:0", _NEWLY) == "inset:0"
+
+
+# each shape nests one bracket kind, paired with the deepest count the minifier still descends into; the unterminated
+# shapes never close, so the bail reaches end-of-input with no matching brace to consume
+_NESTING_SHAPES: Final = """
+import sys
+import threading
+
+from turbohtml.clean import minify_css
+
+SHAPES = {
+    "blocks": (lambda n: "@media screen{" * n + "a{color:red}" + "}" * n, 98),
+    "declarations": (lambda n: "a{" + "&{" * n + "color:red" + "}" * n + "}", 98),
+    "functions": (lambda n: "a{b:" + "f(" * n + "1.0px" + ")" * n + "}", 99),
+    "calc": (lambda n: "a{b:calc(" + "(" * n + "1px" + ")" * n + ")}", 98),
+    "nested-calc": (lambda n: "a{b:" + "calc(" * n + "1px" + ")" * n + "}", 99),
+    "blocks-unterminated": (lambda n: "@media screen{" * n, 98),
+    "declarations-unterminated": (lambda n: "a{" + "&{" * n, 98),
+}
+if sys.argv[1] == "past-cap":
+    for name, (build, _) in SHAPES.items():
+        out = minify_css(build(50000))
+        print(name, minify_css(out) == out)
+else:
+    threading.stack_size(128 * 1024)
+    results = {}
+    worker = threading.Thread(
+        target=lambda: results.update((name, minify_css(build(deepest))) for name, (build, deepest) in SHAPES.items())
+    )
+    worker.start()
+    worker.join()
+    for name, (build, deepest) in SHAPES.items():
+        print(name, results[name] == minify_css(build(deepest)))
+"""
+_SHAPE_NAMES: Final = (
+    "blocks",
+    "declarations",
+    "functions",
+    "calc",
+    "nested-calc",
+    "blocks-unterminated",
+    "declarations-unterminated",
+)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # without the cap the recursive grammar, calc and function parsers overflow the C stack
+        pytest.param("past-cap", id="past-cap-on-the-main-thread"),
+        # a 128 KiB thread holds the deepest supported nesting only while each level's C frames stay small
+        pytest.param("at-cap", id="at-cap-on-a-128-kib-thread"),
+    ],
+)
+def test_minify_css_survives_deep_nesting(mode: str) -> None:
+    # a regression aborts the interpreter, so each mode runs every shape in one child
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", _NESTING_SHAPES, mode], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, result.stdout) == (0, "".join(f"{name} True\n" for name in _SHAPE_NAMES)), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@media screen{" * 98 + "a{color:red}" + "}" * 98,
+            "@media screen{" * 98 + "a{color:red}" + "}" * 98,
+            id="blocks-at-cap",
+        ),
+        pytest.param("@media screen{" * 99 + "a{color:red}" + "}" * 99, "", id="blocks-past-cap"),
+        pytest.param(
+            "a{" + "&{" * 98 + "color:red" + "}" * 98 + "}",
+            "a{" + "&{" * 98 + "color:red" + "}" * 98 + "}",
+            id="declarations-at-cap",
+        ),
+        pytest.param(
+            "a{" + "&{" * 99 + "color:red" + "}" * 99 + "}", "a{" + "&{" * 99 + "}" * 100, id="declarations-past-cap"
+        ),
+        pytest.param(
+            "a{b:" + "f(" * 99 + "1.0px" + ")" * 99 + "}",
+            "a{b:" + "f(" * 99 + "1px" + ")" * 99 + "}",
+            id="functions-at-cap",
+        ),
+        pytest.param(
+            "a{b:" + "f(" * 100 + "1.0px" + ")" * 100 + "}",
+            "a{b:" + "f(" * 100 + "1.0px" + ")" * 100 + "}",
+            id="functions-past-cap",
+        ),
+        pytest.param("a{b:calc(" + "(" * 98 + "1px" + ")" * 98 + ")}", "a{b:1px}", id="calc-at-cap"),
+        pytest.param(
+            "a{b:calc(" + "(" * 99 + "1px" + ")" * 99 + ")}",
+            "a{b:calc(" + "(" * 99 + "1px" + ")" * 99 + ")}",
+            id="calc-past-cap",
+        ),
+        pytest.param("a{b:" + "calc(" * 99 + "1px" + ")" * 99 + "}", "a{b:1px}", id="nested-calc-at-cap"),
+        pytest.param(
+            "a{b:" + "calc(" * 100 + "1px" + ")" * 100 + "}",
+            "a{b:" + "calc(" * 100 + "1px" + ")" * 100 + "}",
+            id="nested-calc-past-cap",
+        ),
+    ],
+)
+def test_minify_css_nesting_cap_boundary(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
 
 
 def test_empty_input() -> None:

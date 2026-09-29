@@ -175,66 +175,87 @@ static void calc_skip_ws(calc_parser *parser) {
     }
 }
 
-static csum calc_parse_sum(calc_parser *parser);
+/* Each nesting level recurses through all three parsers, so they fill a caller-owned csum (over 500 bytes) instead of
+   returning one, and an operator's right operand lives on the heap. */
+static void calc_parse_sum(calc_parser *parser, csum *out);
 
-static csum calc_parse_value(calc_parser *parser) {
-    csum result = {0};
+static void calc_parse_value(calc_parser *parser, csum *out) {
+    out->count = 0;
+    out->ok = 0;
     calc_skip_ws(parser);
     if (parser->pos >= parser->end) {
-        return result;
+        return;
     }
     css_token *token = &parser->vec->items[parser->pos];
     if (token->kind == CSS_NUM) {
         parser->pos++;
         if (token->unit_len >= CALC_MAX_UNIT) {
-            return result;
+            return;
         }
         cterm term;
         if (!css_num_to_rat(token->text, token->text_len, &term.coeff)) {
-            return result;
+            return;
         }
         term.unit_len = (int)token->unit_len;
         for (int index = 0; index < term.unit_len; index++) {
             term.unit[index] = (char)css_lower((token->text + token->text_len)[index]);
         }
-        result.ok = 1;
-        csum_add_term(&result, &term); /* the first term always fits an empty sum (no like-unit, a free slot) */
-        return result;
+        out->ok = 1;
+        csum_add_term(out, &term); /* the first term always fits an empty sum (no like-unit, a free slot) */
+        return;
     }
-    if (token->kind == CSS_DELIM && token->delim == '(') {
-        parser->pos++;
-        result = calc_parse_sum(parser);
+    int nested_calc = token->kind == CSS_IDENT && parser->pos + 1 < parser->end &&
+                      parser->vec->items[parser->pos + 1].kind == CSS_DELIM &&
+                      parser->vec->items[parser->pos + 1].delim == '(' &&
+                      css_run_ieq(token->text, token->text_len, "calc");
+    /* past the nesting cap a not-ok sum drops the fold and the function renderer emits the value; the sum stops at the
+       closing paren, so nothing scans ahead for it */
+    if (nested_calc || (token->kind == CSS_DELIM && token->delim == '(')) {
+        if (!css_nesting_enter(parser->vec)) {
+            return;
+        }
+        parser->pos += nested_calc ? 2 : 1;
+        calc_parse_sum(parser, out);
+        css_nesting_leave(parser->vec);
         calc_skip_ws(parser);
         if (parser->pos < parser->end && parser->vec->items[parser->pos].kind == CSS_DELIM &&
             parser->vec->items[parser->pos].delim == ')') {
             parser->pos++;
         } else {
-            result.ok = 0;
+            out->ok = 0;
         }
-        return result;
     }
-    if (token->kind == CSS_IDENT && parser->pos + 1 < parser->end &&
-        parser->vec->items[parser->pos + 1].kind == CSS_DELIM && parser->vec->items[parser->pos + 1].delim == '(' &&
-        css_run_ieq(token->text, token->text_len, "calc")) {
-        Py_ssize_t close = css_match_paren(parser->vec, parser->pos + 1, parser->end);
-        calc_parser inner = {parser->vec, parser->pos + 2, close};
-        result = calc_parse_sum(&inner);
-        calc_skip_ws(&inner);
-        if (inner.pos != close) {
-            result.ok = 0;
-        }
-        parser->pos = close + 1;
-        return result;
-    }
-    return result; /* an opaque term (var/min/max/clamp/ident/...) cannot be evaluated */
+    /* anything else is an opaque term (var/min/max/clamp/ident/...) the parser cannot evaluate, and out stays not-ok */
 }
 
-static csum calc_parse_product(calc_parser *parser) {
-    csum acc = calc_parse_value(parser);
-    if (!acc.ok) {
-        return acc;
+/* Fold rhs into acc for one '*' or '/' step; 0 when the step cannot fold exactly. */
+static int calc_apply_product(csum *acc, csum *rhs, int is_div) {
+    crat scalar;
+    if (is_div) {
+        if (!csum_as_scalar(rhs, &scalar) || scalar.num == 0) {
+            return 0;
+        }
+        crat inverse = {scalar.den, scalar.num};
+        if (inverse.den < 0) {
+            inverse.num = -inverse.num;
+            inverse.den = -inverse.den;
+        }
+        return csum_scale(acc, inverse);
     }
-    for (;;) {
+    if (csum_as_scalar(rhs, &scalar)) {
+        return csum_scale(acc, scalar);
+    }
+    if (csum_as_scalar(acc, &scalar) && csum_scale(rhs, scalar)) {
+        *acc = *rhs;
+        return 1;
+    }
+    return 0;
+}
+
+static void calc_parse_product(calc_parser *parser, csum *out) {
+    calc_parse_value(parser, out);
+    csum *rhs = NULL;
+    while (out->ok) {
         calc_skip_ws(parser);
         if (parser->pos >= parser->end) {
             break;
@@ -245,52 +266,20 @@ static csum calc_parse_product(calc_parser *parser) {
         }
         int is_div = token->delim == '/';
         parser->pos++;
-        csum rhs = calc_parse_value(parser);
-        if (!rhs.ok) {
-            acc.ok = 0;
-            return acc;
+        if (rhs == NULL && (rhs = css_malloc(sizeof(*rhs))) == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            out->ok = 0;                                               /* GCOVR_EXCL_LINE */
+            break;                                                     /* GCOVR_EXCL_LINE */
         }
-        crat scalar;
-        if (is_div) {
-            if (csum_as_scalar(&rhs, &scalar) && scalar.num != 0) {
-                crat inverse = {scalar.den, scalar.num};
-                if (inverse.den < 0) {
-                    inverse.num = -inverse.num;
-                    inverse.den = -inverse.den;
-                }
-                if (!csum_scale(&acc, inverse)) {
-                    acc.ok = 0;
-                    return acc;
-                }
-            } else {
-                acc.ok = 0;
-                return acc;
-            }
-        } else if (csum_as_scalar(&rhs, &scalar)) {
-            if (!csum_scale(&acc, scalar)) {
-                acc.ok = 0;
-                return acc;
-            }
-        } else if (csum_as_scalar(&acc, &scalar)) {
-            if (!csum_scale(&rhs, scalar)) {
-                acc.ok = 0;
-                return acc;
-            }
-            acc = rhs;
-        } else {
-            acc.ok = 0;
-            return acc;
-        }
+        calc_parse_value(parser, rhs);
+        out->ok = rhs->ok && calc_apply_product(out, rhs, is_div);
     }
-    return acc;
+    css_free(rhs);
 }
 
-static csum calc_parse_sum(calc_parser *parser) {
-    csum acc = calc_parse_product(parser);
-    if (!acc.ok) {
-        return acc;
-    }
-    for (;;) {
+static void calc_parse_sum(calc_parser *parser, csum *out) {
+    calc_parse_product(parser, out);
+    csum *rhs = NULL;
+    while (out->ok) {
         calc_skip_ws(parser);
         if (parser->pos >= parser->end) {
             break;
@@ -309,27 +298,25 @@ static csum calc_parse_sum(calc_parser *parser) {
            rather than fold malformed input into a valid value. */
         if (parser->vec->items[parser->pos - 1].kind != CSS_WS || parser->pos + 1 >= parser->end ||
             parser->vec->items[parser->pos + 1].kind != CSS_WS) {
-            acc.ok = 0;
-            return acc;
+            out->ok = 0;
+            break;
         }
         parser->pos++;
-        csum rhs = calc_parse_product(parser);
-        if (!rhs.ok) {
-            acc.ok = 0;
-            return acc;
+        if (rhs == NULL && (rhs = css_malloc(sizeof(*rhs))) == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            out->ok = 0;                                               /* GCOVR_EXCL_LINE */
+            break;                                                     /* GCOVR_EXCL_LINE */
         }
-        for (int index = 0; index < rhs.count; index++) {
-            cterm term = rhs.terms[index];
+        calc_parse_product(parser, rhs);
+        out->ok = rhs->ok;
+        for (int index = 0; out->ok && index < rhs->count; index++) {
+            cterm term = rhs->terms[index];
             if (is_sub) {
                 term.coeff.num = -term.coeff.num;
             }
-            if (!csum_add_term(&acc, &term)) {
-                acc.ok = 0;
-                return acc;
-            }
+            out->ok = csum_add_term(out, &term);
         }
     }
-    return acc;
+    css_free(rhs);
 }
 
 /* Format a rational exactly: an integer, or a terminating decimal, then minified. Returns 0 if non-terminating. */
@@ -440,10 +427,11 @@ static void css_format_zero_term(css_buf *out, const cterm *term) {
 }
 
 /* Try to simplify calc(args); returns 1 and writes the shortest exact form to the pool, 0 to keep the input. */
-static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, Py_ssize_t *out_off,
-                        Py_ssize_t *out_len) {
+CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                     Py_ssize_t *out_off, Py_ssize_t *out_len) {
     calc_parser parser = {vec, start, end};
-    csum sum = calc_parse_sum(&parser);
+    csum sum;
+    calc_parse_sum(&parser, &sum);
     calc_skip_ws(&parser);
     if (!sum.ok || parser.pos != end) {
         return 0;
@@ -567,11 +555,18 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
         if (token->kind == CSS_IDENT && index + 1 < end && vec->items[index + 1].kind == CSS_DELIM &&
             vec->items[index + 1].delim == '(') {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
-            Py_ssize_t off;
-            Py_ssize_t len;
-            int ends_paren;
-            css_emit_function(pool, vec, index, close_index, &off, &len, &ends_paren);
-            cbuf_put_run(out, pool->data + off, len);
+            if (css_nesting_enter(vec)) {
+                Py_ssize_t off;
+                Py_ssize_t len;
+                int ends_paren;
+                css_emit_function(pool, vec, index, close_index, &off, &len, &ends_paren);
+                css_nesting_leave(vec);
+                cbuf_put_run(out, pool->data + off, len);
+            } else {
+                /* past the nesting cap the nested call goes out as its source text, which reparses to the same value */
+                const css_token *close = &vec->items[close_index];
+                cbuf_put_run(out, token->text, close->text + close->text_len - token->text);
+            }
             index = close_index + 1;
             continue;
         }

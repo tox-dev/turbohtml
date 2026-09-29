@@ -1,0 +1,2 @@
+Cap the CSS minifier at 100 nesting levels, dropping a deeper block and copying a deeper function argument through
+unchanged, instead of overflowing the C stack.

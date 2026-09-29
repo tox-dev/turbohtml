@@ -371,6 +371,10 @@ A minified ``<style>`` body ends where its source ended. A ``<`` keeps a space b
 stylesheet whose minified form would spell a ``</style`` its input lacks, for example by dropping a line continuation
 inside a string, comes back unchanged.
 
+The minifier descends at most 100 levels: the style sheet is the first, and each ``{}`` block, function call nested in
+another function's arguments, and parenthesis inside ``calc()`` adds one. Past that depth it drops the over-nested block
+and copies an over-nested function or ``calc()`` argument through unchanged, so hostile CSS cannot exhaust the C stack.
+
 .. autofunction:: minify_css
 
 .. autofunction:: minify_css_inline

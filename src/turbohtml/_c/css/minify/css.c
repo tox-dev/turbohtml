@@ -40,7 +40,7 @@ static int css_spells_style_end(const css_char *text, Py_ssize_t len);
    harness and the CPython binding both call this; it touches no CPython runtime. */
 css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
                               Py_ssize_t *out_len) {
-    token_vec tokens = {NULL, 0, 0, 0};
+    token_vec tokens = {NULL, 0, 0, 0, 0};
     /* presize from the input: tokens average a few code points each and the output never exceeds the input, so one
        allocation up front avoids the geometric realloc churn (and its repeated copies) on a large stylesheet */
     Py_ssize_t token_guess = length / 4 < 64 ? 64 : length / 4;

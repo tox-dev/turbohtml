@@ -584,8 +584,9 @@ static void css_append_color_number(css_buf *out, const css_token *raw, int is_p
 
 /* Try to fold an rgb()/rgba()/hsl()/hsla() call to a hex, keyword, transparent or shortest functional form. Returns 1
    and sets (off, len) on success, 0 when the name is not a color function or the argument shape is not a color. */
-static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
-                              Py_ssize_t name_len, Py_ssize_t *out_off, Py_ssize_t *out_len) {
+CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                           const css_char *name, Py_ssize_t name_len, Py_ssize_t *out_off,
+                                           Py_ssize_t *out_len) {
     int is_rgb = css_run_ieq(name, name_len, "rgb") || css_run_ieq(name, name_len, "rgba");
     int is_hsl = css_run_ieq(name, name_len, "hsl") || css_run_ieq(name, name_len, "hsla");
     if (!is_rgb && !is_hsl) {
