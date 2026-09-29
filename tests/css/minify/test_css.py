@@ -705,7 +705,7 @@ def test_lone_surrogate_raises_encode_error() -> None:
 
 
 _GOLDEN: Final[list[list[str]]] = json.loads(
-    (Path(__file__).parent / "data" / "css_minify_golden.json").read_text(encoding="utf-8")
+    (Path(__file__).parent / "css_minify_golden.json").read_text(encoding="utf-8")
 )
 
 # Malformed/invalid inputs with no closing delimiter or balance: error recovery keeps the broken tail verbatim, which

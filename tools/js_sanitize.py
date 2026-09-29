@@ -5,7 +5,7 @@ The engine builds with ``-DJM_STANDALONE`` against the system allocator (no CPyt
 runtime), so ``tools/js_minify_harness.c`` can push the committed corpus through it
 under AddressSanitizer + UndefinedBehaviorSanitizer everywhere, plus LeakSanitizer on
 Linux (Apple clang has no LSan). A clean run exits 0; any sanitizer abort fails the
-gate. Corpus inputs come from the vendored ``tests/serialize/js/_corpus`` fixtures, so
+gate. Corpus inputs come from the vendored ``tests/js/_corpus`` fixtures, so
 the check needs no network and is fully reproducible.
 """
 
@@ -36,7 +36,7 @@ def main() -> int:
     """Return the harness's exit code: 0 for a clean run, the sanitizer's abort code otherwise."""
     corpus_dir = Path(tempfile.mkdtemp(prefix="jsmin-corpus-"))
     count = 0
-    for fixture in sorted((_ROOT / "tests" / "serialize" / "js" / "_corpus").glob("*.json")):
+    for fixture in sorted((_ROOT / "tests" / "js" / "_corpus").glob("*.json")):
         for row in json.loads(fixture.read_text(encoding="utf-8")):
             (corpus_dir / f"{count}.js").write_text(row["input"], encoding="utf-8")
             count += 1

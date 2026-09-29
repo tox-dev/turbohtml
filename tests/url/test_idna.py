@@ -21,7 +21,7 @@ from turbohtml._html import _url_to_ascii
 from turbohtml.extract import normalize_url
 
 _VECTORS = (
-    Path(__file__).parents[2]
+    Path(__file__).parents[1]
     / "conformance"
     / "unicodetools"
     / "unicodetools"
