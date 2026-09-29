@@ -545,7 +545,8 @@ static th_node *find_feed_root(th_node *document, const char **type_out) {
 
 /* Document.feed() -> Feed | None. Normalizes an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into one Feed record, or
    None when the document carries no feed root. */
-PyObject *turbohtml_document_feed(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, turbohtml_document_feed, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_tree *tree = tree_of(self);
     module_state *state = state_of(self);
     th_node *document = ((NodeObject *)self)->node;

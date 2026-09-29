@@ -18,8 +18,13 @@
 /* A grow-on-demand array of node pointers the assignment/flatten walks accumulate
    into, wrapped into a Python list by the binding once the walk finishes. failed is
    set on an allocation failure so the caller reports it after freeing the buffer. */
+typedef union {
+    th_node *node;
+    PyObject *wrapper;
+} nodevec_item;
+
 typedef struct {
-    th_node **items;
+    nodevec_item *items;
     Py_ssize_t len;
     Py_ssize_t cap;
     int failed;
@@ -32,12 +37,12 @@ static void nodevec_push(nodevec *vec, th_node *node) {
     if (vec->len == vec->cap) {
         size_t cap, bytes;
         /* the requested length cannot overflow size_t, so the grow guard never trips */
-        int fits = th_grow_cap((size_t)vec->len + 1, (size_t)vec->cap, 8, sizeof(th_node *), &cap, &bytes);
+        int fits = th_grow_cap((size_t)vec->len + 1, (size_t)vec->cap, 8, sizeof(nodevec_item), &cap, &bytes);
         if (!fits) {         /* GCOVR_EXCL_BR_LINE: overflow-guard path, unreachable from a test */
             vec->failed = 1; /* GCOVR_EXCL_LINE: overflow-guard path */
             return;          /* GCOVR_EXCL_LINE: overflow-guard path */
         }
-        th_node **items = PyMem_Realloc(vec->items, bytes);
+        nodevec_item *items = PyMem_Realloc(vec->items, bytes);
         if (items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             vec->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -45,7 +50,7 @@ static void nodevec_push(nodevec *vec, th_node *node) {
         vec->items = items;
         vec->cap = (Py_ssize_t)cap;
     }
-    vec->items[vec->len++] = node;
+    vec->items[vec->len++].node = node;
 }
 
 /* Whether node is an HTML <slot> element (the shadow tree's insertion point). */
@@ -268,7 +273,7 @@ static void collect_slotables_indexed(th_tree *tree, th_node *slot, th_node *roo
     slot_bucket *bucket = slot_index_bucket(index, name, name_len);
     if (bucket->slot == slot) {
         for (Py_ssize_t position = 0; position < bucket->assigned.len; position++) {
-            nodevec_push(vec, bucket->assigned.items[position]);
+            nodevec_push(vec, bucket->assigned.items[position].node);
         }
     }
 }
@@ -299,7 +304,7 @@ static void collect_flattened(th_tree *tree, th_node *slot, nodevec *vec, slot_i
     nodevec assigned = {0};
     collect_flattened_candidates(tree, slot, &assigned, slots);
     for (Py_ssize_t index = assigned.len; index > 0; index--) {
-        nodevec_push(&pending, assigned.items[index - 1]);
+        nodevec_push(&pending, assigned.items[index - 1].node);
     }
     if (assigned.failed) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         pending.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -308,12 +313,12 @@ static void collect_flattened(th_tree *tree, th_node *slot, nodevec *vec, slot_i
         if (pending.failed || vec->failed) { /* GCOVR_EXCL_BR_LINE: nodevec fails only on allocation failure */
             break;                           /* GCOVR_EXCL_LINE: allocation-failure path */
         } /* GCOVR_EXCL_LINE: closes the allocation-failure-only branch */
-        th_node *node = pending.items[--pending.len];
+        th_node *node = pending.items[--pending.len].node;
         if (is_slot(node) && th_node_is_shadow_root(node_root(node))) {
             assigned.len = 0;
             collect_flattened_candidates(tree, node, &assigned, slots);
             for (Py_ssize_t index = assigned.len; index > 0; index--) {
-                nodevec_push(&pending, assigned.items[index - 1]);
+                nodevec_push(&pending, assigned.items[index - 1].node);
             }
             if (assigned.failed) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 pending.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -350,33 +355,70 @@ static void collect_flattened_children(th_tree *tree, th_node *node, nodevec *ve
     slot_index_clear(&slots);
 }
 
-/* Wrap a collected node array into a Python list, filtering to elements when
-   elements_only is set, and free the array. NULL with an exception set on failure. */
 static PyObject *nodevec_to_list(nodevec *vec, module_state *state, PyObject *handle, int elements_only) {
     if (vec->failed) {           /* GCOVR_EXCL_BR_LINE: only set on an unforceable allocation failure */
         PyMem_Free(vec->items);  /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *list = PyList_New(0);
-    if (list == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        PyMem_Free(vec->items); /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
+#if PY_VERSION_HEX >= 0x030C0000 && !defined(Py_GIL_DISABLED) && !defined(PYPY_VERSION)
+    /* CPython 3.12+ defers automatic GC until bytecode evaluation resumes. */
+    if (!elements_only) {
+        PyObject *list = PyList_New(vec->len);
+        if (list == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(vec->items); /* GCOVR_EXCL_LINE */
+            return NULL;            /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < vec->len; index++) {
+            PyObject *wrapped = node_wrap_locked(state, handle, vec->items[index].node);
+            if (wrapped == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure */
+                Py_DECREF(list);        /* GCOVR_EXCL_LINE */
+                PyMem_Free(vec->items); /* GCOVR_EXCL_LINE */
+                return NULL;            /* GCOVR_EXCL_LINE */
+            }
+            PyList_SET_ITEM(list, index, wrapped);
+        }
+        PyMem_Free(vec->items);
+        return list;
     }
+#endif
+    /* List allocation can run GC callbacks that adopt the host into another arena. */
+    Py_ssize_t count = 0;
     for (Py_ssize_t index = 0; index < vec->len; index++) {
-        if (elements_only && vec->items[index]->type != TH_NODE_ELEMENT) {
+#if PY_VERSION_HEX >= 0x030C0000 && !defined(Py_GIL_DISABLED) && !defined(PYPY_VERSION)
+        if (vec->items[index].node->type != TH_NODE_ELEMENT) {
+#else
+        if (elements_only && vec->items[index].node->type != TH_NODE_ELEMENT) {
+#endif
             continue;
         }
-        if (append_wrapped(list, state, handle, vec->items[index]) < 0) { /* GCOVR_EXCL_BR_LINE: alloc failure */
-            Py_DECREF(list);                                              /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyMem_Free(vec->items);                                       /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyObject *wrapped = node_wrap_locked(state, handle, vec->items[index].node);
+        if (wrapped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;        /* GCOVR_EXCL_LINE */
         }
+        vec->items[count++].wrapper = wrapped;
+    }
+    PyObject *list = PyList_New(count);
+    if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto error;     /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyList_SET_ITEM(list, index, vec->items[index].wrapper);
     }
     PyMem_Free(vec->items);
     return list;
+    /* GCOVR_EXCL_START: allocation failure */
+error:
+    for (Py_ssize_t index = 0; index < count; index++) {
+        Py_DECREF(vec->items[index].wrapper);
+    }
+    PyMem_Free(vec->items);
+    return NULL;
+    /* GCOVR_EXCL_STOP */
 }
 
-PyObject *element_attach_shadow(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, element_attach_shadow, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"mode", NULL};
     PyObject *mode_obj = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|U:attach_shadow", keywords, &mode_obj)) {
@@ -417,7 +459,8 @@ PyObject *element_attach_shadow(PyObject *self, PyObject *args, PyObject *kwds) 
     return result;
 }
 
-PyObject *element_get_shadow_root(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, element_get_shadow_root, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_tree *tree = tree_of(self);
     th_node *root;
@@ -455,15 +498,20 @@ static PyObject *slot_assigned(PyObject *self, PyObject *args, PyObject *kwds, i
     return nodevec_to_list(&vec, state_of(self), node->handle, elements_only);
 }
 
-PyObject *element_assigned_nodes(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, element_assigned_nodes, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     return slot_assigned(self, args, kwds, 0);
 }
 
-PyObject *element_assigned_elements(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, element_assigned_elements, (PyObject * self, PyObject *args, PyObject *kwds),
+            (self, args, kwds), (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     return slot_assigned(self, args, kwds, 1);
 }
 
-PyObject *node_get_assigned_slot(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, node_get_assigned_slot, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_tree *tree = tree_of(self);
     th_node *slot = NULL;
@@ -475,7 +523,8 @@ PyObject *node_get_assigned_slot(PyObject *self, void *Py_UNUSED(closure)) {
     return node_wrap(state_of(self), node->handle, slot);
 }
 
-PyObject *node_get_flattened_children(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, node_get_flattened_children, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_tree *tree = tree_of(self);
     nodevec vec = {0};
@@ -493,19 +542,23 @@ PyDoc_STRVAR(shadow_root_delegates_focus_doc,
 PyDoc_STRVAR(shadow_root_clonable_doc, "whether the shadow root is clonable, from a declarative shadow root's\n"
                                        "shadowrootclonable attribute (always False otherwise)");
 
-static PyObject *shadow_root_get_mode(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, shadow_root_get_mode, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return PyUnicode_FromString(th_shadow_mode(((NodeObject *)self)->node) != 0 ? "closed" : "open");
 }
 
-static PyObject *shadow_root_get_delegates_focus(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, shadow_root_get_delegates_focus, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return PyBool_FromLong((((NodeObject *)self)->node->tag_flags & TH_SHADOW_DELEGATES_FOCUS) != 0);
 }
 
-static PyObject *shadow_root_get_clonable(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, shadow_root_get_clonable, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return PyBool_FromLong((((NodeObject *)self)->node->tag_flags & TH_SHADOW_CLONABLE) != 0);
 }
 
-static PyObject *shadow_root_get_host(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, shadow_root_get_host, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_tree *tree = tree_of(self);
     th_node *host;
@@ -530,7 +583,9 @@ PyDoc_STRVAR(shadow_root_set_inner_html_doc,
              ":param html: the markup to parse and install as the shadow content.\n"
              ":raises TypeError: if html is not a str.");
 
-static PyObject *shadow_root_set_inner_html(PyObject *self, PyObject *html) {
+TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, PyObject *html), (self, html),
+            (PyObject * self, PyObject *html), (NodeObject *)self,
+            html != NULL && is_node(html, state_of(self)) ? (NodeObject *)html : NULL) {
     if (!PyUnicode_Check(html)) {
         PyErr_SetString(PyExc_TypeError, "html must be a str");
         return NULL;

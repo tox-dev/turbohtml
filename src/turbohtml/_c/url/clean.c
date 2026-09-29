@@ -627,7 +627,9 @@ static PyObject *cleaned_href(PyObject *href, PyObject *base, const clean_option
    Each anchor href resolves against the document base (a <base href> wins over base_url, HTML spec 4.2.3), is cleaned,
    and is deduplicated across the http/https and trailing-slash twins, the first in document order winning. With
    external_only only links leaving base_url's registrable domain survive. */
-PyObject *turbohtml_document_extract_links(PyObject *self, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_document_extract_links, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *base_url, *allow, *deny;
     int external_only;
     clean_options options = {0};

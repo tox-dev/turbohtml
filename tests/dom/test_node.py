@@ -269,6 +269,29 @@ def test_hashable_by_identity() -> None:
     assert len(seen) == 2
 
 
+@pytest.mark.parametrize(
+    "released", [pytest.param(0, id="first"), pytest.param(1, id="middle"), pytest.param(2, id="last")]
+)
+def test_identity_survives_alias_release_and_adoption(released: int) -> None:
+    source: Final = Element("main", children=[Element("p")])
+    aliases: Final = [source.children[0] for _ in range(3)]
+    original_hash: Final = hash(aliases[0])
+    del aliases[released]
+    gc.collect()
+    destination: Final = Element("aside")
+    destination.append(aliases[0])
+    assert (len({*aliases, destination.children[0]}), hash(aliases[1])) == (1, original_hash)
+
+
+def test_hash_survives_release_of_all_adopted_aliases() -> None:
+    source: Final = Element("main", children=[Element("p")])
+    original_hash: Final = hash(source.children[0])
+    destination: Final = Element("aside")
+    destination.append(source.children[0])
+    gc.collect()
+    assert hash(destination.children[0]) == original_hash
+
+
 def test_subtree_outlives_its_document(find: Callable[[str, str], Element]) -> None:
     paragraph = find("<div><p>kept</p></div>", "p")
     gc.collect()

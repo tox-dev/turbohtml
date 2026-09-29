@@ -112,6 +112,7 @@ struct th_node {
     uint16_t atom;               /* TH_TAG_* for elements, else TH_TAG_UNKNOWN */
     uint8_t tag_flags;           /* category bitmask from the atom table */
     uint8_t ns;                  /* enum th_ns: HTML / SVG / MathML */
+    uint16_t binding_id;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
@@ -363,6 +364,8 @@ void th_tree_remove_node_iterator(th_tree *tree, th_node_iterator *iterator);
 const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize_t count, th_node *child,
                                 th_node *run_first, th_node *run_last);
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node);
+int th_tree_has_shadows(const th_tree *tree);
+th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root);
 /* th_tree_copy_node for a node the DOM moves into dest (adoption): between an XML and an HTML tree the copied elements
    also take dest's naming rules, see convert_element_kind. */
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node);

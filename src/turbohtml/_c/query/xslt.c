@@ -1262,11 +1262,9 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
     memset(out, 0, sizeof(*out));
     if (ucs4_ascii_eq(name, name_len, "current")) {
         out->kind = XP_NODESET;
-        if (eng->cur_attr < 0 && ns_push(&out->nodes, eng->cur_node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                                          /* GCOVR_EXCL_LINE */
-        }
-        if (eng->cur_attr >= 0 && ns_push(&out->nodes, eng->cur_node, eng->cur_attr) < 0) { /* GCOVR_EXCL_BR_LINE */
-            return -1;                                                                      /* GCOVR_EXCL_LINE */
+        int rc = ns_push(&out->nodes, eng->cur_node, xp_is_attribute(eng->cur_attr) ? eng->cur_attr : -1);
+        if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1; /* GCOVR_EXCL_LINE */
         }
         return 0;
     }
@@ -1436,7 +1434,7 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
                         xp_result *out) {
     xp_binding storage[16];
     xp_binding *bindings = storage;
-    if (eng->scope_len > 16) {
+    if (prog->has_variables && eng->scope_len > 16) {
         bindings = PyMem_Malloc((size_t)eng->scope_len * sizeof(xp_binding));
         if (bindings == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
             fail_py(eng);       /* GCOVR_EXCL_LINE */
@@ -1444,8 +1442,10 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
             return -1;          /* GCOVR_EXCL_LINE */
         }
     }
-    xp_bindings vars;
-    scope_bindings(eng, bindings, &vars);
+    xp_bindings vars = {0};
+    if (prog->has_variables) {
+        scope_bindings(eng, bindings, &vars);
+    }
     const char *feature = NULL;
     int status = xp_eval_at(prog, eng->src_tree, context, pos, size, &vars, NULL, xslt_extension, eng, out, &feature);
     if (bindings != storage) {
@@ -1488,8 +1488,29 @@ static int build_key(engine *eng, xslt_key *key) {
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
         return fail_py(eng);                                      /* GCOVR_EXCL_LINE */
     }
+    uint32_t use_atom;
+    int direct_attribute = xp_single_attribute_atom(key->use_prog, eng->src_tree, &use_atom);
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
         th_node *node = matched.nodes.items[index].node;
+        if (direct_attribute) {
+            th_node_attr *attributes;
+            Py_ssize_t count = th_node_attributes(node, &attributes);
+            for (Py_ssize_t slot = 0; slot < count; slot++) {
+                if (attributes[slot].name_atom != use_atom) {
+                    continue;
+                }
+                const Py_UCS4 empty = 0;
+                const Py_UCS4 *value = attributes[slot].value == NULL ? &empty : attributes[slot].value;
+                Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
+                nodevec *bucket = strmap_bucket(&key->table, value, value_len);
+                if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    xp_result_free(&matched);                           /* GCOVR_EXCL_LINE */
+                    return -1;                                          /* GCOVR_EXCL_LINE */
+                }
+                break;
+            }
+            continue;
+        }
         xp_result used;
         int use_status = eval_program(eng, key->use_prog, node, 1, 1, &used);
         if (use_status < 0) {
@@ -1499,14 +1520,28 @@ static int build_key(engine *eng, xslt_key *key) {
         int rc = 0;
         if (used.kind == XP_NODESET) {
             for (Py_ssize_t slot = 0; slot < used.nodes.len; slot++) {
+                xp_item item = used.nodes.items[slot];
                 Py_ssize_t value_len = 0;
-                Py_UCS4 *value = item_string(eng->src_tree, used.nodes.items[slot], &value_len);
-                if (value == NULL) { /* GCOVR_EXCL_START: alloc */
-                    rc = -1;
-                    break;
-                } /* GCOVR_EXCL_STOP */
+                Py_UCS4 *owned = NULL;
+                const Py_UCS4 *value;
+                if (xp_is_attribute(item.attr)) {
+                    const th_node_attr *attribute = xp_item_attribute(eng->src_tree, item);
+                    value = attribute->value;
+                    value_len = value == NULL ? 0 : attribute->value_len;
+                } else {
+                    owned = item_string(eng->src_tree, item, &value_len);
+                    if (owned == NULL) { /* GCOVR_EXCL_START: alloc */
+                        rc = -1;
+                        break;
+                    } /* GCOVR_EXCL_STOP */
+                    value = owned;
+                }
+                Py_UCS4 empty = 0;
+                if (value == NULL) {
+                    value = &empty;
+                }
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
-                PyMem_Free(value);
+                PyMem_Free(owned);
                 if (bucket == NULL || nodevec_push(bucket, node) < 0) { /* GCOVR_EXCL_START: alloc */
                     rc = -1;
                     break;
@@ -1968,7 +2003,7 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     if (select == NULL) {
         return fail(eng, "xsl:value-of requires a select attribute");
     }
-    if (eng->cur_attr >= 0 && is_self_dot(select, select_len)) {
+    if (xp_is_attribute(eng->cur_attr) && is_self_dot(select, select_len)) {
         Py_ssize_t text_len = 0;
         Py_UCS4 *text = current_string(eng, &text_len);
         if (text == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
@@ -2002,8 +2037,8 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
 
 /* Deep-copy a source subtree into the output tree, appended to out_parent. */
 static int copy_of_node(engine *eng, th_node *out_parent, xp_item item) {
-    if (item.attr >= 0) {
-        const th_node_attr *attr = &item.node->attrs[item.attr];
+    if (xp_is_attribute(item.attr)) {
+        const th_node_attr *attr = xp_item_attribute(eng->src_tree, item);
         Py_ssize_t name_len = 0;
         const char *attr_name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
@@ -2309,8 +2344,8 @@ static int do_attribute(engine *eng, th_node *instruction, th_node *out_parent) 
 
 /* xsl:copy: shallow-copy the current node and instantiate the body inside it. */
 static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
-    if (eng->cur_attr >= 0) {
-        const th_node_attr *attr = &eng->cur_node->attrs[eng->cur_attr];
+    if (xp_is_attribute(eng->cur_attr)) {
+        const th_node_attr *attr = xp_item_attribute(eng->src_tree, (xp_item){eng->cur_node, eng->cur_attr});
         Py_ssize_t name_len = 0;
         const char *name = th_attr_name(eng->src_tree, attr->name_atom, &name_len);
         if (out_parent->type == TH_NODE_ELEMENT) {
@@ -2418,7 +2453,10 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
 
 typedef struct {
     Py_UCS4 *key;
-    Py_ssize_t key_len;
+    union {
+        Py_ssize_t key_len;
+        Py_ssize_t index;
+    };
     double number;
 } sort_item;
 
@@ -2426,6 +2464,8 @@ typedef struct {
     xp_program *prog;
     int numeric;
     int descending;
+    int direct_attribute;
+    uint32_t attribute_atom;
 } sort_spec;
 
 typedef struct {
@@ -2475,6 +2515,31 @@ static int sort_row_order(const void *left_ptr, const void *right_ptr) {
     return (left->index > right->index) - (left->index < right->index);
 }
 
+static inline int sort_number_compare(const sort_item *left, const sort_item *right, int descending) {
+    if (left->number < right->number) {
+        return descending ? 1 : -1;
+    }
+    if (left->number > right->number) {
+        return descending ? -1 : 1;
+    }
+    if (left->number != left->number) {
+        if (right->number == right->number) {
+            return descending ? 1 : -1;
+        }
+    } else if (right->number != right->number) {
+        return descending ? -1 : 1;
+    }
+    return (left->index > right->index) - (left->index < right->index);
+}
+
+static int sort_row_number_order(const void *left_ptr, const void *right_ptr) {
+    return sort_number_compare(left_ptr, right_ptr, 0);
+}
+
+static int sort_row_number_descending(const void *left_ptr, const void *right_ptr) {
+    return sort_number_compare(left_ptr, right_ptr, 1);
+}
+
 /* Compile the xsl:sort children of an instruction into sort specs. Returns the count
    (0 when none), or -1 on error, filling specs (up to `max`). */
 static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, int max) {
@@ -2507,6 +2572,7 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
         specs[count].prog = prog;
         specs[count].numeric = type != NULL && ucs4_ascii_eq(type, type_len, "number");
         specs[count].descending = order != NULL && ucs4_ascii_eq(order, order_len, "descending");
+        specs[count].direct_attribute = xp_single_attribute_atom(prog, eng->src_tree, &specs[count].attribute_atom);
         count++;
     }
     return count;
@@ -2524,6 +2590,33 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
     for (Py_ssize_t index = 0; index < set->len; index++) {
         for (int spec = 0; spec < nspecs; spec++) {
             sort_item *slot = &items[index * nspecs + spec];
+            if (specs[spec].direct_attribute && set->items[index].attr == -1) {
+                th_node_attr *attributes;
+                Py_ssize_t count = th_node_attributes(set->items[index].node, &attributes);
+                const Py_UCS4 *text = NULL;
+                Py_ssize_t text_len = 0;
+                for (Py_ssize_t attribute = 0; attribute < count; attribute++) {
+                    if (attributes[attribute].name_atom == specs[spec].attribute_atom) {
+                        text = attributes[attribute].value;
+                        text_len = text == NULL ? 0 : attributes[attribute].value_len;
+                        break;
+                    }
+                }
+                slot->key = ucs4_dup(text, text_len);
+                if (slot->key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    for (Py_ssize_t done = 0; done < index * nspecs + spec; done++) { /* GCOVR_EXCL_LINE */
+                        PyMem_Free(items[done].key);                                  /* GCOVR_EXCL_LINE */
+                    } /* GCOVR_EXCL_LINE */
+                    PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
+                    return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+                }
+                slot->key_len = text_len;
+                slot->number = parse_number(slot->key, slot->key_len);
+                if (nspecs == 1 && specs[spec].numeric) {
+                    slot->index = index;
+                }
+                continue;
+            }
             xp_result value;
             int status = eval_program(eng, specs[spec].prog, set->items[index].node, index + 1, set->len, &value);
             if (status < 0) {
@@ -2539,6 +2632,9 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             if (specs[spec].numeric && value.kind == XP_STRING) {
                 slot->key = NULL;
                 slot->number = parse_number(value.string, value.string_len);
+                if (nspecs == 1) {
+                    slot->index = index;
+                }
                 xp_result_free(&value);
                 continue;
             }
@@ -2547,6 +2643,9 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
             if (specs[spec].numeric && value.kind == XP_NUMBER) {
                 slot->key = NULL;
                 slot->number = fabs(value.number) <= DBL_MAX ? value.number : (double)NAN;
+                if (nspecs == 1) {
+                    slot->index = index;
+                }
                 xp_result_free(&value);
                 continue;
             }
@@ -2560,7 +2659,32 @@ static int sort_nodeset(engine *eng, xp_nodeset *set, sort_spec *specs, int nspe
                 return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
             }
             slot->number = parse_number(slot->key, slot->key_len);
+            if (nspecs == 1 && specs[spec].numeric) {
+                slot->index = index;
+            }
         }
+    }
+    if (nspecs == 1 && specs[0].numeric) {
+        qsort(items, (size_t)set->len, sizeof(sort_item),
+              specs[0].descending ? sort_row_number_descending : sort_row_number_order);
+        xp_item *sorted = PyMem_Malloc((size_t)set->len * sizeof(xp_item));
+        if (sorted == NULL) {                                       /* GCOVR_EXCL_BR_LINE: alloc */
+            for (Py_ssize_t index = 0; index < set->len; index++) { /* GCOVR_EXCL_LINE */
+                PyMem_Free(items[index].key);                       /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE */
+            PyMem_Free(items);                 /* GCOVR_EXCL_LINE */
+            return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < set->len; index++) {
+            sorted[index] = set->items[items[index].index];
+        }
+        memcpy(set->items, sorted, (size_t)set->len * sizeof(xp_item));
+        PyMem_Free(sorted);
+        for (Py_ssize_t index = 0; index < set->len; index++) {
+            PyMem_Free(items[index].key);
+        }
+        PyMem_Free(items);
+        return 0;
     }
     sort_row *order = PyMem_Malloc((size_t)set->len * sizeof(sort_row));
     if (order == NULL) {                                                 /* GCOVR_EXCL_BR_LINE: alloc */
@@ -3394,7 +3518,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         }
         values[nvalues++] = (long)floor(to_number(eng->src_tree, &result) + 0.5);
         xp_result_free(&result);
-    } else if (eng->cur_attr >= 0) {
+    } else if (xp_is_attribute(eng->cur_attr)) {
         values[nvalues++] = 1;
     } else {
         Py_ssize_t count_len = 0;
@@ -3821,8 +3945,8 @@ static int apply_to_item(engine *eng, xp_item item, Py_ssize_t pos, Py_ssize_t s
 
 static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_UCS4 *mode, Py_ssize_t mode_len,
                          th_node *out_parent) {
-    if (attr >= 0) {
-        const th_node_attr *attribute = &node->attrs[attr];
+    if (xp_is_attribute(attr)) {
+        const th_node_attr *attribute = xp_item_attribute(eng->src_tree, (xp_item){node, attr});
         return emit_text(eng, out_parent, attribute->value, attribute->value_len);
     }
     if (node->type == TH_NODE_TEXT) {
@@ -3879,7 +4003,7 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
         /* Default: the children of the current node, in document order. */
         memset(&value, 0, sizeof(value));
         value.kind = XP_NODESET;
-        if (eng->cur_attr < 0) {
+        if (!xp_is_attribute(eng->cur_attr)) {
             for (th_node *child = eng->cur_node->first_child; child != NULL; child = child->next_sibling) {
                 if (ns_push(&value.nodes, child, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     xp_result_free(&value);                 /* GCOVR_EXCL_LINE */
@@ -5736,7 +5860,11 @@ static th_node *stylesheet_root(th_node *node) {
     return NULL; /* GCOVR_EXCL_LINE: an XML document always has a root element */
 }
 
-static PyObject *stylesheet_import_hrefs(PyObject *module, PyObject *stylesheet, PyObject *base, int allow_imports) {
+TH_NODE_API(static, PyObject *, stylesheet_import_hrefs,
+            (PyObject * module, PyObject *stylesheet, PyObject *base, int allow_imports),
+            (module, stylesheet, base, allow_imports),
+            (PyObject * module, PyObject *stylesheet, PyObject *base, int allow_imports),
+            is_node(stylesheet, PyModule_GetState(module)) ? (NodeObject *)stylesheet : NULL, NULL) {
     PyObject *hrefs = PyList_New(0);
     if (hrefs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;     /* GCOVR_EXCL_LINE */
@@ -6534,7 +6662,8 @@ static int copy_imports(PyObject *module, xslt_compiled *compiled, PyObject *imp
     return 0;
 }
 
-PyObject *turbohtml_xslt_compile(PyObject *module, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_xslt_compile, (PyObject * module, PyObject *args), (module, args),
+            (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 0, NULL), NULL) {
     PyObject *stylesheet_obj;
     PyObject *imports_obj = Py_None;
     /* The typed facade fixes this private signature. */
@@ -6611,7 +6740,8 @@ PyObject *turbohtml_xslt_compile(PyObject *module, PyObject *args) {
     return capsule;
 }
 
-PyObject *turbohtml_xslt_transform(PyObject *module, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_xslt_transform, (PyObject * module, PyObject *args), (module, args),
+            (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 1, NULL), NULL) {
     PyObject *compiled_obj;
     PyObject *source_obj;
     PyObject *params = Py_None;

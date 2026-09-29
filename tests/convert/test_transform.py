@@ -161,6 +161,25 @@ def test_transform_variable_scope_restores_shadowed_bindings(count: int) -> None
     assert _run("<r><n/><n/></r>", body) == f"0{count - 1}locallocalglobal"
 
 
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("$v + position()", "78", id="variable-and-position"),
+        pytest.param("concat($v, @id)", "6a6b", id="variable-in-function"),
+        pytest.param("count(../n[@rank = $v])", "11", id="variable-in-predicate"),
+        pytest.param("concat(position(), last(), @id)", "12a22b", id="context-only"),
+        pytest.param("'$v'", "$v$v", id="literal-dollar"),
+    ],
+)
+def test_transform_variable_scope_expression_context(expression: str, expected: str) -> None:
+    body: Final = (
+        '<xsl:variable name="v" select="6"/><xsl:template match="/">'
+        '<xsl:for-each select="r/n">'
+        f'<xsl:value-of select="{expression}"/></xsl:for-each></xsl:template>'
+    )
+    assert _run('<r><n id="a" rank="6"/><n id="b" rank="7"/></r>', body) == expected
+
+
 @pytest.mark.parametrize("passed", [pytest.param(False, id="default"), pytest.param(True, id="override")])
 def test_transform_parameter_scope_default_and_restoration(*, passed: bool) -> None:
     argument: Final = '<xsl:with-param name="a" select="\'passed\'"/>' if passed else ""
@@ -404,6 +423,76 @@ def test_transform_sort_numeric_expression_coercion(
     assert _run(source, body) == (descending if reverse else ascending)
 
 
+@pytest.mark.parametrize("select", ["@key", "number(@key)", "string(@key)"], ids=["node", "number", "string"])
+@pytest.mark.parametrize("second_key", [False, True], ids=["one-key", "two-keys"])
+@pytest.mark.parametrize(("order", "expected"), [("ascending", "acdfbe"), ("descending", "bedfac")])
+def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str, *, second_key: bool) -> None:
+    source: Final = (
+        '<r><n id="a" key="bad"/><n id="b" key="2"/><n id="c" key="bad"/>'
+        '<n id="d" key="1"/><n id="e" key="2"/><n id="f" key="1"/></r>'
+    )
+    body: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
+        + ('<xsl:sort select="@id"/>' if second_key else "")
+        + '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r><n id="a" key="z"/><n id="b"/><n id="c" key="a"/><n id="d" key=""/></r>',
+            "bdca",
+            id="missing-and-empty",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><n id="a" p:key="z"/><n id="b" key="a"/></r>',
+            "ab",
+            id="unprefixed-namespace",
+        ),
+        pytest.param(
+            '<r><n id="a" key="z"/><n id="b" key="a"/></r>',
+            "ba",
+            id="present",
+        ),
+    ],
+)
+def test_transform_sort_static_attribute(source: str, expected: str) -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run(source, body) == expected
+
+
+def test_transform_sort_static_attribute_tracks_mutation() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
+    convert = Transform(_sheet(body))
+    assert convert(document) == "ba"
+    document.select("n")[0].attrs["key"] = "0"
+    assert convert(document) == "ab"
+    document.select("n")[1].attrs["key"] = None
+    assert convert(document) == "ba"
+
+
+def test_transform_sort_static_attribute_on_attribute_context() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n/@id">'
+        '<xsl:sort select="@key"/><xsl:value-of select="."/>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run('<r><n id="b" key="a"/><n id="a" key="b"/></r>', body) == "ba"
+
+
 def test_transform_sort_multiple_keys() -> None:
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
@@ -480,6 +569,17 @@ def test_transform_current_function() -> None:
         '<xsl:value-of select="current()/@id"/></xsl:for-each></xsl:template>'
     )
     assert _run('<r><n id="1"/><n id="2"/></r>', body) == "12"
+
+
+def test_transform_current_attribute() -> None:
+    assert (
+        _run(
+            '<r id="one" title="two"/>',
+            '<xsl:template match="/"><xsl:for-each select="r/@*">'
+            '<xsl:value-of select="current()"/></xsl:for-each></xsl:template>',
+        )
+        == "onetwo"
+    )
 
 
 def test_transform_generate_id_is_stable_per_node() -> None:
@@ -892,6 +992,20 @@ def test_transform_key_deduplicates_a_node_under_one_value() -> None:
             "ab",
             id="empty-key-string",
         ),
+        pytest.param(
+            "i",
+            "@k",
+            '<r><i id="a" k=""/><i id="b"/></r>',
+            "",
+            "a",
+            id="empty-attribute-excludes-missing",
+        ),
+        pytest.param("i", "@*", '<r><i id="a" k=""/></r>', "", "a", id="wildcard-empty-attribute"),
+        pytest.param("i", "@k[1]", '<r><i id="a" k=""/></r>', "", "a", id="filtered-empty-attribute"),
+        pytest.param("i", "@k/..", '<r><i id="a" k="">x</i></r>', "x", "a", id="attribute-parent"),
+        pytest.param("i", "(@k)/..", '<r><i id="a" k="">x</i></r>', "x", "a", id="filtered-path-base"),
+        pytest.param("i", "/r/i/@k", '<r><i id="a" k="x"/></r>', "x", "a", id="absolute-attribute"),
+        pytest.param("i", "@xml:lang", '<r><i id="a" xml:lang="en"/></r>', "en", "a", id="prefixed-attribute"),
     ],
 )
 def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str, wanted: str, expected: str) -> None:
@@ -901,6 +1015,15 @@ def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str,
         '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
     )
     assert _run(source, body) == expected
+
+
+@pytest.mark.parametrize("use", ["@k", "@*"], ids=["named", "wildcard"])
+def test_transform_key_valueless_html_attribute(use: str) -> None:
+    body = (
+        f'<xsl:key name="k" match="i" use="{use}"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k',''))\"/></xsl:template>"
+    )
+    assert Transform(_sheet(body))(turbohtml.parse("<r><i k></i><i></i></r>")) == "1"
 
 
 def test_transform_key_string_use_expression() -> None:

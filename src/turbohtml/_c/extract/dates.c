@@ -1337,7 +1337,9 @@ static int dates_markup_stages(th_tree *tree, th_node *root, const int *low, con
    extensive) visible text -- and the first stage that yields a date inside [min, max] wins. want is META_PUBLISHED
    (original=True) or META_MODIFIED; within a stage a candidate of the wanted or generic role wins on sight and the
    first off-role one is the reserve. The tree-walking stages run under the document's critical section. */
-PyObject *turbohtml_document_dates(PyObject *self, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_document_dates, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     int want, current_year, extensive;
     int low[3], high[3];
     if (!PyArg_ParseTuple(args, "iiiiiiiip:_dates", &want, &current_year, &low[0], &low[1], &low[2], &high[0], &high[1],

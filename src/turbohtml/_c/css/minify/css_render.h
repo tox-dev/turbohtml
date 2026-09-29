@@ -658,9 +658,7 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
         char buffer[32];
         if (low == high) {
             int written = snprintf(buffer, sizeof(buffer), "U+%llX", low);
-            for (int pos = 0; pos < written; pos++) {
-                cbuf_putc(out, (css_char)(unsigned char)buffer[pos]);
-            }
+            cbuf_put_run(out, (const css_char *)buffer, written);
         } else {
             /* a descriptor takes no CSS-wide keyword, so a full U+0-10FFFF range is never rewritten to initial */
             int nibble = 0;
@@ -680,18 +678,14 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
                 cbuf_puts(out, "U+");
                 if (prefix != 0) {
                     int written = snprintf(buffer, sizeof(buffer), "%llX", prefix);
-                    for (int pos = 0; pos < written; pos++) {
-                        cbuf_putc(out, (css_char)(unsigned char)buffer[pos]);
-                    }
+                    cbuf_put_run(out, (const css_char *)buffer, written);
                 }
                 for (int pos = 0; pos < wildcards; pos++) {
                     cbuf_putc(out, '?');
                 }
             } else {
                 int written = snprintf(buffer, sizeof(buffer), "U+%llX-%llX", low, high);
-                for (int pos = 0; pos < written; pos++) {
-                    cbuf_putc(out, (css_char)(unsigned char)buffer[pos]);
-                }
+                cbuf_put_run(out, (const css_char *)buffer, written);
             }
         }
     }

@@ -29,7 +29,7 @@ from turbohtml.build import E
 from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from turbohtml import Document
 
@@ -69,6 +69,18 @@ def test_call_is_find() -> None:
 
 def test_find_collects_across_the_set_in_document_order() -> None:
     assert [e.text for e in Query(_DOC)("li")] == ["a", "b", "c"]
+
+
+def test_construct_deduplicates_a_node_adopted_during_iteration() -> None:
+    node: Final = Element("b")
+    destination: Final = Element("main")
+
+    def nodes() -> Iterator[Element]:
+        yield node
+        destination.append(node)
+        yield node
+
+    assert list(Query(nodes())) == [node]
 
 
 def test_find_across_multiple_nodes_deduplicates() -> None:
@@ -259,6 +271,7 @@ def test_chaining_example() -> None:
     ("selector", "expected"),
     [
         pytest.param("main", ["first", "second"], id="shared-ancestors"),
+        pytest.param("MAIN", ["first", "second"], id="html-tag-case"),
         pytest.param(":scope", ["a", "c", "b"], id="scope-per-element"),
         pytest.param("aside", [], id="no-matches"),
     ],
@@ -275,9 +288,41 @@ def test_query_closest_parent_ownership() -> None:
     assert selected[0].serialize() == '<main id="retained"><p>x</p><p>y</p></main>'
 
 
-def test_query_closest_invalid_selector() -> None:
+def test_query_closest_mixed_html_xml_tag_case() -> None:
+    html: Final = turbohtml.parse('<main id="html"><p/></main>').find("p")
+    xml: Final = turbohtml.parse_xml('<Root><main id="xml"><p/></main><MAIN id="upper"><p/></MAIN></Root>')
+    assert html is not None
+    paragraphs: Final = [html, *xml.find_all("p")]
+    assert [node.attrs["id"] for node in Query(paragraphs).closest("main")] == ["html", "xml"]
+
+
+def test_query_closest_foreign_namespace_tag() -> None:
+    svg_title: Final = turbohtml.parse('<svg><title id="svg">x</title></svg>').select_one("title")
+    html_title: Final = turbohtml.parse('<title id="html">x</title>').select_one("title")
+    assert svg_title is not None
+    assert html_title is not None
+    assert [node.attrs["id"] for node in Query([svg_title, html_title]).closest("title")] == ["svg", "html"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("h1", id="digit"),
+        pytest.param("custom-tag", id="hyphen"),
+        pytest.param("custom-element-with-a-long-tag-name", id="long"),
+    ],
+)
+def test_query_closest_tag_name(name: str) -> None:
+    document: Final = turbohtml.parse(f"<{name}><p/></{name}>")
+    parent: Final = document.find(name)
+    assert parent is not None
+    assert list(Query(document.find_all("p")).closest(name)) == [parent]
+
+
+@pytest.mark.parametrize("selector", [pytest.param("[", id="unclosed"), pytest.param("", id="empty")])
+def test_query_closest_invalid_selector(selector: str) -> None:
     with pytest.raises(SelectorSyntaxError):
-        Query("<p>x</p>")("p").closest("[")
+        Query("<p>x</p>")("p").closest(selector)
 
 
 @pytest.mark.parametrize(
@@ -399,6 +444,22 @@ def test_siblings_deduplicates_across_the_set() -> None:
     document = turbohtml.parse("<ul><li id=a>a</li><li id=b>b</li></ul>")
     both = document.find_all("li")
     assert [node.attrs["id"] for node in _query_siblings(both)] == ["b", "a"]
+
+
+@pytest.mark.parametrize(
+    ("indices", "expected"),
+    [
+        pytest.param([], [], id="empty"),
+        pytest.param([0], [1, 2], id="one"),
+        pytest.param([0, 0], [1, 2], id="duplicate"),
+        pytest.param([0, 1, 2], [1, 2, 0], id="all"),
+        pytest.param([2, 0, 1], [0, 1, 2], id="reverse"),
+    ],
+)
+def test_siblings_preserves_first_encounter_order(indices: list[int], expected: list[int]) -> None:
+    children: Final = [Element("b"), Element("i"), Element("em")]
+    Element("div", children=children)
+    assert list(Query([children[index] for index in indices]).siblings()) == [children[index] for index in expected]
 
 
 @pytest.mark.parametrize(

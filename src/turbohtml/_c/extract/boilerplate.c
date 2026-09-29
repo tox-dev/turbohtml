@@ -6,6 +6,7 @@
    caller's thresholds, and that decision is what the caller gets back, so it runs here. */
 
 #include "core/common.h"
+#include "dom/ownership.h"
 #include "dom/tree.h"
 
 /* The block elements a page segments into. A unit holding another unit is a container -- a <li> wrapping a <p>, a
@@ -199,7 +200,9 @@ static int boilerplate_walk(th_tree *tree, th_node *node, const th_node *content
 
    `root` is the parsed document's root and `content` the element th_node_main_content scored as the article body, or
    None when the page has none. Each row carries what a Paragraph holds, so the typed layer only names the fields. */
-PyObject *turbohtml_extract_boilerplate(PyObject *module, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_extract_boilerplate, (PyObject * module, PyObject *args), (module, args),
+            (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 0, NULL),
+            node_argument(PyModule_GetState(module), args, NULL, 1, NULL)) {
     PyObject *root;
     PyObject *content;
     Py_ssize_t min_length;

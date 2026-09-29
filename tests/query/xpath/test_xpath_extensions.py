@@ -11,7 +11,7 @@ path steps and predicates.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
@@ -188,9 +188,9 @@ def _texts(result: object) -> list[str]:
     ],
 )
 def test_extension_result_becomes_a_node_set(
-    request: pytest.FixtureRequest, *, fixture: str, expression: str, expected: list[str]
+    doc: turbohtml.Node, big_doc: turbohtml.Node, *, fixture: str, expression: str, expected: list[str]
 ) -> None:
-    page = cast("turbohtml.Node", request.getfixturevalue(fixture))
+    page: Final = big_doc if fixture == "big_doc" else doc
     assert _texts(page.xpath(expression, extensions=NODESET_EXTENSIONS)) == expected
 
 

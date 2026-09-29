@@ -58,12 +58,14 @@ void th_node_freelist_clear(module_state *Py_UNUSED(state)) {
 
 static void node_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
-    Py_DECREF(((NodeObject *)self)->handle);
+#ifndef Py_GIL_DISABLED
+    module_state *state = ((HandleObject *)((NodeObject *)self)->handle)->state;
+#endif
+    node_unbind((NodeObject *)self);
 #ifndef Py_GIL_DISABLED
     /* Park the wrapper for reuse instead of freeing it, unless the pool is full.
        Every node type has basicsize sizeof(NodeObject) and none accept a subclass,
        so any node object fits a base-type reuse. */
-    module_state *state = state_of(self);
     if (state->node_freelist_len < NODE_FREELIST_MAX) {
         ((NodeObject *)self)->node = (th_node *)state->node_freelist; /* stash the next link in the node field */
         state->node_freelist = self;
@@ -76,6 +78,75 @@ static void node_dealloc(PyObject *self) {
     Py_DECREF(type);
 }
 
+node_binding_overflow *node_overflow_slot(HandleObject *handle, th_node *node) {
+    size_t slot = hash_override_slot(node, handle->binding_overflow_mask);
+    while (handle->binding_overflow[slot].node != NULL && handle->binding_overflow[slot].node != node) {
+        slot = (slot + 1) & handle->binding_overflow_mask;
+    }
+    return &handle->binding_overflow[slot];
+}
+
+void node_free_binding(HandleObject *handle, th_node *node) {
+    if (node->binding_id == UINT16_MAX) {
+        node_overflow_slot(handle, node)->binding = NULL;
+    } else {
+        handle->bindings[node->binding_id].next = handle->binding_free;
+        handle->binding_free = node->binding_id;
+    }
+    node->binding_id = 0;
+}
+
+NodeObject **node_grow_bindings(HandleObject *handle, th_node *node) {
+    if (handle->binding_next != UINT16_MAX) {
+        size_t capacity = (size_t)handle->binding_capacity * 2;
+        if (capacity > UINT16_MAX) {
+            capacity = UINT16_MAX;
+        }
+        node_binding_slot *slots = PyMem_Realloc(handle->bindings == handle->inline_bindings ? NULL : handle->bindings,
+                                                 capacity * sizeof(node_binding_slot));
+        if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return NULL;      /* GCOVR_EXCL_LINE */
+        }
+        if (handle->bindings == handle->inline_bindings) {
+            memcpy(slots, handle->inline_bindings, sizeof(handle->inline_bindings));
+        }
+        handle->bindings = slots;
+        handle->binding_capacity = (uint16_t)capacity;
+        node->binding_id = handle->binding_next++;
+    } else {
+        size_t capacity = handle->binding_overflow == NULL ? 0 : handle->binding_overflow_mask + 1;
+        if (handle->binding_overflow_count * 2 >= capacity) {
+            size_t grown = capacity == 0 ? 16 : capacity * 2;
+            node_binding_overflow *slots = PyMem_Calloc(grown, sizeof(node_binding_overflow));
+            if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return NULL;      /* GCOVR_EXCL_LINE */
+            }
+            node_binding_overflow *old = handle->binding_overflow;
+            handle->binding_overflow = slots;
+            handle->binding_overflow_mask = grown - 1;
+            for (size_t slot = 0; slot < capacity; slot++) {
+                if (old[slot].node != NULL) {
+                    *node_overflow_slot(handle, old[slot].node) = old[slot];
+                }
+            }
+            PyMem_Free(old);
+        }
+        node_binding_overflow *slot = node_overflow_slot(handle, node);
+        if (slot->node == NULL) {
+            slot->node = node;
+            handle->binding_overflow_count++;
+        }
+        node->binding_id = UINT16_MAX;
+    }
+    NodeObject **binding = node_binding_pointer(handle, node);
+#ifdef Py_GIL_DISABLED
+    *binding = NULL;
+#endif
+    return binding;
+}
+
 static PyObject *node_richcompare(PyObject *left, PyObject *right, int op) {
     module_state *state = state_of(left);
     if (op != Py_EQ && op != Py_NE) {
@@ -84,13 +155,21 @@ static PyObject *node_richcompare(PyObject *left, PyObject *right, int op) {
     if (!is_node(right, state)) {
         Py_RETURN_NOTIMPLEMENTED;
     }
+#ifdef Py_GIL_DISABLED
+    int equal = ((NodeObject *)left)->identity == ((NodeObject *)right)->identity;
+#else
     int equal = ((NodeObject *)left)->node == ((NodeObject *)right)->node;
+#endif
     return PyBool_FromLong(op == Py_EQ ? equal : !equal);
 }
 
 static Py_hash_t node_hash(PyObject *self) {
     NodeObject *node = (NodeObject *)self;
+#ifdef Py_GIL_DISABLED
+    return node->identity->hash;
+#else
     return handle_node_hash((HandleObject *)node->handle, node->node);
+#endif
 }
 
 PyDoc_STRVAR(equals_doc, "equals(other, /)\n--\n\n"
@@ -105,7 +184,9 @@ PyDoc_STRVAR(equals_doc, "equals(other, /)\n--\n\n"
                          ":returns: whether the two subtrees are structurally equal.\n"
                          ":raises TypeError: if other is not a node.");
 
-static PyObject *node_equals(PyObject *self, PyObject *other) {
+TH_NODE_API(static, PyObject *, node_equals, (PyObject * self, PyObject *other), (self, other),
+            (PyObject * self, PyObject *other), (NodeObject *)self,
+            other != NULL && is_node(other, state_of(self)) ? (NodeObject *)other : NULL) {
     if (!is_node(other, state_of(self))) {
         PyErr_Format(PyExc_TypeError, "other must be a node, not %.80s", Py_TYPE(other)->tp_name);
         return NULL;
@@ -180,7 +261,11 @@ static PyObject *walker_next(PyObject *self) {
     if (node == NULL) {
         return NULL;
     }
+#ifndef Py_GIL_DISABLED
+    return node_wrap(((HandleObject *)walker->handle)->state, walker->handle, node);
+#else
     return node_wrap(state_of(self), walker->handle, node);
+#endif
 }
 
 static PyType_Slot walker_slots[] = {
@@ -340,22 +425,26 @@ PyType_Spec serialize_iter_spec = {
     .slots = serialize_iter_slots,
 };
 
-static PyObject *node_get_parent(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_parent, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     return node_wrap(state_of(self), node->handle, node->node->parent);
 }
 
-static PyObject *node_get_next_sibling(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_next_sibling, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     return node_wrap(state_of(self), node->handle, node->node->next_sibling);
 }
 
-static PyObject *node_get_previous_sibling(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_previous_sibling, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     return node_wrap(state_of(self), node->handle, node->node->prev_sibling);
 }
 
-static PyObject *node_get_source_line(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_source_line, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     Py_ssize_t line, col;
     if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
         return PyLong_FromSsize_t(line);
@@ -363,7 +452,8 @@ static PyObject *node_get_source_line(PyObject *self, void *Py_UNUSED(closure)) 
     Py_RETURN_NONE;
 }
 
-static PyObject *node_get_source_col(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_source_col, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     Py_ssize_t line, col;
     if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
         return PyLong_FromSsize_t(col);
@@ -371,7 +461,8 @@ static PyObject *node_get_source_col(PyObject *self, void *Py_UNUSED(closure)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *node_get_position(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_position, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     Py_ssize_t line, col;
     if (th_node_source_position(tree_of(self), ((NodeObject *)self)->node, &line, &col)) {
         return Py_BuildValue("(nn)", line, col);
@@ -384,7 +475,8 @@ static PyObject *make_source_span(module_state *state, const th_src_span *span) 
                                  span->start_offset, span->end_line, span->end_col, span->end_offset);
 }
 
-static PyObject *node_get_source_location(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_source_location, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_tree *tree = tree_of(self);
     const th_src_loc *loc = th_node_source_location(tree, ((NodeObject *)self)->node);
     if (loc == NULL) {
@@ -443,7 +535,8 @@ static PyObject *node_children_tuple(PyObject *self) {
     return tuple;
 }
 
-static PyObject *node_get_children(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_children, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle); /* walks the child list */
     result = node_children_tuple(self);
@@ -451,7 +544,8 @@ static PyObject *node_get_children(PyObject *self, void *Py_UNUSED(closure)) {
     return result;
 }
 
-static PyObject *node_get_descendants(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_descendants, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *first_child;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -460,7 +554,8 @@ static PyObject *node_get_descendants(PyObject *self, void *Py_UNUSED(closure)) 
     return walker_new(state_of(self), node->handle, first_child, node->node, WALK_DESCENDANTS);
 }
 
-static PyObject *node_get_ancestors(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_ancestors, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *parent;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -469,7 +564,8 @@ static PyObject *node_get_ancestors(PyObject *self, void *Py_UNUSED(closure)) {
     return walker_new(state_of(self), node->handle, parent, NULL, WALK_ANCESTORS);
 }
 
-static PyObject *node_get_next_siblings(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_next_siblings, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *sibling;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -478,7 +574,8 @@ static PyObject *node_get_next_siblings(PyObject *self, void *Py_UNUSED(closure)
     return walker_new(state_of(self), node->handle, sibling, NULL, WALK_NEXT_SIBLINGS);
 }
 
-static PyObject *node_get_previous_siblings(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_previous_siblings, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *sibling;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -487,7 +584,8 @@ static PyObject *node_get_previous_siblings(PyObject *self, void *Py_UNUSED(clos
     return walker_new(state_of(self), node->handle, sibling, NULL, WALK_PREVIOUS_SIBLINGS);
 }
 
-static PyObject *node_get_following(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_following, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *start;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -496,7 +594,8 @@ static PyObject *node_get_following(PyObject *self, void *Py_UNUSED(closure)) {
     return walker_new(state_of(self), node->handle, start, NULL, WALK_DESCENDANTS);
 }
 
-static PyObject *node_get_preceding(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_preceding, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     th_node *start;
     Py_BEGIN_CRITICAL_SECTION(node->handle);
@@ -505,19 +604,22 @@ static PyObject *node_get_preceding(PyObject *self, void *Py_UNUSED(closure)) {
     return walker_new(state_of(self), node->handle, start, node->node, WALK_PRECEDING);
 }
 
-static PyObject *node_get_strings(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_strings, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     return string_walker_new(state_of(self), node->handle, node->node, 0);
 }
 
-static PyObject *node_get_stripped_strings(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_stripped_strings, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     return string_walker_new(state_of(self), node->handle, node->node, 1);
 }
 
 /* .text/.html/.inner_html walk the whole subtree, so hold the per-tree lock so a
    concurrent mutate cannot rewire it mid-walk (a no-op on the GIL build). */
-PyObject *node_get_text(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, node_get_text, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     result = th_node_text_string(tree_of(self), ((NodeObject *)self)->node);
@@ -525,7 +627,8 @@ PyObject *node_get_text(PyObject *self, void *Py_UNUSED(closure)) {
     return result;
 }
 
-static PyObject *node_get_html(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_html, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     result = str_from_accessor(th_node_html, tree_of(self), ((NodeObject *)self)->node);
@@ -533,7 +636,8 @@ static PyObject *node_get_html(PyObject *self, void *Py_UNUSED(closure)) {
     return result;
 }
 
-static PyObject *node_get_inner_html(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_inner_html, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     result = str_from_accessor(th_node_inner_html, tree_of(self), ((NodeObject *)self)->node);
@@ -541,7 +645,8 @@ static PyObject *node_get_inner_html(PyObject *self, void *Py_UNUSED(closure)) {
     return result;
 }
 
-static PyObject *node_get_inner_xml(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_inner_xml, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     PyObject *result;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     result = str_from_accessor(th_node_inner_xml, tree_of(self), ((NodeObject *)self)->node);
@@ -865,7 +970,9 @@ static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     return result;
 }
 
-static PyObject *node_to_markdown(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_to_markdown, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     return node_render_with_options(self, args, kwds, node_markdown_render, state_of(self)->markdown_config_type,
                                     "Markdown");
 }
@@ -923,7 +1030,9 @@ static PyObject *node_text_render(PyObject *self, PyObject *spec) {
     return result;
 }
 
-static PyObject *node_to_text(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_to_text, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     return node_render_with_options(self, args, kwds, node_text_render, state_of(self)->plaintext_config_type,
                                     "PlainText");
 }
@@ -1061,7 +1170,9 @@ static PyObject *node_annotated_render(PyObject *self, PyObject *rules_dict, PyO
     return result;
 }
 
-static PyObject *node_to_annotated_text(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_to_annotated_text, (PyObject * self, PyObject *args, PyObject *kwds),
+            (self, args, kwds), (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *rules_dict, *options = NULL;
     static char *kw[] = {"annotation_rules", "options", NULL};
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O", kw, &rules_dict, &options)) {
@@ -1085,7 +1196,8 @@ PyDoc_STRVAR(links_doc, "links()\n--\n\n"
                         "redirect, and CSS url()/@import in a style attribute or a <style> sheet.\n\n"
                         ":returns: the Link records in document order.");
 
-static PyObject *node_links(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_links, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     return turbohtml_node_links(self, tree_of(self), ((NodeObject *)self)->node);
 }
 
@@ -1094,7 +1206,9 @@ PyDoc_STRVAR(rewrite_links_doc, "rewrite_links(replace, /)\n--\n\n"
                                 ":param replace: called with each URL; return a str to substitute it or\n"
                                 "    None to leave it unchanged.");
 
-static PyObject *node_rewrite_links(PyObject *self, PyObject *replace) {
+TH_NODE_API(static, PyObject *, node_rewrite_links, (PyObject * self, PyObject *replace), (self, replace),
+            (PyObject * self, PyObject *replace), (NodeObject *)self,
+            replace != NULL && is_node(replace, state_of(self)) ? (NodeObject *)replace : NULL) {
     return turbohtml_node_rewrite_links(self, tree_of(self), ((NodeObject *)self)->node, replace);
 }
 
@@ -1103,7 +1217,9 @@ PyDoc_STRVAR(resolve_links_doc, "resolve_links(base_url, /)\n--\n\n"
                                 "place, using stdlib urllib.parse.urljoin.\n\n"
                                 ":param base_url: the base each relative URL is resolved against.");
 
-static PyObject *node_resolve_links(PyObject *self, PyObject *base_url) {
+TH_NODE_API(static, PyObject *, node_resolve_links, (PyObject * self, PyObject *base_url), (self, base_url),
+            (PyObject * self, PyObject *base_url), (NodeObject *)self,
+            base_url != NULL && is_node(base_url, state_of(self)) ? (NodeObject *)base_url : NULL) {
     return turbohtml_node_resolve_links(self, tree_of(self), ((NodeObject *)self)->node, base_url);
 }
 
@@ -1113,7 +1229,8 @@ PyDoc_STRVAR(tables_doc, "tables()\n--\n\n"
                          "entry. The result is a list[list[list[str]]] of plain strings, with no pandas\n"
                          "dependency; pass one table to pandas.DataFrame for a frame.");
 
-static PyObject *node_tables(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_tables, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     return turbohtml_node_tables(self, tree_of(self), ((NodeObject *)self)->node);
 }
 
@@ -1124,7 +1241,8 @@ PyDoc_STRVAR(main_content_doc, "main_content()\n--\n\n"
                                "weight, discounted by link density), the readability heuristic, in C.\n\n"
                                ":returns: the winning content Element, or None when nothing reads as content.");
 
-static PyObject *node_main_content(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_main_content, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *winner;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     winner = th_node_main_content(tree_of(self), ((NodeObject *)self)->node);
@@ -1140,7 +1258,8 @@ PyDoc_STRVAR(main_text_doc, "main_text()\n--\n\n"
                             "to_text() renders main_content().\n\n"
                             ":returns: the main content's text, or an empty string when there is none.");
 
-static PyObject *node_main_text(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_main_text, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     text_opts opt = th_text_default_opts();
     Py_ssize_t out_len = 0;
     Py_UCS4 *data = NULL;
@@ -1241,7 +1360,8 @@ PyDoc_STRVAR(article_doc, "article()\n--\n\n"
                           "name=keywords> (comma-split) and article:tag; image from og:image, then\n"
                           "twitter:image. Pure C.");
 
-static PyObject *node_article(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_article, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_tree *tree = tree_of(self);
     text_opts opt = th_text_default_opts();
     th_node *winner = NULL;
@@ -1331,7 +1451,7 @@ static PyGetSetDef node_getset[] = {
     {NULL, NULL, NULL, NULL, NULL},
 };
 
-static Py_ssize_t node_length(PyObject *self) {
+TH_NODE_API(static, Py_ssize_t, node_length, (PyObject * self), (self), (PyObject * self), (NodeObject *)self, NULL) {
     Py_ssize_t count = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     for (th_node *child = ((NodeObject *)self)->node->first_child; child != NULL; child = child->next_sibling) {
@@ -1341,7 +1461,8 @@ static Py_ssize_t node_length(PyObject *self) {
     return count;
 }
 
-static PyObject *node_item(PyObject *self, Py_ssize_t index) {
+TH_NODE_API(static, PyObject *, node_item, (PyObject * self, Py_ssize_t index), (self, index),
+            (PyObject * self, Py_ssize_t index), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
 #if defined(PYPY_VERSION) && PYPY_VERSION_NUM < 0x08000000
     /* CPython's PySequence_GetItem adds sq_length to a negative subscript before dispatching here;
@@ -1372,7 +1493,7 @@ static PyObject *node_item(PyObject *self, Py_ssize_t index) {
     return node_wrap(state_of(self), node->handle, child);
 }
 
-static PyObject *node_iter(PyObject *self) {
+TH_NODE_API(static, PyObject *, node_iter, (PyObject * self), (self), (PyObject * self), (NodeObject *)self, NULL) {
     PyObject *children = node_get_children(self, NULL);
     if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1382,11 +1503,11 @@ static PyObject *node_iter(PyObject *self) {
     return iterator;
 }
 
-static int node_bool(PyObject *Py_UNUSED(self)) {
+TH_NODE_API(static, int, node_bool, (PyObject * self), (self), (PyObject * Py_UNUSED(self)), (NodeObject *)self, NULL) {
     return 1; /* a node is always truthy; emptiness is len(), not bool() */
 }
 
-static PyObject *node_repr(PyObject *self) {
+TH_NODE_API(static, PyObject *, node_repr, (PyObject * self), (self), (PyObject * self), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT: {
@@ -1941,7 +2062,9 @@ static PyObject *node_serialize_options(PyObject *self, PyObject *options, const
     return result;
 }
 
-static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"options", "inner", NULL};
     PyObject *options = NULL;
     int inner = 0;
@@ -1951,7 +2074,9 @@ static PyObject *node_serialize(PyObject *self, PyObject *args, PyObject *kwds) 
     return node_serialize_options(self, options, "utf-8", inner);
 }
 
-static PyObject *node_encode(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"encoding", "options", "inner", NULL};
     const char *encoding = "utf-8";
     PyObject *options = NULL;
@@ -2046,7 +2171,9 @@ static PyObject *node_canonicalize_from_spec(PyObject *self, PyObject *spec) {
     return encoded;
 }
 
-static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_canonicalize, (PyObject * self, PyObject *args, PyObject *kwds),
+            (self, args, kwds), (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"options", NULL};
     PyObject *options = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O", keywords, &options)) {
@@ -2070,7 +2197,8 @@ static PyObject *node_canonicalize(PyObject *self, PyObject *args, PyObject *kwd
     return result;
 }
 
-static PyObject *node_to_source(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, node_to_source, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_ssize_t out_len;
     Py_UCS4 *data;
     /* hold the per-tree lock so a concurrent mutate cannot rewire the subtree mid-walk */
@@ -2114,7 +2242,9 @@ static PyObject *node_make_serialize_iter(PyObject *self, PyObject *formatter_ob
                               indent_len, layout);
 }
 
-static PyObject *node_serialize_iter(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, node_serialize_iter, (PyObject * self, PyObject *args, PyObject *kwds),
+            (self, args, kwds), (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"options", "inner", NULL};
     PyObject *options = NULL;
     int inner = 0;

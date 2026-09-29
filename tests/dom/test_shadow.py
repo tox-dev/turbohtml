@@ -126,6 +126,15 @@ def test_assigned_elements_drops_text_nodes(slotted: tuple[Element, ShadowRoot])
     assert _tags(default.assigned_elements()) == ["p"]
 
 
+@pytest.mark.parametrize("content", [pytest.param("", id="empty"), pytest.param("text", id="text-only")])
+def test_assigned_elements_without_elements(content: str) -> None:
+    host: Final = Element("div")
+    host.set_inner_html(content)
+    root: Final = host.attach_shadow()
+    root.set_inner_html("<slot></slot>")
+    assert _element(root.select_one("slot")).assigned_elements() == []
+
+
 def test_valueless_slot_name_is_the_default_slot() -> None:
     host = Element("div")
     host.append(Element("p", None, [Text("x")]))

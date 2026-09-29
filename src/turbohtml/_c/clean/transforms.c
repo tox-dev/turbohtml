@@ -1,4 +1,5 @@
 #include "core/common.h"
+#include "dom/ownership.h"
 #include "tokenizer/binding.h"
 #include "dom/observe.h"
 #include "serialize/internal.h"
@@ -40,7 +41,9 @@ PyObject *turbohtml_transform_node(PyObject *module, PyObject *const *args, Py_s
     return root;
 }
 
-PyObject *turbohtml_collapse_whitespace_node(PyObject *module, PyObject *owner) {
+TH_NODE_API(, PyObject *, turbohtml_collapse_whitespace_node, (PyObject * module, PyObject *owner), (module, owner),
+            (PyObject * module, PyObject *owner),
+            is_node(owner, PyModule_GetState(module)) ? (NodeObject *)owner : NULL, NULL) {
     th_tree *tree;
     th_node *root;
     if (turbohtml_node_borrow(module, owner, &tree, &root) < 0) {
@@ -61,7 +64,9 @@ PyObject *turbohtml_collapse_whitespace_node(PyObject *module, PyObject *owner) 
     return Py_NewRef(owner);
 }
 
-PyObject *turbohtml_strip_comments_node(PyObject *module, PyObject *owner) {
+TH_NODE_API(, PyObject *, turbohtml_strip_comments_node, (PyObject * module, PyObject *owner), (module, owner),
+            (PyObject * module, PyObject *owner),
+            is_node(owner, PyModule_GetState(module)) ? (NodeObject *)owner : NULL, NULL) {
     th_tree *tree;
     th_node *root;
     if (turbohtml_node_borrow(module, owner, &tree, &root) < 0) {

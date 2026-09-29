@@ -9,7 +9,8 @@
 #include "encoding/language.h"
 #include "url/url.h"
 
-static PyObject *document_get_root(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, document_get_root, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     NodeObject *node = (NodeObject *)self;
     /* a parsed document always has an html element child, so the loop never exhausts */
     th_node *child = node->node->first_child;
@@ -22,7 +23,8 @@ static PyObject *document_get_root(PyObject *self, void *Py_UNUSED(closure)) {
     Py_RETURN_NONE; /* GCOVR_EXCL_LINE: a parsed document always has an <html> element child */
 }
 
-static PyObject *document_get_encoding(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, document_get_encoding, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return Py_NewRef(((HandleObject *)((NodeObject *)self)->handle)->encoding);
 }
 
@@ -31,7 +33,8 @@ static PyObject *document_get_encoding(PyObject *self, void *Py_UNUSED(closure))
    sniff guessed -- a structural UTF-8 read, the opt-in detector, or the windows-1252
    fallback -- and a scraper may want to second-guess it. None for str input, which was
    never decoded. */
-static PyObject *document_get_encoding_confidence(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, document_get_encoding_confidence, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     const HandleObject *handle = (HandleObject *)((NodeObject *)self)->handle;
     if (handle->encoding == Py_None) {
         Py_RETURN_NONE;
@@ -331,7 +334,9 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     return result;
 }
 
-static PyObject *document_base_url(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(static, PyObject *, document_base_url, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"fallback", NULL};
     PyObject *fallback = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|U:base_url", keywords, &fallback)) {
@@ -390,7 +395,9 @@ static int equiv_is_refresh(PyObject *equiv) {
     return 1;
 }
 
-static PyObject *document_meta_refresh(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(static, PyObject *, document_meta_refresh, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"fallback", NULL};
     PyObject *fallback = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|U:meta_refresh", keywords, &fallback)) {
@@ -517,7 +524,8 @@ static PyMethodDef document_methods[] = {
 
 /* The parse errors are immutable once the parse returns, so this reads them
    lock-free (like the other accessors) and materializes a fresh list each call. */
-static PyObject *document_get_errors(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, document_get_errors, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     HandleObject *handle = (HandleObject *)((NodeObject *)self)->handle;
     th_tree *tree = handle->tree;
     /* the first read folds the preprocessing errors into the tree, so two threads reading
@@ -582,6 +590,10 @@ static void handle_dealloc(PyObject *self) {
     PyMem_Free(handle->index_offsets);
     PyMem_Free(handle->index_nodes);
     PyMem_Free(handle->hash_overrides);
+    if (handle->bindings != handle->inline_bindings) {
+        PyMem_Free(handle->bindings);
+    }
+    PyMem_Free(handle->binding_overflow);
     path_id_map_free(handle->path_ids);
     path_positions_free(handle->path_positions);
     th_tree_free(handle->tree);
@@ -610,6 +622,12 @@ PyObject *handle_new(module_state *state, th_tree *tree, PyObject *source, PyObj
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     self->tree = tree;
+#ifndef Py_GIL_DISABLED
+    self->state = state;
+#endif
+    self->bindings = self->inline_bindings;
+    self->binding_capacity = sizeof(self->inline_bindings) / sizeof(*self->inline_bindings);
+    self->binding_next = 1;
     self->source = Py_NewRef(source);
     self->encoding = Py_NewRef(encoding);
     self->encoding_certain = encoding_certain;
@@ -1952,7 +1970,8 @@ static PyObject *node_pickle_data(PyObject *self, th_node *node) {
     Py_RETURN_NONE; /* GCOVR_EXCL_LINE: unreachable, the switch is exhaustive */
 }
 
-PyObject *node_reduce(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, node_reduce, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     PyObject *reconstruct = PyObject_GetAttrString(PyType_GetModule(Py_TYPE(self)), "_reconstruct");
     if (reconstruct == NULL) { /* GCOVR_EXCL_BR_LINE: the module always carries _reconstruct */

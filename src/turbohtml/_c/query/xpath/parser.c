@@ -312,6 +312,7 @@ static int32_t parse_primary(parser *ps) {
             fail(ps, "expected a name after '$'");
             return -1;
         }
+        ps->prog->has_variables = 1;
         int32_t var = xn_new(ps->prog, XN_VAR);
         if (var < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1; /* GCOVR_EXCL_LINE */
@@ -720,6 +721,9 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
         snprintf(errbuf, errlen, "out of memory"); /* GCOVR_EXCL_LINE */
         return NULL;                               /* GCOVR_EXCL_LINE */
     }
+    prog->references = 1;
+    prog->has_python_calls = 0;
+    prog->has_variables = 0;
     prog->nodes = NULL;
     prog->count = 0;
     prog->cap = 0;
@@ -750,12 +754,38 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
         return NULL;
     }
     optimize_descendant_steps(prog);
+    static const char *const PYTHON_FUNCS[] = {"re:test",    "matches",    "re:replace",   "replace",
+#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+                                               "lower-case", "upper-case", "set:distinct",
+#endif
+                                               NULL};
+    for (int32_t index = 0; index < prog->count; index++) {
+        if (
+#if PY_VERSION_HEX < 0x030C0000 || defined(PYPY_VERSION) || defined(Py_GIL_DISABLED)
+            prog->nodes[index].kind == XN_EQ || prog->nodes[index].kind == XN_NE ||
+#endif
+            (prog->nodes[index].kind == XN_FUNC && func_name_in(&prog->nodes[index], PYTHON_FUNCS))) {
+            prog->has_python_calls = 1;
+            break;
+        }
+    }
     return prog;
+}
+
+int xp_calls_python(const xp_program *prog) {
+    return prog->has_python_calls;
+}
+
+void xp_retain(xp_program *prog) {
+    prog->references++;
 }
 
 void xp_free(xp_program *prog) {
     if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: callers never pass NULL */
         return;         /* GCOVR_EXCL_LINE */
+    }
+    if (--prog->references != 0) {
+        return;
     }
     for (int32_t index = 0; index < prog->count; index++) {
         PyMem_Free(prog->nodes[index].str);

@@ -10,31 +10,214 @@
 #include <math.h>
 #include <string.h>
 
-int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
-    if (ns->len == ns->cap) {
-        size_t cap;
-        size_t bytes;
-        int grew = th_grow_cap((size_t)ns->cap + 1, (size_t)ns->cap, 8, sizeof(xp_item), &cap, &bytes);
-        if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-        }
-        xp_item *grown = PyMem_Realloc(ns->items, bytes);
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        ns->items = grown;
-        ns->cap = (Py_ssize_t)cap;
+typedef struct {
+    th_node_attr attribute;
+    size_t references;
+    Py_ssize_t ordinal;
+    Py_ssize_t name_len;
+    char name[];
+} xp_attribute;
+
+static xp_attribute *attribute_snapshot(Py_ssize_t attr) {
+    uintptr_t address = (uintptr_t)attr & ~(uintptr_t)1;
+    xp_attribute *snapshot;
+    memcpy(&snapshot, &address, sizeof(xp_attribute *));
+    return snapshot;
+}
+
+static xp_attribute *item_snapshot(xp_item item) {
+    return xp_is_attribute(item.attr) && ((uintptr_t)item.attr & 1) ? attribute_snapshot(item.attr) : NULL;
+}
+
+const th_node_attr *xp_item_attribute(struct th_tree *tree, xp_item item) {
+    (void)tree;
+    return (uintptr_t)item.attr & 1 ? &attribute_snapshot(item.attr)->attribute : &item.node->attrs[item.attr >> 1];
+}
+
+const char *xp_item_attr_name(struct th_tree *tree, xp_item item, Py_ssize_t *len) {
+    if ((uintptr_t)item.attr & 1) {
+        xp_attribute *snapshot = attribute_snapshot(item.attr);
+        *len = snapshot->name_len;
+        return snapshot->name;
     }
-    ns->items[ns->len].node = node;
-    ns->items[ns->len].attr = attr;
-    ns->len++;
+    return th_attr_name(tree, item.node->attrs[item.attr >> 1].name_atom, len);
+}
+
+int xp_item_equal(xp_item left, xp_item right) {
+    if (left.node != right.node) {
+        return 0;
+    }
+    if (!xp_is_attribute(left.attr) || !xp_is_attribute(right.attr) ||
+        !(((uintptr_t)left.attr | (uintptr_t)right.attr) & 1)) {
+        return left.attr == right.attr;
+    }
+    return xp_item_attribute(NULL, left)->name_atom == xp_item_attribute(NULL, right)->name_atom;
+}
+
+uintptr_t xp_item_hash(xp_item item) {
+    uintptr_t address = (uintptr_t)item.node;
+    uintptr_t attr = xp_is_attribute(item.attr) ? xp_item_attribute(NULL, item)->name_atom : (uintptr_t)item.attr;
+    return (address >> 4) ^ (address >> 13) ^ attr;
+}
+
+static void item_release(xp_item item) {
+    xp_attribute *snapshot = item_snapshot(item);
+    if (snapshot != NULL && --snapshot->references == 0) {
+        PyMem_Free(snapshot);
+    }
+}
+
+static int visit_set(const xp_nodeset *set, int (*visitor)(void *, struct th_node *), void *data) {
+    for (Py_ssize_t index = 0; index < set->len; index++) {
+        if (set->items[index].node != NULL) {
+            if (visitor(data, set->items[index].node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                   /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
     return 0;
 }
 
+const xp_live_frame *xp_live_previous(const xp_live_frame *frame) {
+    return frame->previous;
+}
+
+uint64_t xp_live_id(const xp_live_frame *frame) {
+    return frame->id;
+}
+
+uint64_t xp_live_version(const xp_live_frame *frame) {
+    return frame->version;
+}
+
+Py_ssize_t xp_live_append_count(const xp_live_frame *frame) {
+    return frame->append != NULL ? frame->append->len : 0;
+}
+
+int xp_visit_frame_append(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
+                          void *data) {
+    for (Py_ssize_t index = start; index < xp_live_append_count(frame); index++) {
+        if (visitor(data, frame->append->items[index].node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                             /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, struct th_node *), void *data) {
+    if (frame->node != NULL) {
+        if (visitor(data, frame->node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                        /* GCOVR_EXCL_LINE */
+        }
+    }
+    for (int index = 0; index < 2; index++) {
+        if (frame->sets[index] != NULL) {
+            if (visit_set(frame->sets[index], visitor, data) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                          /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    for (Py_ssize_t index = 0; index < frame->result_count; index++) {
+        if (frame->results[index].kind == XP_NODESET) {
+            int rc = visit_set(&frame->results[index].nodes, visitor, data);
+            if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    for (Py_ssize_t index = 0; frame->vars != NULL && index < frame->vars->len; index++) {
+        const xp_result *value = &frame->vars->items[index].value;
+        if (value->kind == XP_NODESET) {
+            if (visit_set(&value->nodes, visitor, data) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                     /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return xp_visit_frame_append(frame, 0, visitor, data);
+}
+
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+
+/* Growth stays out of line so ordinary result appends can inline. */
+static TH_NOINLINE int ns_grow(xp_nodeset *ns) {
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)ns->cap + 1, (size_t)ns->cap, 8, sizeof(xp_item), &cap, &bytes);
+    if (!grew) {   /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+        return -1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    }
+    xp_item *grown = PyMem_Realloc(ns->items, bytes);
+    if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;       /* GCOVR_EXCL_LINE */
+    }
+    ns->items = grown;
+    ns->cap = (Py_ssize_t)cap;
+    return 0;
+}
+
+static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
+    if (ns->len == ns->cap) {
+        if (ns_grow(ns) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+    }
+    ns->items[ns->len++] = (xp_item){node, attr};
+    return 0;
+}
+
+int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr) {
+    if (ns_append(ns, node, attr) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    xp_attribute *snapshot = item_snapshot((xp_item){node, attr});
+    if (snapshot != NULL) {
+        snapshot->references++;
+        ns->snapshots = 1;
+    }
+    return 0;
+}
+
+static TH_NOINLINE void release_snapshots(const xp_nodeset *ns) {
+    for (Py_ssize_t index = 0; index < ns->len; index++) {
+        item_release(ns->items[index]);
+    }
+}
+
 void xp_nodeset_free(xp_nodeset *ns) {
+    if (ns->snapshots) {
+        release_snapshots(ns);
+    }
+    ns->snapshots = 0;
     PyMem_Free(ns->items);
     ns->items = NULL;
     ns->len = ns->cap = 0;
+}
+
+static int push_attribute(xp_nodeset *set, xp_ctx *ctx, struct th_node *node, Py_ssize_t index) {
+    if (ctx->live == NULL) {
+        return ns_append(set, node, index << 1);
+    }
+    Py_ssize_t name_len;
+    const char *name = th_attr_name(ctx->tree, node->attrs[index].name_atom, &name_len);
+    xp_attribute *snapshot = PyMem_Malloc(sizeof(*snapshot) + (size_t)name_len);
+    if (snapshot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;          /* GCOVR_EXCL_LINE */
+    }
+    snapshot->attribute = node->attrs[index];
+    snapshot->references = 1;
+    snapshot->ordinal = index;
+    snapshot->name_len = name_len;
+    memcpy(snapshot->name, name, (size_t)name_len);
+    xp_item item = {node, (Py_ssize_t)((uintptr_t)snapshot | 1)};
+    int rc = ns_push(set, node, item.attr);
+    item_release(item);
+    return rc;
 }
 
 /* Resolve a name test to a static tag atom, or TH_TAG_UNKNOWN for a name no known
@@ -66,6 +249,20 @@ static uint32_t resolve_attr_atom(struct th_tree *tree, const Py_UCS4 *name, Py_
         buf[index] = (char)name[index];
     }
     return th_attr_lookup(tree, buf, len);
+}
+
+int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom) {
+    const xn *path = &prog->nodes[prog->root];
+    if (path->kind != XN_PATH || path->absolute || path->second >= 0) {
+        return 0;
+    }
+    const xn *step = &prog->nodes[path->first];
+    if (step->axis != AX_ATTRIBUTE || step->test != NT_NAME || step->prefix_len != 0 || step->first >= 0 ||
+        step->next >= 0) {
+        return 0;
+    }
+    *atom = resolve_attr_atom(tree, step->str, step->str_len);
+    return 1;
 }
 
 /* A step's name test resolved once before the axis walk: the local part (the suffix
@@ -201,7 +398,7 @@ static int emit_if_match(xp_nodeset *out, struct th_node *node, const xn *step, 
     if (matched <= 0) {
         return matched;
     }
-    return ns_push(out, node, -1);
+    return ns_append(out, node, -1);
 }
 
 static int apply_descendant_step(xp_nodeset *out, struct th_node *root, const xn *step, const step_match *match,
@@ -221,8 +418,8 @@ static int apply_descendant_step(xp_nodeset *out, struct th_node *root, const xn
     return 0;
 }
 
-static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, const xn *step,
-                      const step_match *match) {
+static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, const xn *step, const step_match *match,
+                      xp_ctx *context) {
     switch (axis) {
     case AX_ATTRIBUTE: {
         /* node() and * both match every attribute; a name test matches by atom; a
@@ -243,8 +440,10 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, c
                     return -1; /* GCOVR_EXCL_LINE */
                 }
             }
-            if (hit && ns_push(out, ctx, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-                return -1;                             /* GCOVR_EXCL_LINE */
+            if (hit) {
+                if (push_attribute(out, context, ctx, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                                      /* GCOVR_EXCL_LINE */
+                }
             }
         }
         return 0;
@@ -331,7 +530,7 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, c
                       (step->test == NT_NAME && step->str_len == 3 && step->str[0] == 'x' && step->str[1] == 'm' &&
                        step->str[2] == 'l');
         if (ctx->type == TH_NODE_ELEMENT && matches) {
-            return ns_push(out, ctx, -2);
+            return ns_append(out, ctx, -2);
         }
         return 0;
     }
@@ -360,16 +559,16 @@ static int apply_owned_step(xp_nodeset *out, xp_item item, const xn *step, const
         }
         TH_FALLTHROUGH; /* the owner element is the nearest ancestor */
     case AX_ANCESTOR:
-        return apply_step(out, item.node, AX_ANCESTOR_OR_SELF, step, match);
+        return apply_step(out, item.node, AX_ANCESTOR_OR_SELF, step, match, NULL);
     case AX_PARENT:
-        return apply_step(out, item.node, AX_SELF, step, match);
+        return apply_step(out, item.node, AX_SELF, step, match, NULL);
     case AX_FOLLOWING:
-        if (apply_step(out, item.node, AX_DESCENDANT, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                                    /* GCOVR_EXCL_LINE */
+        if (apply_step(out, item.node, AX_DESCENDANT, step, match, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;                                                          /* GCOVR_EXCL_LINE */
         }
-        return apply_step(out, item.node, AX_FOLLOWING, step, match);
+        return apply_step(out, item.node, AX_FOLLOWING, step, match, NULL);
     case AX_PRECEDING:
-        return apply_step(out, item.node, AX_PRECEDING, step, match);
+        return apply_step(out, item.node, AX_PRECEDING, step, match, NULL);
     default: /* the child, descendant, sibling, attribute, and namespace axes are empty */
         return 0;
     }
@@ -427,23 +626,58 @@ static Py_ssize_t item_rank(Py_ssize_t attr) {
     if (attr == -2) {
         return PY_SSIZE_T_MAX; /* the namespace node, after the attributes */
     }
-    return attr + 1; /* an attribute */
+    xp_attribute *snapshot = item_snapshot((xp_item){NULL, attr});
+    return (snapshot == NULL ? attr >> 1 : snapshot->ordinal) + 1;
 }
 
 static int item_cmp(const void *pa, const void *pb) {
     const xp_item *left = pa;
     const xp_item *right = pb;
     if (left->node == right->node) {
+        if (left->attr == right->attr) {
+            return 0;
+        }
         Py_ssize_t left_rank = item_rank(left->attr);
         Py_ssize_t right_rank = item_rank(right->attr);
-        return left_rank < right_rank ? -1 : left_rank > right_rank ? 1 : 0;
+        if (left_rank != right_rank) {
+            return left_rank < right_rank ? -1 : 1;
+        }
+        uint32_t left_name = xp_item_attribute(NULL, *left)->name_atom;
+        uint32_t right_name = xp_item_attribute(NULL, *right)->name_atom;
+        return left_name < right_name ? -1 : 1;
     }
     return node_before(left->node, right->node);
 }
 
-static void sort_unique(xp_nodeset *ns) {
+static int sort_unique(xp_nodeset *ns) {
     if (ns->len < 2) {
-        return;
+        return 0;
+    }
+    if (ns->snapshots) {
+        size_t capacity = 8;
+        while (capacity / 2 < (size_t)ns->len) {
+            capacity *= 2;
+        }
+        xp_item *entries = PyMem_Calloc(capacity, sizeof(*entries));
+        if (entries == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        Py_ssize_t write = 0;
+        for (Py_ssize_t index = 0; index < ns->len; index++) {
+            xp_item item = ns->items[index];
+            size_t slot = xp_item_hash(item) & (capacity - 1);
+            while (entries[slot].node != NULL && !xp_item_equal(entries[slot], item)) {
+                slot = (slot + 1) & (capacity - 1);
+            }
+            if (entries[slot].node == NULL) {
+                entries[slot] = item;
+                ns->items[write++] = item;
+            } else {
+                item_release(item);
+            }
+        }
+        PyMem_Free(entries);
+        ns->len = write;
     }
     /* Forward axes already produce tree order; preserve it without sorting again. */
     for (Py_ssize_t index = 1; index < ns->len; index++) {
@@ -451,6 +685,9 @@ static void sort_unique(xp_nodeset *ns) {
             qsort(ns->items, (size_t)ns->len, sizeof(xp_item), item_cmp);
             break;
         }
+    }
+    if (ns->snapshots) {
+        return 0;
     }
     Py_ssize_t write_pos = 1;
     for (Py_ssize_t read_pos = 1; read_pos < ns->len; read_pos++) {
@@ -460,6 +697,7 @@ static void sort_unique(xp_nodeset *ns) {
         }
     }
     ns->len = write_pos;
+    return 0;
 }
 
 void xp_result_free(xp_result *result) {
@@ -517,8 +755,8 @@ Py_UCS4 *item_string(struct th_tree *tree, xp_item item, Py_ssize_t *len) {
     if (item.attr == -2) {
         return ucs4_from_ascii(XP_XML_NS_URI, sizeof(XP_XML_NS_URI) - 1, len);
     }
-    if (item.attr >= 0) {
-        const th_node_attr *attr_record = &item.node->attrs[item.attr];
+    if (xp_is_attribute(item.attr)) {
+        const th_node_attr *attr_record = xp_item_attribute(tree, item);
         *len = attr_record->value == NULL ? 0 : attr_record->value_len;
         return ucs4_dup(attr_record->value, *len);
     }
@@ -779,6 +1017,29 @@ double to_number(struct th_tree *tree, const xp_result *value) {
 static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *ctx, xp_nodeset *set) {
     for (int32_t pr = pred_head; pr >= 0; pr = prog->nodes[pr].next) {
         int32_t expr = prog->nodes[pr].first;
+        const xn *predicate = &prog->nodes[expr];
+        static const Py_UCS4 last[] = {'l', 'a', 's', 't'};
+        if (predicate->kind == XN_NUM || (predicate->kind == XN_FUNC && predicate->first < 0 &&
+                                          predicate->str_len == 4 && memcmp(predicate->str, last, sizeof(last)) == 0)) {
+            double position = predicate->kind == XN_NUM ? predicate->num : (double)set->len;
+            Py_ssize_t selected = position >= 1 && position <= (double)set->len && floor(position) == position
+                                      ? (Py_ssize_t)position - 1
+                                      : -1;
+            xp_item item = selected >= 0 ? set->items[selected] : (xp_item){NULL, -1};
+            if (set->snapshots) {
+                for (Py_ssize_t index = 0; index < set->len; index++) {
+                    if (index != selected) {
+                        item_release(set->items[index]);
+                    }
+                    set->items[index] = (xp_item){NULL, -1};
+                }
+            }
+            set->len = selected >= 0;
+            if (set->len) {
+                set->items[0] = item;
+            }
+            continue;
+        }
         Py_ssize_t size = set->len;
         Py_ssize_t write_pos = 0;
         for (Py_ssize_t index = 0; index < set->len; index++) {
@@ -794,6 +1055,8 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                            ctx->extension_ctx,
                            ctx->depth,
                            ctx->regex_cache,
+                           ctx->live,
+                           ctx->before_python,
                            ctx->name_test,
                            ctx->name_test_ctx,
                            ctx->strict_no_ns};
@@ -805,7 +1068,14 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
             int keep = value.kind == XP_NUMBER ? (double)(index + 1) == value.number : to_boolean(ctx->tree, &value);
             xp_result_free(&value);
             if (keep) {
-                set->items[write_pos++] = set->items[index];
+                set->items[write_pos] = set->items[index];
+                if (set->snapshots && write_pos != index) {
+                    set->items[index] = (xp_item){NULL, -1};
+                }
+                write_pos++;
+            } else if (set->snapshots) {
+                item_release(set->items[index]);
+                set->items[index] = (xp_item){NULL, -1};
             }
         }
         set->len = write_pos;
@@ -904,10 +1174,17 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     return 0;
 }
 
-/* Evaluate an XN_PATH (optionally with a filter base) into a node-set. */
-static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out) {
+static int eval_path_step(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
+                          xp_nodeset *current, xp_nodeset *following);
+static int eval_path_step_inner(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
+                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted);
+
+static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out, xp_nodeset *current,
+                           xp_nodeset *following) {
     const xn *root = &prog->nodes[path_idx];
-    xp_nodeset cur = {0};
+    xp_item start;
+    xp_nodeset initial;
+    xp_nodeset *contexts = current;
     if (root->second >= 0) {
         xp_result base;
         int rc = eval_expr(prog, root->second, ctx, &base);
@@ -919,67 +1196,121 @@ static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_n
             *ctx->feature = "a path step on a non-node-set";
             return -4;
         }
-        cur = base.nodes; /* take ownership */
+        *current = base.nodes; /* take ownership */
     } else {
-        struct th_node *start = root->absolute ? tree_root(ctx->tree, ctx->node) : ctx->node;
-        if (ns_push(&cur, start, root->absolute ? -1 : ctx->attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                                   /* GCOVR_EXCL_LINE */
+        start =
+            (xp_item){root->absolute ? tree_root(ctx->tree, ctx->node) : ctx->node, root->absolute ? -1 : ctx->attr};
+        if (root->first < 0) {
+            if (ns_push(current, start.node, start.attr) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                                      /* GCOVR_EXCL_LINE */
+            }
+        } else {
+            initial = (xp_nodeset){.items = &start, .len = 1};
+            contexts = &initial;
         }
     }
-    xp_nodeset next = {0};
     for (int32_t si = root->first; si >= 0; si = prog->nodes[si].next) {
         const xn *step = &prog->nodes[si];
         step_match match;
         int resolved = build_step_match(ctx, step, &match);
         if (resolved < 0) {
-            xp_nodeset_free(&cur);
-            xp_nodeset_free(&next);
+            xp_nodeset_free(current);
+            xp_nodeset_free(following);
             return resolved;
         }
-        next.len = 0;
-        /* Mark covered contexts during the subtree walk: checking ancestry per context is quadratic on deep trees. */
-        int skip_nested =
-            cur.len > 1 && step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
-        Py_ssize_t covered = 0;
-        for (Py_ssize_t index = 0; index < cur.len; index++) {
-            Py_ssize_t before = next.len;
-            xp_item item = cur.items[index];
-            int stepped;
-            if (skip_nested && item.attr == -1) {
-                if (index < covered) {
-                    continue;
-                }
-                covered = index + 1;
-                stepped = apply_descendant_step(&next, item.node, step, &match, &cur, &covered);
-            } else {
-                stepped = item.attr == -1 ? apply_step(&next, item.node, step->axis, step, &match)
-                                          : apply_owned_step(&next, item, step, &match);
+        if (following->snapshots) {
+            for (Py_ssize_t index = 0; index < following->len; index++) {
+                item_release(following->items[index]);
             }
-            if (stepped < 0) {          /* GCOVR_EXCL_BR_LINE: alloc */
-                xp_nodeset_free(&cur);  /* GCOVR_EXCL_LINE */
-                xp_nodeset_free(&next); /* GCOVR_EXCL_LINE */
-                return -1;              /* GCOVR_EXCL_LINE */
-            }
-            if (step->first >= 0) {
-                /* filter this context node's candidates in proximity order */
-                xp_nodeset slice = {next.items + before, next.len - before, 0};
-                int rc = apply_predicates(prog, step->first, ctx, &slice);
-                if (rc < 0) {
-                    xp_nodeset_free(&cur);
-                    xp_nodeset_free(&next);
-                    return rc;
-                }
-                next.len = before + slice.len;
-            }
+            following->snapshots = 0;
         }
-        xp_nodeset swap = cur;
-        cur = next;
-        next = swap;
-        sort_unique(&cur);
+        following->len = 0;
+        /* One descendant walk cannot reorder or repeat a node. */
+        int ordered_unique =
+            contexts->len == 1 && contexts->items[0].attr == -1 && step->axis == AX_DESCENDANT && step->first < 0;
+        int stepped = eval_path_step(prog, step, &match, ctx, contexts, following);
+        if (stepped < 0) {
+            xp_nodeset_free(current);
+            xp_nodeset_free(following);
+            return stepped;
+        }
+        xp_nodeset swap = *current;
+        *current = *following;
+        *following = swap;
+        contexts = current;
+        if (!ordered_unique && sort_unique(current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xp_nodeset_free(current);                      /* GCOVR_EXCL_LINE */
+            xp_nodeset_free(following);                    /* GCOVR_EXCL_LINE */
+            return -1;                                     /* GCOVR_EXCL_LINE */
+        }
     }
-    xp_nodeset_free(&next);
-    *out = cur;
+    xp_nodeset_free(following);
+    *out = *current;
     return 0;
+}
+
+static int eval_path_step(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
+                          xp_nodeset *current, xp_nodeset *following) {
+    if (ctx->live == NULL) {
+        return eval_path_step_inner(prog, step, match, ctx, current, following, NULL);
+    }
+    xp_nodeset accepted = {0};
+    xp_live_frame frame = {.sets = {current}, .append = &accepted};
+    xp_live_enter(ctx, &frame);
+    int rc = eval_path_step_inner(prog, step, match, ctx, current, following, &accepted);
+    xp_live_leave(ctx, &frame);
+    return rc;
+}
+
+static int eval_path_step_inner(const xp_program *prog, const xn *step, const step_match *match, xp_ctx *ctx,
+                                xp_nodeset *current, xp_nodeset *following, xp_nodeset *accepted) {
+    /* Mark covered contexts during the subtree walk: checking ancestry per context is quadratic on deep trees. */
+    int skip_nested =
+        current->len > 1 && step->first < 0 && (step->axis == AX_DESCENDANT || step->axis == AX_DESCENDANT_OR_SELF);
+    Py_ssize_t covered = 0;
+    for (Py_ssize_t index = 0; index < current->len; index++) {
+        Py_ssize_t before = following->len;
+        xp_item item = current->items[index];
+        int stepped;
+        if (skip_nested && item.attr == -1) {
+            if (index < covered) {
+                continue;
+            }
+            covered = index + 1;
+            stepped = apply_descendant_step(following, item.node, step, match, current, &covered);
+        } else {
+            stepped = item.attr == -1 ? apply_step(following, item.node, step->axis, step, match, ctx)
+                                      : apply_owned_step(following, item, step, match);
+        }
+        if (stepped < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            return -1;     /* GCOVR_EXCL_LINE */
+        }
+        if (step->first >= 0) {
+            xp_nodeset slice = {following->items + before, following->len - before, 0, following->snapshots};
+            int rc;
+            if (accepted != NULL) {
+                *accepted = *following;
+                accepted->len = before;
+                xp_live_frame frame = {.sets = {&slice}};
+                xp_live_enter(ctx, &frame);
+                rc = apply_predicates(prog, step->first, ctx, &slice);
+                xp_live_leave(ctx, &frame);
+            } else {
+                rc = apply_predicates(prog, step->first, ctx, &slice);
+            }
+            if (rc < 0) {
+                return rc;
+            }
+            following->len = before + slice.len;
+        }
+    }
+    return 0;
+}
+
+static int eval_path(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp_nodeset *out) {
+    xp_nodeset current = {0};
+    xp_nodeset following = {0};
+    return eval_path_inner(prog, path_idx, ctx, out, &current, &following);
 }
 
 /* Existential comparison of two scalar values (neither a node-set). */
@@ -1224,6 +1555,16 @@ static int comparison_extreme(struct th_tree *tree, const xp_nodeset *nodes, int
 
 static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
     /* Extension functions can return unordered nodes and duplicates. */
+    if (target->snapshots || source->snapshots) {
+        for (Py_ssize_t index = 0; index < source->len; index++) {
+            int rc = ns_push(target, source->items[index].node, source->items[index].attr);
+            if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1; /* GCOVR_EXCL_LINE */
+            }
+        }
+        xp_nodeset_free(source);
+        return sort_unique(target);
+    }
     sort_unique(target);
     sort_unique(source);
     xp_nodeset merged = {0};
@@ -1240,9 +1581,9 @@ static int nodeset_union(xp_nodeset *target, xp_nodeset *source) {
             item = order <= 0 ? &target->items[left++] : &source->items[right];
             right += order >= 0;
         }
-        if (ns_push(&merged, item->node, item->attr) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            xp_nodeset_free(&merged);                       /* GCOVR_EXCL_LINE: allocation failure */
-            return -1;                                      /* GCOVR_EXCL_LINE: allocation failure */
+        if (ns_append(&merged, item->node, item->attr) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xp_nodeset_free(&merged);                         /* GCOVR_EXCL_LINE: allocation failure */
+            return -1;                                        /* GCOVR_EXCL_LINE: allocation failure */
         }
     }
     xp_nodeset_free(target);
@@ -1330,8 +1671,16 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
             *ctx->feature = "a predicate on a non-node-set";
             return -4;
         }
-        sort_unique(&primary.nodes);
-        rc = apply_predicates(prog, expr->second, ctx, &primary.nodes);
+        rc = sort_unique(&primary.nodes);
+        if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xp_live_frame frame;
+            if (ctx->live != NULL) {
+                frame = (xp_live_frame){.results = &primary, .result_count = 1};
+                xp_live_enter(ctx, &frame);
+            }
+            rc = apply_predicates(prog, expr->second, ctx, &primary.nodes);
+            xp_live_leave(ctx, &frame);
+        }
         if (rc < 0) {
             xp_result_free(&primary);
             return rc;
@@ -1346,7 +1695,13 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
         if (rc < 0) {
             return rc;
         }
+        xp_live_frame frame;
+        if (ctx->live != NULL) {
+            frame = (xp_live_frame){.results = &left, .result_count = 1};
+            xp_live_enter(ctx, &frame);
+        }
         rc = eval_expr(prog, expr->second, ctx, &right);
+        xp_live_leave(ctx, &frame);
         if (rc < 0) {
             xp_result_free(&left);
             return rc;
@@ -1406,14 +1761,27 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
         if (rc < 0) {
             return rc;
         }
+        xp_live_frame frame;
+        if (ctx->live != NULL) {
+            frame = (xp_live_frame){.results = &left, .result_count = 1};
+            xp_live_enter(ctx, &frame);
+        }
         rc = eval_expr(prog, expr->second, ctx, &right);
+        xp_live_leave(ctx, &frame);
         if (rc < 0) {
             xp_result_free(&left);
             return rc;
         }
         if (expr->kind <= XN_GE) { /* the default case holds only the comparison and arithmetic operators */
             int cmp = 0;
-            rc = compare(ctx->tree, expr->kind, &left, &right, &cmp);
+            xp_live_frame comparison = {
+                .sets = {left.kind == XP_NODESET ? &left.nodes : NULL, right.kind == XP_NODESET ? &right.nodes : NULL}};
+            xp_live_enter(ctx, &comparison);
+            rc = xp_before_python(ctx);
+            if (rc == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                rc = compare(ctx->tree, expr->kind, &left, &right, &cmp);
+            }
+            xp_live_leave(ctx, &comparison);
             if (rc == 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 result_bool(out, cmp);
             }
@@ -1442,7 +1810,15 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
         return -3;
     }
     ctx->depth++;
-    int rc = eval_expr_inner(prog, idx, ctx, out);
+    int rc;
+    if (ctx->live == NULL) {
+        rc = eval_expr_inner(prog, idx, ctx, out);
+    } else {
+        xp_live_frame frame = {.node = ctx->node};
+        xp_live_enter(ctx, &frame);
+        rc = eval_expr_inner(prog, idx, ctx, out);
+        xp_live_leave(ctx, &frame);
+    }
     ctx->depth--;
     return rc;
 }
@@ -1451,8 +1827,8 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature) {
     PyObject *regex_cache = NULL;
-    xp_ctx ctx = {tree,      context,       -1, pos,          size, feature, vars, namespaces,
-                  extension, extension_ctx, 0,  &regex_cache, NULL, NULL,    0};
+    xp_ctx ctx = {tree,          context, -1,           pos,  size, feature, vars, namespaces, extension,
+                  extension_ctx, 0,       &regex_cache, NULL, NULL, NULL,    NULL, 0};
     int rc = eval_expr(prog, prog->root, &ctx, out);
     Py_XDECREF(regex_cache);
     return rc;
@@ -1474,6 +1850,8 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
                   extension_ctx,
                   0,
                   &regex_cache,
+                  NULL,
+                  NULL,
                   name_test,
                   name_test_ctx,
                   name_test == NULL && th_tree_is_xml(tree)}; /* GCOVR_EXCL_BR_LINE: XML only */
@@ -1486,4 +1864,30 @@ int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *contex
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature) {
     return xp_eval_at(prog, tree, context, 1, 1, vars, namespaces, extension, extension_ctx, out, feature);
+}
+
+int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                     const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
+                     xp_before_python_fn before_python, xp_result *out, const char **feature) {
+    PyObject *regex_cache = NULL;
+    xp_live_registry live = {0};
+    xp_ctx ctx = {
+        tree,  context,       -1,   1,    1, feature, vars, namespaces, extension, extension_ctx, 0, &regex_cache,
+        &live, before_python, NULL, NULL, 0};
+    xp_live_frame frame = {.node = context, .vars = vars};
+    xp_live_enter(&ctx, &frame);
+    int rc = eval_expr(prog, prog->root, &ctx, out);
+    if (regex_cache != NULL) {
+        if (rc == 0) {
+            frame.results = out;
+            frame.result_count = 1;
+            xp_live_changed(&ctx);
+            if (xp_before_python(&ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xp_result_free(out);          /* GCOVR_EXCL_LINE */
+                rc = -1;                      /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE: closing an allocation-failure arm */
+        }
+        Py_DECREF(regex_cache);
+    }
+    return rc;
 }

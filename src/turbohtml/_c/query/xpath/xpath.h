@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include "dom/tree.h"
+
 typedef struct xp_program xp_program;
 
 /* Compile an XPath expression given as code points. Returns the program, or NULL
@@ -26,6 +28,8 @@ typedef struct xp_program xp_program;
    its capacity). The source is not retained; names and literals are copied. */
 xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen);
 
+int xp_calls_python(const xp_program *prog);
+void xp_retain(xp_program *prog);
 void xp_free(xp_program *prog);
 
 /* Render the compiled AST as a canonical S-expression (UCS4 code points), the form
@@ -33,8 +37,7 @@ void xp_free(xp_program *prog);
    NULL on allocation failure. */
 Py_UCS4 *xp_dump(const xp_program *prog, Py_ssize_t *out_len);
 
-/* A member of an evaluated node-set: a tree node, or one of its attributes when
-   attr >= 0 (the index into node->attrs). attr == -1 means the node itself. */
+/* Attribute snapshots share the index field to keep result items two words. */
 struct th_node;
 typedef struct {
     struct th_node *node;
@@ -45,13 +48,31 @@ typedef struct {
     xp_item *items;
     Py_ssize_t len;
     Py_ssize_t cap;
+    int snapshots;
 } xp_nodeset;
+
+static inline int xp_is_attribute(Py_ssize_t attr) {
+    return attr != -1 && attr != -2;
+}
+
+const th_node_attr *xp_item_attribute(struct th_tree *tree, xp_item item);
+const char *xp_item_attr_name(struct th_tree *tree, xp_item item, Py_ssize_t *len);
+int xp_item_equal(xp_item left, xp_item right);
+uintptr_t xp_item_hash(xp_item item);
+
+typedef struct xp_live_frame xp_live_frame;
+typedef int (*xp_before_python_fn)(void *ctx, const xp_live_frame *frame);
+const xp_live_frame *xp_live_previous(const xp_live_frame *frame);
+uint64_t xp_live_id(const xp_live_frame *frame);
+uint64_t xp_live_version(const xp_live_frame *frame);
+Py_ssize_t xp_live_append_count(const xp_live_frame *frame);
+int xp_visit_frame_append(const xp_live_frame *frame, Py_ssize_t start, int (*visitor)(void *, struct th_node *),
+                          void *data);
+int xp_visit_frame_nodes(const xp_live_frame *frame, int (*visitor)(void *, struct th_node *), void *data);
 
 void xp_nodeset_free(xp_nodeset *ns);
 
-/* Append a member to a node-set, growing it as needed; -1 on allocation failure.
-   attr == -1 is the node itself, attr >= 0 one of its attributes. The marshaling
-   boundary uses this to build a node-set variable from caller-supplied elements. */
+/* The marshaling boundary also builds node-set variables from caller-supplied elements. */
 int ns_push(xp_nodeset *ns, struct th_node *node, Py_ssize_t attr);
 
 /* The four XPath 1.0 value types an expression can evaluate to. */
@@ -117,6 +138,10 @@ struct th_tree;
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature);
+
+int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                     const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
+                     xp_before_python_fn before_python, xp_result *out, const char **feature);
 
 /* Like xp_eval, but seeds the context position and size instead of the default 1/1.
    The XSLT engine reuses this so position()/last() at the top of a select or test

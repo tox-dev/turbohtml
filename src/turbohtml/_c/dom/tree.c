@@ -4429,6 +4429,7 @@ void th_tree_free(th_tree *tree) {
     PyMem_Free(tree->attr_slots);
     PyMem_Free(tree->attr_recs);
     PyMem_Free(tree->shadows);
+    PyMem_Free(tree->shadow_index.entries);
     PyMem_Free(tree->meta_labels);
     PyMem_Free(tree->owned_data);
     th_error_sink_free(&tree->errors);

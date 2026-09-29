@@ -14,13 +14,18 @@ runs each test in one thread per core at once, multiplying the contention.
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
+
+import pytest
 
 import turbohtml
+from turbohtml.clean import sanitize_node
+from turbohtml.conformance import check
 from turbohtml.query import Query
 from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -604,6 +609,70 @@ def test_concurrent_cross_tree_adoption_copies_one_source_state() -> None:
     assert adopted.attrs["data-state"] in {"s", long_state}
 
 
+def test_concurrent_adoption_preserves_descendant_aliases() -> None:
+    source = turbohtml.Element("section", children=[turbohtml.Element("b")])
+    descendant = source.select_one("b")
+    assert descendant is not None
+    destinations = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(10_000):
+            assert descendant.parent is not None
+            descendant.attrs["seen"] = "yes"
+
+    def mover() -> None:
+        start.wait()
+        for index in range(10_000):
+            destinations[index % 2].append(source)
+
+    _run(reader, mover)
+    assert (destinations[1].select_one("b"), descendant.attr("seen")) == (descendant, "yes")
+
+
+@pytest.mark.parametrize(
+    ("read", "expected"),
+    [
+        pytest.param(lambda node: node.serialize(), '<section live="yes"><b>text</b></section>', id="serialize"),
+        pytest.param(lambda node: len(node.select("b")), 1, id="select"),
+        pytest.param(lambda node: len(Query(node).filter("section")), 1, id="query-filter"),
+        pytest.param(lambda node: node.xpath("count(.//b)"), 1.0, id="xpath"),
+        pytest.param(turbohtml.XPath("count(.//b)"), 1.0, id="compiled-xpath"),
+        pytest.param(lambda node: len(Query([node, node])), 1, id="query-deduplication"),
+        pytest.param(lambda node: len({node.children[0], node.children[0]}), 1, id="alias-equality"),
+        pytest.param(lambda node: len(Query(node).children()), 1, id="query-children"),
+        pytest.param(lambda node: len(Query(node).children().parent()), 1, id="query-parent"),
+        pytest.param(lambda node: sanitize_node(node).text, "text", id="sanitize"),
+        pytest.param(lambda node: check(node).valid, True, id="validate"),
+        pytest.param(lambda node: len(list(node.descendants)), 2, id="descendants"),
+        pytest.param(lambda node: node.attrs.copy(), {"live": "yes"}, id="attributes"),
+        pytest.param(hash, None, id="hash"),
+        pytest.param(lambda node: len(node.find_all(text=lambda text: text == "text")), 1, id="callback"),
+    ],
+)
+def test_concurrent_adoption_and_reads(read: Callable[[turbohtml.Element], object], expected: object) -> None:
+    source: Final = turbohtml.Element(
+        "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
+    )
+    expected_value: Final = hash(source) if expected is None else expected
+    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(1_000):
+            assert read(source) == expected_value
+
+    def mover() -> None:
+        start.wait()
+        for index in range(1_000):
+            destinations[index % 2].append(source)
+
+    _run(reader, mover)
+    assert destinations[1].text == "text"
+
+
 def test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact() -> None:
     markup = "<div>" + "<p><b>x</b></p>" * 200 + "</div>"
     root = turbohtml.parse(markup).find("div")
@@ -624,3 +693,32 @@ def test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact() ->
 
     _run(*(lambda offset=offset: editor(offset) for offset in range(4)))
     assert root.serialize() == markup
+
+
+@pytest.mark.parametrize("move_parent", [pytest.param(False, id="first"), pytest.param(True, id="parent")])
+def test_concurrent_sibling_memo_and_adoption(*, move_parent: bool) -> None:
+    children: Final = [turbohtml.Element("b") for _ in range(128)]
+    parent: Final = turbohtml.Element("main", children=children)
+    marker: Final = turbohtml.Element("i")
+    destinations: Final = [turbohtml.Element("div"), turbohtml.Element("aside", children=[marker])]
+    query: Final = Query(children[::2])
+    stable: Final = set(children[1:])
+    allowed: Final = {*children, marker}
+    start: Final = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(200):
+            siblings = list(query.siblings())
+            assert stable <= set(siblings) <= allowed
+            assert len(siblings) == len(set(siblings))
+
+    def mover() -> None:
+        start.wait()
+        for index in range(200):
+            if move_parent:
+                destinations[index % 2].append(parent)
+            else:
+                (parent if index % 2 else destinations[1]).append(children[0])
+
+    _run(reader, mover)

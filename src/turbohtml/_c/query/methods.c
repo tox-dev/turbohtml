@@ -9,6 +9,16 @@
 #include "dom/nodes.h"
 #include "css/select/selector.h"
 
+#ifndef TH_NOINLINE
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+#endif
+
 void handle_clear_caches(HandleObject *handle) {
     handle_clear_css_cache(handle);
     for (int index = 0; index < handle->sel_cache_len; index++) {
@@ -125,12 +135,11 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type) {
 }
 
 static int append_selected(PyObject *out, module_state *state, PyObject *handle, th_node *origin,
-                           sel_compiled *compiled, Py_ssize_t limit) {
+                           sel_compiled *compiled, Py_ssize_t limit, const sel_simple *single) {
     int error = 0;
     sel_nth_memo nth_memo = {0};
     sel_default_memo default_memo = {0};
     sel_has_memo has_memo = {0};
-    const sel_simple *single = sel_single_simple(compiled);
     uint16_t subject = selector_subject_atom(compiled);
     HandleObject *handle_obj = (HandleObject *)handle;
     sel_ctx ctx = {compiled->tree, origin,       compiled->quirks, selector_uses_has_memo(compiled) ? &has_memo : NULL,
@@ -139,8 +148,7 @@ static int append_selected(PyObject *out, module_state *state, PyObject *handle,
         Py_ssize_t end = handle_obj->index_offsets[subject + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[subject]; pos < end; pos++) {
             th_node *node = handle_obj->index_nodes[pos];
-            int matched =
-                single != NULL ? sel_match_simple(node, single, &ctx) : selector_matches_c(node, compiled, &ctx);
+            int matched = selector_matches_c(node, compiled, &ctx);
             if (matched && append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
                 error = 1;                                                 /* GCOVR_EXCL_LINE */
                 break;                                                     /* GCOVR_EXCL_LINE */
@@ -195,7 +203,14 @@ retry:;
         moved = 1;
     } else {
         th_node *origin = ((NodeObject *)self)->node;
-        error = append_selected(out, state, handle, origin, compiled, limit);
+        const sel_simple *single = sel_single_simple(compiled);
+        if (single != NULL && single->kind == 'e' && single->tag_atom != TH_TAG_UNKNOWN &&
+            !th_tree_is_xml(compiled->tree) && handle_use_index(handle_obj, origin, 1)) {
+            Py_SETREF(out, node_wrap_indexed(state, handle, single->tag_atom, limit > 0 ? limit : -1));
+            error = out == NULL;
+        } else {
+            error = append_selected(out, state, handle, origin, compiled, limit, single);
+        }
     }
     Py_END_CRITICAL_SECTION();
     Py_DECREF(handle);
@@ -204,19 +219,21 @@ retry:;
         goto retry;
     }
     if (error) {
-        Py_DECREF(out);
+        Py_XDECREF(out);
         return NULL;
     }
     return out;
 }
 
-PyObject *node_select(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_select, (PyObject * self, PyObject *arg), (self, arg), (PyObject * self, PyObject *arg),
+            (NodeObject *)self, arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     return select_limited(self, arg, 0);
 }
 
 /* _select_limited(node, selector, limit) -> list[Element]: the first `limit` matching descendants in document order,
    or every one for a limit of 0 or less; the walk stops once it has enough. */
-PyObject *turbohtml_select_limited(PyObject *module, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_select_limited, (PyObject * module, PyObject *args), (module, args),
+            (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 0, NULL), NULL) {
     PyObject *node;
     PyObject *selector;
     Py_ssize_t limit;
@@ -271,13 +288,13 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
         }
         NodeObject *anchor = (NodeObject *)item;
         Py_ssize_t index = first;
-        PyObject *handle = Py_NewRef(anchor->handle);
+        PyObject *handle = node_owner_ref(anchor);
         int moved = 0;
         Py_BEGIN_CRITICAL_SECTION(handle);
         sel_compiled *compiled = cached_compile(state->selector_error, (HandleObject *)handle, selector);
         if (compiled == NULL) {
             error = 1;
-        } else if (anchor->handle != handle) {
+        } else if (!node_owned_by(anchor, handle)) {
             moved = 1;
         } else {
             for (; index < count; index++) {
@@ -288,7 +305,7 @@ PyObject *turbohtml_matches_many(PyObject *module, PyObject *args) {
                     break;
                 }
                 NodeObject *candidate = (NodeObject *)item;
-                if (candidate->handle != anchor->handle) {
+                if (!node_owned_by(candidate, handle)) {
                     break;
                 }
                 int matched = selector_matches(candidate->node, compiled, candidate->node);
@@ -429,6 +446,26 @@ static PyObject *index_root_handles(multi_root *roots, Py_ssize_t count, PyObjec
 }
 #endif
 
+static Py_ssize_t index_root_group(th_node_map *groups, th_node *root, Py_ssize_t position) {
+    size_t slot = 0;
+    if (groups->capacity != 0) {
+        slot = th_node_map_slot(groups, root);
+        if (groups->entries[slot].node != NULL) {
+            return groups->entries[slot].value;
+        }
+    }
+    size_t capacity = groups->capacity;
+    if (th_node_map_reserve(groups, groups->count + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                            /* GCOVR_EXCL_LINE */
+    }
+    if (groups->capacity != capacity) {
+        slot = th_node_map_slot(groups, root);
+    }
+    groups->entries[slot] = (th_node_map_entry){root, position};
+    groups->count++;
+    return 0;
+}
+
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
     PyObject *roots_obj;
     PyObject *selector;
@@ -477,13 +514,13 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
             continue;
         }
         NodeObject *anchor = roots[first].node;
-        PyObject *handle = Py_NewRef(anchor->handle);
+        PyObject *handle = node_owner_ref(anchor);
         int moved = 0;
         Py_BEGIN_CRITICAL_SECTION(handle);
         sel_compiled *compiled = cached_compile(state->selector_error, (HandleObject *)handle, selector);
         if (compiled == NULL) {
             error = 1;
-        } else if (anchor->handle != handle) {
+        } else if (!node_owned_by(anchor, handle)) {
             moved = 1;
         } else {
             th_node_map tops = {0};
@@ -493,19 +530,20 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
             for (Py_ssize_t index = first; index < count;
                  index = handles == NULL ? index + 1 : roots[index].next_handle) {
                 NodeObject *candidate = roots[index].node;
-                if (roots[index].processed || candidate->handle != anchor->handle) {
+                if (roots[index].processed || !node_owned_by(candidate, handle)) {
                     continue;
                 }
                 th_node *top = node_root(candidate->node);
-                Py_ssize_t head = top == first_top ? first_group : th_node_map_find(&tops, top);
+                Py_ssize_t head = top == first_top   ? first_group
+                                  : first_group == 0 ? 0
+                                                     : index_root_group(&tops, top, index + 1);
+                if (head < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                    error = 1;        /* GCOVR_EXCL_LINE */
+                    break;            /* GCOVR_EXCL_LINE */
+                }
                 if (head == 0) {
                     if (first_group != 0) {
-                        const int inserted = th_node_map_insert(&tops, top, index + 1);
-                        if (inserted < 0) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
-                            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-                            error = 1;        /* GCOVR_EXCL_LINE */
-                            break;            /* GCOVR_EXCL_LINE */
-                        }
                         roots[last_group - 1].next_group = index + 1;
                     } else {
                         first_top = top;
@@ -545,7 +583,8 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                         continue;
                     }
                     covered = origin;
-                    int append_error = append_selected(out, state, anchor->handle, origin, compiled, 0);
+                    int append_error =
+                        append_selected(out, state, anchor->handle, origin, compiled, 0, sel_single_simple(compiled));
                     if (append_error < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                         error = 1;          /* GCOVR_EXCL_LINE */
                         break;              /* GCOVR_EXCL_LINE */
@@ -589,7 +628,9 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
     return out;
 }
 
-PyObject *node_select_one(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_select_one, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }
@@ -775,7 +816,9 @@ static int regex_attr_name(th_tree *tree, PyObject *attr_obj, char **name, Py_ss
     return *name == NULL ? -1 : 0;
 }
 
-PyObject *node_re(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_re, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *kw[] = {"", "attr", NULL};
     PyObject *pattern;
     PyObject *attr_obj = NULL;
@@ -811,7 +854,9 @@ PyObject *node_re(PyObject *self, PyObject *args, PyObject *kwds) {
     return result;
 }
 
-PyObject *node_re_first(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_re_first, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *kw[] = {"", "default", "attr", NULL};
     PyObject *pattern;
     PyObject *fallback = Py_None;
@@ -905,50 +950,45 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type) {
     Py_RETURN_NONE;
 }
 
-/* Wrap an attribute or text string result as an XPathString that remembers the
-   element it came from (lxml's smart strings). Steals the value reference. */
-static PyObject *xpath_smart_string(module_state *state, PyObject *handle, th_node *owner, PyObject *value,
-                                    int is_attribute, PyObject *attrname) {
-    PyObject *parent = node_wrap(state, handle, owner);
-    if (parent == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        Py_DECREF(value);    /* GCOVR_EXCL_LINE */
-        Py_DECREF(attrname); /* GCOVR_EXCL_LINE */
-        return NULL;         /* GCOVR_EXCL_LINE */
-    }
-    PyObject *result = PyObject_CallFunction(state->xpath_string_type, "OOOO", value, parent,
-                                             is_attribute ? Py_True : Py_False, attrname);
-    Py_DECREF(value);
-    Py_DECREF(parent);
-    Py_DECREF(attrname);
-    return result;
-}
+typedef struct xpath_ext_ctx {
+    PyObject *extensions; /* {(None, name): callable}; only set when non-empty */
+    PyObject *handle;
+    module_state *state;
+    th_tree *tree;
+    PyObject **retained;
+    size_t retained_len;
+    size_t retained_cap;
+    th_node_map owners;
+    th_node_map text_parents;
+    struct xpath_ext_ctx *previous;
+    struct xpath_frame_pins **frames;
+    size_t frame_count;
+} xpath_ext_ctx;
 
-static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree *tree, xp_item item,
-                                  int smart_strings) {
+typedef struct xpath_frame_pins {
+    uint64_t activation;
+    uint64_t version;
+    size_t references;
+    Py_ssize_t appended;
+    xpath_ext_ctx pins;
+} xpath_frame_pins;
+
+static PyObject *xpath_owned_node(xpath_ext_ctx *ec, th_node *node);
+static PyObject *xpath_text_parent(xpath_ext_ctx *ec, th_node *node);
+
+static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree *tree, xp_item item) {
+    if (item.attr == -1 && item.node->type == TH_NODE_ELEMENT) {
+        return element_wrap(state, handle, item.node);
+    }
     if (item.attr == -2) {
         return PyUnicode_FromString("http://www.w3.org/XML/1998/namespace");
     }
-    if (item.attr >= 0) {
-        const th_node_attr *attr = &item.node->attrs[item.attr];
-        PyObject *value = attr->value == NULL ? PyUnicode_New(0, 0) : ucs4_to_str(attr->value, attr->value_len);
-        if (!smart_strings || value == NULL) { /* GCOVR_EXCL_BR_LINE: value NULL is an unforced alloc */
-            return value;
-        }
-        Py_ssize_t name_len;
-        const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        PyObject *attrname = PyUnicode_FromStringAndSize(name, name_len);
-        if (attrname == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            Py_DECREF(value);   /* GCOVR_EXCL_LINE */
-            return NULL;        /* GCOVR_EXCL_LINE */
-        }
-        return xpath_smart_string(state, handle, item.node, value, 1, attrname);
+    if (xp_is_attribute(item.attr)) {
+        const th_node_attr *attr = xp_item_attribute(tree, item);
+        return attr->value == NULL ? PyUnicode_New(0, 0) : ucs4_to_str(attr->value, attr->value_len);
     }
     if (item.node->type == TH_NODE_TEXT) {
-        PyObject *value = str_from_accessor(th_node_data, tree, item.node);
-        if (!smart_strings || value == NULL) { /* GCOVR_EXCL_BR_LINE: value NULL is an unforced alloc */
-            return value;
-        }
-        return xpath_smart_string(state, handle, item.node->parent, value, 0, Py_NewRef(Py_None));
+        return str_from_accessor(th_node_data, tree, item.node);
     }
     return node_wrap(state, handle, item.node);
 }
@@ -987,13 +1027,271 @@ static PyObject *xpath_scalar_to_py(const xp_result *result) {
    matching float / str / bool. */
 static int xpath_pyobject_to_scalar(PyObject *obj, xp_result *out);
 
-/* The state an extension callback needs, threaded through xp_eval as a void *. */
 typedef struct {
-    PyObject *extensions; /* {(None, name): callable}; only set when non-empty */
-    PyObject *handle;
-    module_state *state;
-    th_tree *tree;
-} xpath_ext_ctx;
+    PyObject *value;
+    PyObject *parent;
+    PyObject *attrname;
+} xpath_snapshot_item;
+
+typedef struct {
+    xpath_snapshot_item *items;
+    Py_ssize_t len;
+} xpath_snapshot;
+
+static void xpath_snapshot_free(xpath_snapshot *snapshot) {
+    for (Py_ssize_t index = 0; index < snapshot->len; index++) {
+        Py_XDECREF(snapshot->items[index].value);
+        Py_XDECREF(snapshot->items[index].parent);
+        Py_XDECREF(snapshot->items[index].attrname);
+    }
+    PyMem_Free(snapshot->items);
+}
+
+static int xpath_snapshot_prepare(module_state *state, PyObject *handle, th_tree *tree, int smart_strings,
+                                  const xp_nodeset *nodes, xpath_snapshot *snapshot, xpath_ext_ctx *ec) {
+    if (nodes->len == 0) {
+        return 0;
+    }
+    snapshot->items = PyMem_Calloc((size_t)nodes->len, sizeof(xpath_snapshot_item));
+    if (snapshot->items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();          /* GCOVR_EXCL_LINE */
+        return -1;                 /* GCOVR_EXCL_LINE */
+    }
+    snapshot->len = nodes->len;
+    /* GC and smart-string constructors can adopt nodes before later results are wrapped. */
+    for (Py_ssize_t index = 0; index < nodes->len; index++) {
+        xp_item source = nodes->items[index];
+        snapshot->items[index].value = ec != NULL && source.attr == -1 && source.node->type != TH_NODE_TEXT
+                                           ? xpath_owned_node(ec, source.node)
+                                           : xpath_item_to_py(state, handle, tree, source);
+        if (snapshot->items[index].value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                              /* GCOVR_EXCL_LINE */
+        }
+        if (!smart_strings) {
+            continue;
+        }
+        if (xp_is_attribute(source.attr) || source.node->type == TH_NODE_TEXT) {
+            PyObject *parent = ec == NULL ? NULL : xpath_text_parent(ec, source.node);
+            th_node *owner = xp_is_attribute(source.attr) ? source.node : source.node->parent;
+            snapshot->items[index].parent = parent != NULL ? Py_NewRef(parent)
+                                            : ec != NULL   ? xpath_owned_node(ec, owner)
+                                                           : node_wrap(state, handle, owner);
+            if (snapshot->items[index].parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                               /* GCOVR_EXCL_LINE */
+            }
+            if (xp_is_attribute(source.attr)) {
+                Py_ssize_t length;
+                const char *name = xp_item_attr_name(tree, source, &length);
+                snapshot->items[index].attrname = PyUnicode_FromStringAndSize(name, length);
+                if (snapshot->items[index].attrname == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                                 /* GCOVR_EXCL_LINE */
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static PyObject *xpath_snapshot_materialize(module_state *state, const xpath_snapshot *snapshot) {
+    PyObject *out = PyList_New(snapshot->len);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < snapshot->len; index++) {
+        xpath_snapshot_item item = snapshot->items[index];
+        PyObject *value;
+        if (item.parent == NULL) {
+            value = Py_NewRef(item.value);
+        } else {
+            value = PyObject_CallFunction(state->xpath_string_type, "OOOO", item.value, item.parent,
+                                          item.attrname == NULL ? Py_False : Py_True,
+                                          item.attrname == NULL ? Py_None : item.attrname);
+            if (value == NULL) { /* GCOVR_EXCL_BR_LINE: smart-string allocation failure */
+                Py_CLEAR(out);   /* GCOVR_EXCL_LINE */
+                return NULL;     /* GCOVR_EXCL_LINE */
+            }
+        }
+        PyList_SET_ITEM(out, index, value);
+    }
+    return out;
+}
+
+static TH_NOINLINE PyObject *xpath_snapshot_to_py(module_state *state, PyObject *handle, th_tree *tree,
+                                                  int smart_strings, const xp_nodeset *nodes, xpath_ext_ctx *ec) {
+    xpath_snapshot snapshot = {0};
+    int prepared = xpath_snapshot_prepare(state, handle, tree, smart_strings, nodes, &snapshot, ec);
+    if (prepared < 0) {                 /* GCOVR_EXCL_BR_LINE: allocation failure */
+        xpath_snapshot_free(&snapshot); /* GCOVR_EXCL_LINE */
+        return NULL;                    /* GCOVR_EXCL_LINE */
+    }
+    PyObject *out = xpath_snapshot_materialize(state, &snapshot);
+    xpath_snapshot_free(&snapshot);
+    return out;
+}
+
+static int xpath_extension_retain(xpath_ext_ctx *ec, PyObject *object) {
+    if (ec->retained_len == ec->retained_cap) {
+        size_t capacity;
+        size_t bytes;
+        int grew = th_grow_cap(ec->retained_len + 1, ec->retained_cap, 8, sizeof(PyObject *), &capacity, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation size overflow */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        PyObject **retained = PyMem_Realloc(ec->retained, bytes);
+        if (retained == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
+            return -1;          /* GCOVR_EXCL_LINE */
+        }
+        ec->retained = retained;
+        ec->retained_cap = capacity;
+    }
+    ec->retained[ec->retained_len++] = Py_NewRef(object);
+    return 0;
+}
+
+static PyObject *xpath_retained_node(xpath_ext_ctx *ec, th_node *node, int parent) {
+    Py_ssize_t index = th_node_map_find(parent ? &ec->text_parents : &ec->owners, node);
+    if (index != 0) {
+        return ec->retained[index - 1];
+    }
+    for (size_t frame = 0; frame < ec->frame_count; frame++) {
+        xpath_ext_ctx *pins = &ec->frames[frame]->pins;
+        index = th_node_map_find(parent ? &pins->text_parents : &pins->owners, node);
+        if (index != 0) {
+            return pins->retained[index - 1];
+        }
+    }
+    return NULL;
+}
+
+static PyObject *xpath_text_parent(xpath_ext_ctx *ec, th_node *node) {
+    return xpath_retained_node(ec, node, 1);
+}
+
+static PyObject *xpath_owned_node(xpath_ext_ctx *ec, th_node *node) {
+    PyObject *owner = xpath_retained_node(ec, node, 0);
+    return owner != NULL ? Py_NewRef(owner) : node_wrap(ec->state, ec->handle, node);
+}
+
+static int xpath_capture_owner(void *context, th_node *node) {
+    xpath_ext_ctx *ec = context;
+    if (th_node_map_find(&ec->owners, node) != 0) {
+        return 0;
+    }
+    xpath_ext_ctx *previous = ec->previous != NULL ? ec->previous : ec;
+    PyObject *wrapped = xpath_owned_node(previous, node);
+    if (wrapped == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    int status = xpath_extension_retain(ec, wrapped);
+    Py_DECREF(wrapped);
+    if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;    /* GCOVR_EXCL_LINE */
+    }
+    if (th_node_map_insert(&ec->owners, node, (Py_ssize_t)ec->retained_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_NoMemory();                                                          /* GCOVR_EXCL_LINE */
+        return -1;                                                                 /* GCOVR_EXCL_LINE */
+    }
+    if (node->type == TH_NODE_TEXT) {
+        PyObject *prior = xpath_text_parent(previous, node);
+        PyObject *parent = prior != NULL ? Py_NewRef(prior) : xpath_owned_node(previous, node->parent);
+        if (parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        status = xpath_extension_retain(ec, parent);
+        Py_DECREF(parent);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+        int inserted = th_node_map_insert(&ec->text_parents, node, (Py_ssize_t)ec->retained_len);
+        if (inserted < 0) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
+}
+
+static void xpath_extension_clear(xpath_ext_ctx *ec) {
+    for (size_t index = 0; index < ec->retained_len; index++) {
+        Py_DECREF(ec->retained[index]);
+    }
+    PyMem_Free(ec->retained);
+    PyMem_Free(ec->owners.entries);
+    PyMem_Free(ec->text_parents.entries);
+    for (size_t index = 0; index < ec->frame_count; index++) {
+        xpath_frame_pins *frame = ec->frames[index];
+        if (--frame->references == 0) {
+            xpath_extension_clear(&frame->pins);
+            PyMem_Free(frame);
+        }
+    }
+    PyMem_Free(ec->frames);
+}
+
+static int xpath_before_python(void *context, const xp_live_frame *frame) {
+    xpath_ext_ctx *ec = context;
+    xpath_ext_ctx current = {
+        .extensions = ec->extensions, .handle = ec->handle, .state = ec->state, .tree = ec->tree, .previous = ec};
+    size_t count = 0;
+    for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
+        count++;
+    }
+    current.frames = PyMem_Malloc(count * sizeof(xpath_frame_pins *));
+    if (current.frames == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();         /* GCOVR_EXCL_LINE */
+        return -1;                /* GCOVR_EXCL_LINE */
+    }
+    for (const xp_live_frame *active = frame; active != NULL; active = xp_live_previous(active)) {
+        xpath_frame_pins *pins = NULL;
+        for (size_t index = 0; index < ec->frame_count; index++) {
+            xpath_frame_pins *prior = ec->frames[index];
+            if (prior->activation == xp_live_id(active) && prior->version == xp_live_version(active)) {
+                pins = prior;
+                pins->references++;
+                break;
+            }
+        }
+        if (pins == NULL) {
+            pins = PyMem_Calloc(1, sizeof(xpath_frame_pins));
+            if (pins == NULL) {                  /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory();                /* GCOVR_EXCL_LINE */
+                xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
+                return -1;                       /* GCOVR_EXCL_LINE */
+            }
+            pins->activation = xp_live_id(active);
+            pins->version = xp_live_version(active);
+            pins->references = 1;
+            pins->pins = (xpath_ext_ctx){.handle = ec->handle, .state = ec->state, .tree = ec->tree, .previous = ec};
+            current.frames[current.frame_count++] = pins;
+            int visited = xp_visit_frame_nodes(active, xpath_capture_owner, &pins->pins);
+            if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
+                return -1;                       /* GCOVR_EXCL_LINE */
+            }
+            pins->pins.previous = NULL;
+            pins->appended = xp_live_append_count(active);
+        } else {
+            current.frames[current.frame_count++] = pins;
+            if (pins->appended < xp_live_append_count(active)) {
+                pins->pins.previous = ec;
+                int visited = xp_visit_frame_append(active, pins->appended, xpath_capture_owner, &pins->pins);
+                pins->pins.previous = NULL;
+                if (visited < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    xpath_extension_clear(&current); /* GCOVR_EXCL_LINE */
+                    return -1;                       /* GCOVR_EXCL_LINE */
+                }
+                pins->appended = xp_live_append_count(active);
+            }
+        }
+    }
+    xpath_ext_ctx previous = *ec;
+    current.previous = NULL;
+    *ec = current;
+    xpath_extension_clear(&previous);
+    return 0;
+}
 
 /* Grow `set` by one node (attr -1, the node itself), doubling capacity as needed. */
 static int xpath_nodeset_push(xp_nodeset *set, th_node *node) {
@@ -1019,22 +1317,24 @@ static int xpath_nodeset_push(xp_nodeset *set, th_node *node) {
     return 0;
 }
 
-/* Append the tree node a returned element wraps to `set`, rejecting an object that
-   is not one of this module's nodes or an element bound to a different document. */
-static int xpath_append_result_node(xpath_ext_ctx *ec, PyObject *obj, xp_nodeset *set) {
-    if (!is_node(obj, ec->state)) {
-        PyErr_Format(PyExc_TypeError,
-                     "xpath extension result must be str, int, float, bool, an element, or an iterable of elements, "
-                     "not %.80s",
-                     Py_TYPE(obj)->tp_name);
-        return -1;
-    }
-    NodeObject *node_obj = (NodeObject *)obj;
-    if (node_obj->handle != ec->handle) {
+/* Returned nodes must belong to the evaluation arena. */
+static int xpath_check_result_owner(xpath_ext_ctx *ec, PyObject *obj) {
+    if (!node_owned_by((NodeObject *)obj, ec->handle)) {
         PyErr_SetString(PyExc_ValueError, "xpath extension returned an element from a different document");
         return -1;
     }
-    return xpath_nodeset_push(set, node_obj->node);
+    return 0;
+}
+
+static int xpath_append_result_node(xpath_ext_ctx *ec, PyObject *obj, xp_nodeset *set) {
+    if (xpath_check_result_owner(ec, obj) < 0) {
+        return -1;
+    }
+    th_node *node = ((NodeObject *)obj)->node;
+    if (xpath_capture_owner(ec, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE */
+    }
+    return xpath_nodeset_push(set, node);
 }
 
 /* Marshal an extension's return value into an xp_result: a Python scalar keeps the
@@ -1057,48 +1357,43 @@ static int xpath_extension_result(xpath_ext_ctx *ec, PyObject *obj, xp_result *o
                      Py_TYPE(obj)->tp_name);
         return -1;
     }
+    xpath_ext_ctx yielded = {0};
+    int status = -1;
     PyObject *item;
     while ((item = PyIter_Next(iterator)) != NULL) {
-        int rc = xpath_append_result_node(ec, item, &out->nodes);
+        if (!is_node(item, ec->state)) {
+            PyErr_Format(
+                PyExc_TypeError,
+                "xpath extension result must be str, int, float, bool, an element, or an iterable of elements, "
+                "not %.80s",
+                Py_TYPE(item)->tp_name);
+            Py_DECREF(item);
+            goto done;
+        }
+        if (xpath_check_result_owner(ec, item) < 0) {
+            Py_DECREF(item);
+            goto done;
+        }
+        int rc = xpath_extension_retain(&yielded, item);
         Py_DECREF(item);
-        if (rc < 0) {
-            Py_DECREF(iterator);
+        if (rc < 0) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto done; /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (PyErr_Occurred()) {
+        goto done;
+    }
+    for (size_t index = 0; index < yielded.retained_len; index++) {
+        if (xpath_append_result_node(ec, yielded.retained[index], &out->nodes) < 0) {
             xp_result_free(out);
-            return -1;
+            goto done;
         }
     }
+    status = 0;
+done:
     Py_DECREF(iterator);
-    if (PyErr_Occurred()) { /* the iterable raised partway through */
-        xp_result_free(out);
-        return -1;
-    }
-    return 0;
-}
-
-/* Marshal one evaluated argument to the Python object an extension receives. */
-static PyObject *xpath_arg_to_py(xpath_ext_ctx *ec, const xp_result *value) {
-    if (value->kind == XP_NODESET) {
-        PyObject *list = PyList_New(value->nodes.len);
-        if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            return NULL;    /* GCOVR_EXCL_LINE */
-        }
-        for (Py_ssize_t index = 0; index < value->nodes.len; index++) {
-            PyObject *item = xpath_item_to_py(ec->state, ec->handle, ec->tree, value->nodes.items[index], 0);
-            if (item == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-                Py_DECREF(list); /* GCOVR_EXCL_LINE */
-                return NULL;     /* GCOVR_EXCL_LINE */
-            }
-            PyList_SET_ITEM(list, index, item);
-        }
-        return list;
-    }
-    if (value->kind == XP_STRING) {
-        return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, value->string, value->string_len);
-    }
-    if (value->kind == XP_NUMBER) {
-        return PyFloat_FromDouble(value->number);
-    }
-    return PyBool_FromLong(value->boolean);
+    xpath_extension_clear(&yielded);
+    return status;
 }
 
 /* SimpleNamespace(context_node=element): the lightweight context lxml extensions
@@ -1130,51 +1425,87 @@ static PyObject *xpath_extension_context(PyObject *element) {
 static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4 *name, Py_ssize_t name_len,
                                 const xp_result *args, int argc, xp_result *out) {
     xpath_ext_ctx *ec = vctx;
+    typedef struct {
+        xpath_snapshot nodes;
+        PyObject *scalar;
+    } argument;
+    argument *values = argc == 0 ? NULL : PyMem_Calloc((size_t)argc, sizeof(argument));
+    if (argc != 0 && values == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();              /* GCOVR_EXCL_LINE */
+        return -1;                     /* GCOVR_EXCL_LINE */
+    }
+    int status = -1;
+    PyObject *element = xpath_owned_node(ec, context_node);
+    PyObject *func = NULL;
+    PyObject *call_args = NULL;
+    if (element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto done;         /* GCOVR_EXCL_LINE */
+    }
+    for (int index = 0; index < argc; index++) {
+        if (args[index].kind == XP_NODESET) {
+            int prepared = xpath_snapshot_prepare(ec->state, ec->handle, ec->tree, 0, &args[index].nodes,
+                                                  &values[index].nodes, ec);
+            if (prepared < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                goto done;      /* GCOVR_EXCL_LINE */
+            }
+        } else {
+            values[index].scalar = xpath_scalar_to_py(&args[index]);
+            if (values[index].scalar == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                goto done;                      /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
     PyObject *name_obj = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, name, name_len);
-    if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return -1;          /* GCOVR_EXCL_LINE */
+    if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto done;          /* GCOVR_EXCL_LINE */
     }
     PyObject *key = Py_BuildValue("(OO)", Py_None, name_obj);
     Py_DECREF(name_obj);
-    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return -1;     /* GCOVR_EXCL_LINE */
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto done;     /* GCOVR_EXCL_LINE */
     }
-    PyObject *func = PyDict_GetItem(ec->extensions, key); /* borrowed, no exception when absent */
+    Py_BEGIN_CRITICAL_SECTION(ec->extensions);
+    func = Py_XNewRef(PyDict_GetItem(ec->extensions, key));
+    Py_END_CRITICAL_SECTION();
     Py_DECREF(key);
     if (func == NULL) {
-        return -2; /* no such extension; the engine reports an unknown function */
-    }
-    PyObject *element = node_wrap(ec->state, ec->handle, context_node);
-    if (element == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-        return -1;         /* GCOVR_EXCL_LINE */
+        status = -2;
+        goto done;
     }
     PyObject *context = xpath_extension_context(element);
-    Py_DECREF(element);
-    if (context == NULL) { /* GCOVR_EXCL_BR_LINE: an import or allocation failure cannot be forced */
-        return -1;         /* GCOVR_EXCL_LINE */
+    if (context == NULL) { /* GCOVR_EXCL_BR_LINE: import or allocation failure */
+        goto done;         /* GCOVR_EXCL_LINE */
     }
-    PyObject *call_args = PyTuple_New((Py_ssize_t)argc + 1);
-    if (call_args == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+    call_args = PyTuple_New((Py_ssize_t)argc + 1);
+    if (call_args == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         Py_DECREF(context);  /* GCOVR_EXCL_LINE */
-        return -1;           /* GCOVR_EXCL_LINE */
+        goto done;           /* GCOVR_EXCL_LINE */
     }
-    PyTuple_SET_ITEM(call_args, 0, context); /* steals the context reference */
+    PyTuple_SET_ITEM(call_args, 0, context);
     for (int index = 0; index < argc; index++) {
-        PyObject *arg = xpath_arg_to_py(ec, &args[index]);
-        if (arg == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            Py_DECREF(call_args); /* GCOVR_EXCL_LINE */
-            return -1;            /* GCOVR_EXCL_LINE */
+        PyObject *arg = values[index].scalar != NULL ? Py_NewRef(values[index].scalar)
+                                                     : xpath_snapshot_materialize(ec->state, &values[index].nodes);
+        if (arg == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto done;     /* GCOVR_EXCL_LINE */
         }
-        PyTuple_SET_ITEM(call_args, index + 1, arg); /* steals the argument reference */
+        PyTuple_SET_ITEM(call_args, index + 1, arg);
     }
     PyObject *result = PyObject_CallObject(func, call_args);
-    Py_DECREF(call_args);
     if (result == NULL) {
-        return -1; /* the extension raised */
+        goto done;
     }
-    int rc = xpath_extension_result(ec, result, out);
+    status = xpath_extension_result(ec, result, out);
     Py_DECREF(result);
-    return rc;
+done:
+    Py_XDECREF(func);
+    Py_XDECREF(call_args);
+    Py_XDECREF(element);
+    for (int index = 0; index < argc; index++) {
+        xpath_snapshot_free(&values[index].nodes);
+        Py_XDECREF(values[index].scalar);
+    }
+    PyMem_Free(values);
+    return status;
 }
 
 /* Marshal an evaluated xp_result to a Python object under the held handle critical
@@ -1182,22 +1513,46 @@ static int xpath_call_extension(void *vctx, th_node *context_node, const Py_UCS4
    a scalar to its float / str / bool. Always frees *result. Returns the object (a
    new reference), or NULL with a Python error set on an allocation failure. */
 static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tree *tree, int smart_strings,
-                                    xp_result *result) {
+                                    xp_result *result, xpath_ext_ctx *ec) {
     PyObject *out;
     if (result->kind == XP_NODESET) {
-        out = PyList_New(result->nodes.len);
-        if (out == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            xp_result_free(result); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (Py_ssize_t index = 0; index < result->nodes.len; index++) {
-            PyObject *item = xpath_item_to_py(state, handle, tree, result->nodes.items[index], smart_strings);
-            if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-                Py_DECREF(out);         /* GCOVR_EXCL_LINE: allocation-failure path */
-                xp_result_free(result); /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (ec != NULL) {
+            out = xpath_snapshot_to_py(state, handle, tree, smart_strings, &result->nodes, ec);
+        } else {
+#if PY_VERSION_HEX < 0x030C0000 && !defined(PYPY_VERSION)
+            out = xpath_snapshot_to_py(state, handle, tree, smart_strings, &result->nodes, NULL);
+#else
+            if (smart_strings) {
+                out = xpath_snapshot_to_py(state, handle, tree, smart_strings, &result->nodes, NULL);
+            } else {
+                const Py_ssize_t count = result->nodes.len;
+                const xp_item *items = result->nodes.items;
+                out = PyList_New(count);
+                if (out == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    xp_result_free(result); /* GCOVR_EXCL_LINE */
+                    return NULL;            /* GCOVR_EXCL_LINE */
+                }
+#ifndef PYPY_VERSION
+                PyObject **values = ((PyListObject *)out)->ob_item;
+#endif
+                for (Py_ssize_t index = 0; index < count; index++) {
+                    xp_item source = items[index];
+                    PyObject *item = source.attr == -1 && source.node->type == TH_NODE_ELEMENT
+                                         ? element_wrap(state, handle, source.node)
+                                         : xpath_item_to_py(state, handle, tree, source);
+                    if (item == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation failure */
+                        Py_DECREF(out);         /* GCOVR_EXCL_LINE */
+                        xp_result_free(result); /* GCOVR_EXCL_LINE */
+                        return NULL;            /* GCOVR_EXCL_LINE */
+                    }
+#ifdef PYPY_VERSION
+                    PyList_SET_ITEM(out, index, item);
+#else
+                    values[index] = item;
+#endif
+                }
             }
-            PyList_SET_ITEM(out, index, item);
+#endif
         }
     } else {
         out = xpath_scalar_to_py(result); /* NULL with the error set on an unforced allocation failure */
@@ -1213,7 +1568,8 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
         return NULL;
     }
     module_state *state = state_of(self);
-    PyObject *handle = ((NodeObject *)self)->handle;
+    PyObject *handle = Py_NewRef(((NodeObject *)self)->handle);
+    Py_XINCREF(extensions);
     th_node *origin = ((NodeObject *)self)->node;
     const char *feature = NULL;
     PyObject *out = NULL;
@@ -1222,18 +1578,30 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: the compile cache and the eval read the tree */
     HandleObject *handle_obj = (HandleObject *)handle;
     th_tree *tree = handle_obj->tree;
-    xpath_ext_ctx ext_ctx = {extensions, handle, state, tree};
+    xpath_ext_ctx ext_ctx = {.extensions = extensions, .handle = handle, .state = state, .tree = tree};
     xp_program *prog = cached_xpath_compile(handle_obj, arg);
     if (prog != NULL) {
         compiled = 1;
+        int callbacks = extensions != NULL || xp_calls_python(prog);
+        if (callbacks) {
+            xp_retain(prog);
+        }
         xp_result result;
-        status = xp_eval(prog, tree, origin, vars, namespaces, extensions != NULL ? xpath_call_extension : NULL,
-                         extensions != NULL ? &ext_ctx : NULL, &result, &feature);
+        status = callbacks ? xp_eval_snapshot(prog, tree, origin, vars, namespaces,
+                                              extensions != NULL ? xpath_call_extension : NULL, &ext_ctx,
+                                              xpath_before_python, &result, &feature)
+                           : xp_eval(prog, tree, origin, vars, namespaces, NULL, NULL, &result, &feature);
         if (status == 0) {
-            out = xpath_result_to_py(state, handle, tree, smart_strings, &result);
+            out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
+        }
+        if (callbacks) {
+            xp_free(prog);
         }
     }
+    xpath_extension_clear(&ext_ctx);
     Py_END_CRITICAL_SECTION();
+    Py_XDECREF(extensions);
+    Py_DECREF(handle);
     if (!compiled) {
         return NULL; /* a compile error left a Python exception set */
     }
@@ -1247,22 +1615,32 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
    handle critical section. prog is borrowed and re-entrant; the caller owns vars.
    Returns the result object, or NULL with a Python error set. Shared by the
    precompiled XPath object's call. */
+/* GCOVR_EXCL_BR_START: handle objects are mortal */
 static PyObject *xpath_run_program(module_state *state, PyObject *handle, th_node *origin, const xp_program *prog,
                                    const xp_bindings *vars, int smart_strings, PyObject *extensions) {
+    Py_INCREF(handle);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XINCREF(extensions);
     const char *feature = NULL;
     PyObject *out = NULL;
     int status = 0;
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: the eval reads the tree */
     HandleObject *handle_obj = (HandleObject *)handle;
     th_tree *tree = handle_obj->tree;
-    xpath_ext_ctx ext_ctx = {extensions, handle, state, tree};
+    xpath_ext_ctx ext_ctx = {.extensions = extensions, .handle = handle, .state = state, .tree = tree};
+    int callbacks = extensions != NULL || xp_calls_python(prog);
     xp_result result;
-    status = xp_eval(prog, tree, origin, vars, NULL, extensions != NULL ? xpath_call_extension : NULL,
-                     extensions != NULL ? &ext_ctx : NULL, &result, &feature);
+    status = callbacks
+                 ? xp_eval_snapshot(prog, tree, origin, vars, NULL, extensions != NULL ? xpath_call_extension : NULL,
+                                    &ext_ctx, xpath_before_python, &result, &feature)
+                 : xp_eval(prog, tree, origin, vars, NULL, NULL, NULL, &result, &feature);
     if (status == 0) {
-        out = xpath_result_to_py(state, handle, tree, smart_strings, &result);
+        out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
     }
+    xpath_extension_clear(&ext_ctx);
     Py_END_CRITICAL_SECTION();
+    Py_XDECREF(extensions);
+    Py_DECREF(handle);
     if (status < 0) {
         return xpath_raise_status(status, feature);
     }
@@ -1308,7 +1686,7 @@ static int xpath_push_element(PyObject *obj, module_state *state, PyObject *refe
         return -1;
     }
     NodeObject *element = (NodeObject *)obj;
-    if (element->handle != reference_handle) {
+    if (!node_owned_by(element, reference_handle)) {
         PyErr_SetString(PyExc_ValueError, "xpath variable refers to a node from a different tree");
         return -1;
     }
@@ -1533,11 +1911,15 @@ static PyObject *xpath_eval_with_vars(PyObject *self, PyObject *args, PyObject *
     return result;
 }
 
-PyObject *node_xpath(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_xpath, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     return xpath_eval_with_vars(self, args, kwds, "xpath");
 }
 
-PyObject *node_xpath_iter(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_xpath_iter, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *value = xpath_eval_with_vars(self, args, kwds, "xpath_iter");
     if (value == NULL) {
         return NULL;
@@ -1556,7 +1938,9 @@ PyObject *node_xpath_iter(PyObject *self, PyObject *args, PyObject *kwds) {
     return iterator;
 }
 
-PyObject *node_xpath_one(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_xpath_one, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *value = xpath_eval_with_vars(self, args, kwds, "xpath_one");
     if (value == NULL) {
         return NULL;
@@ -1643,7 +2027,9 @@ static void xpath_compiled_dealloc(PyObject *self) {
 /* XPath.__call__(node, /, **variables): evaluate the compiled program against the
    context Node, binding each keyword as a $name variable. Returns the same result a
    matching Node.xpath call would. */
-static PyObject *xpath_compiled_call(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, xpath_compiled_call, (PyObject * self, PyObject *args, PyObject *kwds),
+            (self, args, kwds), (PyObject * self, PyObject *args, PyObject *kwds),
+            node_argument(state_of(self), args, NULL, 0, NULL), NULL) {
     XPathObject *compiled = (XPathObject *)self;
     module_state *state = state_of(self);
     if (PyTuple_GET_SIZE(args) != 1) {
@@ -1714,7 +2100,9 @@ PyType_Spec xpath_compiled_spec = {
     .slots = xpath_compiled_slots,
 };
 
-PyObject *node_css_matches(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_css_matches, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }
@@ -1745,7 +2133,9 @@ retry:;
     return PyBool_FromLong(matched);
 }
 
-PyObject *node_css_closest(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_css_closest, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     th_node *found;
     if (node_css_closest_borrowed(self, arg, &found) < 0) {
         return NULL;
@@ -1885,7 +2275,8 @@ static th_node *subtree_after(th_node *node, th_node *root) {
     return NULL;
 }
 
-PyObject *node_prune(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_prune, (PyObject * self, PyObject *arg), (self, arg), (PyObject * self, PyObject *arg),
+            (NodeObject *)self, arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }
@@ -2035,7 +2426,8 @@ static int snapshot_matches(sel_compiled *compiled, th_node *origin, node_snapsh
     return result;
 }
 
-PyObject *node_remove(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_remove, (PyObject * self, PyObject *arg), (self, arg), (PyObject * self, PyObject *arg),
+            (NodeObject *)self, arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }
@@ -2076,7 +2468,9 @@ retry:;
     return Py_NewRef(self);
 }
 
-PyObject *node_strip_tags(PyObject *self, PyObject *arg) {
+TH_NODE_API(, PyObject *, node_strip_tags, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     if (check_selector_arg(arg) < 0) {
         return NULL;
     }

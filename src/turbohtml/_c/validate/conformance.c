@@ -20,6 +20,7 @@
    the branch coverage stays stable across compilers. */
 
 #include "core/common.h"
+#include "dom/ownership.h"
 
 #include "core/ascii.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
@@ -600,7 +601,9 @@ static void walk(confctx *ctx, th_node *root, th_node **html_out, int *has_lang,
 /* _conformance_check(node) -> (valid, [(code, severity, message, line, column), ...]). Runs the
    authoring-conformance checks over a parsed document or subtree; the document is valid
    exactly when no finding is an error. The shim wraps the findings into records. */
-PyObject *turbohtml_conformance_check(PyObject *module, PyObject *arg) {
+TH_NODE_API(, PyObject *, turbohtml_conformance_check, (PyObject * module, PyObject *arg), (module, arg),
+            (PyObject * module, PyObject *arg), is_node(arg, PyModule_GetState(module)) ? (NodeObject *)arg : NULL,
+            NULL) {
     th_tree *tree;
     th_node *node;
     if (turbohtml_node_borrow(module, arg, &tree, &node) < 0) {

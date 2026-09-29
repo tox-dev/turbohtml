@@ -20,6 +20,7 @@
    default-namespace schema and a namespaced instance validate correctly. */
 
 #include "core/common.h"
+#include "dom/ownership.h"
 #include "core/vec.h"
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
@@ -850,7 +851,9 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
     return capsule;
 }
 
-PyObject *turbohtml_schema_validate(PyObject *module, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, turbohtml_schema_validate, (PyObject * module, PyObject *args, PyObject *kwargs),
+            (module, args, kwargs), (PyObject * module, PyObject *args, PyObject *kwargs),
+            node_argument(PyModule_GetState(module), args, kwargs, 1, "node"), NULL) {
     PyObject *capsule, *node_obj;
     int collect_errors = 1;
     static char *keywords[] = {"schema", "node", "collect_errors", NULL};

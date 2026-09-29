@@ -1,0 +1,2 @@
+Moving a subtree between trees preserves references to its descendants and their attribute views. Aliases of the moved
+node retain their identity and hashes.

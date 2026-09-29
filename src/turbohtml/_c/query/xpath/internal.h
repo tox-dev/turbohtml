@@ -78,6 +78,9 @@ typedef struct {
 } xn;
 
 struct xp_program {
+    size_t references;
+    int has_python_calls;
+    int has_variables;
     xn *nodes;
     int32_t count;
     int32_t cap;
@@ -163,9 +166,14 @@ int xp_name_eq(const lexer *lx, const char *kw);
 /* The evaluation context: the tree, the current node, its 1-based proximity
    position and the context size, plus where to report an unimplemented feature. */
 typedef struct {
+    xp_live_frame *current;
+    uint64_t next_id;
+} xp_live_registry;
+
+typedef struct {
     struct th_tree *tree;
     struct th_node *node;
-    Py_ssize_t attr; /* the context is node itself at -1, else its attribute (>= 0) or namespace node (-2) */
+    Py_ssize_t attr; /* the context is node itself at -1, else an encoded attribute or namespace node (-2) */
     Py_ssize_t pos;
     Py_ssize_t size;
     const char **feature;
@@ -175,10 +183,48 @@ typedef struct {
     void *extension_ctx;
     int depth; /* current eval_expr recursion depth, capped at XP_MAX_DEPTH */
     PyObject **regex_cache;
+    xp_live_registry *live;
+    xp_before_python_fn before_python;
     xp_name_test_fn name_test;
     void *name_test_ctx;
     int strict_no_ns;
 } xp_ctx;
+
+struct xp_live_frame {
+    const xp_live_frame *previous;
+    uint64_t id;
+    uint64_t version;
+    struct th_node *node;
+    const xp_nodeset *sets[2];
+    const xp_nodeset *append;
+    const xp_result *results;
+    Py_ssize_t result_count;
+    const xp_bindings *vars;
+};
+
+static inline void xp_live_enter(xp_ctx *ctx, xp_live_frame *frame) {
+    if (ctx->live != NULL) {
+        frame->previous = ctx->live->current;
+        frame->id = ++ctx->live->next_id;
+        ctx->live->current = frame;
+    }
+}
+
+static inline void xp_live_leave(xp_ctx *ctx, xp_live_frame *frame) {
+    if (ctx->live != NULL) {
+        ctx->live->current = (xp_live_frame *)frame->previous;
+    }
+}
+
+static inline void xp_live_changed(xp_ctx *ctx) {
+    if (ctx->live != NULL) {
+        ctx->live->current->version++;
+    }
+}
+
+static inline int xp_before_python(xp_ctx *ctx) {
+    return ctx->before_python == NULL ? 0 : ctx->before_python(ctx->extension_ctx, ctx->live->current);
+}
 
 /* Pre-order successor, shared by the evaluator and id(). ns_push is declared in the
    public xpath.h because the marshaling boundary also builds node-sets through it. */
@@ -211,5 +257,6 @@ double to_number(struct th_tree *tree, const xp_result *value);
 int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out);
 int xp_pattern_is_static(const xp_program *prog);
+int xp_single_attribute_atom(const xp_program *prog, struct th_tree *tree, uint32_t *atom);
 
 #endif /* TURBOHTML_XPATH_INTERNAL_H */

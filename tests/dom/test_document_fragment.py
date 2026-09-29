@@ -35,6 +35,25 @@ def test_document_fragment_takes_no_arguments() -> None:
         DocumentFragment("x")  # ty: ignore[too-many-positional-arguments]
 
 
+def test_document_fragment_adoption_preserves_descendants() -> None:
+    fragment = _fragment("section", "aside")
+    section = fragment.children[0]
+    assert isinstance(section, Element)
+    section.append(Element("b"))
+    descendant = section.select_one("b")
+    assert descendant is not None
+    attributes = descendant.attrs
+    held = {descendant}
+    target = Element("main")
+    target.append(fragment)
+    attributes["title"] = "moved"
+    assert (target.select_one("b") in held, target.html, fragment.html) == (
+        True,
+        '<main><section><b title="moved"></b></section><aside></aside></main>',
+        "",
+    )
+
+
 def test_shadow_root_is_a_document_fragment() -> None:
     root = Element("div").attach_shadow("open")
     assert (isinstance(root, DocumentFragment), repr(root)) == (True, "ShadowRoot()")

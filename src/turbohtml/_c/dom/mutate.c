@@ -75,6 +75,11 @@ th_node *th_element_attach_shadow(th_tree *tree, th_node *host, int mode) {
         tree->shadows = grown;
         tree->shadow_cap = (Py_ssize_t)cap;
     }
+    if (th_node_map_reserve(&tree->shadow_index, tree->shadow_index.count + 2) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        return NULL;                                                                  /* GCOVR_EXCL_LINE */
+    }
+    (void)th_node_map_insert(&tree->shadow_index, host, tree->shadow_count + 1);
+    (void)th_node_map_insert(&tree->shadow_index, root, tree->shadow_count + 1);
     tree->shadows[tree->shadow_count].host = host;
     tree->shadows[tree->shadow_count].root = root;
     tree->shadow_count++;
@@ -82,23 +87,15 @@ th_node *th_element_attach_shadow(th_tree *tree, th_node *host, int mode) {
 }
 
 th_node *th_element_shadow_root(th_tree *tree, th_node *host) {
-    for (Py_ssize_t index = 0; index < tree->shadow_count; index++) {
-        if (tree->shadows[index].host == host) {
-            return tree->shadows[index].root;
-        }
+    if (host->type != TH_NODE_ELEMENT) {
+        return NULL;
     }
-    return NULL;
+    Py_ssize_t index = th_node_map_find(&tree->shadow_index, host);
+    return index == 0 ? NULL : tree->shadows[index - 1].root;
 }
 
 th_node *th_shadow_host(th_tree *tree, th_node *root) {
-    /* only ever called on a shadow root, which is always in the table, so the scan
-       always finds its host and the fall-through below is unreachable */
-    for (Py_ssize_t index = 0; index < tree->shadow_count; index++) { /* GCOVR_EXCL_BR_LINE */
-        if (tree->shadows[index].root == root) {
-            return tree->shadows[index].host;
-        }
-    }
-    return NULL; /* GCOVR_EXCL_LINE: unreachable; every shadow root has a registered host */
+    return tree->shadows[th_node_map_find(&tree->shadow_index, root) - 1].host;
 }
 
 /* Materialize a character-data node's text in place (a parsed text node borrows a
@@ -974,28 +971,75 @@ th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
     return copy_node_at(dest, src, src_node, 0);
 }
 
+int th_tree_has_shadows(const th_tree *tree) {
+    return tree->shadow_count != 0;
+}
+
+th_node *th_node_next_including_shadow(th_tree *tree, th_node *node, th_node *root) {
+    th_node *shadow = th_element_shadow_root(tree, node);
+    if (shadow != NULL) {
+        return shadow;
+    }
+    if (node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != root) {
+        if (th_node_is_shadow_root(node)) {
+            node = th_shadow_host(tree, node);
+            if (node->first_child != NULL) {
+                return node->first_child;
+            }
+        } else {
+            if (node->next_sibling != NULL) {
+                return node->next_sibling;
+            }
+            node = node->parent;
+        }
+    }
+    return NULL;
+}
+
+static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_node) {
+    th_node *root = th_tree_copy_node(dest, src, src_node);
+    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    th_node *from = src_node;
+    th_node *copy = root;
+    do {
+        th_node *shadow = th_element_shadow_root(src, from);
+        if (shadow != NULL) {
+            th_node *adopted = th_element_attach_shadow(dest, copy, th_shadow_mode(shadow));
+            if (adopted == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return NULL;       /* GCOVR_EXCL_LINE */
+            }
+            adopted->tag_flags = shadow->tag_flags;
+            for (th_node *child = shadow->first_child; child != NULL; child = child->next_sibling) {
+                th_node *child_copy = th_tree_copy_node(dest, src, child);
+                if (child_copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return NULL;          /* GCOVR_EXCL_LINE */
+                }
+                node_append(adopted, child_copy);
+            }
+        }
+        from = th_node_next_including_shadow(src, from, src_node);
+        copy = th_node_next_including_shadow(dest, copy, root);
+    } while (from != NULL);
+    return root;
+}
+
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
-    th_node *copy = th_tree_copy_node(dest, src, src_node);
+    th_node *copy =
+        src->shadow_count == 0 ? th_tree_copy_node(dest, src, src_node) : copy_adopted_shadows(dest, src, src_node);
     if (copy == NULL || src->xml == dest->xml) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
         return copy;
     }
-    th_node *node = copy;
-    for (;;) {
+    for (th_node *node = copy; node != NULL; node = th_node_next_including_shadow(dest, node, copy)) {
         if (node->type == TH_NODE_ELEMENT && convert_element_kind(dest, node) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
             return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        if (node->first_child != NULL) {
-            node = node->first_child;
-            continue;
-        }
-        while (node != copy && node->next_sibling == NULL) {
-            node = node->parent;
-        }
-        if (node == copy) {
-            return copy;
-        }
-        node = node->next_sibling;
     }
+    return copy;
 }
 
 th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks) {

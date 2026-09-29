@@ -899,7 +899,9 @@ static PyObject *find_with_text(PyObject *self, const query_t *query, int want_a
     return node_wrap(state, handle, found);
 }
 
-PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, node_find, (PyObject * self, PyObject *args, PyObject *kwargs), (self, args, kwargs),
+            (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     query_t query;
     if (build_query(self, args, kwargs, 0, &query) < 0) {
         free_query(&query);
@@ -969,7 +971,9 @@ PyObject *node_find(PyObject *self, PyObject *args, PyObject *kwargs) {
     return result;
 }
 
-PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, node_find_all, (PyObject * self, PyObject *args, PyObject *kwargs), (self, args, kwargs),
+            (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     query_t query;
     if (build_query(self, args, kwargs, 1, &query) < 0) {
         free_query(&query);
@@ -999,23 +1003,39 @@ PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
         query.limit >= 0 && query.limit <= 8
             ? handle_obj->index_built && handle_index_usable(handle_obj, origin) && query_is_indexed_tag(&query)
             : handle_use_index(handle_obj, origin, query_is_indexed_tag(&query));
-    if (use_index) {
-        int simple = query_is_simple_tag(&query);
+    if (use_index && query_is_simple_tag(&query)) {
+        Py_SETREF(out, node_wrap_indexed(state, handle, query.tag_atom, query.limit));
+        error = out == NULL;
+    } else if (use_index && query.nattr == 1 && query.class_ucs4 == NULL && query.class_filter == NULL &&
+               (query.attrs[0].kind == TH_FIND_PRESENT || query.attrs[0].kind == TH_FIND_ABSENT)) {
         Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
         for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
             if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
                 break;
             }
             th_node *node = handle_obj->index_nodes[pos];
-            if (!simple) {
-                int matched = node_matches(state, node, &query);
-                if (matched < 0) {
-                    error = 1;
-                    break;
-                }
-                if (matched == 0) {
-                    continue;
-                }
+            if ((find_node_attr(node, query.attrs[0].atom) != NULL) != (query.attrs[0].kind == TH_FIND_PRESENT)) {
+                continue;
+            }
+            if (append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                error = 1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;                                          /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    } else if (use_index) {
+        Py_ssize_t end = handle_obj->index_offsets[query.tag_atom + 1];
+        for (Py_ssize_t pos = handle_obj->index_offsets[query.tag_atom]; pos < end; pos++) {
+            if (query.limit >= 0 && PyList_GET_SIZE(out) >= query.limit) {
+                break;
+            }
+            th_node *node = handle_obj->index_nodes[pos];
+            int matched = node_matches(state, node, &query);
+            if (matched < 0) {
+                error = 1;
+                break;
+            }
+            if (matched == 0) {
+                continue;
             }
             if (append_wrapped(out, state, handle, node) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 error = 1;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1054,7 +1074,7 @@ PyObject *node_find_all(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_END_CRITICAL_SECTION();
     free_query(&query);
     if (error) {
-        Py_DECREF(out);
+        Py_XDECREF(out);
         return NULL;
     }
     return out;

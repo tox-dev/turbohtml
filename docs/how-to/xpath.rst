@@ -153,7 +153,8 @@ iterable of elements produces a node-set that feeds later path steps and predica
     ['a', 'b']
 
 Every element in a returned node-set must belong to the document being queried; returning one from another parse raises
-``ValueError``.
+``ValueError``. Already-selected attributes retain their names and values across callbacks; later selections see current
+values, and unions keep the first selected value for each owner and attribute name.
 
 When one expression runs over many nodes or documents -- a scraper looping rows, or one query across a corpus -- compile
 it once with :class:`turbohtml.XPath` instead of re-parsing it on every :meth:`~turbohtml.Node.xpath` call. Bind

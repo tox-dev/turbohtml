@@ -7,6 +7,7 @@
 #ifndef TURBOHTML_DOM_TREE_INTERNAL_H
 #define TURBOHTML_DOM_TREE_INTERNAL_H
 
+#include "core/node_map.h"
 #include "dom/tree.h"
 
 #include <stddef.h>
@@ -125,6 +126,7 @@ struct th_tree {
     /* Shadow roots attached through the mutation API, grown lazily by attach_shadow.
        Empty (NULL) for every parsed or shadow-free tree. */
     th_shadow_link *shadows;
+    th_node_map shadow_index;
     Py_ssize_t shadow_count;
     Py_ssize_t shadow_cap;
     /* Live MutationObservers watching this tree, grown lazily on the first observe().

@@ -1,9 +1,11 @@
 # Subsystem: query (_c/query) — XPath compilation hooks, smart-string registration, and the compiled expression object.
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import final
+from typing import TypeVar, final
 
 from .dom import Element, Node
+
+_XPathReturn = TypeVar("_XPathReturn", bound=str | float | bool | Element | Iterable[Element])
 
 def _xpath_parse(expression: str, /) -> str: ...
 def _matches_many(nodes: list[Element], selector: str, /) -> list[Element]: ...
@@ -48,7 +50,7 @@ class XPath:
         /,
         *,
         smart_strings: bool = ...,
-        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] | None = ...,
+        extensions: dict[tuple[str | None, str], Callable[..., _XPathReturn]] | None = ...,
     ) -> None: ...
     def __call__(
         self, node: Node, /, **variables: str | float | bool | Element | Iterable[Element]

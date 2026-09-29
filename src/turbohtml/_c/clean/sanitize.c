@@ -3288,7 +3288,8 @@ done:
     return result;
 }
 
-PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
+TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args), (module, args),
+            (PyObject * module, PyObject *args), node_argument(PyModule_GetState(module), args, NULL, 0, NULL), NULL) {
     PyObject *source;
     PyObject *removed = NULL;
     sanitizer s = {0};

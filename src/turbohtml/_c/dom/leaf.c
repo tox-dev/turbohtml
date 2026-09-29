@@ -72,11 +72,14 @@ static PyObject *node_copy_impl(PyObject *self) {
     return wrap_fresh_tree_node(state_of(self), tree, copy);
 }
 
-PyObject *node_copy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, node_copy, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     return node_copy_impl(self);
 }
 
-PyObject *node_deepcopy(PyObject *self, PyObject *Py_UNUSED(memo)) {
+TH_NODE_API(, PyObject *, node_deepcopy, (PyObject * self, PyObject *memo), (self, memo),
+            (PyObject * self, PyObject *Py_UNUSED(memo)), (NodeObject *)self,
+            memo != NULL && is_node(memo, state_of(self)) ? (NodeObject *)memo : NULL) {
     return node_copy_impl(self);
 }
 
@@ -152,7 +155,8 @@ static PyObject *pi_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     return wrap_fresh_tree_node(state, tree, node);
 }
 
-static PyObject *node_get_data(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, node_get_data, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return str_from_accessor(th_node_data, tree_of(self), ((NodeObject *)self)->node);
 }
 
@@ -172,7 +176,9 @@ Py_UCS4 *assigned_str(PyObject *value, const char *what, Py_ssize_t *len) {
     return PyUnicode_AsUCS4Copy(value);
 }
 
-static int node_set_data(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, int, node_set_data, (PyObject * self, PyObject *value, void *closure), (self, value, closure),
+            (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     Py_ssize_t len;
     Py_UCS4 *points = assigned_str(value, "data", &len);
     if (points == NULL) {
@@ -243,12 +249,14 @@ PyType_Spec cdata_spec = {
     .slots = cdata_slots,
 };
 
-PyObject *pi_get_target(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, pi_get_target, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     return ucs4_to_str(node->text, node->attr_count);
 }
 
-PyObject *pi_get_data(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, pi_get_data, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     return ucs4_to_str(node->text + node->attr_count + 1, node->text_len - node->attr_count - 1);
 }
@@ -277,7 +285,8 @@ PyType_Spec pi_spec = {
     .slots = pi_slots,
 };
 
-PyObject *doctype_get_name(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, doctype_get_name, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return str_from_accessor(th_node_data, tree_of(self), ((NodeObject *)self)->node);
 }
 
@@ -300,11 +309,13 @@ static PyObject *doctype_id(PyObject *self, int want_system) {
     return want_system ? ucs4_to_str(system_id, system_len) : ucs4_to_str(public_id, public_len);
 }
 
-PyObject *doctype_get_public_id(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, doctype_get_public_id, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return doctype_id(self, 0);
 }
 
-PyObject *doctype_get_system_id(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, doctype_get_system_id, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return doctype_id(self, 1);
 }
 

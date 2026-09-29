@@ -13,6 +13,7 @@
 #include "clean/phone_binding.h"
 #include "core/ascii.h"
 #include "core/common.h"
+#include "dom/nodes.h"
 #include "dom/tree.h"
 #include "tokenizer/binding.h"
 #include "url/url.h"
@@ -1279,7 +1280,11 @@ static int holds_text_only(th_tree *tree, const th_node *node) {
     return (th_tag_flags(node->atom) & (TH_TAG_RAWTEXT | TH_TAG_RCDATA)) != 0;
 }
 
-static PyObject *collect_targets(PyObject *module, PyObject *owner, int process_existing, PyObject *skip_tags) {
+TH_NODE_API(static, PyObject *, collect_targets,
+            (PyObject * module, PyObject *owner, int process_existing, PyObject *skip_tags),
+            (module, owner, process_existing, skip_tags),
+            (PyObject * module, PyObject *owner, int process_existing, PyObject *skip_tags), (NodeObject *)owner,
+            NULL) {
     PyObject *targets = PyList_New(0);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list allocation cannot be forced from a test */
         return NULL;       /* GCOVR_EXCL_LINE */
@@ -1506,8 +1511,11 @@ static void unwrap_anchor(th_node *anchor) {
     th_node_remove(anchor);
 }
 
-static int snapshot_existing(PyObject *module, PyObject *target, PyObject **text_out, PyObject **url_out,
-                             PyObject **attrs_out) {
+TH_NODE_API(static, int, snapshot_existing,
+            (PyObject * module, PyObject *target, PyObject **text_out, PyObject **url_out, PyObject **attrs_out),
+            (module, target, text_out, url_out, attrs_out),
+            (PyObject * module, PyObject *target, PyObject **text_out, PyObject **url_out, PyObject **attrs_out),
+            (NodeObject *)target, NULL) {
     PyObject *handle = turbohtml_node_handle(target);
     (void)handle;
     th_tree *tree;
@@ -1543,7 +1551,11 @@ static int snapshot_existing(PyObject *module, PyObject *target, PyObject **text
     return 0;
 }
 
-static int apply_existing(PyObject *module, PyObject *target, const candidate_result *result, int replace_text) {
+TH_NODE_API(static, int, apply_existing,
+            (PyObject * module, PyObject *target, const candidate_result *result, int replace_text),
+            (module, target, result, replace_text),
+            (PyObject * module, PyObject *target, const candidate_result *result, int replace_text),
+            (NodeObject *)target, NULL) {
     PyObject *handle = turbohtml_node_handle(target);
     (void)handle;
     th_tree *tree;
@@ -1645,7 +1657,8 @@ static int append_result(th_tree *tree, th_node *fragment, const Py_UCS4 *points
     return status;
 }
 
-static PyObject *snapshot_text(PyObject *module, PyObject *target) {
+TH_NODE_API(static, PyObject *, snapshot_text, (PyObject * module, PyObject *target), (module, target),
+            (PyObject * module, PyObject *target), (NodeObject *)target, NULL) {
     PyObject *handle = turbohtml_node_handle(target);
     (void)handle;
     th_tree *tree;
@@ -1661,8 +1674,11 @@ static PyObject *snapshot_text(PyObject *module, PyObject *target) {
     return text;
 }
 
-static int apply_text(PyObject *module, PyObject *target, PyObject *text, PyObject *spans,
-                      const candidate_result *results) {
+TH_NODE_API(static, int, apply_text,
+            (PyObject * module, PyObject *target, PyObject *text, PyObject *spans, const candidate_result *results),
+            (module, target, text, spans, results),
+            (PyObject * module, PyObject *target, PyObject *text, PyObject *spans, const candidate_result *results),
+            (NodeObject *)target, NULL) {
     /* process_text retains this immutable snapshot through callbacks and the tree update. */
     int borrowed = PyUnicode_KIND(text) == PyUnicode_4BYTE_KIND;
     Py_UCS4 *points = borrowed ? PyUnicode_4BYTE_DATA(text) : PyUnicode_AsUCS4Copy(text);
@@ -1788,13 +1804,10 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     if (phone_config_arg(module, phone_object, &policy.phone) < 0) {
         return NULL;
     }
-    th_tree *tree;
-    th_node *root;
-    if (turbohtml_node_borrow(module, owner, &tree, &root) < 0) { /* GCOVR_EXCL_BR_LINE: Linker supplies a fragment */
-        return NULL;                                              /* GCOVR_EXCL_LINE */
+    if (!is_node(owner, PyModule_GetState(module))) {
+        PyErr_SetString(PyExc_TypeError, "expected a turbohtml element");
+        return NULL;
     }
-    (void)tree;
-    (void)root;
     PyObject *targets = collect_targets(module, owner, process_existing_flag, skip_tags);
     if (targets == NULL) { /* GCOVR_EXCL_BR_LINE: target list/wrapper allocation */
         return NULL;       /* GCOVR_EXCL_LINE */
@@ -1809,17 +1822,7 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     int status = 0;
     for (Py_ssize_t index = 0; status == 0 && index < PyList_GET_SIZE(targets); index++) {
         PyObject *target = PyList_GET_ITEM(targets, index);
-        PyObject *handle = turbohtml_node_handle(target);
-        (void)handle;
-        th_node *node;
-        th_tree *target_tree;
-        int text_target;
-        Py_BEGIN_CRITICAL_SECTION(handle);
-        (void)turbohtml_node_borrow(module, target, &target_tree, &node);
-        (void)target_tree;
-        text_target = node->type == TH_NODE_TEXT;
-        Py_END_CRITICAL_SECTION();
-        if (text_target) {
+        if (PyObject_TypeCheck(target, (PyTypeObject *)((module_state *)PyModule_GetState(module))->text_type)) {
             status = process_text(module, target, &policy);
         } else {
             status = process_existing(module, target, callbacks, candidate_type);

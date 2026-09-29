@@ -43,45 +43,48 @@ char *attr_key_utf8(th_tree *tree, PyObject *key, Py_ssize_t *out_len) {
 
 /* The live mutable view of an element's attributes: a mapping name -> value over
    the node's own attribute array, so reads and edits go straight to the tree. */
-static PyObject *attrs_new(module_state *state, PyObject *handle, th_node *node) {
+static PyObject *attrs_new(module_state *state, NodeObject *owner) {
     PyTypeObject *type = (PyTypeObject *)state->attrs_type;
     AttrsObject *self = (AttrsObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    self->handle = Py_NewRef(handle);
-    self->node = node;
+    self->owner = (NodeObject *)Py_NewRef((PyObject *)owner);
     return (PyObject *)self;
 }
 
 static void attrs_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
-    Py_DECREF(((AttrsObject *)self)->handle);
+    Py_DECREF(((AttrsObject *)self)->owner);
     type->tp_free(self);
     Py_DECREF(type);
 }
 
-static Py_ssize_t attrs_length(PyObject *self) {
+TH_NODE_API(static, Py_ssize_t, attrs_length, (PyObject * self), (self), (PyObject * self),
+            ((AttrsObject *)self)->owner, NULL) {
     Py_ssize_t count;
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-    count = ((AttrsObject *)self)->node->attr_count;
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    count = owner->node->attr_count;
     Py_END_CRITICAL_SECTION();
     return count;
 }
 
-static PyObject *attrs_subscript(PyObject *self, PyObject *key) {
+TH_NODE_API(static, PyObject *, attrs_subscript, (PyObject * self, PyObject *key), (self, key),
+            (PyObject * self, PyObject *key), ((AttrsObject *)self)->owner, NULL) {
     Py_ssize_t len;
-    char *name = attr_key_utf8(tree_of(self), key, &len);
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    char *name = attr_key_utf8(tree_of((PyObject *)owner), key, &len);
     if (name == NULL) {
         return NULL;
     }
-    th_node *node = ((AttrsObject *)self)->node;
+    th_node *node = owner->node;
     Py_ssize_t index;
     PyObject *result = NULL;
     /* hold the per-tree lock across the lookup and the value read so a concurrent attr
        set/del cannot resize the attribute array between them (a no-op on the GIL build) */
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-    index = find_attr_index(tree_of(self), node, name, len);
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    index = find_attr_index(tree_of((PyObject *)owner), node, name, len);
     if (index >= 0) {
         result = attr_value_obj(&node->attrs[index]);
     }
@@ -94,9 +97,11 @@ static PyObject *attrs_subscript(PyObject *self, PyObject *key) {
     return result;
 }
 
-static int attrs_ass_subscript(PyObject *self, PyObject *key, PyObject *value) {
-    th_node *node = ((AttrsObject *)self)->node;
-    th_tree *tree = tree_of(self);
+TH_NODE_API(static, int, attrs_ass_subscript, (PyObject * self, PyObject *key, PyObject *value), (self, key, value),
+            (PyObject * self, PyObject *key, PyObject *value), ((AttrsObject *)self)->owner, NULL) {
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    th_node *node = owner->node;
+    th_tree *tree = tree_of((PyObject *)owner);
     if (value == NULL) {
         Py_ssize_t len;
         char *name = attr_key_utf8(tree, key, &len);
@@ -104,7 +109,7 @@ static int attrs_ass_subscript(PyObject *self, PyObject *key, PyObject *value) {
             return -1;
         }
         int removed;
-        Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+        Py_BEGIN_CRITICAL_SECTION(owner->handle);
         removed = th_node_attr_del(tree, node, name, len);
         Py_END_CRITICAL_SECTION();
         PyMem_Free(name);
@@ -132,7 +137,7 @@ static int attrs_ass_subscript(PyObject *self, PyObject *key, PyObject *value) {
     int bad = element_attr_value(value, &points, &value_len, &has_value) < 0;
     int rc = -1;
     if (!bad) {
-        Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+        Py_BEGIN_CRITICAL_SECTION(owner->handle);
         rc = th_node_attr_set(tree, node, name, len, points, value_len, has_value);
         Py_END_CRITICAL_SECTION();
     }
@@ -143,61 +148,53 @@ static int attrs_ass_subscript(PyObject *self, PyObject *key, PyObject *value) {
     return rc < 0 ? -1 : 0;
 }
 
-static int attrs_contains(PyObject *self, PyObject *key) {
+TH_NODE_API(static, int, attrs_contains, (PyObject * self, PyObject *key), (self, key),
+            (PyObject * self, PyObject *key), ((AttrsObject *)self)->owner, NULL) {
     if (!PyUnicode_Check(key)) {
         return 0; /* a non-str key is never an attribute name */
     }
     Py_ssize_t len;
-    char *name = attr_key_utf8(tree_of(self), key, &len);
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    char *name = attr_key_utf8(tree_of((PyObject *)owner), key, &len);
     if (name == NULL) { /* GCOVR_EXCL_BR_LINE: key is a str here, so this cannot fail */
         return -1;      /* GCOVR_EXCL_LINE: unreachable */
     }
     Py_ssize_t index;
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-    index = find_attr_index(tree_of(self), ((AttrsObject *)self)->node, name, len);
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    index = find_attr_index(tree_of((PyObject *)owner), owner->node, name, len);
     Py_END_CRITICAL_SECTION();
     PyMem_Free(name);
     return index >= 0;
-}
-
-static PyObject *attrs_iter(PyObject *self) {
-    th_node *node = ((AttrsObject *)self)->node;
-    th_tree *tree = tree_of(self);
-    PyObject *names;
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-    names = PyList_New(node->attr_count);
-    if (names != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            PyObject *name = attr_name_obj(tree, &node->attrs[index]);
-            if (name == NULL) {   /* GCOVR_EXCL_BR_LINE: a stored name always decodes */
-                Py_DECREF(names); /* GCOVR_EXCL_LINE: decode-failure path */
-                names = NULL;     /* GCOVR_EXCL_LINE: decode-failure path */
-                break;            /* GCOVR_EXCL_LINE: decode-failure path */
-            }
-            PyList_SET_ITEM(names, index, name);
-        }
-    }
-    Py_END_CRITICAL_SECTION();
-    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure and stored-name decode failure cannot be forced */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation/decode-failure path */
-    }
-    PyObject *iterator = PyObject_GetIter(names);
-    Py_DECREF(names);
-    return iterator;
 }
 
 enum attrs_view { ATTRS_KEYS, ATTRS_VALUES, ATTRS_ITEMS };
 
 /* Materialize the attribute names, values, or (name, value) pairs as a list. */
 static PyObject *attrs_collect(PyObject *self, enum attrs_view kind) {
-    th_node *node = ((AttrsObject *)self)->node;
-    th_tree *tree = tree_of(self);
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    th_node *node = owner->node;
+    th_tree *tree = tree_of((PyObject *)owner);
+    const Py_ssize_t count = node->attr_count;
+    const th_node_attr *attrs = node->attrs;
+#if PY_VERSION_HEX < 0x030C0000 && !defined(PYPY_VERSION)
+    /* Older CPython allocations can run callbacks that mutate or adopt the owner. */
+    th_node_attr *snapshot = NULL;
+    if (count > 0) {
+        snapshot = PyMem_Malloc((size_t)count * sizeof(th_node_attr));
+        if (snapshot == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        }
+        memcpy(snapshot, attrs, (size_t)count * sizeof(th_node_attr));
+    }
+    attrs = snapshot;
+    PyObject *handle = Py_NewRef(owner->handle);
+#endif
     PyObject *out;
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-    out = PyList_New(node->attr_count);
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    out = PyList_New(count);
     if (out != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
-            const th_node_attr *attr = &node->attrs[index];
+        for (Py_ssize_t index = 0; index < count; index++) {
+            const th_node_attr *attr = &attrs[index];
             PyObject *item;
             if (kind == ATTRS_VALUES) {
                 item = attr_value_obj(attr);
@@ -232,22 +229,41 @@ static PyObject *attrs_collect(PyObject *self, enum attrs_view kind) {
         }
     }
     Py_END_CRITICAL_SECTION();
+#if PY_VERSION_HEX < 0x030C0000 && !defined(PYPY_VERSION)
+    PyMem_Free(snapshot);
+    Py_DECREF(handle);
+#endif
     return out;
 }
 
-static PyObject *attrs_keys(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, attrs_iter, (PyObject * self), (self), (PyObject * self), ((AttrsObject *)self)->owner,
+            NULL) {
+    PyObject *names = attrs_collect(self, ATTRS_KEYS);
+    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    PyObject *iterator = PyObject_GetIter(names);
+    Py_DECREF(names);
+    return iterator;
+}
+
+TH_NODE_API(static, PyObject *, attrs_keys, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
     return attrs_collect(self, ATTRS_KEYS);
 }
 
-static PyObject *attrs_values(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, attrs_values, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
     return attrs_collect(self, ATTRS_VALUES);
 }
 
-static PyObject *attrs_items(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, attrs_items, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
     return attrs_collect(self, ATTRS_ITEMS);
 }
 
-static PyObject *attrs_get(PyObject *self, PyObject *args) {
+TH_NODE_API(static, PyObject *, attrs_get, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), ((AttrsObject *)self)->owner, NULL) {
     PyObject *key;
     PyObject *fallback = Py_None;
     if (!PyArg_ParseTuple(args, "O|O", &key, &fallback)) {
@@ -255,15 +271,16 @@ static PyObject *attrs_get(PyObject *self, PyObject *args) {
     }
     if (PyUnicode_Check(key)) {
         Py_ssize_t len;
-        char *name = attr_key_utf8(tree_of(self), key, &len);
+        NodeObject *owner = ((AttrsObject *)self)->owner;
+        char *name = attr_key_utf8(tree_of((PyObject *)owner), key, &len);
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: key is a str here */
             return NULL;    /* GCOVR_EXCL_LINE: unreachable */
         }
-        th_node *node = ((AttrsObject *)self)->node;
+        th_node *node = owner->node;
         Py_ssize_t index;
         PyObject *result = NULL;
-        Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-        index = find_attr_index(tree_of(self), node, name, len);
+        Py_BEGIN_CRITICAL_SECTION(owner->handle);
+        index = find_attr_index(tree_of((PyObject *)owner), node, name, len);
         if (index >= 0) {
             result = attr_value_obj(&node->attrs[index]);
         }
@@ -287,7 +304,8 @@ static PyObject *attrs_to_dict(PyObject *self) {
     return mapping;
 }
 
-static PyObject *attrs_repr(PyObject *self) {
+TH_NODE_API(static, PyObject *, attrs_repr, (PyObject * self), (self), (PyObject * self), ((AttrsObject *)self)->owner,
+            NULL) {
     PyObject *mapping = attrs_to_dict(self);
     if (mapping == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -297,7 +315,8 @@ static PyObject *attrs_repr(PyObject *self) {
     return repr;
 }
 
-static PyObject *attrs_copy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, attrs_copy, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
     return attrs_to_dict(self);
 }
 
@@ -310,7 +329,8 @@ static PyObject *attrs_take(th_tree *tree, th_node *node, Py_ssize_t index) {
     return value;
 }
 
-static PyObject *attrs_pop(PyObject *self, PyObject *args) {
+TH_NODE_API(static, PyObject *, attrs_pop, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), ((AttrsObject *)self)->owner, NULL) {
     PyObject *key;
     PyObject *fallback = NULL;
     if (!PyArg_ParseTuple(args, "O|O:pop", &key, &fallback)) {
@@ -319,16 +339,17 @@ static PyObject *attrs_pop(PyObject *self, PyObject *args) {
     PyObject *result = NULL;
     if (PyUnicode_Check(key)) {
         Py_ssize_t len;
-        char *name = attr_key_utf8(tree_of(self), key, &len);
+        NodeObject *owner = ((AttrsObject *)self)->owner;
+        char *name = attr_key_utf8(tree_of((PyObject *)owner), key, &len);
         if (name == NULL) { /* GCOVR_EXCL_BR_LINE: key is a str here */
             return NULL;    /* GCOVR_EXCL_LINE: unreachable */
         }
-        th_node *node = ((AttrsObject *)self)->node;
+        th_node *node = owner->node;
         /* one critical section, so another thread cannot remove the attribute between the read and the delete */
-        Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
-        Py_ssize_t index = find_attr_index(tree_of(self), node, name, len);
+        Py_BEGIN_CRITICAL_SECTION(owner->handle);
+        Py_ssize_t index = find_attr_index(tree_of((PyObject *)owner), node, name, len);
         if (index >= 0) {
-            result = attrs_take(tree_of(self), node, index);
+            result = attrs_take(tree_of((PyObject *)owner), node, index);
         }
         Py_END_CRITICAL_SECTION();
         PyMem_Free(name);
@@ -343,12 +364,14 @@ static PyObject *attrs_pop(PyObject *self, PyObject *args) {
     return NULL;
 }
 
-static PyObject *attrs_popitem(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    th_node *node = ((AttrsObject *)self)->node;
-    th_tree *tree = tree_of(self);
+TH_NODE_API(static, PyObject *, attrs_popitem, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    th_node *node = owner->node;
+    th_tree *tree = tree_of((PyObject *)owner);
     PyObject *name = NULL;
     PyObject *value = NULL;
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
     if (node->attr_count > 0) {
         Py_ssize_t last = node->attr_count - 1;
         name = attr_name_obj(tree, &node->attrs[last]);
@@ -365,10 +388,12 @@ static PyObject *attrs_popitem(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     return pair;
 }
 
-static PyObject *attrs_clear(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    th_node *node = ((AttrsObject *)self)->node;
-    th_tree *tree = tree_of(self);
-    Py_BEGIN_CRITICAL_SECTION(((AttrsObject *)self)->handle);
+TH_NODE_API(static, PyObject *, attrs_clear, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), ((AttrsObject *)self)->owner, NULL) {
+    NodeObject *owner = ((AttrsObject *)self)->owner;
+    th_node *node = owner->node;
+    th_tree *tree = tree_of((PyObject *)owner);
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
     while (node->attr_count > 0) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, node->attrs[node->attr_count - 1].name_atom, &name_len);
@@ -378,7 +403,8 @@ static PyObject *attrs_clear(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *attrs_setdefault(PyObject *self, PyObject *args) {
+TH_NODE_API(static, PyObject *, attrs_setdefault, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), ((AttrsObject *)self)->owner, NULL) {
     PyObject *key;
     PyObject *fallback = Py_None;
     if (!PyArg_ParseTuple(args, "O|O:setdefault", &key, &fallback)) {
@@ -413,7 +439,8 @@ static int attrs_merge(PyObject *self, PyObject *other, PyObject *kwds) {
     return rc;
 }
 
-static PyObject *attrs_update(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, attrs_update, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), ((AttrsObject *)self)->owner, NULL) {
     PyObject *other = NULL;
     if (!PyArg_UnpackTuple(args, "update", 0, 1, &other) || attrs_merge(self, other, kwds) < 0) {
         return NULL;
@@ -440,7 +467,9 @@ static PyObject *mapping_to_dict(PyObject *obj) {
     return PyObject_CallOneArg((PyObject *)&PyDict_Type, obj);
 }
 
-static PyObject *attrs_richcompare(PyObject *self, PyObject *other, int op) {
+TH_NODE_API(static, PyObject *, attrs_richcompare, (PyObject * self, PyObject *other, int op), (self, other, op),
+            (PyObject * self, PyObject *other, int op), ((AttrsObject *)self)->owner,
+            Py_TYPE(other) == Py_TYPE(self) ? ((AttrsObject *)other)->owner : NULL) {
     if (op != Py_EQ && op != Py_NE) {
         Py_RETURN_NOTIMPLEMENTED;
     }
@@ -471,7 +500,9 @@ static PyObject *attrs_or(PyObject *left, PyObject *right) {
     return merged;
 }
 
-static PyObject *attrs_inplace_or(PyObject *self, PyObject *other) {
+TH_NODE_API(static, PyObject *, attrs_inplace_or, (PyObject * self, PyObject *other), (self, other),
+            (PyObject * self, PyObject *other), ((AttrsObject *)self)->owner,
+            Py_TYPE(other) == Py_TYPE(self) ? ((AttrsObject *)other)->owner : NULL) {
     if (!is_mapping(other)) {
         Py_RETURN_NOTIMPLEMENTED;
     }
@@ -520,17 +551,20 @@ PyType_Spec attrs_spec = {
     .slots = attrs_slots,
 };
 
-PyObject *element_get_tag(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(, PyObject *, element_get_tag, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     return ucs4_to_str(node->text, node->text_len);
 }
 
-static PyObject *element_get_namespace(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, element_get_namespace, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     return Py_NewRef(state_of(self)->namespaces[((NodeObject *)self)->node->ns]);
 }
 
-PyObject *element_get_attrs(PyObject *self, void *Py_UNUSED(closure)) {
-    return attrs_new(state_of(self), ((NodeObject *)self)->handle, ((NodeObject *)self)->node);
+TH_NODE_API(, PyObject *, element_get_attrs, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
+    return attrs_new(state_of(self), (NodeObject *)self);
 }
 
 static int element_set_text(PyObject *self, PyObject *value, void *closure);
@@ -777,7 +811,8 @@ static PyObject *select_value(th_tree *tree, th_node *select) {
     return option_value_str(tree, use);
 }
 
-static PyObject *element_get_field_value(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, element_get_field_value, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     th_tree *tree = tree_of(self);
     PyObject *result = NULL;
@@ -950,7 +985,9 @@ static int set_select_value(PyObject *self, th_node *select, PyObject *value) {
     return error ? -1 : 0; /* GCOVR_EXCL_BR_LINE: error is set only on the excluded allocation failures */
 }
 
-static int element_set_field_value(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, int, element_set_field_value, (PyObject * self, PyObject *value, void *closure),
+            (self, value, closure), (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     th_node *node = ((NodeObject *)self)->node;
     switch (node->atom) {
     case TH_TAG_INPUT:
@@ -967,7 +1004,8 @@ static int element_set_field_value(PyObject *self, PyObject *value, void *Py_UNU
     }
 }
 
-static PyObject *element_get_checked(PyObject *self, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, PyObject *, element_get_checked, (PyObject * self, void *closure), (self, closure),
+            (PyObject * self, void *Py_UNUSED(closure)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     int present;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
@@ -1187,7 +1225,9 @@ static int clear_radio_group(HandleObject *handle, th_node *radio) {
     return status;
 }
 
-static int element_set_checked(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, int, element_set_checked, (PyObject * self, PyObject *value, void *closure), (self, value, closure),
+            (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     th_node *node = ((NodeObject *)self)->node;
     if (value == NULL) {
         PyErr_SetString(PyExc_TypeError, "cannot delete checked");
@@ -1197,14 +1237,18 @@ static int element_set_checked(PyObject *self, PyObject *value, void *Py_UNUSED(
         PyErr_SetString(PyExc_TypeError, "checked can only be set on a checkbox or radio input");
         return -1;
     }
-    int on = PyObject_IsTrue(value);
-    if (on < 0) {
-        return -1;
+    if (!PyBool_Check(value)) {
+        int on = PyObject_IsTrue(value);
+        if (on < 0) {
+            return -1;
+        }
+        /* Truth callbacks can adopt the input into another tree. */
+        return element_set_checked(self, on ? Py_True : Py_False, NULL);
     }
     th_tree *tree = tree_of(self);
     int rc = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    if (on) {
+    if (value == Py_True) {
         rc = th_node_attr_set(tree, node, "checked", 7, NULL, 0, 0);
         if (rc >= 0 && input_type_is(node, "radio")) { /* GCOVR_EXCL_BR_LINE: attr_set only fails on OOM */
             rc = clear_radio_group((HandleObject *)((NodeObject *)self)->handle, node);
@@ -1451,7 +1495,8 @@ static th_node *next_form_control(th_node *current, th_node *form) {
     return NULL;
 }
 
-static PyObject *element_form_data(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_form_data, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     if (node->atom != TH_TAG_FORM) {
         PyErr_SetString(PyExc_TypeError, "form_data can only be called on a form element");
@@ -1511,7 +1556,8 @@ PyDoc_STRVAR(rows_doc, "rows()\n--\n\n"
                        "table, not this one. Cell text is the cell's text content with surrounding\n"
                        "whitespace stripped. Raises TypeError on a non-table element.");
 
-static PyObject *element_rows(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_rows, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     if (node->atom != TH_TAG_TABLE) {
         PyErr_SetString(PyExc_TypeError, "rows can only be called on a table element");
@@ -1527,7 +1573,8 @@ PyDoc_STRVAR(records_doc, "records()\n--\n\n"
                           "list; a duplicated header keeps the rightmost column's value. Pass the result\n"
                           "to pandas.DataFrame for a frame. Raises TypeError on a non-table element.");
 
-static PyObject *element_records(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_records, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     if (node->atom != TH_TAG_TABLE) {
         PyErr_SetString(PyExc_TypeError, "records can only be called on a table element");
@@ -1544,7 +1591,9 @@ PyDoc_STRVAR(attr_doc, "attr(name, /, default=None)\n--\n\n"
                        ":param default: value returned when the attribute is absent.\n"
                        ":returns: the attribute value, or default when it is absent.");
 
-static PyObject *element_attr(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *kw[] = {"", "default", NULL};
     PyObject *name_obj;
     PyObject *fallback = Py_None;
@@ -1733,7 +1782,9 @@ static Py_UCS4 *class_token_arg(PyObject *arg, Py_ssize_t *out_len, int require_
 PyDoc_STRVAR(has_class_doc, "has_class(name, /)\n--\n\n"
                             "Return whether name is one of this element's space-separated class tokens.");
 
-static PyObject *element_has_class(PyObject *self, PyObject *arg) {
+TH_NODE_API(static, PyObject *, element_has_class, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     Py_ssize_t token_len;
     Py_UCS4 *token = class_token_arg(arg, &token_len, 0);
     if (token == NULL) {
@@ -1823,7 +1874,9 @@ PyDoc_STRVAR(add_class_doc, "add_class(name, /)\n--\n\n"
                             ":raises TypeError: if name is not a str.\n"
                             ":raises ValueError: if name is empty or contains whitespace.");
 
-static PyObject *element_add_class(PyObject *self, PyObject *arg) {
+TH_NODE_API(static, PyObject *, element_add_class, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     return class_mutate(self, arg, CLASS_ADD);
 }
 
@@ -1833,7 +1886,9 @@ PyDoc_STRVAR(remove_class_doc, "remove_class(name, /)\n--\n\n"
                                ":raises TypeError: if name is not a str.\n"
                                ":raises ValueError: if name is empty or contains whitespace.");
 
-static PyObject *element_remove_class(PyObject *self, PyObject *arg) {
+TH_NODE_API(static, PyObject *, element_remove_class, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     return class_mutate(self, arg, CLASS_REMOVE);
 }
 
@@ -1843,7 +1898,9 @@ PyDoc_STRVAR(toggle_class_doc, "toggle_class(name, /)\n--\n\n"
                                ":raises TypeError: if name is not a str.\n"
                                ":raises ValueError: if name is empty or contains whitespace.");
 
-static PyObject *element_toggle_class(PyObject *self, PyObject *arg) {
+TH_NODE_API(static, PyObject *, element_toggle_class, (PyObject * self, PyObject *arg), (self, arg),
+            (PyObject * self, PyObject *arg), (NodeObject *)self,
+            arg != NULL && is_node(arg, state_of(self)) ? (NodeObject *)arg : NULL) {
     return class_mutate(self, arg, CLASS_TOGGLE);
 }
 
@@ -2098,7 +2155,8 @@ PyDoc_STRVAR(css_path_doc, "css_path()\n--\n\n"
                            ":nth-of-type() steps (\"html > body > div > p:nth-of-type(3)\"). Feeding the\n"
                            "result back to select() on the document returns exactly this element.");
 
-static PyObject *element_css_path(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     PyObject *handle = ((NodeObject *)self)->handle;
     th_node *node = ((NodeObject *)self)->node;
     path_buf buf = {0};
@@ -2174,7 +2232,8 @@ PyDoc_STRVAR(xpath_path_doc, "xpath_path()\n--\n\n"
                              "(\"/html/body/div[2]/p[3]\"). Feeding the result back to xpath() on the\n"
                              "document returns exactly this element.");
 
-static PyObject *element_xpath_path(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_xpath_path, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     path_buf buf = {0};
     th_node **chain = NULL;
@@ -2542,33 +2601,124 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return element;
 }
 
-/* Deep-copy child, a node of another tree, into dest_handle's tree and re-point its
-   wrapper at the copy, so the source tree frees on its own. The caller holds
-   dest_handle's critical section; taking the source tree's lock as well suspends
-   that section while it waits, so another thread can edit the destination tree in
-   between and the caller must not trust tree state it read before this call.
-   NULL with MemoryError on allocation failure. */
+/* Constant traversal flags avoid per-node dispatch during adoption. */
+#if defined(_MSC_VER)
+#define TH_RELOCATE_INLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_RELOCATE_INLINE inline __attribute__((always_inline))
+#else
+#define TH_RELOCATE_INLINE
+#endif
+
+static TH_RELOCATE_INLINE int relocate_subtree_nodes(PyObject *dest_handle, PyObject *source_handle, th_node *root,
+                                                     th_node *copy, int has_shadows, int descendants) {
+    HandleObject *source_owner = (HandleObject *)source_handle;
+    HandleObject *dest_owner = (HandleObject *)dest_handle;
+    th_node *source = root;
+    th_node *dest = copy;
+    do {
+        if (node_binding(source_owner, source) != NULL) {
+            NodeObject **reserved = node_reserve_binding(dest_owner, dest);
+            if (reserved == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;          /* GCOVR_EXCL_LINE */
+            }
+            *reserved = NULL;
+            Py_hash_t hash = handle_node_hash((HandleObject *)source_handle, source);
+            if (handle_add_hash_override((HandleObject *)dest_handle, dest, hash) < 0) { /* GCOVR_EXCL_BR_LINE */
+                return -1; /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+        if (!descendants) {
+            break;
+        }
+        source =
+            has_shadows ? th_node_next_including_shadow(source_owner->tree, source, root) : preorder_next(source, root);
+        dest = has_shadows ? th_node_next_including_shadow(dest_owner->tree, dest, copy) : preorder_next(dest, copy);
+    } while (source != NULL);
+    th_node_remove_observed(((HandleObject *)source_handle)->tree, root);
+    source = root;
+    dest = copy;
+    do {
+        NodeObject *binding = node_binding(source_owner, source);
+        if (binding != NULL) {
+            *node_binding_pointer(dest_owner, dest) = binding;
+            node_release_binding(source_owner, source);
+#ifdef Py_GIL_DISABLED
+            do {
+#endif
+                PyObject *new_handle = Py_NewRef(dest_handle);
+#ifdef Py_GIL_DISABLED
+                PyThread_acquire_lock(binding->ownership_lock, WAIT_LOCK);
+#endif
+                PyObject *old_handle = binding->handle;
+                binding->node = dest;
+                binding->handle = new_handle;
+#ifdef Py_GIL_DISABLED
+                PyThread_release_lock(binding->ownership_lock);
+#endif
+                Py_DECREF(old_handle);
+#ifdef Py_GIL_DISABLED
+                binding = binding->next_binding;
+            } while (binding != NULL);
+#endif
+        }
+        if (!descendants) {
+            break;
+        }
+        source =
+            has_shadows ? th_node_next_including_shadow(source_owner->tree, source, root) : preorder_next(source, root);
+        dest = has_shadows ? th_node_next_including_shadow(dest_owner->tree, dest, copy) : preorder_next(dest, copy);
+    } while (source != NULL);
+    return 0;
+}
+
+static int only_root_binding(HandleObject *handle, th_node *root) {
+    if (handle->bindings != handle->inline_bindings) {
+        return 0;
+    }
+    for (uint16_t index = 1; index < handle->binding_next; index++) {
+        if (index != root->binding_id && handle->bindings[index].node != NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_node *root, th_node *copy) {
+    HandleObject *owner = (HandleObject *)source_handle;
+    if (th_tree_has_shadows(owner->tree)) {
+        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 1, 1);
+    }
+    if (root->first_child == NULL || only_root_binding(owner, root)) {
+        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 0);
+    }
+    return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 1);
+}
+
+/* Taking the source lock can suspend the destination's critical section, so callers
+   must recheck destination tree state after importing. */
 static th_node *import_node(PyObject *dest_handle, NodeObject *child) {
     th_tree *dest_tree = ((HandleObject *)dest_handle)->tree;
-    PyObject *source_handle = child->handle;
 #ifdef Py_GIL_DISABLED
-    Py_INCREF(source_handle);
+    node_guard guard;
+    node_guard_begin_with_handle(&guard, dest_handle, child);
+    PyObject *source_handle = guard.second;
+#else
+    PyObject *source_handle = node_owner_ref(child);
 #endif
     th_node *copy;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
     copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)child), child->node);
     if (copy != NULL && /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        handle_add_hash_override((HandleObject *)dest_handle, copy,
-                                 handle_node_hash((HandleObject *)source_handle, child->node)) == 0) {
+        relocate_subtree(dest_handle, source_handle, child->node, copy) == 0) {
         handle_drop_index(source_handle);
-        th_node_remove_observed(tree_of((PyObject *)child), child->node);
-        Py_SETREF(child->handle, Py_NewRef(dest_handle));
-        child->node = copy;
     } else {
         copy = NULL; /* GCOVR_EXCL_LINE */
     }
     Py_END_CRITICAL_SECTION2();
 #ifdef Py_GIL_DISABLED
+    node_guard_end(&guard);
+#else
     Py_DECREF(source_handle);
 #endif
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -2592,9 +2742,12 @@ static int is_fragment_arg(module_state *state, PyObject *obj) {
    exception on allocation failure. */
 static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fragment) {
     th_tree *dest_tree = ((HandleObject *)dest_handle)->tree;
-    PyObject *source_handle = fragment->handle;
 #ifdef Py_GIL_DISABLED
-    Py_INCREF(source_handle);
+    node_guard guard;
+    node_guard_begin_with_handle(&guard, dest_handle, fragment);
+    PyObject *source_handle = guard.second;
+#else
+    PyObject *source_handle = node_owner_ref(fragment);
 #endif
     th_node *copy;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
@@ -2602,7 +2755,7 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
     /* copy is NULL only on allocation failure */
     for (th_node *child = fragment->node->first_child; copy != NULL && child != NULL; /* GCOVR_EXCL_BR_LINE */
          child = child->next_sibling) {
-        th_node *child_copy = th_tree_copy_node(dest_tree, tree_of((PyObject *)fragment), child);
+        th_node *child_copy = th_tree_adopt_copy(dest_tree, tree_of((PyObject *)fragment), child);
         if (child_copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             copy = NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
             break;                /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2611,12 +2764,18 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
     }
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         handle_drop_index(source_handle);
-        while (fragment->node->first_child != NULL) {
-            th_node_remove_observed(tree_of((PyObject *)fragment), fragment->node->first_child);
+        for (th_node *child_copy = copy->first_child; child_copy != NULL; child_copy = child_copy->next_sibling) {
+            int status = relocate_subtree(dest_handle, source_handle, fragment->node->first_child, child_copy);
+            if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                copy = NULL;  /* GCOVR_EXCL_LINE: allocation failure */
+                break;        /* GCOVR_EXCL_LINE */
+            }
         }
     }
     Py_END_CRITICAL_SECTION2();
 #ifdef Py_GIL_DISABLED
+    node_guard_end(&guard);
+#else
     Py_DECREF(source_handle);
 #endif
     if (copy == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -2634,7 +2793,7 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
 static th_node *adopt_into(NodeObject *anchor, th_node *dest_parent, PyObject *wrapper_obj) {
     NodeObject *child = (NodeObject *)wrapper_obj;
     th_tree *dest_tree = tree_of((PyObject *)anchor);
-    if (dest_tree != tree_of(wrapper_obj)) {
+    if (!node_owned_by(child, anchor->handle)) {
         return import_node(anchor->handle, child);
     }
     if (th_node_contains(dest_tree, child->node, dest_parent)) {
@@ -2651,7 +2810,7 @@ th_node *adopt_child(NodeObject *anchor, th_node *dest_parent, PyObject *child_o
         PyErr_SetString(PyExc_TypeError, "child must be a node");
         return NULL;
     }
-    if (((NodeObject *)child_obj)->node->type == TH_NODE_DOCUMENT) {
+    if (PyObject_TypeCheck(child_obj, (PyTypeObject *)state_of((PyObject *)anchor)->document_type)) {
         PyErr_SetString(PyExc_TypeError, "a Document cannot be inserted as a child");
         return NULL;
     }
@@ -2662,7 +2821,8 @@ int import_foreign_node(PyObject *dest_handle, PyObject **slot) {
     module_state *state = state_of(dest_handle);
     PyObject *node = *slot;
     if (!PyObject_TypeCheck(node, (PyTypeObject *)state->node_type) ||
-        ((NodeObject *)node)->node->type == TH_NODE_DOCUMENT || tree_of(node) == ((HandleObject *)dest_handle)->tree) {
+        PyObject_TypeCheck(node, (PyTypeObject *)state->document_type) ||
+        node_owned_by((NodeObject *)node, dest_handle)) {
         return 0;
     }
     if (is_fragment_arg(state, node)) {
@@ -2817,12 +2977,12 @@ static int append_one(PyObject *self, th_node *parent, PyObject *item) {
         return -1;
     }
     NodeObject *child = (NodeObject *)item;
-    if (child->node->type == TH_NODE_DOCUMENT) {
+    if (PyObject_TypeCheck(item, (PyTypeObject *)state_of(self)->document_type)) {
         PyErr_SetString(PyExc_TypeError, "a Document cannot be inserted as a child");
         return -1;
     }
     th_tree *tree = tree_of(self);
-    int foreign = tree_of(item) != tree;
+    int foreign = !node_owned_by(child, ((NodeObject *)self)->handle);
     if (foreign && import_node(((NodeObject *)self)->handle, child) == NULL) { /* GCOVR_EXCL_BR_LINE: OOM only */
         return -1;                                                             /* GCOVR_EXCL_LINE: OOM path */
     }
@@ -2859,7 +3019,9 @@ static int append_gathered(PyObject *self, th_node *parent, PyObject *list) {
 
 /* Append child (a node, or a fragment whose children move) as this node's last child: the body of append() on an
    element, a DocumentFragment, and a ShadowRoot. */
-PyObject *node_append_child(PyObject *self, PyObject *child) {
+TH_NODE_API(, PyObject *, node_append_child, (PyObject * self, PyObject *child), (self, child),
+            (PyObject * self, PyObject *child), (NodeObject *)self,
+            child != NULL && is_node(child, state_of(self)) ? (NodeObject *)child : NULL) {
     int error;
     if (!is_fragment_arg(state_of(self), child)) {
         Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
@@ -2927,13 +3089,17 @@ static int is_same_node(PyObject *self, PyObject *new_obj, th_node *ref) {
     return PyObject_TypeCheck(new_obj, (PyTypeObject *)state->node_type) && ((NodeObject *)new_obj)->node == ref;
 }
 
-static PyObject *element_append(PyObject *self, PyObject *child) {
+TH_NODE_API(static, PyObject *, element_append, (PyObject * self, PyObject *child), (self, child),
+            (PyObject * self, PyObject *child), (NodeObject *)self,
+            child != NULL && is_node(child, state_of(self)) ? (NodeObject *)child : NULL) {
     return node_append_child(self, child);
 }
 
 /* The iterable is drained before the tree lock is taken, so a generator that edits the tree runs outside it and the
    whole batch is checked before anything moves. */
-static PyObject *element_extend(PyObject *self, PyObject *iterable) {
+TH_NODE_API(static, PyObject *, element_extend, (PyObject * self, PyObject *iterable), (self, iterable),
+            (PyObject * self, PyObject *iterable), (NodeObject *)self,
+            iterable != NULL && is_node(iterable, state_of(self)) ? (NodeObject *)iterable : NULL) {
     PyObject *list = PySequence_List(iterable);
     if (list == NULL) {
         return NULL;
@@ -3098,7 +3264,9 @@ PyObject *turbohtml_build_document(PyObject *module, PyObject *args, PyObject *k
     return doc;
 }
 
-static PyObject *element_insert(PyObject *self, PyObject *args) {
+TH_NODE_API(static, PyObject *, element_insert, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     Py_ssize_t index;
     PyObject *child;
     if (!PyArg_ParseTuple(args, "nO", &index, &child)) {
@@ -3138,7 +3306,8 @@ static PyObject *element_insert(PyObject *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-static PyObject *element_clear(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_clear, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *parent = ((NodeObject *)self)->node;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
@@ -3149,7 +3318,8 @@ static PyObject *element_clear(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *element_normalize(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(static, PyObject *, element_normalize, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     th_node_normalize(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
@@ -3158,10 +3328,11 @@ static PyObject *element_normalize(PyObject *self, PyObject *Py_UNUSED(ignored))
 
 /* adopt_into detaches the wrapper before the child walk, so the loop only sees this
    element's own children; the moves are pure C under the per-tree lock. */
-static PyObject *element_wrap_children(PyObject *self, PyObject *wrapper_obj) {
+TH_NODE_API(static, PyObject *, element_wrap_children, (PyObject * self, PyObject *wrapper_obj), (self, wrapper_obj),
+            (PyObject * self, PyObject *wrapper_obj), (NodeObject *)self,
+            wrapper_obj != NULL && is_node(wrapper_obj, state_of(self)) ? (NodeObject *)wrapper_obj : NULL) {
     module_state *state = state_of(self);
-    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->node_type) ||
-        ((NodeObject *)wrapper_obj)->node->type != TH_NODE_ELEMENT) {
+    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->element_type)) {
         PyErr_SetString(PyExc_TypeError, "wrapper must be an element");
         return NULL;
     }
@@ -3280,22 +3451,29 @@ static PyObject *sibling_edit(PyObject *self, PyObject *nodes, enum sibling_edit
     Py_RETURN_NONE;
 }
 
-PyObject *node_insert_before(PyObject *self, PyObject *nodes) {
+TH_NODE_API(, PyObject *, node_insert_before, (PyObject * self, PyObject *nodes), (self, nodes),
+            (PyObject * self, PyObject *nodes), (NodeObject *)self,
+            nodes != NULL && is_node(nodes, state_of(self)) ? (NodeObject *)nodes : NULL) {
     return sibling_edit(self, nodes, SIBLING_BEFORE);
 }
 
-PyObject *node_insert_after(PyObject *self, PyObject *nodes) {
+TH_NODE_API(, PyObject *, node_insert_after, (PyObject * self, PyObject *nodes), (self, nodes),
+            (PyObject * self, PyObject *nodes), (NodeObject *)self,
+            nodes != NULL && is_node(nodes, state_of(self)) ? (NodeObject *)nodes : NULL) {
     return sibling_edit(self, nodes, SIBLING_AFTER);
 }
 
-PyObject *node_replace_with(PyObject *self, PyObject *nodes) {
+TH_NODE_API(, PyObject *, node_replace_with, (PyObject * self, PyObject *nodes), (self, nodes),
+            (PyObject * self, PyObject *nodes), (NodeObject *)self,
+            nodes != NULL && is_node(nodes, state_of(self)) ? (NodeObject *)nodes : NULL) {
     return sibling_edit(self, nodes, SIBLING_REPLACE);
 }
 
-PyObject *node_wrap_in(PyObject *self, PyObject *wrapper_obj) {
+TH_NODE_API(, PyObject *, node_wrap_in, (PyObject * self, PyObject *wrapper_obj), (self, wrapper_obj),
+            (PyObject * self, PyObject *wrapper_obj), (NodeObject *)self,
+            wrapper_obj != NULL && is_node(wrapper_obj, state_of(self)) ? (NodeObject *)wrapper_obj : NULL) {
     module_state *state = state_of(self);
-    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->node_type) ||
-        ((NodeObject *)wrapper_obj)->node->type != TH_NODE_ELEMENT) {
+    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->element_type)) {
         PyErr_SetString(PyExc_TypeError, "wrapper must be an element");
         return NULL;
     }
@@ -3348,7 +3526,9 @@ PyObject *node_wrap_in(PyObject *self, PyObject *wrapper_obj) {
    Everything happens under the per-tree lock and the run is resolved and rewired in
    pure C, so the sibling pointers are never dereferenced across a Python call that
    could relink the tree under free-threading. */
-PyObject *node_wrap_siblings(PyObject *self, PyObject *args, PyObject *kwds) {
+TH_NODE_API(, PyObject *, node_wrap_siblings, (PyObject * self, PyObject *args, PyObject *kwds), (self, args, kwds),
+            (PyObject * self, PyObject *args, PyObject *kwds), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     static char *keywords[] = {"wrapper", "until", NULL};
     PyObject *wrapper_obj;
     PyObject *until_obj = Py_None;
@@ -3356,8 +3536,7 @@ PyObject *node_wrap_siblings(PyObject *self, PyObject *args, PyObject *kwds) {
         return NULL;
     }
     module_state *state = state_of(self);
-    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->node_type) ||
-        ((NodeObject *)wrapper_obj)->node->type != TH_NODE_ELEMENT) {
+    if (!PyObject_TypeCheck(wrapper_obj, (PyTypeObject *)state->element_type)) {
         PyErr_SetString(PyExc_TypeError, "wrapper must be an element");
         return NULL;
     }
@@ -3447,7 +3626,8 @@ PyObject *node_wrap_siblings(PyObject *self, PyObject *args, PyObject *kwds) {
     return Py_NewRef(wrapper_obj);
 }
 
-PyObject *node_unwrap(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, node_unwrap, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     th_node *node = ((NodeObject *)self)->node;
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
@@ -3470,7 +3650,8 @@ PyObject *node_unwrap(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     return Py_NewRef(self);
 }
 
-PyObject *node_extract(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, node_extract, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
     th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
@@ -3478,7 +3659,8 @@ PyObject *node_extract(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     return Py_NewRef(self);
 }
 
-PyObject *node_decompose(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, node_decompose, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     handle_drop_index(((NodeObject *)self)->handle);
     th_node_remove_observed(tree_of(self), ((NodeObject *)self)->node);
@@ -3486,7 +3668,9 @@ PyObject *node_decompose(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static int element_set_text(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, void *closure), (self, value, closure),
+            (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     Py_ssize_t len;
     Py_UCS4 *points = assigned_str(value, "text", &len);
     if (points == NULL) {
@@ -3515,7 +3699,9 @@ static int element_set_text(PyObject *self, PyObject *value, void *Py_UNUSED(clo
 
 /* Rename the element in place. A <template> owns a content fragment that no other
    element has, so renaming to or from one would leave the tree half one shape. */
-static int element_set_tag(PyObject *self, PyObject *value, void *Py_UNUSED(closure)) {
+TH_NODE_API(static, int, element_set_tag, (PyObject * self, PyObject *value, void *closure), (self, value, closure),
+            (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     if (value == NULL) {
         PyErr_SetString(PyExc_TypeError, "cannot delete the tag");
         return -1;
@@ -3554,7 +3740,9 @@ static int element_set_tag(PyObject *self, PyObject *value, void *Py_UNUSED(clos
     return 0;
 }
 
-static PyObject *element_set_text_method(PyObject *self, PyObject *value) {
+TH_NODE_API(static, PyObject *, element_set_text_method, (PyObject * self, PyObject *value), (self, value),
+            (PyObject * self, PyObject *value), (NodeObject *)self,
+            value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
     if (element_set_text(self, value, NULL) < 0) {
         return NULL;
     }
@@ -3820,7 +4008,9 @@ static int splice_fragment(th_tree *dest, th_tree *fragment, th_node *parent, th
     return 0;
 }
 
-static PyObject *element_set_inner_html(PyObject *self, PyObject *html) {
+TH_NODE_API(static, PyObject *, element_set_inner_html, (PyObject * self, PyObject *html), (self, html),
+            (PyObject * self, PyObject *html), (NodeObject *)self,
+            html != NULL && is_node(html, state_of(self)) ? (NodeObject *)html : NULL) {
     if (!PyUnicode_Check(html)) {
         PyErr_SetString(PyExc_TypeError, "html must be a str");
         return NULL;
@@ -3848,7 +4038,9 @@ static PyObject *element_set_inner_html(PyObject *self, PyObject *html) {
     Py_RETURN_NONE;
 }
 
-static PyObject *element_insert_adjacent_html(PyObject *self, PyObject *args) {
+TH_NODE_API(static, PyObject *, element_insert_adjacent_html, (PyObject * self, PyObject *args), (self, args),
+            (PyObject * self, PyObject *args), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *position;
     PyObject *html;
     if (!PyArg_ParseTuple(args, "UU:insert_adjacent_html", &position, &html)) {

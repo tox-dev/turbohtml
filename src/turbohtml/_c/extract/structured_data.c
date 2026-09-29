@@ -1641,7 +1641,8 @@ PyObject *turbohtml_microdata_as_dict(PyObject *Py_UNUSED(module), PyObject *ite
    standard library, the way RFC 3986 reference resolution does. Which blocks survive is not -- a block whose JSON is
    malformed, or whose payload is a scalar or null rather than a node object, carries nothing -- so that decision is
    made here. */
-PyObject *turbohtml_document_json_ld(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, turbohtml_document_json_ld, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     PyObject *texts = gather_json_ld(self);
     if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1748,7 +1749,9 @@ static PyObject *build_opengraph_record(PyObject *self, PyObject *base) {
 }
 
 /* Document.opengraph(base_url=None) -> OpenGraph. */
-PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, turbohtml_document_opengraph, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *base = NULL;
     if (parse_base_url(self, args, kwargs, "|O:opengraph", &base) < 0) {
         return NULL;
@@ -1759,7 +1762,9 @@ PyObject *turbohtml_document_opengraph(PyObject *self, PyObject *args, PyObject 
 }
 
 /* Document.microdata(base_url=None) -> list[MicrodataItem]. */
-PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, turbohtml_document_microdata, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *base = NULL;
     if (parse_base_url(self, args, kwargs, "|O:microdata", &base) < 0) {
         return NULL;
@@ -1770,7 +1775,9 @@ PyObject *turbohtml_document_microdata(PyObject *self, PyObject *args, PyObject 
 }
 
 /* Document.rdfa(base_url=None) -> list[RdfaItem]. */
-PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, turbohtml_document_rdfa, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *base = NULL;
     if (parse_base_url(self, args, kwargs, "|O:rdfa", &base) < 0) {
         return NULL;
@@ -1781,7 +1788,8 @@ PyObject *turbohtml_document_rdfa(PyObject *self, PyObject *args, PyObject *kwar
 }
 
 /* Document.dublin_core() -> dict. */
-PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+TH_NODE_API(, PyObject *, turbohtml_document_dublin_core, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
     return gather_dublin_core(self);
 }
 
@@ -1790,7 +1798,9 @@ PyObject *turbohtml_document_dublin_core(PyObject *self, PyObject *Py_UNUSED(ign
    @id inside arbitrary JSON is a separate concern) and Dublin Core content is verbatim (its values are literals, not
    typed URLs). microformats is still a later phase, present as an empty list so the record's shape is stable. NULL only
    on the excluded allocation-failure path (or with an exception set on a bad base_url). */
-PyObject *turbohtml_document_structured_data(PyObject *self, PyObject *args, PyObject *kwargs) {
+TH_NODE_API(, PyObject *, turbohtml_document_structured_data, (PyObject * self, PyObject *args, PyObject *kwargs),
+            (self, args, kwargs), (PyObject * self, PyObject *args, PyObject *kwargs), (NodeObject *)self,
+            args != NULL && is_node(args, state_of(self)) ? (NodeObject *)args : NULL) {
     PyObject *snapshot = snapshot_document(self);
     if (snapshot == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */

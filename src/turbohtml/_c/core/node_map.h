@@ -32,13 +32,14 @@ static inline Py_ssize_t th_node_map_find(const th_node_map *map, const struct t
     return map->capacity == 0 ? 0 : map->entries[th_node_map_slot(map, node)].value;
 }
 
-/* Values are positive indices; zero marks an absent node. Callers insert each node once. */
-static inline int th_node_map_insert(th_node_map *map, const struct th_node *node, Py_ssize_t value) {
-    if (map->count == map->capacity / 2) {
+static inline int th_node_map_reserve(th_node_map *map, size_t count) {
+    if (count > map->capacity / 2) {
+        if (count > SIZE_MAX / 2) { /* GCOVR_EXCL_BR_LINE: allocation size overflow */
+            return -1;              /* GCOVR_EXCL_LINE */
+        }
         size_t capacity;
         size_t bytes;
-        const int grew =
-            th_grow_cap(map->capacity + 1, map->capacity, 16, sizeof(th_node_map_entry), &capacity, &bytes);
+        const int grew = th_grow_cap(count * 2, map->capacity, 16, sizeof(th_node_map_entry), &capacity, &bytes);
         if (!grew) {   /* GCOVR_EXCL_BR_LINE: allocation size overflow */
             return -1; /* GCOVR_EXCL_LINE: allocation size overflow */
         }
@@ -53,6 +54,14 @@ static inline int th_node_map_insert(th_node_map *map, const struct th_node *nod
         }
         PyMem_Free(map->entries);
         *map = grown;
+    }
+    return 0;
+}
+
+/* Values are positive indices; zero marks an absent node. Callers insert each node once. */
+static inline int th_node_map_insert(th_node_map *map, const struct th_node *node, Py_ssize_t value) {
+    if (th_node_map_reserve(map, map->count + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;                                      /* GCOVR_EXCL_LINE */
     }
     map->entries[th_node_map_slot(map, node)] = (th_node_map_entry){node, value};
     map->count++;
