@@ -761,6 +761,7 @@ typedef struct {
 
 static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len);
 static int pattern_callback_needed(engine *eng, const xp_program *prog);
+static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched);
 
 static int build_name_indexes(engine *eng) {
     /* GCOVR_EXCL_BR_START: allocation failure */
@@ -1471,12 +1472,18 @@ static int build_key(engine *eng, xslt_key *key) {
     xp_result matched;
     const char *feature = NULL;
     xslt_pattern_scope scope = {.eng = eng, .instruction = key->instruction};
-    int status = th_tree_is_xml(eng->src_tree)
-                     ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
-                                          pattern_callback_needed(eng, key->match_prog) ? pattern_name_test : NULL,
-                                          &scope, &matched, &feature)
+    int xml = th_tree_is_xml(eng->src_tree);
+    int callback = xml && pattern_callback_needed(eng, key->match_prog);
+    int status = 1;
+    if (xml && !callback) {
+        status = scan_static_name_pattern(eng, key->match_prog, &matched);
+    }
+    if (status == 1) {
+        status = xml ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
+                                          callback ? pattern_name_test : NULL, &scope, &matched, &feature)
                      : xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched,
                                   &feature);
+    }
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
         return fail_py(eng);                                      /* GCOVR_EXCL_LINE */
@@ -1525,6 +1532,36 @@ static int build_key(engine *eng, xslt_key *key) {
         }
     }
     xp_result_free(&matched);
+    return 0;
+}
+
+static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched) {
+    const xn *path = &prog->nodes[prog->root];
+    if (path->kind != XN_PATH || !path->absolute || path->second >= 0 || path->first < 0) {
+        return 1;
+    }
+    const xn *step = &prog->nodes[path->first];
+    if (step->kind != XN_STEP || step->axis != AX_DESCENDANT || step->test != NT_NAME || step->prefix_len != 0 ||
+        step->first >= 0 || step->next >= 0) {
+        return 1;
+    }
+    *matched = (xp_result){.kind = XP_NODESET};
+    for (th_node *node = eng->src_root->first_child; node != NULL;) {
+        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->text_len == step->str_len &&
+            memcmp(node->text, step->str, (size_t)step->str_len * sizeof(Py_UCS4)) == 0 &&
+            ns_push(&matched->nodes, node, -1) < 0) {
+            xp_result_free(matched);
+            return -1;
+        }
+        if (node->first_child != NULL) {
+            node = node->first_child;
+        } else {
+            while (node != eng->src_root && node->next_sibling == NULL) {
+                node = node->parent;
+            }
+            node = node == eng->src_root ? NULL : node->next_sibling;
+        }
+    }
     return 0;
 }
 
