@@ -7,10 +7,9 @@ These fixtures come from [tdewolff/minify](https://github.com/tdewolff/minify) `
 The extraction used Go's `go/parser` and `strconv.Unquote` to preserve runtime string values. It excluded commented-out
 cases.
 
-| File | Source table | Schema | Rows | | ---------------------------- | ------------------- |
---------------------------------------------------------- | ---- | | `tdewolff_js.json` | `TestJS` |
-`{input, expected, line}` | 732 | | `tdewolff_js_varrename.json` | `TestJSVarRenaming` | `{input, expected, line}` | 53
-| | `tdewolff_js_version.json` | `TestJSVersion` | `{version, input, before, after, line}` | 3 |
+- `tdewolff_js.json`: 732 `TestJS` rows with `input`, `expected`, and `line`.
+- `tdewolff_js_varrename.json`: 53 `TestJSVarRenaming` rows with the same fields.
+- `tdewolff_js_version.json`: 3 `TestJSVersion` rows with `version`, `input`, `before`, `after`, and `line`.
 
 `input` comes from the source's `js` field. `line` records the source line at the pinned commit. The version cases use
 `before` below their stated ECMAScript version and `after` at or above it.
