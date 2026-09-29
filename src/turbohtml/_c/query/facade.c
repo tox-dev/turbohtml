@@ -320,19 +320,16 @@ PyObject *turbohtml_query_parents(PyObject *module, PyObject *args) {
             }
 #ifndef Py_GIL_DISABLED
             if (count == capacity) {
-                Py_ssize_t size = PyList_GET_SIZE(nodes);
-                Py_ssize_t grown = size > capacity ? size : capacity * 2;
-                PyObject **buffer =
-                    PyMem_Realloc(wrappers == local ? NULL : wrappers, (size_t)grown * sizeof(PyObject *));
+                /* One input yields at most one parent, so this can grow only once. */
+                Py_ssize_t grown = PyList_GET_SIZE(nodes);
+                PyObject **buffer = PyMem_Malloc((size_t)grown * sizeof(PyObject *));
                 if (buffer == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
                     Py_DECREF(wrapper); /* GCOVR_EXCL_LINE */
                     PyErr_NoMemory();   /* GCOVR_EXCL_LINE */
                     status = -1;        /* GCOVR_EXCL_LINE */
                     break;              /* GCOVR_EXCL_LINE */
                 }
-                if (wrappers == local) {
-                    memcpy(buffer, local, sizeof(local));
-                }
+                memcpy(buffer, local, sizeof(local));
                 wrappers = buffer;
                 capacity = grown;
             }
