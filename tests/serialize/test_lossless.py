@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import Element, IncrementalParser, Text, parse, parse_fragment, parse_xml
+from turbohtml import CData, Element, IncrementalParser, ProcessingInstruction, Text, parse, parse_fragment, parse_xml
 
 DOC = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
 
@@ -164,8 +164,17 @@ def test_empty_text_node_serializes_to_nothing() -> None:
 
 
 def test_xml_processing_instruction_and_cdata_serialize() -> None:
-    doc = parse_xml("<r><?pi go?><![CDATA[<raw>]]></r>")
-    assert doc.to_source() == "<r><?pi go><![CDATA[<raw>]]></r>"
+    doc = parse_xml("<r><?pi go?><![CDATA[x < y]]><![CDATA[<raw>]]></r>")
+    assert doc.to_source() == "<r><?pi go><![CDATA[x < y]]>&lt;raw&gt;</r>"
+
+
+def test_inserted_processing_instruction_and_cdata_stay_inert() -> None:
+    doc = parse(_doc("<p>x</p>"), source_locations=True)
+    paragraph = doc.select_one("p")
+    assert paragraph is not None
+    paragraph.append(ProcessingInstruction("a", "b><i>y</i>"))
+    paragraph.append(CData("c><b>z</b>"))
+    assert parse(doc.to_source()).select("b, i") == []
 
 
 def test_a_fragment_round_trips_through_its_children() -> None:

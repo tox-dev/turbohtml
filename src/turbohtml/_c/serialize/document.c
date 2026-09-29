@@ -241,6 +241,15 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             ser_close_tag(out, node); /* an empty element still takes an end tag */
         }
         break;
+    case TH_NODE_CDATA:
+        if (opts->xml || !ucs4_has_gt(node->text, node->text_len)) {
+            sbuf_puts(out, "<![CDATA[");
+            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_puts(out, "]]>");
+            break;
+        }
+        /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
+        TH_FALLTHROUGH;
     case TH_NODE_TEXT:
         if (opts->inner && !opts->xml && root->type == TH_NODE_ELEMENT && is_rawtext_element(root, tree->scripting) &&
             node->parent == root) {
@@ -266,16 +275,13 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         sbuf_putc(out, '>');
         break;
     case TH_NODE_PI:
-        sbuf_puts(out, "<?");
-        sbuf_put_ucs4(out, node->text, node->text_len);
-        /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the
-           bogus-comment form at ">". */
-        sbuf_puts(out, opts->xml ? "?>" : ">");
-        break;
-    case TH_NODE_CDATA:
-        sbuf_puts(out, "<![CDATA[");
-        sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_puts(out, "]]>");
+        if (opts->xml) {
+            sbuf_puts(out, "<?");
+            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_puts(out, "?>");
+        } else {
+            sbuf_put_html_pi(out, node->text, node->text_len);
+        }
         break;
     case TH_NODE_CONTENT:
     case TH_NODE_DOCUMENT:

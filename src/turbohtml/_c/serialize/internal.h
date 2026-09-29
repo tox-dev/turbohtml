@@ -377,6 +377,28 @@ static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize
     }
 }
 
+/* HTML content ends both "<?...>" and "<![CDATA[...]]>" at the first ">", so a node holding one needs another form. */
+static inline int ucs4_has_gt(const Py_UCS4 *text, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] == '>') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static inline void sbuf_put_html_pi(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    if (ucs4_has_gt(text, len)) {
+        sbuf_puts(out, "<!--?");
+        sbuf_put_xml_comment(out, text, len);
+        sbuf_puts(out, "-->");
+        return;
+    }
+    sbuf_puts(out, "<?");
+    sbuf_put_ucs4(out, text, len);
+    sbuf_putc(out, '>');
+}
+
 /* An element whose text children serialize literally rather than escaped: the
    WHATWG literal set is style/script/xmp/iframe/noembed/noframes/plaintext.
    noscript carries the rawtext flag for tokenization but is raw-text only when the

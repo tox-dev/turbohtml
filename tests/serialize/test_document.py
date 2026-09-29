@@ -789,6 +789,28 @@ def test_xml_processing_instruction_closes_with_question_mark() -> None:
     assert node.serialize(Html(xml=True, layout=Indent(2))) == "<doc><?t d?></doc>"
 
 
+_XML_ONLY_NODES: Final = "<r><![CDATA[a><b>c</b>]]><![CDATA[x < y]]><?pi a><i>p</i>--?><?ok x y?></r>"
+
+
+def test_xml_only_nodes_holding_gt_change_form_in_html() -> None:
+    assert parse_xml(_XML_ONLY_NODES).html == (
+        "<r>a&gt;&lt;b&gt;c&lt;/b&gt;<![CDATA[x < y]]><!--?pi a><i>p</i>- - --><?ok x y></r>"
+    )
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(lambda doc: doc.html, id="compact"),
+        pytest.param(lambda doc: doc.serialize(_PRETTY), id="indent"),
+        pytest.param(lambda doc: doc.serialize(Html(layout=Minify())), id="minify"),
+        pytest.param(lambda doc: "".join(doc.serialize_iter()), id="iter"),
+    ],
+)
+def test_xml_only_nodes_stay_inert_in_html(render: Callable[[Node], str]) -> None:
+    assert parse(render(parse_xml(_XML_ONLY_NODES))).select("b, i") == []
+
+
 def test_serialize_iter_streams_xml() -> None:
     node = _fragment("<div><br><p>x</p></div>", "div")
     assert "".join(node.serialize_iter(_XML)) == "<div><br/><p>x</p></div>"

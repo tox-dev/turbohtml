@@ -136,14 +136,17 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         sbuf_putc(out, '>');
         break;
     case TH_NODE_PI:
-        sbuf_puts(out, "<?");
-        sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_putc(out, '>');
+        sbuf_put_html_pi(out, node->text, node->text_len);
         break;
     case TH_NODE_CDATA:
-        sbuf_puts(out, "<![CDATA[");
-        sbuf_put_ucs4(out, node->text, node->text_len);
-        sbuf_puts(out, "]]>");
+        if (ucs4_has_gt(node->text, node->text_len)) {
+            /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
+            sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
+        } else {
+            sbuf_puts(out, "<![CDATA[");
+            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_puts(out, "]]>");
+        }
         break;
     case TH_NODE_CONTENT:
     case TH_NODE_DOCUMENT:

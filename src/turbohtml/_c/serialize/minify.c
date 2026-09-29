@@ -744,6 +744,16 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
                 ser_close_tag(out, node);
             }
             break;
+        case TH_NODE_CDATA:
+            if (!ucs4_has_gt(node->text, node->text_len)) {
+                last_was_space = 0;
+                sbuf_puts(out, "<![CDATA[");
+                sbuf_put_ucs4(out, node->text, node->text_len);
+                sbuf_puts(out, "]]>");
+                break;
+            }
+            /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
+            TH_FALLTHROUGH;
         case TH_NODE_TEXT:
             if (opts->collapse_whitespace && preserve == 0) {
                 mini_put_collapsed_text(out, need_text(tree, node), node->text_len, st->formatter, &last_was_space);
@@ -766,18 +776,8 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             break;
         case TH_NODE_PI:
             last_was_space = 0;
-            sbuf_puts(out, "<?");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_putc(out, '>');
+            sbuf_put_html_pi(out, node->text, node->text_len);
             break;
-        /* GCOVR_EXCL_START: the HTML parser folds a foreign CDATA section to text,
-           so the minifier, which serves parsed trees, never reaches this type. */
-        case TH_NODE_CDATA:
-            sbuf_puts(out, "<![CDATA[");
-            sbuf_put_ucs4(out, node->text, node->text_len);
-            sbuf_puts(out, "]]>");
-            break;
-        /* GCOVR_EXCL_STOP */
         case TH_NODE_CONTENT:
         case TH_NODE_DOCUMENT:
             descend = node->first_child; /* a transparent container emits only its children */

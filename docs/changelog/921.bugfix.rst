@@ -1,0 +1,1 @@
+Serialize a CDATA section or processing instruction holding ``>`` as HTML without turning its text into markup.
