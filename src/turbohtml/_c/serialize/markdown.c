@@ -1244,7 +1244,9 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
         if (is_md_skipped(child)) {
             continue;
         }
-        return !is_md_block(atom) || md_is_paragraph_block(atom);
+        return !is_md_block(atom) || md_is_paragraph_block(atom) ||
+               (atom >= TH_TAG_H1 && atom <= TH_TAG_H6 &&
+                (ctx->opt->heading_style != TH_MD_HEADING_SETEXT || atom > TH_TAG_H2));
     }
     return 0;
 }
@@ -1555,6 +1557,33 @@ typedef struct {
     int in_run;    /* content between items is in the middle of an inline run */
 } md_list_state;
 
+static Py_ssize_t md_list_number_attr(md_ctx *ctx, th_node *node, const char *name, Py_ssize_t fallback) {
+    Py_ssize_t length;
+    const Py_UCS4 *value = md_attr(ctx->tree, node, name, &length);
+    if (value == NULL) {
+        return fallback;
+    }
+    Py_ssize_t index = 0;
+    while (index < length && is_space(value[index])) {
+        index++;
+    }
+    if (index < length && value[index] == '+') {
+        index++;
+    }
+    if (index == length || value[index] < '0' || value[index] > '9') {
+        return fallback;
+    }
+    Py_ssize_t number = 0;
+    for (; index < length && value[index] >= '0' && value[index] <= '9'; index++) {
+        Py_ssize_t digit = value[index] - '0';
+        if (number > (PY_SSIZE_T_MAX - digit) / 10) {
+            return fallback;
+        }
+        number = number * 10 + digit;
+    }
+    return number;
+}
+
 /* Whether a list child is a wrapper around list items (`<ul><div><li>`), which the
    list looks through so its items keep their markers and numbering. */
 static int md_is_item_wrapper(th_node *node) {
@@ -1604,10 +1633,13 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     }
     Py_ssize_t width;
     if (state->ordered) {
+        state->number = md_list_number_attr(ctx, child, "value", state->number);
         width = lead + md_put_decimal(&ctx->out, state->number) + 2;
         sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->delimiter);
         sbuf_putc(&ctx->out, ' ');
-        state->number++;
+        if (state->number < PY_SSIZE_T_MAX) {
+            state->number++;
+        }
     } else {
         sbuf_putc(&ctx->out, (Py_UCS4)(unsigned char)state->bullet);
         sbuf_putc(&ctx->out, ' ');
@@ -1676,7 +1708,8 @@ static void md_list_children(md_ctx *ctx, th_node *node, md_list_state *state) {
     }
 }
 
-static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
+static int md_list_ordered(md_ctx *ctx, th_node *node) {
+    int ordered = node->atom == TH_TAG_OL;
     if (ctx->opt->google_doc) {
         /* a Google Docs export keeps the ol/ul element but states the real marker
            kind in list-style-type, so honor it when present */
@@ -1688,26 +1721,12 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
             ordered = !md_css_unordered(value, value_len);
         }
     }
-    Py_ssize_t number = 1;
-    if (ordered) {
-        Py_ssize_t start_len;
-        const Py_UCS4 *start = md_attr(ctx->tree, node, "start", &start_len);
-        if (start != NULL) {
-            Py_ssize_t value = 0;
-            int seen = 0;
-            for (Py_ssize_t index = 0; index < start_len; index++) {
-                if (start[index] >= '0' && start[index] <= '9') {
-                    value = value * 10 + (start[index] - '0');
-                    seen = 1;
-                } else {
-                    break;
-                }
-            }
-            if (seen) {
-                number = value;
-            }
-        }
-    }
+    return ordered;
+}
+
+static void md_render_list(md_ctx *ctx, th_node *node) {
+    int ordered = md_list_ordered(ctx, node);
+    Py_ssize_t number = ordered ? md_list_number_attr(ctx, node, "start", 1) : 1;
     Py_ssize_t bullets_len = (Py_ssize_t)strlen(ctx->opt->bullets);
     md_list_state state = {
         .number = number,
@@ -1737,6 +1756,54 @@ static void md_render_list(md_ctx *ctx, th_node *node, int ordered) {
         ctx->list_end_prefix = ctx->prefix.len;
         ctx->list_end_marker = ordered ? state.delimiter : state.bullet;
     }
+}
+
+static int md_list_number_before(md_ctx *ctx, th_node *container, th_node *target, Py_ssize_t *number) {
+    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
+        if (child == target) {
+            return 1;
+        }
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI) {
+            *number = md_list_number_attr(ctx, child, "value", *number);
+            if (*number < PY_SSIZE_T_MAX) {
+                (*number)++;
+            }
+        } else if (md_is_item_wrapper(child) && md_list_number_before(ctx, child, target, number)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void md_render_root_item(md_ctx *ctx, th_node *node) {
+    th_node *list = node->parent;
+    while (list != NULL && list->atom != TH_TAG_UL && list->atom != TH_TAG_OL && list->atom != TH_TAG_MENU &&
+           md_is_item_wrapper(list)) {
+        list = list->parent;
+    }
+    int in_list = list != NULL && list->ns == TH_NS_HTML &&
+                  (list->atom == TH_TAG_UL || list->atom == TH_TAG_OL || list->atom == TH_TAG_MENU);
+    int ordered = in_list && md_list_ordered(ctx, list);
+    Py_ssize_t number = ordered ? md_list_number_attr(ctx, list, "start", 1) : 1;
+    if (ordered) {
+        md_list_number_before(ctx, list, node, &number);
+    }
+    Py_ssize_t depth = 0;
+    for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->ns == TH_NS_HTML &&
+            (ancestor->atom == TH_TAG_UL || ancestor->atom == TH_TAG_OL || ancestor->atom == TH_TAG_MENU)) {
+            depth++;
+        }
+    }
+    md_list_state state = {
+        .number = number,
+        .bullet = ctx->opt->bullets[(depth > 0 ? depth - 1 : 0) % (Py_ssize_t)strlen(ctx->opt->bullets)],
+        .delimiter = '.',
+        .ordered = ordered,
+        .loose = md_item_is_loose(ctx, node),
+    };
+    ctx->list_depth = (int)depth;
+    md_render_item(ctx, node, &state);
 }
 
 /* Render a cell's content into dst, collapsing internal whitespace to single spaces
@@ -2203,10 +2270,8 @@ static void md_render_block_body(md_ctx *ctx, th_node *node) {
         return;
     case TH_TAG_UL:
     case TH_TAG_MENU:
-        md_render_list(ctx, node, 0);
-        return;
     case TH_TAG_OL:
-        md_render_list(ctx, node, 1);
+        md_render_list(ctx, node);
         return;
     case TH_TAG_PRE:
         md_render_pre(ctx, node);
@@ -2296,6 +2361,8 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
         md_emit_text(&ctx, need_text(tree, node), node->text_len);
     } else if (md_apply_converter(&ctx, node)) {
         /* a converter registered for the root element renders it whole */
+    } else if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == TH_TAG_LI) {
+        md_render_root_item(&ctx, node);
     } else if (is_md_block(node->ns == TH_NS_HTML ? node->atom : TH_TAG_UNKNOWN)) {
         md_render_block(&ctx, node);
     } else {

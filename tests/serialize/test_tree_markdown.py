@@ -17,7 +17,7 @@ from urllib.parse import unquote
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import parse
+from turbohtml import parse, parse_fragment
 
 if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCorpus
@@ -228,6 +228,7 @@ def test_code(html: str, expected: str) -> None:
             id="ordered-and-menu-nested-directly-in-list",
         ),
         pytest.param("<ul><li><em>a</em> b <strong>c</strong></li></ul>", "- *a* b **c**", id="item-inline-run"),
+        pytest.param("<ul><li><h2>x</h2><p>y</p></li></ul>", "- ## x\n  y", id="heading-on-item-marker"),
         pytest.param(
             "<ul><li><p>first para</p><p>second para</p></li></ul>",
             "- first para\n\n  second para",
@@ -310,6 +311,111 @@ def test_code(html: str, expected: str) -> None:
 )
 def test_lists(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "selector", "expected"),
+    [
+        pytest.param("<li>orphan</li>", "li", "- orphan", id="standalone"),
+        pytest.param("<ul><li>a</li><li>b</li></ul>", "li:last-child", "- b", id="unordered-second"),
+        pytest.param("<ol><li>a</li><li>b</li></ol>", "li:last-child", "2. b", id="ordered-second"),
+        pytest.param('<ol start="3"><li>a</li><li>b</li></ol>', "li:last-child", "4. b", id="ordered-start"),
+        pytest.param('<ol start=" +3"><li>a</li><li>b</li></ol>', "li:last-child", "4. b", id="signed-start"),
+        pytest.param('<ol start="   +3"><li>a</li><li>b</li></ol>', "li:last-child", "4. b", id="spaced-start"),
+        pytest.param('<ol start="   "><li>a</li></ol>', "li", "1. a", id="whitespace-start"),
+        pytest.param('<ol start="+"><li>a</li></ol>', "li", "1. a", id="sign-only-start"),
+        pytest.param('<ol start="-3"><li>a</li></ol>', "li", "1. a", id="negative-start-fallback"),
+        pytest.param("<ol reversed><li>a</li><li>b</li></ol>", "li:last-child", "2. b", id="reversed-ascending"),
+        pytest.param('<ol><li value="8">a</li><li>b</li></ol>', "li:last-child", "9. b", id="ordered-value"),
+        pytest.param('<ol><li value="8">a</li></ol>', "li", "8. a", id="selected-value"),
+        pytest.param('<ol><li value="+8">a</li></ol>', "li", "8. a", id="signed-value"),
+        pytest.param('<ol><li value="8x">a</li></ol>', "li", "8. a", id="value-with-suffix"),
+        pytest.param('<ol><li value="8/">a</li></ol>', "li", "8. a", id="value-with-punctuation"),
+        pytest.param('<ol><li value="-8">a</li></ol>', "li", "1. a", id="negative-value-fallback"),
+        pytest.param(
+            '<ol start="3"><div><li>a</li><li value="8">b</li></div><li>c</li></ol>',
+            "ol > li",
+            "9. c",
+            id="wrapped-preceding-items",
+        ),
+        pytest.param(
+            '<ol start="3"><li>a</li><div><li>b</li></div></ol>',
+            "div > li",
+            "4. b",
+            id="selected-wrapper-item",
+        ),
+        pytest.param('<ol><li value="x">a</li></ol>', "li", "1. a", id="invalid-value"),
+        pytest.param('<ol><li value="999999999999999999999999999999">a</li></ol>', "li", "1. a", id="overflow-value"),
+        pytest.param(
+            '<ol><li value="9223372036854775807">a</li></ol>',
+            "li",
+            "9223372036854775807. a",
+            id="maximum-value",
+        ),
+        pytest.param(
+            '<ol><li value="9223372036854775807">a</li><li>b</li></ol>',
+            "li:last-child",
+            "9223372036854775807. b",
+            id="maximum-preceding-value",
+        ),
+        pytest.param('<ol><li value="">a</li></ol>', "li", "1. a", id="empty-value"),
+        pytest.param(
+            '<ol><li><h2><a href="https://example.com">Result</a></h2><p>Summary</p></li></ol>',
+            "li",
+            "1. ## [Result](https://example.com)\n   Summary",
+            id="bing-heading",
+        ),
+        pytest.param("<ul><li>a<ul><li>b</li></ul></li></ul>", "ul ul li", "- b", id="nested"),
+        pytest.param("<menu><li>a</li></menu>", "li", "- a", id="menu"),
+        pytest.param("<ol><li>a</li>\n<li>b</li></ol>", "li:last-child", "2. b", id="text-between-items"),
+        pytest.param("<ol><div>x</div><li>b</li></ol>", "li", "1. b", id="non-item-wrapper"),
+        pytest.param("<ol><svg></svg><li>b</li></ol>", "li", "1. b", id="foreign-sibling"),
+        pytest.param(
+            "<ul><li><blockquote><p>x</p></blockquote></li></ul>",
+            "li",
+            "- \n  > x",
+            id="leading-blockquote",
+        ),
+        pytest.param(
+            "<svg><foreignObject><ol><li>b</li></ol></foreignObject></svg>",
+            "li",
+            "1. b",
+            id="list-below-foreign-ancestor",
+        ),
+    ],
+)
+def test_selected_list_item(html: str, selector: str, expected: str) -> None:
+    item = parse_fragment(html).select_one(selector)
+    assert item is not None
+    assert item.to_markdown() == expected
+
+
+def test_detached_list_item() -> None:
+    assert Element("li", children=[Text("x")]).to_markdown() == "- x"
+
+
+def test_list_item_below_foreign_parent() -> None:
+    parent = parse_fragment("<svg></svg>").select_one("svg")
+    assert parent is not None
+    item = Element("li", children=[Text("x")])
+    parent.append(item)
+    assert item.to_markdown() == "- x"
+
+
+def test_ordered_list_item_value() -> None:
+    assert md('<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>') == "3. a\n8. b\n9. c"
+
+
+def test_selected_nested_item_uses_list_depth() -> None:
+    item = parse_fragment("<ul><li>a<ul><li>b</li></ul></li></ul>").select_one("ul ul li")
+    assert item is not None
+    assert item.to_markdown(Markdown(lists=Markdown.Lists(bullets="-*"))) == "* b"
+
+
+def test_selected_item_keeps_nested_list_depth() -> None:
+    item = parse_fragment("<ul><li>a<ul><li>b</li></ul></li></ul>").select_one("ul > li")
+    assert item is not None
+    assert item.to_markdown(Markdown(lists=Markdown.Lists(bullets="-*"))) == "- a\n  * b"
 
 
 @pytest.mark.parametrize(
@@ -1750,6 +1856,12 @@ def _configured_markdown(html: str, options: Markdown) -> str:
             Markdown(headings=Markdown.Headings(style="setext")),
             "### H",
             id="heading-setext-h3-falls-back",
+        ),
+        pytest.param(
+            "<ul><li><h3>H</h3></li></ul>",
+            Markdown(headings=Markdown.Headings(style="setext")),
+            "- ### H",
+            id="list-heading-setext-h3-falls-back",
         ),
     ],
 )
