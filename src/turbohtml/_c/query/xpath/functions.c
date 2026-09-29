@@ -196,7 +196,7 @@ static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS
     }
     *owned = to_string(tree, value, len);
     *text = *owned;
-    return *owned == NULL ? -1 : 0;
+    return *owned == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
 }
 
 static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen, const Py_UCS4 *to,
