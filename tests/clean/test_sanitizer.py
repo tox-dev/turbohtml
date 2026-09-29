@@ -2131,7 +2131,7 @@ def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
 def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     # named to keep the boolean positional arguments off the FBT003 lint, not to document them
     allow_relative = strip_comments = True
-    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = False
+    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = bleach_url_policy = False
     allow_html = allow_svg = allow_mathml = True
     empty: frozenset[str] = frozenset()
     schemes = frozenset({"http", "https", "mailto"})
@@ -2140,7 +2140,7 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
         root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
         None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
-        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None,
+        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy,
     )  # fmt: skip
     assert root.inner_html == original
     return sanitized.inner_html

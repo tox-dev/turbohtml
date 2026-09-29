@@ -379,6 +379,107 @@ def test_protocols_control_relative_urls(
     )
 
 
+@pytest.mark.parametrize(
+    ("protocols", "value", "expected"),
+    [
+        pytest.param([], "&#0;#:x", None, id="invalid-numeric-before-fragment"),
+        pytest.param(["ftp"], "&Tab;ftp:x", None, id="unresolved-named-before-scheme"),
+        pytest.param(None, "&Tab;ftp:x", "\tftp:x", id="default-unresolved-named-relative"),
+        pytest.param(None, "&Tab;ja:x", "\tja:x", id="default-unresolved-custom-relative"),
+        pytest.param(None, "&Tab;javascript:x", None, id="decoded-script-baseline"),
+        pytest.param(None, "&#0;javascript:x", None, id="decoded-script-after-invalid-numeric"),
+        pytest.param(None, "1é:x", None, id="digit-before-non-ascii"),
+        pytest.param(None, "1http:x", None, id="digit-leading-scheme"),
+        pytest.param(["1http"], "1http:x", "1http:x", id="allowed-digit-leading-scheme"),
+        pytest.param(["ftp"], "&#x66;tp:x", "ftp:x", id="valid-numeric-in-scheme"),
+        pytest.param(["ftp"], "&#X66;tp:x", "ftp:x", id="uppercase-hex-reference"),
+        pytest.param(["ftp"], "&#102;tp:x", "ftp:x", id="decimal-reference"),
+        pytest.param(["ftp"], "&copy;ftp:x", "©ftp:x", id="named-non-ascii-reference"),
+        pytest.param(["ftp"], "&#x80;ftp:x", "€ftp:x", id="numeric-control-before-scheme"),
+        pytest.param(["ftp"], "&#0;ftp:x", None, id="invalid-numeric-before-scheme"),
+        pytest.param(["ftp"], "&#x110000;ftp:x", None, id="numeric-out-of-range"),
+        pytest.param(["ftp"], "&#;ftp:x", None, id="numeric-missing-digits"),
+        pytest.param(["ftp"], "&#xG;ftp:x", None, id="numeric-invalid-digit"),
+        pytest.param(["ftp"], "&#102ftp:x", None, id="numeric-missing-semicolon"),
+        pytest.param(["ftp"], "&#102", None, id="numeric-at-end"),
+        pytest.param(["ftp"], "&#99999999999999999;ftp:x", None, id="numeric-overflow"),
+        pytest.param(["ftp"], "&#xD800;ftp:x", "�ftp:x", id="numeric-surrogate"),
+        pytest.param(["ftp"], "&;ftp:x", None, id="named-empty"),
+        pytest.param(["ftp"], "&amp", None, id="named-at-end"),
+        pytest.param(["ftp"], "&amp:ftp:x", None, id="named-missing-semicolon"),
+        pytest.param(["ftp"], "&", None, id="ampersand-at-end"),
+        pytest.param(["ftp"], "&x", None, id="short-unresolved-name"),
+        pytest.param(["ftp"], "&#", None, id="numeric-prefix-at-end"),
+        pytest.param(["ftp"], "&#1", None, id="short-numeric-reference"),
+        pytest.param(["ftp"], "&1;ftp:x", None, id="numeric-named-reference"),
+        pytest.param(["ftp"], "&A1;ftp:x", None, id="uppercase-digit-name"),
+        pytest.param(["ftp"], "&a1;ftp:x", None, id="lowercase-digit-name"),
+        pytest.param(["ftp"], "&frac12;ftp:x", "½ftp:x", id="named-reference-with-digit"),
+        pytest.param(["ftp"], "&:ftp:x", None, id="punctuation-after-ampersand"),
+        pytest.param(["ftp"], "&@;ftp:x", None, id="punctuation-after-digit-range"),
+        pytest.param(["ftp"], "&[;ftp:x", None, id="punctuation-after-uppercase-range"),
+        pytest.param(["ftp"], "&" + "a" * 35 + ";ftp:x", None, id="named-overlong"),
+        pytest.param(["ftp"], "&NotEqualTilde;ftp:x", None, id="named-unresolved-reference"),
+        pytest.param(None, "&#0;ftp:x", "�ftp:x", id="default-invalid-numeric-relative"),
+        pytest.param(["ftp"], "&amp;ftp:x", None, id="named-ampersand-before-scheme"),
+        pytest.param(None, "&amp;ftp:x", "&amp;ftp:x", id="default-named-ampersand-relative"),
+        pytest.param(None, "`//bad[host", None, id="backtick-before-invalid-authority"),
+        pytest.param(None, "é//bad[host", None, id="unicode-before-invalid-authority"),
+        pytest.param(None, "&#x80;//bad[host", None, id="reference-before-invalid-authority"),
+        pytest.param(None, ":x", ":x", id="colon-before-scheme"),
+        pytest.param(["f1tp"], "f1tp:x", "f1tp:x", id="scheme-with-digit"),
+        pytest.param(["ftp2"], "éftp2:x", "éftp2:x", id="non-ascii-before-scheme-digit"),
+        pytest.param(["abcdefghijkl"], "éabcdefghijkl:x", "éabcdefghijkl:x", id="long-obfuscated-scheme"),
+        pytest.param(["abcdefghijkl"], "abcdefghijkl:x", "abcdefghijkl:x", id="long-scheme"),
+        pytest.param(None, "é?x:y", "é?x:y", id="non-ascii-before-query"),
+        pytest.param([], "é#frag", "é#frag", id="non-ascii-before-fragment"),
+        pytest.param(None, "é", "é", id="only-non-ascii-relative"),
+        pytest.param(["foo/bar"], "foo/bar:x", "foo/bar:x", id="unrecognized-allowed-scheme"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("tag", "attribute"), [pytest.param("a", "href", id="link"), pytest.param("img", "src", id="image")]
+)
+def test_bleach_url_normalization_uses_source_entities(
+    protocols: list[str] | None, value: str, expected: str | None, tag: str, attribute: str
+) -> None:
+    end = "</a>" if tag == "a" else ""
+    output = f'<{tag} {attribute}="{expected}">x{end}' if expected is not None else f"<{tag}>x{end}"
+    assert (
+        clean(f'<{tag} {attribute}="{value}">x{end}', tags=[tag], attributes={tag: [attribute]}, protocols=protocols)
+        == output
+    )
+
+
+def test_bleach_url_normalization_handles_long_relative_url() -> None:
+    value = "/" + "x" * 140
+    assert clean(f'<a href="{value}">x</a>') == f'<a href="{value}">x</a>'
+
+
+def test_bleach_url_normalization_handles_long_unicode_relative_url() -> None:
+    value = "é" + "x" * 140
+    assert clean(f'<a href="{value}">x</a>') == f'<a href="{value}">x</a>'
+
+
+def test_bleach_url_normalization_rejects_long_invalid_authority() -> None:
+    value = "é//" + "x" * 140 + "[bad"
+    assert clean(f'<a href="{value}">x</a>') == "<a>x</a>"
+
+
+@pytest.mark.parametrize(
+    ("protocols", "value"),
+    [
+        pytest.param([], "&#0;#:x", id="invalid-numeric-fragment"),
+        pytest.param(["ftp"], "&Tab;ftp:x", id="unresolved-named-scheme"),
+    ],
+)
+def test_bleach_url_normalization_preserves_reconstructed_source(protocols: list[str], value: str) -> None:
+    assert (
+        clean(f'<b><a href="{value}">a</b>b</a>', tags=["a", "b"], attributes={"a": ["href"]}, protocols=protocols)
+        == "<b><a>a</a></b><a>b</a>"
+    )
+
+
 def test_custom_rule_changes_later_tag_rules() -> None:
     rules: Final[dict[str, Iterable[str]]] = {}
     rules["a"] = cast("Iterable[str]", _MutatingRule(rules))

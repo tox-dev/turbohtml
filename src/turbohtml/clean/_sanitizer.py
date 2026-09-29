@@ -249,6 +249,7 @@ class Policy:
     allow_mathml: bool = True
     xml: bool = False
     attribute_predicate: Callable[[str, str, str], bool] | None = None
+    _bleach_url_policy: bool = False
 
     @classmethod
     def strict(cls) -> Policy:
@@ -416,6 +417,7 @@ class Sanitizer:
             policy.allow_svg,
             policy.allow_mathml,
             policy.attribute_predicate,
+            policy._bleach_url_policy,  # ruff:ignore[private-member-access]  # bridge the migration-only C option
         )
 
 

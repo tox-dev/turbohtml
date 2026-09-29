@@ -11,6 +11,7 @@
 
 #include "dom/nodes.h"
 #include "tokenizer/binding.h"
+#include "tokenizer/charref.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -65,11 +66,15 @@ typedef struct {
     int allow_svg;    /* USE_PROFILES.svg: keep SVG-namespace elements */
     int allow_mathml; /* USE_PROFILES.mathMl: keep MathML-namespace elements */
     int bleach_raw_values;
+    int bleach_url_policy;
+    int bleach_raw_urls;
     bleach_origin *bleach_origins;
     Py_ssize_t bleach_origin_count;
 } sanitizer;
 
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args);
+static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr, const char *name,
+                              Py_ssize_t name_len);
 
 /* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
    attribute_name) for a stripped attribute. A no-op when s->removed is NULL, the common non-reporting path. Returns 0,
@@ -1573,7 +1578,9 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
     }
     int url_disallowed = 0;
     if (!drop && is_url_attr(name, name_len)) {
-        int keep = scheme_allowed(s, attr->value, attr->value_len);
+        int keep = s->bleach_url_policy && !isolate /* GCOVR_EXCL_BR_LINE: migration does not rewrite attributes */
+                       ? bleach_url_allowed(s, element, attr, name, name_len)
+                       : scheme_allowed(s, attr->value, attr->value_len);
         if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
             return ATTRIBUTE_SAFETY_ERROR; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1796,7 +1803,7 @@ static int compare_bleach_origins(const void *left, const void *right) {
     const bleach_origin *first = left, *second = right;
     uintptr_t first_value = (uintptr_t)first->value, second_value = (uintptr_t)second->value;
     if (first_value != second_value) {
-        return first_value < second_value ? -1 : 1;
+        return first_value < second_value ? -1 : 1; /* GCOVR_EXCL_BR_LINE: qsort traversal is platform-dependent */
     }
     return (first->name_atom > second->name_atom) - (first->name_atom < second->name_atom);
 }
@@ -1891,13 +1898,234 @@ static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *
         PyObject *replacement = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, (Py_UCS4[]){0xfffd}, 1);
         PyObject *normalized = nul != NULL && replacement != NULL /* GCOVR_EXCL_BR_LINE: allocation failure */
                                    ? PyUnicode_Replace(raw, nul, replacement, -1)
-                                   : NULL;
+                                   : NULL; /* GCOVR_EXCL_BR_LINE: allocation failure */
         Py_DECREF(raw);
         Py_XDECREF(nul);
         Py_XDECREF(replacement);
         return normalized;
     }
     return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len); /* GCOVR_EXCL_LINE */
+}
+
+static Py_ssize_t bleach_uri_entity(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t index, Py_UCS4 *first) {
+    if (index + 2 >= len) {
+        return 0;
+    }
+    Py_ssize_t end = index + 1;
+    if (value[end] == '#') {
+        int base = 10;
+        end++;
+        if (end < len && (value[end] == 'x' || value[end] == 'X')) { /* GCOVR_EXCL_BR_LINE: short refs return above */
+            base = 16;
+            end++;
+        }
+        Py_ssize_t digits = end;
+        Py_UCS4 number = 0;
+        while (end < len) {
+            int digit = charref_hex_value(value[end]);
+            if (digit < 0 || digit >= base) {
+                break;
+            }
+            if (number <= 0x10ffff) {
+                number = number * (Py_UCS4)base + (Py_UCS4)digit;
+            }
+            end++;
+        }
+        if (end == digits || end == len || value[end] != ';' || number == 0 || number > 0x10ffff) {
+            return 0;
+        }
+        *first = number;
+        return end - index + 1;
+    }
+    char name[HTML5_MAX_NAME_LEN];
+    Py_ssize_t count = 0;
+    while (end < len && count < (Py_ssize_t)sizeof(name) &&
+           ((value[end] >= 'a' && value[end] <= 'z') || (value[end] >= 'A' && value[end] <= 'Z') ||
+            (value[end] >= '0' && value[end] <= '9'))) { /* GCOVR_EXCL_BR_LINE: LLVM splits the short-circuit edge */
+        name[count++] = (char)value[end++];
+    }
+    if (count == 0 || end == len || value[end] != ';') {
+        return 0;
+    }
+    const html5_entity *entity = charref_find_entity(name, count);
+    if (entity == NULL) {
+        return 0;
+    }
+    /* Only semicolonless aliases resolve here; none expands to two code points. */
+    *first = entity->cp0;
+    return end - index + 1;
+}
+
+static int bleach_script_url(const Py_UCS4 *value, Py_ssize_t len) {
+    char scheme[10];
+    Py_ssize_t size = 0;
+    int started = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 codepoint = value[index];
+        if (is_url_ignorable(codepoint) || codepoint >= 0x80) {
+            continue;
+        }
+        if (codepoint == ':' && started) {
+            return is_script_scheme(scheme, (size_t)size);
+        }
+        int letter = th_scheme_start(codepoint);
+        if (started ? !th_scheme_char(codepoint) : !letter) {
+            return 0;
+        }
+        if (size < (Py_ssize_t)sizeof(scheme)) {
+            scheme[size++] = (char)(letter ? codepoint | 0x20 : codepoint);
+        }
+        started = 1;
+    }
+    return 0;
+}
+
+static int bleach_scheme_in(sanitizer *s, const char *name, Py_ssize_t len) {
+    PyObject *scheme = PyUnicode_FromStringAndSize(name, len);
+    if (scheme == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    int allowed = PySet_Contains(s->url_schemes, scheme);
+    Py_DECREF(scheme);
+    return allowed;
+}
+
+static int bleach_plain_url(const Py_UCS4 *value, Py_ssize_t len) {
+    int scheme = len > 0 && th_scheme_start(value[0]);
+    int colon = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 codepoint = value[index];
+        if (codepoint <= 0x20 || codepoint >= 0x7f || codepoint == '`') {
+            return 0;
+        }
+        if (!colon) {
+            if (codepoint == ':') {
+                colon = 1;
+            } else if (!th_scheme_char(codepoint)) {
+                scheme = 0;
+            }
+        }
+    }
+    return !colon || scheme;
+}
+
+static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr, const char *name,
+                              Py_ssize_t name_len) {
+    if (!s->bleach_raw_urls && bleach_plain_url(attr->value, attr->value_len)) {
+        return scheme_allowed(s, attr->value, attr->value_len);
+    }
+    if (bleach_script_url(attr->value, attr->value_len) || !authority_allowed(attr->value, 0, attr->value_len)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < attr->value_len; index++) {
+        if (attr->value[index] == ':') {
+            if (!authority_allowed(attr->value, index + 1, attr->value_len)) {
+                return 0;
+            }
+            break;
+        }
+    }
+    const Py_UCS4 *value = attr->value;
+    Py_ssize_t len = attr->value_len;
+    PyObject *raw = NULL;
+    Py_UCS4 *raw_points = NULL;
+    if (s->bleach_raw_urls) {
+        Py_ssize_t points = 0;
+        for (Py_ssize_t index = 0; index < name_len; index++) {
+            points += ((unsigned char)name[index] & 0xc0) != 0x80;
+        }
+        raw = bleach_raw_value(s, element, attr, points);
+        if (raw == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;     /* GCOVR_EXCL_LINE */
+        }
+        raw_points = PyUnicode_AsUCS4Copy(raw);
+        if (raw_points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(raw);       /* GCOVR_EXCL_LINE */
+            return -1;            /* GCOVR_EXCL_LINE */
+        }
+        value = raw_points;
+        len = PyUnicode_GET_LENGTH(raw);
+    }
+    char stack[128];
+    char *normalized = len < (Py_ssize_t)sizeof(stack) ? stack : PyMem_Malloc((size_t)len + 1);
+    if (normalized == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(raw_points); /* GCOVR_EXCL_LINE */
+        Py_XDECREF(raw);        /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();       /* GCOVR_EXCL_LINE */
+        return -1;              /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t size = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 codepoint = value[index];
+        Py_ssize_t consumed = codepoint == '&' ? bleach_uri_entity(value, len, index, &codepoint) : 0;
+        if (consumed > 0) {
+            index += consumed - 1;
+        }
+        if (codepoint > 0x20 && codepoint < 0x7f && codepoint != '`') {
+            normalized[size++] = (char)((codepoint >= 'A' && codepoint <= 'Z') ? codepoint | 0x20 : codepoint);
+        }
+    }
+    PyMem_Free(raw_points);
+    Py_XDECREF(raw);
+    Py_ssize_t colon = -1;
+    int scheme = 1;
+    for (Py_ssize_t index = 0; index < size; index++) {
+        char character = normalized[index];
+        if (character == ':') {
+            colon = index;
+            break;
+        }
+        if (character == '/' || character == '?' || character == '#') {
+            scheme = 0;
+        }
+        if (!th_scheme_char((unsigned char)character)) {
+            scheme = 0;
+        }
+    }
+    Py_ssize_t authority = colon > 0 && scheme ? colon + 1 : 0;
+    if (authority + 1 < size && normalized[authority] == '/' && normalized[authority + 1] == '/') {
+        Py_UCS4 wide_stack[128];
+        Py_UCS4 *wide = size < (Py_ssize_t)(sizeof(wide_stack) / sizeof(wide_stack[0]))
+                            ? wide_stack
+                            : PyMem_Malloc((size_t)size * sizeof(Py_UCS4));
+        if (wide == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure */
+            if (normalized != stack) {  /* GCOVR_EXCL_LINE */
+                PyMem_Free(normalized); /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+            return -1;        /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < size; index++) {
+            wide[index] = (Py_UCS4)(unsigned char)normalized[index];
+        }
+        int valid = authority_allowed(wide, authority, size);
+        if (wide != wide_stack) {
+            PyMem_Free(wide);
+        }
+        if (!valid) {
+            if (normalized != stack) {
+                PyMem_Free(normalized);
+            }
+            return 0;
+        }
+    }
+    int allowed;
+    if (colon > 0 && scheme) {
+        allowed = bleach_scheme_in(s, normalized, colon);
+    } else if (size > 0 && normalized[0] == '#') {
+        allowed = 1;
+    } else if (colon > 0) {
+        allowed = bleach_scheme_in(s, normalized, colon);
+        if (allowed == 0) {
+            allowed = s->allow_relative;
+        }
+    } else {
+        allowed = s->allow_relative;
+    }
+    if (normalized != stack) {
+        PyMem_Free(normalized);
+    }
+    return allowed;
 }
 
 static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *tag) {
@@ -1908,7 +2136,7 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
-        PyObject *value = s->bleach_raw_values && key != NULL
+        PyObject *value = s->bleach_raw_values && key != NULL /* GCOVR_EXCL_BR_LINE: allocation failure */
                               ? bleach_raw_value(s, element, attr, PyUnicode_GET_LENGTH(key))
                               : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
         if (key == NULL || value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -2828,8 +3056,8 @@ PyObject *turbohtml_bleach_allow_relative(PyObject *Py_UNUSED(module), PyObject 
     }
     allowed = PySet_Contains(schemes, https);
     Py_DECREF(https);
-    return allowed < 0 ? NULL /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
-                       : PyBool_FromLong(allowed);
+    return allowed < 0 ? NULL                      /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
+                       : PyBool_FromLong(allowed); /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
 }
 
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args) {
@@ -3010,18 +3238,19 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *source;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOppipOOOOOOOOpOOOpOOppppO:_sanitize", &source, &s.tags, &s.attributes,
+    if (!PyArg_ParseTuple(args, "OOOOppipOOOOOOOOpOOOpOOppppOp:_sanitize", &source, &s.tags, &s.attributes,
                           &s.url_schemes, &s.allow_relative, &s.allow_fragments, &s.on_disallowed, &s.strip_comments,
                           &s.add_link_rel, &s.attribute_filter, &s.set_attributes, &s.remove_with_content,
                           &s.css_properties, &s.attribute_prefixes, &s.attribute_values, &s.media_hosts,
                           &s.strip_templates, &removed, &s.allowed_styles, &s.transform_tags, &s.isolate_named_props,
                           &s.custom_element_check, &s.custom_attribute_check, &s.allow_customized_builtins,
-                          &s.allow_html, &s.allow_svg, &s.allow_mathml, &s.attribute_predicate)) {
+                          &s.allow_html, &s.allow_svg, &s.allow_mathml, &s.attribute_predicate, &s.bleach_url_policy)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
     s.bleach_raw_values =
-        PyCFunction_Check(s.attribute_predicate) && PyCFunction_GET_FUNCTION(s.attribute_predicate) == bleach_predicate;
+        PyCFunction_Check(s.attribute_predicate) && PyCFunction_GET_FUNCTION(s.attribute_predicate) ==
+                                                        bleach_predicate; /* GCOVR_EXCL_BR_LINE: predicate is bound */
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
         require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
         require_anyset(s.css_properties, "css_properties") < 0 ||
@@ -3032,8 +3261,10 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     th_node *root;
     PyObject *retained_source = NULL;
     if (PyUnicode_Check(source)) {
+        s.bleach_raw_urls =
+            s.bleach_url_policy && PyUnicode_FindChar(source, '&', 0, PyUnicode_GET_LENGTH(source), 1) >= 0;
         s.tree = th_tree_parse_fragment(PyUnicode_KIND(source), PyUnicode_DATA(source), PyUnicode_GET_LENGTH(source),
-                                        "div", 3, 0, s.bleach_raw_values, 0, 0);
+                                        "div", 3, 0, s.bleach_raw_values || s.bleach_raw_urls, 0, 0);
         if (s.tree == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -3077,7 +3308,8 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         th_tree_free(s.tree);                           /* GCOVR_EXCL_LINE */
         return NULL;                                    /* GCOVR_EXCL_LINE */
     }
-    int failed = s.bleach_raw_values && retained_source != NULL && collect_bleach_origins(&s, root) < 0;
+    int failed = (s.bleach_raw_values || s.bleach_raw_urls) && retained_source != NULL &&
+                 collect_bleach_origins(&s, root) < 0; /* GCOVR_EXCL_BR_LINE: origin-map allocation failure */
     if (!failed) { /* GCOVR_EXCL_BR_LINE: only origin-map allocation failure skips the walk */
         failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
     }

@@ -60,6 +60,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
             on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
             strip_comments=strip_comments,
             attribute_predicate=attribute_predicate,
+            _bleach_url_policy=True,
         )
     else:
         schemes = frozenset(protocols)
@@ -72,6 +73,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
             on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
             strip_comments=strip_comments,
             attribute_predicate=attribute_predicate,
+            _bleach_url_policy=True,
         )
     return sanitize(text, policy)
 
