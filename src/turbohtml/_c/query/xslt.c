@@ -517,6 +517,7 @@ typedef struct {
 typedef struct {
     Py_UCS4 *name;
     Py_ssize_t name_len;
+    th_node *instruction;
     xp_program *match_prog;
     xp_program *use_prog;
     strmap table;
@@ -749,6 +750,17 @@ typedef struct engine {
     int py_error;
     int owns_model;
 } engine;
+
+typedef struct {
+    engine *eng;
+    th_node *instruction;
+    const Py_UCS4 *last_name;
+    const Py_UCS4 *last_uri;
+    Py_ssize_t last_uri_len;
+} xslt_pattern_scope;
+
+static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len);
+static int pattern_callback_needed(engine *eng, const xp_program *prog);
 
 static int build_name_indexes(engine *eng) {
     /* GCOVR_EXCL_BR_START: allocation failure */
@@ -1458,8 +1470,13 @@ static int build_key(engine *eng, xslt_key *key) {
     key->built = 1;
     xp_result matched;
     const char *feature = NULL;
-    int status =
-        xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched, &feature);
+    xslt_pattern_scope scope = {.eng = eng, .instruction = key->instruction};
+    int status = th_tree_is_xml(eng->src_tree)
+                     ? xp_eval_pattern_at(key->match_prog, eng->src_tree, eng->src_root, NULL, NULL,
+                                          pattern_callback_needed(eng, key->match_prog) ? pattern_name_test : NULL,
+                                          &scope, &matched, &feature)
+                     : xp_eval_at(key->match_prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, NULL, NULL, &matched,
+                                  &feature);
     if (status < 0) { /* GCOVR_EXCL_BR_LINE: the key match compiled, so it evaluates */
         PyErr_Format(PyExc_ValueError, "xslt: key match failed"); /* GCOVR_EXCL_LINE */
         return fail_py(eng);                                      /* GCOVR_EXCL_LINE */
@@ -1519,8 +1536,13 @@ static int build_rule(engine *eng, xslt_rule *rule) {
     rule->built = 1;
     xp_result matched;
     const char *feature = NULL;
-    int status =
-        xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched, &feature);
+    xslt_pattern_scope scope = {.eng = eng, .instruction = rule->body};
+    int status = th_tree_is_xml(eng->src_tree)
+                     ? xp_eval_pattern_at(rule->prog, eng->src_tree, eng->src_root, xslt_extension, eng,
+                                          pattern_callback_needed(eng, rule->prog) ? pattern_name_test : NULL, &scope,
+                                          &matched, &feature)
+                     : xp_eval_at(rule->prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng,
+                                  &matched, &feature);
     if (status < 0) {
         if (!PyErr_Occurred()) {   /* GCOVR_EXCL_BR_LINE: pattern evaluation sets an exception only on allocation */
             if (feature == NULL) { /* GCOVR_EXCL_BR_LINE: a -3/-4 error always names a feature */
@@ -2712,7 +2734,7 @@ static long parse_grouping_size(const Py_UCS4 *text, Py_ssize_t len) {
 
 /* Build a node set matching one of a pattern's union alternatives (the count/from patterns of
    xsl:number). Returns 0 with set filled, or -1 on error. */
-static int build_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t len, match_set *set) {
+static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *pattern, Py_ssize_t len, match_set *set) {
     Py_ssize_t starts[64];
     Py_ssize_t lens[64];
     int alternatives = split_union(pattern, len, starts, lens, 64);
@@ -2726,8 +2748,13 @@ static int build_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t len, ma
         }
         xp_result matched;
         const char *feature = NULL;
-        int status =
-            xp_eval_at(prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng, &matched, &feature);
+        xslt_pattern_scope scope = {.eng = eng, .instruction = instruction};
+        int status = th_tree_is_xml(eng->src_tree)
+                         ? xp_eval_pattern_at(prog, eng->src_tree, eng->src_root, xslt_extension, eng,
+                                              pattern_callback_needed(eng, prog) ? pattern_name_test : NULL, &scope,
+                                              &matched, &feature)
+                         : xp_eval_at(prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng,
+                                      &matched, &feature);
         if (status < 0) {
             PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error");
             return fail_py(eng);
@@ -2745,8 +2772,8 @@ static int build_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t len, ma
     return 0;
 }
 
-static int get_number_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t len, xslt_number_match *cache,
-                              match_set *local, const match_set **matched) {
+static int get_number_matcher(engine *eng, th_node *instruction, const Py_UCS4 *pattern, Py_ssize_t len,
+                              xslt_number_match *cache, match_set *local, const match_set **matched) {
     if (cache->source == pattern || (cache->source != NULL && cache->length == len &&
                                      memcmp(cache->source, pattern, (size_t)len * sizeof(Py_UCS4)) == 0)) {
         *matched = &cache->matched;
@@ -2761,12 +2788,12 @@ static int get_number_matcher(engine *eng, const Py_UCS4 *pattern, Py_ssize_t le
             return -1;      /* GCOVR_EXCL_LINE */
         }
         if (!xp_pattern_is_static(prog)) {
-            return build_matcher(eng, pattern, len, local);
+            return build_matcher(eng, instruction, pattern, len, local);
         }
     }
     match_set_free(&cache->matched);
     cache->source = NULL;
-    if (build_matcher(eng, pattern, len, &cache->matched) < 0) {
+    if (build_matcher(eng, instruction, pattern, len, &cache->matched) < 0) {
         return -1;
     }
     cache->source = pattern;
@@ -2803,6 +2830,10 @@ static int number_has_namespaces(engine *eng) {
         }
     }
     return eng->number_namespaces;
+}
+
+static int pattern_callback_needed(engine *eng, const xp_program *prog) {
+    return number_has_namespaces(eng) || !xp_pattern_is_static(prog);
 }
 
 static int number_namespace_atom(engine *eng, const th_node *node, const xslt_number_name *name, uint32_t *atom) {
@@ -2977,6 +3008,131 @@ static xslt_number_name number_name(const engine *eng, const th_node *node) {
         return eng->number_index.names[position - 1];
     }
     return number_local_name(eng, node);
+}
+
+static const Py_UCS4 *pattern_namespace(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
+                                        Py_ssize_t *uri_len) {
+    for (; node != NULL; node = node->parent) {
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, node->attrs[index].name_atom, &name_len);
+            if (name_len == prefix_len + 6 && memcmp(name, "xmlns:", 6) == 0 &&
+                memcmp(name + 6, prefix, (size_t)prefix_len) == 0) {
+                *uri_len = node->attrs[index].value_len;
+                return node->attrs[index].value;
+            }
+        }
+    }
+    return NULL;
+}
+
+static int pattern_local_equals_utf8(const Py_UCS4 *local, Py_ssize_t local_len, const char *source,
+                                     Py_ssize_t source_len) {
+    for (Py_ssize_t index = 0; index < local_len; index++) {
+        if (local[index] < 0x80) {
+            if (source_len == 0 || *source != (char)local[index]) {
+                return 0;
+            }
+            source++;
+            source_len--;
+            continue;
+        }
+        char encoded[5];
+        Py_ssize_t bytes = write_utf8(local + index, 1, encoded);
+        if (source_len < bytes || memcmp(source, encoded, (size_t)bytes) != 0) {
+            return 0;
+        }
+        source += bytes;
+        source_len -= bytes;
+    }
+    return source_len == 0;
+}
+
+static int pattern_name_test(void *context, th_node *node, Py_ssize_t attr, const Py_UCS4 *name, Py_ssize_t name_len) {
+    xslt_pattern_scope *scope = context;
+    engine *eng = scope->eng;
+    Py_ssize_t prefix_len = 0;
+    while (prefix_len < name_len && name[prefix_len] != ':') {
+        prefix_len++;
+    }
+    int prefixed = prefix_len < name_len;
+    const Py_UCS4 *local = prefixed ? name + prefix_len + 1 : name;
+    Py_ssize_t local_len = name_len - (prefixed ? prefix_len + 1 : 0);
+    const Py_UCS4 *wanted_uri = NULL;
+    Py_ssize_t wanted_uri_len = 0;
+    if (prefixed && scope->last_name == name) {
+        wanted_uri = scope->last_uri;
+        wanted_uri_len = scope->last_uri_len;
+    } else if (prefixed) {
+        if (ucs4_ascii_eq(name, prefix_len, XP_XML_NS_PREFIX)) {
+            static const Py_UCS4 xml_uri[] = {'h', 't', 't', 'p', ':', '/', '/', 'w', 'w', 'w', '.', 'w',
+                                              '3', '.', 'o', 'r', 'g', '/', 'X', 'M', 'L', '/', '1', '9',
+                                              '9', '8', '/', 'n', 'a', 'm', 'e', 's', 'p', 'a', 'c', 'e'};
+            wanted_uri = xml_uri;
+            wanted_uri_len = sizeof(xml_uri) / sizeof(xml_uri[0]);
+        } else {
+            Py_ssize_t prefix_bytes;
+            char *prefix = ucs4_to_utf8(name, prefix_len, &prefix_bytes);
+            if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            wanted_uri = pattern_namespace(eng->sheet_tree, scope->instruction, prefix, prefix_bytes, &wanted_uri_len);
+            PyMem_Free(prefix);
+            if (wanted_uri == NULL) {
+                PyErr_SetString(PyExc_ValueError, "xslt: undefined namespace prefix");
+                return -1;
+            }
+        }
+        scope->last_name = name;
+        scope->last_uri = wanted_uri;
+        scope->last_uri_len = wanted_uri_len;
+    }
+    if (node == NULL) {
+        return 1;
+    }
+    if (attr >= 0) {
+        Py_ssize_t source_len;
+        const char *source = th_attr_name(eng->src_tree, node->attrs[attr].name_atom, &source_len);
+        const char *colon = memchr(source, ':', (size_t)source_len);
+        Py_ssize_t source_prefix_len = colon == NULL ? 0 : colon - source;
+        const char *source_local = colon == NULL ? source : colon + 1;
+        if (!pattern_local_equals_utf8(local, local_len, source_local, source_len - (source_local - source))) {
+            return 0;
+        }
+        if (source_prefix_len == 0) {
+            return wanted_uri_len == 0;
+        }
+        if (source_prefix_len == 3 && memcmp(source, "xml", 3) == 0) {
+            return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_XML_NS_URI);
+        }
+        Py_ssize_t source_uri_len = 0;
+        const Py_UCS4 *source_uri = pattern_namespace(eng->src_tree, node, source, source_prefix_len, &source_uri_len);
+        return source_uri != NULL && source_uri_len == wanted_uri_len &&
+               (source_uri_len == 0 || memcmp(source_uri, wanted_uri, (size_t)source_uri_len * sizeof(Py_UCS4)) == 0);
+    }
+    xslt_number_name source = number_local_name(eng, node);
+    source.ns = node->ns;
+    if (number_has_namespaces(eng) || eng->number_index.positions.count != 0 || source.name != node->text) {
+        if (number_index_extend(eng, node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
+            return -1;                            /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (eng->number_index.positions.count != 0) {
+        source = number_name(eng, node);
+    }
+    if (source.name_len != local_len || memcmp(source.name, local, (size_t)local_len * sizeof(Py_UCS4)) != 0) {
+        return 0;
+    }
+    if (source.ns == TH_NS_SVG) {
+        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_SVG_NS_URI);
+    }
+    if (source.ns == TH_NS_MATHML) {
+        return ucs4_ascii_eq(wanted_uri, wanted_uri_len, XP_MATHML_NS_URI);
+    }
+    return source.uri_len == wanted_uri_len &&
+           (wanted_uri_len == 0 || memcmp(source.uri, wanted_uri, (size_t)wanted_uri_len * sizeof(Py_UCS4)) == 0);
 }
 
 static int number_names_equal(const xslt_number_name *left, const xslt_number_name *right) {
@@ -3207,14 +3363,16 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         /* Compilation validates the count and from patterns before a run. */
         if (count != NULL) {
             have_count = 1;
-            if (get_number_matcher(eng, count, count_len, &eng->number_count_match, &count_set, &count_matches) < 0) {
+            if (get_number_matcher(eng, instruction, count, count_len, &eng->number_count_match, &count_set,
+                                   &count_matches) < 0) {
                 match_set_free(&count_set);
                 return -1;
             }
         }
         if (from != NULL) {
             have_from = 1;
-            if (get_number_matcher(eng, from, from_len, &eng->number_from_match, &from_set, &from_matches) < 0) {
+            if (get_number_matcher(eng, instruction, from, from_len, &eng->number_from_match, &from_set,
+                                   &from_matches) < 0) {
                 match_set_free(&count_set);
                 match_set_free(&from_set);
                 return -1;
@@ -4450,6 +4608,7 @@ static int parse_key(engine *eng, th_node *element) {
     xslt_key key = {0};
     key.name = (Py_UCS4 *)name;
     key.name_len = name_len;
+    key.instruction = element;
     key.match_prog = match_prog;
     key.use_prog = use_prog;
     eng->keys[eng->nkeys++] = key;

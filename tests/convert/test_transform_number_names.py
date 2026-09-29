@@ -6,7 +6,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import parse_fragment, parse_xml
+from turbohtml import Element, parse_fragment, parse_xml
 from turbohtml.transform import Transform
 
 
@@ -335,3 +335,256 @@ def test_transform_number_adopted_instruction(container: str, attributes: dict[s
     instruction.tag = "xsl:number"
     instruction.attrs.update(attributes)
     assert Transform(stylesheet)(parse_xml("<root><n/><n/></root>")) == expected
+
+
+@pytest.mark.parametrize(
+    ("declarations", "body", "expected"),
+    [
+        pytest.param(
+            "",
+            '<xsl:template match="/"><xsl:for-each select="//*">'
+            '<xsl:number level="any" count="n"/><xsl:text>|</xsl:text></xsl:for-each></xsl:template>',
+            "0|1|1|2|",
+            id="number-unprefixed",
+        ),
+        pytest.param(
+            'xmlns:a="urn:x"',
+            '<xsl:template match="/"><xsl:for-each select="//*">'
+            '<xsl:number level="any" count="a:n"/><xsl:text>|</xsl:text></xsl:for-each></xsl:template>',
+            "0|0|1|1|",
+            id="number-prefixed",
+        ),
+        pytest.param(
+            "",
+            '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+            '<xsl:template match="n">n</xsl:template><xsl:template match="*">x</xsl:template>',
+            "xnxn",
+            id="template-unprefixed",
+        ),
+        pytest.param(
+            'xmlns:a="urn:x"',
+            '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+            '<xsl:template match="a:n">a</xsl:template><xsl:template match="*">x</xsl:template>',
+            "xxax",
+            id="template-prefixed",
+        ),
+        pytest.param(
+            "",
+            '<xsl:key name="k" match="n" use="@id"/>'
+            "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '2'))\"/></xsl:template>",
+            "0",
+            id="key-unprefixed",
+        ),
+        pytest.param(
+            'xmlns:a="urn:x"',
+            '<xsl:key name="k" match="a:n" use="@id"/>'
+            "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '2'))\"/></xsl:template>",
+            "1",
+            id="key-prefixed",
+        ),
+        pytest.param(
+            'xmlns:a="urn:x"',
+            '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+            '<xsl:template match="n[@a:id]">a</xsl:template><xsl:template match="*">x</xsl:template>',
+            "xaxx",
+            id="attribute-prefixed",
+        ),
+    ],
+)
+def test_transform_pattern_expanded_names(declarations: str, body: str, expected: str) -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" '
+        f'{declarations}><xsl:output method="text"/>{body}</xsl:stylesheet>'
+    )
+    source: Final = parse_xml('<root><n id="1" xmlns:a="urn:x" a:id="x"/><n id="2" xmlns="urn:x"/><n id="3"/></root>')
+    assert Transform(sheet)(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+            '<xsl:template xmlns:p="urn:y" match="p:n">Y</xsl:template>'
+            '<xsl:template match="p:n">X</xsl:template><xsl:template match="*">.</xsl:template>',
+            ".XYXY",
+            id="template",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:for-each select="//*">'
+            '<xsl:number count="p:n" level="any" xmlns:p="urn:y"/>|'
+            "</xsl:for-each></xsl:template>",
+            "0|0|1|1|2|",
+            id="number",
+        ),
+        pytest.param(
+            '<xsl:key xmlns:p="urn:y" name="k" match="p:n" use="name()"/>'
+            "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', 'b:n'))\"/></xsl:template>",
+            "1",
+            id="key",
+        ),
+    ],
+)
+def test_transform_pattern_namespace_rebinding(body: str, expected: str) -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" '
+        f'xmlns:p="urn:x"><xsl:output method="text"/>{body}</xsl:stylesheet>'
+    )
+    source: Final = parse_xml(
+        '<root xmlns:a="urn:x" xmlns:b="urn:y"><a:n/><b:n/><c:n xmlns:c="urn:x"/><n xmlns="urn:y"/></root>'
+    )
+    assert Transform(sheet)(source) == expected
+
+
+def test_transform_number_pattern_namespace_scopes() -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/*">'
+        '<xsl:number level="any" count="p:n" xmlns:p="urn:x"/>:'
+        '<xsl:number level="any" count="p:n" xmlns:p="urn:y"/>, '
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
+    source: Final = parse_xml('<root xmlns:a="urn:x" xmlns:b="urn:y"><a:n/><b:n/></root>')
+    assert Transform(sheet)(source) == "1:0, 1:1, "
+
+
+def test_transform_pattern_attribute_namespaces() -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:apply-templates select="root/n/@*"/></xsl:template>'
+        '<xsl:template match="@id">I</xsl:template>'
+        '<xsl:template match="@p:id">P</xsl:template>'
+        '<xsl:template match="@xml:lang">L</xsl:template>'
+        '<xsl:template match="@*">.</xsl:template></xsl:stylesheet>'
+    )
+    source: Final = parse_xml(
+        '<root xmlns:p="urn:x" xmlns:q="urn:y"><n id="0" p:id="1" q:id="2" xml:lang="en"/></root>'
+    )
+    assert Transform(sheet)(source) == "IP.L"
+
+
+@pytest.mark.parametrize(
+    ("container", "tag", "uri"),
+    [
+        pytest.param("svg", "title", "http://www.w3.org/2000/svg", id="svg"),
+        pytest.param("math", "mi", "http://www.w3.org/1998/Math/MathML", id="mathml"),
+    ],
+)
+def test_transform_pattern_adopted_foreign_namespace(container: str, tag: str, uri: str) -> None:
+    source: Final = parse_xml("<root/>")
+    root: Final = source.root
+    foreign: Final = parse_fragment(f"<{container}><{tag}/></{container}>").select_one(tag)
+    assert root is not None
+    assert foreign is not None
+    root.append(foreign)
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" '
+        f'xmlns:p="{uri}"><xsl:output method="text"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+        f'<xsl:template match="p:{tag}">match</xsl:template>'
+        '<xsl:template match="*">other</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == "othermatch"
+
+
+@pytest.mark.parametrize(
+    ("source_text", "pattern", "binding", "expected"),
+    [
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:id="1"/></root>', "n[@p:id]", None, "othermatch", id="three-letter"
+        ),
+        pytest.param("<root><xml:n/><n/></root>", "xml:n", None, "othermatchother", id="implicit-xml"),
+        pytest.param("<root><n/></root>", "n[@p:id]", "unbound", "otherother", id="unbound-source"),
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:é]", None, "othermatch", id="unicode-attribute"
+        ),
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:ê]", None, "otherother", id="unicode-mismatch"
+        ),
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:ab]", None, "otherother", id="short-attribute"
+        ),
+        pytest.param('<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:é]", None, "otherother", id="short-utf8"),
+        pytest.param('<root xmlns:abc="urn:x"><n abc:id="1"/></root>', "n[@id]", "empty", "othermatch", id="empty-uri"),
+    ],
+)
+def test_transform_pattern_source_prefix_cases(
+    source_text: str, pattern: str, binding: str | None, expected: str
+) -> None:
+    source: Final = parse_xml(source_text)
+    root: Final = source.root
+    assert root is not None
+    if binding == "unbound":
+        child: Final = root.children[0]
+        assert isinstance(child, Element)
+        child.attrs["abc:id"] = "1"
+    elif binding == "empty":
+        root.attrs["xmlns:abc"] = ""
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:apply-templates select="//*"/></xsl:template>'
+        f'<xsl:template match="{pattern}">match</xsl:template>'
+        '<xsl:template match="*">other</xsl:template></xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == expected
+
+
+def test_transform_pattern_html_key() -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:key name="k" match="n" use="@id"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '2'))\"/>"
+        "</xsl:template></xsl:stylesheet>"
+    )
+    assert Transform(sheet)(parse_fragment('<n id="1"/><n id="2"/>')) == "1"
+
+
+def test_transform_pattern_html_number() -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="//n"><xsl:number level="any" count="n"/><xsl:text>,</xsl:text>'
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
+    assert Transform(sheet)(parse_fragment("<div><n/><n/></div>")) == "1,2,"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates select="//*"/></xsl:template>'
+            '<xsl:template match="title">match</xsl:template>'
+            '<xsl:template match="*">other</xsl:template>',
+            "othermatchother",
+            id="template",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:for-each select="//*">'
+            '<xsl:number level="any" count="title"/>|</xsl:for-each></xsl:template>',
+            "0|1|1|",
+            id="number",
+        ),
+        pytest.param(
+            '<xsl:key name="k" match="title" use="@id"/>'
+            "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '2'))\"/></xsl:template>",
+            "0",
+            id="key",
+        ),
+    ],
+)
+def test_transform_pattern_adopted_foreign_unprefixed(body: str, expected: str) -> None:
+    source: Final = parse_xml('<root><title id="1"/></root>')
+    root: Final = source.root
+    foreign: Final = parse_fragment('<svg><title id="2"/></svg>').select_one("title")
+    assert root is not None
+    assert foreign is not None
+    root.append(foreign)
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:output method="text"/>{body}</xsl:stylesheet>'
+    )
+    assert Transform(sheet)(source) == expected

@@ -81,6 +81,11 @@ typedef struct {
     int xml_ns;         /* the prefix binds the XML namespace (xml:lang, xml:space) */
     int foreign_only;   /* an attribute test that only a foreign element of an HTML tree can satisfy */
     uint8_t want_ns;    /* enum th_ns an element must carry when has_ns and not unmatchable */
+    xp_name_test_fn name_test;
+    void *name_test_ctx;
+    const Py_UCS4 *qualified;
+    Py_ssize_t qualified_len;
+    int strict_no_ns;
 } step_match;
 
 static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *ascii, Py_ssize_t ascii_len) {
@@ -96,6 +101,9 @@ static int ucs4_eq_ascii(const Py_UCS4 *text, Py_ssize_t text_len, const char *a
 }
 
 static int element_name_matches(struct th_node *node, const step_match *match) {
+    if (match->name_test != NULL) {
+        return match->name_test(match->name_test_ctx, node, -1, match->qualified, match->qualified_len);
+    }
     /* An HTML element with a builtin atom is spelled as that atom, so the atoms decide.
        Every other element compares its spelling: an XML tree interns every element as
        TH_TAG_UNKNOWN, and a foreign element keeps the case the tree builder gave it, so
@@ -108,6 +116,9 @@ static int element_name_matches(struct th_node *node, const step_match *match) {
                memcmp(node->text, match->local, (size_t)match->local_len * sizeof(Py_UCS4)) != 0) {
         return 0;
     }
+    if (match->strict_no_ns && node->ns != TH_NS_HTML) {
+        return 0;
+    }
     if (!match->has_ns) {
         return 1;
     }
@@ -118,7 +129,7 @@ static int element_name_matches(struct th_node *node, const step_match *match) {
 static int node_test_matches(struct th_node *node, const xn *step, const step_match *match) {
     switch (step->test) {
     case NT_NAME:
-        return node->type == TH_NODE_ELEMENT && element_name_matches(node, match);
+        return node->type == TH_NODE_ELEMENT ? element_name_matches(node, match) : 0;
     case NT_STAR:
         return node->type == TH_NODE_ELEMENT;
     case NT_TEXT:
@@ -186,8 +197,9 @@ static void reverse_items(xp_nodeset *out, Py_ssize_t from) {
 /* Push node when it passes the step's node test. Returns 0, or -1 on allocation
    failure (which cannot be forced from a test). */
 static int emit_if_match(xp_nodeset *out, struct th_node *node, const xn *step, const step_match *match) {
-    if (!node_test_matches(node, step, match)) {
-        return 0;
+    int matched = node_test_matches(node, step, match);
+    if (matched <= 0) {
+        return matched;
     }
     return ns_push(out, node, -1);
 }
@@ -225,6 +237,12 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, c
         for (Py_ssize_t index = 0; index < attr_count; index++) {
             int hit = step->test == NT_STAR || step->test == NT_NODE ||
                       (step->test == NT_NAME && eligible && attrs[index].name_atom == match->attr_atom);
+            if (step->test == NT_NAME && match->name_test != NULL) {
+                hit = match->name_test(match->name_test_ctx, ctx, index, match->qualified, match->qualified_len);
+                if (hit < 0) { /* GCOVR_EXCL_BR_LINE: prefix resolution ran before the walk; only OOM remains */
+                    return -1; /* GCOVR_EXCL_LINE */
+                }
+            }
             if (hit && ns_push(out, ctx, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
                 return -1;                             /* GCOVR_EXCL_LINE */
             }
@@ -775,7 +793,10 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, xp_ctx *c
                            ctx->extension,
                            ctx->extension_ctx,
                            ctx->depth,
-                           ctx->regex_cache};
+                           ctx->regex_cache,
+                           ctx->name_test,
+                           ctx->name_test_ctx,
+                           ctx->strict_no_ns};
             xp_result value;
             int rc = eval_expr(prog, expr, &pctx, &value);
             if (rc < 0) {
@@ -844,6 +865,11 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     match->attr_atom = UINT32_MAX;
     match->local = step->str;
     match->local_len = step->str_len;
+    match->qualified = step->str;
+    match->qualified_len = step->str_len;
+    match->name_test = ctx->name_test;
+    match->name_test_ctx = ctx->name_test_ctx;
+    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0;
     if (step->test != NT_NAME) {
         return 0;
     }
@@ -851,9 +877,12 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
         match->has_ns = 1;
         match->local = step->str + step->prefix_len + 1;
         match->local_len = step->str_len - step->prefix_len - 1;
-        if (resolve_step_ns(ctx, step->str, step->prefix_len, match) < 0) {
+        if (ctx->name_test == NULL && resolve_step_ns(ctx, step->str, step->prefix_len, match) < 0) {
             *ctx->feature = "undefined namespace prefix";
             return -3;
+        }
+        if (ctx->name_test != NULL && ctx->name_test(ctx->name_test_ctx, NULL, -1, step->str, step->str_len) < 0) {
+            return -1;
         }
     }
     if (step->axis == AX_ATTRIBUTE && match->xml_ns) {
@@ -1422,7 +1451,32 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature) {
     PyObject *regex_cache = NULL;
-    xp_ctx ctx = {tree, context, -1, pos, size, feature, vars, namespaces, extension, extension_ctx, 0, &regex_cache};
+    xp_ctx ctx = {tree,      context,       -1, pos,          size, feature, vars, namespaces,
+                  extension, extension_ctx, 0,  &regex_cache, NULL, NULL,    0};
+    int rc = eval_expr(prog, prog->root, &ctx, out);
+    Py_XDECREF(regex_cache);
+    return rc;
+}
+
+int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
+                       void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
+                       const char **feature) {
+    PyObject *regex_cache = NULL;
+    xp_ctx ctx = {tree,
+                  context,
+                  -1,
+                  1,
+                  1,
+                  feature,
+                  NULL,
+                  NULL,
+                  extension,
+                  extension_ctx,
+                  0,
+                  &regex_cache,
+                  name_test,
+                  name_test_ctx,
+                  name_test == NULL && th_tree_is_xml(tree)};
     int rc = eval_expr(prog, prog->root, &ctx, out);
     Py_XDECREF(regex_cache);
     return rc;

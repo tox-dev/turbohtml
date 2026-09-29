@@ -175,6 +175,9 @@ typedef struct {
     void *extension_ctx;
     int depth; /* current eval_expr recursion depth, capped at XP_MAX_DEPTH */
     PyObject **regex_cache;
+    xp_name_test_fn name_test;
+    void *name_test_ctx;
+    int strict_no_ns;
 } xp_ctx;
 
 /* Pre-order successor, shared by the evaluator and id(). ns_push is declared in the
