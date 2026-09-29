@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import gc
 import sys
+from collections.abc import MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Final, cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Final, NoReturn, cast
 
 import pytest
 from bench.ci import benchmarks
@@ -2484,3 +2486,492 @@ def test_checked_truth_callback_invalidates_input(mutation: str, *, checked: boo
 
     with pytest.raises(TypeError, match="checked can only be set on a checkbox or radio input"):
         field.checked = cast("bool", MutatingTruth())
+
+
+def _anchor() -> Element:
+    return Element("a", {"id": "x", "class": "c1 c2", "href": "h"})
+
+
+class _BrokenMapping:
+    """A mapping-like object whose keys() raises, so copying it into a dict fails."""
+
+    @staticmethod
+    def keys() -> NoReturn:
+        msg = "broken"
+        raise RuntimeError(msg)
+
+
+def test_attrs_is_a_mutable_mapping() -> None:
+    assert isinstance(_anchor().attrs, MutableMapping)
+
+
+def test_attrs_copy_is_a_dict_snapshot() -> None:
+    element = _anchor()
+    snapshot = element.attrs.copy()
+    element.attrs["id"] = "changed"
+    assert snapshot == {"id": "x", "class": ["c1", "c2"], "href": "h"}
+
+
+def test_attrs_pop_returns_the_value() -> None:
+    assert _anchor().attrs.pop("href") == "h"
+
+
+def test_attrs_pop_removes_the_attribute() -> None:
+    element = _anchor()
+    element.attrs.pop("href")
+    assert element.html == '<a id="x" class="c1 c2"></a>'
+
+
+@pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
+def test_attrs_pop_missing_returns_the_default(key: object) -> None:
+    assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]
+
+
+@pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
+def test_attrs_pop_missing_without_default_raises(key: object) -> None:
+    with pytest.raises(KeyError):
+        _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda attrs: attrs.pop(), id="pop"),
+        pytest.param(lambda attrs: attrs.setdefault(), id="setdefault"),
+    ],
+)
+def test_attrs_methods_require_a_key(call: Callable[[MutableMapping[str, str | list[str] | None]], object]) -> None:
+    with pytest.raises(TypeError):
+        call(_anchor().attrs)
+
+
+def test_attrs_popitem_removes_the_last_pair() -> None:
+    element = _anchor()
+    assert (element.attrs.popitem(), element.html) == (("href", "h"), '<a id="x" class="c1 c2"></a>')
+
+
+def test_attrs_popitem_on_empty_raises() -> None:
+    with pytest.raises(KeyError, match="empty"):
+        Element("a").attrs.popitem()
+
+
+def test_attrs_clear_removes_everything() -> None:
+    element = _anchor()
+    element.attrs.clear()
+    assert element.html == "<a></a>"
+
+
+def test_attrs_setdefault_keeps_an_existing_value() -> None:
+    element = _anchor()
+    assert (element.attrs.setdefault("id", "other"), element.attrs["id"]) == ("x", "x")
+
+
+def test_attrs_setdefault_stores_a_missing_value() -> None:
+    element = _anchor()
+    assert (element.attrs.setdefault("title", "t"), element.attrs["title"]) == ("t", "t")
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "error"),
+    [
+        pytest.param(3, "v", TypeError, id="non-str-name"),
+        pytest.param("title", 3, TypeError, id="bad-value"),
+    ],
+)
+def test_attrs_setdefault_rejects_invalid_input(key: object, value: object, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]
+
+
+@pytest.mark.parametrize(
+    "apply",
+    [
+        pytest.param(lambda attrs: attrs.update({"title": "t"}), id="mapping"),
+        pytest.param(lambda attrs: attrs.update([("title", "t")]), id="pairs"),
+        pytest.param(lambda attrs: attrs.update(title="t"), id="keywords"),
+        pytest.param(lambda attrs: attrs.update({"title": "x"}, title="t"), id="keywords-win"),
+    ],
+)
+def test_attrs_update_sets_the_pairs(apply: Callable[[MutableMapping[str, str | list[str] | None]], None]) -> None:
+    element = Element("a")
+    apply(element.attrs)
+    assert element.html == '<a title="t"></a>'
+
+
+def test_attrs_update_without_arguments_changes_nothing() -> None:
+    element = _anchor()
+    element.attrs.update()
+    assert element.html == '<a id="x" class="c1 c2" href="h"></a>'
+
+
+def test_attrs_update_with_malformed_pairs_changes_nothing() -> None:
+    element = _anchor()
+    with pytest.raises(ValueError, match=r"length|pairs"):  # CPython and PyPy word the error differently
+        element.attrs.update([("title", "t"), ("bad",)])  # ty: ignore[no-matching-overload]
+    assert element.html == '<a id="x" class="c1 c2" href="h"></a>'
+
+
+def test_attrs_update_takes_at_most_one_positional_argument() -> None:
+    with pytest.raises(TypeError, match="update"):
+        _anchor().attrs.update({}, {})  # ty: ignore[no-matching-overload]
+
+
+def test_attrs_update_with_a_bad_value_raises() -> None:
+    with pytest.raises(TypeError, match="attribute value"):
+        _anchor().attrs.update({"title": 3})  # ty: ignore[no-matching-overload]
+
+
+@pytest.mark.parametrize(
+    ("other", "expected"),
+    [
+        pytest.param({"id": "x", "class": ["c1", "c2"], "href": "h"}, True, id="equal-dict"),
+        pytest.param({"id": "x"}, False, id="different-dict"),
+        pytest.param(MappingProxyType({"id": "x", "class": ["c1", "c2"], "href": "h"}), True, id="other-mapping"),
+        pytest.param(_anchor().attrs, True, id="other-view"),
+        pytest.param([("id", "x")], False, id="non-mapping"),
+    ],
+)
+def test_attrs_equality(other: object, *, expected: bool) -> None:
+    assert (_anchor().attrs == other) is expected
+
+
+def test_attrs_inequality_with_a_dict() -> None:
+    assert _anchor().attrs != {}
+
+
+def test_attrs_ordering_is_unsupported() -> None:
+    with pytest.raises(TypeError):
+        _ = _anchor().attrs < {}  # ty: ignore[unsupported-operator]
+
+
+def test_attrs_equality_with_a_broken_mapping_raises() -> None:
+    with pytest.raises(RuntimeError, match="broken"):
+        _ = _anchor().attrs == _BrokenMapping()
+
+
+def test_attrs_is_unhashable() -> None:
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(_anchor().attrs)
+
+
+def test_attrs_or_mapping_returns_a_merged_dict() -> None:
+    assert _anchor().attrs | {"href": "new"} == {"id": "x", "class": ["c1", "c2"], "href": "new"}
+
+
+def test_mapping_or_attrs_returns_a_merged_dict() -> None:
+    assert {"href": "old", "rel": "r"} | _anchor().attrs == {"href": "h", "rel": "r", "id": "x", "class": ["c1", "c2"]}
+
+
+def test_attrs_or_attrs_returns_a_merged_dict() -> None:
+    assert _anchor().attrs | Element("b", {"title": "t"}).attrs == {
+        "id": "x",
+        "class": ["c1", "c2"],
+        "href": "h",
+        "title": "t",
+    }
+
+
+def test_attrs_or_leaves_the_element_unchanged() -> None:
+    element = _anchor()
+    _ = element.attrs | {"title": "t"}
+    assert element.html == '<a id="x" class="c1 c2" href="h"></a>'
+
+
+@pytest.mark.parametrize(
+    "combine",
+    [
+        pytest.param(lambda attrs: attrs | 3, id="non-mapping-right"),
+        pytest.param(lambda attrs: 3 | attrs, id="non-mapping-left"),
+    ],
+)
+def test_attrs_or_non_mapping_is_unsupported(combine: Callable[[object], object]) -> None:
+    with pytest.raises(TypeError):
+        combine(_anchor().attrs)
+
+
+@pytest.mark.parametrize(
+    "combine",
+    [
+        pytest.param(lambda attrs: attrs | _BrokenMapping(), id="broken-right"),
+        pytest.param(lambda attrs: _BrokenMapping() | attrs, id="broken-left"),
+    ],
+)
+def test_attrs_or_broken_mapping_raises(combine: Callable[[object], object]) -> None:
+    with pytest.raises(RuntimeError, match="broken"):
+        combine(_anchor().attrs)
+
+
+def test_attrs_inplace_or_updates_the_element() -> None:
+    element = _anchor()
+    attrs = element.attrs
+    attrs |= {"href": "new"}
+    assert element.html == '<a id="x" class="c1 c2" href="new"></a>'
+
+
+def test_attrs_inplace_or_non_mapping_is_unsupported() -> None:
+    attrs = _anchor().attrs
+    with pytest.raises(TypeError):
+        attrs |= 3  # ty: ignore[unsupported-operator]
+
+
+def test_attrs_inplace_or_with_a_bad_value_raises() -> None:
+    attrs = _anchor().attrs
+    with pytest.raises(TypeError, match="attribute value"):
+        attrs |= {"title": 3}  # ty: ignore[unsupported-operator]
+
+
+def _selected_element(root: Document | Element, selector: str) -> Element:
+    found = root.select_one(selector)
+    assert isinstance(found, Element)
+    return found
+
+
+def test_rename_keeps_attributes_and_children() -> None:
+    document = parse('<div id="a" class="c"><b>x</b></div>')
+    _selected_element(document, "div").tag = "section"
+    assert _selected_element(document, "body").inner_html == '<section id="a" class="c"><b>x</b></section>'
+
+
+def test_rename_is_found_under_the_new_name() -> None:
+    document = parse("<div><b>x</b></div>")
+    assert len(document.find_all("div")) == 1  # builds the whole-tree tag index the rename must drop
+    _selected_element(document, "div").tag = "section"
+    assert [len(document.find_all("div")), len(document.find_all("section"))] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    ("markup", "selector", "name", "expected"),
+    [
+        pytest.param("<p>x</p>", "p", "SECTION", "section", id="html-lowercased"),
+        pytest.param("<p>x</p>", "p", "My-Widget", "my-widget", id="custom-lowercased"),
+        pytest.param("<svg><rect/></svg>", "rect", "foreignObject", "foreignObject", id="svg-keeps-case"),
+    ],
+)
+def test_rename_spelling(markup: str, selector: str, name: str, expected: str) -> None:
+    element = _selected_element(parse(markup), selector)
+    element.tag = name
+    assert element.tag == expected
+
+
+def test_rename_keeps_the_namespace() -> None:
+    element = _selected_element(parse("<svg><rect/></svg>"), "rect")
+    element.tag = "circle"
+    assert element.namespace == Namespace.SVG
+
+
+def test_rename_in_xml_keeps_case() -> None:
+    element = parse_xml("<a><B/></a>").find("B")
+    assert element is not None
+    element.tag = "cC"
+    assert element.tag == "cC"
+
+
+def test_rename_to_raw_text_serializes_text_literally() -> None:
+    element = _selected_element(parse("<p>a &lt; b</p>"), "p")
+    element.tag = "script"
+    assert element.html == "<script>a < b</script>"
+
+
+def test_rename_to_void_drops_the_end_tag() -> None:
+    element = _selected_element(parse("<p></p>"), "p")
+    element.tag = "br"
+    assert element.html == "<br>"
+
+
+@pytest.mark.parametrize(
+    ("markup", "selector", "name"),
+    [
+        pytest.param("<p></p>", "p", "template", id="to-template"),
+        pytest.param("<template><i></i></template>", "template", "div", id="from-template"),
+    ],
+)
+def test_rename_to_or_from_template_is_rejected(markup: str, selector: str, name: str) -> None:
+    element = _selected_element(parse(markup), selector)
+    with pytest.raises(ValueError, match="to or from template"):
+        element.tag = name
+
+
+@pytest.mark.parametrize(
+    ("name", "error", "message"),
+    [
+        pytest.param("", ValueError, "must not be empty", id="empty"),
+        pytest.param("a b", ValueError, "invalid character", id="space"),
+        pytest.param(3, TypeError, "tag must be a str, not int", id="not-a-str"),
+    ],
+)
+def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        Element("div").tag = name  # ty: ignore[invalid-assignment]  # the invalid value tests the runtime check
+
+
+@pytest.mark.parametrize(
+    ("markup", "name", "expected"),
+    [
+        pytest.param(
+            "<body><div  id=a>x</div></body>", "section", '<body><section id="a">x</section></body>', id="closed"
+        ),
+        pytest.param("<body><p  id=a>x</body>", "section", '<body><section id="a">x</body>', id="implicitly-closed"),
+        pytest.param("<body><br  id=a></body>", "hr", '<body><hr id="a"></body>', id="void"),
+    ],
+)
+def test_rename_rewrites_the_source_tags(markup: str, name: str, expected: str) -> None:
+    document = parse(markup, source_locations=True)
+    body = _selected_element(document, "body")
+    renamed = body.children[0]
+    assert isinstance(renamed, Element)
+    renamed.tag = name
+    assert body.to_source() == expected
+
+
+def test_tag_cannot_be_deleted() -> None:
+    element = Element("div")
+    with pytest.raises(TypeError, match="cannot delete the tag"):
+        del element.tag  # ty: ignore[invalid-assignment]  # deleting the tag tests the runtime check
+
+
+@pytest.mark.parametrize(
+    ("markup", "same_owner"),
+    [
+        pytest.param("<form><input></form><input>", False, id="outside-form"),
+        pytest.param(
+            "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",
+            True,
+            id="foreign-form-descendant",
+        ),
+        pytest.param("<form><input></form><form><input></form>", False, id="separate-forms"),
+        pytest.param("<form id=f><input></form><input form=f>", True, id="external-owner"),
+        pytest.param("<form id=f><input></form><input form=F>", False, id="case-sensitive-owner"),
+        pytest.param("<form id=é水😀><input></form><input form=é水😀>", True, id="unicode-owner"),
+        pytest.param("<form id=f></form><input form=f><input form=f>", True, id="external-pair"),
+        pytest.param("<form id=f></form><form id=g></form><input form=f><input form=g>", False, id="external-forms"),
+        pytest.param("<form id=f></form><input form=f><input form=missing>", False, id="external-missing"),
+        pytest.param('<form id=f></form><input form=f><input form="">', False, id="external-empty"),
+        pytest.param("<form id=f><input><input form=missing></form>", False, id="missing-owner"),
+        pytest.param('<form id=f><input><input form=""></form>', False, id="empty-owner"),
+        pytest.param("<form id=f><input><input form></form>", False, id="boolean-owner"),
+        pytest.param("<input><form><input form=missing></form>", True, id="both-ownerless"),
+        pytest.param("<form id=f><input></form><form><input form=f></form>", True, id="owner-overrides-ancestor"),
+        pytest.param("<div id=f></div><form id=f><input></form><input form=f>", False, id="nonform-id-first"),
+        pytest.param("<form id=f><input></form><div id=f></div><input form=f>", True, id="form-id-first"),
+        pytest.param("<svg><g id=f></g></svg><form id=f><input></form><input form=f>", False, id="foreign-id-first"),
+        pytest.param(
+            "<div id=a></div><div id=i></div><form id=q><input></form><input form=q>", True, id="id-collision"
+        ),
+        pytest.param(
+            '<b id=""></b><div id=a></div><div id=i></div><form id=q><input form=y></form><input>',
+            True,
+            id="missing-collision",
+        ),
+        pytest.param("text<!--c--><i id></i><form id=f><input></form><input form=f>", True, id="id-walk"),
+    ],
+)
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+@pytest.mark.parametrize("indexed", [pytest.param(False, id="walk"), pytest.param(True, id="index")])
+def test_radio_group_form_owner(markup: str, selected: int, *, same_owner: bool, indexed: bool) -> None:
+    document: Final = parse(markup)
+    radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
+    for radio in radios:
+        radio.attrs.update(type="radio", name="group", checked="")
+    if indexed:
+        document.select("input")
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected or not same_owner for index in range(2)]
+
+
+@pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
+@pytest.mark.parametrize("trailing", [pytest.param(False, id="last"), pytest.param(True, id="followed")])
+def test_radio_group_nested_forms(selected: int, *, trailing: bool) -> None:
+    outer: Final = Element("form")
+    inner: Final = Element("form")
+    outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    outer.append(Element("div", children=[inner]))
+    if trailing:
+        outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    radios: Final = list(outer.find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [True, True, *([selected == 1] if trailing else [])]
+
+
+@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_radio_group_explicit_owner_requires_connection(selected: int, *, connected: bool) -> None:
+    document: Final = parse(
+        "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
+    )
+    form: Final = document.select("form")[0]
+    radios: Final = list(form.find_all("input"))
+    if not connected:
+        form.extract()
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected or connected for index in range(2)]
+
+
+@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
+def test_radio_group_shadow_form_owner(*, connected: bool) -> None:
+    document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
+    host: Final = document.select("div")[0]
+    if not connected:
+        host.extract()
+    shadow: Final = host.attach_shadow()
+    form: Final = Element("form", {"id": "f"})
+    form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    shadow.append(form)
+    shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
+    first, selected = shadow.find_all("input")
+    selected.checked = True
+    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, not connected, True)
+
+
+@pytest.mark.parametrize("selected", [pytest.param(0, id="inside"), pytest.param(1, id="outside")])
+def test_radio_group_ignores_foreign_form_ancestor(selected: int) -> None:
+    document: Final = parse(
+        "<svg><form><foreignObject><input type=radio name=x checked></foreignObject></form></svg>"
+        "<input type=radio name=x checked>"
+    )
+    radios: Final = list(document.find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected for index in range(2)]
+
+
+def test_radio_group_includes_radio_root() -> None:
+    root: Final = Element("input", {"type": "radio", "name": "x", "checked": ""})
+    root.append(Element("input", {"type": "radio", "name": "x"}))
+    child: Final = root.children[0]
+    assert isinstance(child, Element)
+    child.checked = True
+    assert (root.checked, child.checked) == (False, True)
+
+
+@pytest.mark.parametrize("count", [pytest.param(1, id="small"), pytest.param(64, id="wide")])
+@pytest.mark.parametrize("external", [pytest.param(False, id="inside"), pytest.param(True, id="outside")])
+def test_radio_group_many_explicit_owners(count: int, *, external: bool) -> None:
+    document: Final = parse(
+        "<div></div>" * count
+        + '<form id="target"><input type=radio name=x checked></form>'
+        + "".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))
+        + "<input type=radio name=x form=target>"
+    )
+    radios: Final = list(document.find_all("input"))
+    selected: Final = len(radios) - 1 if external else 0
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected for index in range(len(radios))]
+
+
+@pytest.mark.parametrize("owned", [pytest.param(False, id="ownerless"), pytest.param(True, id="form")])
+@pytest.mark.parametrize("inside", [pytest.param(False, id="outside"), pytest.param(True, id="inside")])
+def test_radio_group_deep_ancestor_ownership(*, owned: bool, inside: bool) -> None:
+    container: Final = "form" if owned else "section"
+    selected_html: Final = "<input type=radio name=x>"
+    document: Final = parse(
+        f"<{container}>"
+        + "<div>" * 32
+        + "<input type=radio name=x checked><span><input type=radio name=x checked></span>"
+        + "</div>" * 32
+        + (selected_html if inside else "")
+        + f"</{container}>"
+        + ("" if inside else selected_html)
+    )
+    first, second, selected = document.find_all("input")
+    selected.checked = True
+    assert (first.checked, second.checked, selected.checked) == (owned and not inside, owned and not inside, True)
