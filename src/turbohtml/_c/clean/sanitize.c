@@ -75,6 +75,7 @@ typedef struct {
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args);
 static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr, const char *name,
                               Py_ssize_t name_len);
+static int bleach_normalized_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len);
 
 /* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
    attribute_name) for a stripped attribute. A no-op when s->removed is NULL, the common non-reporting path. Returns 0,
@@ -2083,13 +2084,20 @@ static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr
         value = raw_points;
         len = PyUnicode_GET_LENGTH(raw);
     }
+    int allowed = bleach_normalized_allowed(s, value, len);
+    PyMem_Free(raw_points);
+    Py_XDECREF(raw);
+    /* the parser decodes references bleach keeps as text, such as a numeric one missing its semicolon, and the decoded
+       value is what gets written out, so it has to pass the same check */
+    return allowed == 1 && raw_url ? bleach_normalized_allowed(s, attr->value, attr->value_len) : allowed;
+}
+
+static int bleach_normalized_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     char stack[128];
     char *normalized = len < (Py_ssize_t)sizeof(stack) ? stack : PyMem_Malloc((size_t)len + 1);
-    if (normalized == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
-        PyMem_Free(raw_points); /* GCOVR_EXCL_LINE */
-        Py_XDECREF(raw);        /* GCOVR_EXCL_LINE */
-        PyErr_NoMemory();       /* GCOVR_EXCL_LINE */
-        return -1;              /* GCOVR_EXCL_LINE */
+    if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();     /* GCOVR_EXCL_LINE */
+        return -1;            /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t size = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
@@ -2102,8 +2110,6 @@ static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr
             normalized[size++] = (char)((codepoint >= 'A' && codepoint <= 'Z') ? codepoint | 0x20 : codepoint);
         }
     }
-    PyMem_Free(raw_points);
-    Py_XDECREF(raw);
     Py_ssize_t colon = -1;
     int scheme = 1;
     for (Py_ssize_t index = 0; index < size; index++) {
