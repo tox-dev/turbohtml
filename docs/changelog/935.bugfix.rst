@@ -1,0 +1,2 @@
+Raise ``ValueError`` on a circular ``xsl:attribute-set`` and ``RecursionError`` past 400 levels of
+``use-attribute-sets`` and template nesting instead of crashing, and apply a shared attribute set once per element.

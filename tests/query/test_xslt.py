@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed interpreter on in-repository stylesheets
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -874,7 +876,7 @@ def test_transform_recursion_depth_is_bounded() -> None:
         '<xsl:template match="/"><xsl:call-template name="loop"/></xsl:template>'
         '<xsl:template name="loop"><xsl:call-template name="loop"/></xsl:template>'
     )
-    with pytest.raises(RecursionError, match="nesting too deep"):
+    with pytest.raises(RecursionError, match="template nesting exceeds 400 levels"):
         _run("<r/>", body)
 
 
@@ -886,7 +888,7 @@ def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
         '<xsl:call-template name="rec"><xsl:with-param name="c" select="$c - 1"/>'
         "</xsl:call-template></xsl:if></xsl:template>"
     )
-    with pytest.raises(RecursionError, match="nesting too deep"):
+    with pytest.raises(RecursionError, match="template nesting exceeds 400 levels"):
         _run("<r/>", body)
 
 
@@ -896,7 +898,7 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly() -> None:
         '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
         '<xsl:template match="n">[<xsl:apply-templates/>]</xsl:template>'
     )
-    with pytest.raises(RecursionError, match="nesting too deep"):
+    with pytest.raises(RecursionError, match="template nesting exceeds 400 levels"):
         _run(source, body)
 
 
@@ -2492,6 +2494,108 @@ def test_transform_attribute_set_requires_name() -> None:
     )
     with pytest.raises(ValueError, match="attribute-set requires a name"):
         _run("<r/>", body)
+
+
+def _attribute_set_chain(length: int, *, reverse: bool = False) -> str:
+    sets = [f'<xsl:attribute-set name="s{index}" use-attribute-sets="s{index + 1}"/>' for index in range(length - 1)]
+    sets.append(
+        f'<xsl:attribute-set name="s{length - 1}"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+    )
+    return "".join(reversed(sets) if reverse else sets)
+
+
+_CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
+
+
+@pytest.mark.parametrize(
+    ("sets", "expected"),
+    [
+        pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="s"/>',
+            f"ValueError: circular xsl:attribute-set reference: s -> s{_CYCLE_HINT}",
+            id="self",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="t"/><xsl:attribute-set name="t" use-attribute-sets="s"/>',
+            f"ValueError: circular xsl:attribute-set reference: s -> t -> s{_CYCLE_HINT}",
+            id="mutual",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="t"/><xsl:attribute-set name="t" use-attribute-sets="u"/>'
+            '<xsl:attribute-set name="u" use-attribute-sets="t"/>',
+            f"ValueError: circular xsl:attribute-set reference: t -> u -> t{_CYCLE_HINT}",
+            id="cycle-below-entry",
+        ),
+        pytest.param(
+            "".join(
+                f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
+                for index, name in enumerate(["s", *(f"s{level}" for level in range(60))])
+            )
+            + '<xsl:attribute-set name="s60"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>',
+            '<?xml version="1.0"?>\n<out a="1"/>',
+            id="shared-sets-apply-once",
+        ),
+    ],
+)
+def test_transform_attribute_set_chain_ends_cleanly(sets: str, expected: str) -> None:
+    # a regression overflows the C stack or never finishes, so a subprocess turns it into a failed assertion
+    code = (
+        "import sys\nfrom turbohtml import parse_xml\nfrom turbohtml.transform import transform\n"
+        "try:\n    print(transform(parse_xml(sys.stdin.read()), parse_xml('<r/>')))\n"
+        "except ValueError as exc:\n    print(f'ValueError: {exc}')\n"
+    )
+    stylesheet = _oracle_sheet(f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>')
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
+        [sys.executable, "-c", code], input=stylesheet, capture_output=True, text=True, timeout=60, check=False
+    )
+    assert (result.returncode, result.stdout.strip()) == (0, expected)
+
+
+def test_transform_attribute_set_unused_cycle_raises() -> None:
+    body = '<xsl:attribute-set name="a" use-attribute-sets="a"/><xsl:template match="/">x</xsl:template>'
+    with pytest.raises(ValueError, match=re.escape(f"circular xsl:attribute-set reference: a -> a{_CYCLE_HINT}")):
+        Transform(_sheet(body))
+
+
+@pytest.mark.parametrize(
+    "sets",
+    [
+        pytest.param(_attribute_set_chain(401), id="declared-in-order"),
+        pytest.param(_attribute_set_chain(401, reverse=True), id="declared-reversed"),
+    ],
+)
+def test_transform_attribute_set_chain_past_limit_raises(sets: str) -> None:
+    with pytest.raises(RecursionError, match="xsl:attribute-set 's0' exceeds the nesting limit of 400 levels"):
+        Transform(_sheet(sets))
+
+
+def test_transform_attribute_set_chain_counts_toward_template_nesting() -> None:
+    body = f'{_attribute_set_chain(400)}<xsl:template match="/"><out xsl:use-attribute-sets="s0"/></xsl:template>'
+    with pytest.raises(RecursionError, match="xsl:attribute-set 's399' exceeds the nesting limit of 400 levels"):
+        _run("<r/>", body, method="xml")
+
+
+def test_transform_attribute_set_used_twice_keeps_last_value() -> None:
+    # the section 7.1.4 expansion is a, b, a: b's x replaces a's, then the second a's x replaces b's
+    body = (
+        '<xsl:attribute-set name="s" use-attribute-sets="a b a"/>'
+        '<xsl:attribute-set name="a"><xsl:attribute name="x">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:attribute-set name="b"><xsl:attribute name="x">2</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out x="1"/>'
+
+
+def test_transform_attribute_set_shared_by_siblings_is_not_a_cycle() -> None:
+    # two parents reach v, which is not a cycle
+    body = (
+        '<xsl:attribute-set name="s" use-attribute-sets="t u"/>'
+        '<xsl:attribute-set name="t" use-attribute-sets="v"/>'
+        '<xsl:attribute-set name="u" use-attribute-sets="v"/>'
+        '<xsl:attribute-set name="v"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>'
+        '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
+    )
+    assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1"/>'
 
 
 def test_transform_namespace_alias_remaps_result_namespace() -> None:

@@ -547,7 +547,15 @@ typedef struct {
     Py_ssize_t name_len;
     th_node *body;
     int precedence;
+    Py_ssize_t uses_start; /* this set's use-attribute-sets, resolved once to slots in engine.attrset_uses */
+    Py_ssize_t uses_end;
 } xslt_attrset;
+
+typedef struct {
+    Py_ssize_t *items;
+    Py_ssize_t len;
+    Py_ssize_t cap;
+} xslt_slots;
 
 /* One xsl:strip-space / xsl:preserve-space element-name token (section 3.4). strip marks
    the default action; specificity and precedence resolve a name that both sets cover, with
@@ -671,6 +679,7 @@ typedef struct engine {
     xslt_name_index key_index;
     xslt_name_index attrset_index;
     Py_ssize_t *attrset_next;
+    xslt_slots attrset_uses;
     xslt_space *spaces;
     Py_ssize_t nspaces;
     Py_ssize_t spaces_cap;
@@ -795,14 +804,8 @@ static int build_name_indexes(engine *eng) {
     return 0;
 }
 
-/* A cap on template-instantiation nesting (recursive apply-templates / named-template
-   calls, xsl:for-each and result-tree construction). The transform recurses in C, so
-   this guard turns a runaway or pathologically deep stylesheet into a clean
-   RecursionError instead of a C stack overflow. It is sized well below the depth that
-   overflows a small (~256 KB) thread stack -- each nesting level costs about half a
-   kilobyte, so 400 levels stay under ~200 KB with a wide safety margin over the frame
-   growth other compilers produce. Deep list processing should use xsl:for-each, which
-   iterates rather than recursing. */
+/* Template calls, xsl:for-each, result-tree construction and use-attribute-sets chains recurse in C at about half a
+   kilobyte per level, so 400 levels stay under ~200 KB, well inside a small (~256 KB) thread stack. */
 #define XSLT_MAX_DEPTH 400
 
 /* ---- xsl element identification ------------------------------------------- */
@@ -2144,11 +2147,29 @@ static int instantiate_string(engine *eng, th_node *body, Py_UCS4 **out_data, Py
     return 0;
 }
 
-/* Apply the named attribute sets (section 7.1.4) to out_element: each named set's own
-   use-attribute-sets are applied first, then its xsl:attribute children set attributes on the
-   element, so a later source wins over the sets and a set's own attributes win over the ones it
-   chains to. `names` is the whitespace-separated use-attribute-sets value. */
-static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, th_node *out_element) {
+static int slots_push(xslt_slots *slots, Py_ssize_t slot) {
+    if (slots->len == slots->cap) {
+        size_t cap;
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: size overflow and allocation failure */
+        if (!th_grow_cap((size_t)slots->len + 1, (size_t)slots->cap, 8, sizeof(Py_ssize_t), &cap, &bytes)) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        Py_ssize_t *grown = PyMem_Realloc(slots->items, bytes);
+        if (grown == NULL) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+        slots->items = grown;
+        slots->cap = (Py_ssize_t)cap;
+    }
+    slots->items[slots->len++] = slot;
+    return 0;
+}
+
+/* Append the slot of every set a use-attribute-sets value names, in order; a name defined at several import levels
+   adds each definition. */
+static int attrsets_named(const engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, xslt_slots *slots) {
     Py_ssize_t index = 0;
     while (index < names_len) {
         while (index < names_len && ucs4_is_ws(names[index])) {
@@ -2164,21 +2185,70 @@ static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t na
         const int indexed = eng->attrset_index.capacity != 0;
         Py_ssize_t slot = indexed ? name_index_find(&eng->attrset_index, names + start, index - start) - 1 : 0;
         for (; slot >= 0 && slot < eng->nattrsets; slot = indexed ? eng->attrset_next[slot] - 1 : slot + 1) {
-            xslt_attrset *set = &eng->attrsets[slot];
+            const xslt_attrset *set = &eng->attrsets[slot];
             if (!indexed && !str_eq(set->name, set->name_len, names + start, index - start)) {
                 continue;
             }
-            Py_ssize_t chain_len = 0;
-            const Py_UCS4 *chain = attr_lookup(eng->sheet_tree, set->body, "use-attribute-sets", 18, &chain_len);
-            if (chain != NULL && apply_attribute_sets(eng, chain, chain_len, out_element) < 0) {
-                return -1;
-            }
-            if (instantiate_body(eng, set->body, out_element) < 0) {
-                return -1;
+            if (slots_push(slots, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1;                     /* GCOVR_EXCL_LINE */
             }
         }
     }
     return 0;
+}
+
+static int raise_attrset_depth(engine *eng, const xslt_attrset *set) {
+    PyObject *name = make_str(set->name, set->name_len);
+    if (name != NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_Format(PyExc_RecursionError,
+                     "xslt: xsl:attribute-set '%U' exceeds the nesting limit of %d levels, which use-attribute-sets "
+                     "chains share with template nesting; shorten the chain",
+                     name, XSLT_MAX_DEPTH);
+        Py_DECREF(name);
+    }
+    return fail_py(eng);
+}
+
+/* Walking references last to first and recording each set at first sighting yields, reversed, the section 7.1.4
+   expansion with each set kept at its last position, the one that decides its attribute values. */
+static int order_attrset(engine *eng, Py_ssize_t slot, unsigned char *seen, xslt_slots *order) {
+    if (seen[slot]) {
+        return 0;
+    }
+    const xslt_attrset *set = &eng->attrsets[slot];
+    if (++eng->depth > XSLT_MAX_DEPTH) {
+        eng->depth--;
+        return raise_attrset_depth(eng, set);
+    }
+    seen[slot] = 1;
+    int rc = slots_push(order, slot) < 0 ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
+    for (Py_ssize_t index = set->uses_end - 1; rc == 0 && index >= set->uses_start; index--) {
+        rc = order_attrset(eng, eng->attrset_uses.items[index], seen, order);
+    }
+    eng->depth--;
+    return rc;
+}
+
+/* A set the section 7.1.4 expansion reaches more than once writes the same attributes each time, so only its last
+   occurrence runs; running it once per path would grow exponentially with the nesting of shared sets. */
+static int apply_attribute_sets(engine *eng, const Py_UCS4 *names, Py_ssize_t names_len, th_node *out_element) {
+    xslt_slots roots = {0};
+    if (attrsets_named(eng, names, names_len, &roots) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory");                   /* GCOVR_EXCL_LINE */
+    }
+    xslt_slots order = {0};
+    unsigned char *seen = PyMem_Calloc((size_t)eng->nattrsets, 1);
+    int rc = seen == NULL ? fail(eng, "out of memory") : 0; /* GCOVR_EXCL_BR_LINE: alloc */
+    for (Py_ssize_t index = roots.len - 1; rc == 0 && index >= 0; index--) {
+        rc = order_attrset(eng, roots.items[index], seen, &order);
+    }
+    for (Py_ssize_t index = order.len - 1; rc == 0 && index >= 0; index--) {
+        rc = instantiate_body(eng, eng->attrsets[order.items[index]].body, out_element);
+    }
+    PyMem_Free(seen);
+    PyMem_Free(order.items);
+    PyMem_Free(roots.items);
+    return rc;
 }
 
 /* xsl:element name={avt}: create an element and instantiate its body inside it. */
@@ -4641,7 +4711,10 @@ static int instantiate_one_dynamic(engine *eng, th_node *node, th_node *out_pare
 static int instantiate_body(engine *eng, th_node *body, th_node *out_parent) {
     if (++eng->depth > XSLT_MAX_DEPTH) {
         eng->depth--;
-        PyErr_SetString(PyExc_RecursionError, "xslt: template nesting too deep");
+        PyErr_Format(PyExc_RecursionError,
+                     "xslt: template nesting exceeds %d levels; reduce the recursion depth, or iterate over long "
+                     "lists with xsl:for-each",
+                     XSLT_MAX_DEPTH);
         return fail_py(eng);
     }
     Py_ssize_t scope_mark = eng->scope_len;
@@ -4803,6 +4876,88 @@ static int parse_attrset(engine *eng, th_node *element) {
     set->body = element;
     set->precedence = eng->precedence;
     return 0;
+}
+
+static int raise_attrset_cycle(engine *eng, const Py_ssize_t *path, int depth, Py_ssize_t used) {
+    int start = depth;
+    while (path[start] != used) {
+        start--;
+    }
+    xb chain = {0};
+    for (int index = start; index <= depth; index++) {
+        const xslt_attrset *set = &eng->attrsets[path[index]];
+        /* GCOVR_EXCL_BR_START: allocation failure */
+        if (xb_add(&chain, set->name, set->name_len) < 0 || xb_add_ascii(&chain, " -> ") < 0) {
+            xb_free(&chain);     /* GCOVR_EXCL_LINE */
+            return fail_py(eng); /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+    }
+    const xslt_attrset *closing = &eng->attrsets[used];
+    /* GCOVR_EXCL_BR_START: allocation failure */
+    PyObject *text = xb_add(&chain, closing->name, closing->name_len) < 0 ? NULL : make_str(chain.data, chain.len);
+    /* GCOVR_EXCL_BR_STOP */
+    xb_free(&chain);
+    if (text != NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_Format(PyExc_ValueError,
+                     "circular xsl:attribute-set reference: %U; remove one of these use-attribute-sets references",
+                     text);
+        Py_DECREF(text);
+    }
+    return fail_py(eng);
+}
+
+/* Section 7.1.4 forbids a set that uses itself, even one no template applies; the chain length this returns keeps
+   order_attrset within XSLT_MAX_DEPTH. heights[slot] is 0 unvisited, -1 while on the path, else the chain length. */
+static int check_attrset(engine *eng, Py_ssize_t slot, int *heights, Py_ssize_t *path, int depth) {
+    if (depth == XSLT_MAX_DEPTH) {
+        return raise_attrset_depth(eng, &eng->attrsets[path[0]]);
+    }
+    path[depth] = slot;
+    heights[slot] = -1;
+    const xslt_attrset *set = &eng->attrsets[slot];
+    int height = 1;
+    for (Py_ssize_t index = set->uses_start; index < set->uses_end; index++) {
+        Py_ssize_t used = eng->attrset_uses.items[index];
+        if (heights[used] < 0) {
+            return raise_attrset_cycle(eng, path, depth, used);
+        }
+        int used_height = heights[used] != 0 ? heights[used] : check_attrset(eng, used, heights, path, depth + 1);
+        if (used_height < 0) {
+            return -1;
+        }
+        height = used_height + 1 > height ? used_height + 1 : height;
+    }
+    if (height > XSLT_MAX_DEPTH) {
+        return raise_attrset_depth(eng, set);
+    }
+    heights[slot] = height;
+    return height;
+}
+
+/* Resolving names to slots once lets applying a set walk indexes instead of parsing names. */
+static int resolve_attribute_sets(engine *eng) {
+    for (Py_ssize_t slot = 0; slot < eng->nattrsets; slot++) {
+        xslt_attrset *set = &eng->attrsets[slot];
+        Py_ssize_t chain_len = 0;
+        const Py_UCS4 *chain = attr_lookup(eng->sheet_tree, set->body, "use-attribute-sets", 18, &chain_len);
+        set->uses_start = eng->attrset_uses.len;
+        if (chain != NULL && attrsets_named(eng, chain, chain_len, &eng->attrset_uses) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        set->uses_end = eng->attrset_uses.len;
+    }
+    int *heights = PyMem_Calloc((size_t)eng->nattrsets, sizeof(int));
+    if (heights == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return -1;         /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t path[XSLT_MAX_DEPTH];
+    int height = 0;
+    for (Py_ssize_t slot = 0; height >= 0 && slot < eng->nattrsets; slot++) {
+        height = heights[slot] != 0 ? heights[slot] : check_attrset(eng, slot, heights, path, 0);
+    }
+    PyMem_Free(heights);
+    return height < 0 ? -1 : 0;
 }
 
 /* The namespace URI bound to prefix on the stylesheet root ("#default" resolves the default
@@ -5242,6 +5397,7 @@ static void engine_clear(engine *eng) {
         PyMem_Free(eng->key_index.entries);
         PyMem_Free(eng->attrset_index.entries);
         PyMem_Free(eng->attrset_next);
+        PyMem_Free(eng->attrset_uses.items);
         PyMem_Free(eng->named);
         PyMem_Free(eng->globals);
         PyMem_Free(eng->attrsets);
@@ -6748,6 +6904,9 @@ TH_NODE_API(, PyObject *, turbohtml_xslt_compile, (PyObject * module, PyObject *
     }
     if (status == 0) {
         status = build_name_indexes(&compiled->model);
+    }
+    if (status == 0) {
+        status = resolve_attribute_sets(&compiled->model);
     }
     for (Py_ssize_t index = 0; status == 0 && index < nimports; index++) {
         status = precompile_stylesheet(&compiled->model, imports[index]);
