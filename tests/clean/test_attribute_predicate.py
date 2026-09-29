@@ -39,6 +39,18 @@ def test_predicate_reads_original_attributes_once_in_source_order() -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("&amp;", '<a data-key="&amp;">x</a>', id="truthy"),
+        pytest.param("", "<a>x</a>", id="falsey"),
+    ],
+)
+def test_c_predicate_uses_attribute_truth(value: str, expected: str) -> None:
+    policy: Final = Policy(attributes={"a": frozenset({"data-key"})}, attribute_predicate=getattr)
+    assert sanitize(f'<a data-key="{value}">x</a>', policy) == expected
+
+
+@pytest.mark.parametrize(
     "attribute",
     [
         pytest.param('href="javascript:bad()"', id="url"),
