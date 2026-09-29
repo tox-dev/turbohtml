@@ -25,6 +25,7 @@ from turbohtml import (
     parse_fragment,
     parse_xml,
 )
+from turbohtml.query import Query
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -281,6 +282,45 @@ def test_identity_survives_alias_release_and_adoption(released: int) -> None:
     destination: Final = Element("aside")
     destination.append(aliases[0])
     assert (len({*aliases, destination.children[0]}), hash(aliases[1])) == (1, original_hash)
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
+)
+@pytest.mark.parametrize("keep", [pytest.param(False, id="released"), pytest.param(True, id="retained")])
+def test_adoption_preserves_descendants_after_alias_release(count: int, *, keep: bool) -> None:
+    source: Final = Element("section")
+    source.set_inner_html("<span>text</span>" * count)
+    aliases: Final = source.select("span")
+    retained: Final = aliases[-1:] if keep else []
+    aliases.clear()
+    target: Final = Element("main")
+    target.append(source)
+    if retained:
+        retained[0].attrs["live"] = "yes"
+    assert target.inner_html == "<section>" + "<span>text</span>" * (count - 1) + (
+        '<span live="yes">text</span></section>' if keep else "<span>text</span></section>"
+    )
+
+
+@pytest.mark.parametrize("operation", ["find", "indexed", "css", "xpath", "parent"])
+def test_element_result_types_after_adoption(operation: str) -> None:
+    source: Final = parse('<section><a data-x="yes"><b></b></a><a data-x="yes"><b></b></a></section>')
+    section: Final = source.select("section")[0]
+    expected: Final = section.select("a")
+    target: Final = parse("<main></main>")
+    target.select("main")[0].append(section)
+    if operation == "find":
+        result = target.find_all(attrs={"data-x": True})
+    elif operation == "indexed":
+        result = target.find_all("a")
+    elif operation == "css":
+        result = target.select("a")
+    elif operation == "xpath":
+        result = cast("list[Element]", target.xpath("//a"))
+    else:
+        result = list(Query(target.select("b")).parent())
+    assert [(type(node), node) for node in result] == [(Element, node) for node in expected]
 
 
 def test_hash_survives_release_of_all_adopted_aliases() -> None:
