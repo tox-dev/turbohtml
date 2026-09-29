@@ -280,6 +280,7 @@ def test_filter_base_node_set_continues_as_path(doc: turbohtml.Node) -> None:
         pytest.param("bogus-fn(1)", id="unknown-function"),
         pytest.param("count(bogus-fn(1))", id="in-function-arg"),
         pytest.param("concat('x', bogus-fn(1))", id="in-later-function-arg"),
+        pytest.param("concat('a', 'b', 'c', bogus-fn(1))", id="in-heap-function-arg"),
         pytest.param("//p[bogus-fn(1)]", id="in-predicate"),
         pytest.param("(bogus-fn(1))[1]", id="in-filter-primary"),
         pytest.param("(//p)[bogus-fn(1)]", id="in-filter-predicate"),
@@ -492,6 +493,19 @@ def test_translate_nul_mapping() -> None:
         )
         == "yz" * 64 + "!A"
     )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("translate(102, '0', 'x')", "1x2", id="number-text"),
+        pytest.param("translate('120', 2, 'x')", "1x0", id="number-source"),
+        pytest.param("translate('120', '2', 9)", "190", id="number-target"),
+        pytest.param("translate(true(), 'tr', 'TR')", "TRue", id="boolean-text"),
+    ],
+)
+def test_translate_coerced_arguments(expression: str, expected: str) -> None:
+    assert parse("<p/>").xpath(expression) == expected
 
 
 @pytest.mark.parametrize(

@@ -186,6 +186,19 @@ typedef struct {
 
 static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character);
 
+static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS4 **text, Py_ssize_t *len,
+                      Py_UCS4 **owned) {
+    if (value->kind == XP_STRING) {
+        *text = value->string;
+        *len = value->string_len;
+        *owned = NULL;
+        return 0;
+    }
+    *owned = to_string(tree, value, len);
+    *text = *owned;
+    return *owned == NULL ? -1 : 0;
+}
+
 static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, Py_ssize_t flen, const Py_UCS4 *to,
                      Py_ssize_t tlen, xp_result *out) {
     Py_UCS4 *buf = PyMem_Malloc((size_t)slen * sizeof(Py_UCS4));
@@ -1679,13 +1692,16 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     if (sig != NULL && (argc < sig->min_args || (sig->max_args >= 0 && argc > sig->max_args))) {
         return raise_arity(fn, sig, argc);
     }
-    xp_result *args = NULL;
-    if (argc > 0) {
+    xp_result small_args[3];
+    xp_result *args = argc == 0 ? NULL : small_args;
+    if (argc > 3) {
         args = PyMem_Calloc((size_t)argc, sizeof(xp_result));
         if (args == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
             return -1;        /* GCOVR_EXCL_LINE */
         }
+    } else if (argc > 0) {
+        memset(small_args, 0, (size_t)argc * sizeof(xp_result));
     }
     xp_live_frame frame;
     if (ctx->live != NULL) {
@@ -1700,7 +1716,9 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             for (int cleanup_index = 0; cleanup_index < filled; cleanup_index++) {
                 xp_result_free(&args[cleanup_index]);
             }
-            PyMem_Free(args);
+            if (argc > 3) {
+                PyMem_Free(args);
+            }
             return arg_rc;
         }
         filled++;
@@ -1901,17 +1919,23 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
         Py_ssize_t sl;
         Py_ssize_t fl;
         Py_ssize_t tl;
-        Py_UCS4 *text = to_string(ctx->tree, &args[0], &sl);
-        Py_UCS4 *from = to_string(ctx->tree, &args[1], &fl);
-        Py_UCS4 *to = to_string(ctx->tree, &args[2], &tl);
-        if (text == NULL || from == NULL || to == NULL) { /* GCOVR_EXCL_BR_LINE: alloc cannot be forced */
-            rc = -1;                                      /* GCOVR_EXCL_LINE */
+        const Py_UCS4 *text;
+        const Py_UCS4 *from;
+        const Py_UCS4 *to;
+        Py_UCS4 *text_owned;
+        Py_UCS4 *from_owned;
+        Py_UCS4 *to_owned;
+        int text_rc = string_arg(ctx->tree, &args[0], &text, &sl, &text_owned);
+        int from_rc = string_arg(ctx->tree, &args[1], &from, &fl, &from_owned);
+        int to_rc = string_arg(ctx->tree, &args[2], &to, &tl, &to_owned);
+        if (text_rc < 0 || from_rc < 0 || to_rc < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot be forced */
+            rc = -1;                                   /* GCOVR_EXCL_LINE */
         } else { /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
             rc = translate(text, sl, from, fl, to, tl, out);
         }
-        PyMem_Free(text);
-        PyMem_Free(from);
-        PyMem_Free(to);
+        PyMem_Free(text_owned);
+        PyMem_Free(from_owned);
+        PyMem_Free(to_owned);
     } else if (func_is(fn, "ends-with")) {
         Py_ssize_t hl;
         Py_ssize_t nl;
@@ -1948,7 +1972,9 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     for (int cleanup_index = 0; cleanup_index < argc; cleanup_index++) {
         xp_result_free(&args[cleanup_index]);
     }
-    PyMem_Free(args);
+    if (argc > 3) {
+        PyMem_Free(args);
+    }
     return rc;
 }
 

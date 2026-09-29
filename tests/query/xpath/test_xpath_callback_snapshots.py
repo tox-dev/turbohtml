@@ -62,6 +62,17 @@ def test_xpath_callback_attribute_consumers(expression: str, *, expected: str | 
     assert source.xpath(expression, extensions={(None, "mutate"): mutate}) == expected
 
 
+def test_xpath_callback_translate_uses_prior_attribute_value() -> None:
+    source: Final = Element("section", {"id": "old"})
+
+    def mutate(_context: SimpleNamespace) -> str:
+        assert source.xpath("string(@id)") == "old"
+        source.attrs["id"] = "new"
+        return "o"
+
+    assert source.xpath("translate(@id, mutate(), 'O')", extensions={(None, "mutate"): mutate}) == "Old"
+
+
 @pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
 def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
     source: Final = Element("section", {"id": "old"}, children=[Element("b")])
