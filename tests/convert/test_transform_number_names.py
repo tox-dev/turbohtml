@@ -597,13 +597,17 @@ def test_transform_pattern_adopted_foreign_unprefixed(body: str, expected: str) 
 
 
 @pytest.mark.parametrize(
-    ("name", "expected"),
-    [pytest.param("p", "2", id="same-case"), pytest.param("P", "0", id="case-sensitive")],
+    ("name", "adopted_tag", "expected"),
+    [
+        pytest.param("p", "p", "2", id="same-name"),
+        pytest.param("p", "div", "1", id="other-name"),
+        pytest.param("P", "p", "0", id="case-sensitive"),
+    ],
 )
-def test_transform_pattern_key_adopted_html_atom(name: str, expected: str) -> None:
+def test_transform_pattern_key_adopted_html_name(name: str, adopted_tag: str, expected: str) -> None:
     source: Final = parse_xml('<root><p key="same"/></root>')
     root: Final = source.root
-    adopted: Final = parse_fragment('<p key="same"/>').select_one("p")
+    adopted: Final = parse_fragment(f'<{adopted_tag} key="same"/>').select_one(adopted_tag)
     assert root is not None
     assert adopted is not None
     root.append(adopted)
@@ -614,3 +618,26 @@ def test_transform_pattern_key_adopted_html_atom(name: str, expected: str) -> No
         "</xsl:stylesheet>"
     )
     assert Transform(sheet)(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("match", "source", "expected"),
+    [
+        pytest.param("p/q", "<root><p><q/></p></root>", "1", id="path"),
+        pytest.param("x" * 64, f"<root><{'x' * 64}/></root>", "1", id="long-name"),
+        pytest.param("é", "<root><é/></root>", "1", id="unicode-name"),
+        pytest.param("/", "<root/>", "1", id="document"),
+        pytest.param("/root/p", "<root><p/></root>", "1", id="absolute-child"),
+        pytest.param("*", "<root><p/></root>", "2", id="wildcard"),
+        pytest.param("p[@key]", '<root><p key="x"/></root>', "1", id="predicate"),
+        pytest.param("id('a')/q", '<root><p id="a"><q/></p></root>', "1", id="id-path"),
+    ],
+)
+def test_transform_pattern_key_static_name_boundaries(match: str, source: str, expected: str) -> None:
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:output method="text"/><xsl:key name="k" match="{match}" use="&apos;same&apos;"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', 'same'))\"/></xsl:template>"
+        "</xsl:stylesheet>"
+    )
+    assert Transform(sheet)(parse_xml(source)) == expected

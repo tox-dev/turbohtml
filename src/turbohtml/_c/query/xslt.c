@@ -1537,35 +1537,21 @@ static int build_key(engine *eng, xslt_key *key) {
 
 static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_result *matched) {
     const xn *path = &prog->nodes[prog->root];
-    if (path->kind != XN_PATH || !path->absolute || path->second >= 0 || path->first < 0) {
+    if (path->kind != XN_PATH || !path->absolute || path->first < 0) {
         return 1;
     }
     const xn *step = &prog->nodes[path->first];
-    if (step->kind != XN_STEP || step->axis != AX_DESCENDANT || step->test != NT_NAME || step->prefix_len != 0 ||
-        step->first >= 0 || step->next >= 0) {
+    if (step->axis != AX_DESCENDANT || step->test != NT_NAME || step->first >= 0 || step->next >= 0) {
         return 1;
-    }
-    uint16_t want_atom = TH_TAG_UNKNOWN;
-    if (step->str_len < 64) {
-        char spelling[64];
-        Py_ssize_t index = 0;
-        for (; index < step->str_len && step->str[index] < 128; index++) {
-            spelling[index] = (char)step->str[index];
-        }
-        if (index == step->str_len) {
-            want_atom = th_tag_lookup(spelling, step->str_len);
-        }
     }
     *matched = (xp_result){.kind = XP_NODESET};
     for (th_node *node = eng->src_root->first_child; node != NULL;) {
-        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML &&
-            (node->atom != TH_TAG_UNKNOWN
-                 ? node->atom == want_atom
-                 : node->text_len == step->str_len &&
-                       memcmp(node->text, step->str, (size_t)step->str_len * sizeof(Py_UCS4)) == 0) &&
-            ns_push(&matched->nodes, node, -1) < 0) {
-            xp_result_free(matched);
-            return -1;
+        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->text_len == step->str_len &&
+            memcmp(node->text, step->str, (size_t)step->str_len * sizeof(Py_UCS4)) == 0) {
+            if (ns_push(&matched->nodes, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                xp_result_free(matched);                  /* GCOVR_EXCL_LINE */
+                return -1;                                /* GCOVR_EXCL_LINE */
+            }
         }
         if (node->first_child != NULL) {
             node = node->first_child;
