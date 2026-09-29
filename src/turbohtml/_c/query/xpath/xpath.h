@@ -125,4 +125,10 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *con
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature);
 
+typedef int (*xp_name_test_fn)(void *context, struct th_node *node, Py_ssize_t attr, const Py_UCS4 *name,
+                               Py_ssize_t name_len);
+int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
+                       void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
+                       const char **feature);
+
 #endif /* TURBOHTML_XPATH_H */
