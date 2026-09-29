@@ -1099,7 +1099,7 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
             '<a title="a&lt;b&quot;c&nbsp;d">t</a>',
             "a",
             Formatter.MINIMAL,
-            '<a title="a&lt;b"c\xa0d">t</a>',
+            '<a title="a&lt;b&quot;c\xa0d">t</a>',
             id="minimal-attribute",
         ),
         pytest.param(
@@ -1147,6 +1147,24 @@ def test_default_formatter_keeps_non_ascii_literal() -> None:
 )
 def test_formatter_serialize(html: str, selector: str, formatter: Formatter, expected: str) -> None:
     assert _one(html, selector).serialize(Html(formatter=formatter)) == expected
+
+
+_QUOTED_TITLE_LINK: Final = '<a title="x&quot; data-y=&quot;1" href="/">hi</a>'
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [pytest.param(Indent(), id="indent"), pytest.param(Minify(), id="minify")],
+)
+def test_minimal_formatter_escapes_quote_in_attribute_under_layout(layout: Indent | Minify) -> None:
+    # every layout wraps attribute values in double quotes, so a literal one would end the value early
+    link = _one(_QUOTED_TITLE_LINK, "a")
+    assert link.serialize(Html(layout=layout, formatter=Formatter.MINIMAL)) == _QUOTED_TITLE_LINK
+
+
+def test_minimal_formatter_stream_escapes_quote_in_attribute() -> None:
+    link = _one(_QUOTED_TITLE_LINK, "a")
+    assert "".join(link.serialize_iter(Html(formatter=Formatter.MINIMAL))) == _QUOTED_TITLE_LINK
 
 
 def test_named_entities_reparse_to_the_same_text() -> None:

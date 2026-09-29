@@ -37,7 +37,7 @@ static inline int ser_check_recursive_depth(th_node *root, const char *operation
 /* The escape policy serialize()/encode() expose through the Formatter enum. */
 enum th_formatter {
     TH_FMT_WHATWG,  /* conformant minimal escaping: & < > nbsp in text, & < > " nbsp in attrs */
-    TH_FMT_MINIMAL, /* the three structural characters only, in both contexts */
+    TH_FMT_MINIMAL, /* the three structural characters, plus the quote that delimits an attribute value */
     TH_FMT_NAMED,   /* HTML named entities for every character that has one */
 };
 
@@ -51,7 +51,7 @@ static inline int sbuf_named_special(Py_UCS4 character) {
 }
 
 /* The WHATWG/MINIMAL special set tested over a 64-bit word of two UCS-4 code
-   points: & < > always, " in a WHATWG attribute value, and the no-break space
+   points: & < > always, " in any attribute value, and the no-break space
    WHATWG folds. Each probe sets the matching lane's high bit; a nonzero result
    means a special is in the pair. */
 static inline uint64_t sbuf_special_mask(uint64_t word, int escape_quote, int escape_nbsp) {
@@ -188,7 +188,7 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
         sbuf_put_named_text(out, text, len);
         return;
     }
-    int escape_quote = in_attr && formatter == TH_FMT_WHATWG;
+    int escape_quote = in_attr; /* every formatter wraps the value in double quotes */
     int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
     while (index < len) {
