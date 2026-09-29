@@ -2009,9 +2009,47 @@ static int bleach_plain_url(const Py_UCS4 *value, Py_ssize_t len) {
     return !colon || scheme;
 }
 
+static int bleach_url_has_raw_amp(sanitizer *s, th_node *element, th_node_attr *attr) {
+    if (!s->bleach_raw_urls) {
+        return 0;
+    }
+    const th_src_loc *location = th_node_source_location(s->tree, element);
+    th_src_span span;
+    if (location == NULL) {
+        bleach_origin key = {.value = attr->value, .name_atom = attr->name_atom};
+        bleach_origin *found = s->bleach_origins == NULL /* GCOVR_EXCL_BR_LINE: clone origins are collected first */
+                                   ? NULL
+                                   : bsearch(&key, s->bleach_origins, (size_t)s->bleach_origin_count,
+                                             sizeof(bleach_origin), compare_bleach_origins);
+        if (found == NULL) { /* GCOVR_EXCL_BR_LINE: parser clones share the source attribute buffer */
+            return 1;        /* GCOVR_EXCL_LINE: clone origins are collected first */
+        }
+        span = found->span;
+    } else {
+        Py_ssize_t index = 0;
+        while (index < location->attr_count && /* GCOVR_EXCL_BR_LINE: tokenizer supplies the matching span */
+               location->attrs[index].name_atom != attr->name_atom) {
+            index++;
+        }
+        if (index == location->attr_count) { /* GCOVR_EXCL_BR_LINE: a parsed attribute has a source span */
+            return 1;                        /* GCOVR_EXCL_LINE: tokenizer supplies the matching span */
+        }
+        span = location->attrs[index].span;
+    }
+    int kind, has_nul;
+    const void *data = th_tree_source_data(s->tree, &kind, &has_nul);
+    for (Py_ssize_t index = span.start_offset; index < span.end_offset; index++) {
+        if (PyUnicode_READ(kind, data, index) == '&') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr, const char *name,
                               Py_ssize_t name_len) {
-    if (!s->bleach_raw_urls && bleach_plain_url(attr->value, attr->value_len)) {
+    int raw_url = bleach_url_has_raw_amp(s, element, attr);
+    if (!raw_url && bleach_plain_url(attr->value, attr->value_len)) {
         return scheme_allowed(s, attr->value, attr->value_len);
     }
     if (bleach_script_url(attr->value, attr->value_len) || !authority_allowed(attr->value, 0, attr->value_len)) {
@@ -2029,7 +2067,7 @@ static int bleach_url_allowed(sanitizer *s, th_node *element, th_node_attr *attr
     Py_ssize_t len = attr->value_len;
     PyObject *raw = NULL;
     Py_UCS4 *raw_points = NULL;
-    if (s->bleach_raw_urls) {
+    if (raw_url) {
         Py_ssize_t points = 0;
         for (Py_ssize_t index = 0; index < name_len; index++) {
             points += ((unsigned char)name[index] & 0xc0) != 0x80;

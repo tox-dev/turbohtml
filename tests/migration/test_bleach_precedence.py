@@ -461,6 +461,15 @@ def test_bleach_url_normalization_handles_long_unicode_relative_url() -> None:
     assert clean(f'<a href="{value}">x</a>') == f'<a href="{value}">x</a>'
 
 
+def test_bleach_url_normalization_checks_each_href_source() -> None:
+    assert clean(
+        '<p>&amp;</p><a title="first" href="ftp:x">safe</a><a title="second" href="&Tab;ftp:x">unsafe</a>',
+        tags=["p", "a"],
+        attributes={"a": ["title", "href"]},
+        protocols=["ftp"],
+    ) == ('<p>&amp;</p><a title="first" href="ftp:x">safe</a><a title="second">unsafe</a>')
+
+
 def test_bleach_url_normalization_rejects_long_invalid_authority() -> None:
     value = "é//" + "x" * 140 + "[bad"
     assert clean(f'<a href="{value}">x</a>') == "<a>x</a>"
