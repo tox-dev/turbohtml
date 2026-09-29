@@ -395,6 +395,7 @@ static PyObject *element_walker_next(PyObject *self) {
     NodeObject *current = (NodeObject *)result;
     int inside;
     int failed = 0;
+    PyObject *next_scope = NULL;
 #ifdef Py_GIL_DISABLED
     node_guard guard;
     node_guard_begin(&guard, (NodeObject *)walker->scope, current);
@@ -413,31 +414,43 @@ static PyObject *element_walker_next(PyObject *self) {
 #endif
     if (!inside) {
         root = current->node;
-    }
-    th_node *following = element_walk_next(current->node, root, walker);
-    if (following != NULL) {
-        walker->pending = node_wrap(state_of(self), handle, following);
-        if (walker->pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            failed = 1;                /* GCOVR_EXCL_LINE */
-        } /* GCOVR_EXCL_LINE: allocation-failure path */
-        else {
-            Py_SETREF(walker->pending_handle, Py_NewRef(handle));
-            walker->pending_version = ((HandleObject *)handle)->mutation_version;
+        while (root->parent != NULL) {
+            root = root->parent;
         }
-    } else {
-        Py_DECREF(walker->pending_handle);
-        walker->pending_handle = NULL;
     }
+    if (!inside) {
+        next_scope = root == current->node ? Py_NewRef(result) : node_wrap(state_of(self), handle, root);
+        if (next_scope == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            failed = 1;           /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (!failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        th_node *following = element_walk_next(current->node, root, walker);
+        if (following != NULL) {
+            walker->pending = node_wrap(state_of(self), handle, following);
+            if (walker->pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                failed = 1;                /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE: allocation-failure path */
+            else {
+                Py_SETREF(walker->pending_handle, Py_NewRef(handle));
+                walker->pending_version = ((HandleObject *)handle)->mutation_version;
+            }
+        } else {
+            Py_DECREF(walker->pending_handle);
+            walker->pending_handle = NULL;
+        }
+    } /* GCOVR_EXCL_LINE: allocation-failure path */
 #ifdef Py_GIL_DISABLED
     node_guard_end(&guard);
 #else
     Py_END_CRITICAL_SECTION();
 #endif
-    if (!inside) {
-        Py_SETREF(walker->scope, Py_NewRef((PyObject *)current));
+    if (next_scope != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_SETREF(walker->scope, next_scope);
     }
-    if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_CLEAR(result); /* GCOVR_EXCL_LINE */
+    if (failed) {                  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_CLEAR(walker->pending); /* GCOVR_EXCL_LINE */
+        Py_CLEAR(result);          /* GCOVR_EXCL_LINE */
     } /* GCOVR_EXCL_LINE: allocation-failure path */
 #ifdef Py_GIL_DISABLED
     PyThread_release_lock(walker->lock);

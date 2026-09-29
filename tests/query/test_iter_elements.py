@@ -110,7 +110,7 @@ def test_iter_elements_stops_after_pending_leaves_root() -> None:
     assert list(iterator) == [second]
 
 
-def test_iter_elements_excludes_new_siblings_of_moved_pending() -> None:
+def test_iter_elements_follows_new_siblings_of_moved_pending() -> None:
     first: Final = Element("p")
     second: Final = Element("p")
     tail: Final = Element("p")
@@ -118,7 +118,29 @@ def test_iter_elements_excludes_new_siblings_of_moved_pending() -> None:
     iterator: Final = root.iter_elements("p")
     assert next(iterator) == first
     Element("aside", children=[second, tail])
-    assert list(iterator) == [second]
+    assert list(iterator) == [second, tail]
+
+
+def test_iter_elements_follows_detached_current_subtree() -> None:
+    first: Final = Element("a", children=[Element("b"), Element("c")])
+    root: Final = Element("div", children=[first, Element("d")])
+    iterator: Final = root.iter_elements(include_self=True)
+    assert next(iterator) == root
+    assert next(iterator) == first
+    first.extract()
+    assert [node.tag for node in iterator] == ["b", "c"]
+
+
+def test_iter_elements_follows_detached_ancestor_subtree() -> None:
+    first: Final = Element("b")
+    outer: Final = Element(
+        "a", children=[Element("x", children=[first, Element("c")]), Element("y", children=[Element("d")])]
+    )
+    root: Final = Element("div", children=[outer])
+    iterator: Final = root.iter_elements(("b", "c", "d"))
+    assert next(iterator) == first
+    outer.extract()
+    assert [node.tag for node in iterator] == ["c", "d"]
 
 
 def test_iter_elements_crosses_nested_following_sibling() -> None:
