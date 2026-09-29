@@ -49,6 +49,9 @@ Text content is HTML-escaped, except inside ``script``, ``style`` and the other 
 decodes no character references: text written there is kept as is, so ``a < b`` stays a valid script. The rewrite
 then raises :class:`ValueError` if that text would end the element early (``</script``, or ``<!--`` in a script).
 
+The rewrite writes an edited element's start tag again from its attributes and escapes ``&``, ``"``, ``<`` and ``>`` in
+each value.
+
 The handle is valid only for the duration of the handler call; stashing it and using it afterwards raises
 :class:`RuntimeError`.
 """

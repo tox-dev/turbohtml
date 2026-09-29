@@ -116,8 +116,19 @@ def test_rewrite_set_attribute_adds_and_replaces() -> None:
     assert rewrite('<p class="old">x</p>', elements=[("p", handler)]) == '<p class="changed" data-new="1">x</p>'
 
 
-def test_rewrite_set_attribute_escapes_value() -> None:
-    assert rewrite("<p>x</p>", elements=[("p", _set("t", '"&<'))]) == '<p t="&quot;&amp;<">x</p>'
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        pytest.param("<p>x</p>", '<p t="&quot;&amp;&lt;&gt;">x</p>', id="set-value"),
+        pytest.param(
+            '<p title="&lt;/style&gt;">x</p>',
+            '<p title="&lt;/style&gt;" t="&quot;&amp;&lt;&gt;">x</p>',
+            id="source-value",
+        ),
+    ],
+)
+def test_rewrite_edited_start_tag_escapes_attribute_values(src: str, expected: str) -> None:
+    assert rewrite(src, elements=[("p", _set("t", '"&<>'))]) == expected
 
 
 def test_rewrite_set_attribute_empty_name_raises() -> None:

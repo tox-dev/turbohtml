@@ -36,7 +36,7 @@ static inline int ser_check_recursive_depth(th_node *root, const char *operation
 
 /* The escape policy serialize()/encode() expose through the Formatter enum. */
 enum th_formatter {
-    TH_FMT_WHATWG,  /* conformant minimal escaping: & < > nbsp in text, & " nbsp in attrs */
+    TH_FMT_WHATWG,  /* conformant minimal escaping: & < > nbsp in text, & < > " nbsp in attrs */
     TH_FMT_MINIMAL, /* the three structural characters only, in both contexts */
     TH_FMT_NAMED,   /* HTML named entities for every character that has one */
 };
@@ -51,14 +51,11 @@ static inline int sbuf_named_special(Py_UCS4 character) {
 }
 
 /* The WHATWG/MINIMAL special set tested over a 64-bit word of two UCS-4 code
-   points: & always, < > when angle brackets escape (text, or any MINIMAL), " in
-   a WHATWG attribute value, and the no-break space WHATWG folds. Each probe sets
-   the matching lane's high bit; a nonzero result means a special is in the pair. */
-static inline uint64_t sbuf_special_mask(uint64_t word, int escape_angle, int escape_quote, int escape_nbsp) {
-    uint64_t mask = swar_haslane32(word, '&');
-    if (escape_angle) {
-        mask |= swar_haslane32(word, '<') | swar_haslane32(word, '>');
-    }
+   points: & < > always, " in a WHATWG attribute value, and the no-break space
+   WHATWG folds. Each probe sets the matching lane's high bit; a nonzero result
+   means a special is in the pair. */
+static inline uint64_t sbuf_special_mask(uint64_t word, int escape_quote, int escape_nbsp) {
+    uint64_t mask = swar_haslane32(word, '&') | swar_haslane32(word, '<') | swar_haslane32(word, '>');
     if (escape_quote) {
         mask |= swar_haslane32(word, '"');
     }
@@ -80,12 +77,10 @@ static inline uint64_t sbuf_special_mask(uint64_t word, int escape_angle, int es
 
 #define SBUF_SCAN_STEP 4
 
-static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_angle, int escape_quote, int escape_nbsp) {
+static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
     uint32x4_t lanes = vld1q_u32((const uint32_t *)text);
     uint32x4_t hits = vceqq_u32(lanes, vdupq_n_u32('&'));
-    if (escape_angle) {
-        hits = vorrq_u32(hits, vorrq_u32(vceqq_u32(lanes, vdupq_n_u32('<')), vceqq_u32(lanes, vdupq_n_u32('>'))));
-    }
+    hits = vorrq_u32(hits, vorrq_u32(vceqq_u32(lanes, vdupq_n_u32('<')), vceqq_u32(lanes, vdupq_n_u32('>'))));
     if (escape_quote) {
         hits = vorrq_u32(hits, vceqq_u32(lanes, vdupq_n_u32('"')));
     }
@@ -101,13 +96,11 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_angle, 
 
 #define SBUF_SCAN_STEP 4
 
-static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_angle, int escape_quote, int escape_nbsp) {
+static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
     __m128i lanes = _mm_loadu_si128((const __m128i *)text);
     __m128i hits = _mm_cmpeq_epi32(lanes, _mm_set1_epi32('&'));
-    if (escape_angle) {
-        hits = _mm_or_si128(hits, _mm_or_si128(_mm_cmpeq_epi32(lanes, _mm_set1_epi32('<')),
-                                               _mm_cmpeq_epi32(lanes, _mm_set1_epi32('>'))));
-    }
+    hits = _mm_or_si128(
+        hits, _mm_or_si128(_mm_cmpeq_epi32(lanes, _mm_set1_epi32('<')), _mm_cmpeq_epi32(lanes, _mm_set1_epi32('>'))));
     if (escape_quote) {
         hits = _mm_or_si128(hits, _mm_cmpeq_epi32(lanes, _mm_set1_epi32('"')));
     }
@@ -121,10 +114,10 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_angle, 
 
 #define SBUF_SCAN_STEP UCS4_LANES
 
-static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_angle, int escape_quote, int escape_nbsp) {
+static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
     uint64_t word;
     memcpy(&word, text, sizeof(word));
-    return sbuf_special_mask(word, escape_angle, escape_quote, escape_nbsp) != 0;
+    return sbuf_special_mask(word, escape_quote, escape_nbsp) != 0;
 }
 
 #endif
@@ -195,7 +188,6 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
         sbuf_put_named_text(out, text, len);
         return;
     }
-    int escape_angle = formatter == TH_FMT_MINIMAL || !in_attr;
     int escape_quote = in_attr && formatter == TH_FMT_WHATWG;
     int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
@@ -203,7 +195,7 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
         Py_ssize_t start = index;
         Py_ssize_t special = -1;
         while (index + SBUF_SCAN_STEP <= len) {
-            if (sbuf_block_has_special(&text[index], escape_angle, escape_quote, escape_nbsp)) {
+            if (sbuf_block_has_special(&text[index], escape_quote, escape_nbsp)) {
                 break;
             }
             index += SBUF_SCAN_STEP;
@@ -211,9 +203,9 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
         while (index + UCS4_LANES <= len) {
             uint64_t word;
             memcpy(&word, &text[index], sizeof(word));
-            if (sbuf_special_mask(word, escape_angle, escape_quote, escape_nbsp) != 0) {
+            if (sbuf_special_mask(word, escape_quote, escape_nbsp) != 0) {
                 uint64_t ordered = (uint64_t)text[index] | ((uint64_t)text[index + 1] << 32);
-                uint64_t omask = sbuf_special_mask(ordered, escape_angle, escape_quote, escape_nbsp);
+                uint64_t omask = sbuf_special_mask(ordered, escape_quote, escape_nbsp);
                 special = index + (Py_ssize_t)((omask & 0x80000000ULL) == 0);
                 break;
             }
@@ -223,7 +215,7 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
             /* one code point trails the last full pair; pad with a non-special
                lane so the same mask probe classifies it without a buffer overread */
             uint64_t word = (uint64_t)text[index];
-            if (sbuf_special_mask(word, escape_angle, escape_quote, escape_nbsp) != 0) {
+            if (sbuf_special_mask(word, escape_quote, escape_nbsp) != 0) {
                 special = index;
             }
         }

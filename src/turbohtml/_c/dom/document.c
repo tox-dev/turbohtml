@@ -2247,7 +2247,8 @@ static int build_formatter_enum(PyObject *module, module_state *state) {
     static const char doc[] = "The character-escaping policy serialize()/encode() apply, passed as formatter.\n\n"
                               "WHATWG escapes exactly what the HTML serialization algorithm requires (the\n"
                               "default); MINIMAL escapes only the characters that would otherwise change the\n"
-                              "markup; NAMED_ENTITIES prefers named character references where one exists.";
+                              "markup; NAMED_ENTITIES prefers named character references where one exists.\n\n"
+                              "Every formatter escapes < and > in attribute values as well as in text.";
     return build_enum(module, "Formatter", 0, names, TH_FORMATTER_COUNT, values, doc, state->formatters,
                       &state->formatter_enum);
 }

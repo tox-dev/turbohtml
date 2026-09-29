@@ -181,16 +181,15 @@ def test_unquote_keeps_quotes_on_space() -> None:
     ("value", "expected"),
     [
         pytest.param("a=b", '<a x="a=b">', id="equals"),
-        pytest.param("a<b", '<a x="a<b">', id="lt"),
-        pytest.param("a>b", '<a x="a>b">', id="gt"),
+        pytest.param("a<b", '<a x="a&lt;b">', id="lt"),
+        pytest.param("a>b", '<a x="a&gt;b">', id="gt"),
         pytest.param("a`b", '<a x="a`b">', id="backtick"),
         pytest.param("a&b", '<a x="a&amp;b">', id="amp"),
         pytest.param("ab/", '<a x="ab/">', id="trailing-slash"),
     ],
 )
 def test_unquote_keeps_quotes_on_unsafe(value: str, expected: str) -> None:
-    # the value contains a character that bars unquoting, so it stays quoted (WHATWG
-    # attribute escaping leaves < and > literal; only &, " and nbsp are rewritten)
+    # the value contains a character that bars unquoting, so it stays quoted
     out = frag(f'<a x="{value}">', omit_optional_tags=False)
     assert out.startswith(expected)
 

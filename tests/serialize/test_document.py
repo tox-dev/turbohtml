@@ -987,9 +987,26 @@ def test_inner_html(html: str, selector: str, inner: str, outer: str) -> None:
     assert node.html == outer
 
 
-def test_whatwg_attribute_leaves_angles_literal() -> None:
+def test_whatwg_attribute_escapes_angles() -> None:
+    # a literal `<` or `>` in an attribute can become markup after a reparse through foreign content or <noscript>
     anchor = _one('<a title="a&amp;b&lt;c&gt;d&quot;e&nbsp;f">t</a>', "a")
-    assert anchor.html == '<a title="a&amp;b<c>d&quot;e&nbsp;f">t</a>'
+    assert anchor.html == '<a title="a&amp;b&lt;c&gt;d&quot;e&nbsp;f">t</a>'
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(Html(), id="default"),
+        pytest.param(Html(layout=Minify()), id="minify"),
+        pytest.param(Html(layout=Indent()), id="indent"),
+    ],
+)
+def test_attribute_angle_brackets_do_not_become_markup_on_reparse(options: Html) -> None:
+    # the input holds no <b>: in foreign content <style> is an ordinary element and the markup stays in the attribute,
+    # but a reparse of unescaped output reads that <style> as raw text, which the attribute's `</style>` then closes
+    source = '<math><mtext><table><mglyph><svg><mtext><style><a title="</style><b>x</b>">'
+    out = parse_fragment(source, "body").serialize(options, inner=True)
+    assert parse_fragment(out, "body").select("b") == []
 
 
 def test_whatwg_text_keeps_a_literal_quote() -> None:

@@ -76,7 +76,7 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
             while (index + UCS4_LANES <= len) {
                 uint64_t word;
                 memcpy(&word, &text[index], sizeof(word));
-                if ((sbuf_special_mask(word, 1, 0, escape_nbsp) | mini_ws_mask(word)) != 0) {
+                if ((sbuf_special_mask(word, 0, escape_nbsp) | mini_ws_mask(word)) != 0) {
                     break;
                 }
                 index += UCS4_LANES;

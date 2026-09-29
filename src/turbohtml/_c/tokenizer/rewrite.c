@@ -715,7 +715,8 @@ static PyObject *rw_remove_attribute(rw_handle *self, PyObject *name) {
     Py_RETURN_NONE;
 }
 
-/* Rebuild the start tag of an edited element from its current name and attributes. */
+/* Rebuild the start tag of an edited element from its current name and attributes. Values escape & " < > as the
+   default serializer does. */
 static void rw_emit_start_tag(rw_ctx *ctx, th_node *node, int self_closing) {
     rw_out_char(&ctx->out, '<');
     rw_out_run(&ctx->out, node->text, node->text_len);
@@ -732,6 +733,10 @@ static void rw_emit_start_tag(rw_ctx *ctx, th_node *node, int self_closing) {
                     rw_out_ascii(&ctx->out, "&amp;");
                 } else if (ch == '"') {
                     rw_out_ascii(&ctx->out, "&quot;");
+                } else if (ch == '<') {
+                    rw_out_ascii(&ctx->out, "&lt;");
+                } else if (ch == '>') {
+                    rw_out_ascii(&ctx->out, "&gt;");
                 } else {
                     rw_out_char(&ctx->out, ch);
                 }

@@ -1,0 +1,2 @@
+Escape ``<`` and ``>`` in attribute values under every formatter and in the start tags
+:func:`~turbohtml.rewrite.rewrite` writes for edited elements.
