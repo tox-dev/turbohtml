@@ -148,6 +148,8 @@ _NESTED: Final = (
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
+        pytest.param("/descendant::a", ["1", "2", "3", "4"], id="single-root-descendants"),
+        pytest.param("//div[@id='o']/descendant::a", ["1", "2"], id="single-element-descendants"),
         pytest.param("//div//a", ["1", "2", "4"], id="descendant-from-nested-contexts"),
         pytest.param(
             "//div/descendant-or-self::*", ["o", "i", "1", "p", "2", "s", "4"], id="descendant-or-self-nested"

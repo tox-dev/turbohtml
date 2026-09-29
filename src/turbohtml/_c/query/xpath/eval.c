@@ -1196,6 +1196,9 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
             following->snapshots = 0;
         }
         following->len = 0;
+        /* One descendant walk cannot reorder or repeat a node. */
+        int ordered_unique =
+            contexts->len == 1 && contexts->items[0].attr == -1 && step->axis == AX_DESCENDANT && step->first < 0;
         int stepped = eval_path_step(prog, step, &match, ctx, contexts, following);
         if (stepped < 0) {
             xp_nodeset_free(current);
@@ -1206,10 +1209,10 @@ static int eval_path_inner(const xp_program *prog, int32_t path_idx, xp_ctx *ctx
         *current = *following;
         *following = swap;
         contexts = current;
-        if (sort_unique(current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            xp_nodeset_free(current);   /* GCOVR_EXCL_LINE */
-            xp_nodeset_free(following); /* GCOVR_EXCL_LINE */
-            return -1;                  /* GCOVR_EXCL_LINE */
+        if (!ordered_unique && sort_unique(current) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            xp_nodeset_free(current);                      /* GCOVR_EXCL_LINE */
+            xp_nodeset_free(following);                    /* GCOVR_EXCL_LINE */
+            return -1;                                     /* GCOVR_EXCL_LINE */
         }
     }
     xp_nodeset_free(following);
