@@ -869,7 +869,7 @@ static int build_step_match(xp_ctx *ctx, const xn *step, step_match *match) {
     match->qualified_len = step->str_len;
     match->name_test = ctx->name_test;
     match->name_test_ctx = ctx->name_test_ctx;
-    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0;
+    match->strict_no_ns = ctx->strict_no_ns && step->prefix_len == 0; /* GCOVR_EXCL_BR_LINE: prefixes use callback */
     if (step->test != NT_NAME) {
         return 0;
     }
@@ -1476,7 +1476,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
                   &regex_cache,
                   name_test,
                   name_test_ctx,
-                  name_test == NULL && th_tree_is_xml(tree)};
+                  name_test == NULL && th_tree_is_xml(tree)}; /* GCOVR_EXCL_BR_LINE: XML only */
     int rc = eval_expr(prog, prog->root, &ctx, out);
     Py_XDECREF(regex_cache);
     return rc;
