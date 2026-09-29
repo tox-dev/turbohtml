@@ -88,6 +88,13 @@ nesting raises :exc:`RecursionError`. Walk long lists with ``xsl:for-each`` inst
 An ``xsl:attribute-set`` whose ``use-attribute-sets`` chain leads back to itself raises :exc:`ValueError` when
 :class:`~turbohtml.transform.Transform` compiles the stylesheet, even if no template applies it.
 
+``xsl:comment`` puts a space after each ``-`` that another ``-`` follows or that ends the text, and
+``xsl:processing-instruction`` puts one after each ``?`` that ``>`` follows, so data cannot end the node early. The
+``html`` method puts a space before comment text that starts with ``>`` or ``->``.
+
+The ``html`` method ends a processing instruction at its first ``>`` and has no escape for one, so a result holding such
+a processing instruction raises :exc:`ValueError`.
+
 *********************
  Import a stylesheet
 *********************

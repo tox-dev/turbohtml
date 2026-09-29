@@ -2455,12 +2455,37 @@ static int do_copy(engine *eng, th_node *instruction, th_node *out_parent) {
     return instantiate_body(eng, instruction, out_parent);
 }
 
+/* The recovery XSLT 1.0 sections 7.3 and 7.4 prescribe for data that would end a comment or processing instruction
+   early; it keeps a transform over such source data running. */
+static Py_UCS4 *space_after(const Py_UCS4 *data, Py_ssize_t len, Py_UCS4 mark, Py_UCS4 next, int at_end,
+                            Py_ssize_t *out_len) {
+    Py_UCS4 *out = PyMem_Malloc((size_t)(2 * len + 1) * sizeof(Py_UCS4));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t write = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        out[write++] = data[index];
+        if (data[index] == mark && (index + 1 < len ? data[index + 1] == next : at_end)) {
+            out[write++] = ' ';
+        }
+    }
+    *out_len = write;
+    return out;
+}
+
 /* xsl:comment / xsl:processing-instruction. */
 static int do_comment(engine *eng, th_node *instruction, th_node *out_parent) {
-    Py_UCS4 *data;
-    Py_ssize_t data_len = 0;
-    if (instantiate_string(eng, instruction, &data, &data_len) < 0) {
+    Py_UCS4 *raw;
+    Py_ssize_t raw_len = 0;
+    if (instantiate_string(eng, instruction, &raw, &raw_len) < 0) {
         return -1;
+    }
+    Py_ssize_t data_len = 0;
+    Py_UCS4 *data = space_after(raw, raw_len, '-', '-', 1, &data_len);
+    PyMem_Free(raw);
+    if (data == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node *node = th_tree_make_data_node(eng->out_tree, TH_NODE_COMMENT, data, data_len);
     PyMem_Free(data);
@@ -2482,11 +2507,18 @@ static int do_pi(engine *eng, th_node *instruction, th_node *out_parent) {
     if (eval_avt(eng, name_avt, name_len, &target, &target_len) < 0) {
         return -1;
     }
-    Py_UCS4 *data;
-    Py_ssize_t data_len = 0;
-    if (instantiate_string(eng, instruction, &data, &data_len) < 0) {
+    Py_UCS4 *raw;
+    Py_ssize_t raw_len = 0;
+    if (instantiate_string(eng, instruction, &raw, &raw_len) < 0) {
         PyMem_Free(target);
         return -1;
+    }
+    Py_ssize_t data_len = 0;
+    Py_UCS4 *data = space_after(raw, raw_len, '?', '>', 0, &data_len);
+    PyMem_Free(raw);
+    if (data == NULL) {                    /* GCOVR_EXCL_BR_LINE: alloc */
+        PyMem_Free(target);                /* GCOVR_EXCL_LINE */
+        return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE */
     }
     th_node *node = th_tree_make_pi(eng->out_tree, target, target_len, data, data_len);
     PyMem_Free(target);
@@ -5336,8 +5368,59 @@ static PyObject *serialize_text(engine *eng, th_node *root) {
     return out;
 }
 
+static int raise_html_pi_gt(const th_node *pi) {
+    PyObject *target = make_str(pi->text, pi->attr_count);
+    if (target != NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+        PyErr_Format(PyExc_ValueError,
+                     "xslt: processing instruction '%U' holds '>', which ends a processing instruction under the html "
+                     "output method; remove the '>' or use the xml output method",
+                     target);
+        Py_DECREF(target);
+    }
+    return -1;
+}
+
+/* WHATWG HTML 13.1.6 forbids comment text that starts with `>` or `->`: the tokenizer reads `<!-->` and `<!--->` as
+   a whole empty comment, so the rest of the text would become markup. */
+static int starts_like_comment_end(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t start = len > 1 && text[0] == '-';
+    return start < len && text[start] == '>';
+}
+
+/* HTML has no escape inside a comment or processing instruction, and the output method is final only once the result
+   tree exists, so created and copied nodes get checked here; a PI's `>` is Serialization 3.1 err:SERE0015. */
+static int prepare_html_leaves(engine *eng, th_node *root) {
+    for (th_node *node = root; node != NULL; node = preorder_next(node, root)) {
+        if (node->type == TH_NODE_PI) {
+            for (Py_ssize_t index = 0; index < node->text_len; index++) {
+                if (node->text[index] == '>') {
+                    return raise_html_pi_gt(node);
+                }
+            }
+        } else if (node->type == TH_NODE_COMMENT && starts_like_comment_end(node->text, node->text_len)) {
+            Py_UCS4 *spaced = PyMem_Malloc((size_t)(node->text_len + 1) * sizeof(Py_UCS4));
+            if (spaced == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+            spaced[0] = ' ';
+            memcpy(spaced + 1, node->text, (size_t)node->text_len * sizeof(Py_UCS4));
+            int rc = th_node_set_data(eng->out_tree, node, spaced, node->text_len + 1);
+            PyMem_Free(spaced);
+            if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: alloc */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+                return -1;        /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    return 0;
+}
+
 /* Serialize the output tree's children as XML or HTML markup. */
 static PyObject *serialize_markup(engine *eng, th_node *root) {
+    if (eng->output_method == OUT_HTML && prepare_html_leaves(eng, root) < 0) {
+        return NULL;
+    }
     th_serialize_opts opts = {0};
     opts.xml = eng->output_method == OUT_XML;
     if (eng->output_method == OUT_HTML) {

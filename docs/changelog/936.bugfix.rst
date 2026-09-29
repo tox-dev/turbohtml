@@ -1,0 +1,2 @@
+Keep XSLT comment and processing-instruction text inside its node, and raise ``ValueError`` when the html method would
+write ``>`` inside a processing instruction.

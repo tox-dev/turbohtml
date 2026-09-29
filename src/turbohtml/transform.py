@@ -74,8 +74,8 @@ class Transform:
         :param source: the document to transform, a parsed tree.
         :param params: top-level ``xsl:param`` values, each an XPath expression string; wrap a plain string in
             :func:`strparam` (``convert(doc, title=strparam(title))``) so its quotes cannot end the literal.
-        :raises ValueError: if the stylesheet or an expression is malformed, or a referenced key or named template is
-            undeclared.
+        :raises ValueError: if the stylesheet or an expression is malformed, a referenced key or named template is
+            undeclared, or the html output method would write a processing instruction that holds ``>``.
         :raises RuntimeError: on an ``xsl:message`` with ``terminate="yes"``.
         :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
         """

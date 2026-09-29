@@ -388,6 +388,92 @@ def test_transform_comment_and_processing_instruction_instructions() -> None:
 
 
 @pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("a--&gt;b", "<!--a- ->b-->", id="close"),
+        pytest.param("a-", "<!--a- -->", id="trailing-dash"),
+        pytest.param("a---b", "<!--a- - -b-->", id="dash-run"),
+    ],
+)
+@pytest.mark.parametrize("method", [pytest.param("html", id="html"), pytest.param("xml", id="xml")])
+def test_transform_comment_data_cannot_close_the_comment(method: str, data: str, expected: str) -> None:
+    # XSLT 1.0 7.4 recovery: a space after every `-` that another `-` follows or that ends the text
+    body = '<xsl:template match="/"><r><xsl:comment><xsl:value-of select="/c"/></xsl:comment></r></xsl:template>'
+    assert _run(f"<c>{data}</c>", body, method=method) == f"<r>{expected}</r>"
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("a?&gt;b", "<?t a? >b?>", id="close"),
+        pytest.param("a?&gt;b?&gt;c", "<?t a? >b? >c?>", id="each-close"),
+    ],
+)
+def test_transform_pi_data_cannot_close_the_instruction(data: str, expected: str) -> None:
+    # XSLT 1.0 7.3 recovery: a space after every `?` that `>` follows
+    body = (
+        '<xsl:template match="/"><r><xsl:processing-instruction name="t"><xsl:value-of select="/c"/>'
+        "</xsl:processing-instruction></r></xsl:template>"
+    )
+    assert _run(f"<c>{data}</c>", body, method="xml") == f"<r>{expected}</r>"
+
+
+@pytest.mark.parametrize(
+    ("instruction", "source"),
+    [
+        pytest.param(
+            '<xsl:processing-instruction name="t"><xsl:value-of select="/c"/></xsl:processing-instruction>',
+            "<c>a&gt;b</c>",
+            id="created",
+        ),
+        pytest.param('<xsl:copy-of select="/c/processing-instruction()"/>', "<c><?t a>b?></c>", id="copied"),
+    ],
+)
+def test_transform_html_method_rejects_pi_holding_greater_than(instruction: str, source: str) -> None:
+    # the html output method ends a processing instruction at its first `>`, with no escape for one inside
+    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
+    message = (
+        "xslt: processing instruction 't' holds '>', which ends a processing instruction under the html output method; "
+        "remove the '>' or use the xml output method"
+    )
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _run(source, body, method="html")
+
+
+@pytest.mark.parametrize(
+    ("instruction", "source", "expected"),
+    [
+        pytest.param(
+            '<xsl:comment><xsl:value-of select="/c"/></xsl:comment>', "<c>&gt;b</c>", "<!-- >b-->", id="created-gt"
+        ),
+        pytest.param(
+            '<xsl:comment><xsl:value-of select="/c"/></xsl:comment>',
+            "<c>-&gt;b</c>",
+            "<!-- ->b-->",
+            id="created-dash-gt",
+        ),
+        pytest.param('<xsl:copy-of select="/c/comment()"/>', "<c><!-->b--></c>", "<!-- >b-->", id="copied-gt"),
+    ],
+)
+def test_transform_html_method_keeps_comment_start_inside(instruction: str, source: str, expected: str) -> None:
+    # HTML ends a comment whose text starts with `>` or `->` at that `>`, as an empty comment
+    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
+    assert _run(source, body, method="html") == f"<r>{expected}</r>"
+
+
+@pytest.mark.parametrize(
+    ("instruction", "expected"),
+    [
+        pytest.param("<xsl:comment/>", "<!---->", id="empty-comment"),
+        pytest.param('<xsl:processing-instruction name="t">a?b</xsl:processing-instruction>', "<?t a?b>", id="pi"),
+    ],
+)
+def test_transform_html_method_writes_safe_leaf_data_unchanged(instruction: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
+    assert _run("<c/>", body, method="html") == f"<r>{expected}</r>"
+
+
+@pytest.mark.parametrize(
     ("data_type", "order", "expected"),
     [
         pytest.param("text", "ascending", "ABab", id="text-asc"),
