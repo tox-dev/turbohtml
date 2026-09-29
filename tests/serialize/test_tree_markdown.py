@@ -1863,6 +1863,12 @@ def _configured_markdown(html: str, options: Markdown) -> str:
             "- ### H",
             id="list-heading-setext-h3-falls-back",
         ),
+        pytest.param(
+            "<ul><li><h1>H</h1></li></ul>",
+            Markdown(headings=Markdown.Headings(style="setext")),
+            "- \n  H\n  =",
+            id="list-heading-setext-h1",
+        ),
     ],
 )
 def test_heading_style(html: str, opts: Markdown, expected: str) -> None:
