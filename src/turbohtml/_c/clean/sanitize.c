@@ -872,9 +872,6 @@ static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t
                 (codepoint == '"' || codepoint == '\'' || codepoint == '(' || codepoint < 0x20 || codepoint == 0x7F)) {
                 goto done;
             }
-            if (quote && is_css_newline(codepoint)) {
-                goto done;
-            }
             pos++;
         }
         if (allowed != SCHEME_UNDECIDED || is_url_ignorable(codepoint)) {
@@ -975,31 +972,98 @@ static int css_identifier_kind(const Py_UCS4 *value, Py_ssize_t *pos, Py_ssize_t
     return length == 10 && memcmp(token, "expression", 10) == 0 ? 2 : 0;
 }
 
-/* Skip a quoted CSS string. Function-like text inside it is data, not a token. */
-static Py_ssize_t css_skip_string(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
+enum css_token_flag {
+    CSS_TOKEN_BAD = 1,  /* a <bad-string-token>, which invalidates its declaration */
+    CSS_TOKEN_OPEN = 2, /* a string, comment, or url token the input ended inside */
+};
+
+/* CSS Syntax "consume a string token": an unescaped newline ends the string as a <bad-string-token> and stays
+   unconsumed, so a browser acts on the separators after it. */
+static Py_ssize_t css_skip_string(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags) {
     Py_UCS4 quote = value[pos++];
     while (pos < end) {
-        if (value[pos] == quote) {
+        Py_UCS4 codepoint = value[pos];
+        if (codepoint == quote) {
             return pos + 1;
         }
-        if (value[pos] != '\\') {
-            pos++;
-            continue;
+        if (is_css_newline(codepoint)) {
+            *flags |= CSS_TOKEN_BAD;
+            return pos;
         }
-        pos++;
-        if (pos >= end) { /* GCOVR_EXCL_BR_LINE: the declaration splitter rejects a terminal string escape */
-            continue;     /* GCOVR_EXCL_LINE: rejected-declaration path */
-        }
-        if (value[pos] == '\r') {
+        if (codepoint != '\\') {
             pos++;
-            if (pos < end && value[pos] == '\n') { /* GCOVR_EXCL_BR_LINE: a terminal CR is rejected upstream */
-                pos++;
+        } else if (!css_decode_escape(value, &pos, end, &codepoint)) {
+            if (pos + 1 == end) {
+                *flags |= CSS_TOKEN_BAD; /* like a trailing backslash outside a string, it drops the declaration */
+                break;
             }
-        } else {
-            pos++;
+            pos += value[pos + 1] == '\r' && pos + 2 < end && value[pos + 2] == '\n' ? 3 : 2; /* a line continuation */
         }
     }
+    *flags |= CSS_TOKEN_OPEN;
     return end;
+}
+
+/* A url token and the remnants of a bad one both end at the first unescaped `)` and hold no comments or strings;
+   css_url_scheme_allowed drops the bad forms. */
+static Py_ssize_t css_skip_url(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags) {
+    while (pos < end) {
+        if (value[pos] == ')') {
+            return pos + 1;
+        }
+        pos += value[pos] == '\\' ? 2 : 1;
+    }
+    *flags |= CSS_TOKEN_OPEN;
+    return end;
+}
+
+/* CSS Syntax "consume an ident-like token": `url(` without a quote after it starts a url token. Any other function
+   leaves its `(` to the caller's nesting count. */
+static Py_ssize_t css_skip_ident(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags) {
+    char name[4];
+    Py_ssize_t name_len = 0;
+    while (pos < end && (is_css_ident_char(value[pos]) || value[pos] == '\\')) {
+        Py_UCS4 codepoint = value[pos];
+        if (codepoint != '\\') {
+            pos++;
+        } else if (!css_decode_escape(value, &pos, end, &codepoint)) {
+            return pos + 1; /* a backslash before a newline or the end is a lone delimiter */
+        }
+        if (name_len < (Py_ssize_t)sizeof(name)) {
+            name[name_len] = codepoint <= 0x7F ? (char)lower_ascii(codepoint) : '\0';
+        }
+        name_len++;
+    }
+    if (name_len != 3 || memcmp(name, "url", 3) != 0 || pos >= end || value[pos] != '(') {
+        return pos;
+    }
+    Py_ssize_t body = pos + 1;
+    while (body < end && is_space(value[body])) {
+        body++;
+    }
+    if (body < end && (value[body] == '"' || value[body] == '\'')) {
+        return pos;
+    }
+    return css_skip_url(value, body, end, flags);
+}
+
+/* Skip a comment, string, identifier, or url token, the tokens whose content can hold a separator a browser ignores.
+   Returns pos when none starts there. */
+static Py_ssize_t css_skip_token(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end, int *flags) {
+    Py_UCS4 codepoint = value[pos];
+    if (codepoint == '/' && pos + 1 < end && value[pos + 1] == '*') {
+        for (pos += 2; pos + 1 < end; pos++) {
+            if (value[pos] == '*' && value[pos + 1] == '/') {
+                return pos + 2;
+            }
+        }
+        *flags |= CSS_TOKEN_OPEN;
+        return end;
+    }
+    if (codepoint == '"' || codepoint == '\'') {
+        return css_skip_string(value, pos, end, flags);
+    }
+    return css_skip_ident(value, pos, end, flags);
 }
 
 /* A declaration whose property name is allowlisted can still carry a dangerous value: IE's `expression(...)` runs
@@ -1007,13 +1071,14 @@ static Py_ssize_t css_skip_string(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize
    identifiers do not trigger the executable-function checks. Returns 1 allow, 0 drop, -1 error. */
 static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
     Py_ssize_t pos = start;
+    int string_flags = 0; /* the splitter drops a declaration holding a bad string before this check */
     while (pos < end) {
         if (value[pos] == '/' && pos + 1 < end && value[pos + 1] == '*') {
             pos = css_skip_ws_comments(value, pos, end);
             continue;
         }
         if (value[pos] == '\'' || value[pos] == '"') {
-            pos = css_skip_string(value, pos, end);
+            pos = css_skip_string(value, pos, end, &string_flags);
             continue;
         }
         if (!is_css_ident_char(value[pos]) && value[pos] != '\\') {
@@ -1150,64 +1215,41 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, Py
     Py_ssize_t out_len = 0;
     Py_ssize_t decl_start = 0;
     Py_ssize_t colon = -1;
-    int mode = 0; /* 0 normal, 1 string, 2 comment */
-    Py_UCS4 quote = 0;
     int depth = 0;
-    for (Py_ssize_t index = 0; index <= len; index++) {
-        int boundary = index == len; /* the end of the value flushes the final declaration */
-        Py_UCS4 c = boundary ? 0 : value[index];
-        if (!boundary && mode == 2) {
-            if (c == '*' && index + 1 < len && value[index + 1] == '/') {
-                mode = 0;
-                index++;
-            }
-            continue;
-        }
-        if (!boundary && mode == 1) {
-            if (c == '\\') {
-                index++; /* a backslash escapes the next byte, even a quote */
-            } else if (c == quote) {
-                mode = 0;
-            }
-            continue;
-        }
-        if (!boundary) {
-            if (c == '/' && index + 1 < len && value[index + 1] == '*') {
-                mode = 2;
-                index++;
+    int flags = 0;
+    Py_ssize_t index = 0;
+    while (index <= len) { /* the end of the value flushes the final declaration */
+        if (index < len) {
+            Py_ssize_t next = css_skip_token(value, index, len, &flags);
+            if (next > index) {
+                index = next;
                 continue;
             }
-            if (c == '"' || c == '\'') {
-                mode = 1;
-                quote = c;
-                continue;
-            }
+            Py_UCS4 c = value[index];
             if (c == '(') {
                 depth++;
-                continue;
-            }
-            if (c == ')') {
+            } else if (c == ')') {
                 depth -= depth > 0;
-                continue;
-            }
-            if (depth > 0) {
-                continue;
-            }
-            if (c == ':' && colon < 0) {
+            } else if (depth == 0 && c == ':' && colon < 0) {
                 colon = index;
-                continue;
             }
-            if (c != ';') {
+            if (depth > 0 || c != ';') {
+                index++;
                 continue;
             }
         }
-        int flushed = css_flush_declaration(s, styles, value, decl_start, index, colon, out, &out_len);
+        /* a browser drops a declaration holding a bad string, so the scrubber drops its text too */
+        int flushed = flags & CSS_TOKEN_BAD
+                          ? 0
+                          : css_flush_declaration(s, styles, value, decl_start, index, colon, out, &out_len);
         if (flushed < 0) {   /* GCOVR_EXCL_BR_LINE: css_flush_declaration only fails on allocation failure */
             PyMem_Free(out); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;       /* GCOVR_EXCL_LINE */
         }
         decl_start = index + 1;
         colon = -1;
+        flags = 0;
+        index++;
     }
     if (out_len == 0) {
         th_node_attr_del(s->tree, element, "style", 5);
@@ -1265,37 +1307,17 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
     Py_ssize_t out_len = 0;
     Py_ssize_t seg_start = 0;
     Py_ssize_t colon = -1;
-    int mode = 0; /* 0 normal, 1 string, 2 comment */
-    Py_UCS4 quote = 0;
-    int depth = 0; /* parenthesis nesting, so a separator inside url(...) is not a separator */
+    int depth = 0; /* parenthesis nesting, so a separator inside a function is not a separator */
     int brace_depth = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 c = value[index];
-        if (mode == 2) {
-            if (c == '*' && index + 1 < len && value[index + 1] == '/') {
-                mode = 0;
-                index++;
-            }
+    int flags = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_ssize_t next = css_skip_token(value, index, len, &flags);
+        if (next > index) {
+            index = next;
             continue;
         }
-        if (mode == 1) {
-            if (c == '\\') {
-                index++; /* a backslash escapes the next byte, even a quote */
-            } else if (c == quote) {
-                mode = 0;
-            }
-            continue;
-        }
-        if (c == '/' && index + 1 < len && value[index + 1] == '*') {
-            mode = 2;
-            index++;
-            continue;
-        }
-        if (c == '"' || c == '\'') {
-            mode = 1;
-            quote = c;
-            continue;
-        }
+        Py_UCS4 c = value[index++];
         if (c == '(') {
             depth++;
             continue;
@@ -1308,45 +1330,39 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
             continue;
         }
         if (c == '{') {
-            css_emit_prelude(value, seg_start, index, out, &out_len);
+            css_emit_prelude(value, seg_start, index - 1, out, &out_len);
             out[out_len++] = '{';
             brace_depth++;
-            seg_start = index + 1;
+            seg_start = index;
             colon = -1;
+            flags = 0;
             continue;
         }
-        if (c == '}') {
-            if (brace_depth > 0) { /* a stray '}' outside any block is dropped, carrying no declaration to flush */
-                int flushed = css_emit_block_declaration(s, value, seg_start, index, colon, out, &out_len);
+        if (c == '}' || c == ';') {
+            /* outside any block the run is a stray '}' or an at-statement, dropped with its body */
+            if (brace_depth > 0 && !(flags & CSS_TOKEN_BAD)) {
+                int flushed = css_emit_block_declaration(s, value, seg_start, index - 1, colon, out, &out_len);
                 if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
                     return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
+            }
+            if (c == '}' && brace_depth > 0) {
                 out[out_len++] = '}';
                 brace_depth--;
             }
-            seg_start = index + 1;
+            seg_start = index;
             colon = -1;
-            continue;
-        }
-        if (c == ';') {
-            if (brace_depth > 0) { /* a run ended by ';' outside a block is an at-statement, dropped with its body */
-                int flushed = css_emit_block_declaration(s, value, seg_start, index, colon, out, &out_len);
-                if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
-                    return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
-                }
-            }
-            seg_start = index + 1;
-            colon = -1;
+            flags = 0;
             continue;
         }
         if (c == ':' && colon < 0) {
-            colon = index;
+            colon = index - 1;
         }
     }
     if (brace_depth > 0) { /* an unclosed block: flush its trailing declaration and balance the missing braces */
-        /* a string or comment left open at the end would swallow the `;` and `}` appended after it, so the next pass
-           would read them as data and append another pair; drop that declaration to keep the output a fixpoint */
-        int flushed = mode == 0 ? css_emit_block_declaration(s, value, seg_start, len, colon, out, &out_len) : 0;
+        /* a token left open at the end would swallow the `;` and `}` appended after it, so dropping that declaration
+           keeps the output a fixpoint */
+        int flushed = flags ? 0 : css_emit_block_declaration(s, value, seg_start, len, colon, out, &out_len);
         if (flushed < 0) { /* GCOVR_EXCL_BR_LINE: css_emit_block_declaration only fails on allocation failure */
             return -1;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }

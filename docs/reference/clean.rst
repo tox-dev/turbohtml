@@ -37,11 +37,16 @@ node too when a string is wanted at the end.
 ``Policy.css_properties`` allowlists style property *names*; ``Policy.allowed_styles`` narrows further by *value*, the
 way sanitize-html's ``allowedStyles`` does. Key it ``{tag: {property: [pattern, ...]}}`` (``"*"`` matches every tag); a
 ``style`` declaration survives only when its property is listed for the element's tag or ``"*"`` and its value matches
-one of the patterns via an unanchored :func:`re.search`. It runs on top of ``css_properties`` and the dangerous-value
-baseline. The property must still be in ``css_properties``. The baseline drops ``expression()`` and disallowed-scheme
-``url()`` values even when a pattern admits them, including function names and URL schemes written with CSS escapes. It
-also rejects ``behavior`` and ``-moz-binding`` even if ``css_properties`` lists them. The scanner treats strings and
-comments as inert content instead of executable functions.
+one of the patterns via an unanchored :func:`re.search`.
+
+``allowed_styles`` runs on top of ``css_properties`` and the dangerous-value baseline, so the property has to be in
+``css_properties`` as well. The baseline drops ``expression()`` and disallowed-scheme ``url()`` values even when a
+pattern admits them, including function names and URL schemes written with CSS escapes. It also rejects ``behavior`` and
+``-moz-binding`` even if ``css_properties`` lists them. Strings and comments are inert content.
+
+The scrubber splits declarations where a browser does. Outside a string a backslash escapes the next character, and an
+unquoted ``url(...)`` runs to its first unescaped ``)`` with no comments or strings inside. A newline ends a string and
+drops the declaration holding it.
 
 .. testcode::
 

@@ -1,0 +1,2 @@
+Split sanitized CSS declarations where a browser does, reading a backslash outside strings as an escape and an unquoted
+``url(...)`` as one token, and drop a declaration whose string a newline ends (GHSA-9x48-74fj-x342).

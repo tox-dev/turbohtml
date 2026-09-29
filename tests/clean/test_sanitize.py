@@ -473,6 +473,51 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param("position: fixed; z-index: 9", None, id="all-dropped-removes-attribute"),
         pytest.param(("a" * 70) + ": red; color: blue", 'style="color: blue"', id="property-name-too-long"),
         pytest.param("é: red", None, id="non-ascii-property-name"),
+        # outside a string a CSS escape joins the next code point to an identifier, so it opens no string and ends no
+        # declaration; the declarations a browser applies after it are scrubbed like any other
+        pytest.param("color:red\\';position:fixed", 'style="color:red\\\'"', id="escaped-single-quote"),
+        pytest.param("color:red\\;position:fixed", 'style="color:red\\;position:fixed"', id="escaped-semicolon"),
+        # a newline ends a string as a bad string, which invalidates its declaration and leaves the separators after it
+        # live, so the declarations a browser applies there are scrubbed like any other
+        pytest.param("color: red; font-family: 'x&#10;; position: fixed", 'style="color: red"', id="bad-string-lf"),
+        pytest.param("color: red; font-family: 'x&#12;; position: fixed", 'style="color: red"', id="bad-string-ff"),
+        pytest.param("color: red; font-family: 'x&#13;; position: fixed", 'style="color: red"', id="bad-string-cr"),
+        pytest.param(
+            "font-family: 'x\\&#10;; y'; color: red",
+            "font-family: 'x\\\n; y'; color: red",
+            id="string-line-continuation",
+        ),
+        pytest.param(
+            "font-family: 'x\\&#13;&#10;; y'; color: red",
+            "font-family: 'x\\\r\n; y'; color: red",
+            id="string-crlf-continuation",
+        ),
+        pytest.param(
+            "font-family: 'x\\41&#10;; y'; color: red",
+            "font-family: 'x\\41\n; y'; color: red",
+            id="string-hex-escape-consumes-newline",
+        ),
+        # an unquoted url() is one token whose body holds no comments or strings, so a `/*` or a quote in it hides no
+        # separator
+        pytest.param("cursor: url(x/*); position: fixed; */)", 'style="cursor: url(x/*)"', id="url-comment-opener"),
+        pytest.param(
+            "cursor: u\\72 l(x/*); position: fixed; */)", 'style="cursor: u\\72 l(x/*)"', id="url-escaped-name"
+        ),
+        pytest.param(
+            "cursor: URL( x/*); position: fixed; */)", 'style="cursor: URL( x/*)"', id="url-upper-leading-space"
+        ),
+        pytest.param("cursor: url(x'y); color: red", 'style="color: red"', id="bad-url-quote"),
+        pytest.param("cursor: url(x(y); color: red", 'style="color: red"', id="bad-url-paren"),
+        pytest.param("cursor: url(x'\\);position:fixed); color: red", 'style="color: red"', id="bad-url-escaped-paren"),
+        pytest.param(
+            "cursor: url(x\\);y); color: red", 'style="cursor: url(x\\);y); color: red"', id="url-escaped-paren"
+        ),
+        pytest.param("cursor: url( 'a)b;color:red'); width: 1px", 'style="width: 1px"', id="url-quoted-is-function"),
+        pytest.param(
+            "cursor: urls(/*);color:red;*/); width: 1px",
+            'style="cursor: urls(/*);color:red;*/); width: 1px"',
+            id="longer-name-is-function",
+        ),
     ],
 )
 def test_style_scrubbing(style: str, expected: str | None) -> None:
@@ -481,6 +526,11 @@ def test_style_scrubbing(style: str, expected: str | None) -> None:
         assert "style=" not in out
     else:
         assert expected in out
+
+
+def test_style_escaped_double_quote_opens_no_string() -> None:
+    out = sanitize('<p style="color:red\\&quot;;position:fixed;top:0">x</p>', _style_policy())
+    assert out == '<p style="color:red\\&quot;">x</p>'
 
 
 @pytest.mark.parametrize(
@@ -632,6 +682,7 @@ def test_style_url_scheme_lookup_does_not_truncate_long_names(prefix_length: int
     [
         pytest.param("content: 'a\\\rb'", True, id="carriage-return"),
         pytest.param("content: 'a\\\r\nb'", True, id="crlf"),
+        pytest.param("content: 'a\\\r", True, id="carriage-return-at-end"),
         pytest.param("content: 'a\\", False, id="trailing-string-escape"),
         pytest.param("content: 'a\\zb'", True, id="simple-string-escape"),
         pytest.param("content: \\61", True, id="hex-escape-at-end"),
@@ -827,6 +878,15 @@ def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPER
         pytest.param("   {color:red}", "{color:red;}", id="whitespace-only-prelude"),
         pytest.param("p{content:'a;b';color:red}", "p{color:red;}", id="single-quoted-string"),
         pytest.param("p{novalue;color:red}", "p{color:red;}", id="declaration-without-colon-dropped"),
+        pytest.param('p{color:red;a\\";position:fixed;x"{}}', "p{color:red;}", id="escaped-quote-opens-no-string"),
+        # an unclosed block flushes its last declaration at the end of input, where a lone backslash escapes nothing
+        pytest.param("p{color:red\\", "p{}", id="dangling-backslash-drops-declaration"),
+        pytest.param("p{font-family:'x\n;position:fixed;'}", "p{}", id="bad-string-ends-at-newline"),
+        pytest.param("p[title='x\n]{color:red}", "p[title='x\n]{color:red;}", id="bad-string-in-prelude"),
+        pytest.param("p{cursor:url(x/*);position:fixed;*/)}", "p{cursor:url(x/*);}", id="url-body-holds-no-comment"),
+        pytest.param("p{cursor:url(x'y);color:red}", "p{color:red;}", id="bad-url-dropped"),
+        pytest.param("p{color:red;cursor:url(x", "p{color:red;}", id="unterminated-url-dropped"),
+        pytest.param("p{color:red;cursor:url(x'", "p{color:red;}", id="unterminated-bad-url-dropped"),
     ],
 )
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
