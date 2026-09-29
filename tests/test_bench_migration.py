@@ -54,30 +54,12 @@ def _emit(tmp_path: Path, modules: dict[str, dict[str, str]], stats: dict[str, d
     return json.loads((out / "beautifulsoup.json").read_text(encoding="utf-8"))
 
 
-def test_both_backends_column_the_same_page(tmp_path: Path) -> None:
-    feed = _emit(
-        tmp_path,
-        {"beautifulsoup4": {"parse": "bs4 (html.parser)"}, "beautifulsoup4_lxml": {"parse": "bs4 (lxml)"}},
-        {
-            "parse|a page|turbohtml": {"mean": 1.0, "cv": 0.01},
-            "parse|a page|bs4 (html.parser)": {"mean": 4.0, "cv": 0.02},
-            "parse|a page|bs4 (lxml)": {"mean": 2.0, "cv": 0.03},
-        },
-    )
-    assert feed["parties"] == ["turbohtml", "bs4 (html.parser)", "bs4 (lxml)"]
+def test_both_backends_column_the_same_page(paired_backend_feed: dict[str, Any]) -> None:
+    assert paired_backend_feed["parties"] == ["turbohtml", "bs4 (html.parser)", "bs4 (lxml)"]
 
 
-def test_both_backends_keep_their_own_timings(tmp_path: Path) -> None:
-    feed = _emit(
-        tmp_path,
-        {"beautifulsoup4": {"parse": "bs4 (html.parser)"}, "beautifulsoup4_lxml": {"parse": "bs4 (lxml)"}},
-        {
-            "parse|a page|turbohtml": {"mean": 1.0, "cv": 0.01},
-            "parse|a page|bs4 (html.parser)": {"mean": 4.0, "cv": 0.02},
-            "parse|a page|bs4 (lxml)": {"mean": 2.0, "cv": 0.03},
-        },
-    )
-    assert feed["rows"] == [["a page", 1.0, 4.0, 2.0]]
+def test_both_backends_keep_their_own_timings(paired_backend_feed: dict[str, Any]) -> None:
+    assert paired_backend_feed["rows"] == [["a page", 1.0, 4.0, 2.0]]
 
 
 def test_operation_one_backend_skips_keeps_the_row(tmp_path: Path) -> None:
@@ -102,8 +84,13 @@ def test_operation_one_backend_skips_keeps_the_row(tmp_path: Path) -> None:
     assert feed["row_notes"][str(row_index)] == "same in both configurations, so measured once"
 
 
-def test_spread_aligns_with_every_variant(tmp_path: Path) -> None:
-    feed = _emit(
+def test_spread_aligns_with_every_variant(paired_backend_feed: dict[str, Any]) -> None:
+    assert paired_backend_feed["spread"] == [[None, 0.01, 0.02, 0.03]]
+
+
+@pytest.fixture
+def paired_backend_feed(tmp_path: Path) -> dict[str, Any]:
+    return _emit(
         tmp_path,
         {"beautifulsoup4": {"parse": "bs4 (html.parser)"}, "beautifulsoup4_lxml": {"parse": "bs4 (lxml)"}},
         {
@@ -112,7 +99,6 @@ def test_spread_aligns_with_every_variant(tmp_path: Path) -> None:
             "parse|a page|bs4 (lxml)": {"mean": 2.0, "cv": 0.03},
         },
     )
-    assert feed["spread"] == [[None, 0.01, 0.02, 0.03]]
 
 
 def test_note_uses_the_operation_label(tmp_path: Path) -> None:
