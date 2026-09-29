@@ -257,6 +257,21 @@ def test_flat_attribute_sequence_uses_index_iteration() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("java\0script:bad()", "<a>x</a>", id="nul-replacement"),
+        pytest.param("java\ufffdscript:bad()", "<a>x</a>", id="replacement-character"),
+        pytest.param("java\u2603script:bad()", "<a>x</a>", id="non-ascii-scheme"),
+        pytest.param("http\u2603://example.org/x", '<a href="http\u2603://example.org/x">x</a>', id="allowed-scheme"),
+        pytest.param("/caf\u00e9:menu", '<a href="/caf\u00e9:menu">x</a>', id="relative-path"),
+        pytest.param("https[://example.org/x", '<a href="https[://example.org/x">x</a>', id="ascii-relative"),
+    ],
+)
+def test_url_scheme_normalization_matches_bleach(value: str, expected: str) -> None:
+    assert clean(f'<a href="{value}">x</a>') == expected
+
+
 def test_custom_rule_changes_later_tag_rules() -> None:
     rules: Final[dict[str, Iterable[str]]] = {}
     rules["a"] = cast("Iterable[str]", _MutatingRule(rules))

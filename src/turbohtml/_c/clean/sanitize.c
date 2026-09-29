@@ -188,7 +188,7 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     int started = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 c = value[index];
-        if (is_url_ignorable(c)) {
+        if (is_url_ignorable(c) || c >= 0x80) {
             continue;
         }
         if (c == ':' && started) {
