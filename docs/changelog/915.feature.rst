@@ -1,0 +1,2 @@
+Use :meth:`~turbohtml.Node.iter_elements` for lazy, tag-filtered traversal of large trees. The iterator keeps its next
+match across edits and stays inside its subtree.
