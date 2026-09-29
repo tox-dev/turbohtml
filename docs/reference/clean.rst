@@ -367,6 +367,10 @@ a whole stylesheet; :func:`minify_css_inline` takes a bare declaration list, the
 Both are value-safe at any baseline; the optional :class:`CSSMinify` ``baseline`` year only bounds how new the output
 *syntax* may be.
 
+A minified ``<style>`` body ends where its source ended. A ``<`` keeps a space before a following ``/``, and a
+stylesheet whose minified form would spell a ``</style`` its input lacks, for example by dropping a line continuation
+inside a string, comes back unchanged.
+
 .. autofunction:: minify_css
 
 .. autofunction:: minify_css_inline

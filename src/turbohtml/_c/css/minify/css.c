@@ -34,6 +34,8 @@
 #include "css/minify/css_grammar.h"
 #include "css/minify/css.h"
 
+static int css_spells_style_end(const css_char *text, Py_ssize_t len);
+
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
    harness and the CPython binding both call this; it touches no CPython runtime. */
 css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
@@ -64,8 +66,33 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     }
     css_free(tokens.items);
     cbuf_free(&pool);
+    /* Dropping a string line continuation, or a comment in a declaration kept as written, can join a `</style` that
+       closes an HTML <style>; the input then comes back unchanged. */
+    if (css_spells_style_end(out.data, out.len) && !css_spells_style_end(view, length)) {
+        out.len = 0;
+        cbuf_put_run(&out, view, length);
+    }
     *out_len = out.len;
     return out.data;
+}
+
+/* The tokenizer lowercases an end tag name, so `</STYLE` counts too; OR-ing 0x20 folds the ASCII letters and no other
+ * byte. */
+static int css_spells_style_end(const css_char *text, Py_ssize_t len) {
+    static const char name[] = "style";
+    for (Py_ssize_t index = 0; index + 2 + (Py_ssize_t)(sizeof(name) - 1) <= len; index++) {
+        if (text[index] != '<' || text[index + 1] != '/') {
+            continue;
+        }
+        Py_ssize_t matched = 0;
+        while (name[matched] != '\0' && (text[index + 2 + matched] | 0x20) == name[matched]) {
+            matched++;
+        }
+        if (name[matched] == '\0') {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 #ifndef CSS_MINIFY_STANDALONE

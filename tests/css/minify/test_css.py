@@ -566,6 +566,24 @@ def test_minify_css_many_rules_keep_blocked_merge() -> None:
         pytest.param("a{b:1 .5}", "a{b:1 .5}", id="value-number-before-fraction"),
         pytest.param("a{b:1 .}", "a{b:1.}", id="value-number-before-lone-dot"),
         pytest.param("a{b:c / *d}", "a{b:c/ *d}", id="value-slash-before-star"),
+        # inside an HTML <style>, `</` followed by `style` ends the element, so minifying never joins `<` and `/`
+        pytest.param("a{ b : < /style }", "a{b:< /style}", id="less-than-slash-space-kept"),
+        pytest.param("a{b:<\n/style}", "a{b:< /style}", id="less-than-slash-newline-becomes-space"),
+        pytest.param("a{b:</**//style}", "a{b:< /style}", id="less-than-slash-comment-becomes-space"),
+        pytest.param("a{b:</**//**//style}", "a{b:< /style}", id="less-than-slash-comments-become-space"),
+        pytest.param("a{--x:</**//style}", "a{--x:< /style}", id="less-than-slash-custom-property"),
+        pytest.param("a </**//style{b:c}", "a < /style{b:c}", id="less-than-slash-selector"),
+        pytest.param("a{b:c(</**//style)}", "a{b:c(< /style)}", id="less-than-slash-function-argument"),
+        pytest.param("a{b:calc(1px </**//style)}", "a{b:calc(1px < /style)}", id="less-than-slash-calc"),
+        pytest.param("a{b:</**/x}", "a{b:<x}", id="less-than-comment-before-other-token"),
+        pytest.param("a{b:</*x", "a{b:<}", id="less-than-comment-at-end-of-input"),
+        # a stylesheet whose minified form would spell a `</style` its source kept apart comes back unchanged
+        pytest.param('a{b:"</\\\nstyle"}', 'a{b:"</\\\nstyle"}', id="string-continuation-would-join-end-tag"),
+        pytest.param('a{b:"<\\\n/STYLE"}', 'a{b:"<\\\n/STYLE"}', id="string-continuation-would-join-upper-end-tag"),
+        pytest.param("a{b:c;</**//style:d}", "a{b:c;</**//style:d}", id="kept-declaration-would-join-end-tag"),
+        pytest.param('a{b:"x\\\ny"}', 'a{b:"xy"}', id="string-continuation-dropped"),
+        pytest.param('a{b:"</stylo"}', 'a{b:"</stylo"}', id="end-tag-prefix-of-other-name"),
+        pytest.param('a { b : "</style" }', 'a{b:"</style"}', id="end-tag-from-source-still-minified"),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:

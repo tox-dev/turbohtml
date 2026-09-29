@@ -579,8 +579,8 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
 /* Emit a <style>'s CSS content minified, returning 1 when it did. Returns 0 -- leaving the
    caller to emit the content verbatim -- for a non-style raw-text element or an empty <style>,
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
-   would have ended the element there), and the CSS engine never synthesizes one, so the
-   minified stylesheet stays inside the element and reparses to the same raw-text node. */
+   would have ended the element there), and the CSS engine returns its input unchanged if its
+   output would spell one the input lacks, so the minified stylesheet stays inside the element. */
 static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int baseline) {
     if (node->atom != TH_TAG_STYLE) {
         return 0; /* script/textarea/title and other raw-text elements are never CSS */

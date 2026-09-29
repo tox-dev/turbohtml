@@ -74,8 +74,10 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
         if (index > 0) {
             css_comp *prev = &comps->items[index - 1];
             int starts_paren = pool->data[comp->off] == '('; /* every assembled comp has len >= 1 */
-            int glued = comp->isfunc == 2 || prev->isfunc == 1 || prev->isfunc == 2 || starts_paren ||
-                        comp->kind == CK_DELIM || prev->kind == CK_DELIM;
+            /* inside an HTML <style>, a joined `</` would start the `</style` end tag */
+            int opens_end_tag = pool->data[prev->off + prev->len - 1] == '<' && pool->data[comp->off] == '/';
+            int glued = !opens_end_tag && (comp->isfunc == 2 || prev->isfunc == 1 || prev->isfunc == 2 ||
+                                           starts_paren || comp->kind == CK_DELIM || prev->kind == CK_DELIM);
             if (!glued || css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT,
                                           pool->data + comp->off, comp->len)) {
                 cbuf_putc(out, ' ');

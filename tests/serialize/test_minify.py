@@ -640,6 +640,17 @@ def test_minify_css_baseline_bounds_output_syntax() -> None:
         pytest.param(
             '<svg><rect style="fill: #ffffff"/></svg>', "<svg><rect style=fill:#fff></rect></svg>", id="foreign-attr"
         ),
+        # the minified body keeps `<` apart from `/`, so the parser still ends <style> where the source did
+        pytest.param(
+            "<style>a{b:</**//style><b>x</b>}</style>",
+            "<style>a{b:< /style><b>x< /b>}</style>",
+            id="style-body-never-spells-end-tag",
+        ),
+        pytest.param(
+            '<style>a::before{content:"</\\\nstyle><b>x</b>"}</style>',
+            '<style>a::before{content:"</\\\nstyle><b>x</b>"}</style>',
+            id="style-body-kept-when-minifying-would-spell-end-tag",
+        ),
     ],
 )
 def test_minify_css_output(source: str, expected: str) -> None:

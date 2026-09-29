@@ -384,9 +384,14 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
                 }
                 scan++;
             }
-            token.kind = CSS_COMMENT;
-            token.text = &source[pos];
-            token.text_len = end - pos;
+            /* dropping this comment would join `<` and `/`, which starts the `</style` end tag once the stylesheet
+               sits inside an HTML <style> */
+            static const css_char space = ' ';
+            int splits_end_tag = vec->len > 0 && vec->items[vec->len - 1].kind == CSS_DELIM &&
+                                 vec->items[vec->len - 1].delim == '<' && end < length && source[end] == '/';
+            token.kind = splits_end_tag ? CSS_WS : CSS_COMMENT;
+            token.text = splits_end_tag ? &space : &source[pos];
+            token.text_len = splits_end_tag ? 1 : end - pos;
             token_vec_push(vec, token);
             pos = end;
         } else if (character == '"' || character == '\'') {
