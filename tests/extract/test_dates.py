@@ -233,36 +233,37 @@ def test_multi_valued_class_list_is_matched() -> None:
     assert dates('<span class="post meta-date">2017-08-09</span>') == PublicationDate("2017-08-09", "time")
 
 
-def test_valueless_meta_content_is_skipped() -> None:
-    html = '<meta name="date" content><meta name="date" content="2016-06-07">'
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param('<meta name="date" content><meta name="date" content="2016-06-07">', id="valueless-content"),
+        pytest.param('<meta name="author" content="Ada"><meta name="date" content="2016-06-07">', id="unrelated-key"),
+    ],
+)
+def test_meta_skips_invalid_candidates(html: str) -> None:
     assert dates(html) == PublicationDate("2016-06-07", "meta")
 
 
-def test_invalid_json_ld_block_is_skipped() -> None:
-    html = (
-        '<script type="application/ld+json">{ broken</script>'
-        '<script type="application/ld+json">{"datePublished":"2016-05-01"}</script>'
-    )
-    assert dates(html) == PublicationDate("2016-05-01", "json-ld")
-
-
-def test_json_ld_list_of_objects() -> None:
-    html = '<script type="application/ld+json">[{"datePublished":"2016-05-01"}]</script>'
-    assert dates(html) == PublicationDate("2016-05-01", "json-ld")
-
-
-def test_scalar_item_in_json_ld_list_is_walked_without_a_date() -> None:
-    html = '<script type="application/ld+json">["just a string", {"datePublished":"2016-05-01"}]</script>'
-    assert dates(html) == PublicationDate("2016-05-01", "json-ld")
-
-
-def test_a_non_date_meta_key_is_ignored() -> None:
-    html = '<meta name="author" content="Ada"><meta name="date" content="2016-06-07">'
-    assert dates(html) == PublicationDate("2016-06-07", "meta")
-
-
-def test_json_ld_date_nested_in_a_list_value() -> None:
-    html = '<script type="application/ld+json">{"items":[{"datePublished":"2016-05-01"}]}</script>'
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param(
+            '<script type="application/ld+json">{ broken</script>'
+            '<script type="application/ld+json">{"datePublished":"2016-05-01"}</script>',
+            id="invalid-block",
+        ),
+        pytest.param('<script type="application/ld+json">[{"datePublished":"2016-05-01"}]</script>', id="list"),
+        pytest.param(
+            '<script type="application/ld+json">["just a string", {"datePublished":"2016-05-01"}]</script>',
+            id="scalar-list-item",
+        ),
+        pytest.param(
+            '<script type="application/ld+json">{"items":[{"datePublished":"2016-05-01"}]}</script>',
+            id="nested-list",
+        ),
+    ],
+)
+def test_json_ld_finds_valid_candidate(html: str) -> None:
     assert dates(html) == PublicationDate("2016-05-01", "json-ld")
 
 

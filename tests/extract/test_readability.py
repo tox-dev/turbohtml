@@ -508,12 +508,15 @@ def test_article_lang_present() -> None:
     assert parse(f"<html lang='en-US'><body>{BODY}</body></html>").article().lang == "en-US"
 
 
-def test_article_lang_absent_is_none() -> None:
-    assert parse(f"<html><body>{BODY}</body></html>").article().lang is None
-
-
-def test_article_valueless_lang_attribute_is_absent() -> None:
-    assert parse(f"<html lang><body>{BODY}</body></html>").article().lang is None
+@pytest.mark.parametrize(
+    "html_tag",
+    [
+        pytest.param("<html>", id="absent"),
+        pytest.param("<html lang>", id="valueless"),
+    ],
+)
+def test_article_without_language(html_tag: str) -> None:
+    assert parse(f"{html_tag}<body>{BODY}</body></html>").article().lang is None
 
 
 def test_article_fragment_without_html_element_has_no_lang() -> None:
@@ -558,14 +561,16 @@ def test_article_meta_property_and_name_both_match() -> None:
     assert by_name.article().description == "via name"
 
 
-def test_article_meta_without_content_attribute_is_skipped() -> None:
-    html = f"<html><head><meta property=og:title><title>Real</title></head><body>{BODY}</body></html>"
-    assert parse(html).article().title == "Real"
-
-
-def test_article_meta_with_valueless_content_is_skipped() -> None:
-    html = f"<html><head><meta property=og:title content><title>Fallback</title></head><body>{BODY}</body></html>"
-    assert parse(html).article().title == "Fallback"
+@pytest.mark.parametrize(
+    ("meta", "expected"),
+    [
+        pytest.param("<meta property=og:title>", "Real", id="content-absent"),
+        pytest.param("<meta property=og:title content>", "Fallback", id="content-valueless"),
+    ],
+)
+def test_article_meta_without_content_is_skipped(meta: str, expected: str) -> None:
+    html = f"<html><head>{meta}<title>{expected}</title></head><body>{BODY}</body></html>"
+    assert parse(html).article().title == expected
 
 
 @pytest.mark.parametrize(

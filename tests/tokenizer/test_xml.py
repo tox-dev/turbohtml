@@ -164,16 +164,16 @@ def test_entity_and_character_references(markup: str, text: str) -> None:
     assert data_of(root_of(parse_xml(markup)).children[0]) == text
 
 
-def test_line_endings_normalize_to_lf() -> None:
-    assert data_of(root_of(parse_xml("<r>a\r\nb\rc</r>")).children[0]) == "a\nb\nc"
-
-
-def test_allowed_control_whitespace_in_content() -> None:
-    assert data_of(root_of(parse_xml("<r>\ta\nb</r>")).children[0]) == "\ta\nb"
-
-
-def test_lone_right_bracket_in_content_is_text() -> None:
-    assert data_of(root_of(parse_xml("<r>a]b]]c</r>")).children[0]) == "a]b]]c"
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<r>a\r\nb\rc</r>", "a\nb\nc", id="line-endings"),
+        pytest.param("<r>\ta\nb</r>", "\ta\nb", id="control-whitespace"),
+        pytest.param("<r>a]b]]c</r>", "a]b]]c", id="right-bracket"),
+    ],
+)
+def test_content_text(markup: str, expected: str) -> None:
+    assert data_of(root_of(parse_xml(markup)).children[0]) == expected
 
 
 def test_whitespace_variants_separate_markup() -> None:
@@ -188,26 +188,29 @@ def test_processing_instruction_without_data() -> None:
     assert (pi.target, pi.data) == ("bare", "")
 
 
-def test_single_quoted_attribute_value() -> None:
-    assert dict(root_of(parse_xml("<r a='v'/>")).attrs) == {"a": "v"}
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<r a='v'/>", "v", id="single-quoted"),
+        pytest.param('<r a="x\ty\nz\rw"/>', "x y z w", id="whitespace"),
+        # XML 2.11 collapses CRLF before 3.3.3 folds attribute whitespace.
+        pytest.param('<r a="x\r\ny\r\n\tz"/>', "x y  z", id="crlf"),
+        pytest.param('<r a="1 &lt; 2"/>', "1 < 2", id="reference"),
+    ],
+)
+def test_attribute_value(markup: str, expected: str) -> None:
+    assert dict(root_of(parse_xml(markup)).attrs) == {"a": expected}
 
 
-def test_attribute_value_whitespace_folds_to_space() -> None:
-    assert dict(root_of(parse_xml('<r a="x\ty\nz\rw"/>')).attrs) == {"a": "x y z w"}
-
-
-def test_attribute_value_crlf_folds_to_one_space() -> None:
-    # XML 2.11 collapses CRLF to a single LF before 3.3.3 folds it to one space, not two
-    assert dict(root_of(parse_xml('<r a="x\r\ny\r\n\tz"/>')).attrs) == {"a": "x y  z"}
-
-
-def test_cdata_normalizes_line_endings() -> None:
-    assert data_of(root_of(parse_xml("<r><![CDATA[a\r\nb\rc]]></r>")).children[0]) == "a\nb\nc"
-
-
-def test_cdata_trailing_carriage_return_folds_to_lf() -> None:
-    # a lone CR as the last content character still folds, exercising the CRLF look-ahead's edge
-    assert data_of(root_of(parse_xml("<r><![CDATA[a\r]]></r>")).children[0]) == "a\n"
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<r><![CDATA[a\r\nb\rc]]></r>", "a\nb\nc", id="line-endings"),
+        pytest.param("<r><![CDATA[a\r]]></r>", "a\n", id="trailing-carriage-return"),
+    ],
+)
+def test_cdata_line_endings(markup: str, expected: str) -> None:
+    assert data_of(root_of(parse_xml(markup)).children[0]) == expected
 
 
 def test_attribute_ending_in_carriage_return_is_unterminated() -> None:
@@ -224,10 +227,6 @@ def test_processing_instruction_normalizes_line_endings() -> None:
     pi = root_of(parse_xml("<r><?t a\r\nb\rc?></r>")).children[0]
     assert isinstance(pi, ProcessingInstruction)
     assert pi.data == "a\nb\nc"
-
-
-def test_attribute_reference_is_resolved() -> None:
-    assert dict(root_of(parse_xml('<r a="1 &lt; 2"/>')).attrs) == {"a": "1 < 2"}
 
 
 def test_namespace_prefix_and_declaration_preserved() -> None:

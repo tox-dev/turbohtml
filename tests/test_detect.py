@@ -982,24 +982,28 @@ def test_the_threshold_drops_the_weak() -> None:
     assert [row[0] for row in rows] == ["windows-1251"]
 
 
-def test_a_language_hint_floats_its_encodings_first() -> None:
-    result = ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 40)], False)
-    rows = _detect_rank(result, None, (), "ru", 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["koi8-r", "windows-1252"]
-
-
-def test_a_language_hint_leaves_a_zero_confidence_candidate_behind() -> None:
-    # a candidate the detector scored at zero carries no evidence, so the hint cannot promote it
-    result = ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 0)], False)
-    rows = _detect_rank(result, None, (), "ru", 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["windows-1252", "koi8-r"]
-
-
-def test_a_language_hint_leaves_an_encoding_naming_no_language_behind() -> None:
-    # utf-8 names no language, so the hint has nothing to compare it against and it cannot be promoted
-    result = ("utf-8", False, [("utf-8", 60), ("koi8-r", 40)], False)
-    rows = _detect_rank(result, None, (), "ru", 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["koi8-r", "utf-8"]
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        pytest.param(
+            ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 40)], False),
+            ["koi8-r", "windows-1252"],
+            id="hint-promotes-scored-encoding",
+        ),
+        pytest.param(
+            ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 0)], False),
+            ["windows-1252", "koi8-r"],
+            id="zero-score-cannot-be-promoted",
+        ),
+        pytest.param(
+            ("utf-8", False, [("utf-8", 60), ("koi8-r", 40)], False),
+            ["koi8-r", "utf-8"],
+            id="encoding-without-language-is-not-promoted",
+        ),
+    ],
+)
+def test_language_hint_ranking(result: tuple[str, bool, list[tuple[str, int]], bool], expected: list[str]) -> None:
+    assert [row[0] for row in _detect_rank(result, None, (), "ru", 0.0, _LANGUAGES)] == expected
 
 
 def test_a_language_hint_no_encoding_claims_keeps_the_order() -> None:

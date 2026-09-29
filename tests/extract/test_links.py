@@ -269,12 +269,15 @@ def test_carriage_return_from_char_ref_is_trimmed() -> None:
     assert _enumerated_urls('<a href="&#13;a/b.html&#13;">x</a>') == [("a", "href", "a/b.html")]
 
 
-def test_whitespace_only_url_attribute_is_skipped() -> None:
-    assert _enumerated_urls('<a href="   ">x</a>') == []
-
-
-def test_valueless_url_attribute_is_skipped() -> None:
-    assert _enumerated_urls("<a href>x</a>") == []
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<a href="   ">x</a>', id="whitespace"),
+        pytest.param("<a href>x</a>", id="valueless"),
+    ],
+)
+def test_empty_url_attribute_is_skipped(markup: str) -> None:
+    assert _enumerated_urls(markup) == []
 
 
 def test_non_link_attribute_is_ignored() -> None:
@@ -372,16 +375,16 @@ def test_meta_refresh_url_is_case_insensitive_and_unquotes() -> None:
     ]
 
 
-def test_meta_refresh_without_url_keyword_has_no_link() -> None:
-    assert _enumerated_urls('<meta http-equiv="refresh" content="5">') == []
-
-
-def test_meta_without_refresh_is_not_enumerated() -> None:
-    assert _enumerated_urls('<meta name="x" content="url=y">') == []
-
-
-def test_meta_refresh_without_content_has_no_link() -> None:
-    assert _enumerated_urls('<meta http-equiv="refresh">') == []
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<meta http-equiv="refresh" content="5">', id="no-url-keyword"),
+        pytest.param('<meta name="x" content="url=y">', id="not-refresh"),
+        pytest.param('<meta http-equiv="refresh">', id="no-content"),
+    ],
+)
+def test_meta_without_refresh_url_has_no_link(markup: str) -> None:
+    assert _enumerated_urls(markup) == []
 
 
 @pytest.mark.parametrize(
@@ -466,20 +469,17 @@ def _resolved(html: str, base: str = _RESOLVE_BASE) -> str:
     return root.inner_html
 
 
-def test_relative_href_becomes_absolute() -> None:
-    assert _resolved('<a href="a/b.html">x</a>') == '<a href="https://example.com/dir/a/b.html">x</a>'
-
-
-def test_root_relative_href_resolves_against_origin() -> None:
-    assert _resolved('<a href="/top.html">x</a>') == '<a href="https://example.com/top.html">x</a>'
-
-
-def test_absolute_href_is_left_unchanged() -> None:
-    assert _resolved('<a href="https://other.test/x">y</a>') == '<a href="https://other.test/x">y</a>'
-
-
-def test_fragment_only_href_resolves_against_the_page() -> None:
-    assert _resolved('<a href="#sec">y</a>') == '<a href="https://example.com/dir/page.html#sec">y</a>'
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param('<a href="a/b.html">x</a>', '<a href="https://example.com/dir/a/b.html">x</a>', id="relative"),
+        pytest.param('<a href="/top.html">x</a>', '<a href="https://example.com/top.html">x</a>', id="root-relative"),
+        pytest.param('<a href="https://other.test/x">y</a>', '<a href="https://other.test/x">y</a>', id="absolute"),
+        pytest.param('<a href="#sec">y</a>', '<a href="https://example.com/dir/page.html#sec">y</a>', id="fragment"),
+    ],
+)
+def test_href_resolution(markup: str, expected: str) -> None:
+    assert _resolved(markup) == expected
 
 
 def test_srcset_candidates_are_each_resolved() -> None:

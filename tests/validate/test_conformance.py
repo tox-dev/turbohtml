@@ -269,12 +269,15 @@ def test_conformance_duplicate_id(inner: str, *, flagged: bool) -> None:
     assert ("duplicate-id" in codes(body(inner))) is flagged
 
 
-def test_conformance_missing_title() -> None:
-    assert "missing-title" in codes('<html lang="en"><body><p>x</p></body></html>')
-
-
-def test_conformance_blank_title_counts_as_missing() -> None:
-    assert "missing-title" in codes('<html lang="en"><head><title>   </title></head><body>x</body></html>')
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<html lang="en"><body><p>x</p></body></html>', id="absent"),
+        pytest.param('<html lang="en"><head><title>   </title></head><body>x</body></html>', id="blank"),
+    ],
+)
+def test_conformance_missing_title(markup: str) -> None:
+    assert "missing-title" in codes(markup)
 
 
 @pytest.mark.parametrize(
