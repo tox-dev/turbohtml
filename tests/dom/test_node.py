@@ -1123,3 +1123,63 @@ def test_competitor_node_equality_duplicates_unsupported() -> None:
     operation: Final = cast("Callable[[tuple[int, str]], bool]", beautifulsoup.OPERATIONS["node-equals"][0])
     with pytest.raises(ValueError, match="constructor does not normalize case variants"):
         operation(cast("tuple[int, str]", INPUTS["node-equals"]()[12][1]))
+
+
+@pytest.mark.parametrize(
+    ("html", "selector", "expected"),
+    [
+        pytest.param("<body><p>a<b>b</b><i>c</i></p>d</body>", "body", "abcd", id="nested-elements"),
+        pytest.param("<p>a&amp;b\U0001f600c</p>", "p", "a&b\U0001f600c", id="entities-and-astral-span"),
+        pytest.param("<body></body>", "body", "", id="empty"),
+    ],
+)
+def test_text_concatenates_descendant_character_data(
+    find: Callable[[str, str], Element], html: str, selector: str, expected: str
+) -> None:
+    assert find(html, selector).text == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("ascii", id="ascii"),
+        pytest.param("café", id="latin1"),
+        pytest.param("雪", id="bmp"),
+        pytest.param("😀", id="supplementary"),
+        pytest.param("\U00100000\U000f0000", id="or-exceeds-unicode-range"),
+        pytest.param("\ufeff\ufffe", id="bom-and-noncharacter"),
+        pytest.param("\ud800", id="lone-surrogate"),
+        pytest.param("\ud800\udc00", id="surrogate-pair"),
+        pytest.param("a\x00b", id="embedded-nul"),
+    ],
+)
+@pytest.mark.parametrize("wrapped", [False, True], ids=["text-root", "element-root"])
+def test_text_preserves_unicode(text: str, *, wrapped: bool) -> None:
+    child: Final = Text(text)
+    root: Final = Element("p", children=[child]) if wrapped else child
+    assert root.text == text
+
+
+@pytest.mark.parametrize(
+    ("node", "expected"),
+    [
+        pytest.param(CData("ignored"), "", id="cdata-root"),
+        pytest.param(Element("p", children=[CData("ignored"), Text("visible")]), "visible", id="cdata-child"),
+    ],
+)
+def test_text_ignores_cdata(node: Node, expected: str) -> None:
+    assert node.text == expected
+
+
+def test_text_subnode_excludes_siblings() -> None:
+    root: Final = Element("main", children=[Text("before"), Element("p", children=[Text("inside")]), Text("after")])
+    paragraph: Final = root.find("p")
+    assert paragraph is not None
+    assert paragraph.text == "inside"
+
+
+def test_text_ascii_flag_ignores_non_text_data() -> None:
+    root: Final = Element("p", children=[Comment("😀"), CData("雪"), Text("ascii")])
+    result: Final = root.text
+    assert (result, result.isascii()) == ("ascii", True)

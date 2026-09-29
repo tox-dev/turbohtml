@@ -2966,3 +2966,27 @@ def test_radio_group_deep_ancestor_ownership(*, owned: bool, inside: bool) -> No
     first, second, selected = document.find_all("input")
     selected.checked = True
     assert (first.checked, second.checked, selected.checked) == (owned and not inside, owned and not inside, True)
+
+
+@pytest.mark.parametrize(
+    ("attr", "value"),
+    [
+        pytest.param("checked", "", id="valueless"),
+        pytest.param("type", "text", id="valued"),
+    ],
+)
+def test_attrs_mapping(find: Callable[[str, str], Element], attr: str, value: str) -> None:
+    markup = f"{attr}={value}" if value else attr
+    assert find(f"<input {markup}>", "input").attrs[attr] == value
+
+
+@pytest.mark.parametrize(
+    ("context", "selector", "expected"),
+    [
+        pytest.param("<div>", "div", Namespace.HTML, id="html"),
+        pytest.param("<svg><circle></svg>", "circle", Namespace.SVG, id="svg"),
+        pytest.param("<math><mi>x</mi></math>", "mi", Namespace.MATHML, id="mathml"),
+    ],
+)
+def test_namespace(find: Callable[[str, str], Element], context: str, selector: str, expected: Namespace) -> None:
+    assert find(f"<body>{context}</body>", selector).namespace is expected

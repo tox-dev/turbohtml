@@ -13,6 +13,7 @@ from turbohtml import (
     Element,
     Html,
     Indent,
+    Node,
     ProcessingInstruction,
     Text,
     parse,
@@ -485,3 +486,37 @@ def test_pi_and_cdata_serialize_pretty() -> None:
     root = Element("root")
     root.extend([CData("d"), ProcessingInstruction("t", "x")])
     assert root.serialize(Html(layout=Indent(2))) == "<root><![CDATA[d]]><?t x></root>"
+
+
+@pytest.mark.parametrize(
+    ("html", "node_type", "expected"),  # expected = (data, text, serialized)
+    [
+        pytest.param("<p>hello</p>", Text, ("hello", "hello", "hello"), id="text"),
+        pytest.param("<!--c-->", Comment, ("c", "", "<!--c-->"), id="comment"),
+        pytest.param("<!---->", Comment, ("", "", "<!---->"), id="empty-comment"),
+    ],
+)
+def test_leaf_node_accessors(
+    first_of_type: Callable[[str, type[Node]], Node],
+    html: str,
+    node_type: type[Node],
+    expected: tuple[str, str, str],
+) -> None:
+    data, text, serialized = expected
+    node = first_of_type(html, node_type)
+    assert node.data == data  # ty: ignore[unresolved-attribute]  # Text and Comment both expose .data
+    assert node.text == text  # .text counts Text descendants only, so a comment contributes nothing
+    assert node.html == serialized
+
+
+@pytest.mark.parametrize(
+    ("doctype", "name"),
+    [
+        pytest.param("<!DOCTYPE html>", "html", id="bare"),
+        pytest.param('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">', "html", id="with-public-id"),
+    ],
+)
+def test_doctype_name(first_of_type: Callable[[str, type[Node]], Node], doctype: str, name: str) -> None:
+    node = first_of_type(doctype, Doctype)
+    assert node.name == name  # ty: ignore[unresolved-attribute]  # node is a Doctype here
+    assert node.html == f"<!DOCTYPE {name}>"
