@@ -8,6 +8,9 @@ A parsed tree is made of nodes. :class:`Node` carries the navigation, query, mut
 node shares; the concrete types below add their own data. Text is a real :class:`Text` child node (the WHATWG DOM
 shape), so there is no text/tail split.
 
+Use :meth:`Node.iter_elements` to stream matching elements from a large tree. The iterator finds its next match before
+each yield; renaming or removing that node afterward still yields it.
+
 .. autoclass:: Node
     :members:
 

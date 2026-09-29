@@ -233,6 +233,73 @@ static void walker_dealloc(PyObject *self) {
     Py_DECREF(type);
 }
 
+_Static_assert(sizeof(th_tag_table) / sizeof(*th_tag_table) < 256, "tag atom mask capacity");
+
+static int element_walk_matches(th_node *node, ElementWalkerObject *walker) {
+    if (node->type != TH_NODE_ELEMENT) {
+        return 0;
+    }
+    if (walker->tags == NULL) {
+        return 1;
+    }
+    if (node->atom != TH_TAG_UNKNOWN) {
+        return (walker->tag_atoms[node->atom >> 6] & ((uint64_t)1 << (node->atom & 63))) != 0;
+    }
+    PyObject *tags = walker->tags;
+    Py_ssize_t count = PySequence_Fast_GET_SIZE(tags); /* GCOVR_EXCL_BR_LINE: tags is a tuple */
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *tag = PySequence_Fast_GET_ITEM(tags, index); /* GCOVR_EXCL_BR_LINE: tags is a tuple */
+        if (PyUnicode_GET_LENGTH(tag) != node->text_len) {
+            continue;
+        }
+        int kind = PyUnicode_KIND(tag);
+        const void *data = PyUnicode_DATA(tag);
+        Py_ssize_t offset = 0;
+        for (; offset < node->text_len; offset++) {
+            if (PyUnicode_READ(kind, data, offset) != node->text[offset]) {
+                break;
+            }
+        }
+        if (offset == node->text_len) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int element_walk_inside(th_node *node, th_node *root) {
+    for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
+        if (parent == root) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static th_node *element_walk_next(th_node *current, th_node *root, ElementWalkerObject *walker) {
+    for (th_node *node = current->first_child; node != NULL; node = preorder_next(node, current)) {
+        if (element_walk_matches(node, walker)) {
+            return node;
+        }
+    }
+    if (current == root) {
+        return NULL;
+    }
+    th_node *branch = current;
+    while (branch != root && branch->next_sibling == NULL) {
+        branch = branch->parent;
+    }
+    if (branch == root) {
+        return NULL;
+    }
+    for (th_node *node = branch->next_sibling; node != NULL; node = preorder_next(node, root)) {
+        if (element_walk_matches(node, walker)) {
+            return node;
+        }
+    }
+    return NULL;
+}
+
 static PyObject *walker_next(PyObject *self) {
     WalkerObject *walker = (WalkerObject *)self;
     th_node *node;
@@ -268,6 +335,185 @@ static PyObject *walker_next(PyObject *self) {
 #endif
 }
 
+static void element_walker_dealloc(PyObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    ElementWalkerObject *walker = (ElementWalkerObject *)self;
+    Py_XDECREF(walker->pending);
+    Py_XDECREF(walker->pending_handle);
+    Py_XDECREF(walker->tags);
+    Py_XDECREF(walker->scope);
+    Py_XDECREF(walker->owner);
+#ifdef Py_GIL_DISABLED
+    if (walker->lock != NULL) {
+        PyThread_free_lock(walker->lock);
+    }
+#endif
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+static PyObject *element_walker_next(PyObject *self) {
+    ElementWalkerObject *walker = (ElementWalkerObject *)self;
+#ifdef Py_GIL_DISABLED
+    PyThread_acquire_lock(walker->lock, WAIT_LOCK);
+#endif
+    if (!walker->started) {
+        walker->started = 1;
+        NodeObject *owner = (NodeObject *)walker->owner;
+#ifdef Py_GIL_DISABLED
+        node_guard guard;
+        node_guard_begin(&guard, owner, NULL);
+        PyObject *handle = guard.first;
+#else
+        PyObject *handle = owner->handle;
+        Py_BEGIN_CRITICAL_SECTION(handle);
+#endif
+        th_node *root = owner->node;
+        th_node *first =
+            walker->include_self && element_walk_matches(root, walker) ? root : element_walk_next(root, root, walker);
+        if (first != NULL) {
+            walker->pending = node_wrap(state_of(self), handle, first);
+            if (walker->pending != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                walker->pending_handle = Py_NewRef(handle);
+                walker->pending_version = ((HandleObject *)handle)->mutation_version;
+            }
+        }
+#ifdef Py_GIL_DISABLED
+        node_guard_end(&guard);
+#else
+        Py_END_CRITICAL_SECTION();
+#endif
+    }
+    if (walker->pending == NULL) {
+#ifdef Py_GIL_DISABLED
+        PyThread_release_lock(walker->lock);
+#endif
+        return NULL;
+    }
+    PyObject *result = walker->pending;
+    walker->pending = NULL;
+    NodeObject *current = (NodeObject *)result;
+    int inside;
+    int failed = 0;
+#ifdef Py_GIL_DISABLED
+    node_guard guard;
+    node_guard_begin(&guard, (NodeObject *)walker->scope, current);
+    PyObject *handle = guard.second;
+#else
+    PyObject *handle = current->handle;
+    Py_BEGIN_CRITICAL_SECTION(handle);
+#endif
+    NodeObject *scope = (NodeObject *)walker->scope;
+    th_node *root = scope->node;
+    inside = walker->pending_handle == handle && walker->pending_version == ((HandleObject *)handle)->mutation_version;
+#ifdef Py_GIL_DISABLED
+    inside = inside || (guard.first == handle && element_walk_inside(current->node, root));
+#else
+    inside = inside || (scope->handle == handle && element_walk_inside(current->node, root));
+#endif
+    if (!inside) {
+        root = current->node;
+    }
+    th_node *following = element_walk_next(current->node, root, walker);
+    if (following != NULL) {
+        walker->pending = node_wrap(state_of(self), handle, following);
+        if (walker->pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            failed = 1;                /* GCOVR_EXCL_LINE */
+        } /* GCOVR_EXCL_LINE: allocation-failure path */
+        else {
+            Py_SETREF(walker->pending_handle, Py_NewRef(handle));
+            walker->pending_version = ((HandleObject *)handle)->mutation_version;
+        }
+    } else {
+        Py_DECREF(walker->pending_handle);
+        walker->pending_handle = NULL;
+    }
+#ifdef Py_GIL_DISABLED
+    node_guard_end(&guard);
+#else
+    Py_END_CRITICAL_SECTION();
+#endif
+    if (!inside) {
+        Py_SETREF(walker->scope, Py_NewRef((PyObject *)current));
+    }
+    if (failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_CLEAR(result); /* GCOVR_EXCL_LINE */
+    } /* GCOVR_EXCL_LINE: allocation-failure path */
+#ifdef Py_GIL_DISABLED
+    PyThread_release_lock(walker->lock);
+#endif
+    return result;
+}
+
+static PyObject *node_iter_elements(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *tags_arg = Py_None;
+    int include_self = 0;
+    static char *names[] = {"tags", "include_self", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|Op:iter_elements", names, &tags_arg, &include_self)) {
+        return NULL;
+    }
+    PyObject *tags = NULL;
+    if (tags_arg != Py_None) {
+        if (PyUnicode_Check(tags_arg)) {
+            tags = PyTuple_Pack(1, tags_arg);
+        } else {
+            tags = PySequence_Tuple(tags_arg);
+        }
+        if (tags == NULL) {
+            return NULL;
+        }
+        for (Py_ssize_t index = 0; index < PySequence_Fast_GET_SIZE(tags); index++) { /* GCOVR_EXCL_BR_LINE: tuple */
+            PyObject *tag = PySequence_Fast_GET_ITEM(tags, index);                    /* GCOVR_EXCL_BR_LINE: tuple */
+            if (!PyUnicode_Check(tag)) {
+                Py_DECREF(tags);
+                PyErr_SetString(PyExc_TypeError, "tags must contain only str");
+                return NULL;
+            }
+            if (PyUnicode_CompareWithASCIIString(tag, "*") == 0) {
+                Py_CLEAR(tags); /* GCOVR_EXCL_BR_LINE: tags is non-null here */
+                break;
+            }
+        }
+    }
+    PyTypeObject *type = (PyTypeObject *)state_of(self)->element_walker_type;
+    ElementWalkerObject *iterator = (ElementWalkerObject *)type->tp_alloc(type, 0);
+    if (iterator == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(tags);   /* GCOVR_EXCL_LINE */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
+    iterator->owner = Py_NewRef(self);
+    iterator->scope = Py_NewRef(self);
+    iterator->tags = tags;
+#ifdef Py_GIL_DISABLED
+    iterator->lock = PyThread_allocate_lock();
+    if (iterator->lock == NULL) {
+        Py_DECREF(iterator);
+        PyErr_NoMemory();
+        return NULL;
+    }
+#endif
+    if (tags != NULL) {
+        for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(tags); index++) {
+            PyObject *tag = PyTuple_GET_ITEM(tags, index);
+            if (!PyUnicode_IS_ASCII(tag)) {
+                continue;
+            }
+            Py_ssize_t length;
+            const char *name = PyUnicode_AsUTF8AndSize(tag, &length);
+            if (name == NULL) {      /* GCOVR_EXCL_BR_LINE: compact ASCII has an internal UTF-8 buffer */
+                Py_DECREF(iterator); /* GCOVR_EXCL_LINE */
+                return NULL;         /* GCOVR_EXCL_LINE */
+            }
+            uint16_t atom = th_tag_lookup(name, length);
+            if (atom != TH_TAG_UNKNOWN) {
+                iterator->tag_atoms[atom >> 6] |= (uint64_t)1 << (atom & 63);
+            }
+        }
+    }
+    iterator->include_self = include_self;
+    return (PyObject *)iterator;
+}
+
 static PyType_Slot walker_slots[] = {
     {Py_tp_dealloc, walker_dealloc},
     {Py_tp_iter, PyObject_SelfIter},
@@ -280,6 +526,20 @@ PyType_Spec walker_spec = {
     .basicsize = sizeof(WalkerObject),
     .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
     .slots = walker_slots,
+};
+
+static PyType_Slot element_walker_slots[] = {
+    {Py_tp_dealloc, element_walker_dealloc},
+    {Py_tp_iter, PyObject_SelfIter},
+    {Py_tp_iternext, element_walker_next},
+    TH_SEALED_END,
+};
+
+PyType_Spec element_walker_spec = {
+    .name = "turbohtml._html._ElementIterator",
+    .basicsize = sizeof(ElementWalkerObject),
+    .flags = Py_TPFLAGS_DEFAULT | TH_SEALED,
+    .slots = element_walker_slots,
 };
 
 static PyObject *string_walker_new(module_state *state, PyObject *handle, th_node *node, int strip) {
@@ -1855,6 +2115,8 @@ PyDoc_STRVAR(decompose_doc, "decompose()\n--\n\n"
 static PyMethodDef node_methods[] = {
     {"find", (PyCFunction)(void (*)(void))node_find, METH_VARARGS | METH_KEYWORDS, find_doc},
     {"find_all", (PyCFunction)(void (*)(void))node_find_all, METH_VARARGS | METH_KEYWORDS, find_all_doc},
+    {"iter_elements", (PyCFunction)(void (*)(void))node_iter_elements, METH_VARARGS | METH_KEYWORDS,
+     "Iterate matching elements in document order while preserving the next match across edits."},
     {"select", node_select, METH_O, select_doc},
     {"select_one", node_select_one, METH_O, select_one_doc},
     {"xpath", (PyCFunction)(void (*)(void))node_xpath, METH_VARARGS | METH_KEYWORDS, xpath_doc},

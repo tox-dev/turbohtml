@@ -60,6 +60,7 @@ typedef struct {
     PyObject *detect_stream_type;     /* _DetectStream (the streaming encoding detector) */
     PyObject *attrs_type;             /* _Attrs (the live mutable view of an element's attributes) */
     PyObject *walker_type;            /* _NodeIterator (descendants / ancestors / siblings) */
+    PyObject *element_walker_type;
     PyObject *tree_walker_type;       /* TreeWalker (the DOM cursor traversal object) */
     PyObject *node_iterator_type;     /* NodeIterator (the DOM flat filtered traversal object) */
     PyObject *string_walker_type;     /* _StringIterator (strings / stripped_strings) */

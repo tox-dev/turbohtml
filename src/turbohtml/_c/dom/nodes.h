@@ -121,6 +121,7 @@ typedef struct {
     uint32_t css_sheet_attr_gen;
     int css_sheets_ready;
     void *css_computed;
+    uint64_t mutation_version;
 } HandleObject;
 
 static inline size_t hash_override_slot(const th_node *node, size_t mask) {
@@ -328,6 +329,21 @@ typedef struct {
     th_node *current; /* next node to yield, or NULL when exhausted */
     int mode;
 } WalkerObject;
+
+typedef struct {
+    PyObject_HEAD PyObject *owner;
+    PyObject *scope;
+    PyObject *tags;
+    PyObject *pending;
+    PyObject *pending_handle;
+    uint64_t pending_version;
+    uint64_t tag_atoms[4];
+    int started;
+    int include_self;
+#ifdef Py_GIL_DISABLED
+    PyThread_type_lock lock;
+#endif
+} ElementWalkerObject;
 
 typedef struct {
     PyObject_HEAD PyObject *handle;
@@ -911,6 +927,7 @@ extern PyType_Spec document_fragment_spec;
 extern PyType_Spec shadow_root_spec;
 
 extern PyType_Spec walker_spec;
+extern PyType_Spec element_walker_spec;
 extern PyType_Spec tree_walker_spec;
 extern PyType_Spec node_iterator_spec;
 extern PyType_Spec string_walker_spec;

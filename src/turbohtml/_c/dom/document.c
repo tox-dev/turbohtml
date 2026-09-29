@@ -2356,6 +2356,7 @@ int tree_register(PyObject *module, module_state *state) {
         return -1;                                                       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     state->walker_type = PyType_FromModuleAndSpec(module, &walker_spec, NULL);
+    state->element_walker_type = PyType_FromModuleAndSpec(module, &element_walker_spec, NULL);
     state->tree_walker_type = PyType_FromModuleAndSpec(module, &tree_walker_spec, NULL);
     /* allocation failure cannot be forced from a test */
     if (state->tree_walker_type == NULL ||                                          /* GCOVR_EXCL_BR_LINE */
@@ -2378,9 +2379,10 @@ int tree_register(PyObject *module, module_state *state) {
     }
     state->attrs_type = PyType_FromModuleAndSpec(module, &attrs_spec, NULL);
     /* allocation failure cannot be forced from a test */
-    if (state->walker_type == NULL || state->string_walker_type == NULL || /* GCOVR_EXCL_BR_LINE */
-        state->serialize_iter_type == NULL ||                              /* GCOVR_EXCL_BR_LINE */
-        state->handle_type == NULL || state->attrs_type == NULL) {         /* GCOVR_EXCL_BR_LINE */
+    if (state->walker_type == NULL || state->element_walker_type == NULL || /* GCOVR_EXCL_BR_LINE */
+        state->string_walker_type == NULL ||                                /* GCOVR_EXCL_BR_LINE */
+        state->serialize_iter_type == NULL ||                               /* GCOVR_EXCL_BR_LINE */
+        state->handle_type == NULL || state->attrs_type == NULL) {          /* GCOVR_EXCL_BR_LINE */
         return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (PyModule_AddObjectRef(module, "_Attrs", state->attrs_type) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
