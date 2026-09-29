@@ -1,30 +1,22 @@
-"""Behavioral tests for the public tokenizer API.
-
-The html5lib conformance suite (test_tokenizer_conformance.py) pins the state
-machine to the WHATWG algorithm; these tests cover what the suite cannot: the
-Python-facing Token/Tokenizer/tokenize surface, the tag-driven content-model
-switching the suite bypasses, incremental feeding (the suite feeds whole
-strings), and source positions.
-"""
-
 from __future__ import annotations
 
 import gc
+import json
+import re
 import threading
+import time
 from html.parser import HTMLParser
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
 from turbohtml import Token, Tokenizer, TokenType, _html, tokenize
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-import time
-from typing import Final
+    from collections.abc import Callable, Iterable
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from _pytest.mark.structures import ParameterSet
 
 
 def _shape(token: Token) -> tuple[object, ...]:
@@ -1045,3 +1037,96 @@ def test_split_reference_survives_a_queued_feed() -> None:
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert _refs(tokens) == [("&", "&amp;")]
     assert [token.data for token in tokens if token.type is TokenType.TEXT] == ["x", "y"]
+
+
+_TOKENIZER_DIR: Final[Path] = Path(__file__).parents[1] / "html5lib-tests" / "tokenizer"
+
+# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
+if not _TOKENIZER_DIR.is_dir() or not any(_TOKENIZER_DIR.glob("*.test")):  # pragma: no cover
+    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
+    raise RuntimeError(msg)
+
+_DOUBLE_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
+_TokenPart: TypeAlias = str | bool | dict[str, str] | None
+_ExpectedToken: TypeAlias = list[_TokenPart]
+_ParseError: TypeAlias = tuple[str, int, int]
+_TokenizerCase: TypeAlias = tuple[str, str, str | None, list[_ExpectedToken], list[_ParseError], str]
+_PI_TOKEN_OVERRIDES: Final[dict[str, list[_ExpectedToken]]] = {
+    "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
+    "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
+}
+
+
+def _decode_double(text: str) -> str:
+    return _DOUBLE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), text)
+
+
+def _decode_token(token: _ExpectedToken) -> _ExpectedToken:
+    return [_decode_double(item) if isinstance(item, str) else item for item in token]
+
+
+def _living_pi_expectation(
+    text: str, state: str, expected: list[_ExpectedToken], errors: list[_ParseError]
+) -> tuple[list[_ExpectedToken], list[_ParseError]]:
+    if state != "Data state" or not text.startswith("<?"):
+        return expected, errors
+    if not (first := text[2:3]):
+        return [], [("eof-in-processing-instruction", 1, 3)]
+    if first.isascii() and (first.isalpha() or first == "_"):
+        if text.endswith(">"):
+            return _PI_TOKEN_OVERRIDES.get(text, expected), []
+        return [], [("eof-in-processing-instruction", 1, len(text) + 1)]
+    retained = [
+        error
+        for error in errors
+        if error[0] not in {"control-character-in-input-stream", "unexpected-question-mark-instead-of-tag-name"}
+    ]
+    preprocessing = [error for error in errors if error[0] == "control-character-in-input-stream"]
+    return expected, [*preprocessing, ("invalid-first-character-of-processing-instruction-target", 1, 3), *retained]
+
+
+def _load_cases() -> list[_TokenizerCase]:
+    cases: list[_TokenizerCase] = []
+    for path in sorted(_TOKENIZER_DIR.glob("*.test")):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        for index, test in enumerate(document.get("tests", [])):
+            double_escaped = test.get("doubleEscaped", False)
+            text = _decode_double(test["input"]) if double_escaped else test["input"]
+            expected = [
+                _decode_token(token) if double_escaped else list(token)
+                for token in test["output"]
+                if token != "ParseError"  # ruff:ignore[hardcoded-password-string]  # a token-stream marker, not a password
+            ]
+            errors = [(error["code"], error["line"], error["col"]) for error in test.get("errors", [])]
+            last_start_tag = test.get("lastStartTag")
+            for state in test.get("initialStates", ["Data state"]):
+                expected, errors = _living_pi_expectation(text, state, expected, errors)
+                identifier = f"{path.stem}-{index}-{state.replace(' ', '_')}"
+                cases.append((text, state, last_start_tag, expected, errors, identifier))
+    return cases
+
+
+def _token_cases() -> list[ParameterSet]:
+    return [pytest.param(text, state, tag, tokens, id=name) for text, state, tag, tokens, _, name in _load_cases()]
+
+
+def _error_cases() -> list[ParameterSet]:
+    return [pytest.param(text, state, tag, errors, id=name) for text, state, tag, _, errors, name in _load_cases()]
+
+
+@pytest.mark.parametrize(("text", "state", "last_start_tag", "expected"), _token_cases())
+def test_tokenizer_conformance(
+    text: str, state: str, last_start_tag: str | None, expected: list[_ExpectedToken], storage_kind: int
+) -> None:
+    actual, _ = _html._tokenize_states(text, state, last_start_tag, storage_kind)
+    assert [list(token) for token in actual] == expected
+
+
+@pytest.mark.parametrize(("text", "state", "last_start_tag", "errors"), _error_cases())
+def test_tokenizer_parse_errors(
+    text: str, state: str, last_start_tag: str | None, errors: list[_ParseError], storage_kind: int
+) -> None:
+    _, raised = _html._tokenize_states(text, state, last_start_tag, storage_kind)
+    assert [code for code, _, _ in raised] == [code for code, _, _ in errors]
+    if all(ord(character) <= 0xFFFF for character in text):
+        assert [(code, line, col + 1) for code, line, col in raised] == errors
