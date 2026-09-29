@@ -594,3 +594,23 @@ def test_transform_pattern_adopted_foreign_unprefixed(body: str, expected: str) 
         f'<xsl:output method="text"/>{body}</xsl:stylesheet>'
     )
     assert Transform(sheet)(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [pytest.param("p", "2", id="same-case"), pytest.param("P", "0", id="case-sensitive")],
+)
+def test_transform_pattern_key_adopted_html_atom(name: str, expected: str) -> None:
+    source: Final = parse_xml('<root><p key="same"/></root>')
+    root: Final = source.root
+    adopted: Final = parse_fragment('<p key="same"/>').select_one("p")
+    assert root is not None
+    assert adopted is not None
+    root.append(adopted)
+    sheet: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:output method="text"/><xsl:key name="k" match="{name}" use="@key"/>'
+        "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', 'same'))\"/></xsl:template>"
+        "</xsl:stylesheet>"
+    )
+    assert Transform(sheet)(source) == expected

@@ -1545,10 +1545,24 @@ static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_resu
         step->first >= 0 || step->next >= 0) {
         return 1;
     }
+    uint16_t want_atom = TH_TAG_UNKNOWN;
+    if (step->str_len < 64) {
+        char spelling[64];
+        Py_ssize_t index = 0;
+        for (; index < step->str_len && step->str[index] < 128; index++) {
+            spelling[index] = (char)step->str[index];
+        }
+        if (index == step->str_len) {
+            want_atom = th_tag_lookup(spelling, step->str_len);
+        }
+    }
     *matched = (xp_result){.kind = XP_NODESET};
     for (th_node *node = eng->src_root->first_child; node != NULL;) {
-        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->text_len == step->str_len &&
-            memcmp(node->text, step->str, (size_t)step->str_len * sizeof(Py_UCS4)) == 0 &&
+        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML &&
+            (node->atom != TH_TAG_UNKNOWN
+                 ? node->atom == want_atom
+                 : node->text_len == step->str_len &&
+                       memcmp(node->text, step->str, (size_t)step->str_len * sizeof(Py_UCS4)) == 0) &&
             ns_push(&matched->nodes, node, -1) < 0) {
             xp_result_free(matched);
             return -1;
