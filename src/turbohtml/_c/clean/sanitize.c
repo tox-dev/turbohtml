@@ -2682,21 +2682,22 @@ static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyOb
 
 PyObject *turbohtml_bleach_allow_relative(PyObject *Py_UNUSED(module), PyObject *schemes) {
     PyObject *http = PyUnicode_FromString("http");
-    if (http == NULL) {
-        return NULL;
+    if (http == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;    /* GCOVR_EXCL_LINE */
     }
     int allowed = PySet_Contains(schemes, http);
     Py_DECREF(http);
     if (allowed != 0) {
-        return allowed < 0 ? NULL : Py_NewRef(Py_True);
+        return allowed < 0 ? NULL : Py_NewRef(Py_True); /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
     }
     PyObject *https = PyUnicode_FromString("https");
-    if (https == NULL) {
-        return NULL;
+    if (https == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;     /* GCOVR_EXCL_LINE */
     }
     allowed = PySet_Contains(schemes, https);
     Py_DECREF(https);
-    return allowed < 0 ? NULL : PyBool_FromLong(allowed);
+    return allowed < 0 ? NULL
+                       : PyBool_FromLong(allowed); /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
 }
 
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args) {
