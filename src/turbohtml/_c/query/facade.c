@@ -321,7 +321,7 @@ PyObject *turbohtml_query_parents(PyObject *module, PyObject *args) {
 #ifndef Py_GIL_DISABLED
             if (count == capacity) {
                 Py_ssize_t size = PyList_GET_SIZE(nodes);
-                Py_ssize_t grown = capacity > size / 2 ? size : capacity * 2;
+                Py_ssize_t grown = size > capacity ? size : capacity * 2;
                 PyObject **buffer =
                     PyMem_Realloc(wrappers == local ? NULL : wrappers, (size_t)grown * sizeof(PyObject *));
                 if (buffer == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
