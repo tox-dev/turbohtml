@@ -74,10 +74,13 @@ through silently.
     function f(x){var half=x/2;return half*half}
 
 Inline ``<script>`` minification rides on HTML minification: pass a :class:`~turbohtml.clean.JSMinify` as
-:class:`~turbohtml.Minify`'s ``minify_js`` (the default ``None`` leaves scripts untouched). Only scripts the ``type``
-attribute marks as JavaScript are rewritten — a ``type="application/json"`` or ``importmap`` payload is left
-byte-for-byte — and a script the parser cannot handle is emitted verbatim, so one bad ``<script>`` never breaks the
-document.
+:class:`~turbohtml.Minify`'s ``minify_js`` (the default ``None`` leaves scripts untouched). The minifier rewrites only
+scripts the ``type`` attribute marks as JavaScript and leaves a ``type="application/json"`` or ``importmap`` payload
+byte-for-byte.
+
+The minifier emits a script verbatim when the JS parser rejects it, so one bad ``<script>`` cannot break the document.
+It does the same when the minified text would hold ``</script`` or ``<!--`` in any letter case, where the HTML parser
+would end the element or search past it for the end.
 
 .. testcode::
 

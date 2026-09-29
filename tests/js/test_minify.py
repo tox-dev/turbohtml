@@ -383,6 +383,11 @@ def test_html_like_comments(source: str, expected: str) -> None:
     assert minify_js(source) == expected
 
 
+def test_less_than_stays_apart_from_regex() -> None:
+    # `a</script>/i` would close an enclosing <script>
+    assert minify_js("x=a < /script>/i") == "x=a< /script>/i"
+
+
 def test_unparseable_input_raises() -> None:
     # module syntax is not handled; minify_js fails loudly rather than silently
     # echoing the source back, so an unminifiable script never passes unnoticed

@@ -536,9 +536,20 @@ static int script_is_js(th_tree *tree, th_node *node) {
     return 0;
 }
 
-/* Emit a <script>'s JavaScript content minified, returning 1 when it did. Returns 0 --
-   leaving the caller to emit the content verbatim -- for a non-JS script, an empty one, or
-   a script the JS minifier cannot parse, so one bad <script> never breaks serialization. */
+/* `</script` ends the element and `<!--` enters the escaped state, where a later `<script` hides the end tag; a source
+   can carry either inside an escaped `<!--` section whose markers the minifier strips. */
+static int js_embeds_in_script(const Py_UCS4 *js, Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (js[index] == '<' && (starts_with_ascii_ci(js + index, len - index, "</script") ||
+                                 starts_with_ascii_ci(js + index, len - index, "<!--"))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Returns 0, leaving the caller to emit the content verbatim, for a non-JS or empty script, one the JS minifier cannot
+   parse, or one whose minified form would not reparse in place. */
 static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th_minify_opts *opts) {
     if (node->atom != TH_TAG_SCRIPT) {
         return 0; /* style/textarea/title and other raw-text elements are never JavaScript */
@@ -571,9 +582,12 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
     if (result == NULL) {
         return 0; /* a parse error (or allocation failure): emit the script verbatim */
     }
-    sbuf_put_ucs4(out, result, out_len);
+    int embeds = js_embeds_in_script(result, out_len);
+    if (embeds) {
+        sbuf_put_ucs4(out, result, out_len);
+    }
     PyMem_Free(result);
-    return 1;
+    return embeds;
 }
 
 /* Emit a <style>'s CSS content minified, returning 1 when it did. Returns 0 -- leaving the

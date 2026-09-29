@@ -1,0 +1,2 @@
+Stop :func:`~turbohtml.clean.minify_js` from creating a ``</script`` or ``<!--`` the source did not spell, and emit an
+inline script verbatim when its minified form still holds either sequence.

@@ -15,6 +15,7 @@
 #ifndef TURBOHTML_CORE_ASCII_H
 #define TURBOHTML_CORE_ASCII_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* ASCII-lowercase: fold A-Z, leave every other code point (including the Latin-1
@@ -45,6 +46,15 @@ static inline int is_ascii_hexdigit(uint32_t ch) {
    consumers, where U+000D is whitespace like any other. */
 static inline int is_space(uint32_t ch) {
     return ch == '\t' || ch == '\n' || ch == '\x0c' || ch == '\r' || ch == ' ';
+}
+
+static inline int starts_with_ascii_ci(const uint32_t *text, ptrdiff_t len, const char *lower_prefix) {
+    for (ptrdiff_t index = 0; lower_prefix[index] != '\0'; index++) {
+        if (index == len || lower_ascii(text[index]) != (uint32_t)(unsigned char)lower_prefix[index]) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 #endif /* TURBOHTML_CORE_ASCII_H */

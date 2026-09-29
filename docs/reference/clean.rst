@@ -348,10 +348,15 @@ processing instructions; remove :class:`~turbohtml.ProcessingInstruction` nodes 
  JS minification
 *****************
 
-:func:`minify_js` minifies a JavaScript string on its own, the ``jsmin``/``rjsmin`` successor. It always folds
-whitespace, comments, and number literals; a frozen :class:`JSMinify` toggles the optional ``mangle`` (rename local
-bindings) and ``fold`` (constant-fold and eliminate dead code) passes. The same :class:`JSMinify` passed as
-``Minify(minify_js=...)`` rewrites inline ``<script>`` content during HTML minification.
+:func:`minify_js` minifies a JavaScript string on its own. It always folds whitespace, comments, and number literals; a
+frozen :class:`JSMinify` toggles the optional ``mangle`` (rename local bindings) and ``fold`` (constant-fold and
+eliminate dead code) passes. The same :class:`JSMinify` passed as ``Minify(minify_js=...)`` rewrites inline ``<script>``
+content during HTML minification, and emits a script verbatim when its minified text would hold ``</script`` or ``<!--``
+in any letter case.
+
+:func:`minify_js` writes a ``<`` that folding would join into either sequence as ``\x3c`` and keeps a space between
+``<`` and a following ``/``. It passes a ``</script`` or ``<!--`` already in the source through, so its output is not
+safe to paste into a ``<script>`` element; minify inline scripts through ``Minify(minify_js=...)`` instead.
 
 .. autofunction:: minify_js
 

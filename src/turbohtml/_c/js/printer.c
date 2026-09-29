@@ -130,6 +130,9 @@ static int needs_guard(const St *st, Py_UCS4 next) {
     if (next == '>' && st->last == '-') { /* the printer emits `-` before `>` only as `-->` */
         return 1;
     }
+    if (next == '/' && st->last == '<') { /* `a< /script>/` must not spell the </script end tag */
+        return 1;
+    }
     return would_merge(st->last, next);
 }
 

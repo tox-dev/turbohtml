@@ -853,6 +853,31 @@ def test_unparseable_script_emitted_verbatim() -> None:
     assert script("function( broken", minify_js=JSMinify()) == "<script>function( broken</script>"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('var a="</scr"+"ipt><img src=x>"', r'var a="\x3c/script><img src=x>"', id="folded-end-tag"),
+        pytest.param("x=a < /script>/i", "x=a< /script>/i", id="less-than-before-regex"),
+    ],
+)
+def test_minified_script_spells_no_end_tag(source: str, expected: str) -> None:
+    assert script(source, minify_js=JSMinify()) == f"<script>{expected}</script>"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<!--<script>\nx="</script><img src=x>"\n-->', id="string-in-escaped-section"),
+        pytest.param("<!--<script>\nx=String.raw`</SCRIPT>`\n-->", id="tagged-template-in-escaped-section"),
+        pytest.param("<!--<script>\n/*! </script> */x()\n-->", id="kept-comment-in-escaped-section"),
+        pytest.param('a="<!--";if(0){b="-->"}c="<script>"', id="comment-open-left-unclosed"),
+    ],
+)
+def test_script_that_would_not_reparse_stays_verbatim(source: str) -> None:
+    # stripping the `<!--` section or the dead `-->` would let the parser end or extend the element elsewhere
+    assert script(source, minify_js=JSMinify()) == f"<script>{source}</script>"
+
+
 def test_empty_script_is_unchanged() -> None:
     assert script("", minify_js=JSMinify()) == "<script></script>"
 

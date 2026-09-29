@@ -1041,6 +1041,12 @@ _PS = chr(0x2029)
         pytest.param('"a' + _BS + _LS + 'b"+"c"', r'"abc"', id="ls-continuation"),
         pytest.param('"a' + _BS + _PS + 'b"+"c"', r'"abc"', id="ps-continuation"),
         pytest.param(r'"ab"+"cd"', r'"abcd"', id="plain"),
+        # the joined value may not spell a `</script` or `<!--` the HTML parser would act on inside <script>
+        pytest.param(r'"</scr"+"ipt>"', r'"\x3c/script>"', id="script-end-tag"),
+        pytest.param(r'"</SCR"+"IPT>"', r'"\x3c/SCRIPT>"', id="script-end-tag-uppercase"),
+        pytest.param(r'"<!-"+"-"', r'"\x3c!--"', id="html-comment-open"),
+        pytest.param(r'"</scr"+"i"', r'"</scri"', id="script-end-tag-prefix-kept"),
+        pytest.param(r'"<"+"b>"', r'"<b>"', id="less-than-kept"),
     ],
 )
 def test_concat_reencodes_by_value(source: str, expected: str) -> None:
@@ -1113,6 +1119,7 @@ def test_undefined_kept_without_mangling_when_shadowed() -> None:
         pytest.param(r'"\x0a"+"b"', id="hex-then-letter"),
         pytest.param('"' + _BS + 'u0041"+"1"', id="unicode-then-digit"),
         pytest.param('"a' + _BS + _CR + _LF + 'b"+"3"', id="crlf-then-digit"),
+        pytest.param(r'"</scr"+"ipt><!-"+"-"', id="script-end-tag-and-comment-open"),
     ],
 )
 def test_concat_matches_node(source: str) -> None:

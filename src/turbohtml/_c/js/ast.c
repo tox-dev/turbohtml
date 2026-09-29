@@ -3,6 +3,7 @@
    tree's arena), plus jm_dump, the canonical S-expression the parser tests diff
    against the way the XPath front end does. */
 
+#include "core/ascii.h"
 #include "js/internal.h"
 
 #include <string.h>
@@ -340,6 +341,14 @@ Py_ssize_t jm_str_encode(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 quote, Py
             out[write++] = 'x';
             out[write++] = (Py_UCS4)(unsigned char)hex[(ch >> 4) & 0xF];
             out[write++] = (Py_UCS4)(unsigned char)hex[ch & 0xF];
+        } else if (ch == '<' && (starts_with_ascii_ci(value + read, len - read, "</script") ||
+                                 starts_with_ascii_ci(value + read, len - read, "<!--"))) {
+            /* inside an HTML <script> a raw `</script` closes the element and `<!--` changes how the parser finds
+               its end, so neither may appear even when joined from pieces that avoided them */
+            out[write++] = '\\';
+            out[write++] = 'x';
+            out[write++] = '3';
+            out[write++] = 'c';
         } else {
             out[write++] = ch;
         }
