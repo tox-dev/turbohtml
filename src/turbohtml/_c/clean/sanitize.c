@@ -3137,6 +3137,23 @@ static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyOb
 
 static PyMethodDef BLEACH_PREDICATE_DEF = {"bleach_attribute_predicate", bleach_predicate, METH_VARARGS, NULL};
 
+static int bleach_predicate_is_bound(PyObject *predicate) {
+    if (!PyCFunction_Check(predicate)) {
+        return 0;
+    }
+    PyCFunction function = PyCFunction_GetFunction(predicate);
+    if (function == NULL) { /* GCOVR_EXCL_BR_LINE: PyPy native builtins */
+        /* PyPy reports native builtins as PyCFunction but rejects them here. */
+        if (PyErr_ExceptionMatches(PyExc_TypeError) ||   /* GCOVR_EXCL_LINE: PyPy native builtins */
+            PyErr_ExceptionMatches(PyExc_SystemError)) { /* GCOVR_EXCL_LINE: PyPy native builtins */
+            PyErr_Clear();                               /* GCOVR_EXCL_LINE */
+            return 0;                                    /* GCOVR_EXCL_LINE */
+        }
+        return -1; /* GCOVR_EXCL_LINE: unexpected C API error */
+    }
+    return function == bleach_predicate;
+}
+
 static PyObject *bleach_wildcard(void) {
     PyObject *seed = Py_BuildValue("(s)", "*");
     if (seed == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -3285,9 +3302,10 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
-    s.bleach_raw_values =
-        PyCFunction_Check(s.attribute_predicate) && PyCFunction_GET_FUNCTION(s.attribute_predicate) ==
-                                                        bleach_predicate; /* GCOVR_EXCL_BR_LINE: predicate is bound */
+    s.bleach_raw_values = bleach_predicate_is_bound(s.attribute_predicate);
+    if (s.bleach_raw_values < 0) { /* GCOVR_EXCL_BR_LINE: unexpected C API error */
+        return NULL;               /* GCOVR_EXCL_LINE */
+    }
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
         require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
         require_anyset(s.css_properties, "css_properties") < 0 ||
