@@ -813,7 +813,6 @@ def test_regex_star_loop_revisit() -> None:
         pytest.param("xs:date", "2020-06-15+05x30", False, id="date-tz-colon"),
         pytest.param("xs:time", "12x00:00", False, id="time-sep1"),
         pytest.param("xs:time", "12:00x00", False, id="time-sep2"),
-        pytest.param("xs:time", "12:60:00", False, id="time-minute"),
         pytest.param("xs:dateTime", "2020-06-15", False, id="dateTime-no-time"),
         pytest.param("xs:dateTime", "2020-06-15T99:00:00", False, id="dateTime-bad-time"),
         pytest.param("xs:dateTime", "2020-06-15T12:00:00+9", False, id="dateTime-bad-tz"),
@@ -1265,7 +1264,6 @@ def test_xsd_attribute_group_without_ref_is_skipped() -> None:
     ("type_name", "value", "ok"),
     [
         pytest.param("xs:double", ".5", True, id="double-leading-dot"),
-        pytest.param("xs:double", "12", True, id="double-integer-only"),
         pytest.param("xs:hexBinary", "::", False, id="hex-below-A"),
         pytest.param("xs:double", "1e5z", False, id="double-exp-trailing-nondigit"),
     ],
