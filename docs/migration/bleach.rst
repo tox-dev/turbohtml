@@ -10,7 +10,7 @@ URL schemes so user-supplied HTML is safe to render, and ``bleach.linkify`` scan
 ``<a>`` tags. It powered comment fields, wikis, and message bodies across the Django ecosystem for a decade.
 
 bleach reached end of life with no maintained successor. turbohtml covers both jobs from its ``turbohtml.clean`` module:
-``bleach.clean`` maps to the allowlist :class:`~turbohtml.clean.Sanitizer` (with a drop-in
+``bleach.clean`` maps to the allowlist :class:`~turbohtml.clean.Sanitizer` (with a compatible
 :func:`turbohtml.migration.bleach.clean` shim), and ``bleach.linkify`` maps to :func:`turbohtml.clean.linkify`. Both run
 their filtering in C, ship full type annotations, and take a frozen, thread-safe configuration.
 
@@ -101,7 +101,7 @@ The sanitizer leads bleach by about fifty times and the linkifier by six to twen
 Sanitizing
 ==========
 
-The bleach-compatible shim keeps ``clean``'s signature, so the import is the only change:
+The bleach-compatible shim keeps ``clean``'s signature, so most calls need only an import change:
 
 .. code-block:: python
 
@@ -142,6 +142,9 @@ chooses between dropping a disallowed tag and keeping its children (``True``) an
 .. testoutput::
 
     &lt;p&gt;Hi <a href="http://x">link</a>&lt;/p&gt;&lt;script&gt;evil()&lt;/script&gt;
+
+Kept attributes and text may have different entity spelling: bleach preserves ``&#x20;`` while turbohtml emits a space.
+The parsed value is the same.
 
 For new code prefer the native :class:`~turbohtml.clean.Policy`/:class:`~turbohtml.clean.Sanitizer` API: a frozen,
 thread-safe policy, an :class:`~turbohtml.clean.OnDisallowed` enum that names escape, strip, and remove where bleach

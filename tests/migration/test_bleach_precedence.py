@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 import pytest
 
-from turbohtml.clean import Policy, sanitize
+from turbohtml import parse_fragment
+from turbohtml.clean import Policy, sanitize, sanitize_node
 from turbohtml.migration.bleach import attribute_policy, clean
 
 if TYPE_CHECKING:
@@ -118,6 +119,79 @@ def test_predicate_observes_unfiltered_css() -> None:
         )
         == '<a style="color: red">x</a>'
     )
+
+
+@pytest.mark.parametrize(
+    ("markup", "value", "expected", "calls"),
+    [
+        pytest.param('<a title="&amp;">x</a>', "&amp;", '<a title="&amp;">x</a>', 1, id="named-reference"),
+        pytest.param("<a title=&amp;>x</a>", "&amp;", '<a title="&amp;">x</a>', 1, id="unquoted-reference"),
+        pytest.param('<a title="a&#x20;b">x</a>', "a&#x20;b", '<a title="a b">x</a>', 1, id="numeric-reference"),
+        pytest.param('<a title="&#0;">x</a>', "&#0;", '<a title="�">x</a>', 1, id="null-reference"),
+        pytest.param('<a title="x\r\ny">x</a>', "x\ny", '<a title="x\ny">x</a>', 1, id="newline"),
+        pytest.param('<a title="x\0y">x</a>', "x�y", '<a title="x�y">x</a>', 1, id="null-character"),
+        pytest.param('<a title="first" title="&amp;">x</a>', "first", '<a title="first">x</a>', 1, id="duplicate"),
+        pytest.param("<a title>x</a>", "", '<a title="">x</a>', 1, id="valueless"),
+        pytest.param("<a title=>x</a>", "", '<a title="">x</a>', 1, id="empty-unquoted"),
+        pytest.param("<a title = >x</a>", "", '<a title="">x</a>', 1, id="empty-spaced"),
+        pytest.param('<a title="">x</a>', "", '<a title="">x</a>', 1, id="empty-quoted"),
+        pytest.param('<a title =  "&amp;">x</a>', "&amp;", '<a title="&amp;">x</a>', 1, id="spaced-equals"),
+        pytest.param(
+            '<b><i title="&amp;">a</b>b</i>',
+            "&amp;",
+            '<b><i title="&amp;">a</i></b><i title="&amp;">b</i>',
+            2,
+            id="reconstructed-element",
+        ),
+    ],
+)
+def test_bleach_predicate_receives_source_references(markup: str, value: str, expected: str, calls: int) -> None:
+    seen: Final[list[str]] = []
+
+    def keep(_tag: str, _name: str, source: str) -> bool:
+        seen.append(source)
+        return source == value
+
+    assert clean(markup, attributes=keep) == expected
+    assert seen == [value] * calls
+
+
+def test_bleach_predicate_cannot_keep_encoded_script_url() -> None:
+    seen: Final[list[str]] = []
+
+    def keep(_tag: str, _name: str, source: str) -> bool:
+        seen.append(source)
+        return True
+
+    assert clean('<a href="jav&#x61;script:alert(1)">x</a>', attributes=keep) == "<a>x</a>"
+    assert seen == ["jav&#x61;script:alert(1)"]
+
+
+def test_bleach_predicate_retains_reconstructed_attribute_origins() -> None:
+    seen: Final[list[tuple[str, str]]] = []
+
+    def keep(_tag: str, name: str, value: str) -> bool:
+        seen.append((name, value))
+        return True
+
+    assert clean('<b><i id="x" title="&amp;">a</b>b</i>', attributes=keep) == (
+        '<b><i id="x" title="&amp;">a</i></b><i id="x" title="&amp;">b</i>'
+    )
+    assert seen == [("id", "x"), ("title", "&amp;"), ("id", "x"), ("title", "&amp;")]
+
+
+def test_bleach_predicate_on_existing_tree_sees_parsed_value() -> None:
+    seen: Final[list[str]] = []
+
+    def keep(_tag: str, _name: str, value: str) -> bool:
+        seen.append(value)
+        return value == "&"
+
+    names, predicate = attribute_policy(keep)
+    assert sanitize_node(
+        parse_fragment('<a title="&amp;">x</a>'), Policy(attributes=names, attribute_predicate=predicate)
+    ).inner_html == ('<a title="&amp;">x</a>')
+    assert seen == ["&"]
 
 
 def test_rejected_url_predicate_changes_later_rules() -> None:

@@ -407,6 +407,12 @@ const th_src_loc *th_node_source_location(th_tree *tree, th_node *node) {
     return *node_loc(node); /* NULL for a synthetic element with no source start tag */
 }
 
+const void *th_tree_source_data(th_tree *tree, int *kind, int *has_nul) {
+    *kind = tree->kind;
+    *has_nul = tree->has_nul;
+    return tree->data;
+}
+
 /* A shallow element clone (same atom/name/attrs, no children) for the adoption
    agency and active-formatting-element reconstruction. */
 static th_node *node_clone(th_tree *tree, const th_node *src);

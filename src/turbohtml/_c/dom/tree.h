@@ -804,6 +804,7 @@ int th_node_source_position(th_tree *tree, th_node *node, Py_ssize_t *line, Py_s
    no source locations, the node is not an element, or the element has no source
    start tag (a synthetic html/head/body, a fragment root, or a hand-built one). */
 const th_src_loc *th_node_source_location(th_tree *tree, th_node *node);
+const void *th_tree_source_data(th_tree *tree, int *kind, int *has_nul);
 
 /* The interned name bytes (NUL-terminated UTF-8) for an attribute's name_atom;
    *out_len receives the length. Resolves a static atom from the generated table

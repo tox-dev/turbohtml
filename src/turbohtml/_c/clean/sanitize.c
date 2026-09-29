@@ -13,8 +13,15 @@
 #include "tokenizer/binding.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 enum on_disallowed { ON_ESCAPE = 0, ON_STRIP = 1, ON_REMOVE = 2 };
+
+typedef struct {
+    const Py_UCS4 *value;
+    uint32_t name_atom;
+    th_src_span span;
+} bleach_origin;
 
 typedef struct {
     th_tree *tree;
@@ -57,7 +64,12 @@ typedef struct {
     int allow_html;   /* USE_PROFILES.html: keep HTML-namespace elements (off drops the whole HTML namespace) */
     int allow_svg;    /* USE_PROFILES.svg: keep SVG-namespace elements */
     int allow_mathml; /* USE_PROFILES.mathMl: keep MathML-namespace elements */
+    int bleach_raw_values;
+    bleach_origin *bleach_origins;
+    Py_ssize_t bleach_origin_count;
 } sanitizer;
+
+static PyObject *bleach_predicate(PyObject *bound, PyObject *args);
 
 /* Append one dropped item to the audit list when reporting is on: (tag, None) for a removed or escaped element, (tag,
    attribute_name) for a stripped attribute. A no-op when s->removed is NULL, the common non-reporting path. Returns 0,
@@ -1770,6 +1782,124 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
     return apply_late_attribute_safety(s, element, tag);
 }
 
+static th_node *next_sanitizer_node(th_node *node, th_node *root) {
+    if (node->first_child != NULL) {
+        return node->first_child;
+    }
+    while (node != root && node->next_sibling == NULL) {
+        node = node->parent;
+    }
+    return node == root ? NULL : node->next_sibling;
+}
+
+static int compare_bleach_origins(const void *left, const void *right) {
+    const bleach_origin *first = left, *second = right;
+    uintptr_t first_value = (uintptr_t)first->value, second_value = (uintptr_t)second->value;
+    if (first_value != second_value) {
+        return first_value < second_value ? -1 : 1;
+    }
+    return (first->name_atom > second->name_atom) - (first->name_atom < second->name_atom);
+}
+
+static int collect_bleach_origins(sanitizer *s, th_node *root) {
+    Py_ssize_t count = 0;
+    int has_clone = 0;
+    for (th_node *node = root; node != NULL; node = next_sanitizer_node(node, root)) {
+        if (node->type != TH_NODE_ELEMENT || node->attr_count == 0) {
+            continue;
+        }
+        has_clone |= th_node_source_location(s->tree, node) == NULL;
+        count += node->attr_count;
+    }
+    if (!has_clone) {
+        return 0;
+    }
+    s->bleach_origins = PyMem_Malloc((size_t)count * sizeof(bleach_origin));
+    if (s->bleach_origins == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();            /* GCOVR_EXCL_LINE */
+        return -1;                   /* GCOVR_EXCL_LINE */
+    }
+    for (th_node *node = root; node != NULL; node = next_sanitizer_node(node, root)) {
+        const th_src_loc *location = th_node_source_location(s->tree, node);
+        if (location == NULL) {
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+            th_node_attr *attr = &node->attrs[index];
+            Py_ssize_t source_count = location->attr_count;
+            for (Py_ssize_t source_index = 0; source_index < source_count; source_index++) { /* GCOVR_EXCL_BR_LINE */
+                if (location->attrs[source_index].name_atom == attr->name_atom) {
+                    s->bleach_origins[s->bleach_origin_count++] =
+                        (bleach_origin){attr->value, attr->name_atom, location->attrs[source_index].span};
+                    break;
+                }
+            }
+        }
+    }
+    qsort(s->bleach_origins, (size_t)s->bleach_origin_count, sizeof(bleach_origin), compare_bleach_origins);
+    return 0;
+}
+
+static PyObject *bleach_raw_value(sanitizer *s, th_node *element, th_node_attr *attr) {
+    const th_src_loc *location = th_node_source_location(s->tree, element);
+    th_src_span origin_span;
+    if (location == NULL) {
+        if (s->bleach_origins == NULL) {
+            return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+        }
+        bleach_origin key = {.value = attr->value, .name_atom = attr->name_atom};
+        bleach_origin *found = bsearch(&key, s->bleach_origins, (size_t)s->bleach_origin_count, sizeof(bleach_origin),
+                                       compare_bleach_origins);
+        if (found == NULL) { /* GCOVR_EXCL_BR_LINE: parser clones share the source attribute buffer */
+            return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len); /* GCOVR_EXCL_LINE */
+        }
+        origin_span = found->span;
+    }
+    int kind, has_nul;
+    const void *data = th_tree_source_data(s->tree, &kind, &has_nul);
+    Py_ssize_t count = location == NULL ? 1 : location->attr_count;
+    for (Py_ssize_t index = 0; index < count; index++) { /* GCOVR_EXCL_BR_LINE */
+        if (location != NULL && location->attrs[index].name_atom != attr->name_atom) {
+            continue;
+        }
+        th_src_span span = location == NULL ? origin_span : location->attrs[index].span;
+        Py_ssize_t start = span.start_offset;
+        Py_ssize_t end = span.end_offset;
+        while (start < end && PyUnicode_READ(kind, data, start) != '=') {
+            start++;
+        }
+        if (start < end) {
+            start++;
+            while (start < end && is_space(PyUnicode_READ(kind, data, start))) { /* GCOVR_EXCL_BR_LINE */
+                start++;
+            }
+            if (start < end) { /* GCOVR_EXCL_BR_LINE: a tokenizer value follows '=' */
+                Py_UCS4 quote = PyUnicode_READ(kind, data, start);
+                if (quote == '\'' || quote == '"') {
+                    start++;
+                    if (end > start && PyUnicode_READ(kind, data, end - 1) == quote) { /* GCOVR_EXCL_BR_LINE */
+                        end--;
+                    }
+                }
+            }
+        }
+        PyObject *raw = th_str_from_kind(kind, (const char *)data + start * kind, end - start);
+        if (raw == NULL || !has_nul) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return raw;
+        }
+        PyObject *nul = PyUnicode_FromStringAndSize("\0", 1);
+        PyObject *replacement = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, (Py_UCS4[]){0xfffd}, 1);
+        PyObject *normalized = nul != NULL && replacement != NULL /* GCOVR_EXCL_BR_LINE: allocation failure */
+                                   ? PyUnicode_Replace(raw, nul, replacement, -1)
+                                   : NULL;
+        Py_DECREF(raw);
+        Py_XDECREF(nul);
+        Py_XDECREF(replacement);
+        return normalized;
+    }
+    return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len); /* GCOVR_EXCL_LINE */
+}
+
 static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *tag) {
     Py_ssize_t kept = 0;
     /* Safety checks can restart the attribute walk; predicates must run once on the original values. */
@@ -1778,7 +1908,9 @@ static int apply_attribute_predicate(sanitizer *s, th_node *element, PyObject *t
         Py_ssize_t name_len;
         const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
         PyObject *key = PyUnicode_FromStringAndSize(name, name_len);
-        PyObject *value = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
+        PyObject *value = s->bleach_raw_values
+                              ? bleach_raw_value(s, element, attr)
+                              : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len);
         if (key == NULL || value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_XDECREF(key);                /* GCOVR_EXCL_LINE */
             Py_XDECREF(value);              /* GCOVR_EXCL_LINE */
@@ -2696,8 +2828,8 @@ PyObject *turbohtml_bleach_allow_relative(PyObject *Py_UNUSED(module), PyObject 
     }
     allowed = PySet_Contains(schemes, https);
     Py_DECREF(https);
-    return allowed < 0 ? NULL
-                       : PyBool_FromLong(allowed); /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
+    return allowed < 0 ? NULL /* GCOVR_EXCL_BR_LINE: frozenset lookup of a str cannot fail */
+                       : PyBool_FromLong(allowed);
 }
 
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args) {
@@ -2888,6 +3020,8 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
+    s.bleach_raw_values =
+        PyCFunction_Check(s.attribute_predicate) && PyCFunction_GET_FUNCTION(s.attribute_predicate) == bleach_predicate;
     if (require_anyset(s.tags, "tags") < 0 || require_anyset(s.url_schemes, "url_schemes") < 0 ||
         require_anyset(s.remove_with_content, "remove_with_content") < 0 ||
         require_anyset(s.css_properties, "css_properties") < 0 ||
@@ -2899,7 +3033,7 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *retained_source = NULL;
     if (PyUnicode_Check(source)) {
         s.tree = th_tree_parse_fragment(PyUnicode_KIND(source), PyUnicode_DATA(source), PyUnicode_GET_LENGTH(source),
-                                        "div", 3, 0, 0, 0, 0);
+                                        "div", 3, 0, s.bleach_raw_values, 0, 0);
         if (s.tree == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -2943,11 +3077,15 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
         th_tree_free(s.tree);                           /* GCOVR_EXCL_LINE */
         return NULL;                                    /* GCOVR_EXCL_LINE */
     }
-    int failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
+    int failed = s.bleach_raw_values && retained_source != NULL && collect_bleach_origins(&s, root) < 0;
+    if (!failed) { /* GCOVR_EXCL_BR_LINE: only origin-map allocation failure skips the walk */
+        failed = sanitize_children(&s, root, 1) < 0; /* the fragment root is kept context */
+    }
     if (!failed && s.strip_templates) {
         failed = strip_tree_templates(&s, root) < 0;
     }
     Py_XDECREF(s.prefix_tuple);
+    PyMem_Free(s.bleach_origins);
     Py_DECREF(s.star);
     Py_DECREF(s.re_search);
     if (failed) {

@@ -1,12 +1,11 @@
 """
-A drop-in for ``bleach.clean`` for projects migrating off bleach.
+A compatible ``bleach.clean`` interface for projects migrating off bleach.
 
-This is a thin translator over :mod:`turbohtml.clean`, kept apart from the main API so the drop-in surface stays
+This is a thin translator over :mod:`turbohtml.clean`, kept apart from the main API so the compatibility surface stays
 bounded. ``clean(text, tags=..., attributes=..., protocols=..., strip=...)`` keeps bleach's signature, including the
-list, per-tag-dict, and callable forms of ``attributes``, so a bleach call works with only the import changed. The one
-intentional difference is that event-handler attributes and ``javascript:`` URLs are dropped unconditionally here, even
-when a permissive ``attributes`` callable would keep them, because the underlying policy's safety baseline is not
-negotiable.
+list, per-tag-dict, and callable forms of ``attributes``. Kept attributes and text may change entity spelling after
+serialization. Event-handler attributes and ``javascript:`` URLs are dropped unconditionally, even when a permissive
+``attributes`` callable would keep them, because the underlying policy's safety baseline is fixed.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ _AttributeRules: TypeAlias = (
 )
 
 
-def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # this is bleach.clean's signature, kept verbatim for drop-in compatibility
+def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # this is bleach.clean's signature, kept verbatim for compatibility
     text: str,
     tags: Iterable[str] | None = None,
     attributes: _AttributeRules | None = None,
