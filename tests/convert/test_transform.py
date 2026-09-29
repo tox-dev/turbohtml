@@ -2585,13 +2585,11 @@ def test_transform_number_multi_token_format_reuses_last() -> None:
     assert _run("<d><s><s><s/></s></s></d>", body) == "[A][A-1][A-1-1]"
 
 
-def test_transform_cdata_section_elements_wraps_text() -> None:
-    body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d>&lt;x></d></xsl:template>'
-    assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<d><![CDATA[<x>]]></d>"
-
-
-def test_transform_cdata_from_literal_cdata_in_stylesheet() -> None:
-    body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d><![CDATA[<x>]]></d></xsl:template>'
+@pytest.mark.parametrize(
+    "source", [pytest.param("&lt;x>", id="escaped"), pytest.param("<![CDATA[<x>]]>", id="literal-cdata")]
+)
+def test_transform_cdata_section_elements_wraps_text(source: str) -> None:
+    body = f'<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d>{source}</d></xsl:template>'
     assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<d><![CDATA[<x>]]></d>"
 
 
@@ -2602,24 +2600,26 @@ def test_transform_html_method_auto_selected_for_html_root() -> None:
     assert '<meta charset="UTF-8">' in result
 
 
-def test_transform_html_auto_select_skipped_for_non_html_root() -> None:
-    body = '<xsl:template match="/"><doc>x</doc></xsl:template>'
-    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
-
-
-def test_transform_html_auto_select_skipped_when_namespaced() -> None:
-    body = '<xsl:template match="/"><html xmlns="urn:x">x</html></xsl:template>'
-    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
-
-
-def test_transform_html_auto_select_skipped_after_significant_text() -> None:
-    body = '<xsl:template match="/">lead<html>x</html></xsl:template>'
-    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
-
-
-def test_transform_html_auto_select_ignores_leading_whitespace() -> None:
-    body = '<xsl:template match="/"><xsl:text> </xsl:text><html><body>x</body></html></xsl:template>'
-    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
+@pytest.mark.parametrize(
+    ("fragment", "expected_xml"),
+    [
+        pytest.param("<doc>x</doc>", True, id="non-html-root"),
+        pytest.param('<html xmlns="urn:x">x</html>', True, id="namespaced"),
+        pytest.param("lead<html>x</html>", True, id="significant-text"),
+        pytest.param(
+            "<xsl:text> </xsl:text><html><body>x</body></html>",
+            False,
+            id="leading-whitespace",
+        ),
+        pytest.param("<xsl:comment>c</xsl:comment><html><body>x</body></html>", False, id="leading-comment"),
+        pytest.param('<html lang="en"><body>x</body></html>', False, id="attributed-html"),
+        pytest.param('<html class="x"><body>y</body></html>', False, id="five-char-attribute"),
+        pytest.param("<xsl:text>  </xsl:text>", True, id="whitespace-only"),
+    ],
+)
+def test_transform_html_auto_select(fragment: str, *, expected_xml: bool) -> None:
+    body = f'<xsl:template match="/">{fragment}</xsl:template>'
+    assert transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml") is expected_xml
 
 
 def test_transform_fallback_runs_for_extension_element() -> None:
@@ -3217,39 +3217,32 @@ def test_transform_attribute_set_two_names_with_trailing_space() -> None:
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
 
 
-_POISON = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
+_POISON: Final = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
 
 
-def test_transform_attribute_set_error_propagates_through_literal() -> None:
-    body = f'{_POISON}<xsl:template match="/"><out xsl:use-attribute-sets="bad"/></xsl:template>'
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('<xsl:template match="/"><out xsl:use-attribute-sets="bad"/></xsl:template>', id="literal"),
+        pytest.param(
+            '<xsl:template match="/"><xsl:element name="out" use-attribute-sets="bad"/></xsl:template>',
+            id="element",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
+            '<xsl:template match="r"><xsl:copy use-attribute-sets="bad"/></xsl:template>',
+            id="copy",
+        ),
+        pytest.param(
+            '<xsl:attribute-set name="s" use-attribute-sets="bad"/>'
+            '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>',
+            id="chain",
+        ),
+    ],
+)
+def test_transform_attribute_set_error_propagates(body: str) -> None:
     with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", body, method="xml")
-
-
-def test_transform_attribute_set_error_propagates_through_element() -> None:
-    body = f'{_POISON}<xsl:template match="/"><xsl:element name="out" use-attribute-sets="bad"/></xsl:template>'
-    with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", body, method="xml")
-
-
-def test_transform_attribute_set_error_propagates_through_copy() -> None:
-    body = (
-        f"{_POISON}"
-        '<xsl:template match="/"><xsl:apply-templates select="r"/></xsl:template>'
-        '<xsl:template match="r"><xsl:copy use-attribute-sets="bad"/></xsl:template>'
-    )
-    with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", body, method="xml")
-
-
-def test_transform_attribute_set_error_propagates_through_chain() -> None:
-    body = (
-        f"{_POISON}"
-        '<xsl:attribute-set name="s" use-attribute-sets="bad"/>'
-        '<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>'
-    )
-    with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", body, method="xml")
+        _run("<r/>", f"{_POISON}{body}", method="xml")
 
 
 def test_transform_attribute_with_prefixed_name_and_namespace() -> None:
@@ -3331,11 +3324,6 @@ def test_transform_preserve_space_requires_elements_attribute() -> None:
         _run("<r/>", '<xsl:preserve-space/><xsl:template match="/">x</xsl:template>')
 
 
-def test_transform_html_auto_select_ignores_leading_comment() -> None:
-    body = '<xsl:template match="/"><xsl:comment>c</xsl:comment><html><body>x</body></html></xsl:template>'
-    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
-
-
 def test_transform_fallback_body_with_literal_element() -> None:
     body = '<xsl:template match="/"><e:go><xsl:fallback><doc>ok</doc></xsl:fallback></e:go></xsl:template>'
     declare = 'xmlns:e="urn:ext" extension-element-prefixes="e" exclude-result-prefixes="e"'
@@ -3377,11 +3365,6 @@ def test_transform_fallback_body_error_propagates() -> None:
     declare = 'xmlns:e="urn:ext" extension-element-prefixes="e"'
     with pytest.raises(ValueError, match="unbound"):
         transform(_sheet(body, declare=declare), turbohtml.parse_xml("<r/>"))
-
-
-def test_transform_html_auto_select_with_attributed_html_element() -> None:
-    body = '<xsl:template match="/"><html lang="en"><body>x</body></html></xsl:template>'
-    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
 
 
 def test_transform_namespace_alias_scans_past_same_length_prefixes() -> None:
@@ -3519,11 +3502,6 @@ def test_transform_number_multiple_with_empty_format() -> None:
     assert _run("<d><s><s/></s></d>", body) == "[1][1.1]"
 
 
-def test_transform_html_auto_select_with_five_char_attribute() -> None:
-    body = '<xsl:template match="/"><html class="x"><body>y</body></html></xsl:template>'
-    assert not transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")).startswith("<?xml")
-
-
 def test_transform_cdata_element_with_non_text_child() -> None:
     body = '<xsl:output cdata-section-elements="d"/><xsl:template match="/"><d><e/>t</d></xsl:template>'
     result = _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")))
@@ -3557,12 +3535,6 @@ def test_transform_strip_preserve_specificity_conflict() -> None:
         '<xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     )
     assert _run("<r><p> <b>z</b> </p></r>", body) == " z "
-
-
-def test_transform_html_auto_select_whitespace_only_output_stays_xml() -> None:
-    body = '<xsl:template match="/"><xsl:text>  </xsl:text></xsl:template>'
-    result = transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))
-    assert result.startswith("<?xml")
 
 
 def test_transform_strip_less_specific_entry_after_more_specific() -> None:
