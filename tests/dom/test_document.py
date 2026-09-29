@@ -544,17 +544,6 @@ def test_reconstruct_propagates_a_construction_failure() -> None:
         pytest.param("<!--->", "abrupt-closing-of-empty-comment", 1, 5, id="abrupt-empty-comment-dash"),
         pytest.param("</>", "missing-end-tag-name", 1, 2, id="missing-end-tag-name"),
         pytest.param("<html><!DOCTYPE html>", "unexpected-doctype", 1, 6, id="unexpected-doctype"),
-    ],
-)
-def test_single_error(markup: str, code: str, line: int, col: int) -> None:
-    errors = parse(markup).errors
-    assert len(errors) == 1
-    assert (errors[0].code, errors[0].line, errors[0].col) == (code, line, col)
-
-
-@pytest.mark.parametrize(
-    ("markup", "code", "line", "col"),
-    [
         pytest.param("<!DOCTYPEhtml>", "missing-whitespace-before-doctype-name", 1, 9, id="doctype-no-space"),
         pytest.param("<!DOCTYPE>", "missing-doctype-name", 1, 9, id="doctype-no-name"),
         pytest.param('<!DOCTYPE a PUBLIC"x">', "missing-whitespace-after-doctype-public-keyword", 1, 18, id="public"),
@@ -582,7 +571,7 @@ def test_single_error(markup: str, code: str, line: int, col: int) -> None:
         pytest.param("a\x00b", "unexpected-null-character", 1, 1, id="null-in-data"),
     ],
 )
-def test_single_error_across_the_whatwg_codes(markup: str, code: str, line: int, col: int) -> None:
+def test_single_error(markup: str, code: str, line: int, col: int) -> None:
     errors = parse(markup).errors
     assert len(errors) == 1
     assert (errors[0].code, errors[0].line, errors[0].col) == (code, line, col)

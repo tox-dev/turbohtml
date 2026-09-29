@@ -574,6 +574,9 @@ def _tree_field_value_control(markup: str, selector: str) -> Element:
         pytest.param("<input type=radio>", "on", id="radio-default-on"),
         pytest.param("<input type=Checkbox value=x>", "x", id="checkbox-case-insensitive"),
         pytest.param("<input type=checkbox value>", "", id="checkbox-empty-valueless"),
+        pytest.param("<input type=che value=x>", "x", id="type-shorter-than-keyword"),
+        pytest.param("<input type=checkboxx value=x>", "x", id="type-longer-than-keyword"),
+        pytest.param("<input type value=x>", "x", id="valueless-type"),
     ],
 )
 def test_input_field_value(markup: str, expected: str) -> None:
@@ -770,18 +773,6 @@ def test_set_field_value_on_non_control_raises() -> None:
     element = _tree_field_value_control("<div></div>", "div")
     with pytest.raises(TypeError, match="can only be set on a form control"):
         element.field_value = "x"
-
-
-@pytest.mark.parametrize(
-    ("markup", "expected"),
-    [
-        pytest.param("<input type=che value=x>", "x", id="type-shorter-than-keyword"),
-        pytest.param("<input type=checkboxx value=x>", "x", id="type-longer-than-keyword"),
-        pytest.param("<input type value=x>", "x", id="valueless-type"),
-    ],
-)
-def test_unusual_input_type_is_text_like(markup: str, expected: str) -> None:
-    assert _tree_field_value_control(markup, "input").field_value == expected
 
 
 def test_option_value_strips_whitespace_only_text() -> None:

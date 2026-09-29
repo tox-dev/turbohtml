@@ -417,6 +417,19 @@ def test_text_predicate_kinds(text_filter: Filter, tags: list[str]) -> None:
         pytest.param("<section><p>Buy <b>now</b></p></section>", "now", ["b"], id="nested-leaf-only"),
         # a loose text node is on the walk but never matches the element-only predicate
         pytest.param("<section>loose<p>go</p></section>", "go", ["p"], id="elements-only-not-text-nodes"),
+        pytest.param(
+            "<section><p>Buy <b>now</b></p></section>", re.compile(r"now"), ["p", "b"], id="literal-substring"
+        ),
+        pytest.param(
+            "<section><p>Buy <b>now</b></p></section>", re.compile(r"Buynow"), [], id="literal-longer-than-text"
+        ),
+        pytest.param("<section><p>Buy now</p></section>", re.compile(r""), ["p"], id="literal-empty"),
+        pytest.param(
+            "<section><p>no not now</p></section>", re.compile(r"now"), ["p"], id="literal-partial-then-match"
+        ),
+        pytest.param("<section><p>at the café</p></section>", re.compile(r"café"), ["p"], id="literal-non-ascii"),
+        pytest.param("<section><p>Buy now</p></section>", re.compile(r"buy", re.IGNORECASE), ["p"], id="ignorecase"),
+        pytest.param("<section><p>ab</p></section>", re.compile(r"a b", re.VERBOSE), ["p"], id="verbose"),
     ],
 )
 def test_text_over_a_section(html: str, text_filter: Filter, tags: list[str]) -> None:
@@ -483,6 +496,36 @@ def test_text_no_match(query: Callable[[Document], object], expected: object) ->
             ["span"],
             id="attrs",
         ),
+        pytest.param(
+            "<button>go9</button><p>go9</p>",
+            lambda doc: doc.find_all("button", text=re.compile(r"go\d")),
+            ["button"],
+            id="plain-tag-prefilter",
+        ),
+        pytest.param(
+            '<button class="buy">go9</button><button>go9</button>',
+            lambda doc: doc.find_all(class_="buy", text=re.compile(r"go\d")),
+            ["button"],
+            id="plain-class-prefilter",
+        ),
+        pytest.param(
+            "<button>go9</button><p>go9</p>",
+            lambda doc: doc.find_all(re.compile(r"^button$"), text=re.compile(r"go\d")),
+            ["button"],
+            id="regex-tag-rechecked",
+        ),
+        pytest.param(
+            "<my-widget>go9</my-widget><my-widget>stop</my-widget>",
+            lambda doc: doc.find_all("my-widget", text=re.compile(r"go\d")),
+            ["my-widget"],
+            id="custom-element-tag-prefilter",
+        ),
+        pytest.param(
+            "<p>go9</p>",
+            lambda doc: doc.find_all("table", text=re.compile(r"go\d")),
+            [],
+            id="no-candidate",
+        ),
     ],
 )
 def test_text_composes_with_structural_filter(
@@ -526,39 +569,13 @@ def test_text_limit(limit: int | None, count: int) -> None:
         # a structural callable raises during the snapshot pass, before the text predicate runs
         pytest.param(lambda doc: doc.find_all(text="go", id=_raise), id="structural-find-all"),
         pytest.param(lambda doc: doc.find(text="go", id=_raise), id="structural-find"),
+        pytest.param(lambda doc: doc.find_all(text=re.compile(r"g\w"), id=_raise), id="structural-find-all-regex"),
+        pytest.param(lambda doc: doc.find(text=re.compile(r"g\w"), id=_raise), id="structural-find-regex"),
     ],
 )
 def test_text_callable_error_propagates(query: Callable[[Document], object]) -> None:
     with pytest.raises(ZeroDivisionError):
         query(parse(_TEXT_DOC))
-
-
-# A metacharacter-free, case-sensitive regex is a plain literal: the C side searches each
-# candidate's collected text for the substring directly, never building a str or calling
-# back into Python. A literal regex matches a substring (unlike a plain str, which is the
-# whole collected text), so "now" matches both the <p> wrapper and the <b> leaf.
-@pytest.mark.parametrize(
-    ("html", "text_filter", "tags"),
-    [
-        pytest.param(
-            "<section><p>Buy <b>now</b></p></section>", re.compile(r"now"), ["p", "b"], id="literal-substring"
-        ),
-        # the needle is longer than every candidate's collected text, so nothing matches
-        pytest.param(
-            "<section><p>Buy <b>now</b></p></section>", re.compile(r"Buynow"), [], id="literal-longer-than-text"
-        ),
-        pytest.param("<section><p>Buy now</p></section>", re.compile(r""), ["p"], id="literal-empty"),
-        # a literal can mismatch partway in before matching at a later offset
-        pytest.param(
-            "<section><p>no not now</p></section>", re.compile(r"now"), ["p"], id="literal-partial-then-match"
-        ),
-        # a non-ASCII literal stays literal (no byte is a metacharacter)
-        pytest.param("<section><p>at the café</p></section>", re.compile(r"café"), ["p"], id="literal-non-ascii"),
-    ],
-)
-def test_text_literal_regex_searches_substring(html: str, text_filter: re.Pattern[str], tags: list[str]) -> None:
-    section = _el(parse(html).find("section"))
-    assert _tags(section.find_all(text=text_filter)) == tags
 
 
 @pytest.mark.parametrize(
@@ -583,21 +600,6 @@ def test_text_literal_regex_find_returns_first() -> None:
     section = _el(parse("<section><p>a</p><p>now</p></section>").find("section"))
     assert _el(section.find(text=re.compile(r"now"))).tag == "p"
     assert section.find(text=re.compile(r"absent")) is None
-
-
-# A case-insensitive or verbose pattern is not a literal even with no metacharacters, so it
-# keeps the Python search path: IGNORECASE folds case and VERBOSE drops whitespace, both of
-# which a byte-for-byte C scan would get wrong.
-@pytest.mark.parametrize(
-    ("text_filter", "html", "tags"),
-    [
-        pytest.param(re.compile(r"buy", re.IGNORECASE), "<section><p>Buy now</p></section>", ["p"], id="ignorecase"),
-        pytest.param(re.compile(r"a b", re.VERBOSE), "<section><p>ab</p></section>", ["p"], id="verbose"),
-    ],
-)
-def test_text_regex_flags_keep_python_path(text_filter: re.Pattern[str], html: str, tags: list[str]) -> None:
-    section = _el(parse(html).find("section"))
-    assert _tags(section.find_all(text=text_filter)) == tags
 
 
 def test_text_scan_descends_into_template_content() -> None:
@@ -639,69 +641,10 @@ def test_text_scan_handles_programmatic_tree_beyond_parser_depth_cap() -> None:
     assert root.find(text="needle") is not None
 
 
-# A non-literal regex keeps the Python path that snapshots candidates under the lock, where the
-# structural filters compose the same way: the C prefilter skips by plain tag/class, then
-# node_matches re-checks (and can reject) before the regex runs over the gathered text.
-@pytest.mark.parametrize(
-    ("html", "query", "tags"),
-    [
-        pytest.param(
-            "<button>go9</button><p>go9</p>",
-            lambda doc: doc.find_all("button", text=re.compile(r"go\d")),
-            ["button"],
-            id="plain-tag-prefilter",
-        ),
-        pytest.param(
-            '<button class="buy">go9</button><button>go9</button>',
-            lambda doc: doc.find_all(class_="buy", text=re.compile(r"go\d")),
-            ["button"],
-            id="plain-class-prefilter",
-        ),
-        pytest.param(
-            "<button>go9</button><p>go9</p>",
-            lambda doc: doc.find_all(re.compile(r"^button$"), text=re.compile(r"go\d")),
-            ["button"],
-            id="regex-tag-rechecked",
-        ),
-        # a custom-element tag has no known atom, so the prefilter defers to node_matches
-        pytest.param(
-            "<my-widget>go9</my-widget><my-widget>stop</my-widget>",
-            lambda doc: doc.find_all("my-widget", text=re.compile(r"go\d")),
-            ["my-widget"],
-            id="custom-element-tag-prefilter",
-        ),
-        # a known tag absent from the tree leaves zero candidates before any text is gathered
-        pytest.param(
-            "<p>go9</p>",
-            lambda doc: doc.find_all("table", text=re.compile(r"go\d")),
-            [],
-            id="no-candidate",
-        ),
-    ],
-)
-def test_text_python_path_composes_with_structural_filter(
-    html: str, query: Callable[[Document], list[Element]], tags: list[str]
-) -> None:
-    assert _tags(query(parse(html))) == tags
-
-
 def test_text_python_path_limit_caps_results() -> None:
     # a non-literal regex exercises the snapshot path's own result cap
     matches = parse("<p>go9</p><p>go9</p><p>go9</p>").find_all(text=re.compile(r"go\d"), limit=2)
     assert len(matches) == 2
-
-
-@pytest.mark.parametrize(
-    "query",
-    [
-        # a structural callable raises during the snapshot pass, alongside a Python-path regex
-        pytest.param(lambda doc: doc.find_all(text=re.compile(r"g\w"), id=_raise), id="structural-find-all-regex"),
-        pytest.param(lambda doc: doc.find(text=re.compile(r"g\w"), id=_raise), id="structural-find-regex"),
-    ],
-)
-def test_text_python_path_structural_error_propagates(query: Callable[[Document], object]) -> None:
-    with pytest.raises(ZeroDivisionError):
-        query(parse(_TEXT_DOC))
 
 
 @pytest.mark.parametrize("tag", ["div", "DIV", "custom", "Custom"])
