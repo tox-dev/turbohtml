@@ -574,6 +574,12 @@ def test_transform_pattern_html_number() -> None:
             "0",
             id="key",
         ),
+        pytest.param(
+            '<xsl:key name="k" match="title" use="@id"/>'
+            "<xsl:template match=\"/\"><xsl:value-of select=\"count(key('k', '1'))\"/></xsl:template>",
+            "1",
+            id="key-native",
+        ),
     ],
 )
 def test_transform_pattern_adopted_foreign_unprefixed(body: str, expected: str) -> None:
