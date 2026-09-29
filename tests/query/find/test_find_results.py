@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import re
 import sys
 from typing import Final
 
@@ -63,6 +64,32 @@ def test_find_all_filtered_result_after_attribute_mutation() -> None:
     assert target is not None
     target.attrs["data-x"] = None
     assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": True})] == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize(
+    ("class_filter", "attrs"),
+    [
+        pytest.param("hot", {"data-x": True}, id="plain-class"),
+        pytest.param(re.compile(r"hot"), {"data-x": True}, id="regex-class"),
+        pytest.param(None, {"data-x": "two"}, id="attribute-value"),
+        pytest.param(None, {"data-x": True, "data-y": True}, id="two-attributes"),
+    ],
+)
+def test_find_all_indexed_filtered_limit(
+    class_filter: str | re.Pattern[str] | None, attrs: dict[str, str | bool]
+) -> None:
+    document: Final = parse(
+        "<p id='a' class='cold' data-x='one'></p>"
+        "<p id='b' class='hot' data-x='two' data-y></p>"
+        "<p id='c' class='hot' data-x='two' data-y></p>"
+    )
+    document.find_all("p")
+    matches: Final = (
+        document.find_all("p", attrs=attrs, limit=1)
+        if class_filter is None
+        else document.find_all("p", class_=class_filter, attrs=attrs, limit=1)
+    )
+    assert [element.attrs["id"] for element in matches] == ["b"]
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
