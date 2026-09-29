@@ -142,6 +142,7 @@ class Policy:
     :param url_schemes: the allowlist for URL-bearing attributes such as ``href`` and ``src``; ``javascript:`` stays
         dropped even when listed.
     :param allow_relative_urls: keep relative (scheme-less) URLs, which carry no scheme to check.
+    :param allow_fragment_urls: keep fragment-only URLs even when relative URLs are disallowed.
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
     :param strip_comments: drop HTML comments from the output.
     :param add_link_rel: ``rel`` tokens forced onto every kept ``<a href>`` (e.g. ``noopener``).
@@ -225,6 +226,7 @@ class Policy:
     attributes: Mapping[str, frozenset[str]] = field(default_factory=lambda: DEFAULT_ATTRIBUTES)
     url_schemes: frozenset[str] = DEFAULT_SCHEMES
     allow_relative_urls: bool = True
+    allow_fragment_urls: bool = False
     on_disallowed_tag: OnDisallowed = OnDisallowed.ESCAPE
     strip_comments: bool = True
     add_link_rel: frozenset[str] = frozenset()
@@ -391,6 +393,7 @@ class Sanitizer:
             self._attributes,
             policy.url_schemes,
             policy.allow_relative_urls,
+            policy.allow_fragment_urls,
             policy.on_disallowed_tag.value,
             policy.strip_comments,
             self._link_rel,

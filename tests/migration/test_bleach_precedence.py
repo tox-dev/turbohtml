@@ -272,6 +272,37 @@ def test_url_scheme_normalization_matches_bleach(value: str, expected: str) -> N
     assert clean(f'<a href="{value}">x</a>') == expected
 
 
+@pytest.mark.parametrize(
+    ("protocols", "value", "keep"),
+    [
+        pytest.param(None, "/relative", True, id="default-relative"),
+        pytest.param([], "/relative", False, id="empty-relative"),
+        pytest.param([], "", False, id="empty-url"),
+        pytest.param([], "#fragment", True, id="fragment"),
+        pytest.param([], "#javascript:bad()", True, id="fragment-scheme-text"),
+        pytest.param([], "#%zz", True, id="fragment-malformed-percent"),
+        pytest.param([], "  #fragment", True, id="fragment-leading-space"),
+        pytest.param([], "%zz", False, id="relative-malformed-percent"),
+        pytest.param(["ftp"], "relative", False, id="ftp-relative"),
+        pytest.param(["ftp"], "ftp://example.org/x", True, id="ftp-scheme"),
+        pytest.param(["http"], "/relative", True, id="http-relative"),
+        pytest.param(["https"], "//example.org/x", True, id="https-protocol-relative"),
+        pytest.param(["https"], "http://example.org/x", False, id="http-disallowed"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("tag", "attribute"), [pytest.param("a", "href", id="link"), pytest.param("img", "src", id="image")]
+)
+def test_protocols_control_relative_urls(
+    protocols: list[str] | None, value: str, *, keep: bool, tag: str, attribute: str
+) -> None:
+    end = "</a>" if tag == "a" else ""
+    html = f'<{tag} {attribute}="{value}">x{end}'
+    assert clean(html, tags=[tag], attributes={tag: [attribute]}, protocols=protocols) == (
+        html if keep else f"<{tag}>x{end}"
+    )
+
+
 def test_custom_rule_changes_later_tag_rules() -> None:
     rules: Final[dict[str, Iterable[str]]] = {}
     rules["a"] = cast("Iterable[str]", _MutatingRule(rules))

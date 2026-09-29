@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import TypeAlias
 
-from turbohtml._html import _bleach_attributes
+from turbohtml._html import _bleach_allow_relative, _bleach_attributes
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
@@ -53,14 +53,27 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
         msg = "css_sanitizer is not implemented yet; drop the style attribute and <style> instead"
         raise NotImplementedError(msg)
     names, attribute_predicate = attribute_policy(ALLOWED_ATTRIBUTES if attributes is None else attributes)
-    policy = Policy(
-        tags=ALLOWED_TAGS if tags is None else frozenset(tags),
-        attributes=names,
-        url_schemes=ALLOWED_PROTOCOLS if protocols is None else frozenset(protocols),
-        on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
-        strip_comments=strip_comments,
-        attribute_predicate=attribute_predicate,
-    )
+    if protocols is None:
+        policy = Policy(
+            tags=ALLOWED_TAGS if tags is None else frozenset(tags),
+            attributes=names,
+            url_schemes=ALLOWED_PROTOCOLS,
+            on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
+            strip_comments=strip_comments,
+            attribute_predicate=attribute_predicate,
+        )
+    else:
+        schemes = frozenset(protocols)
+        policy = Policy(
+            tags=ALLOWED_TAGS if tags is None else frozenset(tags),
+            attributes=names,
+            url_schemes=schemes,
+            allow_relative_urls=_bleach_allow_relative(schemes),
+            allow_fragment_urls=True,
+            on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
+            strip_comments=strip_comments,
+            attribute_predicate=attribute_predicate,
+        )
     return sanitize(text, policy)
 
 

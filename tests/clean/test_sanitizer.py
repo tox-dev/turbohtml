@@ -1078,6 +1078,18 @@ def test_relative_url_dropped_when_disallowed() -> None:
     assert sanitize('<a href="/path">x</a>', policy) == "<a>x</a>"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("#fragment", '<a href="#fragment">x</a>', id="fragment"),
+        pytest.param(" #javascript:bad()", '<a href=" #javascript:bad()">x</a>', id="fragment-with-scheme-text"),
+        pytest.param("/path", "<a>x</a>", id="relative-path"),
+    ],
+)
+def test_fragment_url_allowed_without_relative_urls(value: str, expected: str) -> None:
+    assert sanitize(f'<a href="{value}">x</a>', Policy(allow_relative_urls=False, allow_fragment_urls=True)) == expected
+
+
 def test_event_handler_attribute_always_dropped() -> None:
     policy = _allow_all({"x"}, {"*"})
     assert sanitize('<x onclick="evil()" title="t">y</x>', policy) == '<x title="t">y</x>'
@@ -2119,13 +2131,14 @@ def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
 def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     # named to keep the boolean positional arguments off the FBT003 lint, not to document them
     allow_relative = strip_comments = True
-    strip_templates = isolate_named_props = allow_customized_builtins = False
+    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = False
     allow_html = allow_svg = allow_mathml = True
     empty: frozenset[str] = frozenset()
     schemes = frozenset({"http", "https", "mailto"})
     original = root.inner_html
     sanitized = _sanitize(
-        root, tags, {}, schemes, allow_relative, OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
+        root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
+        None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
         allow_customized_builtins, allow_html, allow_svg, allow_mathml, None,
     )  # fmt: skip

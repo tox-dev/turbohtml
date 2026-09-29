@@ -129,6 +129,9 @@ from ._stubs.dom import (
     parse_xml as parse_xml,
 )
 from ._stubs.features import (
+    _bleach_allow_relative as _bleach_allow_relative,
+)
+from ._stubs.features import (
     _bleach_attributes as _bleach_attributes,
 )
 from ._stubs.features import (

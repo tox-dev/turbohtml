@@ -42,6 +42,7 @@ typedef struct {
     PyObject
         *removed; /* list to append (tag, attr_or_None) records to as the walk drops things, or NULL to not report */
     int allow_relative;
+    int allow_fragments;
     int on_disallowed;
     int strip_comments;
     int strip_templates;     /* SAFE_FOR_TEMPLATES: collapse {{ }}, ${ }, <% %> runs so kept text/attrs stay
@@ -179,9 +180,7 @@ static int authority_allowed(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t 
     return th_url_authority_end(value, start, len) >= 0;
 }
 
-/* Read the URL's scheme the way a browser does -- skipping the whitespace and control bytes it ignores -- and allow the
-   attribute only if that scheme is on the allowlist, or there is no scheme and relative URLs are allowed. The parser
-   has already resolved entity references, so the value arrives decoded. Returns 1 allow, 0 drop, -1 error. */
+/* Unicode and control characters can conceal a disallowed scheme. */
 static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     char scheme[40];
     Py_ssize_t length = 0;
@@ -207,6 +206,9 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
         /* before the colon, every byte must be a scheme byte and the first must be a letter (so 1http:// is relative)
          */
         if (started ? !th_scheme_char(c) : !letter) {
+            if (!started && c == '#' && s->allow_fragments) {
+                return 1;
+            }
             return s->allow_relative && (started || authority_allowed(value, index, len));
         }
         if (length < (Py_ssize_t)sizeof(scheme)) { /* cap the buffer but keep scanning, so an over-long scheme is */
@@ -2438,13 +2440,7 @@ static int require_prefixes(PyObject *prefixes) {
     return status;
 }
 
-/* _sanitize(source, tags, attributes, url_schemes, allow_relative, on_disallowed, strip_comments, add_link_rel,
-   attribute_filter, set_attributes, remove_with_content, css_properties, attribute_prefixes, attribute_values,
-   media_hosts, strip_templates, removed, allowed_styles, transform_tags, isolate_named_props, custom_element_check,
-   custom_attribute_check, allow_customized_builtins, allow_html, allow_svg, allow_mathml) -> Element. Returns a
-   sanitized snapshot; sanitizer.py serializes it. A str is parsed into the private output tree; an Element is
-   copied under its tree lock before callbacks run. `removed` is a list the walk appends (tag, attr_or_None) records to,
-   or None to skip the audit. */
+/* A private tree keeps callbacks from changing the caller's source. */
 /* A fresh dict holding a mapping's items, the dict(mapping) copy the walk indexes. */
 static PyObject *policy_dict(PyObject *mapping) {
     return PyObject_CallOneArg((PyObject *)&PyDict_Type, mapping);
@@ -2684,6 +2680,25 @@ PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args) {
 
 static int bleach_rule_keeps(PyObject *rule, PyObject *tag, PyObject *name, PyObject *value);
 
+PyObject *turbohtml_bleach_allow_relative(PyObject *Py_UNUSED(module), PyObject *schemes) {
+    PyObject *http = PyUnicode_FromString("http");
+    if (http == NULL) {
+        return NULL;
+    }
+    int allowed = PySet_Contains(schemes, http);
+    Py_DECREF(http);
+    if (allowed != 0) {
+        return allowed < 0 ? NULL : Py_NewRef(Py_True);
+    }
+    PyObject *https = PyUnicode_FromString("https");
+    if (https == NULL) {
+        return NULL;
+    }
+    allowed = PySet_Contains(schemes, https);
+    Py_DECREF(https);
+    return allowed < 0 ? NULL : PyBool_FromLong(allowed);
+}
+
 static PyObject *bleach_predicate(PyObject *bound, PyObject *args) {
     PyObject *tag, *name, *value;
     if (!PyArg_ParseTuple(args, "OOO:bleach_attribute_predicate", &tag, &name, &value)) {
@@ -2862,13 +2877,13 @@ PyObject *turbohtml_sanitize(PyObject *module, PyObject *args) {
     PyObject *source;
     PyObject *removed = NULL;
     sanitizer s = {0};
-    if (!PyArg_ParseTuple(args, "OOOOpipOOOOOOOOpOOOpOOppppO:_sanitize", &source, &s.tags, &s.attributes,
-                          &s.url_schemes, &s.allow_relative, &s.on_disallowed, &s.strip_comments, &s.add_link_rel,
-                          &s.attribute_filter, &s.set_attributes, &s.remove_with_content, &s.css_properties,
-                          &s.attribute_prefixes, &s.attribute_values, &s.media_hosts, &s.strip_templates, &removed,
-                          &s.allowed_styles, &s.transform_tags, &s.isolate_named_props, &s.custom_element_check,
-                          &s.custom_attribute_check, &s.allow_customized_builtins, &s.allow_html, &s.allow_svg,
-                          &s.allow_mathml, &s.attribute_predicate)) {
+    if (!PyArg_ParseTuple(args, "OOOOppipOOOOOOOOpOOOpOOppppO:_sanitize", &source, &s.tags, &s.attributes,
+                          &s.url_schemes, &s.allow_relative, &s.allow_fragments, &s.on_disallowed, &s.strip_comments,
+                          &s.add_link_rel, &s.attribute_filter, &s.set_attributes, &s.remove_with_content,
+                          &s.css_properties, &s.attribute_prefixes, &s.attribute_values, &s.media_hosts,
+                          &s.strip_templates, &removed, &s.allowed_styles, &s.transform_tags, &s.isolate_named_props,
+                          &s.custom_element_check, &s.custom_attribute_check, &s.allow_customized_builtins,
+                          &s.allow_html, &s.allow_svg, &s.allow_mathml, &s.attribute_predicate)) {
         return NULL;
     }
     s.removed = removed == Py_None ? NULL : removed;
