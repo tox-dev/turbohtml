@@ -157,6 +157,11 @@ rejects HTML's bare ``<br>``:
 
     <p>one<br/>two</p>
 
+A :func:`turbohtml.parse_xml` tree keeps names in source case, while the HTML parser that reads the output lowercases
+them. The safety baseline, ``add_link_rel`` and the per-name policy maps (``set_attributes``, ``attribute_values``,
+``allowed_styles``, ``media_hosts``) therefore match names in any ASCII case, and an attribute the sanitizer writes
+replaces one spelled in another case.
+
 .. autoclass:: Transform
 
 .. autoclass:: OnDisallowed

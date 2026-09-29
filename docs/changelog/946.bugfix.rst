@@ -1,0 +1,2 @@
+Match unsafe names and the per-name policy options in any ASCII case when sanitizing :func:`~turbohtml.parse_xml` trees,
+and replace an attribute spelled in another case when writing one (GHSA-pjrh-5m66-3wwf).

@@ -2442,6 +2442,165 @@ def test_the_copy_inherits_the_xml_flag() -> None:
     assert clean.inner_xml == "<b/>x"
 
 
+def _xml_case_policy(*tags: str, isolate_named_props: bool = False) -> Policy:
+    return Policy(
+        tags=frozenset({"div", *tags}),
+        attributes=MappingProxyType({"*": frozenset({"*"})}),
+        css_properties=frozenset({"color"}),
+        isolate_named_props=isolate_named_props,
+    )
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param('<div ONCLICK="x">a</div>', "<div>a</div>", id="event-upper"),
+        pytest.param('<div OnMouseOver="x">a</div>', "<div>a</div>", id="event-mixed"),
+        pytest.param('<div HREF="javascript:x">a</div>', "<div>a</div>", id="url-upper"),
+        pytest.param('<div FORMACTION="javascript:x">a</div>', "<div>a</div>", id="url-longest"),
+        pytest.param('<div SRCSET="javascript:x 1x">a</div>', "<div>a</div>", id="srcset-upper"),
+        pytest.param(
+            '<div HREF="https://example.com/">a</div>', '<div HREF="https://example.com/">a</div>', id="url-safe"
+        ),
+        pytest.param('<div HREFS="javascript:x">a</div>', '<div HREFS="javascript:x">a</div>', id="not-a-url-name"),
+        pytest.param('<div STYLE="color:red;position:fixed">a</div>', '<div STYLE="color:red">a</div>', id="style"),
+        pytest.param('<div STYLE="position:fixed">a</div>', "<div>a</div>", id="style-emptied"),
+    ],
+)
+def test_sanitize_xml_attribute_checks_ignore_case(xml: str, expected: str) -> None:
+    # the HTML parser lowercases these names when it reads the output back, so the baseline must match them any case
+    assert sanitize(parse_xml(xml), _xml_case_policy()) == expected
+
+
+def test_sanitize_xml_isolates_upper_case_id() -> None:
+    assert (
+        sanitize(parse_xml('<div ID="k">a</div>'), _xml_case_policy(isolate_named_props=True))
+        == '<div ID="user-content-k">a</div>'
+    )
+
+
+@pytest.mark.parametrize("tag", [pytest.param(tag, id=tag) for tag in ("SCRIPT", "Iframe", "TEMPLATE")])
+def test_sanitize_xml_escapes_upper_case_unsafe_tag(tag: str) -> None:
+    assert (
+        sanitize(parse_xml(f"<div><{tag}>1</{tag}></div>"), _xml_case_policy(tag))
+        == f"<div>&lt;{tag}&gt;1&lt;/{tag}&gt;</div>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param(
+            '<div><svg><animate attributeName="href"/></svg></div>',
+            '<div><svg>&lt;animate attributeName="href"&gt;</svg></div>',
+            id="animate-under-svg",
+        ),
+        pytest.param(
+            '<div><svg xmlns="http://www.w3.org/2000/svg"><g><SET to="1"/></g></svg></div>',
+            '<div><svg xmlns="http://www.w3.org/2000/svg"><g>&lt;SET to="1"&gt;</g></svg></div>',
+            id="set-upper-case-nested",
+        ),
+        pytest.param('<div><set to="1"/></div>', '<div><set to="1"></set></div>', id="set-outside-svg-kept"),
+    ],
+)
+def test_sanitize_xml_svg_animation_is_judged_as_reparsed(xml: str, expected: str) -> None:
+    # the HTML parser reads these back as SVG animation elements, which the baseline never keeps
+    assert sanitize(parse_xml(xml), _xml_case_policy("svg", "g", "animate", "SET", "set")) == expected
+
+
+def test_sanitize_xml_scrubs_allowed_upper_case_style_element() -> None:
+    xml = "<div><STYLE>p{color:red;position:fixed}</STYLE></div>"
+    assert sanitize(parse_xml(xml), _xml_case_policy("STYLE")) == "<div><STYLE>p{color:red;}</STYLE></div>"
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [pytest.param("SECTIONSECTIONSEC", id="longer-than-any-known-tag"), pytest.param("SCRIPTÉ", id="non-ascii")],
+)
+def test_sanitize_xml_keeps_allowed_unknown_tag(tag: str) -> None:
+    assert sanitize(parse_xml(f"<div><{tag}>1</{tag}></div>"), _xml_case_policy(tag)) == f"<div><{tag}>1</{tag}></div>"
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param(
+            '<META http-equiv="refresh" content="0;url=javascript:x"/>',
+            '<META http-equiv="refresh"></META>',
+            id="tag-upper",
+        ),
+        pytest.param(
+            '<meta HTTP-EQUIV="refresh" content="0;url=javascript:x"/>',
+            '<meta HTTP-EQUIV="refresh"></meta>',
+            id="http-equiv-upper",
+        ),
+        pytest.param(
+            '<meta http-equiv="refresh" CONTENT="0;url=javascript:x"/>',
+            '<meta http-equiv="refresh"></meta>',
+            id="content-upper",
+        ),
+    ],
+)
+def test_sanitize_xml_checks_meta_refresh_in_any_case(xml: str, expected: str) -> None:
+    assert sanitize(parse_xml(f"<div>{xml}</div>"), _xml_case_policy("meta", "META")) == f"<div>{expected}</div>"
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param('<a HREF="https://x/">l</a>', '<a HREF="https://x/" rel="noopener">l</a>', id="href-upper"),
+        pytest.param('<A href="https://x/">l</A>', '<A href="https://x/" rel="noopener">l</A>', id="tag-upper"),
+        pytest.param(
+            '<a href="https://x/" REL="opener">l</a>', '<a href="https://x/" rel="noopener">l</a>', id="rel-replaced"
+        ),
+    ],
+)
+def test_sanitize_xml_adds_link_rel_in_any_case(xml: str, expected: str) -> None:
+    policy = replace(_xml_case_policy("a", "A"), add_link_rel=frozenset({"noopener"}))
+    assert sanitize(parse_xml(f"<div>{xml}</div>"), policy) == f"<div>{expected}</div>"
+
+
+def test_sanitize_xml_forced_attribute_replaces_other_case() -> None:
+    policy = replace(_xml_case_policy("A"), set_attributes={"a": {"rel": "noopener"}})
+    assert sanitize(parse_xml('<div><A REL="opener">l</A></div>'), policy) == '<div><A rel="noopener">l</A></div>'
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected"),
+    [
+        pytest.param('<a TARGET="_top">l</a>', "<a>l</a>", id="attribute-upper"),
+        pytest.param('<A target="_top">l</A>', "<A>l</A>", id="tag-upper"),
+        pytest.param('<a TARGET="_blank">l</a>', '<a TARGET="_blank">l</a>', id="allowed-value-kept"),
+    ],
+)
+def test_sanitize_xml_restricts_attribute_values_in_any_case(xml: str, expected: str) -> None:
+    # a same-length key that differs ("height") comes first, so the retry has to compare every character
+    values = {"a": {"height": frozenset({"1"}), "target": frozenset({"_blank"})}}
+    policy = replace(_xml_case_policy("a", "A"), attribute_values=values)
+    assert sanitize(parse_xml(f"<div>{xml}</div>"), policy) == f"<div>{expected}</div>"
+
+
+def test_sanitize_xml_narrows_styles_by_tag_in_any_case() -> None:
+    policy = replace(_xml_case_policy("P"), allowed_styles={"p": {"color": ["blue"]}})
+    assert sanitize(parse_xml('<div><P style="color:red">x</P></div>'), policy) == "<div><P>x</P></div>"
+
+
+def test_sanitize_xml_checks_media_host_in_any_case() -> None:
+    policy = replace(_xml_case_policy("VIDEO"), media_hosts=frozenset({"good.example"}))
+    assert (
+        sanitize(parse_xml('<div><VIDEO src="https://evil.example/x.mp4"/></div>'), policy)
+        == "<div><VIDEO></VIDEO></div>"
+    )
+
+
+def test_sanitize_xml_rejects_reserved_custom_name_in_any_case() -> None:
+    policy = replace(_xml_case_policy(), custom_element_check=lambda _name: True)
+    assert (
+        sanitize(parse_xml("<div><annotation-XML>x</annotation-XML></div>"), policy)
+        == "<div>&lt;annotation-XML&gt;x&lt;/annotation-XML&gt;</div>"
+    )
+
+
 def test_the_string_forms_accept_a_node() -> None:
     root = parse_fragment(_POST)
     assert sanitize(root, Policy.relaxed()) == sanitize(_POST, Policy.relaxed())

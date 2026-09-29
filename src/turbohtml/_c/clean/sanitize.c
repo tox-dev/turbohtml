@@ -122,43 +122,127 @@ static int is_unsafe_tag(uint16_t atom) {
     }
 }
 
-static int is_unsafe_svg_animation(const th_node *element) {
-    if (element->ns != TH_NS_SVG) {
-        return 0;
+static int node_name_is(const th_node *node, const char *lower) {
+    Py_ssize_t index = 0;
+    for (; index < node->text_len && lower[index] != '\0'; index++) {
+        if (lower_ascii(node->text[index]) != (Py_UCS4)(unsigned char)lower[index]) {
+            return 0;
+        }
     }
-    static const char *const names[] = {"animate", "animateColor", "animateMotion", "animateTransform", "set"};
-    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
-        size_t len = strlen(names[index]);
-        if (element->text_len != (Py_ssize_t)len) {
-            continue;
+    return index == node->text_len && lower[index] == '\0';
+}
+
+/* A parse_xml name keeps its source case and has no atom, while the HTML parser reading the output lowercases it. */
+static uint16_t reparsed_atom(const th_node *element) {
+    char lower[16];
+    if (element->atom != TH_TAG_UNKNOWN || element->text_len > (Py_ssize_t)sizeof(lower)) {
+        return element->atom; /* every tag name the safety checks know is shorter than the buffer */
+    }
+    for (Py_ssize_t index = 0; index < element->text_len; index++) {
+        if (element->text[index] >= 0x80) {
+            return TH_TAG_UNKNOWN;
         }
-        size_t position = 0;
-        while (position < len && element->text[position] == (Py_UCS4)names[index][position]) {
-            position++;
-        }
-        if (position == len) {
+        lower[index] = (char)lower_ascii(element->text[index]);
+    }
+    return th_tag_lookup(lower, element->text_len);
+}
+
+/* SVG animation elements can rewrite any attribute of their target, href included. A parse_xml name counts as the HTML
+   reparse reads it, lowercased and in SVG under any `svg` ancestor. */
+static int is_unsafe_svg_animation(const th_node *element) {
+    static const char *const names[] = {"animate", "animatecolor", "animatemotion", "animatetransform", "set"};
+    int animation = 0;
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]) && !animation; index++) {
+        animation = node_name_is(element, names[index]);
+    }
+    if (!animation || element->ns == TH_NS_SVG) {
+        return animation;
+    }
+    for (const th_node *ancestor = element->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type == TH_NODE_ELEMENT && node_name_is(ancestor, "svg")) {
             return 1;
         }
     }
     return 0;
 }
 
-/* Attributes whose value is a URL, so its scheme is checked against the allowlist. Matched on the interned name bytes.
- */
+/* The HTML parser lowercases parse_xml names on reparse; the length check comes first since most names fail it. */
+static inline int attr_name_is(const char *name, Py_ssize_t len, const char *lower) {
+    if ((size_t)len != strlen(lower)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (lower_ascii((unsigned char)name[index]) != (unsigned char)lower[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static Py_ssize_t find_attr(sanitizer *s, const th_node *element, const char *lower) {
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        Py_ssize_t len = 0;
+        const char *name = th_attr_name(s->tree, element->attrs[index].name_atom, &len);
+        if (attr_name_is(name, len, lower)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/* The HTML parser keeps the first of two attribute names that fold together, so a parse_xml `REL="opener"` would win
+   over a `rel` the sanitizer writes after it. */
+static void drop_case_variants(sanitizer *s, th_node *element, const char *lower) {
+    Py_ssize_t index;
+    while ((index = find_attr(s, element, lower)) >= 0) {
+        Py_ssize_t len = 0;
+        const char *name = th_attr_name(s->tree, element->attrs[index].name_atom, &len);
+        if (memcmp(name, lower, (size_t)len) == 0) {
+            return;
+        }
+        th_node_attr_del(s->tree, element, name, len);
+    }
+}
+
+/* A parse_xml name that misses a policy key retries ignoring ASCII case, since the HTML reparse folds names. */
+static PyObject *policy_entry(sanitizer *s, PyObject *mapping, PyObject *name) {
+    PyObject *entry = PyDict_GetItemWithError(mapping, name);
+    if (entry != NULL || !th_tree_is_xml(s->tree)) {
+        return entry;
+    }
+    Py_ssize_t name_len = PyUnicode_GET_LENGTH(name);
+    PyObject *key;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(mapping, &pos, &key, &entry)) {
+        if (PyUnicode_GET_LENGTH(key) != name_len) {
+            continue;
+        }
+        Py_ssize_t index = 0;
+        while (index < name_len &&
+               lower_ascii(PyUnicode_READ_CHAR(key, index)) == lower_ascii(PyUnicode_READ_CHAR(name, index))) {
+            index++;
+        }
+        if (index == name_len) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
 static int is_url_attr(const char *name, Py_ssize_t len) {
     switch (len) {
     case 3:
-        return memcmp(name, "src", 3) == 0;
+        return attr_name_is(name, len, "src");
     case 4:
-        return memcmp(name, "href", 4) == 0 || memcmp(name, "cite", 4) == 0 || memcmp(name, "data", 4) == 0 ||
-               memcmp(name, "ping", 4) == 0;
+        return attr_name_is(name, len, "href") || attr_name_is(name, len, "cite") || attr_name_is(name, len, "data") ||
+               attr_name_is(name, len, "ping");
     case 6:
-        return memcmp(name, "action", 6) == 0 || memcmp(name, "poster", 6) == 0;
+        return attr_name_is(name, len, "action") || attr_name_is(name, len, "poster");
     case 8:
-        return memcmp(name, "longdesc", 8) == 0;
+        return attr_name_is(name, len, "longdesc");
     case 10:
-        return memcmp(name, "formaction", 10) == 0 || memcmp(name, "background", 10) == 0 ||
-               memcmp(name, "xlink:href", 10) == 0;
+        return attr_name_is(name, len, "formaction") || attr_name_is(name, len, "background") ||
+               attr_name_is(name, len, "xlink:href");
     default:
         return 0;
     }
@@ -267,15 +351,8 @@ static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     return 1;
 }
 
-/* srcset-valued attributes, matched on the interned name bytes. */
 static int is_srcset_attr(const char *name, Py_ssize_t len) {
-    if (len == 6) {
-        return memcmp(name, "srcset", 6) == 0;
-    }
-    if (len == 11) {
-        return memcmp(name, "imagesrcset", 11) == 0;
-    }
-    return 0;
+    return attr_name_is(name, len, "srcset") || attr_name_is(name, len, "imagesrcset");
 }
 
 static Py_ssize_t skip_space(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t len) {
@@ -336,10 +413,10 @@ static int refresh_url(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, 
 }
 
 static int is_refresh_meta(sanitizer *s, th_node *element) {
-    if (element->atom != TH_TAG_META) {
+    if (reparsed_atom(element) != TH_TAG_META) {
         return 0;
     }
-    Py_ssize_t index = th_node_attr_find(s->tree, element, "http-equiv", 10);
+    Py_ssize_t index = find_attr(s, element, "http-equiv");
     if (index < 0 || element->attrs[index].value_len != 7) {
         return 0;
     }
@@ -432,7 +509,7 @@ static int attr_allowed(sanitizer *s, PyObject *tag, uint32_t atom, const char *
    reached when the value map is non-empty. */
 static int value_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                          Py_ssize_t value_len) {
-    PyObject *per_tag = PyDict_GetItemWithError(s->attribute_values, tag);
+    PyObject *per_tag = policy_entry(s, s->attribute_values, tag);
     if (per_tag == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: PyDict_GetItemWithError only errors on a non-hashable key */
             return -1;          /* GCOVR_EXCL_LINE: error path */
@@ -443,7 +520,7 @@ static int value_allowed(sanitizer *s, PyObject *tag, const char *name, Py_ssize
     if (attr == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *allowed_values = PyDict_GetItemWithError(per_tag, attr);
+    PyObject *allowed_values = policy_entry(s, per_tag, attr);
     Py_DECREF(attr);
     if (allowed_values == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the key is a freshly built str, always hashable */
@@ -549,18 +626,6 @@ static int host_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     return allowed;
 }
 
-/* Does the element carry an attribute named `name`? Scans the interned names. */
-static int has_attr(sanitizer *s, th_node *element, const char *name, Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
-        Py_ssize_t got_len = 0;
-        const char *got = th_attr_name(s->tree, element->attrs[index].name_atom, &got_len);
-        if (got_len == len && memcmp(got, name, (size_t)len) == 0) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* Return an ASCII-lowercased copy of an HTML tag or attribute name. Non-ASCII UTF-8 bytes are left intact. */
 static char *html_name_lower(const char *name, Py_ssize_t len) {
     char *lowered = PyMem_Malloc((size_t)len + 1);
@@ -621,7 +686,7 @@ static int run_attribute_filter(sanitizer *s, th_node *element, PyObject *tag, c
    ASCII case-insensitive, so policy-created names are canonicalized before interning. Returns 1 when any value was
    written, 0 when this tag has no values to set, or -1 on error. */
 static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
-    PyObject *per_tag = PyDict_GetItemWithError(s->set_attributes, tag);
+    PyObject *per_tag = policy_entry(s, s->set_attributes, tag);
     if (per_tag == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: PyDict_GetItemWithError only errors on a non-hashable key */
             return -1;          /* GCOVR_EXCL_LINE: error path */
@@ -645,6 +710,7 @@ static int apply_set_attributes(sanitizer *s, th_node *element, PyObject *tag) {
                 return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             write_name = canonical_name;
+            drop_case_variants(s, element, canonical_name);
         }
         Py_UCS4 *points = PyUnicode_AsUCS4Copy(value);
         if (points == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -1125,11 +1191,12 @@ static int css_flush_declaration(sanitizer *s, const style_allowlist *styles, co
    property's patterns too. The value is a CSS declaration list; split it on top-level ';' and ':' while skipping
    strings, comments, and parenthesised groups so a separator inside url()/quotes/comments is not mistaken for one.
    Rewrites the attribute, deleting it if nothing survives. Returns 0 on success, -1 on error. */
-static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, PyObject *tag) {
+static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, const char *name, Py_ssize_t name_len,
+                          PyObject *tag) {
     style_allowlist rules = {NULL, NULL};
     const style_allowlist *styles = NULL;
     if (PyDict_GET_SIZE(s->allowed_styles) > 0) {
-        rules.tag_rule = PyDict_GetItemWithError(s->allowed_styles, tag);
+        rules.tag_rule = policy_entry(s, s->allowed_styles, tag);
         if (rules.tag_rule == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the tag lookup cannot itself error */
             return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1210,11 +1277,11 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, Py
         colon = -1;
     }
     if (out_len == 0) {
-        th_node_attr_del(s->tree, element, "style", 5);
+        th_node_attr_del(s->tree, element, name, name_len);
         PyMem_Free(out);
         return 0;
     }
-    int result = th_node_attr_set(s->tree, element, "style", 5, out, out_len, 1);
+    int result = th_node_attr_set(s->tree, element, name, name_len, out, out_len, 1);
     PyMem_Free(out);
     return result;
 }
@@ -1518,7 +1585,7 @@ static int strip_attr_templates(sanitizer *s, th_node *element, th_node_attr *at
 static int prefix_named_prop(sanitizer *s, th_node *element, const th_node_attr *attr) {
     Py_ssize_t name_len = 0;
     const char *name = th_attr_name(s->tree, attr->name_atom, &name_len);
-    if (!((name_len == 2 && memcmp(name, "id", 2) == 0) || (name_len == 4 && memcmp(name, "name", 4) == 0))) {
+    if (!attr_name_is(name, name_len, "id") && !attr_name_is(name, name_len, "name")) {
         return 0; /* only id and name expose named-property access, so no other attribute is isolated */
     }
     static const char prefix[] = "user-content-";
@@ -1578,7 +1645,7 @@ static int is_reserved_custom_name(const char *name) {
     static const char *const reserved[] = {"annotation-xml", "color-profile", "font-face",     "font-face-format",
                                            "font-face-name", "font-face-src", "font-face-uri", "missing-glyph"};
     for (size_t index = 0; index < sizeof(reserved) / sizeof(reserved[0]); index++) {
-        if (strcmp(name, reserved[index]) == 0) {
+        if (attr_name_is(name, (Py_ssize_t)strlen(name), reserved[index])) {
             return 1;
         }
     }
@@ -1621,7 +1688,7 @@ static int custom_element_kept(sanitizer *s, PyObject *tag) {
 }
 
 static int is_event_attribute(const char *name, Py_ssize_t name_len) {
-    return name_len >= 2 && name[0] == 'o' && name[1] == 'n';
+    return name_len >= 2 && lower_ascii((unsigned char)name[0]) == 'o' && lower_ascii((unsigned char)name[1]) == 'n';
 }
 
 enum attribute_safety_result {
@@ -1662,7 +1729,7 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
     }
     Py_ssize_t url_start = 0;
     Py_ssize_t url_end = 0;
-    if (!drop && name_len == 7 && memcmp(name, "content", 7) == 0 && is_refresh_meta(s, element) &&
+    if (!drop && attr_name_is(name, name_len, "content") && is_refresh_meta(s, element) &&
         refresh_url(attr->value, attr->value_len, &url_start, &url_end)) {
         int keep = scheme_allowed(s, attr->value + url_start, url_end - url_start);
         if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
@@ -1677,8 +1744,8 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
         }
         url_disallowed = !keep;
     }
-    if (!drop && !url_disallowed && PySet_GET_SIZE(s->media_hosts) > 0 && is_media_host_tag(element->atom) &&
-        name_len == 3 && memcmp(name, "src", 3) == 0) {
+    if (!drop && !url_disallowed && PySet_GET_SIZE(s->media_hosts) > 0 && is_media_host_tag(reparsed_atom(element)) &&
+        attr_name_is(name, name_len, "src")) {
         int keep = host_allowed(s, attr->value, attr->value_len);
         if (keep < 0) {                    /* GCOVR_EXCL_BR_LINE: host_allowed only fails on allocation failure */
             return ATTRIBUTE_SAFETY_ERROR; /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1699,10 +1766,11 @@ static enum attribute_safety_result apply_attribute_safety_at(sanitizer *s, th_n
         th_node_attr_del(s->tree, element, name, name_len);
         return ATTRIBUTE_SAFETY_REMOVED;
     }
-    if (name_len == 5 && memcmp(name, "style", 5) == 0) {
+    if (attr_name_is(name, name_len, "style")) {
         Py_ssize_t before = element->attr_count;
-        if (sanitize_style(s, element, attr, tag) < 0) { /* GCOVR_EXCL_BR_LINE: only on allocation failure */
-            return ATTRIBUTE_SAFETY_ERROR;               /* GCOVR_EXCL_LINE: allocation-failure path */
+        int styled = sanitize_style(s, element, attr, name, name_len, tag);
+        if (styled < 0) {                  /* GCOVR_EXCL_BR_LINE: only on allocation failure */
+            return ATTRIBUTE_SAFETY_ERROR; /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (element->attr_count < before) {
             return ATTRIBUTE_SAFETY_REMOVED;
@@ -1851,7 +1919,8 @@ static int sanitize_attributes(sanitizer *s, th_node *element, PyObject *tag, in
         }
         index++;
     }
-    if (s->add_link_rel != Py_None && element->atom == TH_TAG_A && has_attr(s, element, "href", 4)) {
+    if (s->add_link_rel != Py_None && reparsed_atom(element) == TH_TAG_A && find_attr(s, element, "href") >= 0) {
+        drop_case_variants(s, element, "rel");
         Py_UCS4 *points = PyUnicode_AsUCS4Copy(s->add_link_rel);
         if (points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2634,8 +2703,9 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept, enu
        context so it stays inside real foreign markup. An HTML <style> is exempt from
        the unsafe-tag block: a policy that allowlists it keeps it with its body scrubbed
        against css_properties (like a `style` attribute), rather than dropping its CSS. */
-    int style_element = element->atom == TH_TAG_STYLE && is_html;
-    int allowed = ((is_unsafe_tag(element->atom) && !style_element) || is_unsafe_svg_animation(element))
+    uint16_t atom = reparsed_atom(element);
+    int style_element = atom == TH_TAG_STYLE && is_html;
+    int allowed = ((is_unsafe_tag(atom) && !style_element) || is_unsafe_svg_animation(element))
                       ? 0
                       : PySet_Contains(s->tags, tag);
     /* USE_PROFILES: a policy enables the HTML, SVG, and MathML namespaces independently, so a whole namespace can be
@@ -2650,7 +2720,7 @@ static int sanitize_element(sanitizer *s, th_node *element, int parent_kept, enu
        marked so sanitize_attributes vets its unlisted attributes with custom_attribute_check; the safety baseline still
        escapes an unsafe tag and drops event-handler and URL attributes, so the matcher decides names, never safety */
     int custom = 0;
-    if (is_html && ns_allowed && !is_unsafe_tag(element->atom) && s->custom_element_check != Py_None) {
+    if (is_html && ns_allowed && !is_unsafe_tag(atom) && s->custom_element_check != Py_None) {
         custom = custom_element_kept(s, tag);
         if (custom < 0) { /* the matcher raised */
             Py_DECREF(tag);
