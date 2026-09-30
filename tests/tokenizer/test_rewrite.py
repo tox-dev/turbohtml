@@ -377,6 +377,100 @@ def test_rewrite_text_handler_escapes_set_text() -> None:
     assert rewrite("<p>a</p>", text=handler) == "<p>&lt;x&gt;</p>"
 
 
+def _set_text(value: str) -> Callable[[Element], None]:
+    def handler(text: Element) -> None:
+        text.set_text(value)
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    ("html", "value", "expected"),
+    [
+        # script and the other RAWTEXT elements decode no character references, so escaping would change the text
+        pytest.param("<script>a</script>", "a < b && c", "<script>a < b && c</script>", id="script"),
+        pytest.param("<style>a</style>", 'a > b{content:"&"}', '<style>a > b{content:"&"}</style>', id="style"),
+        pytest.param("<xmp>a</xmp>", "<b>", "<xmp><b></xmp>", id="xmp"),
+        pytest.param("<script>a</script>", "a<!-b", "<script>a<!-b</script>", id="script-near-comment-open"),
+        pytest.param("<script>a</script>", "a<!bc", "<script>a<!bc</script>", id="script-bang-without-dash"),
+        pytest.param("<script>a</script>", "a</s", "<script>a</s</script>", id="script-partial-end-tag-at-end"),
+        pytest.param("<plaintext>a", "</plaintext><b>", "<plaintext></plaintext><b>", id="plaintext-never-ends"),
+        # RCDATA decodes references, so its text stays escaped
+        pytest.param("<textarea>a</textarea>", "a < b &", "<textarea>a &lt; b &amp;</textarea>", id="textarea"),
+    ],
+)
+def test_rewrite_set_text_in_raw_text_is_literal(html: str, value: str, expected: str) -> None:
+    assert rewrite(html, text=_set_text(value)) == expected
+
+
+def test_rewrite_text_node_insertions_in_raw_text_are_literal() -> None:
+    def handler(text: Element) -> None:
+        text.before("a<")
+        text.after(">b")
+
+    assert rewrite("<script>x</script>", text=handler) == "<script>a<x>b</script>"
+
+
+def test_rewrite_text_node_replace_in_raw_text_is_literal() -> None:
+    assert rewrite("<style>x</style>", text=lambda text: text.replace("a>b")) == "<style>a>b</style>"
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        pytest.param(lambda element: element.append("a<b"), id="append"),
+        pytest.param(lambda element: element.prepend("a<b"), id="prepend"),
+        pytest.param(lambda element: element.set_content("a<b"), id="set-content"),
+    ],
+)
+def test_rewrite_raw_text_element_content_is_literal(edit: Callable[[Element], None]) -> None:
+    assert "a<b" in rewrite("<script>x</script>", elements=[("script", edit)])
+
+
+def test_rewrite_raw_text_element_outside_stays_escaped() -> None:
+    def handler(element: Element) -> None:
+        element.before("<i>")
+        element.after("a<b")
+
+    assert rewrite("<script>x</script>", elements=[("script", handler)]) == "&lt;i&gt;<script>x</script>a&lt;b"
+
+
+@pytest.mark.parametrize(
+    ("html", "value"),
+    [
+        pytest.param("<script>a</script>", "</script><b>", id="script-end-tag"),
+        pytest.param("<script>a</script>", "x<!--y", id="script-comment-open"),
+        pytest.param("<style>a</style>", "</STYLE ><b>", id="style-end-tag-any-case"),
+    ],
+)
+def test_rewrite_raw_set_text_that_ends_the_element_raises(html: str, value: str) -> None:
+    with pytest.raises(ValueError, match="must not contain"):
+        rewrite(html, text=_set_text(value))
+
+
+def _append_split_end_tag(element: Element) -> None:
+    element.append("</scr")
+    element.append("ipt>")
+
+
+@pytest.mark.parametrize(
+    ("html", "edit"),
+    [
+        # each piece is harmless alone; the check runs on the content as written, so the joined end tag is caught
+        pytest.param("<script>a</script>", _append_split_end_tag, id="split-across-appends"),
+        pytest.param("<script>a<</script>", lambda element: element.append("/script>"), id="completes-source-text"),
+    ],
+)
+def test_rewrite_raw_append_that_ends_the_element_raises(html: str, edit: Callable[[Element], None]) -> None:
+    with pytest.raises(ValueError, match="must not contain"):
+        rewrite(html, elements=[("script", edit)])
+
+
+def test_rewrite_raw_text_html_content_is_not_checked() -> None:
+    edit = [("script", lambda element: element.append("</script><b>", html=True))]
+    assert rewrite("<script>a</script>", elements=edit) == "<script>a</script><b></script>"
+
+
 def test_rewrite_text_normalized_run_verbatim() -> None:
     # a NUL in text becomes a buffered (non-slice) run; it must still round-trip
     assert rewrite("<p>a\x00b</p>") == "<p>a\x00b</p>"

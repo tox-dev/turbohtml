@@ -45,6 +45,10 @@ exposes :attr:`~Element.text` and :meth:`~Element.set_text`; a doctype handle ex
 :attr:`~Element.public_id`, and :attr:`~Element.system_id`. Insertion and removal (:meth:`~Element.before`,
 :meth:`~Element.after`, :meth:`~Element.replace`, :meth:`~Element.remove`) apply to every kind.
 
+Text content is HTML-escaped, except inside ``script``, ``style`` and the other raw-text elements, where a browser
+decodes no character references: text written there is kept as is, so ``a < b`` stays a valid script. The rewrite
+then raises :class:`ValueError` if that text would end the element early (``</script``, or ``<!--`` in a script).
+
 The handle is valid only for the duration of the handler call; stashing it and using it afterwards raises
 :class:`RuntimeError`.
 """
@@ -99,6 +103,8 @@ def rewrite(
     :returns: the rewritten markup. An untouched construct is reproduced verbatim, so a rewrite that edits nothing
         returns the input unchanged (character references and original quoting are preserved).
     :raises TypeError: if ``html`` is not a str.
+    :raises ValueError: if text a handler wrote into a raw-text element such as ``script`` or ``style`` would end
+        that element before its end tag.
     :raises SelectorSyntaxError: if a selector is malformed or uses a construct the stream cannot match (a sibling
         combinator, a positional or structural pseudo-class, or ``:has()``).
     """

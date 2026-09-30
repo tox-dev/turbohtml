@@ -1,0 +1,1 @@
+Write text into ``script``, ``style`` and other raw-text elements unescaped in :func:`~turbohtml.rewrite.rewrite`.
