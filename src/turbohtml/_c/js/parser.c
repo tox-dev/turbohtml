@@ -122,7 +122,7 @@ static void reset(P *parser, jm_mark saved) {
 
 static int32_t parse_stmt(P *parser);
 static int32_t parse_stmt_body(P *parser);
-static int32_t parse_block(P *parser);
+static int32_t parse_block(P *parser, int body);
 static int32_t parse_assign(P *parser, int no_in);
 static int32_t parse_assign_body(P *parser, int no_in);
 static int32_t parse_expr(P *parser, int no_in);
@@ -416,7 +416,7 @@ static int32_t parse_switch(P *parser) {
 static int32_t parse_try(P *parser) {
     int32_t node = jm_node_new(parser->prog, JN_TRY);
     advance(parser);
-    set_a(parser, node, parse_block(parser));
+    set_a(parser, node, parse_block(parser, 0));
     if (parser->err) {
         return -1;
     }
@@ -426,14 +426,14 @@ static int32_t parse_try(P *parser) {
             set_b(parser, node, parse_primary(parser)); /* catch binding */
             expect(parser, JT_RPAREN, "expected )");
         }
-        set_c(parser, node, parse_block(parser));
+        set_c(parser, node, parse_block(parser, 0));
         if (parser->err) {
             return -1;
         }
     }
     if (kw(parser, "finally")) {
         advance(parser);
-        set_d(parser, node, parse_block(parser));
+        set_d(parser, node, parse_block(parser, 0));
     }
     return parser->err ? -1 : node;
 }
@@ -464,24 +464,41 @@ static int32_t parse_break_continue(P *parser, jm_kind kind) {
     return parser->err ? -1 : node;
 }
 
-static int32_t parse_block(P *parser) {
+/* Parse statements into parent's child chain up to `end`. In a function or script body the leading
+   statements written as a bare string literal form the directive prologue (ECMA-262 11.2.1); flagging
+   them lets the printer keep any other string out of that position. */
+static void parse_statements(P *parser, int32_t parent, jm_tok end, int prologue) {
+    int32_t tail = -1;
+    while (!at(parser, end) && !at(parser, JT_EOF)) {
+        int bare_string = prologue && at(parser, JT_STRING);
+        int32_t stmt = parse_stmt(parser);
+        if (parser->err) {
+            return;
+        }
+        jm_node *node = &parser->prog->nodes[stmt];
+        /* a statement that opens with a string token is always an expression statement */
+        prologue = bare_string && parser->prog->nodes[node->a].kind == JN_STRING;
+        if (prologue) {
+            node->flags |= JN_F_DIRECTIVE;
+        }
+        if (tail < 0) {
+            set_a(parser, parent, stmt);
+        } else {
+            parser->prog->nodes[tail].next = stmt;
+        }
+        tail = stmt;
+    }
+}
+
+static int32_t parse_block(P *parser, int body) {
     int32_t node = jm_node_new(parser->prog, JN_BLOCK);
     expect(parser, JT_LBRACE, "expected {");
     if (parser->err) {
         return -1;
     }
-    int32_t tail = -1;
-    while (!at(parser, JT_RBRACE) && !at(parser, JT_EOF)) {
-        int32_t stmt = parse_stmt(parser);
-        if (parser->err) {
-            return -1;
-        }
-        if (tail < 0) {
-            set_a(parser, node, stmt);
-        } else {
-            parser->prog->nodes[tail].next = stmt;
-        }
-        tail = stmt;
+    parse_statements(parser, node, JT_RBRACE, body);
+    if (parser->err) {
+        return -1;
     }
     expect(parser, JT_RBRACE, "expected }");
     return parser->err ? -1 : node;
@@ -494,7 +511,7 @@ static int32_t parse_stmt_body(P *parser) {
         return -1;     /* GCOVR_EXCL_LINE: callers guard, but keep the recursion safe */
     }
     if (at(parser, JT_LBRACE)) {
-        return parse_block(parser);
+        return parse_block(parser, 0);
     }
     if (at(parser, JT_SEMI)) {
         int32_t node = jm_node_new(parser->prog, JN_EMPTY);
@@ -814,7 +831,7 @@ static int32_t parse_arrow(P *parser) {
         return -1;
     }
     if (at(parser, JT_LBRACE)) {
-        set_b(parser, node, parse_block(parser));
+        set_b(parser, node, parse_block(parser, 1));
     } else {
         parser->prog->nodes[node].flags |= JN_F_EXPRBODY;
         set_b(parser, node, parse_assign(parser, 0));
@@ -1215,7 +1232,7 @@ static int32_t parse_object(P *parser) {
                 if (parser->err) {
                     return -1;
                 }
-                set_b(parser, fn, parse_block(parser));
+                set_b(parser, fn, parse_block(parser, 1));
                 set_b(parser, prop, fn);
             } else if (eat(parser, JT_COLON)) {
                 set_b(parser, prop, parse_assign(parser, 0));
@@ -1390,7 +1407,7 @@ static int32_t parse_function(P *parser, int is_expr, int is_async) {
     if (parser->err) {
         return -1;
     }
-    set_b(parser, node, parse_block(parser));
+    set_b(parser, node, parse_block(parser, 1));
     return parser->err ? -1 : node;
 }
 
@@ -1486,7 +1503,7 @@ static int32_t parse_class(P *parser, int is_expr) {
             if (parser->err) {
                 return -1;
             }
-            set_b(parser, fn, parse_block(parser));
+            set_b(parser, fn, parse_block(parser, 1));
             set_b(parser, member, fn);
         } else {
             /* a field: optional initializer, then ASI */
@@ -1531,18 +1548,8 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbu
     advance(&parser);
 
     int32_t root = jm_node_new(prog, JN_PROGRAM);
-    int32_t tail = -1;
-    while (!at(&parser, JT_EOF) && !parser.err) {
-        int32_t stmt = parse_stmt(&parser);
-        if (parser.err) {
-            break;
-        }
-        if (tail < 0) {
-            prog->nodes[root].a = stmt;
-        } else {
-            prog->nodes[tail].next = stmt;
-        }
-        tail = stmt;
+    if (!parser.err) {
+        parse_statements(&parser, root, JT_EOF, 1);
     }
     prog->root = root;
     prog->comment_count = parser.lx.comment_count; /* commit the run scanned on the real parse path */

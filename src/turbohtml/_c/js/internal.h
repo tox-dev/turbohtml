@@ -220,20 +220,21 @@ enum {
     JN_F_METHOD = 1 << 8,    /* object/class method (value is a function printed without `function`) */
     JN_F_GET = 1 << 9,
     JN_F_SET = 1 << 10,
-    JN_F_AWAIT = 1 << 11,    /* for-await-of */
-    JN_F_EXPRBODY = 1 << 12, /* arrow with an expression body */
-    JN_F_DELEGATE = 1 << 13, /* yield* */
-    JN_F_PAREN = 1 << 14,    /* a parenthesized optional chain whose parens are load-bearing:
-                                `(a?.b).c` breaks the short-circuit that `a?.b.c` keeps */
-    JN_F_VALUE = 1 << 15,    /* a callee, tag or delete/typeof operand the source wrote as a plain value
-                                (`(0,o.f)()`): marks the slot, so it survives an in-place rewrite */
+    JN_F_AWAIT = 1 << 11,     /* for-await-of */
+    JN_F_EXPRBODY = 1 << 12,  /* arrow with an expression body */
+    JN_F_DELEGATE = 1 << 13,  /* yield* */
+    JN_F_PAREN = 1 << 14,     /* a parenthesized optional chain whose parens are load-bearing:
+                                 `(a?.b).c` breaks the short-circuit that `a?.b.c` keeps */
+    JN_F_VALUE = 1 << 15,     /* a callee, tag or delete/typeof operand the source wrote as a plain value
+                                 (`(0,o.f)()`): marks the slot, so it survives an in-place rewrite */
+    JN_F_DIRECTIVE = 1 << 16, /* an expression statement the source wrote in a directive prologue */
 };
 
 typedef struct {
     uint8_t kind; /* jm_kind */
     uint8_t decl; /* var-decl kind / class-member kind / property kind */
     uint16_t op;  /* jm_tok for operator nodes */
-    uint16_t flags;
+    uint32_t flags;
     int32_t sym; /* JN_IDENT symbol id, else -1 */
     int32_t a, b, c, d;
     int32_t next; /* sibling chain (-1 none) */
@@ -342,7 +343,7 @@ typedef struct jm_program {
    the mark belongs to the slot, not to the expression that now fills it. */
 static inline void jm_node_replace(jm_program *prog, int32_t dst, int32_t src) {
     int32_t next = prog->nodes[dst].next;
-    uint16_t value = prog->nodes[dst].flags & JN_F_VALUE;
+    uint32_t value = prog->nodes[dst].flags & JN_F_VALUE;
     prog->nodes[dst] = prog->nodes[src];
     prog->nodes[dst].next = next;
     prog->nodes[dst].flags = (uint16_t)((prog->nodes[dst].flags & ~JN_F_VALUE) | value);

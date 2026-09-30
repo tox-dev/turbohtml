@@ -141,7 +141,7 @@ def test_computed_member_to_dot(source: str, expected: str) -> None:
 def test_string_line_continuation_lexes(body: str, value: str) -> None:
     # the standalone literal keeps its lexeme, so lexing it proves the fix; concatenating "" folds by value
     assert minify_js(f'x="{body}"') == f'x="{body}"'
-    assert minify_js(f'"{body}"+""') == f'"{value}"'
+    assert minify_js(f'x="{body}"+""') == f'x="{value}"'
 
 
 @pytest.mark.parametrize(

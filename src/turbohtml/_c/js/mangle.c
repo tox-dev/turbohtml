@@ -1280,7 +1280,7 @@ static int expand_shorthand_ref(jm_program *prog, int32_t sym) {
     prog->nodes[key].str_len = prog->syms[sym].name_len;
     prog->nodes[prop].a = key;
     prog->nodes[prop].b = prog->syms[sym].ref_node;
-    prog->nodes[prop].flags &= (uint16_t)~JN_F_SHORTHAND;
+    prog->nodes[prop].flags &= ~(uint32_t)JN_F_SHORTHAND;
     return 1;
 }
 
@@ -1418,7 +1418,7 @@ static void replace_reads(jm_program *prog, int32_t idx, jm_propagation *plans) 
                 prog->nodes[key].str_len = prog->syms[sym].name_len;
                 prog->nodes[idx].a = key;
                 prog->nodes[idx].b = read;
-                prog->nodes[idx].flags &= (uint16_t)~JN_F_SHORTHAND;
+                prog->nodes[idx].flags &= ~(uint32_t)JN_F_SHORTHAND;
             }
         }
         if (prog->nodes[idx].kind == JN_IDENT && prog->nodes[idx].sym >= 0) {

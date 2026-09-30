@@ -244,6 +244,22 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("a();b();c()", "a(),b(),c()", id="seq-merge"),
         pytest.param("a,b;c,d;e", "a,b,c,d,e", id="seq-flatten"),
         pytest.param('function f(){"use strict";a();b()}', 'function f(){"use strict";a(),b()}', id="directive-kept"),
+        # only a string the source wrote in the prologue prints bare there; any other is parenthesized, which is
+        # no directive and ends the prologue (11.2.1)
+        pytest.param('function f(){"use "+"strict";a()}', 'function f(){("use strict");a()}', id="folded-directive"),
+        pytest.param('"use "+"strict";a()', '("use strict");a()', id="folded-script-directive"),
+        pytest.param(
+            'function f(){"a";"use "+"strict"}', 'function f(){"a";("use strict")}', id="folded-after-directive"
+        ),
+        pytest.param('("use strict");a()', '("use strict");a()', id="parenthesized-string-kept"),
+        pytest.param(
+            'function f(){"a"+"b";"use strict"}', 'function f(){("ab");"use strict"}', id="folded-ends-prologue"
+        ),
+        pytest.param('function f(){if(0){}"use strict"}', 'function f(){("use strict")}', id="dropped-statement"),
+        pytest.param('function f(){;"use strict"}', 'function f(){("use strict")}', id="dropped-empty-statement"),
+        pytest.param('()=>{"use "+"strict";a()}', '()=>{("use strict");a()}', id="folded-arrow-directive"),
+        pytest.param('o={m(){"use "+"strict"}}', 'o={m(){("use strict")}}', id="folded-method-directive"),
+        pytest.param('function f(){"use strict";"a";b()}', 'function f(){"use strict";"a";b()}', id="directives-kept"),
         pytest.param("function f(){a();b();return c}", "function f(){return a(),b(),c}", id="seq-into-return"),
         # double negation in a conditional test peels fully
         pytest.param("x=!!a?1:0", "x=a?1:0", id="double-negation"),
@@ -972,6 +988,9 @@ def _run(code: str) -> str:
         pytest.param(
             "var x=1;function t(){var x=2;return[(0,eval)('x'),(1&&eval)('x')]}console.log(t())", id="indirect-eval"
         ),
+        pytest.param('function f(){"use "+"strict";return typeof this}console.log(f())', id="folded-no-strict"),
+        pytest.param('function f(){if(0){}"use strict";return typeof this}console.log(f())', id="dropped-no-strict"),
+        pytest.param('function f(){"use strict";"a";return typeof this}console.log(f())', id="directive-strict"),
     ],
 )
 def test_folding_preserves_behavior(snippet: str) -> None:

@@ -272,7 +272,7 @@ static int new_callee_needs_parens(const jm_program *prog, int32_t index) {
 
 static void print_expr(St *st, int32_t index);
 static int print_stmt(St *st, int32_t index);
-static void print_block(St *st, int32_t index);
+static void print_block(St *st, int32_t index, int body);
 static void print_function(St *st, int32_t index, int as_method);
 
 /* Print an expression, wrapping it in parentheses when its precedence is below the
@@ -917,7 +917,7 @@ static void print_expr(St *st, int32_t index) {
                 print_sub(st, node->b, 2);
             }
         } else {
-            print_block(st, node->b);
+            print_block(st, node->b, 1);
         }
         break;
     }
@@ -947,7 +947,7 @@ static void print_function(St *st, int32_t index, int as_method) {
         }
     }
     print_params(st, node->a);
-    print_block(st, node->b);
+    print_block(st, node->b, 1);
 }
 
 static void print_class(St *st, int32_t index) {
@@ -1014,19 +1014,37 @@ static void print_var(St *st, int32_t index) {
     }
 }
 
-static void print_block(St *st, int32_t index) {
-    const jm_node *node = &st->prog->nodes[index];
-    put_char(st, '{');
+/* Print a statement chain, dropping empty statements. A bare string literal leading a function or script
+   body is a directive (ECMA-262 11.2.1), and folding, a dropped statement or a flattened block can move
+   one there that the source did not write as a directive; parenthesized, it stays an ordinary expression
+   and ends the prologue, so no `"use strict"` appears that the source did not have. */
+static void print_statements(St *st, int32_t first, int prologue) {
     int pending = 0;
-    for (int32_t stmt = node->a; stmt >= 0; stmt = st->prog->nodes[stmt].next) {
-        if (st->prog->nodes[stmt].kind == JN_EMPTY) {
-            continue; /* drop empty statements inside a block */
+    for (int32_t stmt = first; stmt >= 0; stmt = st->prog->nodes[stmt].next) {
+        const jm_node *node = &st->prog->nodes[stmt];
+        if (node->kind == JN_EMPTY) {
+            continue;
         }
         if (pending) {
             put_char(st, ';');
         }
+        if (prologue && !(node->flags & JN_F_DIRECTIVE)) {
+            prologue = 0;
+            if (node->kind == JN_EXPR_STMT && st->prog->nodes[node->a].kind == JN_STRING) {
+                put_char(st, '(');
+                print_expr(st, node->a);
+                put_char(st, ')');
+                pending = 1;
+                continue;
+            }
+        }
         pending = print_stmt(st, stmt);
     }
+}
+
+static void print_block(St *st, int32_t index, int body) {
+    put_char(st, '{');
+    print_statements(st, st->prog->nodes[index].a, body);
     put_char(st, '}');
 }
 
@@ -1135,7 +1153,7 @@ static int print_stmt(St *st, int32_t index) {
     const jm_node *node = &st->prog->nodes[index];
     switch (node->kind) { /* GCOVR_EXCL_BR_LINE: exhaustive switch; default unreachable */
     case JN_BLOCK:
-        print_block(st, index);
+        print_block(st, index, 0);
         return 0;
     case JN_EXPR_STMT:
         if (starts_with_brace_or_keyword(st->prog, node->a)) {
@@ -1249,7 +1267,7 @@ static int print_stmt(St *st, int32_t index) {
         return 0;
     case JN_TRY:
         put_ascii(st, "try");
-        print_block(st, node->a);
+        print_block(st, node->a, 0);
         if (node->c >= 0) {
             put_ascii(st, "catch");
             if (node->b >= 0) {
@@ -1257,11 +1275,11 @@ static int print_stmt(St *st, int32_t index) {
                 print_sub(st, node->b, 2);
                 put_char(st, ')');
             }
-            print_block(st, node->c);
+            print_block(st, node->c, 0);
         }
         if (node->d >= 0) {
             put_ascii(st, "finally");
-            print_block(st, node->d);
+            print_block(st, node->d, 0);
         }
         return 0;
     case JN_RETURN:
@@ -1321,17 +1339,7 @@ Py_UCS4 *jm_print(const jm_program *prog, Py_ssize_t *out_len) {
     for (int32_t index = 0; index < prog->comment_count; index++) {
         put_run(&st, prog->comments[index].text, prog->comments[index].len);
     }
-    const jm_node *root = &prog->nodes[prog->root];
-    int pending = 0;
-    for (int32_t stmt = root->a; stmt >= 0; stmt = prog->nodes[stmt].next) {
-        if (prog->nodes[stmt].kind == JN_EMPTY) {
-            continue;
-        }
-        if (pending) {
-            put_char(&st, ';');
-        }
-        pending = print_stmt(&st, stmt);
-    }
+    print_statements(&st, prog->nodes[prog->root].a, 1);
     if (st.failed) {      /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         jm_free(st.data); /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */

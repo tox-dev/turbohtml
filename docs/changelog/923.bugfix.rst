@@ -1,0 +1,1 @@
+Stop the JavaScript minifier from turning a string it folded or moved into a ``"use strict"`` directive.

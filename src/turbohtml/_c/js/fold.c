@@ -1229,7 +1229,7 @@ static void walk(F *folder, int32_t idx) {
     }
     jm_node *node = &folder->prog->nodes[idx];
     int kind = node->kind;
-    uint16_t flags = node->flags;
+    uint32_t flags = node->flags;
     int32_t child_a = node->a;
     int32_t child_b = node->b;
     int32_t child_c = node->c;
