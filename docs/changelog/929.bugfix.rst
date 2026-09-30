@@ -1,0 +1,1 @@
+Keep headings and links in wrapped list items parseable as Markdown.

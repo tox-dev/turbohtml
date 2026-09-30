@@ -1222,10 +1222,8 @@ static int md_is_paragraph_block(uint16_t atom) {
     return atom == TH_TAG_P || atom == TH_TAG_DIV;
 }
 
-/* Whether the element's first meaningful child renders inline on the current line,
-   deciding if a list item's text rides on the bullet line. A leading paragraph
-   block counts: CommonMark puts an item's first paragraph on the marker line. A
-   list, blockquote, table or pre opens its own line instead. */
+/* A loose item needs its first block on the marker line even when a transparent
+   container wraps it; otherwise CommonMark reads that block as code. */
 static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
@@ -1244,11 +1242,30 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *node) {
         if (is_md_skipped(child)) {
             continue;
         }
-        return !is_md_block(atom) || md_is_paragraph_block(atom) ||
-               (atom >= TH_TAG_H1 && atom <= TH_TAG_H6 &&
-                (ctx->opt->heading_style != TH_MD_HEADING_SETEXT || atom > TH_TAG_H2));
+        if (!is_md_block(atom) || md_is_paragraph_block(atom)) {
+            return 1;
+        }
+        if (atom >= TH_TAG_H1 && atom <= TH_TAG_H6) {
+            return ctx->opt->heading_style != TH_MD_HEADING_SETEXT || atom > TH_TAG_H2;
+        }
+        switch (atom) {
+        case TH_TAG_BLOCKQUOTE:
+        case TH_TAG_PRE:
+        case TH_TAG_HR:
+        case TH_TAG_UL:
+        case TH_TAG_OL:
+        case TH_TAG_MENU:
+        case TH_TAG_TABLE:
+            return 0;
+        default: {
+            int lead = md_leads_with_inline(ctx, child);
+            if (lead >= 0) {
+                return lead;
+            }
+        }
+        }
     }
-    return 0;
+    return -1;
 }
 
 /* Whether a list item lays out as more than one paragraph, so it renders as a
@@ -1653,7 +1670,7 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     Py_ssize_t base = md_push_spaces(ctx, width);
     int saved_tight = ctx->tight;
     ctx->tight = !state->loose;
-    ctx->suppress_break = md_leads_with_inline(ctx, child);
+    ctx->suppress_break = md_leads_with_inline(ctx, child) > 0;
     if (!ctx->opt->wrap_list_items) {
         ctx->no_wrap++;
     }

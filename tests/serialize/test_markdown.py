@@ -194,6 +194,12 @@ def test_code(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+_LOOSE_NAV_HTML: Final[str] = (
+    '<ol start="13"><li>Before<p>More</p></li><li><nav><h4>Pagination</h4>'
+    '<ul><li><a href="/next">Next</a></li></ul></nav></li><li>After</li></ol>'
+)
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
@@ -229,6 +235,17 @@ def test_code(html: str, expected: str) -> None:
         ),
         pytest.param("<ul><li><em>a</em> b <strong>c</strong></li></ul>", "- *a* b **c**", id="item-inline-run"),
         pytest.param("<ul><li><h2>x</h2><p>y</p></li></ul>", "- ## x\n  y", id="heading-on-item-marker"),
+        pytest.param(
+            _LOOSE_NAV_HTML,
+            "13. Before\n\n    More\n\n14. #### Pagination\n\n    - [Next](/next)\n\n15. After",
+            id="loose-item-heading-through-nav",
+        ),
+        pytest.param(
+            '<ol start="13"><li>Before<p>More</p></li><li><nav></nav><section><h4>Pagination</h4></section>'
+            '<ul><li><a href="/next">Next</a></li></ul></li><li>After</li></ol>',
+            "13. Before\n\n    More\n\n14. #### Pagination\n\n    - [Next](/next)\n\n15. After",
+            id="empty-wrapper-before-heading",
+        ),
         pytest.param(
             "<ul><li><p>first para</p><p>second para</p></li></ul>",
             "- first para\n\n  second para",
@@ -311,6 +328,17 @@ def test_code(html: str, expected: str) -> None:
 )
 def test_lists(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+def test_loose_list_nested_heading_and_link_stay_structural() -> None:
+    rendered: Final = parse(MarkdownIt("gfm-like", {"linkify": False}).render(md(_LOOSE_NAV_HTML)))
+    assert (
+        len(rendered.select("ol > li")),
+        [(node.tag, node.text, node.attr("href")) for node in rendered.select("h4, a")],
+    ) == (
+        3,
+        [("h4", "Pagination", None), ("a", "Next", "/next")],
+    )
 
 
 @pytest.mark.parametrize(
