@@ -1911,8 +1911,8 @@
 ],
 [
 "a{transform:foo(1/*c*/2)}",
-"a{transform:foo(12)}",
-"a{transform:foo(12)}"
+"a{transform:foo(1 2)}",
+"a{transform:foo(1 2)}"
 ],
 [
 "a{quux:#0123456789ab}",
@@ -1976,8 +1976,8 @@
 ],
 [
 "a/*x*/b{color:red}",
-"ab{color:red}",
-"ab{color:red}"
+"a/**/b{color:red}",
+"a/**/b{color:red}"
 ],
 [
 "a{:red}",
@@ -3481,8 +3481,8 @@
 ],
 [
 "a{x:a (b)}",
-"a{x:a(b)}",
-"a{x:a(b)}"
+"a{x:a (b)}",
+"a{x:a (b)}"
 ],
 [
 "a{flex-basis:1111111111111111111111111111111111111111111111111111111111111111111111px}",
@@ -4516,8 +4516,8 @@
 ],
 [
 "a{flex:1 0 %}",
-"a{flex:1 0%}",
-"a{flex:1 0%}"
+"a{flex:1 0 %}",
+"a{flex:1 0 %}"
 ],
 [
 "a{flex:1 0 50px%}",

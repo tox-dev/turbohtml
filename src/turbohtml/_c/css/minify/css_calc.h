@@ -534,12 +534,9 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
     Py_ssize_t index = start;
     while (index < end) {
         css_token *token = &vec->items[index];
-        if (token->kind == CSS_WS) {
+        /* a comment separates like whitespace, so dropping it cannot glue its neighbors into one token */
+        if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
             pending_ws = 1;
-            index++;
-            continue;
-        }
-        if (token->kind == CSS_COMMENT) {
             index++;
             continue;
         }

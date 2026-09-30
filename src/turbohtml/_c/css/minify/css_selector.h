@@ -19,6 +19,8 @@ static int css_is_legacy_pseudo_element(const css_token *token) {
 /* Minify a selector token run [start, end) into out. */
 static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int keyframe, css_buf *out) {
     int pending_ws = 0;
+    int comment_gap = 0;
+    int last_is_ident = 0;
     int attr_depth = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
@@ -27,6 +29,7 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             continue;
         }
         if (token->kind == CSS_COMMENT) {
+            comment_gap = 1;
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '[') {
@@ -50,8 +53,8 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             pending_ws = 0;
             continue;
         }
-        /* the caller skips leading whitespace, so pending_ws is only set after a token has been emitted: out is
-           non-empty whenever a deferred descendant space is pending */
+        /* the caller skips leading whitespace and comments, so pending_ws and comment_gap are only set after a token
+           has been emitted: out is non-empty whenever either is pending */
         if (pending_ws) {
             css_char last = out->data[out->len - 1];
             int blocked = last == '>' || last == '+' || last == '~' || last == ',' || last == '[' || last == '(';
@@ -62,8 +65,14 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             if (!blocked) {
                 cbuf_putc(out, ' ');
             }
+        } else if (comment_gap &&
+                   css_would_merge(out->data[out->len - 1], last_is_ident, token->text, token->text_len)) {
+            /* whitespace here would be a descendant combinator, so only an empty comment keeps the tokens apart */
+            cbuf_puts(out, "/**/");
         }
         pending_ws = 0;
+        comment_gap = 0;
+        last_is_ident = token->kind == CSS_IDENT;
         if (token->kind == CSS_DELIM && token->delim == ':' && attr_depth == 0 && index + 2 < end &&
             vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == ':' &&
             css_is_legacy_pseudo_element(&vec->items[index + 2])) {

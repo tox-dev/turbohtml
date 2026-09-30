@@ -536,6 +536,36 @@ def test_minify_css_many_rules_keep_blocked_merge() -> None:
         pytest.param("a{flex:1 var(--s) 0px}", "a{flex:1 var(--s)0px}", id="flex-var-shrink-keeps-basis-unit"),
         pytest.param("a{flex-basis:0px}", "a{flex-basis:0}", id="flex-basis-zero-length-drops-unit"),
         pytest.param("a{flex-basis:0%}", "a{flex-basis:0%}", id="flex-basis-zero-percent-kept"),
+        # a dropped comment or space must not let two tokens re-tokenize as one (CSS Syntax 3 §9.1): a value keeps a
+        # space, a selector or custom property keeps an empty comment, since a space there changes the meaning
+        pytest.param("a/**/b{c:d}", "a/**/b{c:d}", id="selector-comment-between-names"),
+        pytest.param("#a/**/b{c:d}", "#a/**/b{c:d}", id="selector-comment-after-hash"),
+        pytest.param("a/**/.b{c:d}", "a.b{c:d}", id="selector-comment-before-class-dropped"),
+        pytest.param("a{--x:a/**/b}", "a{--x:a/**/b}", id="custom-property-comment-between-names"),
+        pytest.param("a{--x:1/**/px}", "a{--x:1/**/px}", id="custom-property-comment-before-unit"),
+        pytest.param("a{--x:-/**/-}", "a{--x:-/**/-}", id="custom-property-comment-between-dashes"),
+        pytest.param("a{--x:/**/a}", "a{--x:a}", id="custom-property-leading-comment-dropped"),
+        pytest.param("a{--x:1/**/%}", "a{--x:1/**/%}", id="custom-property-comment-before-percent"),
+        pytest.param("a{--x:1/**/.5}", "a{--x:1/**/.5}", id="custom-property-comment-before-fraction"),
+        pytest.param("a{--x:-/**/.5}", "a{--x:-/**/.5}", id="custom-property-comment-minus-before-fraction"),
+        pytest.param("a{--x:+/**/1}", "a{--x:+/**/1}", id="custom-property-comment-plus-before-digit"),
+        pytest.param("a{--x:+/**/.5}", "a{--x:+/**/.5}", id="custom-property-comment-plus-before-fraction"),
+        pytest.param("a{--x:+/**/x}", "a{--x:+x}", id="custom-property-comment-plus-before-name-dropped"),
+        pytest.param('a{--x:a/**/"b"}', 'a{--x:a"b"}', id="custom-property-comment-before-string-dropped"),
+        pytest.param("a{b:x/**/(1)}", "a{b:x (1)}", id="value-comment-before-paren"),
+        pytest.param("a{b:x (1)}", "a{b:x (1)}", id="value-space-before-paren"),
+        pytest.param("a{b:1 (2)}", "a{b:1(2)}", id="value-number-before-paren-glued"),
+        pytest.param("a{b:f(x/**/y)}", "a{b:f(x y)}", id="function-comment-between-names"),
+        pytest.param("a{b:1 . 5}", "a{b:1. 5}", id="value-dot-before-digit"),
+        pytest.param("a{b:a + 1}", "a{b:a+ 1}", id="value-plus-before-digit"),
+        pytest.param("a{b:a - .5}", "a{b:a - .5}", id="value-minus-before-fraction"),
+        pytest.param("a{b:x - 1}", "a{b:x - 1}", id="value-minus-before-digit"),
+        pytest.param("a{b:# a}", "a{b:# a}", id="value-hash-delim-before-name"),
+        pytest.param("a{b:@ a}", "a{b:@ a}", id="value-at-delim-before-name"),
+        pytest.param("a{width:1 %}", "a{width:1 %}", id="value-number-before-percent"),
+        pytest.param("a{b:1 .5}", "a{b:1 .5}", id="value-number-before-fraction"),
+        pytest.param("a{b:1 .}", "a{b:1.}", id="value-number-before-lone-dot"),
+        pytest.param("a{b:c / *d}", "a{b:c/ *d}", id="value-slash-before-star"),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:
@@ -713,7 +743,7 @@ _GOLDEN: Final[list[list[str]]] = json.loads(
 _UNSTABLE: Final[frozenset[str]] = frozenset({
     "a{a:)'''", "{d:url( \n  \n\t0", "{d:urL(     '0", '{-ms-filter:"',
     "a{width:calc((1px + 2px}", "a{width:calc((1px}", "a{width:calc((", "a{width:calc((1px+2px",
-    'a{x:"abc\\', "a{x:url(", 'a{src:local("', "a{color:rgba(10 20 30 .5)}", "a{flex:1 0 %}",
+    'a{x:"abc\\', "a{x:url(", 'a{src:local("', "a{color:rgba(10 20 30 .5)}",
 })  # fmt: skip
 
 

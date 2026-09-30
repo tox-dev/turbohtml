@@ -263,6 +263,35 @@ static inline int css_is_hex(css_char character) {
     return character < 128 && (css_charmask[character] & CSS_CM_HEX);
 }
 
+/* Whether text starting with next, written straight after output ending in last, tokenizes differently from the two
+   tokens apart (CSS Syntax 3 §9.1): name code points extend an identifier, number, hash or at-keyword, a lone `#`,
+   `@` or `-` becomes part of a name, `.`, `+` or `-` becomes part of a number, a number takes a following `%`, `/`
+   opens a comment before `*`, and an identifier becomes a function before `(`. A removed comment or whitespace has
+   to leave a separator between such a pair. */
+static int css_would_merge(css_char last, int last_is_ident, const css_char *next, Py_ssize_t next_len) {
+    css_char first = next[0];
+    int fraction =
+        first == '.' && next_len > 1; /* a token of two or more code points that opens with `.` is a number */
+    if (css_is_ident(last) && (css_is_ident(first) || (first == '(' && last_is_ident))) {
+        return 1;
+    }
+    switch (last) {
+    case '#':
+    case '@':
+        return css_is_ident(first);
+    case '.':
+        return css_is_digit(first);
+    case '+':
+        return css_is_digit(first) || fraction;
+    case '-': /* a digit or name code point after `-` already merged above */
+        return fraction;
+    case '/':
+        return first == '*';
+    default:
+        return css_is_digit(last) && (first == '%' || fraction);
+    }
+}
+
 /* Whether text[pos..] begins a numeric token: a digit, a dot before a digit, or a sign before either. */
 static int css_starts_number(const css_char *text, Py_ssize_t pos, Py_ssize_t length) {
     css_char character = text[pos];

@@ -76,7 +76,8 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
             int starts_paren = pool->data[comp->off] == '('; /* every assembled comp has len >= 1 */
             int glued = comp->isfunc == 2 || prev->isfunc == 1 || prev->isfunc == 2 || starts_paren ||
                         comp->kind == CK_DELIM || prev->kind == CK_DELIM;
-            if (!glued) {
+            if (!glued || css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT,
+                                          pool->data + comp->off, comp->len)) {
                 cbuf_putc(out, ' ');
             }
         }
@@ -116,6 +117,8 @@ static int css_prop_is_color(const css_char *prop, Py_ssize_t len) {
 static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
     int pending_ws = 0;
     int any_ws = 0;
+    int comment_gap = 0;
+    int last_is_ident = 0;
     Py_ssize_t written = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
@@ -125,12 +128,18 @@ static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t en
             continue;
         }
         if (token->kind == CSS_COMMENT) {
+            comment_gap = 1;
             continue;
         }
         if (pending_ws && written > 0) {
             cbuf_putc(out, ' ');
+        } else if (comment_gap && written > 0 &&
+                   css_would_merge(out->data[out->len - 1], last_is_ident, token->text, token->text_len)) {
+            cbuf_puts(out, "/**/");
         }
         pending_ws = 0;
+        comment_gap = 0;
+        last_is_ident = token->kind == CSS_IDENT;
         if (token->kind == CSS_NUM) {
             cbuf_put_run(out, token->text, token->text_len);
             cbuf_put_run(out, (token->text + token->text_len), token->unit_len);
