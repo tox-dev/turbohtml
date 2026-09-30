@@ -151,6 +151,23 @@ def test_doctype_with_internal_subset() -> None:
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        # a quoted literal, comment or processing instruction may hold '>' or ']' (XML 1.0 [11], [9], [15], [16])
+        pytest.param('<!DOCTYPE r SYSTEM "a>b.dtd"><r/>', id="system-literal"),
+        pytest.param("<!DOCTYPE r SYSTEM 'a>b.dtd'><r/>", id="system-literal-single-quote"),
+        pytest.param('<!DOCTYPE r PUBLIC "-//x//y" "a>b"><r/>', id="public-system-literal"),
+        pytest.param('<!DOCTYPE r [<!ENTITY e "a]>b">]><r/>', id="subset-entity-value"),
+        pytest.param("<!DOCTYPE r [<!ENTITY e 'a]>b'>]><r/>", id="subset-entity-value-single-quote"),
+        pytest.param("<!DOCTYPE r [<!-- a]>'b -->]><r/>", id="subset-comment"),
+        pytest.param("<!DOCTYPE r [<?pi a]>b?>]><r/>", id="subset-pi"),
+    ],
+)
+def test_doctype_markup_inside_literals_does_not_end_it(source: str) -> None:
+    assert parse_xml(source).html == "<!DOCTYPE r><r></r>"
+
+
+@pytest.mark.parametrize(
     ("markup", "text"),
     [
         pytest.param("<r>&lt;&gt;&amp;&quot;&apos;</r>", "<>&\"'", id="predefined"),
@@ -380,6 +397,16 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<?pi", "xml-unterminated-pi", id="pi-eof-after-target"),
         pytest.param("<a><?xml v?></a>", "xml-reserved-pi-target", id="reserved-pi-target"),
         pytest.param("<!DOCTYPE root", "xml-unterminated-doctype", id="unterminated-doctype"),
+        pytest.param('<!DOCTYPE r SYSTEM "x', "xml-unterminated-doctype", id="unterminated-system-literal"),
+        pytest.param("<!DOCTYPE r [<!-- x", "xml-unterminated-doctype", id="unterminated-subset-comment"),
+        pytest.param('<!DOCTYPE r PUBLIC "a>b" "s"><r/>', "xml-malformed-declaration", id="pubid-rejects-gt"),
+        pytest.param("<!DOCTYPE r SYSTEM x><r/>", "xml-malformed-declaration", id="unquoted-system-literal"),
+        pytest.param('<!DOCTYPE r PUBLIC "p"><r/>', "xml-malformed-declaration", id="public-without-system-literal"),
+        pytest.param(
+            '<!DOCTYPE r PUBLIC "caf\u00e9" "s"><r/>', "xml-malformed-declaration", id="pubid-rejects-non-ascii"
+        ),
+        pytest.param("<!DOCTYPE r SYSTEM", "xml-malformed-declaration", id="system-literal-missing-at-end"),
+        pytest.param('<!DOCTYPE r [<!ENTITY e "y', "xml-unterminated-doctype", id="unterminated-subset-literal"),
         pytest.param("<a><!DOCTYPE x></a>", "xml-doctype-outside-prolog", id="doctype-nested"),
         pytest.param("<a/><!DOCTYPE x>", "xml-doctype-outside-prolog", id="doctype-after-root"),
         pytest.param("<!DOCTYPE x><!DOCTYPE y><a/>", "xml-doctype-outside-prolog", id="doctype-twice"),

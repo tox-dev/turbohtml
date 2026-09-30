@@ -871,9 +871,53 @@ static int consume_pi(xml_parser *parser) {
     return 0;
 }
 
-/* Skip a <!DOCTYPE ...> declaration, matching a bracketed internal subset so a '>'
-   inside it does not end the declaration early. The root name becomes a Doctype
-   node; DTD-declared entities are not honored. */
+/* A PubidLiteral code point (XML 1.0 [13]): space, CR, LF, ASCII letters and digits, and -'()+,./:=?;!*#@$_%. */
+static int is_pubid_char(Py_UCS4 ch) {
+    static const char pubid[] =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \r\n-'()+,./:=?;!*#@$_%";
+    return ch < 0x80 && memchr(pubid, (int)ch, sizeof(pubid) - 1) != NULL;
+}
+
+/* Move past the quoted literal at parser->pos. A SystemLiteral takes any code point but its quote, so a '>' inside it
+   does not end the declaration; a PubidLiteral takes only PubidChar. Returns 0, or -1 with an error recorded. */
+static int skip_doctype_literal(xml_parser *parser, int pubid) {
+    Py_ssize_t open = parser->pos;
+    Py_UCS4 quote = open < parser->length ? cp(parser, open) : 0;
+    if (quote != '"' && quote != '\'') {
+        record(parser, "xml-malformed-declaration", open);
+        return -1;
+    }
+    for (parser->pos++; parser->pos < parser->length; parser->pos++) {
+        Py_UCS4 ch = cp(parser, parser->pos);
+        if (ch == quote) {
+            parser->pos++;
+            return 0;
+        }
+        if (pubid && !is_pubid_char(ch)) {
+            record(parser, "xml-malformed-declaration", parser->pos);
+            return -1;
+        }
+    }
+    record(parser, "xml-unterminated-doctype", open);
+    return -1;
+}
+
+/* Move past the next `close`, or record an unterminated doctype at open. */
+static int skip_past(xml_parser *parser, const char *close, Py_ssize_t open) {
+    size_t close_len = strlen(close);
+    for (; parser->pos < parser->length; parser->pos++) {
+        if (starts_with(parser, parser->pos, close)) {
+            parser->pos += (Py_ssize_t)close_len;
+            return 0;
+        }
+    }
+    record(parser, "xml-unterminated-doctype", open);
+    return -1;
+}
+
+/* Skip a <!DOCTYPE ...> declaration: the root name, an optional external ID (XML 1.0 [75]), and a bracketed internal
+   subset, stepping over the quoted literals, comments and processing instructions in it so a '>' or ']' inside one
+   does not end the declaration early. The root name becomes a Doctype node; DTD-declared entities are not honored. */
 static int consume_doctype(xml_parser *parser) {
     Py_ssize_t open = parser->pos;
     if (parser->stack_len > 0 || parser->root != NULL || parser->have_doctype) {
@@ -887,9 +931,36 @@ static int consume_doctype(xml_parser *parser) {
     if (name_end < 0) {
         return -1;
     }
+    skip_space(parser);
+    int public_id = starts_with(parser, parser->pos, "PUBLIC");
+    if (public_id || starts_with(parser, parser->pos, "SYSTEM")) {
+        parser->pos += 6;
+        skip_space(parser);
+        if (skip_doctype_literal(parser, public_id) < 0) {
+            return -1;
+        }
+        if (public_id) {
+            skip_space(parser);
+            if (skip_doctype_literal(parser, 0) < 0) {
+                return -1;
+            }
+        }
+    }
     int depth = 0;
     while (parser->pos < parser->length) {
         Py_UCS4 ch = cp(parser, parser->pos);
+        if (depth > 0 && (ch == '"' || ch == '\'')) {
+            if (skip_doctype_literal(parser, 0) < 0) {
+                return -1;
+            }
+            continue;
+        }
+        if (depth > 0 && (starts_with(parser, parser->pos, "<!--") || starts_with(parser, parser->pos, "<?"))) {
+            if (skip_past(parser, cp(parser, parser->pos + 1) == '!' ? "-->" : "?>", open) < 0) {
+                return -1;
+            }
+            continue;
+        }
         if (ch == '[') {
             depth++;
         } else if (ch == ']') {
