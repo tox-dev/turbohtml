@@ -1,0 +1,1 @@
+Warn that builder text inside raw-text elements is written unescaped and that feed fields come back unsanitized.

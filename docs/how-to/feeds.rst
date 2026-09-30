@@ -35,6 +35,12 @@ plus its ``entries``, each an :class:`~turbohtml.extract.Entry` whose ``title``,
 ``updated``/``published``, ``summary``/``content``, and ``author`` are the first present value across the format's
 spellings. Timestamps come back verbatim, so parse them with your own date library when you need a ``datetime``.
 
+.. warning::
+
+    Every field comes back as the feed wrote it. ``summary`` and ``content`` can hold markup with scripts or event
+    handlers, and ``link`` can hold any URL, ``javascript:`` included. Run feed content through
+    :func:`turbohtml.clean.sanitize` and check a link's scheme before you render either.
+
 The same call reads an Atom feed without a change in the reading code, because the field names are normalized:
 
 .. testcode::

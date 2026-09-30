@@ -13,6 +13,10 @@ A call takes its arguments in order: a leading mapping is the element's attribut
 
     doc = E.div({"class": "card"}, E.h1("Title"), E.p("body"))
     print(doc.serialize())  # <div class="card"><h1>Title</h1><p>body</p></div>
+
+Text serializes escaped, except inside ``script``, ``style``, ``xmp``, ``iframe``, ``noembed``, ``noframes`` and
+``plaintext``, whose content the HTML serialization writes as is. Keep untrusted text out of those elements: a
+``</script`` in it ends the element and the rest reads as markup.
 """
 
 from __future__ import annotations

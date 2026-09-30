@@ -31,6 +31,13 @@ that becomes text:
 The result is an ordinary :class:`~turbohtml.Element`, so you can keep editing or querying it before serializing -- the
 builder only saves the construction step.
 
+.. warning::
+
+    A string child serializes escaped everywhere except inside the raw-text elements ``script``, ``style``, ``xmp``,
+    ``iframe``, ``noembed``, ``noframes`` and ``plaintext``. There the HTML serialization writes it as is, so
+    ``E.script(user_text)`` with a ``</script`` in ``user_text`` ends the element early and turns the rest into markup.
+    Pass only trusted text to those elements.
+
 *********************************************
  Build a tag that is not a Python identifier
 *********************************************
