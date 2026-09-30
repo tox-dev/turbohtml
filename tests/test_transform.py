@@ -19,7 +19,7 @@ from turbohtml.transform import Transform
         pytest.param("re:test('a', '(')", None, id="invalid-pattern"),
     ],
 )
-def test_transform_retains_source_during_regex(expression: str, expected: str | None) -> None:
+def test_transform_regex_runs_no_python_code(expression: str, expected: str | None) -> None:
     transform: Final = Transform(
         parse_xml(
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
@@ -30,6 +30,7 @@ def test_transform_retains_source_during_regex(expression: str, expected: str | 
     )
     source: Final = parse_xml("<root><child>payload</child></root>").find("root")
     assert source is not None
+    parent: Final = source.parent
     target: Final = Element("destination")
     codes: Final = {re.compile.__code__, re.sub.__code__}
     previous: Final = sys.getprofile()
@@ -41,4 +42,5 @@ def test_transform_retains_source_during_regex(expression: str, expected: str | 
             result = transform(source)
     finally:
         sys.setprofile(previous)
-    assert (result, source.parent) == (None if expected is None else f"{expected}0", target)
+    # the regex engine is native, so the hook that would move the source never fires
+    assert (result, source.parent) == (None if expected is None else f"{expected}1", parent)

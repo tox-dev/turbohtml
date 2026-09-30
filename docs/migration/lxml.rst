@@ -136,13 +136,13 @@ node-path generators.
 .. bench-table::
     :file: bench/lxml.json
 
-The :doc:`/development/performance` page benchmarks the full serializer, builder, editor, CSS, XPath 1.0, and EXSLT
-surface against lxml directly, and sweeps the node-path generators across every page size. Compiling a hot expression
-once with :class:`~turbohtml.XPath` (the parse happens at construction, so the call site only supplies the context node
-and any ``$name`` variables) stays ahead of lxml per evaluation, as the precompiled ``//a[@href]`` row shows. On the
-EXSLT cases, a ``re:test`` predicate runs over fourteen times ahead of lxml even though ``re:`` dispatches to Python's
-:mod:`re` where lxml uses C ``libexslt``, because it skips the per-call namespace resolution; lxml's streaming
-evaluation narrows the node-set reductions on the multi-megabyte inputs.
+The :doc:`/development/performance` page benchmarks the serializer, builder, editor, CSS, XPath 1.0, and EXSLT surface
+against lxml, and sweeps the node-path generators across every page size. An expression compiled once with
+:class:`~turbohtml.XPath` parses at construction, so the call site supplies only the context node and any ``$name``
+variables; the precompiled ``//a[@href]`` row stays ahead of lxml per evaluation.
+
+A ``re:test`` predicate runs over fourteen times ahead of lxml because it skips the per-call namespace resolution.
+lxml's streaming evaluation narrows the node-set reductions on the multi-megabyte inputs.
 
 *************
  Parsing XML

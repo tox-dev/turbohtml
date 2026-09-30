@@ -502,21 +502,22 @@ XPath 1.0 evaluation runs through :meth:`~turbohtml.Node.xpath`, raced against l
 wrapper of it (selectolax and BeautifulSoup have no XPath). One expression per feature class (name tests, the ``//``
 abbreviation, attribute, positional, and arithmetic predicates, string and aggregate functions, a reverse axis, a union,
 and a computed name test) runs over the 9.6 kB wpt page below; ``tox -e bench xpath`` repeats the sweep across every
-page size. turbohtml compiles each expression against the tree once, resolves name tests to interned atoms, and folds
-``//`` to a single ``descendant`` walk, so it leads across the surface. The exception is a predicate that references
-``position()`` (``[1]`` or ``position() <= 3``): it pins the result to proximity order and disables the ``//`` collapse,
-so on the largest pages lxml's streaming evaluation closes the gap. Five rows exercise XPath 2.0 functions --
-``ends-with``, ``matches``, ``replace``, ``lower-case``, and ``string-join`` -- that turbohtml answers but libxml2 does
-not implement, so lxml and parsel show a gap there. Further rows are the lxml/parsel options the parity work added: a
-``$variable`` binding, an EXSLT ``re:test`` predicate (turbohtml's Python :mod:`re` against lxml's C libexslt), an EXSLT
-``set:distinct`` node-set reduction (built-in C dispatch on both sides, so it races C against C), a ``smart_strings``
-attribute read, a custom ``extensions=`` function, an ``extensions=`` function whose return becomes a node-set feeding a
-later ``/@href`` step, a ``namespaces=`` prefix binding that resolves ``//svg:rect`` against ``{"svg": ".../2000/svg"}``
-over a page carrying an SVG block, and a node-set ``$variable`` bound from a prior result (``$rows/div``, with ``rows``
-reused from an earlier ``//div`` query) fed into a later path step. turbohtml still leads, since lxml resolves the
-namespace map and option set on every call. The last row precompiles the expression once with :class:`~turbohtml.XPath`
-and re-evaluates it, lxml's ``etree.XPath`` doing the same: both skip the per-call parse :meth:`~turbohtml.Node.xpath`
-pays, and turbohtml's compiled program stays ahead per evaluation.
+page size.
+
+turbohtml compiles each expression against the tree once, resolves name tests to interned atoms, and folds ``//`` to a
+single ``descendant`` walk, so it leads across the surface. A predicate that references ``position()`` (``[1]`` or
+``position() <= 3``) pins the result to proximity order and disables the ``//`` collapse, so on the largest pages lxml's
+streaming evaluation closes the gap. Five rows exercise XPath 2.0 functions (``ends-with``, ``matches``, ``replace``,
+``lower-case``, and ``string-join``) that libxml2 does not implement, so lxml and parsel show a gap there.
+
+Further rows cover the lxml/parsel options: a ``$variable`` binding, a node-set ``$variable`` (``$rows/div``, reusing an
+earlier ``//div`` result), a ``smart_strings`` attribute read, a ``namespaces=`` binding that resolves ``//svg:rect``
+over a page with an SVG block, and two ``extensions=`` functions, one returning a node-set that feeds a later ``/@href``
+step. The EXSLT ``re:test`` and ``set:distinct`` rows race C against C. turbohtml leads on all of them, since lxml
+resolves the namespace map and option set on every call.
+
+The last row precompiles the expression once with :class:`~turbohtml.XPath` and with lxml's ``etree.XPath``, so both
+skip the per-call parse :meth:`~turbohtml.Node.xpath` pays; turbohtml's compiled program stays ahead per evaluation.
 
 .. bench-table::
     :file: bench/querying-5.json

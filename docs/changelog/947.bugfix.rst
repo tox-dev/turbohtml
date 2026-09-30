@@ -1,0 +1,2 @@
+Stop ``re:test``, ``re:replace``, ``matches`` and ``replace`` from hanging on patterns such as ``(a+)+$``; oversized
+patterns and runaway back-references raise ``ValueError``.

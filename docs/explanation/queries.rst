@@ -28,54 +28,69 @@ atoms underneath, so all three resolve names to the same integer and return plai
 The query surface builds on that node model. Navigation covers parents, siblings, and the lazy
 :attr:`~turbohtml.Node.descendants`, :attr:`~turbohtml.Node.ancestors`, and document-order
 :attr:`~turbohtml.Node.following` / :attr:`~turbohtml.Node.preceding` iterators, plus the sequence protocol over a
-node's children. :meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` filter a chosen
-:class:`~turbohtml.Axis` by tag and attributes, where a filter is a string, regex, callable, or list; a ``text``
-predicate adds the same grammar over each element's collected text, the search ``bs4`` spelled ``find(string=...)``.
-Because a regex or callable ``text`` predicate runs Python mid-walk -- which suspends the per-tree lock -- the C side
-snapshots the candidate elements and their gathered text under the lock first, then runs the predicate over that
-snapshot, so a concurrent mutation can never tear the walk. :meth:`~turbohtml.Node.select` and
-:meth:`~turbohtml.Node.select_one` run a native CSS matcher covering type, id, class, attribute, the four combinators,
-the structural pseudo-classes (including ``:nth-child(An+B of S)``, which indexes only the siblings matching ``S``), the
-``:is()``/``:where()``/``:has()``/``:not()`` functional pseudo-classes, and the ``:scope``, form/UI (``:checked``,
+node's children.
+
+:meth:`~turbohtml.Node.find` and :meth:`~turbohtml.Node.find_all` filter a chosen :class:`~turbohtml.Axis` by tag and
+attributes, where a filter is a string, regex, callable, or list; a ``text`` predicate applies the same grammar to each
+element's collected text. A regex or callable ``text`` predicate runs Python mid-walk, which suspends the per-tree lock,
+so the C side snapshots the candidate elements and their text under the lock first and runs the predicate over that
+snapshot. A concurrent mutation cannot tear the walk.
+
+:meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` run a native CSS matcher covering type, id, class,
+attribute, the four combinators, the structural pseudo-classes (including ``:nth-child(An+B of S)``, which indexes only
+the siblings matching ``S``), ``:is()``/``:where()``/``:has()``/``:not()``, and the ``:scope``, form/UI (``:checked``,
 ``:disabled``, ``:default``, ...), ``:lang()`` and ``:dir()`` pseudo-classes a static tree can determine.
-:meth:`~turbohtml.Node.matches` and :meth:`~turbohtml.Node.closest` test a node in place. ``:is()`` and ``:where()``
-parse their argument as a forgiving selector list (a bad arm is dropped, the rest stay usable), while ``:not()`` and
-``:has()`` take a real list where any bad arm is an error, as the Selectors standard specifies. The pseudo-classes that
-depend on live interaction or navigation state (``:hover``, ``:focus``, ``:target``, ``:visited``, ``:link``, ...) parse
-but match nothing, since a parsed document has no such state. Selectors compile against the tree, so a tag or attribute
-name resolves to the same interned atom the parser assigned and each match is an integer compare. Compiling against the
-tree also captures its document mode, so ``#id`` and ``.class`` fold ASCII case in a quirks-mode document and compare
-exactly otherwise, as the Selectors standard requires. :meth:`~turbohtml.Node.xpath`, :meth:`~turbohtml.Node.xpath_one`,
-and :meth:`~turbohtml.Node.xpath_iter` evaluate XPath 1.0 over the same model: a native-C engine compiles each
-expression once into an immutable, per-tree-cached program, resolves name tests to interned atoms, and collapses the
-``//`` abbreviation to a single ``descendant`` walk, so the structural axes, predicates, operators, unions, and the core
-function library run at lxml's speed. A ``$name`` variable bound through a keyword argument carries a scalar or a
-node-set across that boundary: an :class:`~turbohtml.Element` or an iterable of them is marshaled into the engine's
-node-set value, ordered and de-duplicated like any other, so a prior result can feed a later expression
-(``doc.xpath("$rows/td", rows=doc.xpath("//tr"))``) without re-walking the tree; elements wrapped against a different
-document are rejected rather than dereferenced into a foreign arena. Because that program holds no tree pointers and no
-mutable state, :class:`turbohtml.XPath` exposes it directly: a hot expression compiles once and a single re-entrant,
-thread-shareable object evaluates against many context nodes, the same design lxml's ``etree.XPath`` uses. The EXSLT
-``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` namespaces dispatch in the same C engine, so the regexp, node-set,
-string, numeric, and date helpers ``libexslt`` gives lxml work without registering a namespace. The string subset of
-XPath 2.0 ported ``elementpath`` and ``htmlquery`` expressions expect -- ``ends-with``, ``string-join``, ``lower-case``,
-``upper-case``, and the regex ``matches`` and ``replace`` spellings -- resolves in that same dispatch, without the full
-2.0 sequence and type machinery behind it. That subset is validated against the W3C QT3 (XQuery/XPath 3.1) suite, the
-standards body's own conformance oracle: 281 ``fn:*`` cases the engine can express pass, and the families it omits by
-design -- ``xs:`` schema types, sequences, XPath 3.x, XSD-dialect regex (``fn:matches``/``fn:replace`` run on Python's
-``re``), and the typed error-code taxonomy -- are skipped or xfailed with a per-case reason. A prefix-to-URI mapping
-passed as ``namespaces`` is resolved during evaluation rather than baked into the compiled program, so the one cached
-program serves every mapping; a prefixed name test then constrains the match to the foreign-content namespace the tree
-builder tagged (SVG or MathML), while unprefixed tests stay namespace-agnostic over the null-namespace HTML tree. The
-core API stays one-name-per-concept and returns plain lists, so the jQuery-style chaining pyquery users expect lives in
-an optional Python-side wrapper, :class:`turbohtml.query.Query`, whose traversal and mutation methods each return a
-wrapper. Output runs back through :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.serialize`, and
+:meth:`~turbohtml.Node.matches` and :meth:`~turbohtml.Node.closest` test a node in place.
+
+``:is()`` and ``:where()`` parse their argument as a forgiving selector list (the parser drops a bad arm and keeps the
+rest), while ``:not()`` and ``:has()`` take a real list where any bad arm is an error. The pseudo-classes that depend on
+live interaction or navigation state (``:hover``, ``:focus``, ``:target``, ``:visited``, ``:link``, ...) parse but match
+nothing, since a parsed document has no such state.
+
+Selectors compile against the tree, so a tag or attribute name resolves to the interned atom the parser assigned and
+each match is an integer compare. The compiled selector captures the document mode too: ``#id`` and ``.class`` fold
+ASCII case in a quirks-mode document and match case otherwise.
+
+:meth:`~turbohtml.Node.xpath`, :meth:`~turbohtml.Node.xpath_one`, and :meth:`~turbohtml.Node.xpath_iter` evaluate XPath
+1.0 over the same model. A native-C engine compiles each expression once into an immutable, per-tree-cached program,
+resolves name tests to interned atoms, and collapses the ``//`` abbreviation to a single ``descendant`` walk.
+
+A ``$name`` variable bound through a keyword argument carries a scalar or a node-set. An :class:`~turbohtml.Element` or
+an iterable of them becomes an ordered, de-duplicated node-set, so a prior result can feed a later expression
+(``doc.xpath("$rows/td", rows=doc.xpath("//tr"))``) without re-walking the tree. The engine rejects elements wrapped
+against a different document rather than dereferencing them into a foreign arena.
+
+The compiled program holds no tree pointers and no mutable state, so :class:`turbohtml.XPath` exposes it: a hot
+expression compiles once, and one re-entrant, thread-shareable object evaluates against many context nodes.
+
+The EXSLT ``re:``, ``set:``, ``str:``, ``math:``, and ``date:`` namespaces dispatch in the same C engine and work
+without registering a namespace. So does a string subset of XPath 2.0 (``ends-with``, ``string-join``, ``lower-case``,
+``upper-case``, ``matches`` and ``replace``), without the 2.0 sequence and type machinery behind it.
+
+The test suite runs that subset against the W3C QT3 (XQuery/XPath 3.1) suite: 282 ``fn:*`` cases the engine can express
+pass. It skips or xfails the families the engine omits by design (``xs:`` schema types, sequences, XPath 3.x,
+XSD-dialect regex, and the typed error-code taxonomy), each with a per-case reason.
+
+The regex functions take :mod:`re` pattern syntax but match in time linear in the input, so an untrusted expression or
+stylesheet cannot hang the process with a pattern such as ``(a+)+$``. They pick the match and groups :mod:`re` would.
+Back-references need backtracking, so a pattern with one draws on a step budget shared by the whole evaluation and
+raises :class:`ValueError` once it runs out; :doc:`/how-to/xpath` lists the limits.
+
+A prefix-to-URI mapping passed as ``namespaces`` resolves during evaluation rather than in the compiled program, so one
+cached program serves every mapping. A prefixed name test matches the foreign-content namespace the tree builder tagged
+(SVG or MathML); unprefixed tests stay namespace-agnostic over the null-namespace HTML tree.
+
+The core API keeps one name per concept and returns plain lists. jQuery-style chaining lives in an optional Python-side
+wrapper, :class:`turbohtml.query.Query`, whose traversal and mutation methods each return a wrapper.
+
+Output runs back through :attr:`~turbohtml.Node.html`, :meth:`~turbohtml.Node.serialize`, and
 :meth:`~turbohtml.Node.encode`, WHATWG-conformant by default with the escaping selectable through
-:class:`~turbohtml.Formatter`. A registered ``extensions=`` function crosses the same value boundary in both directions:
-the four XPath value types marshal to and from Python, so a node-set argument arrives as a list of elements and a
-returned element or iterable of elements becomes a node-set the engine can feed into later steps. The extension only
-ever sees live wrappers bound to the queried tree, never the C node model, so a returned element from another document
-is rejected rather than silently mixing arenas.
+:class:`~turbohtml.Formatter`.
+
+A registered ``extensions=`` function crosses the same value boundary in both directions: the four XPath value types
+marshal to and from Python, so a node-set argument arrives as a list of elements and a returned element or iterable of
+elements becomes a node-set later steps consume. The function sees only live wrappers bound to the queried tree, never
+the C node model, so the engine rejects an element returned from another document rather than mixing arenas.
 
 :meth:`~turbohtml.Element.css_path` and :meth:`~turbohtml.Element.xpath_path` invert the query surface: given a node,
 they return the locator that finds it again, the way browser devtools "copy selector" and lxml's ``getpath`` do. The

@@ -182,7 +182,7 @@ typedef struct {
     xp_extension_fn extension;
     void *extension_ctx;
     int depth; /* current eval_expr recursion depth, capped at XP_MAX_DEPTH */
-    PyObject **regex_cache;
+    struct xr_cache **regex_cache;
     xp_live_registry *live;
     xp_before_python_fn before_python;
     xp_name_test_fn name_test;

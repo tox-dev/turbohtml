@@ -5,6 +5,7 @@
 #include "core/vec.h"
 #include "dom/tree.h"
 #include "query/xpath/internal.h"
+#include "query/xpath/regex.h"
 #include "query/xpath/xpath.h"
 
 #include <math.h>
@@ -1826,18 +1827,20 @@ int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) 
 int xp_eval_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, Py_ssize_t pos, Py_ssize_t size,
                const xp_bindings *vars, const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                xp_result *out, const char **feature) {
-    PyObject *regex_cache = NULL;
+    xr_cache *regex_cache = NULL;
     xp_ctx ctx = {tree,          context, -1,           pos,  size, feature, vars, namespaces, extension,
                   extension_ctx, 0,       &regex_cache, NULL, NULL, NULL,    NULL, 0};
     int rc = eval_expr(prog, prog->root, &ctx, out);
-    Py_XDECREF(regex_cache);
+    if (regex_cache != NULL) {
+        xr_cache_free(regex_cache);
+    }
     return rc;
 }
 
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
                        void *extension_ctx, xp_name_test_fn name_test, void *name_test_ctx, xp_result *out,
                        const char **feature) {
-    PyObject *regex_cache = NULL;
+    xr_cache *regex_cache = NULL;
     xp_ctx ctx = {tree,
                   context,
                   -1,
@@ -1856,7 +1859,9 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
                   name_test_ctx,
                   name_test == NULL && th_tree_is_xml(tree)}; /* GCOVR_EXCL_BR_LINE: XML only */
     int rc = eval_expr(prog, prog->root, &ctx, out);
-    Py_XDECREF(regex_cache);
+    if (regex_cache != NULL) {
+        xr_cache_free(regex_cache);
+    }
     return rc;
 }
 
@@ -1869,7 +1874,7 @@ int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *contex
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                      xp_before_python_fn before_python, xp_result *out, const char **feature) {
-    PyObject *regex_cache = NULL;
+    xr_cache *regex_cache = NULL;
     xp_live_registry live = {0};
     xp_ctx ctx = {
         tree,  context,       -1,   1,    1, feature, vars, namespaces, extension, extension_ctx, 0, &regex_cache,
@@ -1878,16 +1883,7 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
     xp_live_enter(&ctx, &frame);
     int rc = eval_expr(prog, prog->root, &ctx, out);
     if (regex_cache != NULL) {
-        if (rc == 0) {
-            frame.results = out;
-            frame.result_count = 1;
-            xp_live_changed(&ctx);
-            if (xp_before_python(&ctx) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                xp_result_free(out);          /* GCOVR_EXCL_LINE */
-                rc = -1;                      /* GCOVR_EXCL_LINE */
-            } /* GCOVR_EXCL_LINE: closing an allocation-failure arm */
-        }
-        Py_DECREF(regex_cache);
+        xr_cache_free(regex_cache);
     }
     return rc;
 }

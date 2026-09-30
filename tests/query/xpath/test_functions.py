@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 import re
 import string
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import sys
 from string import ascii_lowercase, ascii_uppercase
 from typing import TYPE_CHECKING, Final, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]
@@ -23,6 +25,8 @@ from turbohtml import Document, Element, Text, XPath, parse, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from pytest_mock import MockerFixture
 
 
 def number(node: turbohtml.Node, expr: str) -> float:
@@ -1227,3 +1231,560 @@ def test_regex_dynamic_flags_keep_patterns_separate() -> None:
 )
 def test_regex_coerces_arguments(expression: str, *, expected: bool) -> None:
     assert parse_xml("<root/>").xpath(expression) is expected
+
+
+_REGEX_TEST: Final = XPath("re:test($text, $pattern, $flags)")
+_REGEX_REPLACE: Final = XPath("re:replace($text, $pattern, $flags, $replacement)")
+_FN_REPLACE: Final = XPath("replace($text, $pattern, $replacement)")
+_REGEX_TEXTS: Final = (
+    "",
+    "abc",
+    "aab",
+    "abcd",
+    "foo bar foo baz",
+    "Hello hello HELLO",
+    "2024-05-06 / 1999-12-31",
+    "a\nb\nc\n",
+    "  spaced\t out \n",
+    "Café CAFÉ café ÉÉ",
+    "mail me@example.com or see https://x.org/p",
+    "x xx xxx xxxx",
+    "x² ½",
+    "A]b[c-d.e,f",
+    "\x07\t\n\x0b\x0c\r\b",
+    ".*+?{}()[]|^$\\",
+    "ABC\x00",
+    "\U0001f600 é A",
+    "ooooo",
+    "a{b} a{} {",
+    "the the quick quick fox",
+    "12,345.67 and 8",
+)
+_PYTHON_FLAGS: Final = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
+
+
+def _python_regex(pattern: str, flags: str) -> re.Pattern[str]:
+    python_flags = 0
+    for letter in flags:
+        python_flags |= _PYTHON_FLAGS[letter]
+    return re.compile(pattern, python_flags)
+
+
+def _forbid_python_re(mocker: MockerFixture) -> None:
+    # the regex functions must never hand a pattern to Python's backtracking re engine
+    mocker.patch.object(re, "compile", autospec=True, side_effect=AssertionError("re.compile called"))
+    mocker.patch.object(re, "sub", autospec=True, side_effect=AssertionError("re.sub called"))
+
+
+@pytest.fixture
+def native_regex(mocker: MockerFixture) -> None:
+    _forbid_python_re(mocker)
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("boolean(//p[matches(., '^(a+)+$')])", "False", id="nested-plus"),
+        pytest.param("re:test(//p, '(a|aa)*b')", "False", id="overlapping-alternation"),
+        pytest.param("re:test(//p, '(a*)*b', 'i')", "False", id="nested-star"),
+        pytest.param("string-length(replace(//p, '(a|a)*$', 'x'))", "5002.0", id="replace"),
+        pytest.param("string-length(re:replace(//p, '(\\w+)+x', 'g', '\\1'))", "5001.0", id="re-replace-captures"),
+    ],
+)
+def test_regex_catastrophic_pattern_finishes_quickly(expression: str, expected: str) -> None:
+    # run in a subprocess: a backtracking engine would hang on this input
+    code = f"import turbohtml\nprint(turbohtml.parse('<p>' + 'a' * 5000 + '!</p>').xpath({expression!r}))"
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr
+
+
+def test_regex_backreference_backtracking_is_bounded() -> None:
+    code = (
+        "import turbohtml\ntry:\n"
+        "    turbohtml.parse('<p>' + 'a' * 60 + '!</p>').xpath(\"re:test(//p, '^(a|a)+\\\\1$')\")\n"
+        "except ValueError as error:\n    print(error)\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
+    )
+    expected: Final = (
+        "regular expression back-references need more than 10006100 backtracking steps (10000000 plus 100 per"
+        " character searched in this XPath evaluation); simplify the pattern or drop the back-reference\n"
+    )
+    assert (result.returncode, result.stdout) == (0, expected), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        pytest.param("(?:{inner})+|b", "True", id="nested-loops"),
+        pytest.param("({inner})", "True", id="nested-captures"),
+        pytest.param("(?:{inner})*|b", "ValueError", id="nested-nullable-loops"),
+    ],
+)
+def test_regex_nesting_needs_no_c_stack(shape: str, expected: str) -> None:
+    # a thread as small as musl's default: recursion per nesting level would overflow it long before 10000 levels
+    code = (
+        "import threading, turbohtml\n"
+        "pattern = 'a'\n"
+        f"for _ in range(10000):\n    pattern = {shape!r}.replace('{{inner}}', pattern)\n"
+        "result = []\n"
+        "def run():\n"
+        "    try:\n"
+        "        result.append(turbohtml.parse_xml('<r/>').xpath(\"re:test('ab', $p)\", p=pattern))\n"
+        "    except ValueError as error:\n"
+        "        result.append(type(error).__name__)\n"
+        "threading.stack_size(128 * 1024)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(result[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr
+
+
+@pytest.mark.parametrize(
+    ("body", "expression", "message"),
+    [
+        pytest.param(
+            "<p>aaaaaaaaaaaaaaaaaa!</p>" * 400,
+            "count(//p[re:test(., '^(a|a)+\\1$')])",
+            r"regular expression back-references need more than \d+ backtracking steps \(10000000 plus 100 per "
+            r"character searched in this XPath evaluation\); simplify the pattern or drop the back-reference$",
+            id="shared-budget",
+        ),
+        pytest.param(
+            "a" * 700_000,
+            "re:test(/r, '(x)?a*\\1')",
+            r"regular expression back-references need more than 655360 saved backtracking positions \(10 MiB\); "
+            r"search a shorter string or drop the back-reference$",
+            id="trail",
+        ),
+    ],
+)
+def test_regex_backreference_backtracking_limit_raises(
+    mocker: MockerFixture, body: str, expression: str, message: str
+) -> None:
+    document: Final = parse_xml(f"<r>{body}</r>")
+    expected: Final = re.compile(message)
+    _forbid_python_re(mocker)
+    with pytest.raises(ValueError, match=expected):
+        document.xpath(expression)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "flags"),
+    [
+        pytest.param("[0-9]+", "", id="digit-range"),
+        pytest.param("\\d+", "", id="digits"),
+        pytest.param("\\d{4}-\\d\\d-\\d\\d", "", id="date"),
+        pytest.param("(\\d+)-(\\d+)-(\\d+)", "", id="date-groups"),
+        pytest.param("^\\w+", "", id="leading-word"),
+        pytest.param("\\w+$", "", id="trailing-word"),
+        pytest.param("\\bfoo\\b", "", id="word-boundary"),
+        pytest.param("\\Bo", "", id="not-word-boundary"),
+        pytest.param("foo|bar|baz", "", id="word-alternation"),
+        pytest.param("(foo|bar)(?: \\w+)?", "", id="alternation-group"),
+        pytest.param("[A-Z][a-z]+", "", id="capitalized"),
+        pytest.param("[^a-z ]+", "", id="negated-class"),
+        pytest.param("hello", "i", id="ignore-case-literal"),
+        pytest.param("CAFÉ", "i", id="ignore-case-accent"),
+        pytest.param("[a-z]+", "i", id="ignore-case-class"),
+        pytest.param("^[a-c]$", "m", id="multiline-anchors"),
+        pytest.param("^", "m", id="multiline-start"),
+        pytest.param("$", "", id="end"),
+        pytest.param("$", "m", id="multiline-end"),
+        pytest.param("a.c", "", id="dot"),
+        pytest.param("b.c", "s", id="dot-all"),
+        pytest.param(".+", "", id="dot-plus"),
+        pytest.param(".+", "s", id="dot-all-plus"),
+        pytest.param("\\s+", "", id="space"),
+        pytest.param("\\S+", "", id="not-space"),
+        pytest.param("\\W+", "", id="not-word"),
+        pytest.param("\\D+", "", id="not-digit"),
+        pytest.param("a*", "", id="star-empty-matches"),
+        pytest.param("a+?", "", id="lazy-plus"),
+        pytest.param("a*?b", "", id="lazy-star"),
+        pytest.param("(a|ab)(c|bcd)(d*)", "", id="leftmost-first"),
+        pytest.param("(?P<word>\\w+) (?P=word)", "", id="named-backreference"),
+        pytest.param("(?P<one>a)(?P<two>b)?(?P=two)", "", id="same-length-names"),
+        pytest.param("(\\w)\\1", "", id="backreference"),
+        pytest.param("(\\w+)\\s+\\1", "i", id="ignore-case-backreference"),
+        pytest.param("^(\\w)\\w*\\1$", "m", id="anchored-backreference"),
+        pytest.param("b(\\w)?\\1", "", id="backreference-literal-start"),
+        pytest.param("(x?)\\1", "", id="empty-backreference"),
+        pytest.param("(a)|b", "", id="unmatched-group"),
+        pytest.param("(a)?b", "", id="optional-group"),
+        pytest.param("x{2,3}", "", id="bounded"),
+        pytest.param("o{,2}", "", id="upper-bound-only"),
+        pytest.param("[ab]{2}", "", id="exact-count"),
+        pytest.param("(?:ab){1,2}?", "", id="lazy-bounded"),
+        pytest.param("a{1,}b{0,}", "", id="unbounded-counts"),
+        pytest.param("(?:ab|a){2,}", "", id="min-then-loop"),
+        pytest.param("\\Aab", "", id="text-start"),
+        pytest.param("c\\Z", "", id="text-end"),
+        pytest.param(" a  b # comment\n c", "x", id="verbose"),
+        pytest.param("[ ]", "x", id="verbose-class-space"),
+        pytest.param("\x07 \x0e", "x", id="verbose-control-characters"),
+        pytest.param("a\tb\n c", "x", id="verbose-tab-and-newline"),
+        pytest.param("a # trailing comment", "x", id="verbose-unterminated-comment"),
+        pytest.param("(?i)hello", "", id="global-flag"),
+        pytest.param("(?#note)(?m)^b", "", id="global-flag-after-comment"),
+        pytest.param("(?s:.)b", "", id="scoped-flag"),
+        pytest.param("(?-i:a)b", "i", id="scoped-flag-off"),
+        pytest.param("(?x) a b", "", id="global-verbose"),
+        pytest.param("(?u)\\w", "", id="unicode-flag"),
+        pytest.param("[\\d.,]+", "", id="class-escape"),
+        pytest.param("[\\w-]+@[\\w-]+\\.\\w+", "", id="email"),
+        pytest.param("https?://[^/\\s]+", "", id="url"),
+        pytest.param("[]a]+", "", id="leading-bracket"),
+        pytest.param("[^]]+", "", id="negated-leading-bracket"),
+        pytest.param("[a\\-z]+", "", id="escaped-dash"),
+        pytest.param("[-a]+[a-]", "", id="edge-dashes"),
+        pytest.param("[a-cb-e]+", "", id="overlapping-ranges"),
+        pytest.param("[a-ec]+", "", id="contained-range"),
+        pytest.param("[\\s\\d]", "", id="class-categories"),
+        pytest.param("[^\\W\\d_]+", "", id="letters"),
+        pytest.param("\\x41|\\u00e9|\\U0001F600", "", id="hex-escapes"),
+        pytest.param("\\101\\0", "", id="octal-escapes"),
+        pytest.param("\\0.|\\08", "", id="octal-escape-ends"),
+        pytest.param("[\\101-\\103\\0]+", "", id="class-octal"),
+        pytest.param("\\t|\\n|\\r|\\f|\\v|\\a", "", id="control-escapes"),
+        pytest.param("[\\b\\t]", "", id="class-backspace"),
+        pytest.param("\\.\\*\\+\\?\\{\\}\\(\\)\\[\\]\\|\\^\\$\\\\", "", id="escaped-metacharacters"),
+        pytest.param("\\-\\/\\ ", "", id="escaped-punctuation"),
+        pytest.param("[\\]\\-\\\\]", "", id="class-escaped-punctuation"),
+        pytest.param("{", "", id="lone-brace"),
+        pytest.param("a{b", "", id="brace-not-quantifier"),
+        pytest.param("a{}", "", id="empty-braces"),
+        pytest.param("a{", "", id="trailing-brace"),
+        pytest.param("x{,}", "", id="open-braces"),
+        pytest.param("(a*)*", "", id="nullable-star"),
+        pytest.param("(a|)+", "", id="nullable-plus"),
+        pytest.param("(?:a??)*b", "", id="lazy-nullable-body"),
+        pytest.param("(|a)*", "", id="empty-first-alternative"),
+        pytest.param("(|a){0,3}", "", id="nullable-bounded"),
+        pytest.param("(|a){0,3}?b", "", id="nullable-lazy-bounded"),
+        pytest.param("(a?){2,}", "", id="nullable-min-then-loop"),
+        pytest.param("(?:(a*)*)*b", "", id="nested-nullable"),
+        pytest.param("(?:)*a", "", id="empty-body-loop"),
+        pytest.param("(?:){3}a{0}", "", id="empty-body-counts"),
+        pytest.param("(?:){0,5}", "", id="empty-body-bounded"),
+        pytest.param("((a)|b)+", "", id="group-in-loop"),
+        pytest.param("(?:(\\w)\\1)+", "", id="backreference-in-loop"),
+        pytest.param("(a|)(?:\\1)*b", "", id="empty-backreference-loop"),
+        pytest.param("(a)(?:\\1|b)+", "", id="backreference-alternative"),
+        pytest.param("(?#comment)ab", "", id="comment"),
+        pytest.param("é+", "i", id="ignore-case-accent-repeat"),
+        pytest.param("(?:)", "", id="empty-group"),
+        pytest.param("", "", id="empty-pattern"),
+        pytest.param("|a", "", id="empty-alternative"),
+    ],
+)
+def test_regex_matches_like_python_re(mocker: MockerFixture, pattern: str, flags: str) -> None:
+    compiled: Final = _python_regex(pattern, flags)
+    template: Final = "<" + "".join(f"\\g<{index}>|" for index in range(1, compiled.groups + 1)) + "\\g<0>>"
+    expected: Final = [(compiled.search(text) is not None, compiled.sub(template, text)) for text in _REGEX_TEXTS]
+    _forbid_python_re(mocker)
+    document: Final = parse_xml("<r/>")
+    assert [
+        (
+            _REGEX_TEST(document, text=text, pattern=pattern, flags=flags),
+            _REGEX_REPLACE(document, text=text, pattern=pattern, flags=f"{flags}g", replacement=template),
+        )
+        for text in _REGEX_TEXTS
+    ] == expected
+
+
+_FOLD_TEXTS: Final = tuple(
+    map(
+        chr,
+        (
+            *b"kKsSiI_1 ",
+            0x212A,
+            0x017F,
+            0x0130,
+            0x0131,
+            0x00DF,
+            0x1E9E,
+            0x03C3,
+            0x03A3,
+            0x03C2,
+            0x0432,
+            0x0412,
+            0x1C80,
+            0xFB05,
+            0xFB06,
+            0x00B5,
+            0x039C,
+            0x03BC,
+            0x00E5,
+            0x212B,
+            0x01C5,
+            0x01C6,
+            0x01C4,
+            0x1F80,
+            0x1F88,
+            0x0390,
+            0x1FD3,
+            0x2126,
+            0x03C9,
+            0xD7FF,
+            0x10400,
+            0x10428,
+            0x4E00,
+        ),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("k", id="literal-k"),
+        pytest.param("[k]", id="class-k"),
+        pytest.param("[\\u212a]", id="class-kelvin"),
+        pytest.param("[\\u017f]", id="class-long-s"),
+        pytest.param("[\\u0130]", id="class-dotted-capital-i"),
+        pytest.param("[\\u0131]", id="class-dotless-i"),
+        pytest.param("\\u00df", id="literal-sharp-s"),
+        pytest.param("[\\u00df]", id="class-sharp-s"),
+        pytest.param("[\\u1e9e]", id="class-capital-sharp-s"),
+        pytest.param("[\\u03c2]", id="class-final-sigma"),
+        pytest.param("\\u03a3", id="literal-sigma"),
+        pytest.param("[\\u1c80]", id="class-rounded-ve"),
+        pytest.param("\\ufb05", id="literal-ligature"),
+        pytest.param("\\ufb06", id="literal-ligature-alias"),
+        pytest.param("[\\u00b5]", id="class-micro"),
+        pytest.param("[\\u01c5]", id="class-titlecase-digraph"),
+        pytest.param("[\\u1f88]", id="class-greek-titlecase"),
+        pytest.param("[\\u2126]", id="class-ohm"),
+        pytest.param("[\\u2100-\\u2130]", id="class-letterlike-range"),
+        pytest.param("[a-z]", id="class-ascii-range"),
+        pytest.param("[^k]", id="negated-class"),
+        pytest.param("[\\U00010400]", id="class-deseret"),
+        pytest.param("\\U00010400", id="literal-deseret"),
+        pytest.param("[\\W]", id="class-not-word"),
+        pytest.param("[\\d_]", id="class-uncased"),
+        pytest.param("1", id="literal-uncased"),
+    ],
+)
+def test_regex_ignore_case_matches_like_python_re(mocker: MockerFixture, pattern: str) -> None:
+    compiled: Final = re.compile(pattern, re.IGNORECASE)
+    expected: Final = [compiled.search(char) is not None for char in _FOLD_TEXTS]
+    _forbid_python_re(mocker)
+    document: Final = parse_xml("<r/>")
+    assert [_REGEX_TEST(document, text=char, pattern=pattern, flags="i") for char in _FOLD_TEXTS] == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "pattern", "expected"),
+    [
+        pytest.param("", "\\B", True, id="not-boundary-in-empty"),
+        pytest.param("", "\\b", False, id="boundary-in-empty"),
+        pytest.param("a", "\\B", False, id="not-boundary-at-word"),
+    ],
+)
+@pytest.mark.usefixtures("native_regex")
+def test_regex_word_boundary_on_empty_text(text: str, pattern: str, *, expected: bool) -> None:
+    assert _REGEX_TEST(parse_xml("<r/>"), text=text, pattern=pattern, flags="") is expected
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("a(?=b)", id="lookahead"),
+        pytest.param("a(?!b)", id="negative-lookahead"),
+        pytest.param("(?<=a)b", id="lookbehind"),
+        pytest.param("(?<!a)b", id="negative-lookbehind"),
+        pytest.param("(a)?(?(1)b|c)", id="conditional"),
+        pytest.param("(?>a+)", id="atomic-group"),
+        pytest.param("a*+", id="possessive-star"),
+        pytest.param("a{1,2}+", id="possessive-bounded"),
+        pytest.param("\\N{DIGIT ONE}", id="named-character"),
+        pytest.param("[\\N{DIGIT ONE}]", id="named-character-in-class"),
+        pytest.param("(?a)\\w", id="ascii-flag"),
+    ],
+)
+def test_regex_syntax_beyond_the_linear_engine_raises_value_error(mocker: MockerFixture, pattern: str) -> None:
+    expected: Final = re.compile(r"unsupported regular expression syntax: ")
+    _forbid_python_re(mocker)
+    with pytest.raises(ValueError, match=expected):
+        _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")
+
+
+@pytest.mark.parametrize(
+    ("pattern", "message"),
+    [
+        pytest.param("(", "missing ), unterminated subpattern", id="unterminated-group"),
+        pytest.param("(?i:a", "missing ), unterminated subpattern", id="unterminated-scoped-group"),
+        pytest.param("a)", "unbalanced parenthesis", id="unbalanced"),
+        pytest.param("[a", "unterminated character set", id="unterminated-class"),
+        pytest.param("[a\\", "unterminated character set", id="class-trailing-backslash"),
+        pytest.param("\\", "bad escape (end of pattern)", id="trailing-backslash"),
+        pytest.param("\\q", "bad escape", id="unknown-escape"),
+        pytest.param("[\\q]", "bad escape", id="class-unknown-escape"),
+        pytest.param("[\\8]", "bad escape", id="class-decimal-escape"),
+        pytest.param("\\x4", "incomplete escape", id="short-hex"),
+        pytest.param("\\u12G4", "incomplete escape", id="bad-hex-digit"),
+        pytest.param("\\x4g", "incomplete escape", id="bad-lowercase-hex-digit"),
+        pytest.param("\\U00110000", "bad escape", id="beyond-unicode"),
+        pytest.param("\\400", "octal escape value outside of range", id="octal-range"),
+        pytest.param("[\\400]", "octal escape value outside of range", id="class-octal-range"),
+        pytest.param("\\2", "invalid group reference 2", id="missing-group"),
+        pytest.param("(a)\\11", "invalid group reference 11", id="two-digit-group"),
+        pytest.param("(a)\\18", "invalid group reference 18", id="second-digit-not-octal"),
+        pytest.param("(a)\\81", "invalid group reference 81", id="first-digit-not-octal"),
+        pytest.param("(a\\1)", "cannot refer to an open group", id="open-group"),
+        pytest.param("[z-a]", "bad character range", id="reversed-range"),
+        pytest.param("[\\d-z]", "bad character range", id="category-range-start"),
+        pytest.param("[a-\\d]", "bad character range", id="category-range-end"),
+        pytest.param("[a-\\q]", "bad escape", id="range-end-escape"),
+        pytest.param("*", "nothing to repeat", id="leading-star"),
+        pytest.param("^*", "nothing to repeat", id="repeated-anchor"),
+        pytest.param("a|{2}", "nothing to repeat", id="count-after-bar"),
+        pytest.param("a**", "multiple repeat", id="multiple-repeat"),
+        pytest.param("a{3,2}", "min repeat greater than max repeat", id="reversed-bounds"),
+        pytest.param("(?", "unexpected end of pattern", id="bare-extension"),
+        pytest.param("(?Px)", "unknown extension ?P", id="unknown-p-extension"),
+        pytest.param("(?P", "unknown extension ?P", id="truncated-p-extension"),
+        pytest.param("(?P<>a)", "missing group name", id="empty-name"),
+        pytest.param("(?P<a", "missing >, unterminated name", id="unterminated-name"),
+        pytest.param("(?P<a>a)(?P=a", "missing ), unterminated name", id="unterminated-reference"),
+        pytest.param("(?P<1a>x)", "bad character in group name", id="bad-name"),
+        pytest.param("(?P<a>x)(?P<a>y)", "redefinition of group name", id="duplicate-name"),
+        pytest.param("(?P=b)", "unknown group name", id="unknown-name"),
+        pytest.param("(?P<a>(?P=a))", "cannot refer to an open group", id="open-named-group"),
+        pytest.param("(?#x", "missing ), unterminated comment", id="unterminated-comment"),
+        pytest.param("(?Q)", "unknown extension", id="unknown-extension"),
+        pytest.param("(?~)", "unknown extension", id="unknown-extension-symbol"),
+        pytest.param("(?z)", "unknown flag", id="unknown-flag"),
+        pytest.param("(?i", "missing -, : or )", id="unterminated-flags"),
+        pytest.param("(?-u:a)", "cannot turn off flags", id="unicode-off"),
+        pytest.param("(?i-i:a)", "flag turned on and off", id="flag-on-and-off"),
+        pytest.param("(?-)", "unknown flag", id="empty-removal"),
+        pytest.param("(?i-m-s:a)", "unknown flag", id="second-removal"),
+        pytest.param("(?i-:a)", "unknown flag", id="removal-without-flag"),
+        pytest.param("a(?i)", "global flags not at the start", id="late-global-flag"),
+        pytest.param("(?:(?i))", "global flags not at the start", id="nested-global-flag"),
+    ],
+)
+def test_regex_malformed_pattern_raises_re_error(mocker: MockerFixture, pattern: str, message: str) -> None:
+    expected: Final = re.compile(re.escape(message))
+    _forbid_python_re(mocker)
+    with pytest.raises(re.error, match=expected):
+        _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("a{2147483647}", id="huge-count"),
+        pytest.param("a{99999999999}", id="saturated-count"),
+        pytest.param("(?:a?){0,100000}", id="nullable-copies"),
+        pytest.param("(?:a|b){200000}", id="alternation-copies"),
+    ],
+)
+def test_regex_oversized_pattern_raises_value_error(mocker: MockerFixture, pattern: str) -> None:
+    expected: Final = re.compile(
+        re.escape(
+            "regular expression compiles to more than 655360 instructions (10 MiB); lower its repetition counts or"
+            " split it into several patterns"
+        )
+    )
+    _forbid_python_re(mocker)
+    with pytest.raises(ValueError, match=expected):
+        _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")
+
+
+def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFixture) -> None:
+    expected: Final = re.compile(
+        re.escape(
+            "replacing needs more than 10 MiB of capture slots for this regular expression (3303 instructions times"
+            " 1100 groups); make groups the replacement does not use non-capturing with (?:...)"
+        )
+    )
+    _forbid_python_re(mocker)
+    with pytest.raises(ValueError, match=expected):
+        _FN_REPLACE(parse_xml("<r/>"), text="a", pattern="(a)" * 1100, replacement="")
+
+
+@pytest.mark.parametrize(
+    ("pattern", "replacement", "text"),
+    [
+        pytest.param("(a)(b)?", "[\\1\\2\\g<1>\\g<0>]", "ab a", id="group-references"),
+        pytest.param("(?P<first>\\w)(?P<rest>\\w*)", "\\g<rest>\\g<first>", "hello world", id="named-references"),
+        pytest.param("a", "\\0\\07\\101\\1011\\08", "a", id="octal-escapes"),
+        pytest.param("a", "\\n\\t\\r\\f\\v\\a\\b\\\\", "a", id="control-escapes"),
+        pytest.param("a", "\\-\\.\\ \\_\\~\\é", "a", id="kept-escapes"),
+        pytest.param("(a)", "\\1!\\1a\\1", "a", id="group-then-text"),
+        pytest.param("((((((((((((a))))))))))))", "\\12|\\123|\\128", "a", id="two-digit-group"),
+        pytest.param("(a)", "\\g<01>", "a", id="zero-padded-number"),
+        pytest.param("(a)|b", "[\\1]", "ab", id="unmatched-group"),
+        pytest.param("x*", "-", "abc", id="empty-matches"),
+        pytest.param("", "$", "ab", id="dollar-literal"),
+    ],
+)
+def test_re_replace_template_matches_python_re(
+    mocker: MockerFixture, pattern: str, replacement: str, text: str
+) -> None:
+    expected: Final = re.sub(pattern, replacement, text)
+    _forbid_python_re(mocker)
+    assert _REGEX_REPLACE(parse_xml("<r/>"), text=text, pattern=pattern, flags="g", replacement=replacement) == expected
+
+
+@pytest.mark.parametrize(
+    ("replacement", "error", "message"),
+    [
+        pytest.param("\\", re.error, "bad escape (end of pattern)", id="trailing-backslash"),
+        pytest.param("\\q", re.error, "bad escape", id="unknown-escape"),
+        pytest.param("\\g", re.error, "missing <", id="bare-g"),
+        pytest.param("\\g(1)", re.error, "missing <", id="g-without-angle"),
+        pytest.param("\\g<1", re.error, "missing >, unterminated name", id="unterminated-name"),
+        pytest.param("\\g<>", re.error, "missing group name", id="empty-name"),
+        pytest.param("\\g<9>", re.error, "invalid group reference 9", id="missing-numbered-group"),
+        pytest.param("\\g<99999999999>", re.error, "invalid group reference", id="huge-group-number"),
+        pytest.param("\\g<a b>", re.error, "bad character in group name", id="bad-name"),
+        pytest.param("\\g<-1>", re.error, "bad character in group name", id="negative-number"),
+        pytest.param("\\g<nope>", IndexError, "unknown group name 'nope'", id="unknown-name"),
+        pytest.param("\\5", re.error, "invalid group reference 5", id="missing-group"),
+        pytest.param("\\18", re.error, "invalid group reference 18", id="missing-two-digit-group"),
+        pytest.param("\\183", re.error, "invalid group reference 18", id="third-digit-not-octal"),
+        pytest.param("\\912", re.error, "invalid group reference 91", id="first-digit-not-octal"),
+        pytest.param("\\777", re.error, "octal escape value outside of range", id="octal-range"),
+    ],
+)
+def test_re_replace_malformed_template_raises(
+    mocker: MockerFixture, replacement: str, error: type[Exception], message: str
+) -> None:
+    expected: Final = re.compile(re.escape(message))
+    _forbid_python_re(mocker)
+    with pytest.raises(error, match=expected):
+        _REGEX_REPLACE(parse_xml("<r/>"), text="ab", pattern="(?P<name>a)", flags="", replacement=replacement)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "replacement", "expected"),
+    [
+        pytest.param("(a)", "$15", "a5bc", id="digits-past-the-groups-are-literal"),
+        pytest.param("(a)(b)", "[$5]", "[]c", id="single-digit-past-the-groups-is-empty"),
+        pytest.param("(a)(b)", "[$52]", "[2]c", id="leading-digit-past-the-groups"),
+        pytest.param("(a)", "$01", "abc", id="leading-zero"),
+        pytest.param("b", "$0$0", "abbc", id="whole-match"),
+        pytest.param("(x)?b", "[$1]", "a[]c", id="unmatched-group"),
+        pytest.param("b", "\\$\\\\", "a$\\c", id="escaped-dollar-and-backslash"),
+    ],
+)
+@pytest.mark.usefixtures("native_regex")
+def test_fn_replace_dollar_references(pattern: str, replacement: str, expected: str) -> None:
+    assert _FN_REPLACE(parse_xml("<r/>"), text="abc", pattern=pattern, replacement=replacement) == expected
+
+
+@pytest.mark.usefixtures("native_regex")
+def test_regex_flags_ignore_unknown_letters() -> None:
+    assert _REGEX_REPLACE(parse_xml("<r/>"), text="A.B", pattern="a.b", flags="gimsxzq", replacement="!") == "!"

@@ -10,8 +10,8 @@ claims to support.
 
 Excluded families (each carries its reason in the parametrize id): XQuery-only tests, ``xs:`` schema
 constructors and casts, XPath 2.0 sequences/ranges/value-comparisons, XPath 3.x maps/arrays/arrows/
-higher-order functions, XSD-regex dialect features (turbohtml's ``fn:matches``/``fn:replace`` run on
-Python's ``re``), the typed error-code taxonomy (turbohtml raises Python exceptions), and XML
+higher-order functions, XSD-regex dialect features (turbohtml's ``fn:matches``/``fn:replace`` take
+Python's ``re`` syntax), the typed error-code taxonomy (turbohtml raises Python exceptions), and XML
 namespace decomposition (turbohtml is HTML-first: ``local-name`` == ``name``, ``namespace-uri`` empty
 outside SVG/MathML).
 
@@ -165,7 +165,8 @@ GRAMMAR_MARKERS = (
     (re.compile(r"\|\||&&"), "non-XPath boolean operator"),
 )
 
-# fn:matches / fn:replace run on Python's re, so these XSD-regex-only constructs are out of scope.
+# fn:matches / fn:replace take Python's re syntax, so XSD-only constructs and counted repeats too large to compile are
+# out of scope.
 RUNTIME_REGEX_ERRORS = (
     "bad escape",
     "bad character range",
@@ -175,6 +176,7 @@ RUNTIME_REGEX_ERRORS = (
     "redefinition of group",
     "cannot refer to an open group",
     "global flags not at the start",
+    "regular expression compiles to more than",
 )
 
 
@@ -228,14 +230,14 @@ def string_literals(query: str) -> list[str]:
 def regex_dialect_reason(query: str) -> str | None:
     joined = " ".join(string_literals(query))
     if re.search(r"\\[pPicIC]", joined):
-        return r"XSD \p/\P/\i/\c regex escape (Python-re backend)"
+        return r"XSD \p/\P/\i/\c regex escape (Python re dialect)"
     if re.search(r"-\[", joined):
-        return "XSD character-class subtraction (Python-re backend)"
+        return "XSD character-class subtraction (Python re dialect)"
     if re.search(r"\\ ", joined):
-        return "XSD x-flag whitespace escape (Python-re backend)"
+        return "XSD x-flag whitespace escape (Python re dialect)"
     for literal in string_literals(query):
         if 0 < len(literal) <= 4 and all(char in "imsxq " for char in literal) and ("q" in literal or " " in literal):
-            return "XSD/3.0 regex flag q or whitespace (Python-re backend)"
+            return "XSD/3.0 regex flag q or whitespace (Python re dialect)"
     return None
 
 
@@ -461,13 +463,13 @@ def test_qt3_fn(case: Case) -> None:
         return
     try:
         result = context.xpath(case.query)
-    except Exception as error:  # dispatch known XPath-1.0/Python-re deviations, re-raise the rest
+    except Exception as error:  # dispatch known XPath-1.0/Python-re-dialect deviations, re-raise the rest
         message = str(error)
         if "non-node-set" in message:
             pytest.xfail("XPath-1.0 count/sum/string-length restricted to node-sets, not atomic sequences")
         if "takes " in message and "argument" in message:
             pytest.xfail("function arity beyond XPath 1.0/2.0 (e.g. the 2-argument round is XPath 3.0)")
         if any(marker in message for marker in RUNTIME_REGEX_ERRORS):
-            pytest.xfail("fn:matches/fn:replace run on Python re, not the XSD regex dialect")
+            pytest.xfail("fn:matches/fn:replace take Python's re syntax, not the XSD regex dialect")
         raise
     assert matches_expected(case.expected, result), f"{case.query!r} -> {result!r}, expected {case.expected}"

@@ -20,6 +20,9 @@ the same C function table with no registration:
 - ``matches(input, pattern[, flags])`` -- ``true`` when the regex matches anywhere in ``input``.
 - ``replace(input, pattern, repl[, flags])`` -- every match rewritten, with ``$N`` group references in ``repl``.
 
+The regex functions take :mod:`re` syntax; :doc:`/how-to/xpath` lists the constructs they reject and their size and
+backtracking limits.
+
 The full XPath 2.0 sequence, type, and FLWOR machinery is out of scope.
 
 .. autoclass:: Axis

@@ -91,8 +91,8 @@ node-set joins path steps, ``count()``, unions, and predicates like any other no
     ['a', 'b', 'c']
     2.0
 
-The EXSLT ``re:test`` and ``re:replace`` functions ``parsel`` and ``scrapy`` rely on work without registering a
-namespace; the ``re:`` prefix dispatches to Python's :mod:`re`:
+The EXSLT ``re:test`` and ``re:replace`` functions work without registering a namespace. They take :mod:`re` pattern
+syntax and match in time linear in the input, so a pattern such as ``(a+)+$`` cannot hang the process:
 
 .. testcode::
 
@@ -126,6 +126,22 @@ case mapping), and the regex ``matches(input, pattern[, flags])`` and ``replace(
     ONE
     True
     06/05/2024
+
+``re:test``, ``re:replace``, ``matches`` and ``replace`` accept :mod:`re` pattern syntax, with these differences and
+limits:
+
+- Look-around, conditional and atomic groups, possessive quantifiers, ``\N{...}`` escapes and the ``(?a)`` flag raise
+  :class:`ValueError`. A malformed pattern raises :exc:`re.error <re.PatternError>`.
+- A pattern compiles to at most 655,360 instructions (10 MiB). A larger one, such as ``a{1000}{1000}``, raises
+  :class:`ValueError`.
+- ``replace`` and ``re:replace`` hold at most 10 MiB of capture slots, which grow with the compiled size times the group
+  count.
+- Back-references such as ``(\w+) \1`` run on a backtracking matcher. One XPath evaluation may spend 10,000,000 steps
+  plus 100 for each character it searches, and keep 655,360 saved positions (10 MiB), before it raises
+  :class:`ValueError`.
+- In ``replace``, ``$N`` takes the longest run of its digits that names a group and leaves the remaining digits as text.
+  A single digit past the last group stands for nothing. ``re:replace`` reads ``\1`` and ``\g<name>`` instead.
+- ``\B`` matches the empty string, and ``\b`` never does.
 
 Register your own functions under ``extensions={(namespace, name): callable}`` (use ``None`` for the namespace to call
 the function unprefixed). The callable receives a context whose ``context_node`` is the current element, then the

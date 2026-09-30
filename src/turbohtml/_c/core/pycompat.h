@@ -100,6 +100,18 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
     return result;
 }
 
+/* cpyext does not export PyUnicode_IsIdentifier; str.isidentifier runs the same check. Unlike CPython's function the
+   method call can fail, and then this returns -1 with the exception set. */
+static inline int th_str_is_identifier(PyObject *str) {
+    PyObject *result = PyObject_CallMethod(str, "isidentifier", NULL);
+    if (result == NULL) {
+        return -1;
+    }
+    int valid = result == Py_True;
+    Py_DECREF(result);
+    return valid;
+}
+
 #define th_str_format(...) th_str_ready(PyUnicode_FromFormat(__VA_ARGS__))
 #define th_str_format_v(format, args) th_str_ready(PyUnicode_FromFormatV((format), (args)))
 #define th_str_maxchar(maxchar) ((maxchar) > 0xFF ? (Py_UCS4)0x10FFFF : (Py_UCS4)(maxchar))
@@ -112,6 +124,7 @@ static inline PyObject *th_str_from_kind(int kind, const void *data, Py_ssize_t 
 #else
 
 #define th_copy_characters PyUnicode_CopyCharacters
+#define th_str_is_identifier PyUnicode_IsIdentifier
 #define th_str_from_kind PyUnicode_FromKindAndData
 #define th_str_format(...) PyUnicode_FromFormat(__VA_ARGS__)
 #define th_str_format_v(format, args) PyUnicode_FromFormatV((format), (args))

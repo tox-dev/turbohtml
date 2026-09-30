@@ -95,6 +95,7 @@ py.extension_module(
         'src/turbohtml/_c/query/xpath/parser.c',
         'src/turbohtml/_c/query/xpath/eval.c',
         'src/turbohtml/_c/query/xpath/functions.c',
+        'src/turbohtml/_c/query/xpath/regex.c',
         'src/turbohtml/_c/query/find.c',
         'src/turbohtml/_c/query/facade.c',
         'src/turbohtml/_c/clean/sanitize.c',
