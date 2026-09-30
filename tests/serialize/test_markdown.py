@@ -178,6 +178,31 @@ def test_links_and_images(html: str, expected: str) -> None:
         ),
         pytest.param("<pre>raw\ntext</pre>", "```\nraw\ntext\n```", id="pre-no-code"),
         pytest.param("<pre><code>a```b</code></pre>", "````\na```b\n````", id="pre-grows-fence"),
+        pytest.param("<code><ul><li>one</li><li>two</li></ul></code>", "`one two`", id="code-list-boundaries"),
+        pytest.param("<code><p>one</p><p>two</p></code>", "`one two`", id="code-paragraph-boundaries"),
+        pytest.param("<code>before<p>inside</p>after</code>", "`before inside after`", id="code-block-edges"),
+        pytest.param("<code>before <p>after</p></code>", "`before after`", id="code-existing-space-before-block"),
+        pytest.param("<code>before<p> after</p></code>", "`before after`", id="code-existing-space-in-block"),
+        pytest.param("<code>before\t<p>after</p></code>", "`before\tafter`", id="code-existing-tab-before-block"),
+        pytest.param("<code>before<p>\tafter</p></code>", "`before\tafter`", id="code-existing-tab-in-block"),
+        pytest.param("<code>before<br><p>after</p></code>", "`before after`", id="code-break-before-block"),
+        pytest.param(
+            "<pre><code><ul><li>one</li><li>two</li></ul></code></pre>",
+            "```\none\ntwo\n```",
+            id="pre-code-list-boundaries",
+        ),
+        pytest.param("<pre><code><p>one</p><p>two</p></code></pre>", "```\none\ntwo\n```", id="pre-code-paragraphs"),
+        pytest.param(
+            "<pre><code>before\n<p>after</p></code></pre>", "```\nbefore\nafter\n```", id="pre-existing-newline"
+        ),
+        pytest.param(
+            "<pre><code>before<p>\nafter</p></code></pre>", "```\nbefore\nafter\n```", id="pre-newline-in-block"
+        ),
+        pytest.param(
+            "<pre><code>before <p>after</p></code></pre>", "```\nbefore after\n```", id="pre-space-before-block"
+        ),
+        pytest.param("<pre><code>a<br>b</code></pre>", "```\nab\n```", id="pre-code-break"),
+        pytest.param("<pre><code>a<span>b</span>c</code></pre>", "```\nabc\n```", id="pre-code-inline-adjacent"),
         pytest.param(
             "First <code>blah blah<br />blah blah</code> second",
             "First `blah blah blah blah` second",
@@ -192,6 +217,11 @@ def test_links_and_images(html: str, expected: str) -> None:
 )
 def test_code(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+def test_code_empty_text_keeps_block_boundary() -> None:
+    code: Final = Element("code", children=[Element("p", children=[Text("one")]), Text(""), Text("two")])
+    assert Element("main", children=[code]).to_markdown() == "`one two`"
 
 
 _LOOSE_NAV_HTML: Final[str] = (

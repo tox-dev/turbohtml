@@ -1,0 +1,1 @@
+Preserve list markers in Markdown table cells and word boundaries in code with block descendants.

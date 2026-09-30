@@ -638,18 +638,32 @@ static Py_ssize_t md_max_backtick_run(const Py_UCS4 *text, Py_ssize_t len) {
     return best;
 }
 
-/* Gather a code span's text, flattening its descendants: a <br> is not markup a
-   code span can carry, so it becomes a space that keeps the two runs it split
-   apart (dropping it would fuse the surrounding words). */
-static void md_collect_code_text(th_tree *tree, th_node *node, sbuf *out) {
+/* Block descendants need a separator when flattened into code text, but inline
+   descendants and explicit whitespace must keep their original adjacency. */
+static void md_collect_code_text(th_tree *tree, th_node *node, sbuf *out, Py_UCS4 separator, int *boundary) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_TEXT) {
-            sbuf_put_run(out, need_text(tree, child), child->text_len);
+        if (child->type == TH_NODE_TEXT && child->text_len > 0) {
+            const Py_UCS4 *text = need_text(tree, child);
+            if (*boundary && out->len > 0 && !is_space(out->data[out->len - 1]) && !is_space(text[0])) {
+                sbuf_putc(out, separator);
+            }
+            sbuf_put_run(out, text, child->text_len);
+            *boundary = 0;
         } else if (child->type == TH_NODE_ELEMENT || child->type == TH_NODE_CONTENT) {
             if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_BR) {
-                sbuf_putc(out, ' ');
+                if (separator == ' ') {
+                    sbuf_putc(out, ' ');
+                    *boundary = 0;
+                }
             } else {
-                md_collect_code_text(tree, child, out);
+                int block = child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && is_md_block(child->atom);
+                if (block) {
+                    *boundary = 1;
+                }
+                md_collect_code_text(tree, child, out, separator, boundary);
+                if (block) {
+                    *boundary = 1;
+                }
             }
         }
     }
@@ -657,7 +671,8 @@ static void md_collect_code_text(th_tree *tree, th_node *node, sbuf *out) {
 
 static void md_emit_code_span(md_ctx *ctx, th_node *node) {
     sbuf content = {0};
-    md_collect_code_text(ctx->tree, node, &content);
+    int boundary = 0;
+    md_collect_code_text(ctx->tree, node, &content, ' ', &boundary);
     if (content.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(content.data); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2197,10 +2212,25 @@ static void md_render_pre(md_ctx *ctx, th_node *node) {
         }
     }
     Py_ssize_t text_len;
-    Py_UCS4 *text = th_node_text(ctx->tree, content, &text_len);
-    if (text == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    Py_UCS4 *text;
+    th_node *first = content->first_child;
+    if (first == NULL || (first->type == TH_NODE_TEXT && first->next_sibling == NULL)) {
+        text = th_node_text(ctx->tree, content, &text_len);
+        if (text == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    } else {
+        sbuf code_text = {0};
+        int boundary = 0;
+        md_collect_code_text(ctx->tree, content, &code_text, '\n', &boundary);
+        if (code_text.failed) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->out.failed = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(code_text.data); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        text_len = code_text.len;
+        text = code_text.data;
     }
     const md_opts *opt = ctx->opt;
     /* drop one trailing newline so the close is not preceded by a blank line */
