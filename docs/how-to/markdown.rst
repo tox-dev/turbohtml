@@ -69,8 +69,8 @@ field.
 A pipe table holds one line of inline content per cell, so a table or a list *inside* a cell has no Markdown spelling of
 its own; the GFM spec is explicit that "block-level elements cannot be inserted in a table". Both keep their source
 HTML, which is legal in a cell and renders as the real thing wherever a reader takes embedded HTML, and a ``<br>`` in a
-cell stays a ``<br>`` for the same reason. Pass ``Markdown.Tables(cell_blocks="text")`` to flatten them to the text they
-hold instead:
+cell stays a ``<br>`` for the same reason. Pass ``Markdown.Tables(cell_blocks="text")`` to flatten block layout while
+keeping compact list markers:
 
 .. testcode::
 
@@ -89,7 +89,7 @@ hold instead:
     | Loaf | <ul><li>small</li><li>large</li></ul> |
     | Item | Sizes |
     | --- | --- |
-    | Loaf | small large |
+    | Loaf | * small * large |
 
 The ``Markdown.Wrapping`` sub-config shapes the result further. ``width`` word-wraps prose at a column (``0``, the
 default, leaves paragraphs unwrapped), honoring list and blockquote indentation; ``list_items`` extends wrapping into

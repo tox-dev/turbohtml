@@ -2161,8 +2161,40 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
         pytest.param(
             "<table><tr><td><ul><li>x</li><li>y</li></ul></td></tr></table>",
             Markdown(tables=Markdown.Tables(cell_blocks="text")),
-            "| x y |\n| --- |",
-            id="cell-blocks-text-flattens-list",
+            "| * x * y |\n| --- |",
+            id="cell-blocks-text-keeps-list-markers",
+        ),
+        pytest.param(
+            '<table><tr><th>Traded as</th><td><ul><li><a href="/nasdaq">Nasdaq</a></li>'
+            "<li>DJIA</li></ul></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| Traded as | * [Nasdaq](/nasdaq) * DJIA |\n| --- | --- |",
+            id="cell-blocks-text-keeps-links-and-markers",
+        ),
+        pytest.param(
+            '<table><tr><td><ol start="3"><li>a</li><li value="7">b</li><li>c</li></ol></td></tr></table>',
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| 3. a 7. b 8. c |\n| --- |",
+            id="cell-blocks-text-keeps-ordered-numbers",
+        ),
+        pytest.param(
+            '<table><tr><td><ol start="9223372036854775807"><li>a</li><li>b</li></ol></td></tr></table>',
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| 9223372036854775807. a 9223372036854775807. b |\n| --- |",
+            id="cell-blocks-text-ordered-number-limit",
+        ),
+        pytest.param(
+            "<table><tr><td><ul><li>a</li><li>b</li><li>c<ul><li>d</li></ul></li></ul></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| * a * b * c * d |\n| --- |",
+            id="cell-blocks-text-keeps-nested-items",
+        ),
+        pytest.param(
+            '<table><tr><td><ul><li>a<ol start="4"><li>b</li><li value="9">c</li></ol></li><li>d</li>'
+            "</ul></td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| * a 4. b 9. c * d |\n| --- |",
+            id="cell-blocks-text-nested-ordered-list",
         ),
         pytest.param(
             "<table><tr><td>a<br>b</td></tr></table>",
@@ -2182,7 +2214,7 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             "<table><tr><td>t</td></tr></table></td></tr></tbody>"
             "<tfoot><tr><td>f</td></tr></tfoot></table></td></tr></table>",
             Markdown(tables=Markdown.Tables(cell_blocks="text")),
-            "| H u o m t f |\n| --- |",
+            "| H * u 1. o * m t f |\n| --- |",
             id="cell-blocks-text-spaces-every-boundary",
         ),
         pytest.param(
@@ -2261,6 +2293,77 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
 )
 def test_markdown_table_options(html: str, opts: Markdown, expected: str) -> None:
     assert _configured_markdown(html, opts) == expected
+
+
+def test_markdown_table_text_orphan_item() -> None:
+    nested = Element(
+        "table", children=[Element("tr", children=[Element("td", children=[Element("li", children=[Text("x")])])])]
+    )
+    table = Element("table", children=[Element("tr", children=[Element("td", children=[nested])])])
+    assert table.to_markdown(Markdown(tables=Markdown.Tables(cell_blocks="text"))) == "| * x |\n| --- |"
+
+
+@pytest.mark.parametrize(
+    ("wrapped_list", "expected", "cell_html"),
+    [
+        pytest.param(
+            "before <strong><ul><li>x</li><li>y</li></ul></strong> after",
+            "| before **\\* x \\* y** after |\n| --- |",
+            "before <strong>* x * y</strong> after",
+            id="strong",
+        ),
+        pytest.param(
+            "<em><ul><li>x</li></ul></em>",
+            "| *\\* x* |\n| --- |",
+            "<em>* x</em>",
+            id="emphasis",
+        ),
+        pytest.param(
+            '<a href="/x"><ul><li>one</li><li>two</li></ul></a>',
+            "| [\\* one \\* two](/x) |\n| --- |",
+            '<a href="/x">* one * two</a>',
+            id="link",
+        ),
+        pytest.param(
+            "<del><ul><li>one</li><li>two</li></ul></del>",
+            "| ~~\\* one \\* two~~ |\n| --- |",
+            "<s>* one * two</s>",
+            id="strikethrough",
+        ),
+    ],
+)
+def test_markdown_table_text_list_inline_frames(wrapped_list: str, expected: str, cell_html: str) -> None:
+    output = parse(f"<table><tr><td>{wrapped_list}</td></tr></table>").to_markdown(
+        Markdown(tables=Markdown.Tables(cell_blocks="text"))
+    )
+    assert (output, _render(output).split("<th>", 1)[1].split("</th>", 1)[0]) == (expected, cell_html)
+
+
+@pytest.mark.parametrize(
+    ("html", "config", "expected"),
+    [
+        pytest.param(
+            '<a href="/x"><ul><li>one</li><li>two</li></ul></a>',
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "[one two](/x)",
+            id="outside-cell",
+        ),
+        pytest.param(
+            '<table><tr><td><a href="/x"><ul><li>one</li><li>two</li></ul></a></td></tr></table>',
+            Markdown(),
+            "| [one two](/x) |\n| --- |",
+            id="html-cell-blocks",
+        ),
+        pytest.param(
+            '<table><tr><td><a href="/x"><p>one</p></a></td></tr></table>',
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| [one](/x) |\n| --- |",
+            id="non-list-block",
+        ),
+    ],
+)
+def test_markdown_table_link_block_fallback(html: str, config: Markdown, expected: str) -> None:
+    assert parse(html).to_markdown(config) == expected
 
 
 @pytest.mark.parametrize(

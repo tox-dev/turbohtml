@@ -928,14 +928,12 @@ static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     PyMem_Free(html);
 }
 
-/* The blocks a pipe-table cell cannot hold: a nested table, and the lists whose
-   bullets would otherwise land on the row as literal text. */
+/* GFM pipe cells cannot hold nested block markup. */
 static int md_is_cell_block(uint16_t atom) {
     return atom == TH_TAG_TABLE || atom == TH_TAG_UL || atom == TH_TAG_OL || atom == TH_TAG_MENU;
 }
 
-/* The table and list scaffolding a flattened block is made of. Each one's boundary
-   owes a space, or the last word of a cell and the first of the next fuse. */
+/* Collapsed block boundaries need spaces to keep adjacent words apart. */
 static int md_is_cell_scaffold(uint16_t atom) {
     switch (atom) {
     case TH_TAG_TABLE:
@@ -955,13 +953,59 @@ static int md_is_cell_scaffold(uint16_t atom) {
     }
 }
 
-/* Write a block a cell cannot hold as the text it holds, dropping the grid or the
-   bullets but keeping the inline markup inside each cell or item. */
-static void md_emit_cell_flat(md_ctx *ctx, th_node *node) {
+typedef struct {
+    Py_ssize_t number;
+    int ordered;
+} md_cell_list;
+
+static Py_ssize_t md_list_number_attr(md_ctx *ctx, th_node *node, const char *name, Py_ssize_t fallback);
+static void md_emit_cell_flat_children(md_ctx *ctx, th_node *node, md_cell_list *list);
+
+static void md_emit_cell_flat(md_ctx *ctx, th_node *node, md_cell_list *list) {
+    md_cell_list nested;
+    if (node->atom == TH_TAG_TABLE) {
+        list = NULL;
+    } else if (node->atom == TH_TAG_UL || node->atom == TH_TAG_OL || node->atom == TH_TAG_MENU) {
+        nested.ordered = node->atom == TH_TAG_OL;
+        nested.number = nested.ordered ? md_list_number_attr(ctx, node, "start", 1) : 1;
+        list = &nested;
+    }
+    md_emit_cell_flat_children(ctx, node, list);
+}
+
+static void md_emit_cell_flat_children(md_ctx *ctx, th_node *node, md_cell_list *list) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && md_is_cell_scaffold(child->atom)) {
             ctx->space_pending = 1;
-            md_emit_cell_flat(ctx, child);
+            if (child->atom == TH_TAG_LI) {
+                /* Pipe rows cannot wrap, and every item has just opened a separator. */
+                if (!ctx->drop_space) {
+                    sbuf_putc(&ctx->out, ' ');
+                }
+                ctx->space_pending = 0;
+                ctx->drop_space = 0;
+                ctx->pending_word = 0;
+                if (ctx->pending != NULL) {
+                    md_emit_pending(ctx, ctx->pending);
+                }
+                if (list != NULL && list->ordered) {
+                    list->number = md_list_number_attr(ctx, child, "value", list->number);
+                    md_put_decimal(&ctx->out, list->number);
+                    sbuf_puts(&ctx->out, ". ");
+                    if (list->number < PY_SSIZE_T_MAX) {
+                        list->number++;
+                    }
+                } else {
+                    if (ctx->pending != NULL) {
+                        sbuf_putc(&ctx->out, '\\');
+                    }
+                    sbuf_puts(&ctx->out, "* ");
+                }
+                ctx->line_has_content = 1;
+                md_emit_cell_flat_children(ctx, child, NULL);
+            } else {
+                md_emit_cell_flat(ctx, child, list);
+            }
         } else {
             md_render_inline(ctx, child);
         }
@@ -1108,6 +1152,11 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
     if (is_md_block(atom)) {
         if (!ctx->inline_only) {
             md_render_block(ctx, node);
+            return;
+        }
+        if (ctx->in_cell && opt->cell_blocks == TH_MD_CELL_TEXT && md_is_cell_block(atom)) {
+            ctx->space_pending = 1;
+            md_emit_cell_flat(ctx, node, NULL);
             return;
         }
         /* inside link text a block cannot open its own line (a blank line would
@@ -2217,14 +2266,12 @@ static void md_render_block_body(md_ctx *ctx, th_node *node) {
         return;
     }
     if (ctx->in_cell && md_is_cell_block(atom)) {
-        /* "Block-level elements cannot be inserted in a table" (GFM 4.10): a nested
-           table or list has no pipe-table spelling, so it either keeps its source
-           HTML -- inline content, and so legal in a cell -- or gives up its markup
-           and contributes the text it holds */
+        /* GFM 4.10 excludes nested blocks from pipe cells; retain HTML or collapse
+           their layout while keeping list-item boundaries visible. */
         if (ctx->opt->cell_blocks == TH_MD_CELL_HTML) {
             md_emit_cell_html(ctx, node);
         } else {
-            md_emit_cell_flat(ctx, node);
+            md_emit_cell_flat(ctx, node, NULL);
         }
         return;
     }

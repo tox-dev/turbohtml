@@ -154,8 +154,8 @@ class Markdown:
         :param mode: ``markdown`` (pipe table), ``strip`` (cell text only), or ``html`` (raw ``<table>``).
         :param header: which row is the header: ``first``, ``detect``, or ``none``.
         :param cell_blocks: what a table or list *inside* a cell becomes, since a pipe cell holds no block:
-            ``html`` keeps its source markup (and a ``<br>`` for a line break), ``text`` flattens it to the text it
-            contains.
+            ``html`` keeps its source markup (and a ``<br>`` for a line break), ``text`` flattens block layout while
+            keeping compact list markers.
         :param pad: align columns to a common width.
         """
 
