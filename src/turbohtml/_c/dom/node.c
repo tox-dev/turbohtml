@@ -624,12 +624,8 @@ PyType_Spec string_walker_spec = {
     .slots = string_walker_slots,
 };
 
-/* The iterator serialize_iter() hands back: it holds the resolved output options and
-   the walk's resume point, and each __next__ drives one bounded chunk of the
-   subtree. opts.charset points at the static "utf-8", and layout (an Indent, when
-   pretty) keeps the buffer indent points into alive; root stays valid because handle
-   pins the tree. Mutating the tree mid-iteration invalidates the cursor, the same
-   hazard as the tree's other node iterators. */
+/* opts.charset is static, layout keeps the indent buffer alive and handle pins the tree, but an edit can still detach
+   or move the resume node, so each chunk first compares the handle's mutation_version with the one recorded here. */
 static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_node *root, const th_serialize_opts *opts,
                                     const Py_UCS4 *indent, Py_ssize_t indent_len, PyObject *layout) {
     PyTypeObject *type = (PyTypeObject *)state->serialize_iter_type;
@@ -645,6 +641,7 @@ static PyObject *serialize_iter_new(module_state *state, PyObject *handle, th_no
     self->cursor.depth = 0;
     self->indent = indent;
     self->indent_len = indent_len;
+    self->mutation_version = ((HandleObject *)handle)->mutation_version;
     return (PyObject *)self;
 }
 
@@ -656,20 +653,41 @@ static void serialize_iter_dealloc(PyObject *self) {
     Py_DECREF(type);
 }
 
+/* set_text, normalize, linkify_node, strip_comments_node, the textarea field_value setter and ShadowRoot.set_inner_html
+   unlink nodes without bumping mutation_version, so a detached resume node shows only as a broken parent chain. */
+static int cursor_reaches_root(const th_node *cursor, const th_node *root) {
+    for (const th_node *node = cursor; node != NULL; node = node->parent) {
+        if (node == root) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static PyObject *serialize_iter_next(PyObject *self) {
     SerializeIterObject *iter = (SerializeIterObject *)self;
     if (iter->cursor.node == NULL) {
         return NULL; /* the walk is exhausted: raise StopIteration */
     }
-    th_tree *tree = ((HandleObject *)iter->handle)->tree;
+    HandleObject *handle = (HandleObject *)iter->handle;
     Py_ssize_t out_len;
-    Py_UCS4 *data;
+    Py_UCS4 *data = NULL;
+    int changed;
     /* the chunk walks live tree nodes; hold the per-tree lock so a concurrent mutate
        cannot rewire them mid-chunk (a no-op on the GIL build) */
     Py_BEGIN_CRITICAL_SECTION(iter->handle);
-    data =
-        th_node_serialize_chunk(tree, iter->root, &iter->opts, iter->indent, iter->indent_len, &iter->cursor, &out_len);
+    changed = handle->mutation_version != iter->mutation_version || !cursor_reaches_root(iter->cursor.node, iter->root);
+    if (!changed) {
+        data = th_node_serialize_chunk(handle->tree, iter->root, &iter->opts, iter->indent, iter->indent_len,
+                                       &iter->cursor, &out_len);
+    }
     Py_END_CRITICAL_SECTION();
+    if (changed) {
+        /* the cursor stays put and the version only grows, so later calls raise too */
+        PyErr_SetString(PyExc_RuntimeError, "the tree changed while serialize_iter was streaming it; finish or discard "
+                                            "the iterator before editing the tree");
+        return NULL;
+    }
     if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -2011,13 +2029,16 @@ PyDoc_STRVAR(serialize_iter_doc, "serialize_iter(options=None, *, inner=False)\n
                                  "full-size output string. With inner=True, emit only the children. "
                                  "``''.join(node.serialize_iter(options))`` equals\n"
                                  "``node.serialize(options)`` for every options the stream supports.\n\n"
-                                 "The tree must not be mutated while the iterator is live, the same rule as\n"
-                                 "the other node iterators.\n\n"
+                                 "Finish or discard the iterator before editing the tree. Edits such as append,\n"
+                                 "extract, replace_with, clear, and set_inner_html make the next chunk raise\n"
+                                 "RuntimeError, as does any edit that detaches the node the stream resumes at,\n"
+                                 "and every chunk after that raises too.\n\n"
                                  ":param options: an Html configuration object, or None for the defaults. A\n"
                                  "    Minify layout is rejected: minification needs the whole tree at once.\n"
                                  ":returns: an iterator of str chunks whose concatenation is the markup.\n"
                                  ":raises TypeError: if options is not an Html configuration object.\n"
-                                 ":raises ValueError: if options selects a Minify layout, which cannot stream.");
+                                 ":raises ValueError: if options selects a Minify layout, which cannot stream.\n"
+                                 ":raises RuntimeError: from the iterator, after such an edit.");
 
 PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None, *, inner=False)\n--\n\n"
                          "Serialize this node and its subtree to bytes, with the same formatting controls\n"

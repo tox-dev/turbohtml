@@ -4,6 +4,9 @@ reparsed page reads the same and indenting the output again reproduces it."""
 from __future__ import annotations
 
 import io
+import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import sys
 from dataclasses import dataclass
 from html.entities import codepoint2name
 from typing import TYPE_CHECKING, Final
@@ -334,6 +337,70 @@ def test_serialize_iter_bounds_each_chunk_and_joins(layout: Indent | None) -> No
     assert len(chunks) > 1
     assert max(len(chunk) for chunk in chunks[:-1]) < 32 * 1024  # a per-node boundary keeps chunks near the target
     assert "".join(chunks) == root.serialize(options)
+
+
+_ITER_CHANGED: Final = (
+    "the tree changed while serialize_iter was streaming it; finish or discard the iterator before editing the tree"
+)
+_ITER_EDITS: Final = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
+_ITER_LAYOUTS: Final = ("compact", "indent", "xml")
+_ITER_MUTATION: Final = """
+import turbohtml
+from turbohtml import Html, Indent
+
+SOURCE = "<div>" + "".join(f"<p>par{index:04d}</p>" for index in range(4000)) + "</div>"
+EDITS = {
+    "extract": lambda document, root, cut: cut.extract(),
+    "decompose": lambda document, root, cut: cut.decompose(),
+    "clear": lambda document, root, cut: root.clear(),
+    "set-inner-html": lambda document, root, cut: root.set_inner_html("x"),
+    "reparent-outside": lambda document, root, cut: document.select_one("body").append(cut.extract()),
+    "replace-with": lambda document, root, cut: cut.replace_with(turbohtml.Element("span")),
+    "set-text": lambda document, root, cut: root.set_text("x"),
+}
+LAYOUTS = {"compact": None, "indent": Html(layout=Indent()), "xml": Html(xml=True)}
+for edit_name, edit in EDITS.items():
+    for layout_name, options in LAYOUTS.items():
+        document = turbohtml.parse(SOURCE)
+        root = document.select_one("div")
+        walk = root.serialize_iter(options)
+        first = next(walk)
+        edit(document, root, root.select("p")[first.count("<p>") - 1])
+        for _ in range(2):
+            try:
+                next(walk)
+            except RuntimeError as exc:
+                print(edit_name, layout_name, exc)
+"""
+
+
+def test_serialize_iter_raises_after_a_mid_stream_edit() -> None:
+    # each edit detaches the resume node and a regression climbs through its NULL parent and kills the interpreter, so
+    # the edits run in one child; the second next() checks that the error sticks
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", _ITER_MUTATION], capture_output=True, text=True, timeout=120, check=False
+    )
+    expected = "".join(
+        f"{edit} {layout} {_ITER_CHANGED}\n" for edit in _ITER_EDITS for layout in _ITER_LAYOUTS for _ in range(2)
+    )
+    assert (result.returncode, result.stdout) == (0, expected), result.stderr
+
+
+@pytest.mark.parametrize(
+    "moved",
+    [
+        pytest.param(lambda _: 0, id="emitted-paragraph"),
+        pytest.param(lambda first: first.count("<p>") - 1, id="resume-paragraph"),
+    ],
+)
+def test_serialize_iter_raises_after_a_move_within_the_subtree(moved: Callable[[str], int]) -> None:
+    root = parse("<div>" + "".join(f"<p>par{index:04d}</p>" for index in range(4000)) + "</div>").select_one("div")
+    assert root is not None
+    walk = root.serialize_iter()
+    first = next(walk)
+    root.append(root.select("p")[moved(first)])
+    with pytest.raises(RuntimeError, match=f"^{re.escape(_ITER_CHANGED)}$"):
+        next(walk)
 
 
 def test_serialize_iter_emits_a_huge_text_node_as_one_chunk(find: Callable[[str, str], Element]) -> None:

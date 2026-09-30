@@ -1,0 +1,2 @@
+Raise :exc:`RuntimeError` from a :meth:`~turbohtml.Node.serialize_iter` stream after a tree edit such as ``extract`` or
+``clear``, instead of crashing or streaming a cut document.

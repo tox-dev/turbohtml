@@ -93,3 +93,6 @@ Pass ``inner=True`` to keep the context element out of the output while retainin
 
 ``serialize`` and ``encode`` accept compact, indented, or minified output. ``serialize_iter`` accepts compact and
 indented output; it rejects ``Minify``. Use ``inner_xml`` when the consumer requires well-formed XML fragments.
+
+Finish or discard a ``serialize_iter`` stream before you edit the tree. An edit such as ``append`` or ``extract``, or
+one that detaches the node the stream resumes at, makes the next chunk and each later one raise :exc:`RuntimeError`.

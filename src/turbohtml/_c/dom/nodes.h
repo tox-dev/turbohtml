@@ -360,6 +360,7 @@ typedef struct {
     th_ser_cursor cursor;           /* the walk's resume point between chunks */
     const Py_UCS4 *indent;          /* the pretty layout's per-level unit, or NULL for the compact form */
     Py_ssize_t indent_len;
+    uint64_t mutation_version; /* the handle's mutation_version when the stream started */
 } SerializeIterObject;
 
 typedef struct {
