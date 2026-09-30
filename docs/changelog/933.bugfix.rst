@@ -1,0 +1,2 @@
+Raise ``MemoryError`` for an EXSLT ``str:padding`` length above ``sys.maxsize // 4`` characters instead of writing past
+a small buffer.

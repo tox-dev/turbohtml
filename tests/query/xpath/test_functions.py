@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 import re
 import string
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import sys
 from string import ascii_lowercase, ascii_uppercase
 from typing import TYPE_CHECKING, Final, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]
@@ -941,6 +943,22 @@ def test_set_distinct_mixed_lengths() -> None:
 )
 def test_str_functions(exslt_doc: turbohtml.Node, expr: str, expected: str) -> None:
     assert exslt_doc.xpath(expr) == expected
+
+
+def test_str_padding_past_any_allocation_raises_memory_error() -> None:
+    # a regression corrupts the heap and crashes the interpreter, so run it in a child process
+    code = (
+        "import turbohtml\ndoc = turbohtml.parse('<p/>')\n"
+        "for length in ('4611686018427387904', '1 div 0'):\n"
+        "    try:\n        doc.xpath(f'str:padding({length})')\n"
+        "    except MemoryError as exc:\n        print(exc)\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
+    )
+    tail = f"exceeds the {sys.maxsize // 4} characters a string can address on this platform; pass a smaller length"
+    expected = f"xpath: str:padding length 4611686018427387904 {tail}\nxpath: str:padding length inf {tail}\n"
+    assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
 
 def test_str_concat_non_nodeset_argument_raises(exslt_doc: turbohtml.Node) -> None:

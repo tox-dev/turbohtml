@@ -1311,6 +1311,17 @@ static int str_replace(struct th_tree *tree, const xp_result *args, xp_result *o
    `pattern` (a single space by default). An empty pattern pads with spaces. */
 static int str_padding(struct th_tree *tree, const xp_result *args, int argc, xp_result *out) {
     double requested = round(to_number(tree, &args[0]));
+    /* a longer length wraps the byte count into a small buffer; an infinite one has no Py_ssize_t value */
+    const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
+    if (requested > (double)limit) {
+        char shown[320]; /* %.0f of the largest finite double is 309 digits */
+        snprintf(shown, sizeof(shown), "%.0f", requested);
+        PyErr_Format(PyExc_MemoryError,
+                     "xpath: str:padding length %s exceeds the %zu characters a string can address on this platform; "
+                     "pass a smaller length",
+                     shown, limit);
+        return -1;
+    }
     Py_ssize_t target = requested >= 1 ? (Py_ssize_t)requested : 0;
     const Py_UCS4 space = ' ';
     const Py_UCS4 *pattern = &space;

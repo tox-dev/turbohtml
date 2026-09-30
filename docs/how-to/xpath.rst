@@ -200,6 +200,9 @@ numbers (``min``, ``max``, ``highest``, ``lowest``, ``abs``, ``power``), and ``d
     ---
     2024.0
 
+``str:padding`` raises :exc:`MemoryError` for a length above ``sys.maxsize // 4`` characters, the most four-byte code
+points that fit in ``sys.maxsize`` bytes.
+
 ``str:tokenize`` and ``str:split`` are not built in: they would have to synthesize token nodes, and the engine's
 node-sets only reference nodes that already exist in the tree. Likewise ``date:`` reads an explicit date string rather
 than the implicit current date-time, so a query stays deterministic. Register either through ``extensions=`` if you need
