@@ -30,14 +30,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ._html import _xslt_compile, _xslt_resolve_imports, _xslt_transform
+from ._html import _xpath_literal, _xslt_compile, _xslt_resolve_imports, _xslt_transform
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ._html import Node
 
-__all__ = ["Transform", "transform"]
+__all__ = ["Transform", "strparam", "transform"]
 
 
 class Transform:
@@ -72,8 +72,8 @@ class Transform:
         Transform a source document and return the serialized result.
 
         :param source: the document to transform, a parsed tree.
-        :param params: top-level ``xsl:param`` values, each an XPath expression string (quote a string literal, as
-            lxml does: ``convert(doc, title="'Report'")``).
+        :param params: top-level ``xsl:param`` values, each an XPath expression string; wrap a plain string in
+            :func:`strparam` (``convert(doc, title=strparam(title))``) so its quotes cannot end the literal.
         :raises ValueError: if the stylesheet or an expression is malformed, or a referenced key or named template is
             undeclared.
         :raises RuntimeError: on an ``xsl:message`` with ``terminate="yes"``.
@@ -104,7 +104,8 @@ def transform(
         the stylesheet imports.
     :param allow_imports: set to :data:`False` when a stylesheet must not read other files.
     :param import_root: when set, imported files must resolve inside this directory, including through nested imports.
-    :param params: top-level ``xsl:param`` values, each an XPath expression string.
+    :param params: top-level ``xsl:param`` values, each an XPath expression string; pass text through
+        :func:`strparam`.
     :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
     """
     return Transform(
@@ -113,3 +114,17 @@ def transform(
         allow_imports=allow_imports,
         import_root=import_root,
     )(source, **params)
+
+
+def strparam(value: str, /) -> str:
+    """
+    Quote a string as an XPath string literal, for passing text as an ``xsl:param`` value.
+
+    A parameter value is an XPath expression, so an unquoted or hand-quoted string that holds a quote runs as a query
+    over the source document. The literal this returns reads back as ``value`` whatever quotes it holds.
+
+    :param value: the text the stylesheet should receive.
+    :raises TypeError: if ``value`` is not a str.
+    :returns: an XPath expression that evaluates to ``value``.
+    """
+    return _xpath_literal(value)

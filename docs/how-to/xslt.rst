@@ -59,6 +59,20 @@ way lxml does:
 
     Hi, World
 
+Text from a user or a file is not an expression. Wrap it in :func:`~turbohtml.transform.strparam`, which returns the
+XPath literal for the string whatever quotes it holds; quoting it by hand lets a quote in the text end the literal and
+run the rest as a query over the source document:
+
+.. testcode::
+
+    from turbohtml.transform import strparam
+
+    print(Transform(style)(doc, greeting=strparam('It\'s "late"')))
+
+.. testoutput::
+
+    It's "late", World
+
 *****************
  Choose a method
 *****************

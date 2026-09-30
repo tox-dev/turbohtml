@@ -14,6 +14,8 @@ engine.
 
 .. autofunction:: transform
 
+.. autofunction:: strparam
+
 The engine covers the XSLT 1.0 core: ``xsl:template`` (``match``, ``name``, ``mode``, ``priority``),
 ``xsl:apply-templates`` (``select``, ``mode``, ``xsl:sort``, ``xsl:with-param``), ``xsl:call-template``,
 ``xsl:for-each``, ``xsl:if``, ``xsl:choose``/``xsl:when``/``xsl:otherwise``, ``xsl:value-of``, ``xsl:copy`` and

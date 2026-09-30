@@ -220,6 +220,7 @@ static PyMethodDef html_methods[] = {
     {"_parse_only", turbohtml_parse_only, METH_O, NULL},
     {"_xpath_parse", turbohtml_xpath_parse, METH_O, NULL},
     {"_css_to_xpath", turbohtml_css_to_xpath, METH_VARARGS, NULL},
+    {"_xpath_literal", turbohtml_xpath_literal, METH_O, NULL},
     {"_matches_many", turbohtml_matches_many, METH_VARARGS, NULL},
     {"_select_many", turbohtml_select_many, METH_VARARGS, NULL},
     {"_select_limited", turbohtml_select_limited, METH_VARARGS, NULL},

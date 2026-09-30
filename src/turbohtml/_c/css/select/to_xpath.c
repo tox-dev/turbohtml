@@ -939,6 +939,30 @@ PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args) {
     return result;
 }
 
+/* The XPath 1.0 string literal for a str: a string-valued parameter is passed as an XPath expression, so quoting it
+   keeps quotes in the text from ending the literal and running the rest as a query. */
+PyObject *turbohtml_xpath_literal(PyObject *Py_UNUSED(module), PyObject *value) {
+    if (!PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError, "value must be a str");
+        return NULL;
+    }
+    Py_UCS4 *text = PyUnicode_AsUCS4Copy(value);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    xt_ctx ctx = {{NULL, 0, 0, 0}, NULL};
+    xt_literal(&ctx, text, PyUnicode_GET_LENGTH(value));
+    PyMem_Free(text);
+    PyObject *result = NULL;
+    if (!ctx.out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        result = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, ctx.out.data, ctx.out.len);
+    } else {              /* GCOVR_EXCL_LINE: brace of the never-taken alloc-failure branch */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyMem_Free(ctx.out.data);
+    return result;
+}
+
 /* Specificity (CSS Selectors Level 4 §17): a counts #id, b counts .class, [attr], and pseudo-classes, c counts type
    and pseudo-element selectors; the universal * adds nothing. :is()/:not()/:has() take the specificity of their most
    specific argument, and :where() always contributes zero. Accumulated into the three out-parameters. */

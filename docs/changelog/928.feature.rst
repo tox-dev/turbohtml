@@ -1,0 +1,1 @@
+Add :func:`turbohtml.transform.strparam` to pass text as an XSLT parameter without hand-quoting it.

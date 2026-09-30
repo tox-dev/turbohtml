@@ -74,6 +74,7 @@ PyObject *turbohtml_collapse_whitespace(PyObject *module, PyObject *text);
    _css_to_xpath(selector, prefix) translates a CSS selector list to an
    equivalent XPath 1.0 expression; matches METH_VARARGS. */
 PyObject *turbohtml_css_to_xpath(PyObject *module, PyObject *args);
+PyObject *turbohtml_xpath_literal(PyObject *module, PyObject *value);
 PyObject *turbohtml_css_specificity(PyObject *module, PyObject *args);
 PyObject *turbohtml_matches_many(PyObject *module, PyObject *args);
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args);

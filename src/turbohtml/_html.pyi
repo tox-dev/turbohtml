@@ -348,6 +348,9 @@ from ._stubs.query import (
     _select_many as _select_many,
 )
 from ._stubs.query import (
+    _xpath_literal as _xpath_literal,
+)
+from ._stubs.query import (
     _xpath_parse as _xpath_parse,
 )
 from ._stubs.query import (

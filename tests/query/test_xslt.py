@@ -16,7 +16,7 @@ from bench.operations import INPUTS
 import turbohtml
 from turbohtml import Comment, DocumentFragment, Element, Text, parse_fragment, parse_xml
 from turbohtml._html import _xslt_transform
-from turbohtml.transform import Transform, transform
+from turbohtml.transform import Transform, strparam, transform
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -228,6 +228,31 @@ def test_transform_variable_result_tree_fragment_string_value() -> None:
 def test_transform_empty_variable_is_empty_string() -> None:
     body = '<xsl:template match="/"><xsl:variable name="v"/>[<xsl:value-of select="$v"/>]</xsl:template>'
     assert _run("<r/>", body) == "[]"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("plain", id="plain"),
+        pytest.param("it's", id="apostrophe"),
+        pytest.param('say "hi"', id="double-quote"),
+        pytest.param("both ' and \"", id="both-quotes"),
+        pytest.param("x' or '1'='1", id="query-shaped"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_strparam_passes_text_through_unchanged(value: str) -> None:
+    body = '<xsl:param name="p"/><xsl:template match="/"><xsl:value-of select="$p"/></xsl:template>'
+    assert _run("<r/>", body, p=strparam(value)) == value
+
+
+def test_strparam_quotes_both_kinds_with_concat() -> None:
+    assert strparam("a'b\"c") == "concat('a',\"'\",'b\"c')"
+
+
+def test_strparam_rejects_non_str() -> None:
+    with pytest.raises(TypeError, match="must be a str"):
+        strparam(1)  # ty: ignore[invalid-argument-type]  # the call under test rejects a non-str
 
 
 def test_transform_top_level_param_default_and_override() -> None:
