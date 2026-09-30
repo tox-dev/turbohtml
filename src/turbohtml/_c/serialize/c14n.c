@@ -337,7 +337,7 @@ static void c14n_put_pi(sbuf *out, const th_node *node) {
     Py_ssize_t data_len = node->text_len - target_len - 1;
     if (data_len > 0) {
         sbuf_putc(out, ' ');
-        sbuf_put_ucs4(out, node->text + target_len + 1, data_len);
+        sbuf_put_xml_pi_data(out, node->text + target_len + 1, data_len);
     }
     sbuf_puts(out, "?>");
 }
@@ -365,7 +365,7 @@ static th_node *c14n_step(sbuf *out, th_tree *tree, th_node *node, const th_node
     case TH_NODE_COMMENT:
         if (opts->with_comments) {
             sbuf_puts(out, "<!--");
-            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_put_xml_comment(out, node->text, node->text_len, 0);
             sbuf_puts(out, "-->");
         }
         break;
@@ -420,7 +420,7 @@ static void c14n_document(sbuf *out, th_tree *tree, th_node *doc, const th_c14n_
                 sbuf_putc(out, '\n');
             }
             sbuf_puts(out, "<!--");
-            sbuf_put_ucs4(out, child->text, child->text_len);
+            sbuf_put_xml_comment(out, child->text, child->text_len, 0);
             sbuf_puts(out, "-->");
             if (!seen_root) {
                 sbuf_putc(out, '\n');

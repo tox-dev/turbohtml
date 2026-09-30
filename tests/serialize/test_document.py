@@ -865,13 +865,14 @@ def _parsed_inner_xml(markup: str) -> str:
     return node.inner_xml
 
 
-def test_raw_xml_serialize_leaves_a_comment_untouched() -> None:
+def test_raw_xml_serialize_spaces_a_double_dash_in_a_comment() -> None:
     from turbohtml import (  # ruff:ignore[import-outside-top-level]  # only this raw-vs-well-formed contrast needs it
         Comment,
     )
 
-    node = Element("doc", children=[Comment("a--b")])
-    assert node.serialize(_XML) == "<doc><!--a--b--></doc>"
+    # XML forbids `--` inside a comment, so even the raw path spaces it; unlike inner_xml it keeps other characters
+    node = Element("doc", children=[Comment("a--b\x01")])
+    assert node.serialize(_XML) == "<doc><!--a- -b\x01--></doc>"
 
 
 @pytest.mark.parametrize(

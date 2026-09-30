@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from turbohtml import (
+    Canonical,
     CData,
     Comment,
     Doctype,
@@ -13,6 +14,7 @@ from turbohtml import (
     Element,
     Html,
     Indent,
+    Minify,
     Node,
     ProcessingInstruction,
     Text,
@@ -38,6 +40,114 @@ def test_comment_carries_its_data_and_serializes() -> None:
     comment = Comment("a note")
     assert comment.data == "a note"
     assert comment.html == "<!--a note-->"
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        # data built through the DOM can hold what a parsed comment cannot; the serialization keeps it one comment
+        pytest.param("a--><b>x</b>", "<!--a-- ><b>x</b>-->", id="close"),
+        pytest.param("a--!><b>x</b>", "<!--a-- !><b>x</b>-->", id="close-bang"),
+        pytest.param("><b>x</b>", "<!-- ><b>x</b>-->", id="leading-gt"),
+        pytest.param("-><b>x</b>", "<!-- -><b>x</b>-->", id="leading-dash-gt"),
+        pytest.param("a --- b -", "<!--a --- b --->", id="dashes-kept"),
+        pytest.param("a--", "<!--a---->", id="trailing-dashes-kept"),
+        pytest.param("a--!", "<!--a--!-->", id="trailing-bang-kept"),
+    ],
+)
+def test_comment_data_cannot_end_the_comment_early(data: str, expected: str) -> None:
+    assert Comment(data).html == expected
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(lambda node: node.to_source(), id="to-source"),
+        pytest.param(lambda node: node.serialize(Html(layout=Indent())), id="indent"),
+        pytest.param(lambda node: node.canonicalize(Canonical(with_comments=True)).decode(), id="canonical"),
+    ],
+)
+def test_comment_data_stays_one_comment_in_every_serializer(render: Callable[[Node], str]) -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(Comment("a--><b>x</b>"))
+    assert parse(render(root)).select("b") == []
+
+
+@pytest.mark.parametrize(
+    ("data", "xml", "canonical"),
+    [
+        # XML forbids `--` and a trailing `-` in a comment, so both outputs space them apart and stay well-formed
+        pytest.param("a--><b>x</b>", "<!--a- -><b>x</b>-->", "<!--a- -><b>x</b>-->", id="close"),
+        pytest.param("a--b", "<!--a- -b-->", "<!--a- -b-->", id="double-dash"),
+        pytest.param("a-", "<!--a- -->", "<!--a- -->", id="trailing-dash"),
+        # XHTML output also reaches HTML parsers, which end a comment at a leading `>` or `->`; canonical XML keeps
+        # the data an XML parser reads back
+        pytest.param("><b>x</b>", "<!-- ><b>x</b>-->", "<!--><b>x</b>-->", id="leading-gt"),
+        pytest.param("-><b>x</b>", "<!-- -><b>x</b>-->", "<!---><b>x</b>-->", id="leading-dash-gt"),
+    ],
+)
+def test_xml_comment_data_stays_well_formed(data: str, xml: str, canonical: str) -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(Comment(data))
+    assert (root.serialize(Html(xml=True)), root.canonicalize(Canonical(with_comments=True)).decode()) == (
+        f"<r>{xml}</r>",
+        f"<r>{canonical}</r>",
+    )
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(lambda node: node.serialize(Html(xml=True)), id="xml"),
+        pytest.param(lambda node: node.canonicalize(Canonical(with_comments=True)).decode(), id="canonical"),
+    ],
+)
+def test_xml_comment_output_reparses_as_xml(render: Callable[[Node], str]) -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(Comment("a--b-"))
+    reparsed = parse_xml(render(root)).select_one("r")
+    assert reparsed is not None
+    assert [cast("Comment", child).data for child in reparsed.children] == ["a- -b- "]
+
+
+def test_canonical_keeps_parsed_comment_data() -> None:
+    assert parse_xml("<r><!-->x--></r>").canonicalize(Canonical(with_comments=True)) == b"<r><!-->x--></r>"
+
+
+def test_comment_data_stays_one_comment_when_minified() -> None:
+    doc = parse("<p>y</p>")
+    paragraph = doc.select_one("p")
+    assert paragraph is not None
+    paragraph.append(Comment("a--><b>x</b>"))
+    assert parse(doc.serialize(Html(layout=Minify(strip_comments=False)))).select("b") == []
+
+
+def test_xml_cdata_splits_its_end_marker() -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(CData("a]]x]]><b>x</b>"))
+    out = root.serialize(Html(xml=True))
+    assert out == "<r><![CDATA[a]]x]]]]><![CDATA[><b>x</b>]]></r>"
+    reparsed = parse_xml(out).select_one("r")
+    assert reparsed is not None
+    assert "".join(cast("CData", section).data for section in reparsed.children) == "a]]x]]><b>x</b>"
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(lambda node: node.serialize(Html(xml=True)), id="xml"),
+        pytest.param(lambda node: node.canonicalize().decode(), id="canonical"),
+    ],
+)
+def test_xml_processing_instruction_data_cannot_end_it_early(render: Callable[[Node], str]) -> None:
+    root = parse_xml("<r/>").select_one("r")
+    assert root is not None
+    root.append(ProcessingInstruction("t", "d?x?><i>y</i>"))
+    assert parse_xml(render(root)).select("i") == []
 
 
 def test_empty_nodes() -> None:

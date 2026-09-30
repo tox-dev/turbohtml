@@ -765,7 +765,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
         case TH_NODE_COMMENT:
             if (!opts->strip_comments) {
                 sbuf_puts(out, "<!--");
-                sbuf_put_ucs4(out, node->text, node->text_len);
+                sbuf_put_comment(out, node->text, node->text_len);
                 sbuf_puts(out, "-->");
                 last_was_space = 0;
             }

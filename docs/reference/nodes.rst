@@ -40,6 +40,15 @@ and :doc:`/explanation/shadow-dom` for the model.
 .. autoclass:: Text
     :members:
 
+A :class:`Comment`, :class:`CData` or :class:`ProcessingInstruction` built or edited through the DOM accepts any data,
+including sequences that would close the node. The serializers break those sequences up and write other data unchanged.
+
+HTML output puts a space before a leading ``>`` or ``->`` of a comment and between ``--`` and a following ``>`` or
+``!>``. XML output and canonical XML put a space after a ``-`` that precedes another ``-`` or ends a comment, which XML
+forbids; XML output also spaces a leading ``>`` or ``->``, since an HTML parser may read it.
+
+XML output puts a space inside ``?>`` in instruction data and splits a CDATA section at ``]]>``.
+
 .. autoclass:: Comment
     :members:
 

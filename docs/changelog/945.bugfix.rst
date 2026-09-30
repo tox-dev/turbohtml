@@ -1,0 +1,3 @@
+Space apart the sequences that close DOM-built leaf data: a leading ``>`` or ``->`` in a comment outside canonical XML,
+``--`` before ``>`` or ``!>`` in an HTML comment, a ``-`` before another ``-`` or at the end in an XML or canonical
+comment, and ``?>`` in XML instruction data, and split XML CDATA at ``]]>`` (GHSA-7vrw-9mvp-2x7j).

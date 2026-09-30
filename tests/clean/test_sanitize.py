@@ -3097,6 +3097,14 @@ def test_kept_comment_is_neutralized_for_xml() -> None:
     _well_formed(out)
 
 
+def test_kept_comment_for_xml_cannot_end_early_in_html() -> None:
+    # `<!-->` is a whole comment to an HTML parser, so the XHTML output spaces a leading `>` away from the opener
+    policy = Policy(tags=frozenset({"div"}), strip_comments=False, xml=True)
+    out = sanitize(parse_xml("<div><!--><img src=x onerror=alert(1)>--></div>"), policy)
+    assert out == "<div><!-- ><img src=x onerror=alert(1)>--></div>"
+    _well_formed(out)
+
+
 def test_default_policy_still_emits_html() -> None:
     assert sanitize("<p>a<br>b") == "&lt;p&gt;a&lt;br&gt;b"
     assert sanitize("<a href='http://x'>l</a>") == '<a href="http://x">l</a>'

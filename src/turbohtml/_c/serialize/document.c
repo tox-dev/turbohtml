@@ -242,7 +242,11 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         break;
     case TH_NODE_CDATA:
-        if (opts->xml || !ucs4_has_gt(node->text, node->text_len)) {
+        if (opts->xml) {
+            sbuf_put_xml_cdata(out, node->text, node->text_len);
+            break;
+        }
+        if (!ucs4_has_gt(node->text, node->text_len)) {
             sbuf_puts(out, "<![CDATA[");
             sbuf_put_ucs4(out, node->text, node->text_len);
             sbuf_puts(out, "]]>");
@@ -262,10 +266,12 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         break;
     case TH_NODE_COMMENT:
         sbuf_puts(out, "<!--");
-        if (opts->well_formed) {
-            sbuf_put_xml_comment(out, node->text, node->text_len);
+        if (opts->xml) {
+            /* HTML parsers read XHTML output too, the sanitizer's inner_xml among them */
+            sbuf_put_comment_start(out, node->text, node->text_len);
+            sbuf_put_xml_comment(out, node->text, node->text_len, opts->well_formed);
         } else {
-            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_put_comment(out, node->text, node->text_len);
         }
         sbuf_puts(out, "-->");
         break;
@@ -275,9 +281,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         sbuf_putc(out, '>');
         break;
     case TH_NODE_PI:
+        /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the bogus-comment form at ">". */
         if (opts->xml) {
             sbuf_puts(out, "<?");
-            sbuf_put_ucs4(out, node->text, node->text_len);
+            sbuf_put_xml_pi_data(out, node->text, node->text_len);
             sbuf_puts(out, "?>");
         } else {
             sbuf_put_html_pi(out, node->text, node->text_len);

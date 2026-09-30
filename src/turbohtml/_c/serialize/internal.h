@@ -356,14 +356,12 @@ static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t 
     }
 }
 
-/* Append a comment's body under XML rules, which forbid the sequence `--` and a
-   trailing `-` inside a comment. A space is inserted after any hyphen that would
-   otherwise pair with the next one or close the comment, and characters XML cannot
-   hold are dropped, so a kept comment always reparses. */
-static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+/* XML 1.0 §2.5 forbids `--` and a trailing `-` in a comment; spacing them changes no parsed XML comment.
+   well_formed also drops characters XML cannot hold. */
+static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int well_formed) {
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = text[index];
-        if (xml_char_invalid(character)) {
+        if (well_formed && xml_char_invalid(character)) {
             continue;
         }
         sbuf_putc(out, character);
@@ -374,6 +372,13 @@ static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize
         if (at_end || text[index + 1] == '-') {
             sbuf_putc(out, ' ');
         }
+    }
+}
+
+/* The HTML comment start states end a comment at a leading `>` or `->`. */
+static inline void sbuf_put_comment_start(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    if (len > 0 && (text[0] == '>' || (text[0] == '-' && len > 1 && text[1] == '>'))) {
+        sbuf_putc(out, ' ');
     }
 }
 
@@ -390,13 +395,64 @@ static inline int ucs4_has_gt(const Py_UCS4 *text, Py_ssize_t len) {
 static inline void sbuf_put_html_pi(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     if (ucs4_has_gt(text, len)) {
         sbuf_puts(out, "<!--?");
-        sbuf_put_xml_comment(out, text, len);
+        sbuf_put_xml_comment(out, text, len, 1);
         sbuf_puts(out, "-->");
         return;
     }
     sbuf_puts(out, "<?");
     sbuf_put_ucs4(out, text, len);
     sbuf_putc(out, '>');
+}
+
+/* An empty node holds a NULL buffer, and C leaves even NULL + 0 undefined. */
+static inline void sbuf_put_ucs4_tail(sbuf *out, const Py_UCS4 *text, Py_ssize_t start, Py_ssize_t len) {
+    sbuf_put_ucs4(out, start == 0 ? text : text + start, len - start);
+}
+
+/* The HTML tokenizer also ends a comment at `-->` or `--!>`; parsed data does not hold these, DOM-built data can. */
+static inline void sbuf_put_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    sbuf_put_comment_start(out, text, len);
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 1; index + 1 < len; index++) {
+        if (text[index] != '-' || text[index - 1] != '-') {
+            continue;
+        }
+        Py_UCS4 next = text[index + 1];
+        if (next == '>' || (next == '!' && index + 2 < len && text[index + 2] == '>')) {
+            sbuf_put_ucs4(out, text + start, index + 1 - start);
+            sbuf_putc(out, ' ');
+            start = index + 1;
+        }
+    }
+    sbuf_put_ucs4_tail(out, text, start, len);
+}
+
+/* A `?>` in the data would end the instruction. */
+static inline void sbuf_put_xml_pi_data(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index + 1 < len; index++) {
+        if (text[index] == '?' && text[index + 1] == '>') {
+            sbuf_put_ucs4(out, text + start, index + 1 - start);
+            sbuf_putc(out, ' ');
+            start = index + 1;
+        }
+    }
+    sbuf_put_ucs4_tail(out, text, start, len);
+}
+
+/* `]]>` cannot appear inside a CDATA section, so the section closes after `]]` and a new one starts at `>`. */
+static inline void sbuf_put_xml_cdata(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    sbuf_puts(out, "<![CDATA[");
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index + 2 < len; index++) {
+        if (text[index] == ']' && text[index + 1] == ']' && text[index + 2] == '>') {
+            sbuf_put_ucs4(out, text + start, index + 2 - start);
+            sbuf_puts(out, "]]><![CDATA[");
+            start = index + 2;
+        }
+    }
+    sbuf_put_ucs4_tail(out, text, start, len);
+    sbuf_puts(out, "]]>");
 }
 
 /* An element whose text children serialize literally rather than escaped: the

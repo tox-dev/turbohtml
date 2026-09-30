@@ -127,7 +127,7 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         break;
     case TH_NODE_COMMENT:
         sbuf_puts(out, "<!--");
-        sbuf_put_ucs4(out, node->text, node->text_len);
+        sbuf_put_comment(out, node->text, node->text_len);
         sbuf_puts(out, "-->");
         break;
     case TH_NODE_DOCTYPE:
