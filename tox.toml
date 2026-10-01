@@ -409,6 +409,59 @@ commands = [
   ],
 ]
 
+[env.fuzz-oracle]
+description = """\
+  run the sanitizer wrong-output oracles (independent re-parse, random Policy, URL scheme) under ASan/UBSan\
+  """
+# dharma's xss.dg grammar generates seed payloads; six and webencodings are what the vendored html5lib-python imports
+deps = [ "dharma>=1.3.2", "six>=1.17", "webencodings>=0.5.1" ]
+dependency_groups = [ "test" ]
+pass_env = [ "FUZZ_RNG_SEED" ]
+# the independent re-parser is the vendored html5lib-python, imported from its checkout: its setup.py needs the
+# pkg_resources module current setuptools no longer ships, so it cannot be installed
+set_env = { CC = "clang", PYTHONHASHSEED = "0", PYTHONPATH = "{tox_root}{/}tools{/}html5lib-python" }
+commands_pre = [
+  # the WPT seeds are a sparse checkout fuzz.py makes itself; a plain update skips them (update = none in .gitmodules)
+  [
+    "git",
+    "-C",
+    "{tox_root}",
+    "submodule",
+    "update",
+    "--init",
+    "--depth",
+    "1",
+    "tools/html5lib-python",
+    "tests/conformance/DOMPurify",
+    "tools/fuzz-data/h5sc",
+    "tools/fuzz-data/google-fuzzing",
+  ],
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dc_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dc_link_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dbuildtype=debugoptimized",
+  ],
+]
+commands = [
+  [
+    "python",
+    "{tox_root}{/}tools{/}fuzz{/}fuzz.py",
+    "--mode",
+    "oracle",
+    { replace = "posargs", default = [ "--minutes", "2" ], extend = true },
+  ],
+]
+allowlist_externals = [ "git" ]
+
 [env.fuzz-smoke]
 description = "replay past fuzz finds and the seed corpus through every harness under ASan/UBSan (the per-PR gate)"
 deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage

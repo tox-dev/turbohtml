@@ -165,6 +165,17 @@ To read the crashers of a failed run, download its ``fuzz-crashes`` artifact and
     $ gh run download <run-id> --name fuzz-crashes
     $ age --decrypt --identity fuzz-crashes.key --output crash-<sha256> crash-<sha256>.age
 
+A sanitizer bug usually returns unsafe or altered markup without crashing, so ``fuzz-oracle`` (``fuzz.py --mode
+oracle``) checks ``turbohtml.clean.sanitize`` against code it does not share. The output must re-parse in
+html5lib-python into the tree the sanitizer judged, obey the random ``Policy`` it ran under, and keep or drop each URL
+the way the WHATWG URL parser reads its scheme. ``--minutes 0`` replays only the seed corpora. The run writes findings
+to a JSON report and logs only their hashes.
+
+.. code-block:: console
+
+    $ tox r -e fuzz-oracle -- --minutes 0   # the per-PR seed pass
+    $ tox r -e fuzz-oracle -- --minutes 10  # adds generated markup and URL obfuscations
+
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C
 unit that compiles free of the CPython boundary. macOS ships no ``libFuzzer`` runtime with Apple Clang, so the

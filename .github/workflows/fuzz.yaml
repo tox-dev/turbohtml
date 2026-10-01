@@ -32,6 +32,39 @@ jobs:
         run: uvx --with tox-uv tox run -e fuzz-smoke
         env:
           UV_PYTHON_PREFERENCE: only-managed
+  oracle:
+    name: 🧪 sanitizer wrong-output oracles
+    runs-on: ubuntu-24.04
+    # a sanitize bug usually returns unsafe markup without crashing, so this lane compares the sanitizer with an
+    # independent re-parse (html5lib-python, parse5 to confirm), the random Policy it ran under, and the WHATWG URL
+    # scheme. Pull requests and pushes replay only the deterministic seed pass; scheduled and manual runs add
+    # MutaGen-style generation for a wall-clock budget.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🟢 Install Node
+        # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: 📦 Install parse5 for the confirming re-parse
+        run: npm ci
+        working-directory: tools/bench/node
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run fuzz-oracle
+        # the seed regenerates every finding from the public code, so it stays out of the tox command line it echoes
+        run: |
+          FUZZ_RNG_SEED="$(python3 -c 'import secrets; print(secrets.randbits(32))')"
+          export FUZZ_RNG_SEED
+          uvx --with tox-uv tox run -e fuzz-oracle -- --minutes "${MINUTES}"
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+          MINUTES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '0' || github.event.schedule == '0 4 * * 1' && '20' || '8' }}
   deep:
     name: 🕳️ ASan/UBSan deep (mutation + structural)
     runs-on: ubuntu-24.04
