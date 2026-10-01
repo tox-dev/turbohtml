@@ -115,30 +115,6 @@ static int str_holds(PyObject *text, Py_UCS4 needle) {
     return PyUnicode_FindChar(text, needle, 0, PyUnicode_GET_LENGTH(text), 1) >= 0;
 }
 
-/* The ASCII (punycode) form of a registered name the way the URL standard's host parser produces it (spec 3.5): the
-   lowercased host when it is already ASCII, else UTS #46 ToASCII in C; a label punycode cannot encode (an unpaired
-   surrogate) leaves the lowercased host as it is, which the later encode step then rejects. */
-static PyObject *ascii_host(PyObject *host) {
-    PyObject *lowered = PyObject_CallMethod(host, "lower", NULL);
-    if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a host */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    if (PyUnicode_IS_ASCII(lowered)) {
-        return lowered;
-    }
-    PyObject *encoded = th_url_to_ascii(lowered);
-    if (encoded != NULL) {
-        Py_DECREF(lowered);
-        return encoded;
-    }
-    if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: ToASCII raises nothing else */
-        Py_DECREF(lowered);                          /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                 /* GCOVR_EXCL_LINE */
-    }
-    PyErr_Clear();
-    return lowered;
-}
-
 /* The ":port" suffix, or "" for an absent, empty, or scheme-default port (port state, URL standard 4.4). A port of
    digits is read as the integer it spells, so leading zeros fall away and "0080" is the http default. */
 static PyObject *port_suffix(const th_url_parts *parts) {
@@ -176,20 +152,16 @@ static PyObject *port_suffix(const th_url_parts *parts) {
     return suffix;
 }
 
-/* The authority rebuilt from its normalized host and port, keeping userinfo verbatim: a registered name goes through
-   domain-to-ASCII, an IPv4/IPv6 literal is already ASCII and only lowercases (IPv6 keeping its brackets). */
+/* The authority rebuilt from its WHATWG-canonical host and port, keeping userinfo verbatim: the host is
+   percent-decoded, domain-to-ASCII'd, and IPv4/IPv6-canonicalized by th_url_host_canonical, then a bracketed IPv6
+   literal is re-wrapped. */
 static PyObject *normalize_netloc(const th_url_parts *parts) {
-    PyObject *host;
-    if (parts->kind == TH_HOST_REGNAME) {
-        host = ascii_host(parts->part[TH_URL_HOST]);
-    } else {
-        PyObject *lowered = PyObject_CallMethod(parts->part[TH_URL_HOST], "lower", NULL);
-        if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a host */
-            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        host = parts->kind == TH_HOST_IPV6 ? th_str_format("[%U]", lowered) : Py_NewRef(lowered);
-        Py_DECREF(lowered);
+    PyObject *canonical = th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
+    if (canonical == NULL) { /* GCOVR_EXCL_BR_LINE: the host parse only fails on allocation failure */
+        return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    PyObject *host = parts->kind == TH_HOST_IPV6 ? th_str_format("[%U]", canonical) : Py_NewRef(canonical);
+    Py_DECREF(canonical);
     if (host == NULL) { /* GCOVR_EXCL_BR_LINE: the host fold only fails on allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -465,9 +437,9 @@ static PyObject *site_of(PyObject *url) {
     if (th_url_split(url, &parts) < 0) {
         return NULL;
     }
-    PyObject *host = ascii_host(parts.part[TH_URL_HOST]);
+    PyObject *host = th_url_host_canonical(parts.part[TH_URL_HOST], parts.kind);
     th_url_parts_clear(&parts);
-    if (host == NULL) { /* GCOVR_EXCL_BR_LINE: the host fold only fails on allocation failure */
+    if (host == NULL) { /* GCOVR_EXCL_BR_LINE: the host parse only fails on allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *site = turbohtml_registrable_domain(NULL, host);

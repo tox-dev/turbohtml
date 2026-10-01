@@ -66,9 +66,10 @@ drops the declaration holding it.
 
 ``Policy.attribute_filter`` replacements and ``Policy.set_attributes`` additions pass through the mandatory safety
 checks before serialization. These checks remove event handlers, disallowed URL, ``srcset`` and meta refresh schemes,
-unsafe CSS, media hosts outside ``media_hosts``, and values outside ``attribute_values``. Template stripping and
-named-property isolation run on the final values. The sanitizer ASCII-lowercases HTML names created by these rules
-before the checks.
+unsafe CSS, media hosts outside ``media_hosts`` (matched against the host a browser resolves, so an authority ending at
+a backslash cannot smuggle an off-allowlist host past the check), and values outside ``attribute_values``. Template
+stripping and named-property isolation run on the final values. The sanitizer ASCII-lowercases HTML names created by
+these rules before the checks.
 
 ``Policy.transform_tags`` renames elements during the same walk, sanitize-html's ``transformTags``. Key it by source
 tag: map to a bare string to rename, or to a :class:`Transform` to rename and add attributes. The rename runs *before*

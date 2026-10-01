@@ -1299,3 +1299,42 @@ def test_variant_key_cases(url: str, expected: str) -> None:
 def test_variant_key_rejects_non_str() -> None:
     with pytest.raises(TypeError, match="must be str"):
         _url_variant_key(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
+
+
+@pytest.mark.parametrize(
+    ("url", "host", "path"),
+    [
+        pytest.param("http://evil.example\\@good.example/", "evil.example", "\\@good.example/", id="http-userinfo"),
+        pytest.param("https://evil\\@good/", "evil", "\\@good/", id="https-userinfo"),
+        pytest.param("ws://evil\\@good/", "evil", "\\@good/", id="ws-userinfo"),
+        pytest.param("ftp://evil\\@good/", "evil", "\\@good/", id="ftp-userinfo"),
+        pytest.param("file://evil\\@good/", "evil", "\\@good/", id="file-userinfo"),
+        pytest.param("http:\\\\host\\path", "host", "\\path", id="backslash-authority-opener"),
+        pytest.param("http:/\\host/p", "host", "/p", id="mixed-slash-opener"),
+    ],
+)
+def test_url_split_ends_special_authority_at_backslash(url: str, host: str, path: str) -> None:
+    # a browser ends a special-scheme authority at '\', so the host is the span before it, not the userinfo trick's tail
+    _scheme, _netloc, split_path, _query, _fragment, _userinfo, split_host, *_rest = _url_split(url)
+    assert (split_host, split_path) == (host, path)
+
+
+@pytest.mark.parametrize("scheme", ["gopher", "mailto", "nntp"])
+def test_url_split_keeps_backslash_host_for_non_special_scheme(scheme: str) -> None:
+    # a non-special scheme does not treat '\' as a separator, so it stays urllib-compatible
+    url = f"{scheme}://evil\\@good.example/"
+    assert _url_split(url)[6] == urlsplit(url).hostname
+
+
+@pytest.mark.parametrize(
+    ("base", "reference", "expected"),
+    [
+        pytest.param("http://good/a/b", "\\\\evil/x", "http://evil/x", id="double-backslash"),
+        pytest.param("http://good/a/b", "/\\evil/x", "http://evil/x", id="slash-backslash"),
+        pytest.param("http://good/a/b", "\\/evil/x", "http://evil/x", id="backslash-slash"),
+        pytest.param("ftp://good/a/b", "\\\\evil/x", "ftp://evil/x", id="special-ftp"),
+        pytest.param("mailto:good", "\\\\evil/x", "\\\\evil/x", id="non-special-verbatim"),
+    ],
+)
+def test_url_join_resolves_backslash_scheme_relative(base: str, reference: str, expected: str) -> None:
+    assert _url_join(base, reference) == expected

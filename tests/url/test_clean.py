@@ -544,3 +544,103 @@ def test_tracker_suffix_and_word_boundaries(url: str, expected: str) -> None:
 )
 def test_dot_segment_resolution(url: str, expected: str) -> None:
     assert clean_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://2130706433/", "http://127.0.0.1/", id="decimal"),
+        pytest.param("http://0x7f.0.0.1/", "http://127.0.0.1/", id="hex-label"),
+        pytest.param("http://0X7F.0.0.1/", "http://127.0.0.1/", id="uppercase-hex-label"),
+        pytest.param("http://0177.0.0.1/", "http://127.0.0.1/", id="octal-label"),
+        pytest.param("http://127.1/", "http://127.0.0.1/", id="short-form"),
+        pytest.param("http://1.256/", "http://1.0.1.0/", id="two-part-wide-last"),
+        pytest.param("http://1.2.3.4/", "http://1.2.3.4/", id="dotted-quad-unchanged"),
+        pytest.param("http://1.2.3.4./", "http://1.2.3.4/", id="trailing-dot-dropped"),
+        pytest.param("http://0x.0.0.0/", "http://0.0.0.0/", id="empty-after-hex-prefix"),
+        pytest.param("http://12345/", "http://0.0.48.57/", id="bare-number-fills-octets"),
+    ],
+)
+def test_normalize_url_parses_ipv4_hosts(url: str, expected: str) -> None:
+    # the WHATWG host parser reads a host ending in a number as IPv4 (all four notations) and emits dotted-decimal
+    assert normalize_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://999.999.999.999/", id="octet-over-255"),
+        pytest.param("http://256.1.1.1/", id="first-octet-over-255"),
+        pytest.param("http://1.2.3.256/", id="last-octet-over-limit"),
+        pytest.param("http://1.2.3.4.5/", id="five-parts"),
+        pytest.param("http://1.2.3.4.5.6/", id="too-many-parts"),
+        pytest.param("http://0888.1.1.1/", id="bad-octal-digit"),
+        pytest.param("http://99999999999/", id="number-over-32-bits"),
+        pytest.param("http://foo.0x1/", id="non-numeric-leading-part"),
+        pytest.param("http://1..2.3/", id="empty-interior-part"),
+    ],
+)
+def test_normalize_url_keeps_non_ipv4_numeric_hosts(url: str) -> None:
+    # a host that looks numeric but is not a valid IPv4 address is left as the registered name it is
+    assert normalize_url(url) == url
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://[0:0:0:0:0:0:0:1]/", "http://[::1]/", id="expanded-loopback"),
+        pytest.param("http://[2001:db8::1]/", "http://[2001:db8::1]/", id="already-compressed"),
+        pytest.param(
+            "http://[2001:0db8:0000:0000:0000:0000:0000:0001]/", "http://[2001:db8::1]/", id="leading-zeros-and-run"
+        ),
+        pytest.param("http://[2001:DB8::AB]/", "http://[2001:db8::ab]/", id="uppercase-hex-lowercased"),
+        pytest.param("http://[1:2:3:4:5:6:7:8]/", "http://[1:2:3:4:5:6:7:8]/", id="no-zero-run"),
+        pytest.param("http://[1:0:2:0:3:0:4:0]/", "http://[1:0:2:0:3:0:4:0]/", id="isolated-zeros-not-compressed"),
+        pytest.param("http://[fe80:0:0:0:0:0:0:0]/", "http://[fe80::]/", id="trailing-zero-run"),
+        pytest.param("http://[2001:db8:0:0:1:0:0:1]/", "http://[2001:db8::1:0:0:1]/", id="first-longest-run-wins"),
+        pytest.param("http://[::]/", "http://[::]/", id="all-zeros"),
+    ],
+)
+def test_normalize_url_canonicalizes_ipv6_hosts(url: str, expected: str) -> None:
+    # the WHATWG IPv6 serializer drops leading zeros and compresses the first longest zero run, so twins compare equal
+    assert normalize_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://[::ffff:1.2.3.4]/", id="embedded-ipv4-tail"),
+        pytest.param("http://[::1x]/", id="trailing-non-hex"),
+        pytest.param("http://[1:2:3]/", id="too-few-groups"),
+        pytest.param("http://[:::1]/", id="double-compressor"),
+        pytest.param("http://[:1]/", id="leading-single-colon"),
+        pytest.param("http://[:]/", id="lone-colon"),
+        pytest.param("http://[]/", id="empty-brackets"),
+        pytest.param("http://[::g]/", id="non-hex-group"),
+        pytest.param("http://[::1:]/", id="trailing-colon"),
+        pytest.param("http://[1:2:3:4:5:6:7:8:9]/", id="nine-groups"),
+    ],
+)
+def test_normalize_url_keeps_malformed_ipv6_lowercased(url: str) -> None:
+    # a literal the compact IPv6 parser does not accept (an embedded-IPv4 tail, or an invalid form) keeps its spelling
+    assert normalize_url(url) == url.lower()
+
+
+def test_normalize_url_keeps_an_empty_host() -> None:
+    # a port-only authority has no host to parse as IPv4, so the empty host round-trips
+    assert normalize_url("http://:80/x") == "http:///x"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://good%2eexample/", "http://good.example/", id="percent-dot"),
+        pytest.param(
+            "http://trusted.example%2eattacker.example/", "http://trusted.example.attacker.example/", id="split-label"
+        ),
+        pytest.param("http://caf%C3%A9.example/", "http://xn--caf-dma.example/", id="percent-utf8-to-punycode"),
+    ],
+)
+def test_normalize_url_percent_decodes_host(url: str, expected: str) -> None:
+    # the WHATWG host parser percent-decodes the host before domain-to-ASCII, so an encoded separator is the real one
+    assert normalize_url(url) == expected

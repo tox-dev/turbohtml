@@ -4,8 +4,8 @@
    This file is the walk that locates every link-bearing location and, for the rewrite path, splices a replacement back
    in place. The genuinely new capability over iterating <a href> by hand is the URLs embedded in CSS url()/@import (in
    a style attribute and in <style> text), in a <meta http-equiv=refresh> content value, and in the srcset/ping/archive
-   list attributes. URL resolution itself (resolve_links) is stdlib urllib.parse.urljoin, bound through
-   functools.partial here, so RFC 3986 is not reinvented. */
+   list attributes. URL resolution itself (resolve_links) is the C _url_join, bound through functools.partial here, so
+   RFC 3986 resolution is not reinvented and a reference's host matches the one a browser resolves. */
 
 #include "core/ascii.h"
 #include "core/common.h"
@@ -724,7 +724,8 @@ static Py_ssize_t base_scheme_of(PyObject *base_url, char *out, Py_ssize_t cap) 
 }
 
 /* Node.resolve_links(base_url) -> None. Rewrites every link absolute against base_url with functools.partial bound over
-   stdlib urllib.parse.urljoin, so RFC 3986 resolution is not reinvented. */
+   the C _url_join, so a reference's host matches the one a browser resolves -- including the WHATWG backslash authority
+   forms stdlib urllib.parse.urljoin misattributes -- without reinventing RFC 3986 resolution. */
 PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *root, PyObject *base_url) {
     if (!PyUnicode_Check(base_url)) {
         PyErr_SetString(PyExc_TypeError, "resolve_links expected a base URL string");
@@ -734,13 +735,13 @@ PyObject *turbohtml_node_resolve_links(PyObject *owner, th_tree *tree, th_node *
     Py_ssize_t base_scheme_len = base_scheme_of(base_url, base_scheme, (Py_ssize_t)sizeof(base_scheme));
     int base_netloc_scheme = (base_scheme_len == 4 && memcmp(base_scheme, "http", 4) == 0) ||
                              (base_scheme_len == 5 && memcmp(base_scheme, "https", 5) == 0);
-    PyObject *parse_module = PyImport_ImportModule("urllib.parse");
-    if (parse_module == NULL) { /* GCOVR_EXCL_BR_LINE: a stdlib import cannot be forced to fail from a test */
-        return NULL;            /* GCOVR_EXCL_LINE: import-failure path */
+    PyObject *html_module = PyImport_ImportModule("turbohtml._html");
+    if (html_module == NULL) { /* GCOVR_EXCL_BR_LINE: the extension's own module is already imported */
+        return NULL;           /* GCOVR_EXCL_LINE: import-failure path */
     }
-    PyObject *urljoin = PyObject_GetAttrString(parse_module, "urljoin");
-    Py_DECREF(parse_module);
-    if (urljoin == NULL) { /* GCOVR_EXCL_BR_LINE: urllib.parse.urljoin always exists */
+    PyObject *urljoin = PyObject_GetAttrString(html_module, "_url_join");
+    Py_DECREF(html_module);
+    if (urljoin == NULL) { /* GCOVR_EXCL_BR_LINE: _url_join is always registered on the module */
         return NULL;       /* GCOVR_EXCL_LINE: attribute-failure path */
     }
     PyObject *functools_module = PyImport_ImportModule("functools");

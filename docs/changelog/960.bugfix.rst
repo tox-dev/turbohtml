@@ -1,0 +1,4 @@
+Attribute URL hosts the way a browser resolves them in ``normalize_url``, ``clean_url``, ``extract_links``,
+``resolve_links``, and the sanitizer's ``media_hosts`` allowlist: a special-scheme authority ends at a backslash, an
+IPv4 address is read in all four notations and emitted dotted-decimal, the host is percent-decoded, and an IPv6 literal
+is zero-compressed.

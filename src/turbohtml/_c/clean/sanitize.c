@@ -552,31 +552,41 @@ static int is_media_host_tag(uint16_t atom) {
     }
 }
 
-/* The authority marker bytes that end a URL host: a path, query, or fragment. */
+/* The bytes that end a URL authority: a path, query, or fragment delimiter, plus the '\' a browser treats as a
+   separator for a special scheme (WHATWG authority state, https://url.spec.whatwg.org/#authority-state). A real host
+   never contains '\', so ending the authority at one only tightens the host the allowlist sees, closing the
+   `evil.example\@good.example` userinfo trick a browser resolves to evil.example. */
 static int ends_authority(Py_UCS4 c) {
     switch (c) {
     case '/':
     case '?':
     case '#':
+    case '\\':
         return 1;
     default:
         return 0;
     }
 }
 
-/* Locate the authority host of a URL value: the host after "scheme://" or a protocol-relative "//". The authority is
-   bounded here without preprocessing the value (the WHATWG tab/newline stripping a browser applies is intentionally not
-   done, so an obfuscated host never masquerades as an allowlisted one), then th_url_authority -- the same decomposition
-   url_split runs -- splits off any "userinfo@" and ":port" and reports the host span and its literal kind. Sets
-   *start,*end to the host span and *kind to the host literal, returns 0, or returns -1 when the URL carries no
-   authority (a relative or opaque src, which has no host to match). */
+/* A URL authority opener slash: '/', or the '\' a browser treats alike for a special scheme. */
+static int authority_slash(Py_UCS4 c) {
+    return c == '/' || c == '\\';
+}
+
+/* Locate the authority host of a URL value: the host after "scheme://" or a protocol-relative "//" (with '\' accepted
+   like '/', as a browser does for a special scheme). The authority is bounded here without preprocessing the value (the
+   WHATWG tab/newline stripping a browser applies is intentionally not done, so an obfuscated host never masquerades as
+   an allowlisted one), then th_url_authority -- the same decomposition url_split runs -- splits off any "userinfo@" and
+   ":port" and reports the host span and its literal kind. Sets *start,*end to the host span and *kind to the host
+   literal, returns 0, or returns -1 when the URL carries no authority (a relative or opaque src, which has no host to
+   match). */
 static int url_host_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t *start, Py_ssize_t *end, int *kind) {
     Py_ssize_t authority = -1;
-    if (len >= 2 && value[0] == '/' && value[1] == '/') {
+    if (len >= 2 && authority_slash(value[0]) && authority_slash(value[1])) {
         authority = 2; /* protocol-relative //host/path */
     }
     for (Py_ssize_t index = 0; authority < 0 && index + 2 < len; index++) {
-        if (value[index] == ':' && value[index + 1] == '/' && value[index + 2] == '/') {
+        if (value[index] == ':' && authority_slash(value[index + 1]) && authority_slash(value[index + 2])) {
             authority = index + 3; /* scheme://host */
         }
     }

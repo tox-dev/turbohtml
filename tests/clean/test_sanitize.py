@@ -1734,6 +1734,23 @@ def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
     assert "src=" not in sanitize('<video src="https://[::1]/x">', policy)
 
 
+@pytest.mark.parametrize(
+    ("src", "kept"),
+    [
+        pytest.param("https://evil.com\\@youtube.com/x", False, id="backslash-userinfo-host-evil"),
+        pytest.param("//evil.com\\@youtube.com/x", False, id="protocol-relative-backslash"),
+        pytest.param("https:\\\\evil.com\\@youtube.com/x", False, id="backslash-authority-opener"),
+        pytest.param("https://youtube.com\\@evil.com/x", True, id="backslash-ends-authority-at-listed-host"),
+        pytest.param("https://youtube.com/a\\b", True, id="backslash-in-path-keeps-host"),
+    ],
+)
+def test_media_host_allowlist_rejects_backslash_authority(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+    # a browser ends a special-scheme authority at '\', so evil.com\@youtube.com resolves to evil.com; the allowlist
+    # must see that host, not the userinfo-trick tail it used to read as youtube.com
+    out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))
+    assert ("src=" in out) is kept
+
+
 def test_report_records_a_removed_element() -> None:
     out, removed = sanitize_report("<p>ok <script>evil()</script> done</p>")
     assert Removed("script", None) in removed
