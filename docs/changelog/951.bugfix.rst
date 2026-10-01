@@ -1,0 +1,3 @@
+Reject a :class:`RELAX NG <turbohtml.validate.RelaxNG>` ``<ref>`` with no name, a reference cycle that never crosses an
+``element``, and an ``interleave`` whose branches share an element name or both match text when the schema compiles, and
+validate an ambiguous ``choice`` in bounded memory, instead of crashing, hanging, or exhausting memory.

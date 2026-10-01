@@ -456,8 +456,8 @@ typedef struct def_entry {
     Py_ssize_t len;
     th_node *first; /* first <define> element for this name */
     def_part *extra, *last;
-    pattern *built; /* memoized pattern, NULL until first resolved */
-    int building;   /* recursion guard */
+    pattern *built;  /* memoized pattern, NULL until first resolved */
+    int cycle_depth; /* compile-time 4.19 cycle check: -1 unvisited, -2 cleared, else the element depth in progress */
 } def_entry;
 
 typedef struct {
@@ -482,6 +482,7 @@ typedef struct th_schema {
     pattern *start;
     pattern *p_empty, *p_notallowed, *p_text;
     def_vec defines;
+    struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;

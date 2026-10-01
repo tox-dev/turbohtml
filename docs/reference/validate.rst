@@ -19,6 +19,12 @@ above ``m``. The message names the limit and the offset where the pattern reache
 the repeat counts, or split the pattern into several ``pattern`` facets to stay within the limits. Matching a value
 takes time linear in its length.
 
+Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
+with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``
+(section 4.19), and an ``interleave`` whose branches can match an element with the same name or can both match text
+(section 7.4). The message names the offending ``define`` or construct. A legal but ambiguous ``choice`` or
+``interleave`` validates in memory bounded by the schema size rather than growing per child element.
+
 .. autoclass:: XMLSchema
     :members:
     :inherited-members:

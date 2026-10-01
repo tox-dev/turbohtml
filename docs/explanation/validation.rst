@@ -31,8 +31,11 @@ restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, 
 compiles to that algebra, and validation takes the *derivative* of the pattern with respect to each start tag,
 attribute, text run, and end tag: the pattern that remains after consuming one piece of the document. This is what makes
 ``interleave`` fall out for free -- the derivative of ``interleave(p1, p2)`` over an element is the choice of advancing
-either side -- with no backtracking and no combinatorial blow-up, because smart constructors absorb ``notAllowed`` and
-``empty`` to keep the residual pattern small.
+either side -- with no backtracking. Smart constructors absorb ``notAllowed`` and ``empty``, the residual patterns are
+hash-consed per validation, and ``choice`` drops a branch already present, so an ambiguous grammar stays bounded instead
+of doubling the residual on each child. The restrictions the specification places on a schema are enforced when it
+compiles: a ``<ref>`` with no name, a reference cycle that never crosses an ``element``, and an ``interleave`` whose
+branches compete for an element name or text are rejected with a :class:`ValueError` rather than reached at validation.
 
 ****************
  Why the C core
@@ -42,8 +45,8 @@ The datatype and facet layer is where validation spends its time: every leaf val
 (is ``2020-13-40`` a date?) and then against its constraining facets (``minInclusive``, ``pattern``, ``length``, ...).
 Doing that in the extension -- over the code-point buffers the parser already produced, with a compact Thompson-NFA
 matcher for the ``pattern`` facet -- keeps a schema check close to the cost of the parse it follows, rather than a
-second pass in Python. The recursion guards that protect the RELAX NG derivative from schemas whose refs recurse without
-an element in between live there too, so an adversarial schema fails cleanly instead of overflowing the stack.
+second pass in Python. A RELAX NG schema whose refs recurse without an element in between is rejected when it compiles,
+so the derivative never reaches such a grammar and an adversarial schema fails cleanly instead of overflowing the stack.
 Compilation and validation start with an iterative tree-depth scan. A schema or instance nested 400 levels or deeper
 raises :class:`RecursionError` before a recursive grammar walk starts, including on small worker-thread stacks.
 
