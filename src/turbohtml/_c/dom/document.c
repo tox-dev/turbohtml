@@ -456,7 +456,8 @@ PyDoc_STRVAR(structured_data_doc,
 PyDoc_STRVAR(json_ld_doc, "json_ld()\n--\n\n"
                           "Parse every <script type=\"application/ld+json\"> block in the document with the\n"
                           "standard library json module, returning the list of decoded values in document order.\n"
-                          "A block that is not valid JSON is skipped.");
+                          "A block that is not valid JSON, or that nests arrays or objects more than 400 levels\n"
+                          "deep, is skipped.");
 
 PyDoc_STRVAR(opengraph_doc, "opengraph(base_url=None)\n--\n\n"
                             "Return an OpenGraph record of the page's Open Graph metadata, a successor to the\n"

@@ -362,12 +362,11 @@ def test_the_entry_point_rejects_bad_arguments(args: tuple[object, ...]) -> None
         parse("")._dates(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
-def test_a_json_ld_block_too_deep_to_decode_propagates() -> None:
-    # malformed JSON is skipped, but a block that overflows the decoder's recursion budget is an error the caller
-    # sees; the depth is well past every interpreter's budget so the error is the same everywhere
+def test_a_deeply_nested_json_ld_block_is_skipped_not_raised() -> None:
+    # a JSON-LD block nested past the 400-level cap is skipped like any invalid block, so date extraction over it
+    # returns normally rather than letting the decoder's RecursionError escape
     html = '<script type="application/ld+json">' + "[" * 1_000_000 + "</script>"
-    with pytest.raises(RecursionError):
-        dates(html)
+    assert dates(html) is None
 
 
 @pytest.mark.parametrize(

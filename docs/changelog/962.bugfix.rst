@@ -1,0 +1,2 @@
+Skip a JSON-LD block that nests arrays or objects more than 400 levels deep instead of raising ``RecursionError`` from
+``Document.json_ld`` and ``Document.structured_data``.

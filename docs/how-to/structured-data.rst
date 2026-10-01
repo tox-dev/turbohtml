@@ -35,9 +35,9 @@ Scrapers want the JSON-LD, Microdata, and OpenGraph/Twitter metadata a page embe
 attribute. The per-format helpers :meth:`~turbohtml.Document.json_ld`, :meth:`~turbohtml.Document.opengraph`,
 :meth:`~turbohtml.Document.microdata`, :meth:`~turbohtml.Document.rdfa`, and :meth:`~turbohtml.Document.dublin_core`
 return just one format each. JSON-LD blocks are parsed with the standard library :mod:`json`; a block that is not valid
-JSON, or whose payload is a scalar or ``null`` rather than a node object or array, is skipped, so every entry is a
-``dict`` or ``list``. The :attr:`~turbohtml.StructuredData.microformats` field is reserved for a later phase and is an
-empty list for now.
+JSON, that nests arrays or objects more than 400 levels deep, or whose payload is a scalar or ``null`` rather than a
+node object or array, is skipped, so every entry is a ``dict`` or ``list``. The
+:attr:`~turbohtml.StructuredData.microformats` field is reserved for a later phase and is an empty list for now.
 
 RDFa and Dublin Core come off the same walk. RDFa yields :class:`~turbohtml.RdfaItem` records that mirror Microdata:
 ``property`` keys and the ``typeof`` IRIs expand against the in-scope ``@vocab`` and ``@prefix`` (the RDFa 1.1 initial

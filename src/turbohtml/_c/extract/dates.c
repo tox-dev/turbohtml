@@ -1362,8 +1362,8 @@ TH_NODE_API(, PyObject *, turbohtml_document_dates, (PyObject * self, PyObject *
     if (found == NULL) {
         signal = "json-ld";
         PyObject *blocks = turbohtml_document_json_ld(self, NULL); /* runs Python code, so outside the section */
-        if (blocks == NULL) {
-            return NULL;
+        if (blocks == NULL) { /* GCOVR_EXCL_BR_LINE: json_ld() only fails on an unforceable interpreter error */
+            return NULL;      /* GCOVR_EXCL_LINE */
         }
         dates_json_node(blocks, low, high, current_year, want, &pick);
         Py_DECREF(blocks);

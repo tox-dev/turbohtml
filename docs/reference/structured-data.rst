@@ -11,7 +11,8 @@ read-only records below.
 
 The nested-record methods :meth:`Document.microdata`, :meth:`Document.rdfa`, and :meth:`Document.structured_data` raise
 :exc:`RecursionError` for more than 400 nested Microdata or RDFa records. Microdata also rejects nested-item cycles made
-with ``itemref``. Plain DOM nesting does not count toward the record limit.
+with ``itemref``. Plain DOM nesting does not count toward the record limit. :meth:`Document.json_ld` applies the same
+400 level ceiling to JSON-LD array/object nesting, skipping a block that exceeds it rather than raising.
 
 .. autoclass:: StructuredData
     :members:
