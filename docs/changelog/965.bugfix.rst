@@ -1,0 +1,1 @@
+Reject ``xsl:import`` hrefs that resolve to a UNC path (``\\host\share`` or ``file:////host/share``).

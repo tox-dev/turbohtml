@@ -6286,6 +6286,21 @@ static void import_policy_clear(import_policy *policy) {
 #endif
 }
 
+/* A leading pair of path separators is a UNC prefix (\\host\share): url2pathname maps the bare \\host, file:////host
+   and ////host forms to it alike, and CreateFileW then opens it over SMB to an arbitrary host. urlparse leaves such a
+   prefix in an empty-netloc path, so classify it here and reject it on every platform before the path is resolved. */
+static int import_is_unc(PyObject *text) {
+    if (PyUnicode_GET_LENGTH(text) < 2) {
+        return 0;
+    }
+    Py_UCS4 first = PyUnicode_ReadChar(text, 0);
+    if (first != '\\' && first != '/') {
+        return 0;
+    }
+    Py_UCS4 second = PyUnicode_ReadChar(text, 1);
+    return second == '\\' || second == '/';
+}
+
 static PyObject *import_path_from_url(import_policy *policy, PyObject *value, const char *name) {
     if (!PyUnicode_Check(value)) {
         return PyObject_CallOneArg(policy->path_type, value);
@@ -6316,11 +6331,15 @@ static PyObject *import_path_from_url(import_policy *policy, PyObject *value, co
             PyUnicode_GET_LENGTH(netloc) == 0 || PyUnicode_CompareWithASCIIString(netloc, "localhost") == 0;
         if (!local_host) {
             PyErr_Format(PyExc_ValueError, "xsl:import %s file URL must point to a local path", name);
+        } else if (import_is_unc(url_path)) {
+            PyErr_Format(PyExc_ValueError, "xsl:import %s must not resolve to a UNC path: %S", name, value);
         } else {
             local = PyObject_CallOneArg(policy->url2pathname, url_path);
         }
     } else if ((has_scheme && !windows_drive) || PyUnicode_GET_LENGTH(netloc) != 0) {
         PyErr_Format(PyExc_ValueError, "xsl:import %s must be a local path or file URL", name);
+    } else if (import_is_unc(value)) {
+        PyErr_Format(PyExc_ValueError, "xsl:import %s must not resolve to a UNC path: %S", name, value);
     } else {
         local = PyObject_CallOneArg(policy->url2pathname, value);
     }

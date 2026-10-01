@@ -3432,6 +3432,55 @@ def test_transform_import_rejects_remote_file_url() -> None:
         transform(sheet, turbohtml.parse_xml("<r/>"), base_url="file://example.com/main.xsl")
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param(r"\\attacker\share\base.xsl", id="bare UNC backslash"),
+        pytest.param("////attacker/share/base.xsl", id="bare UNC forward slash"),
+        pytest.param("file:////attacker/share/base.xsl", id="file UNC"),
+    ],
+)
+def test_transform_import_rejects_unc_href(tmp_path: Path, href: str) -> None:
+    with pytest.raises(ValueError, match=rf"href must not resolve to a UNC path: {re.escape(href)}$"):
+        transform(_import_sheet(href), turbohtml.parse_xml("<r/>"), base_url=str(tmp_path / "main.xsl"))
+
+
+def test_transform_import_rejects_unc_base_url() -> None:
+    with pytest.raises(ValueError, match=r"base_url must not resolve to a UNC path: \\\\attacker\\share\\main.xsl$"):
+        transform(_import_sheet(), turbohtml.parse_xml("<r/>"), base_url=r"\\attacker\share\main.xsl")
+
+
+def test_transform_import_accepts_absolute_local_href(tmp_path: Path) -> None:
+    base = tmp_path / "base.xsl"
+    base.write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:import href="{base}"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>'
+    )
+    result = transform(main, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(tmp_path / "main.xsl"))
+    assert _canon(result) == "[x]"
+
+
+def test_transform_import_accepts_single_char_href(tmp_path: Path) -> None:
+    (tmp_path / "a").write_text(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
+        encoding="utf-8",
+    )
+    main = turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:import href="a"/>'
+        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>'
+    )
+    result = transform(main, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(tmp_path / "main.xsl"))
+    assert _canon(result) == "[x]"
+
+
 def test_transform_import_precedence_importer_wins(tmp_path: Path) -> None:
     (tmp_path / "base.xsl").write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
