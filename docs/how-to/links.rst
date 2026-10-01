@@ -46,12 +46,12 @@ with :func:`turbohtml.extract.normalize_url`. It applies the WHATWG URL standard
 
     https://example.org/page?a=1&b=2
 
-The host is attributed the way a browser resolves it, so a link-safety or SSRF check keyed on the result sees the host a
-browser fetches: a special-scheme authority ends at a backslash (``http://a\@b/`` has host ``a``), an IPv4 address is
-read in decimal, octal, hexadecimal, and short forms and re-emitted dotted-decimal (``http://127.1/`` becomes
-``http://127.0.0.1/``), the host is percent-decoded, and an IPv6 literal is zero-compressed (``[0:0:0:0:0:0:0:1]``
-becomes ``[::1]``). An IPv6 literal with an embedded-IPv4 tail (``[::ffff:1.2.3.4]``) keeps its given spelling. The same
-host parsing backs ``extract_links(external_only=True)`` and :meth:`~turbohtml.Node.resolve_links`.
+``normalize_url`` parses the host the way a browser does, so a link-safety or SSRF check keyed on the result sees the
+host the browser fetches. A backslash ends a special-scheme authority (``http://a\@b/`` has host ``a``). An IPv4 address
+in decimal, octal, hexadecimal, or short form comes out dotted-decimal (``http://127.1/`` becomes
+``http://127.0.0.1/``). The function percent-decodes the host and zero-compresses an IPv6 literal (``[0:0:0:0:0:0:0:1]``
+becomes ``[::1]``), but keeps the spelling of one with an embedded-IPv4 tail (``[::ffff:1.2.3.4]``).
+``extract_links(external_only=True)`` and :meth:`~turbohtml.Node.resolve_links` share this host parsing.
 
 For URLs scraped out of markup, :func:`turbohtml.extract.clean_url` first scrubs HTML damage (stray whitespace,
 ``&amp;``, a truncating quote) and answers ``None`` for anything that is not a fetchable web URL, so a scraping pipeline

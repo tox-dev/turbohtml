@@ -22,15 +22,16 @@ takes time linear in its length.
 Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
 with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``
 (section 4.19), and an ``interleave`` whose branches can match an element with the same name or can both match text
-(section 7.4). The message names the offending ``define`` or construct. A legal but ambiguous ``choice`` or
-``interleave`` validates in memory bounded by the schema size rather than growing per child element.
+(section 7.4). The message names the offending ``define`` or construct. Validating against a legal but ambiguous
+``choice`` or ``interleave`` takes memory bounded by the schema size, not by the number of child elements.
 
 Compiling an XSD schema raises :class:`ValueError` for a reference that does not resolve -- an ``xs:element``,
 ``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or
-restriction ``base`` whose QName names no built-in or declared component -- and names the unresolved QName. A reference
-cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type derivations, and any such chain longer than
-100 hops, are rejected the same way. A schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref`` identity
-constraint is rejected, because the validator does not enforce it and would otherwise accept documents that violate it.
+restriction ``base`` whose QName names no built-in or declared component -- and the message names the unresolved QName.
+The same error covers a reference cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type
+derivations, and any such chain longer than 100 hops. A schema that declares an ``xs:unique``, ``xs:key``, or
+``xs:keyref`` identity constraint raises it too, because the validator does not enforce the constraint and would accept
+documents that break it.
 
 .. autoclass:: XMLSchema
     :members:

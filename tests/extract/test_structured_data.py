@@ -1334,17 +1334,14 @@ def test_several_blocks_keep_only_the_ones_carrying_data() -> None:
         pytest.param(50_000, False, id="recursion-overflow-depth-skipped"),
     ],
 )
-def test_json_ld_nesting_past_the_cap_is_skipped(depth: int, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
-    block = "[" * depth + "]" * depth
-    found = turbohtml.parse(
-        f'<script type="application/ld+json">{block}</script>'
-    ).json_ld()  # no RecursionError escapes
-    assert bool(found) is kept
+def test_json_ld_nesting_past_the_cap_is_skipped(depth: int, *, kept: bool) -> None:
+    html: Final = f'<script type="application/ld+json">{"[" * depth + "]" * depth}</script>'
+    assert bool(turbohtml.parse(html).json_ld()) is kept
 
 
 def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
-    value = "[" * 1000 + '\\"' + "]" * 1000  # brackets sit inside a JSON string, so the block nests one level deep
-    html = f'<script type="application/ld+json">{{"k": "{value}"}}</script>'
+    value: Final = "[" * 1000 + '\\"' + "]" * 1000  # brackets inside a JSON string, so the block nests one level deep
+    html: Final = f'<script type="application/ld+json">{{"k": "{value}"}}</script>'
     assert turbohtml.parse(html).json_ld() == [{"k": "[" * 1000 + '"' + "]" * 1000}]
 
 

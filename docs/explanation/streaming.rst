@@ -29,8 +29,8 @@ never builds.
 The one part that can grow is what a handler keeps. ``after`` on an open element buffers its content until the element
 closes; a handler that accumulates state across the document keeps that state. The engine bounds only its own footprint.
 It also caps the open-element stack at 512 elements, so a pathologically deep or unclosed input cannot exhaust memory or
-the C stack the selector matcher walks; start tags past the cap, including formatting elements, attach as siblings
-rather than nesting further.
+the C stack the selector matcher walks. Start tags past the cap, formatting elements included, attach at the capped
+depth as siblings.
 
 ***********************************
  Selectors match against the spine

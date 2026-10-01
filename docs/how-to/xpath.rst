@@ -216,8 +216,8 @@ numbers (``min``, ``max``, ``highest``, ``lowest``, ``abs``, ``power``), and ``d
     ---
     2024.0
 
-``str:padding`` raises :exc:`ValueError` for a length above 100,000 characters, so a length drawn from document data
-cannot size an arbitrary allocation; lengths up to that ceiling match ``libexslt``.
+``str:padding`` raises :exc:`ValueError` for a length above 100,000 characters, which bounds the allocation a length
+read from document data can request.
 
 ``str:tokenize`` and ``str:split`` are not built in: they would have to synthesize token nodes, and the engine's
 node-sets only reference nodes that already exist in the tree. Likewise ``date:`` reads an explicit date string rather

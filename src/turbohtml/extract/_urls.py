@@ -141,12 +141,11 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     and a fragment shaped like a query string is scrubbed the same way. Unlike ``courlan``, repeated slashes are kept
     (the spec preserves them) and punycode is the output form, not the input form.
 
-    A Unicode host that carries a code point UTS #46 disallows in a domain (a C0/C1 control, a non-character, and the
-    like), or that is longer than 16384 code points, is not punycode-encoded: its lowercased Unicode form is kept
-    instead. The 16384 cap bounds the domain-to-ASCII step, whose combining-mark reorder and punycode encoder are each
-    quadratic in the host length; it matches the limit ada applies for the same reason, and the WHATWG standard leaves
-    overlong labels undefined (`whatwg/url#824 <https://github.com/whatwg/url/issues/824>`_), so a cap is conformant. A
-    real domain, capped at 253 octets by the DNS, is never affected.
+    A Unicode host longer than 16384 code points, or holding a code point UTS #46 disallows in a domain (a C0/C1
+    control, a noncharacter), keeps its lowercased Unicode form instead of punycode. The cap bounds the domain-to-ASCII
+    step, whose combining-mark reorder and punycode encoder are quadratic in the host length. The WHATWG standard
+    leaves overlong labels undefined (`whatwg/url#824 <https://github.com/whatwg/url/issues/824>`_), and DNS caps a
+    domain at 253 octets, far below the cap.
 
     :param url: an absolute or relative URL; a relative one keeps its shape, only its components are normalized.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).

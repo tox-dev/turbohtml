@@ -933,26 +933,13 @@ def test_style_element_body_is_idempotent() -> None:
 
 
 @pytest.mark.parametrize(
-    "payload",
-    [
-        pytest.param("a{color:expression(alert(1)) {}}", id="expression-value"),
-        pytest.param("a{background:url(javascript:alert(1)){}}", id="url-script-scheme"),
-        pytest.param("a{background:url(http://evil.example/leak){}}", id="url-tracking-host"),
-        pytest.param("a{-moz-binding:url(http://evil/x.xml){}}", id="moz-binding-xbl"),
-        pytest.param("a{behavior:url(#default#time2){}}", id="behavior-htc"),
-    ],
-)
-def test_style_element_prelude_declaration_is_vetted(payload: str) -> None:
-    # a `property:value{}` run was emitted verbatim as a "prelude", skipping value vetting; it is a declaration a
-    # pre-nesting browser applies, so the whole nested rule is dropped and expression()/url() never reach a kept <style>
-    out = sanitize(f"<style>{payload}</style>", _style_element_policy())
-    assert out == "<style>a{}</style>"
-    assert sanitize(out, _style_element_policy()) == out
-
-
-@pytest.mark.parametrize(
     ("css", "expected_body"),
     [
+        pytest.param("a{color:expression(alert(1)) {}}", "a{}", id="expression-value"),
+        pytest.param("a{background:url(javascript:alert(1)){}}", "a{}", id="url-script-scheme"),
+        pytest.param("a{background:url(http://evil.example/leak){}}", "a{}", id="url-tracking-host"),
+        pytest.param("a{-moz-binding:url(http://evil/x.xml){}}", "a{}", id="moz-binding-xbl"),
+        pytest.param("a{behavior:url(#default#time2){}}", "a{}", id="behavior-htc"),
         pytest.param("a{color:url(x){p{color:red}}}b{color:red}", "a{}b{color:red;}", id="nested-braces-skipped"),
         pytest.param('a{color:url(x){content:"}"}}b{color:red}', "a{}b{color:red;}", id="string-brace-not-a-close"),
         pytest.param("a{color:url(x){p:(})}}b{color:red}", "a{}b{color:red;}", id="paren-hides-brace"),
@@ -963,9 +950,9 @@ def test_style_element_prelude_declaration_is_vetted(payload: str) -> None:
         pytest.param("a{color:red{}}", "a{color:red{}}", id="url-free-prelude-kept-verbatim"),
     ],
 )
-def test_style_element_prelude_block_skip(css: str, expected_body: str) -> None:
-    # dropping a bad prelude discards its whole block (balancing nested braces and ignoring braces in strings/parens),
-    # while a selector whose only functions are pseudo-classes, and a url-free declaration prelude, stay verbatim
+def test_style_element_prelude_is_vetted(css: str, expected_body: str) -> None:
+    # a pre-nesting browser applies a `property:value{}` prelude as a declaration, so one carrying expression() or
+    # url() drops its whole block, nested braces included; pseudo-class selectors and url-free preludes stay verbatim
     out = sanitize(f"<style>{css}</style>", _style_element_policy())
     assert out == f"<style>{expected_body}</style>"
     assert sanitize(out, _style_element_policy()) == out
@@ -1839,11 +1826,9 @@ def test_media_host_ipv6_literal_rejected_even_when_listed() -> None:
         pytest.param("https://youtube.com/a\\b", True, id="backslash-in-path-keeps-host"),
     ],
 )
-def test_media_host_allowlist_rejects_backslash_authority(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
-    # a browser ends a special-scheme authority at '\', so evil.com\@youtube.com resolves to evil.com; the allowlist
-    # must see that host, not the userinfo-trick tail it used to read as youtube.com
-    out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))
-    assert ("src=" in out) is kept
+def test_media_host_allowlist_rejects_backslash_authority(src: str, *, kept: bool) -> None:
+    # a browser ends a special-scheme authority at '\', so evil.com\@youtube.com resolves to evil.com
+    assert ("src=" in sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))) is kept
 
 
 def test_report_records_a_removed_element() -> None:

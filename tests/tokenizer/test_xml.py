@@ -702,15 +702,6 @@ def test_xml_namespace_first_error(source: str, code: str) -> None:
     assert error.value.error.code == code
 
 
-def _namespaced_distinct(count: int) -> str:
-    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
-
-
-def _plain_repeated(count: int) -> str:
-    attrs = " ".join(f"a{index}='x'" for index in range(count))
-    return "<r>" + f"<e {attrs}/>" * 2 + "</r>"  # the second element re-reads already-interned names
-
-
 @pytest.mark.parametrize("count", [pytest.param(2000, id="grows-and-rehashes")])
 def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
     root: Final = parse_xml(_namespaced_distinct(count)).find("r")
@@ -726,25 +717,31 @@ def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
     assert [list(child.attrs.items()) for child in elements(root)] == [expected, expected]
 
 
+def _namespaced_distinct(count: int) -> str:
+    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
+
+
+def _plain_repeated(count: int) -> str:
+    # the second element re-reads already-interned names
+    return "<r>" + ("<e " + " ".join(f"a{index}='x'" for index in range(count)) + "/>") * 2 + "</r>"
+
+
 @pytest.mark.parametrize(
-    ("source", "code"),
+    "source",
     [
         pytest.param(
-            "<r " + " ".join(f"a{index}='x'" for index in range(2000)) + " a0='y'/>",
-            "xml-duplicate-attribute",
-            id="raw-name-after-many",
+            "<r " + " ".join(f"a{index}='x'" for index in range(2000)) + " a0='y'/>", id="raw-name-after-many"
         ),
         pytest.param(
             "<r xmlns:p='u' xmlns:q='u' " + " ".join(f"p:a{index}='x'" for index in range(2000)) + " q:a0='y'/>",
-            "xml-duplicate-attribute",
             id="expanded-name-after-many",
         ),
     ],
 )
-def test_xml_duplicate_found_after_many_distinct(source: str, code: str) -> None:
+def test_xml_duplicate_found_after_many_distinct(source: str) -> None:
     with pytest.raises(HTMLParseError) as error:
         parse_xml(source)
-    assert error.value.error.code == code
+    assert error.value.error.code == "xml-duplicate-attribute"
 
 
 @pytest.mark.parametrize("length", [0, 7, 8, 16], ids=["start", "last-byte", "next-block", "two-blocks"])

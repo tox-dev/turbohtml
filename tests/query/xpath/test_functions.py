@@ -969,9 +969,8 @@ def test_str_padding_length_past_ceiling_raises(exslt_doc: turbohtml.Node, expr:
 
 @pytest.mark.parametrize("width", [pytest.param("100001", id="just-over"), pytest.param("2000000000", id="gigabytes")])
 def test_str_padding_length_from_source_data_past_ceiling_raises(width: str) -> None:
-    doc = parse_xml(f'<row width="{width}"/>')
     with pytest.raises(ValueError, match=rf"str:padding length {width} exceeds the maximum of 100000"):
-        doc.xpath("str:padding(/row/@width, '-')")
+        parse_xml(f'<row width="{width}"/>').xpath("str:padding(/row/@width, '-')")
 
 
 def test_str_concat_non_nodeset_argument_raises(exslt_doc: turbohtml.Node) -> None:

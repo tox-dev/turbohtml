@@ -372,9 +372,9 @@ def test_set_inner_html_replaces_content() -> None:
 
 
 def test_iter_elements_survives_set_inner_html_clearing_siblings() -> None:
-    root = Element("div").attach_shadow("open")
+    root: Final = Element("div").attach_shadow("open")
     root.set_inner_html("<a></a><b></b><c></c>")
-    iterator = root.iter_elements()
+    iterator: Final = root.iter_elements()
     assert _element(next(iterator)).tag == "a"
     root.set_inner_html("x")  # clears the pending siblings; the walk must revalidate, not crash
     assert _tags(iterator) == ["b"]

@@ -988,21 +988,25 @@ def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
         _run("<r/>", body)
 
 
-def test_transform_deep_apply_templates_recursion_raises_cleanly() -> None:
-    source = "<r>" + "<n>" * 600 + "x" + "</n>" * 600 + "</r>"
-    body = (
-        '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
-        '<xsl:template match="n">[<xsl:apply-templates/>]</xsl:template>'
-    )
-    with pytest.raises(RecursionError, match="template nesting exceeds 400 levels"):
-        _run(source, body)
-
-
-def test_transform_builtin_template_recursion_is_bounded() -> None:
-    source = "<r>" + "<a>" * 600 + "x" + "</a>" * 600 + "</r>"
-    body = '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
-    with pytest.raises(RecursionError, match="source nesting exceeds 400 levels for the built-in template rules"):
-        _run(source, body)
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
+            '<xsl:template match="n">[<xsl:apply-templates/>]</xsl:template>',
+            "template nesting exceeds 400 levels",
+            id="matching-template",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates/></xsl:template>',
+            "source nesting exceeds 400 levels for the built-in template rules",
+            id="built-in-rule",
+        ),
+    ],
+)
+def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, message: str) -> None:
+    with pytest.raises(RecursionError, match=message):
+        _run("<r>" + "<n>" * 600 + "x" + "</n>" * 600 + "</r>", body)
 
 
 def test_transform_anchored_patterns() -> None:
@@ -3452,9 +3456,9 @@ def test_transform_import_rejects_remote_file_url() -> None:
 @pytest.mark.parametrize(
     "href",
     [
-        pytest.param(r"\\attacker\share\base.xsl", id="bare UNC backslash"),
-        pytest.param("////attacker/share/base.xsl", id="bare UNC forward slash"),
-        pytest.param("file:////attacker/share/base.xsl", id="file UNC"),
+        pytest.param(r"\\attacker\share\base.xsl", id="bare-unc-backslash"),
+        pytest.param("////attacker/share/base.xsl", id="bare-unc-forward-slash"),
+        pytest.param("file:////attacker/share/base.xsl", id="file-unc"),
     ],
 )
 def test_transform_import_rejects_unc_href(tmp_path: Path, href: str) -> None:
@@ -3467,35 +3471,25 @@ def test_transform_import_rejects_unc_base_url() -> None:
         transform(_import_sheet(), turbohtml.parse_xml("<r/>"), base_url=r"\\attacker\share\main.xsl")
 
 
-def test_transform_import_accepts_absolute_local_href(tmp_path: Path) -> None:
-    base = tmp_path / "base.xsl"
-    base.write_text(
+@pytest.mark.parametrize(
+    ("name", "href_of"),
+    [
+        pytest.param("base.xsl", str, id="absolute-path"),
+        pytest.param("a", lambda path: path.name, id="single-char-relative"),
+    ],
+)
+def test_transform_import_accepts_local_href(tmp_path: Path, name: str, href_of: Callable[[Path], str]) -> None:
+    (base := tmp_path / name).write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
         encoding="utf-8",
     )
-    main = turbohtml.parse_xml(
+    main: Final = turbohtml.parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        f'<xsl:import href="{base}"/>'
+        f'<xsl:import href="{href_of(base)}"/>'
         '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>'
     )
-    result = transform(main, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(tmp_path / "main.xsl"))
-    assert _canon(result) == "[x]"
-
-
-def test_transform_import_accepts_single_char_href(tmp_path: Path) -> None:
-    (tmp_path / "a").write_text(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:template match="a">[<xsl:value-of select="."/>]</xsl:template></xsl:stylesheet>',
-        encoding="utf-8",
-    )
-    main = turbohtml.parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:import href="a"/>'
-        '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>'
-    )
-    result = transform(main, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(tmp_path / "main.xsl"))
-    assert _canon(result) == "[x]"
+    assert _canon(transform(main, turbohtml.parse_xml("<r><a>x</a></r>"), base_url=str(tmp_path / "main.xsl"))) == "[x]"
 
 
 def test_transform_import_precedence_importer_wins(tmp_path: Path) -> None:

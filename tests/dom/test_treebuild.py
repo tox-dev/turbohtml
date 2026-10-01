@@ -231,7 +231,7 @@ def _fragment_count(markup: str) -> int:
 
 
 def _stream_count(markup: str) -> int:
-    parser = IncrementalParser()
+    parser: Final = IncrementalParser()
     parser.feed(markup)
     return len(parser.close().select("b"))
 
@@ -249,12 +249,9 @@ def _stream_count(markup: str) -> int:
     ],
 )
 def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], int], count: int) -> None:
-    # Past the 512 open-element cap a formatting start tag the stack refuses must stay out of the
-    # active-formatting list; otherwise reconstruct_afe re-clones every refused entry on each later
-    # formatting tag -- O(n^2) retained nodes (~200x at 1200 tags before the fix). A distinct
-    # attribute per tag defeats the Noah's Ark de-duplication, so the only bound is the fix.
-    markup = "".join(f"<b c{index}>" for index in range(count)) + "x"
-    assert entry(markup) == count
+    # past the 512 open-element cap a refused formatting tag that stayed in the active-formatting list was re-cloned
+    # on each later formatting tag, O(n^2) nodes; a distinct attribute per tag defeats the Noah's Ark de-duplication
+    assert entry("".join(f"<b c{index}>" for index in range(count)) + "x") == count
 
 
 def _flatten(node: Built, out: list[SaxEvent]) -> None:

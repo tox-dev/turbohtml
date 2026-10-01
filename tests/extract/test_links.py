@@ -134,15 +134,14 @@ def test_external_boundary_with_a_hostless_base_keeps_every_absolute_link() -> N
 
 
 def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
-    # 0x7f.0.0.1 and 127.1 are 127.0.0.1 to a browser, so they are internal to the loopback base and drop; only the
-    # genuinely other host survives
-    html = '<a href="http://0x7f.0.0.1/a">1</a><a href="http://127.1/b">2</a><a href="http://8.8.8.8/c">3</a>'
+    # a browser reads 0x7f.0.0.1 and 127.1 as 127.0.0.1, so they are internal to the loopback base and drop
+    html: Final = '<a href="http://0x7f.0.0.1/a">1</a><a href="http://127.1/b">2</a><a href="http://8.8.8.8/c">3</a>'
     assert extract_links(html, "http://127.0.0.1/", external_only=True) == {"http://8.8.8.8/c"}
 
 
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:
     # a browser resolves evil.example\@good.example to evil.example, so the link leaves the base's site and is kept
-    html = '<a href="http://evil.example\\@good.example/">x</a>'
+    html: Final = '<a href="http://evil.example\\@good.example/">x</a>'
     assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example\\@good.example/"}
 
 
@@ -544,8 +543,7 @@ def test_a_longer_replacement_grows_the_value() -> None:
     ],
 )
 def test_resolve_links_attributes_backslash_scheme_relative_to_the_real_host(href: str) -> None:
-    # resolve_links joins through the C _url_join, which (unlike stdlib urljoin) ends a special-scheme authority at '\',
-    # so a scheme-relative reference resolves to the host a browser would fetch
+    # unlike stdlib urljoin, resolve_links ends a special-scheme authority at '\', as a browser does
     assert _resolved_href(href, _RESOLVE_BASE) == "https://evil.test/x"
 
 

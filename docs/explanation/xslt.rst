@@ -53,12 +53,12 @@ concurrently. A strip/preserve conflict on one element is resolved by import pre
 ``xml:space="preserve"`` on an ancestor overrides both.
 
 ``xsl:import`` (`section 2.6.2 <https://www.w3.org/TR/xslt-10/#import>`_) does load other files. The native resolver
-checks ``allow_imports`` and ``import_root`` before each read, then parses the imported sheets. An ``href`` that maps to
-a UNC path (``\\host\share\...``, ``file:////host/share/...`` or a bare ``//`` prefix) is rejected on every platform,
-since on Windows it would open an SMB connection to a remote host instead of a local file. The C engine deep-copies
-every sheet into one private tree so their declarations share an atom table, then walks them from low import precedence
-to high. Import precedence becomes the first key of the section 5.5 conflict resolution above. ``document()`` loads
-nothing, avoiding an arbitrary-URL fetch surface.
+checks ``allow_imports`` and ``import_root`` before each read, then parses the imported sheets. It rejects an ``href``
+that maps to a UNC path (``\\host\share\...``, ``file:////host/share/...``, or a bare ``//`` prefix) on all platforms,
+because Windows opens an SMB connection to the remote host for one. The C engine deep-copies every sheet into one
+private tree so their declarations share an atom table, then walks them from low import precedence to high. Import
+precedence becomes the first key of the section 5.5 conflict resolution above. ``document()`` loads nothing, avoiding an
+arbitrary-URL fetch surface.
 
 ``Transform.__init__`` creates an immutable stylesheet model with compiled XPath programs. Each call allocates
 source-specific indexes and output state. Calls on one ``Transform`` instance share no writable evaluation state.

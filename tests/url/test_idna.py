@@ -76,18 +76,19 @@ def _expected_ascii(columns: list[str], source: str) -> str:
     return decoded_unicode
 
 
-# The URL Standard runs ToASCII with VerifyDnsLength, CheckHyphens, and UseSTD3ASCIIRules off, so the vectors' status
-# codes for those flags (A4_1/A4_2, V2/V3, U1) are not errors here; a row with any other code is one the WHATWG host
-# parser rejects.
-_IGNORED_STATUS = frozenset({"A4_1", "A4_2", "V2", "V3", "U1"})
+def test_idna_conformance_covers_every_wellformed_vector() -> None:
+    """Each IdnaTestV2 row reproduces ``toAsciiN``, and the engine rejects only rows UTS #46 flags as errors."""
+    assert [row for row in _vectors() if not _conforms(row)] == []
 
 
-def _row_is_error(columns: list[str]) -> bool:
-    """Whether the ``toAsciiN`` status flags a WHATWG-relevant error (column 5, inheriting column 3 when blank)."""
-    status = columns[4] or columns[2]
-    inside = status.strip()[1:-1] if status.strip().startswith("[") else ""
-    codes = {code for code in (part.strip() for part in inside.split(",")) if code}
-    return bool(codes - _IGNORED_STATUS)
+def _conforms(row: tuple[str, str, bool]) -> bool:
+    # the private engine is the only observer: normalize_url keeps a rejected host unchanged, so a rejected ASCII row
+    # reads as accepted, and rows carrying URL delimiters would be split by the URL parser before reaching ToASCII
+    source, expected, is_error = row
+    try:
+        return _url_to_ascii(source) == expected
+    except ValueError:
+        return is_error
 
 
 def _vectors() -> list[tuple[str, str, bool]]:
@@ -105,27 +106,16 @@ def _vectors() -> list[tuple[str, str, bool]]:
     return rows
 
 
-def _ascii_or_rejected(source: str) -> tuple[bool, str]:
-    """``(rejected, ascii)``: whether the engine refused the host, and its ASCII form when it did not."""
-    try:
-        return False, _url_to_ascii(source)
-    except ValueError:
-        return True, ""
+# The URL Standard runs ToASCII with VerifyDnsLength, CheckHyphens, and UseSTD3ASCIIRules off, so the vectors' status
+# codes for those flags (A4_1/A4_2, V2/V3, U1) are not errors here; a row with any other code is one the WHATWG host
+# parser rejects.
+_IGNORED_STATUS: Final = frozenset({"A4_1", "A4_2", "V2", "V3", "U1"})
 
 
-def test_idna_conformance_covers_every_wellformed_vector() -> None:
-    """Every well-formed IdnaTestV2 row either reproduces the ``toAsciiN`` column or, where the engine rejects it,
-    is one UTS #46 itself flags as an error under the WHATWG flags -- the engine never refuses a host the standard
-    accepts, and never emits a wrong one."""
-    rows = [(source, expected, is_error, *_ascii_or_rejected(source)) for source, expected, is_error in _vectors()]
-    returned_wrong = [
-        (source, actual, expected)
-        for source, expected, _, rejected, actual in rows
-        if not rejected and actual != expected
-    ]
-    rejected_valid = [source for source, _, is_error, rejected, _ in rows if rejected and not is_error]
-    assert returned_wrong == []
-    assert rejected_valid == []
+def _row_is_error(columns: list[str]) -> bool:
+    """Whether the ``toAsciiN`` status flags a WHATWG-relevant error (column 5, inheriting column 3 when blank)."""
+    status: Final = (columns[4] or columns[2]).strip()
+    return status.startswith("[") and bool({code.strip() for code in status[1:-1].split(",")} - _IGNORED_STATUS - {""})
 
 
 # RFC 3492 section 7.1 sample strings whose label is all lowercase (ToASCII lowercases first, so the mixed-case samples
@@ -224,14 +214,14 @@ def test_malformed_xn_label_is_kept_verbatim(label: str) -> None:
 # The first case trips the pre-multiply guard, the second lands the accumulator just under the limit so the following
 # increments trip the per-code-point guard. Both stay under the 16384-code-point input cap and use CJK code points UTS
 # #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap rejection.
-_OVERFLOW_LABELS = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
+_OVERFLOW_LABELS: Final = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
 
 
 @pytest.mark.parametrize("label", _OVERFLOW_LABELS, ids=["pre-multiply-guard", "increment-guard"])
 def test_punycode_delta_overflow_is_rejected(label: str) -> None:
-    """A label whose encoding would overflow the punycode accumulator raises rather than emit a wrong host."""
-    with pytest.raises(ValueError, match="cannot be encoded to ASCII"):
-        _url_to_ascii(f"{label}.example")
+    """A label whose encoding would overflow the punycode accumulator keeps its Unicode form, never a wrong host."""
+    url: Final = f"http://{label}.example/"
+    assert normalize_url(url) == url
 
 
 @pytest.mark.parametrize(
@@ -339,12 +329,8 @@ def test_boundary_length_label_round_trips_without_overrun(label: str) -> None:
     assert _url_to_ascii(encoded) == encoded
 
 
-# One label, under then over the 16384-code-point input cap. U+0316 then U+0301 alternates combining classes 220 and
-# 230, the input the pre-fix insertion-sort reorder is O(n^2) on; without the cap a host this size pins a CPU core for
-# tens of seconds (the IDNA ToASCII DoS, whatwg/url#824; ada caps the same at 16384 bytes). The cap rejects before it.
 def test_host_at_the_input_cap_still_encodes() -> None:
-    """A host exactly at the 16384-code-point cap is mapped and encoded, so no real domain is refused."""
-    assert _url_to_ascii("\u3400" * 16384).startswith("xn--")
+    assert normalize_url("http://" + "\u3400" * 16384 + "/").startswith("http://xn--")
 
 
 def test_oversize_host_keeps_its_unicode_form() -> None:
@@ -364,8 +350,7 @@ def test_oversize_host_keeps_its_unicode_form() -> None:
         pytest.param(0xFFFE, id="noncharacter"),
     ],
 )
-def test_disallowed_code_point_host_is_rejected(code_point: int) -> None:
-    """A code point UTS #46 marks disallowed is refused (validity criterion 6), the way ada's ToASCII refuses it,
-    rather than punycode-encoded into a host the WHATWG parser would reject."""
-    with pytest.raises(ValueError, match="disallows"):
-        _url_to_ascii(f"a{chr(code_point)}b.example")
+def test_disallowed_code_point_host_is_not_punycode_encoded(code_point: int) -> None:
+    """UTS #46 validity criterion 6 rejects a disallowed code point, so the host keeps its Unicode form."""
+    url: Final = f"http://a{chr(code_point)}b.example/"
+    assert normalize_url(url) == url

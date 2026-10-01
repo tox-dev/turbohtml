@@ -46,6 +46,8 @@ def test_meta_prescan_is_certain_without_a_bom() -> None:
         pytest.param(b"\xff\xfeh\x00", "UTF-16LE", id="utf-16le"),
         pytest.param(b"\xfe\xff\x00h", "UTF-16BE", id="utf-16be"),
         pytest.param(b"\xff\xfe", "UTF-16LE", id="utf-16le-bare-mark"),
+        pytest.param(b"\xff\xfe\x00\x00", "UTF-16LE", id="ff-fe-00-00-is-utf-16le-not-utf-32le"),
+        pytest.param(b"\xff\xfe\x01\x00", "UTF-16LE", id="ff-fe-01-00-is-utf-16le"),
     ],
 )
 def test_byte_order_mark_reports_its_label_and_flag(raw: bytes, encoding: str) -> None:
@@ -54,19 +56,10 @@ def test_byte_order_mark_reports_its_label_and_flag(raw: bytes, encoding: str) -
     assert detect(raw) == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")
 
 
-def test_ff_fe_00_00_is_utf_16le_not_utf_32() -> None:
-    # the WHATWG BOM sniff has no UTF-32 (Encoding §BOM sniff); FF FE 00 00 matches the UTF-16LE mark FF FE,
-    # the same label the parser's th_encoding_bom emits, so detect() reports no UTF-32 the parser would not honor
-    assert detect(b"\xff\xfe\x00\x00").encoding == "UTF-16LE"
-    assert detect(b"\xff\xfe\x01\x00").encoding == "UTF-16LE"
-
-
 def test_utf_8_sig_is_the_only_bom_label_that_differs_from_parse() -> None:
-    # scope boundary: the standalone detector spells a UTF-8 mark UTF-8-SIG so a caller can strip it, where
-    # parse() keeps the spec-locked UTF-8; the UTF-16 marks (and the absent UTF-32) report identically both ways
-    raw = b"\xef\xbb\xbfhello"
-    assert detect(raw).encoding == "UTF-8-SIG"
-    assert parse(raw, detect_encoding=True).encoding == "UTF-8"
+    # the standalone detector spells a UTF-8 mark UTF-8-SIG so a caller can strip it; parse() keeps the spec's UTF-8
+    raw: Final = b"\xef\xbb\xbfhello"
+    assert (detect(raw).encoding, parse(raw, detect_encoding=True).encoding) == ("UTF-8-SIG", "UTF-8")
 
 
 @pytest.mark.parametrize(
@@ -77,9 +70,7 @@ def test_utf_8_sig_is_the_only_bom_label_that_differs_from_parse() -> None:
     ],
 )
 def test_detect_and_parse_agree_on_a_utf_32_bom(raw: bytes) -> None:
-    # regression: the WHATWG BOM sniff (Encoding §BOM sniff) recognizes no UTF-32, so detect() must not
-    # report a UTF-32 label the parser never honors -- both read FF FE 00 00 as the UTF-16LE mark and treat
-    # 00 00 FE FF as no mark (content-sniffed). Reverting either path to emit UTF-32 breaks this agreement.
+    # the WHATWG BOM sniff recognizes no UTF-32, so neither path may report a UTF-32 label
     assert detect(raw).encoding == parse(raw, detect_encoding=True).encoding
 
 
@@ -524,9 +515,11 @@ def test_detect_of_nothing_is_none() -> None:
         pytest.param([b""], False, id="an-empty-chunk"),
     ],
 )
-def test_feed_reports_whether_a_mark_settled_the_stream(chunks: list[bytes], settled: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a parametrize value
-    stream = _DetectStream(None)
-    assert [stream.feed(chunk) for chunk in chunks][-1] is settled
+def test_feed_reports_whether_a_mark_settled_the_stream(chunks: list[bytes], *, settled: bool) -> None:
+    detector: Final = EncodingDetector()
+    for chunk in chunks:
+        detector.feed(chunk)
+    assert detector.done is settled
 
 
 def test_an_unfed_stream_closes_to_none() -> None:
@@ -607,37 +600,24 @@ def test_decoding_through_codec_reproduces_what_the_parser_saw(data: bytes, text
     [
         pytest.param(b"\xef\xbb\xbfhi", "hi", id="utf-8-sig-strips-the-mark"),
         pytest.param(b"\xff\xfeh\x00", "\ufeffh", id="utf-16le-keeps-the-mark"),
-    ],
-)
-def test_a_byte_order_mark_codec_delegates_to_cpython(data: bytes, text: str) -> None:
-    # CPython's UTF-8 and UTF-16 decoders match the spec, so the whatwg-* name resolves straight to them
-    match = detect(data)
-    assert match.codec is not None
-    assert data.decode(match.codec) == text
-
-
-@pytest.mark.parametrize(
-    ("data", "text"),
-    [
         pytest.param(b"\xef\xbb\xbfhi\xc3", "hi\ufffd", id="utf-8-sig-truncated"),
         pytest.param(b"\xef\xbb\xbfhi\xc3(", "hi\ufffd(", id="utf-8-sig-bad-continuation"),
         pytest.param(b"\xff\xfe" + "AB".encode("utf-16-le") + b"\x41", "\ufeffAB\ufffd", id="utf-16le-lone-byte"),
         pytest.param(b"\xfe\xff" + "AB".encode("utf-16-be") + b"\x41", "\ufeffAB\ufffd", id="utf-16be-lone-byte"),
     ],
 )
-def test_a_byte_order_mark_codec_replaces_malformed_bytes(data: bytes, text: str) -> None:
-    # the strict CPython codec would raise UnicodeDecodeError here; the whatwg-* codec replaces like turbohtml.parse
-    match = detect(data)
-    assert match.codec is not None
-    assert data.decode(match.codec) == text
+def test_a_byte_order_mark_codec_delegates_to_cpython(data: bytes, text: str) -> None:
+    # CPython's UTF-8 and UTF-16 decoders match the spec, so the whatwg-* name resolves to them, with "replace"
+    # errors where the strict codec would raise UnicodeDecodeError
+    assert (codec := detect(data).codec) is not None
+    assert data.decode(codec) == text
 
 
 def test_a_mark_stripping_codec_reproduces_the_parser_text_on_malformed_bytes() -> None:
     # utf-8-sig drops the mark, so its decode equals the parser's text byte for byte, replacement char and all
-    data = b"\xef\xbb\xbfhi\xc3"
-    match = detect(data)
-    assert match.codec is not None
-    assert data.decode(match.codec) == parse(data).text == "hi\ufffd"
+    data: Final = b"\xef\xbb\xbfhi\xc3"
+    assert (codec := detect(data).codec) is not None
+    assert data.decode(codec) == parse(data).text == "hi\ufffd"
 
 
 def test_a_whatwg_codec_refuses_to_encode() -> None:
@@ -730,17 +710,9 @@ def test_a_bom_split_across_feeds_still_finishes_early() -> None:
     assert detector.done
 
 
-def test_the_ff_fe_mark_settles_on_its_two_bytes_without_waiting() -> None:
-    # the WHATWG BOM sniff has no UTF-32, so FF FE is UTF-16LE on sight with no four-byte mark to wait out
-    detector = EncodingDetector()
-    detector.feed(b"\xff\xfe")
-    assert detector.done
-    assert detector.close() == EncodingMatch("UTF-16LE", 1.0, None, bom=True, codec="whatwg-utf-16le")
-
-
 def test_00_00_fe_ff_is_not_a_mark_so_the_stream_keeps_reading() -> None:
     # the UTF-32BE byte pattern is no WHATWG mark; the stream must content-sniff it, not finish early on a BOM
-    detector = EncodingDetector()
+    detector: Final = EncodingDetector()
     detector.feed(b"\x00\x00\xfe\xff")
     assert not detector.done
     assert not detector.close().bom
@@ -749,6 +721,7 @@ def test_00_00_fe_ff_is_not_a_mark_so_the_stream_keeps_reading() -> None:
 @pytest.mark.parametrize(
     ("chunk", "encoding"),
     [
+        pytest.param(b"\xff\xfe", "UTF-16LE", id="utf-16le-bare-mark"),
         pytest.param(b"\xff\xfeh\x00", "UTF-16LE", id="utf-16le-non-zero-pair"),
         pytest.param(b"\xff\xfe\x00\x00", "UTF-16LE", id="ff-fe-00-00-is-utf-16le"),
         pytest.param(b"\xfe\xff\x00h", "UTF-16BE", id="utf-16be"),
@@ -756,7 +729,7 @@ def test_00_00_fe_ff_is_not_a_mark_so_the_stream_keeps_reading() -> None:
 )
 def test_a_resolved_mark_finishes_early(chunk: bytes, encoding: str) -> None:
     # a mark that a single chunk resolves finishes the stream at once
-    detector = EncodingDetector()
+    detector: Final = EncodingDetector()
     detector.feed(chunk)
     assert detector.done
     assert detector.close() == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")

@@ -63,7 +63,7 @@ Portable one-to-one between the two libraries:
   reports the mark's own label -- ``UTF-8-SIG`` for a UTF-8 mark and ``UTF-16LE`` / ``UTF-16BE`` for the UTF-16 marks --
   so ``data.decode(match.codec)`` (or ``utf-8-sig`` / ``utf-16``) strips it, matching charset-normalizer's mark-aware
   decode. The `WHATWG BOM sniff <https://encoding.spec.whatwg.org/#bom-sniff>`_ has no UTF-32, so ``FF FE 00 00``
-  reports the UTF-16LE mark, not UTF-32.
+  reports the UTF-16LE mark.
 - A ``<meta>`` charset in the first bytes is honored by both (charset-normalizer's ``preemptive_behaviour``, on by
   default, and turbohtml's prescan).
 

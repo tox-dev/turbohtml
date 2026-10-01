@@ -1336,30 +1336,20 @@ def test_iter_elements_walks_detached_pending_subtree() -> None:
     assert list(iterator) == [second, child]
 
 
-def test_iter_elements_survives_set_text_clearing_siblings() -> None:
+@pytest.mark.parametrize(
+    ("tag", "edit"),
+    [
+        pytest.param("root", lambda element: element.set_text("x"), id="set-text"),
+        pytest.param("root", lambda element: setattr(element, "text", "x"), id="text-setter"),
+        pytest.param("textarea", lambda element: setattr(element, "field_value", "x"), id="field-value"),
+    ],
+)
+def test_iter_elements_survives_an_edit_clearing_pending_siblings(tag: str, edit: Callable[[Element], None]) -> None:
     first: Final = Element("a")
-    root: Final = Element("root", children=[first, Element("b"), Element("c")])
+    root: Final = Element(tag, children=[first, Element("b"), Element("c")])
     iterator: Final = root.iter_elements()
     assert next(iterator) == first
-    root.set_text("x")  # clears the pending siblings; the walk must revalidate, not crash
-    assert [node.tag for node in iterator] == ["b"]
-
-
-def test_iter_elements_survives_text_setter_clearing_siblings() -> None:
-    first: Final = Element("a")
-    root: Final = Element("root", children=[first, Element("b"), Element("c")])
-    iterator: Final = root.iter_elements()
-    assert next(iterator) == first
-    root.text = "x"
-    assert [node.tag for node in iterator] == ["b"]
-
-
-def test_iter_elements_survives_field_value_clearing_siblings() -> None:
-    first: Final = Element("a")
-    root: Final = Element("textarea", children=[first, Element("b"), Element("c")])
-    iterator: Final = root.iter_elements()
-    assert next(iterator) == first
-    root.field_value = "x"
+    edit(root)
     assert [node.tag for node in iterator] == ["b"]
 
 

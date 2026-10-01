@@ -144,10 +144,10 @@ precedence, so the importer's own rules win a conflict.
 
     [x]
 
-An untrusted stylesheet can name local files. The resolver rejects any ``href`` that maps to a UNC path
-(``\\host\share\...`` or ``file:////host/share/...``), which on Windows would reach a remote host over SMB. For
-everything else, disable imports before accepting a stylesheet from outside the application, even if the caller passes a
-``base_url``:
+An untrusted stylesheet can name local files. The resolver rejects an ``href`` that maps to a UNC path
+(``\\host\share\...`` or ``file:////host/share/...``), which on Windows reaches a remote host over SMB. Local paths
+still resolve, so disable imports before accepting a stylesheet from outside the application, even if the caller passes
+a ``base_url``:
 
 .. testcode::
 

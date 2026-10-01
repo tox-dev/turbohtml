@@ -7,6 +7,7 @@ import io
 import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]
 import sys
+import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
 from typing import TYPE_CHECKING, Final
@@ -386,26 +387,23 @@ def test_serialize_iter_raises_after_a_mid_stream_edit() -> None:
     assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
 
-_ITER_VERSIONLESS_DETACH: Final = """
-import turbohtml
-from turbohtml import Element, Text
-
-root = Element("div", children=[Text("x" * 200000), Text("y"), Element("p", children=[Text("z" * 200000)])])
-walk = root.serialize_iter()
-next(walk)            # the huge first text ends the chunk; the cursor resumes on Text("y")
-root.normalize()     # merges Text("y") into the first text and unlinks it, without bumping the version
-try:
-    next(walk)
-except RuntimeError as exc:
-    print(exc)
-"""
-
-
 def test_serialize_iter_raises_when_a_versionless_edit_detaches_the_cursor() -> None:
     # normalize unlinks the resume node without bumping the version, so serialize_iter must notice the broken parent
     # chain rather than the version counter; a regression serializes a detached node and kills the interpreter.
+    script: Final = textwrap.dedent("""
+        from turbohtml import Element, Text
+
+        root = Element("div", children=[Text("x" * 200000), Text("y"), Element("p", children=[Text("z" * 200000)])])
+        walk = root.serialize_iter()
+        next(walk)  # the huge first text ends the chunk; the cursor resumes on Text("y")
+        root.normalize()  # merges Text("y") into the first text and unlinks it, without bumping the version
+        try:
+            next(walk)
+        except RuntimeError as exc:
+            print(exc)
+    """)
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
-        [sys.executable, "-c", _ITER_VERSIONLESS_DETACH], capture_output=True, text=True, timeout=120, check=False
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=120, check=False
     )
     assert (result.returncode, result.stdout) == (0, f"{_ITER_CHANGED}\n"), result.stderr
 
@@ -957,10 +955,8 @@ def _parsed_inner_xml(markup: str) -> str:
 
 
 def test_xml_serialize_makes_a_comment_well_formed() -> None:
-    # XML forbids `--` inside a comment and holds no C0 control, so serialize(xml) spaces the one and drops the other,
-    # matching inner_xml; the raw path that kept the control left output parse_xml rejects
-    node = Element("doc", children=[Comment("a--b\x01")])
-    assert node.serialize(_XML) == "<doc><!--a- -b--></doc>"
+    # XML forbids `--` inside a comment and holds no C0 control, so serialize(xml) spaces the one and drops the other
+    assert Element("doc", children=[Comment("a--b\x01")]).serialize(_XML) == "<doc><!--a- -b--></doc>"
 
 
 @pytest.mark.parametrize(
@@ -977,16 +973,14 @@ def test_xml_serialize_makes_a_comment_well_formed() -> None:
     ],
 )
 def test_serialize_xml_output_reparses_as_xml(markup: str) -> None:
-    # the round-trip invariant: Node.serialize(xml) only ever emits XML parse_xml can read back
+    # parse_xml raises on output that is not well-formed XML, and re-serializing what it reads must be a fixpoint
     out = parse(markup).serialize(_XML)
-    reparsed = parse_xml(out)
-    assert reparsed.serialize(_XML) == out  # and re-serializing the reparse is a fixpoint
+    assert parse_xml(out).serialize(_XML) == out
 
 
 def test_serialize_xml_drops_an_attribute_name_xml_cannot_hold() -> None:
     # a tag-soup attribute name the HTML parser keeps would break the XML start tag, so serialize(xml) omits it
-    node = Element("p", {'a"b': "1", "ok": "v"}, children=[Text("t")])
-    assert node.serialize(_XML) == '<p ok="v">t</p>'
+    assert Element("p", {'a"b': "1", "ok": "v"}, children=[Text("t")]).serialize(_XML) == '<p ok="v">t</p>'
 
 
 @pytest.mark.parametrize(

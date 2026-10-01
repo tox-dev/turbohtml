@@ -9,9 +9,8 @@ node shares; the concrete types below add their own data. Text is a real :class:
 shape), so there is no text/tail split.
 
 Use :meth:`Node.iter_elements` to stream matching elements from a large tree. The iterator finds its next match before
-each yield; when an edit moves that node, traversal follows its new tree, and replacing the current element's children
-(``set_text``, the ``text`` setter, ``field_value``, :meth:`ShadowRoot.set_inner_html`) resumes from the cached node
-rather than crashing.
+each yield; when an edit moves that node, traversal follows its new tree. The same holds when ``set_text``, the ``text``
+setter, ``field_value``, or :meth:`ShadowRoot.set_inner_html` replaces the children holding that node.
 
 .. autoclass:: Node
     :members:
@@ -112,9 +111,9 @@ record built from :class:`SourceSpan` values -- the start-tag, end-tag, and per-
 
 The DOM Living Standard traversal objects walk a subtree under a :class:`NodeFilter` bitmask and callback. A
 :class:`TreeWalker` is a movable cursor; a :class:`NodeIterator` is a flat forward/backward view. See
-:doc:`/how-to/traversing` for recipes and :doc:`/explanation/traversal` for the reject/skip semantics. A filter runs
-arbitrary code and may mutate the tree; a filter that detaches the walked node ends :meth:`TreeWalker.first_child` and
-:meth:`TreeWalker.last_child` with ``None``.
+:doc:`/how-to/traversing` for recipes and :doc:`/explanation/traversal` for the reject/skip semantics. A filter can
+mutate the tree; when it detaches the node being walked, :meth:`TreeWalker.first_child` and
+:meth:`TreeWalker.last_child` return ``None``.
 
 .. autoclass:: NodeFilter
     :members:
