@@ -25,6 +25,13 @@ with no ``name`` attribute (section 4.10), a reference cycle whose expansion nev
 (section 7.4). The message names the offending ``define`` or construct. A legal but ambiguous ``choice`` or
 ``interleave`` validates in memory bounded by the schema size rather than growing per child element.
 
+Compiling an XSD schema raises :class:`ValueError` for a reference that does not resolve -- an ``xs:element``,
+``xs:group``, ``xs:attribute``, or ``xs:attributeGroup`` ``ref``, an element or attribute ``type``, or an extension or
+restriction ``base`` whose QName names no built-in or declared component -- and names the unresolved QName. A reference
+cycle among ``xs:group`` refs, ``xs:attributeGroup`` refs, or complex-type derivations, and any such chain longer than
+100 hops, are rejected the same way. A schema that declares an ``xs:unique``, ``xs:key``, or ``xs:keyref`` identity
+constraint is rejected, because the validator does not enforce it and would otherwise accept documents that violate it.
+
 .. autoclass:: XMLSchema
     :members:
     :inherited-members:

@@ -23,7 +23,10 @@ leaves. The engine compiles a symbol table of the global declarations and then *
 walks the instance element against its declaration, matching a content model with an NFA-style reachable-position set so
 repetition needs no backtracking, and resolving each leaf to a built-in datatype plus the facets gathered up its
 restriction chain. Namespaces resolve from the in-scope ``xmlns`` declarations, so ``targetNamespace`` and
-``elementFormDefault="qualified"`` validate correctly.
+``elementFormDefault="qualified"`` validate correctly. Every reference is resolved when the schema compiles: a ``ref``,
+``type``, or ``base`` that names no component, a ``group``/``attributeGroup``/complex-type derivation cycle, and an
+identity constraint the validator cannot enforce are rejected with a :class:`ValueError` rather than silently skipped,
+so an incomplete schema can never pass a document it was meant to constrain.
 
 **RELAX NG** is a pattern algebra -- ``element``, ``attribute``, ``group``, ``choice``, ``interleave``, ``oneOrMore``,
 ``text``, ``data``, ``value``, ``list``, and ``ref`` -- and it is validated by James Clark's *derivative* algorithm

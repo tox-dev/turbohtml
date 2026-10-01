@@ -1,0 +1,3 @@
+Reject an XSD :class:`~turbohtml.validate.XMLSchema` that references an undeclared component, forms a group,
+attribute-group, or type-derivation cycle or a reference chain over 100 hops, or declares an ``xs:unique``, ``xs:key``,
+or ``xs:keyref`` identity constraint, instead of crashing or validating the document against an incomplete schema.
