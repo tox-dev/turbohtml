@@ -21,6 +21,7 @@ import contextlib
 import dataclasses
 import hashlib
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -45,6 +46,15 @@ if TYPE_CHECKING:
 # exception type is a finding. RecursionError from a deep Python walk is surfaced separately as a soft DoS signal.
 _EXPECTED: Final = (ValueError, UnicodeError, turbohtml.HTMLParseError)
 _SET_IDS: Final = (0, 1, 2)
+# Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
+# restrictions (https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements):
+# reparsing its serialization lands in the double-escaped state, which swallows the closing "</script>". The standard
+# warns that such parser-made trees need not survive serialize and reparse
+# (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
+_SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL)
+# TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
+# further tags become siblings and reparsing the flattened output nests them differently
+_MAX_TREE_DEPTH: Final = 512
 
 
 def main() -> int:
@@ -131,13 +141,15 @@ def _serialize(data: bytes) -> None:
 
 
 def _roundtrip(data: bytes) -> None:
-    if (once := turbohtml.parse(_decode(data)).serialize()) != turbohtml.parse(once).serialize():
+    document = turbohtml.parse(_decode(data))
+    if (once := document.serialize()) != turbohtml.parse(once).serialize() and not _reparse_may_differ(document):
         message = "serialize not idempotent"
         raise AssertionError(message)
 
 
 def _sanitize(data: bytes) -> None:
-    if clean.sanitize(once := clean.sanitize(_decode(data))) != once:
+    text = _decode(data)
+    if clean.sanitize(once := clean.sanitize(text)) != once and not _past_depth_cap(turbohtml.parse_fragment(text)):
         message = "sanitize not idempotent"
         raise AssertionError(message)
 
@@ -184,6 +196,17 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-8", "surrogatepass")
     except UnicodeError:
         return data.decode("latin-1")
+
+
+def _reparse_may_differ(document: turbohtml.Document) -> bool:
+    return _past_depth_cap(document) or any(
+        _SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in document.iter_elements("script")
+    )
+
+
+def _past_depth_cap(root: turbohtml.Node) -> bool:
+    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
+    return any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
 
 
 def _finding(target: str, origin: str, kind: str, data: bytes, crash_dir: Path) -> str:
