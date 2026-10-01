@@ -1,4 +1,4 @@
 Keep :meth:`~turbohtml.Node.iter_elements` safe when ``set_text``, the ``text`` setter, ``field_value``, or
 :meth:`~turbohtml.ShadowRoot.set_inner_html` replaces the iterated children, instead of crashing. Return ``None`` from
-:meth:`~turbohtml.TreeWalker.first_child` and :meth:`~turbohtml.TreeWalker.last_child` when a ``NodeFilter`` detaches the
-walked node, instead of crashing.
+:meth:`~turbohtml.TreeWalker.first_child` and :meth:`~turbohtml.TreeWalker.last_child` when a ``NodeFilter`` detaches
+the walked node, instead of crashing.
