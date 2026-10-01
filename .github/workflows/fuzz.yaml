@@ -6,7 +6,8 @@ on:
     tags-ignore: ["**"]
   pull_request:
   schedule:
-    - cron: "0 6 * * 1" # weekly deep run, Monday 06:00 UTC
+    - cron: "0 6 * * *" # daily deep run, 06:00 UTC
+    - cron: "0 4 * * 1" # weekly extended run, Monday 04:00 UTC
 concurrency:
   group: fuzz-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +48,18 @@ jobs:
         with:
           enable-cache: false
       - name: ✅ Run fuzz (deep)
-        run: uvx --with tox-uv tox run -e fuzz -- --minutes 5
+        # the Monday 04:00 slot runs each target longer; the daily 06:00 slot and manual dispatch use the shorter budget
+        run: uvx --with tox-uv tox run -e fuzz -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
+          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+      - name: 📤 Upload crash corpus
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crashes
+          path: |
+            **/crash-*
+            **/*.crash
+          if-no-files-found: ignore
+          retention-days: 14
