@@ -1,0 +1,1 @@
+Raise ``ValueError`` for an EXSLT ``str:padding`` length above 100,000 characters.

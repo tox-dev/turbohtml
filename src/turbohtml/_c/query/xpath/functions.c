@@ -1146,15 +1146,16 @@ static int str_replace(struct th_tree *tree, const xp_result *args, xp_result *o
    `pattern` (a single space by default). An empty pattern pads with spaces. */
 static int str_padding(struct th_tree *tree, const xp_result *args, int argc, xp_result *out) {
     double requested = round(to_number(tree, &args[0]));
-    /* a longer length wraps the byte count into a small buffer; an infinite one has no Py_ssize_t value */
-    const size_t limit = (size_t)PY_SSIZE_T_MAX / sizeof(Py_UCS4);
-    if (requested > (double)limit) {
+    /* The length may come from source data, so an unbounded value sizes the allocation from a
+       tiny document. libexslt caps at 100,000 (strings.c, commit df878571); we reuse that ceiling
+       but raise, since silent truncation would contradict the EXSLT str:padding definition. */
+    const Py_ssize_t ceiling = 100000;
+    if (requested > (double)ceiling) {
         char shown[320]; /* %.0f of the largest finite double is 309 digits */
         snprintf(shown, sizeof(shown), "%.0f", requested);
-        PyErr_Format(PyExc_MemoryError,
-                     "xpath: str:padding length %s exceeds the %zu characters a string can address on this platform; "
-                     "pass a smaller length",
-                     shown, limit);
+        PyErr_Format(PyExc_ValueError,
+                     "xpath: str:padding length %s exceeds the maximum of %zd; pass a length of %zd or fewer", shown,
+                     ceiling, ceiling);
         return -1;
     }
     Py_ssize_t target = requested >= 1 ? (Py_ssize_t)requested : 0;

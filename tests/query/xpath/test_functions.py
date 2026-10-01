@@ -935,6 +935,7 @@ def test_set_distinct_mixed_lengths() -> None:
         pytest.param("str:padding(3, '')", "   ", id="str-padding-empty-pattern-is-spaces"),
         pytest.param("str:padding(0)", "", id="str-padding-zero"),
         pytest.param("str:padding(-2)", "", id="str-padding-negative"),
+        pytest.param("str:padding(number('x'))", "", id="str-padding-nan-is-empty"),
         pytest.param("str:align('ab', 'XXXXX')", "abXXX", id="str-align-left-default"),
         pytest.param("str:align('ab', 'XXXXX', 'right')", "XXXab", id="str-align-right"),
         pytest.param("str:align('ab', 'XXXXX', 'center')", "XabXX", id="str-align-center"),
@@ -947,20 +948,30 @@ def test_str_functions(exslt_doc: turbohtml.Node, expr: str, expected: str) -> N
     assert exslt_doc.xpath(expr) == expected
 
 
-def test_str_padding_past_any_allocation_raises_memory_error() -> None:
-    # a regression corrupts the heap and crashes the interpreter, so run it in a child process
-    code = (
-        "import turbohtml\ndoc = turbohtml.parse('<p/>')\n"
-        "for length in ('4611686018427387904', '1 div 0'):\n"
-        "    try:\n        doc.xpath(f'str:padding({length})')\n"
-        "    except MemoryError as exc:\n        print(exc)\n"
-    )
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
-    )
-    tail = f"exceeds the {sys.maxsize // 4} characters a string can address on this platform; pass a smaller length"
-    expected = f"xpath: str:padding length 4611686018427387904 {tail}\nxpath: str:padding length inf {tail}\n"
-    assert (result.returncode, result.stdout) == (0, expected), result.stderr
+def test_str_padding_at_ceiling_is_allowed(exslt_doc: turbohtml.Node) -> None:
+    assert exslt_doc.xpath("string-length(str:padding(100000))") == pytest.approx(100000)
+
+
+@pytest.mark.parametrize(
+    ("expr", "shown"),
+    [
+        pytest.param("str:padding(100001)", "100001", id="just-over-ceiling"),
+        pytest.param("str:padding(2000000000)", "2000000000", id="dos-length"),
+        pytest.param("str:padding(4611686018427387904)", "4611686018427387904", id="past-ssize-quarter"),
+        pytest.param("str:padding(1 div 0)", "inf", id="infinite"),
+    ],
+)
+def test_str_padding_length_past_ceiling_raises(exslt_doc: turbohtml.Node, expr: str, shown: str) -> None:
+    message = rf"str:padding length {re.escape(shown)} exceeds the maximum of 100000; pass a length of 100000 or fewer"
+    with pytest.raises(ValueError, match=message):
+        exslt_doc.xpath(expr)
+
+
+@pytest.mark.parametrize("width", [pytest.param("100001", id="just-over"), pytest.param("2000000000", id="gigabytes")])
+def test_str_padding_length_from_source_data_past_ceiling_raises(width: str) -> None:
+    doc = parse_xml(f'<row width="{width}"/>')
+    with pytest.raises(ValueError, match=rf"str:padding length {width} exceeds the maximum of 100000"):
+        doc.xpath("str:padding(/row/@width, '-')")
 
 
 def test_str_concat_non_nodeset_argument_raises(exslt_doc: turbohtml.Node) -> None:
