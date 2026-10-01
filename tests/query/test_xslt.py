@@ -988,6 +988,13 @@ def test_transform_deep_apply_templates_recursion_raises_cleanly() -> None:
         _run(source, body)
 
 
+def test_transform_builtin_template_recursion_is_bounded() -> None:
+    source = "<r>" + "<a>" * 600 + "x" + "</a>" * 600 + "</r>"
+    body = '<xsl:template match="/"><xsl:apply-templates/></xsl:template>'
+    with pytest.raises(RecursionError, match="source nesting exceeds 400 levels for the built-in template rules"):
+        _run(source, body)
+
+
 def test_transform_anchored_patterns() -> None:
     body = (
         '<xsl:template match="/"><xsl:apply-templates select="//n"/></xsl:template>'

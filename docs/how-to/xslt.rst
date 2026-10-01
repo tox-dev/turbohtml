@@ -82,8 +82,9 @@ The stylesheet's ``xsl:output method`` picks the serialization: ``xml`` (the def
 stylesheet, a bad expression, or a reference to an undeclared key or template raises :exc:`ValueError`; an
 ``xsl:message`` with ``terminate="yes"`` raises :exc:`RuntimeError`.
 
-Template calls, nested instructions and ``use-attribute-sets`` chains share a nesting limit of 400 levels; deeper
-nesting raises :exc:`RecursionError`. Walk long lists with ``xsl:for-each`` instead of recursion.
+Template calls, nested instructions, ``use-attribute-sets`` chains and the built-in template rules' descent into a
+deeply nested source document share a nesting limit of 400 levels; deeper nesting raises :exc:`RecursionError`. Walk
+long lists with ``xsl:for-each`` instead of recursion.
 
 An ``xsl:attribute-set`` whose ``use-attribute-sets`` chain leads back to itself raises :exc:`ValueError` when
 :class:`~turbohtml.transform.Transform` compiles the stylesheet, even if no template applies it.

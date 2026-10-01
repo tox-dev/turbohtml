@@ -4130,6 +4130,17 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
         return emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
+        /* The built-in rule applies templates to each child, so it is a template application like a matched rule
+           (section 5.8) and shares the same cap; otherwise an untrusted deep source overflows the C stack. libxslt
+           counts its built-in rule the same way via ctxt->depth (xsltApplyBuiltinTemplate). */
+        if (++eng->depth > XSLT_MAX_DEPTH) {
+            eng->depth--;
+            PyErr_Format(PyExc_RecursionError,
+                         "xslt: source nesting exceeds %d levels for the built-in template rules; reduce the input "
+                         "document depth",
+                         XSLT_MAX_DEPTH);
+            return fail_py(eng);
+        }
         Py_ssize_t child_pos = 0;
         Py_ssize_t child_count = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
@@ -4140,6 +4151,7 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
             child_pos++;
             rc = apply_to_item(eng, (xp_item){child, -1}, child_pos, child_count, mode, mode_len, NULL, 0, out_parent);
         }
+        eng->depth--;
         return rc;
     }
     return 0; /* comment / PI / doctype: the built-in rule produces nothing */

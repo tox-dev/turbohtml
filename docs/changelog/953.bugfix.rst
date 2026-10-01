@@ -1,0 +1,2 @@
+Count the XSLT built-in template rules against the 400-level nesting limit, raising ``RecursionError`` on a deeper
+source document.
