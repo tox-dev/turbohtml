@@ -1,0 +1,3 @@
+Minifying CSS that contains a selector-less rule such as ``{--x:}`` no longer crashes the process. Minifying CSS with
+many same-selector rules no longer costs time and memory quadratic in the rule count; a repeat merges only with a rule at
+most 256 back.

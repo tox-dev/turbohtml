@@ -464,7 +464,9 @@ Structure and selectors
   rules with the same selector or an identical body -- even across intervening rules, as long as each sets none of the
   moved properties so the cascade cannot change -- and fuse consecutive ``@media`` blocks that share a prelude (`Cascade
   5 §6.4.4 <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__). ``a{}b{c:d}`` → ``b{c:d}``, ``@media print{}`` is
-  dropped, and ``a{color:red}b{margin:0}a{font-size:2px}`` → ``a{color:red;font-size:2px}b{margin:0}``.
+  dropped, and ``a{color:red}b{margin:0}a{font-size:2px}`` → ``a{color:red;font-size:2px}b{margin:0}``. A repeat merges
+  only with a target at most 256 rules back; a selector repeated past that gap stays a separate rule, which keeps the
+  pass linear instead of the O(rules²) time and memory that folding an unbounded run would cost.
 - Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
   four legacy pseudo-elements with one colon (``::before`` → ``:before``), and unquote an attribute value that is a
   valid identifier (`Selectors 4 §5–6 <https://www.w3.org/TR/selectors-4/#attribute-selectors>`__, `Pseudo-Elements 4 §8

@@ -233,6 +233,10 @@ _NEWLY = CSSMinify(baseline=2021)
         pytest.param("@layer x{}", "@layer x{}", id="keep-empty-layer"),
         pytest.param("@keyframes x{}", "@keyframes x{}", id="keep-empty-keyframes"),
         pytest.param('@import "x"', '@import "x"', id="keep-import-statement"),
+        pytest.param("{--x:\n}", "{--x: }", id="selector-less-custom-property"),
+        pytest.param("{color:red}", "{color:red}", id="selector-less-declaration"),
+        pytest.param("  \t {color:red}", "{color:red}", id="whitespace-only-selector"),
+        pytest.param("{}", "", id="selector-less-empty-body"),
     ],
 )
 def test_minify_css(source: str, expected: str) -> None:
@@ -261,6 +265,21 @@ def test_minify_css_many_rules_keep_blocked_merge() -> None:
     middle = "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
     source = f".target{{color:red}}{middle}.block{{color:blue}}.target{{color:green}}"
     assert minify_css(source) == source
+
+
+def _max_decls_per_rule(rule_count: int) -> int:
+    out = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
+    return max(body.count(":") for body in re.findall(r"\{([^}]*)\}", out))
+
+
+def test_minify_css_same_selector_merge_is_bounded() -> None:
+    # A run of same-selector rules with distinct declarations must not all fold into one rule: that merge
+    # re-renders a body that grows with every rule, which is O(rules^2) in time and arena memory. The merged
+    # body is capped, so the largest output rule stays the same size no matter how many rules come in.
+    small = _max_decls_per_rule(4 * 256)
+    large = _max_decls_per_rule(16 * 256)
+    assert small == large
+    assert large < 4 * 256
 
 
 @pytest.mark.parametrize(
