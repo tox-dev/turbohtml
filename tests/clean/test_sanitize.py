@@ -933,6 +933,45 @@ def test_style_element_body_is_idempotent() -> None:
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("a{color:expression(alert(1)) {}}", id="expression-value"),
+        pytest.param("a{background:url(javascript:alert(1)){}}", id="url-script-scheme"),
+        pytest.param("a{background:url(http://evil.example/leak){}}", id="url-tracking-host"),
+        pytest.param("a{-moz-binding:url(http://evil/x.xml){}}", id="moz-binding-xbl"),
+        pytest.param("a{behavior:url(#default#time2){}}", id="behavior-htc"),
+    ],
+)
+def test_style_element_prelude_declaration_is_vetted(payload: str) -> None:
+    # a `property:value{}` run was emitted verbatim as a "prelude", skipping value vetting; it is a declaration a
+    # pre-nesting browser applies, so the whole nested rule is dropped and expression()/url() never reach a kept <style>
+    out = sanitize(f"<style>{payload}</style>", _style_element_policy())
+    assert out == "<style>a{}</style>"
+    assert sanitize(out, _style_element_policy()) == out
+
+
+@pytest.mark.parametrize(
+    ("css", "expected_body"),
+    [
+        pytest.param("a{color:url(x){p{color:red}}}b{color:red}", "a{}b{color:red;}", id="nested-braces-skipped"),
+        pytest.param('a{color:url(x){content:"}"}}b{color:red}', "a{}b{color:red;}", id="string-brace-not-a-close"),
+        pytest.param("a{color:url(x){p:(})}}b{color:red}", "a{}b{color:red;}", id="paren-hides-brace"),
+        pytest.param("a{color:url(x){)}}b{color:red}", "a{}b{color:red;}", id="stray-close-paren-in-block"),
+        pytest.param("a{color:url(x){p{color:red}", "a{}", id="unterminated-dropped-block"),
+        pytest.param("a:hover{color:red}", "a:hover{color:red;}", id="pseudo-class-selector-kept"),
+        pytest.param("li:nth-child(2n){color:red}", "li:nth-child(2n){color:red;}", id="functional-pseudo-kept"),
+        pytest.param("a{color:red{}}", "a{color:red{}}", id="url-free-prelude-kept-verbatim"),
+    ],
+)
+def test_style_element_prelude_block_skip(css: str, expected_body: str) -> None:
+    # dropping a bad prelude discards its whole block (balancing nested braces and ignoring braces in strings/parens),
+    # while a selector whose only functions are pseudo-classes, and a url-free declaration prelude, stay verbatim
+    out = sanitize(f"<style>{css}</style>", _style_element_policy())
+    assert out == f"<style>{expected_body}</style>"
+    assert sanitize(out, _style_element_policy()) == out
+
+
+@pytest.mark.parametrize(
     ("style", "expected"),
     [
         pytest.param(

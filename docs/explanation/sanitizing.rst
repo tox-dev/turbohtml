@@ -10,7 +10,9 @@ A style declaration passes through three gates in turn. The non-configurable saf
 ``url(javascript:...)``, ``behavior``, and ``-moz-binding``. It decodes CSS escapes before matching tokens, while text
 inside strings and comments stays inert. Then ``css_properties`` drops names outside the property allowlist. A
 declaration that clears both reaches ``allowed_styles``, which checks its value against the patterns for the element's
-tag or ``"*"``.
+tag or ``"*"``. A kept ``<style>`` body is scrubbed rule by rule the same way. A declaration written before a
+nested-rule ``{`` -- ``color:expression(...){}`` -- is not kept as an opaque selector: its value goes through the
+baseline, and the whole rule is dropped when it carries ``expression()`` or a ``url()``.
 
 The layering is deliberately one-directional. ``allowed_styles`` *narrows* -- it can reject a value the earlier layers
 would have kept, but it can never re-admit one they dropped. A caller who writes ``{"color": [r".*"]}`` has not opened a

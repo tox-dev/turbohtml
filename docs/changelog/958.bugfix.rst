@@ -1,0 +1,2 @@
+Drop a disallowed CSS declaration written before ``{`` in a scrubbed ``<style>`` body, such as ``color:expression(...)``
+or ``-moz-binding:url(...)``.

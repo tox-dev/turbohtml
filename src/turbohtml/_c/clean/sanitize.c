@@ -1134,8 +1134,10 @@ static Py_ssize_t css_skip_token(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_
 
 /* A declaration whose property name is allowlisted can still carry a dangerous value: IE's `expression(...)` runs
    script, and `url(javascript:...)` a disallowed scheme. Scan CSS tokens so inert strings, comments, and longer
-   identifiers do not trigger the executable-function checks. Returns 1 allow, 0 drop, -1 error. */
-static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end) {
+   identifiers do not trigger the executable-function checks. When `url_forbidden`, any `url()` is rejected regardless of
+   scheme: a selector prelude never carries one, so its presence marks a declaration misread as a prelude. Returns 1
+   allow, 0 drop, -1 error (never -1 when url_forbidden, which short-circuits before the scheme check that can fail). */
+static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, int url_forbidden) {
     Py_ssize_t pos = start;
     int string_flags = 0; /* the splitter drops a declaration holding a bad string before this check */
     while (pos < end) {
@@ -1160,6 +1162,9 @@ static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t star
             return 0;
         }
         if (identifier_kind == 1 && paren < end && value[paren] == '(') {
+            if (url_forbidden) {
+                return 0;
+            }
             int url_allowed = css_url_scheme_allowed(s, value, paren + 1, end);
             if (url_allowed <= 0) {
                 return url_allowed;
@@ -1196,7 +1201,7 @@ static int css_declaration_kept(sanitizer *s, const style_allowlist *styles, con
     if (!allowed) {
         return 0;
     }
-    int value_ok = css_value_allowed(s, value, colon + 1, end);
+    int value_ok = css_value_allowed(s, value, colon + 1, end, 0);
     if (value_ok < 0) { /* GCOVR_EXCL_BR_LINE: css_value_allowed only fails on allocation failure */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1329,8 +1334,9 @@ static int sanitize_style(sanitizer *s, th_node *element, th_node_attr *attr, co
 }
 
 /* Copy the rule prelude (a selector or at-rule head) `value[start:end)` to `out`, trimmed of surrounding whitespace.
-   A prelude carries no declarations, so it is kept verbatim: CSS selectors cannot run script, and the value-level
-   dangers (expression(), url(disallowed-scheme)) live in declaration values, which css_declaration_kept still vets. */
+   A prelude carries no declarations -- CSS selectors cannot run script -- so it is kept verbatim once scrub_stylesheet
+   has rejected any declaration-shaped run (a top-level `property:value` carrying url()/expression()) that a pre-nesting
+   browser would apply; those never reach here, and declaration values inside a block are still vetted. */
 static void css_emit_prelude(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, Py_UCS4 *out,
                              Py_ssize_t *out_len) {
     while (start < end && is_space(value[start])) {
@@ -1362,13 +1368,44 @@ static int css_emit_block_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssi
     return 0;
 }
 
+/* Skip a dropped nested rule's `{...}` block: from `start` (just past the opening `{`), advance past the matching `}`,
+   balancing nested braces while skipping strings, comments, and url()/ident tokens so a brace inside one is not counted,
+   and ignoring braces inside parentheses as the scrubber's main scan does. Returns the index just past the closing `}`,
+   or `len` when the block is unterminated. */
+static Py_ssize_t css_skip_block(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
+    int brace_depth = 1;
+    int paren_depth = 0;
+    int flags = 0;
+    Py_ssize_t index = start;
+    while (index < len) {
+        Py_ssize_t next = css_skip_token(value, index, len, &flags);
+        if (next > index) {
+            index = next;
+            continue;
+        }
+        Py_UCS4 codepoint = value[index++];
+        if (codepoint == '(') {
+            paren_depth++;
+        } else if (codepoint == ')') {
+            paren_depth -= paren_depth > 0;
+        } else if (paren_depth == 0 && codepoint == '{') {
+            brace_depth++;
+        } else if (paren_depth == 0 && codepoint == '}' && --brace_depth == 0) {
+            return index;
+        }
+    }
+    return len;
+}
+
 /* Scrub a `<style>` body: a stylesheet is a sequence of rules, each a prelude (selector or at-rule head) and a `{...}`
    block. A block's declarations are vetted like a `style` attribute -- only allowlisted, expression()/url-safe
    declarations survive -- while preludes and block nesting are kept, so `p{color:red;position:fixed}` becomes
    `p{color:red;}`. Segmentation runs a single pass whose terminator classifies each run: a `{` makes the run a prelude
-   (open a block), a `;`/`}` a declaration. An at-rule statement (`@import ...;`, `@charset ...`) has no property:value
-   split, so css_declaration_kept drops it, and a `url()`/quoted/commented `;`, `:`, `{`, or `}` is skipped so it is
-   never mistaken for a separator. brace_depth is an int counter, not recursion, so a pathologically nested body cannot
+   (open a block), a `;`/`}` a declaration. A prelude holding a top-level `property:value` with a url()/expression() is a
+   declaration a pre-nesting browser applies, not a selector, so its whole nested rule is dropped. An at-rule statement
+   (`@import ...;`, `@charset ...`) has no property:value split, so css_declaration_kept drops it, and a
+   `url()`/quoted/commented `;`, `:`, `{`, or `}` is skipped so it is never mistaken for a separator. brace_depth is an
+   int counter, not recursion, so a pathologically nested body cannot
    overflow the C stack. Writes the scrubbed body length to *out_len_out. Returns 0, or -1 on error. */
 static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 *out, Py_ssize_t *out_len_out) {
     Py_ssize_t out_len = 0;
@@ -1397,6 +1434,18 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
             continue;
         }
         if (c == '{') {
+            /* A top-level `property:value` run before `{` is a declaration a pre-nesting browser applies (CSS Nesting
+               reads it as a nested rule whose prelude is an invalid selector and drops it); a genuine selector or
+               at-rule head never carries a url()/expression() there. Vet its value like any declaration and drop the
+               whole nested construct when it carries one, so `color:expression(...)`/`-moz-binding:url(...)` cannot reach
+               a kept <style> as an unchecked prelude -- while `a:hover`/`li:nth-child(2n)` survive. */
+            if (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0) {
+                index = css_skip_block(value, index, len);
+                seg_start = index;
+                colon = -1;
+                flags = 0;
+                continue;
+            }
             css_emit_prelude(value, seg_start, index - 1, out, &out_len);
             out[out_len++] = '{';
             brace_depth++;
