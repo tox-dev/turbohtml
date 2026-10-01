@@ -1,0 +1,2 @@
+Detect duplicate attributes while parsing XML in time linear in the attribute count; an element with many attributes in
+one namespace, or a repeated attribute name, no longer stalls :func:`turbohtml.parse_xml`.

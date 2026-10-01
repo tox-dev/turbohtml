@@ -45,6 +45,19 @@ typedef struct {
     Py_ssize_t start, end, colon, declaration;
 } xml_attr_span;
 
+/* One open-addressing slot for per-element duplicate-attribute detection. `gen` is the
+   generation it was last written in: a slot counts as live only while it equals the
+   parser's current generation, so a new element (or the switch from the raw-name to the
+   expanded-name keying) resets the whole table by bumping the generation rather than
+   clearing it, which keeps a tiny element after a huge one O(1). `hash` lets a grow
+   re-slot entries without re-reading their key; `index` points back into the array the
+   current keying scans (element attributes, then attribute spans). */
+typedef struct {
+    uint64_t gen;
+    uint64_t hash;
+    Py_ssize_t index;
+} xml_dupslot;
+
 typedef struct {
     th_tree *tree;
     int kind;
@@ -68,6 +81,10 @@ typedef struct {
     int root_closed;  /* the root element has been closed */
     int have_doctype; /* a doctype has been consumed */
     int error;        /* a well-formedness error has been recorded */
+    xml_dupslot *dup; /* per-element duplicate-attribute hash table (open addressing) */
+    Py_ssize_t dup_cap, dup_count;
+    uint64_t dup_gen;  /* bumped per element and per keying to reset `dup` in O(1) */
+    uint64_t dup_seed; /* per-parse salt so chosen attribute names cannot flood one bucket */
 } xml_parser;
 
 static Py_UCS4 cp(const xml_parser *parser, Py_ssize_t index) {
@@ -1014,6 +1031,69 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     return 0;
 }
 
+#define DUP_FNV_PRIME UINT64_C(1099511628211)
+#define DUP_FNV_BASIS UINT64_C(14695981039346656037)
+
+/* splitmix64 finalizer: a full-avalanche bijection so the low slot bits depend on every
+   input bit. Without it, sequential interned atoms keep a near-permutation low-bit pattern
+   that avoids slot collisions below a full table, which both hides the probe path and leaves
+   the common case brittle against adversarial clustering. */
+static uint64_t dup_mix(uint64_t hash) {
+    hash = (hash ^ (hash >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return hash ^ (hash >> 31);
+}
+
+/* Slot hash for the raw-name keying: fold the attribute's interned atom into the salt. */
+static uint64_t dup_hash_atom(uint64_t seed, uint32_t atom) {
+    return dup_mix(seed ^ DUP_FNV_BASIS ^ atom);
+}
+
+/* Slot hash for the expanded-name keying: salt, then the namespace URI, a ':' separator
+   so "ab"+"c" and "a"+"bc" differ, then the local name. */
+static uint64_t dup_hash_expanded(uint64_t seed, const Py_UCS4 *uri, Py_ssize_t uri_len, const xml_parser *parser,
+                                  Py_ssize_t local_start, Py_ssize_t local_len) {
+    uint64_t hash = seed ^ DUP_FNV_BASIS;
+    for (Py_ssize_t offset = 0; offset < uri_len; offset++) {
+        hash = (hash ^ uri[offset]) * DUP_FNV_PRIME;
+    }
+    hash = (hash ^ ':') * DUP_FNV_PRIME;
+    for (Py_ssize_t offset = 0; offset < local_len; offset++) {
+        hash = (hash ^ cp(parser, local_start + offset)) * DUP_FNV_PRIME;
+    }
+    return dup_mix(hash);
+}
+
+/* Ensure one free slot at a load factor below 1/2, growing (and re-slotting the live
+   entries by their stored hash) when full. Replaces the nested O(A^2) duplicate scans
+   with amortized O(1) probing, as expat sizes an open-addressing table per element
+   (xmlparse.c storeAtts) and libxml2 does in xmlAttrHashInsert. */
+static int dup_reserve(xml_parser *parser) {
+    if (parser->dup_cap != 0 && (parser->dup_count + 1) * 2 <= parser->dup_cap) {
+        return 0;
+    }
+    Py_ssize_t cap = parser->dup_cap ? parser->dup_cap * 2 : 64;
+    xml_dupslot *grown = PyMem_Calloc((size_t)cap, sizeof(xml_dupslot));
+    if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        parser->tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < parser->dup_cap; index++) {
+        if (parser->dup[index].gen != parser->dup_gen) {
+            continue;
+        }
+        Py_ssize_t slot = (Py_ssize_t)(parser->dup[index].hash & (uint64_t)(cap - 1));
+        while (grown[slot].gen == parser->dup_gen) {
+            slot = (slot + 1) & (cap - 1);
+        }
+        grown[slot] = parser->dup[index];
+    }
+    PyMem_Free(parser->dup);
+    parser->dup = grown;
+    parser->dup_cap = cap;
+    return 0;
+}
+
 /* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
    Advances past the attribute; returns 0, or -1 with an error recorded. */
 static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t depth) {
@@ -1111,14 +1191,27 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
     if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (th_node_attr_find(parser->tree, element, name, u8_len) >= 0) {
-        record(parser, "xml-duplicate-attribute", name_start);
-        return -1;
-    }
     int stored = th_node_attr_append(parser->tree, element, name, u8_len, parser->scratch, parser->scratch_len, 1);
     if (stored < 0) { /* GCOVR_EXCL_BR_LINE: th_node_attr_append only fails on allocation */
         return -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    /* Reject a repeated raw name (XML 1.0 3.1 Unique Att Spec) by its interned atom; the
+       append just assigned it. The discarded tree keeps the duplicate just stored. */
+    if (dup_reserve(parser) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    uint32_t atom = element->attrs[element->attr_count - 1].name_atom;
+    uint64_t hash = dup_hash_atom(parser->dup_seed, atom);
+    Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->dup_cap - 1));
+    while (parser->dup[slot].gen == parser->dup_gen) {
+        if (element->attrs[parser->dup[slot].index].name_atom == atom) {
+            record(parser, "xml-duplicate-attribute", name_start);
+            return -1;
+        }
+        slot = (slot + 1) & (parser->dup_cap - 1);
+    }
+    parser->dup[slot] = (xml_dupslot){parser->dup_gen, hash, element->attr_count - 1};
+    parser->dup_count++;
     if (parser->attr_spans_len == parser->attr_spans_cap) {
         Py_ssize_t cap = parser->attr_spans_cap ? parser->attr_spans_cap * 2 : 16;
         xml_attr_span *grown = PyMem_Realloc(parser->attr_spans, (size_t)cap * sizeof(xml_attr_span));
@@ -1186,6 +1279,8 @@ static int consume_start_tag(xml_parser *parser) {
     element->tag_flags &= (uint8_t)~TH_ELEM_CLOSED_BY_END_TAG; /* consume_end_tag sets it for a written end tag */
     Py_ssize_t depth = parser->stack_len;
     parser->attr_spans_len = 0;
+    parser->dup_gen++; /* a fresh generation empties the raw-name table for this element */
+    parser->dup_count = 0;
     int self_closing = 0;
     for (;;) {
         int had_space = parser->pos < parser->length && xml_is_space(cp(parser, parser->pos));
@@ -1234,7 +1329,11 @@ static int consume_start_tag(xml_parser *parser) {
         xml_attr_span *span = &parser->attr_spans[index];
         span->declaration = attr_ns_index(parser, span->start, span->end, &span->colon);
     }
-    /* Resolve after declarations and prefix validation to preserve error precedence. */
+    /* Reject attributes that share an expanded name (Namespaces in XML 6.3) through the same
+       table, now keyed on (namespace URI, local name) under a fresh generation. Resolve after
+       declarations and prefix validation to preserve error precedence. */
+    parser->dup_gen++;
+    parser->dup_count = 0;
     for (Py_ssize_t index = 0; index < parser->attr_spans_len; index++) {
         const xml_attr_span *span = &parser->attr_spans[index];
         if (span->declaration < 0) {
@@ -1243,21 +1342,27 @@ static int consume_start_tag(xml_parser *parser) {
         const Py_ssize_t local_start = span->colon + 1;
         const Py_ssize_t local_len = span->end - local_start;
         const xml_nsdecl *decl_ns = &parser->ns[span->declaration];
-        for (Py_ssize_t other = 0; other < index; other++) {
-            const xml_attr_span *previous = &parser->attr_spans[other];
-            if (previous->declaration < 0) {
-                continue;
-            }
-            const Py_ssize_t other_local_len = previous->end - (previous->colon + 1);
+        if (dup_reserve(parser) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        uint64_t hash =
+            dup_hash_expanded(parser->dup_seed, decl_ns->uri, decl_ns->uri_len, parser, local_start, local_len);
+        Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->dup_cap - 1));
+        while (parser->dup[slot].gen == parser->dup_gen) {
+            const xml_attr_span *previous = &parser->attr_spans[parser->dup[slot].index];
             const xml_nsdecl *other_ns = &parser->ns[previous->declaration];
-            const int same_uri = decl_ns->uri_len == other_ns->uri_len &&
-                                 memcmp(decl_ns->uri, other_ns->uri, (size_t)decl_ns->uri_len * sizeof(Py_UCS4)) == 0;
-            if (same_uri && local_len == other_local_len &&
+            const Py_ssize_t other_local_len = previous->end - (previous->colon + 1);
+            if (decl_ns->uri_len == other_ns->uri_len &&
+                memcmp(decl_ns->uri, other_ns->uri, (size_t)decl_ns->uri_len * sizeof(Py_UCS4)) == 0 &&
+                local_len == other_local_len &&
                 local_names_equal(parser, local_start, previous->colon + 1, local_len)) {
                 record(parser, "xml-duplicate-attribute", span->start);
                 return -1;
             }
+            slot = (slot + 1) & (parser->dup_cap - 1);
         }
+        parser->dup[slot] = (xml_dupslot){parser->dup_gen, hash, index};
+        parser->dup_count++;
     }
     node_append(current(parser), element);
     if (parser->stack_len == 0) {
@@ -1318,6 +1423,18 @@ th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length) {
     parser.data = data;
     parser.length = length;
     parser.document = document;
+    /* Salt the duplicate-attribute hash so chosen attribute names cannot be precomputed to
+       collide into one bucket and restore the quadratic cost, the way expat salts its SipHash
+       and libxml2 seeds its dict hash. Python's randomized bytes hash is the salt: it draws
+       from the OS per process yet collapses to a fixed value under PYTHONHASHSEED, so the C
+       coverage and CodSpeed gates stay reproducible while production stays unpredictable. */
+    PyObject *salt = PyBytes_FromStringAndSize("turbohtml:xml-attr-dup", 22);
+    if (salt == NULL) {     /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
+        th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    parser.dup_seed = (uint64_t)PyObject_Hash(salt);
+    Py_DECREF(salt);
 
     while (parser.pos < length) { /* a well-formedness error returns -1 and breaks */
         int failed = cp(&parser, parser.pos) == '<' ? consume_markup(&parser) : consume_text(&parser);
@@ -1338,6 +1455,7 @@ th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length) {
     PyMem_Free(parser.scratch);
     PyMem_Free(parser.names);
     PyMem_Free(parser.u8);
+    PyMem_Free(parser.dup);
     if (tree->failed) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */

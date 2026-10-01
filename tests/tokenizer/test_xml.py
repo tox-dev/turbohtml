@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Final, cast
+import time
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
@@ -17,6 +18,9 @@ from turbohtml import (
     Text,
     parse_xml,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def elements(node: Element) -> list[Element]:
@@ -680,6 +684,75 @@ def test_xml_namespace_self_closing_rebinding() -> None:
     ],
 )
 def test_xml_namespace_first_error(source: str, code: str) -> None:
+    with pytest.raises(HTMLParseError) as error:
+        parse_xml(source)
+    assert error.value.error.code == code
+
+
+def _namespaced_distinct(count: int) -> str:
+    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
+
+
+def _plain_repeated(count: int) -> str:
+    attrs = " ".join(f"a{index}='x'" for index in range(count))
+    return "<r>" + f"<e {attrs}/>" * 2 + "</r>"  # the second element re-reads already-interned names
+
+
+def _min_parse_seconds(markup: str) -> float:
+    best = float("inf")
+    for _ in range(5):  # the floor over repeats drops scheduler noise, which only ever inflates a sample
+        start = time.perf_counter()
+        parse_xml(markup)
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_namespaced_distinct, id="expanded-name"),
+        pytest.param(_plain_repeated, id="raw-name"),
+    ],
+)
+def test_xml_duplicate_detection_scales_linearly(build: Callable[[int], str]) -> None:
+    base: Final = _min_parse_seconds(build(10_000))
+    quadrupled: Final = _min_parse_seconds(build(40_000))
+    # Linear work quadruples with the input; the reverted nested scan is ~16x. 8x sits two-fold
+    # below the quadratic floor and two-fold above the linear one, so jitter cannot flip it.
+    assert quadrupled < base * 8
+
+
+@pytest.mark.parametrize("count", [pytest.param(2000, id="grows-and-rehashes")])
+def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
+    root: Final = parse_xml(_namespaced_distinct(count)).find("r")
+    assert root is not None
+    assert list(root.attrs.keys()) == ["xmlns:p"] + [f"p:a{index}" for index in range(count)]
+
+
+@pytest.mark.parametrize("count", [pytest.param(2000, id="interned-second-element")])
+def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
+    root: Final = parse_xml(_plain_repeated(count)).find("r")
+    assert root is not None
+    expected: Final = [(f"a{index}", "x") for index in range(count)]
+    assert [list(child.attrs.items()) for child in elements(root)] == [expected, expected]
+
+
+@pytest.mark.parametrize(
+    ("source", "code"),
+    [
+        pytest.param(
+            "<r " + " ".join(f"a{index}='x'" for index in range(2000)) + " a0='y'/>",
+            "xml-duplicate-attribute",
+            id="raw-name-after-many",
+        ),
+        pytest.param(
+            "<r xmlns:p='u' xmlns:q='u' " + " ".join(f"p:a{index}='x'" for index in range(2000)) + " q:a0='y'/>",
+            "xml-duplicate-attribute",
+            id="expanded-name-after-many",
+        ),
+    ],
+)
+def test_xml_duplicate_found_after_many_distinct(source: str, code: str) -> None:
     with pytest.raises(HTMLParseError) as error:
         parse_xml(source)
     assert error.value.error.code == code
