@@ -43,11 +43,6 @@ static inline int th_scheme_start(Py_UCS4 ch) {
    join, and the sanitizer all read the scheme here so they cannot disagree. */
 Py_ssize_t th_url_scheme_colon(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len);
 
-/* Whether buf[start,end) names a WHATWG special scheme (ftp, file, http, https, ws, wss), compared case-insensitively
-   (https://url.spec.whatwg.org/#special-scheme). Only these treat U+005C (\) like / in the authority and relative
-   states, so url_split, the relative join, and the sanitizer host scan gate their backslash handling on it. */
-int th_url_scheme_special(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end);
-
 /* Bleach accepts bracketed hostnames such as [bad]. */
 static inline Py_ssize_t th_url_authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
     int has_open = 0;

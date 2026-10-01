@@ -1635,12 +1635,60 @@ PyObject *turbohtml_microdata_as_dict(PyObject *Py_UNUSED(module), PyObject *ite
     return microdata_as_dict(item, (PyObject *)Py_TYPE(item));
 }
 
-/* Whether the JSON-LD block nests arrays or objects deeper than STRUCTURED_DATA_MAX_ITEM_DEPTH, the same ceiling the
-   microdata and RDFa item graphs use. A block at or under it stays well within the stdlib json C decoder's recursion
-   budget, so decoding it cannot overflow the interpreter stack. Brackets inside a string literal are skipped so a `[`
-   or `{` in a JSON string does not inflate the count. Closers decrement without a floor: a block with more closers than
-   openers is malformed, and the decoder rejects such a prefix before it could recurse past it, so an unflagged block is
-   skipped there as invalid JSON. */
+static int json_ld_nesting_exceeds_cap(PyObject *block);
+
+/* Document.json_ld() -> list. Decodes every JSON-LD block, keeping the ones that carry data.
+
+   The decoder is the registered json.loads: reference JSON parsing is a solved standard problem and belongs to the
+   standard library, the way RFC 3986 reference resolution does. Which blocks survive is not -- a block whose JSON is
+   malformed, whose nesting is past the depth cap, or whose payload is a scalar or null rather than a node object,
+   carries nothing -- so that decision is made here. */
+TH_NODE_API(, PyObject *, turbohtml_document_json_ld, (PyObject * self, PyObject *ignored), (self, ignored),
+            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
+    PyObject *texts = gather_json_ld(self);
+    if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *parsed = PyList_New(0);
+    if (parsed == NULL) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced to fail */
+        Py_DECREF(texts); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
+    }
+    PyObject *decoder = state_of(self)->json_ld_parser;
+    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(texts); index++) {
+        PyObject *block = PyList_GET_ITEM(texts, index);
+        if (json_ld_nesting_exceeds_cap(block)) {
+            continue;
+        }
+        PyObject *value = PyObject_CallOneArg(decoder, block);
+        if (value == NULL) {
+            /* ValueError is malformed JSON or a NaN/Infinity constant the registered decoder refuses; anything else
+               (MemoryError, KeyboardInterrupt) must reach the caller. */
+            if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: unforceable interpreter error */
+                Py_DECREF(texts);                            /* GCOVR_EXCL_LINE */
+                Py_DECREF(parsed);                           /* GCOVR_EXCL_LINE */
+                return NULL;                                 /* GCOVR_EXCL_LINE */
+            }
+            PyErr_Clear();
+            continue;
+        }
+        int carries = PyDict_Check(value) || PyList_Check(value);
+        int added =
+            carries ? PyList_Append(parsed, value) : 0; /* GCOVR_EXCL_BR_LINE: append only fails on allocation */
+        Py_DECREF(value);
+        if (added < 0) {       /* GCOVR_EXCL_BR_LINE: allocation */
+            Py_DECREF(texts);  /* GCOVR_EXCL_LINE */
+            Py_DECREF(parsed); /* GCOVR_EXCL_LINE */
+            return NULL;       /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_DECREF(texts);
+    return parsed;
+}
+
+/* Whether the JSON-LD block nests arrays or objects deeper than STRUCTURED_DATA_MAX_ITEM_DEPTH, the microdata and RDFa
+   ceiling, which keeps the stdlib json C decoder within its recursion budget. Closers decrement without a floor: a
+   surplus closer makes the block malformed, and the decoder rejects it as invalid JSON before recursing past it. */
 static int json_ld_nesting_exceeds_cap(PyObject *block) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(block);
     int kind = PyUnicode_KIND(block);
@@ -1668,56 +1716,6 @@ static int json_ld_nesting_exceeds_cap(PyObject *block) {
         }
     }
     return 0;
-}
-
-/* Document.json_ld() -> list. Decodes every JSON-LD block, keeping the ones that carry data.
-
-   The decoder is the registered json.loads: reference JSON parsing is a solved standard problem and belongs to the
-   standard library, the way RFC 3986 reference resolution does. Which blocks survive is not -- a block whose JSON is
-   malformed, whose nesting is past the depth cap, or whose payload is a scalar or null rather than a node object,
-   carries nothing -- so that decision is made here. */
-TH_NODE_API(, PyObject *, turbohtml_document_json_ld, (PyObject * self, PyObject *ignored), (self, ignored),
-            (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
-    PyObject *texts = gather_json_ld(self);
-    if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    PyObject *parsed = PyList_New(0);
-    if (parsed == NULL) { /* GCOVR_EXCL_BR_LINE: list allocation cannot be forced to fail */
-        Py_DECREF(texts); /* GCOVR_EXCL_LINE */
-        return NULL;      /* GCOVR_EXCL_LINE */
-    }
-    PyObject *decoder = state_of(self)->json_ld_parser;
-    for (Py_ssize_t index = 0; index < PyList_GET_SIZE(texts); index++) {
-        PyObject *block = PyList_GET_ITEM(texts, index);
-        if (json_ld_nesting_exceeds_cap(block)) {
-            continue; /* over-nested JSON-LD is skipped, like any block that carries no usable node */
-        }
-        PyObject *value = PyObject_CallOneArg(decoder, block);
-        if (value == NULL) {
-            /* A depth-capped block the decoder rejects fails with ValueError: malformed JSON, or the NaN/Infinity
-               constants the registered decoder refuses. Any other error is an interpreter failure (MemoryError,
-               KeyboardInterrupt) that must reach the caller rather than be mistaken for an unusable block. */
-            if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: unforceable interpreter error */
-                Py_DECREF(texts);                            /* GCOVR_EXCL_LINE */
-                Py_DECREF(parsed);                           /* GCOVR_EXCL_LINE */
-                return NULL;                                 /* GCOVR_EXCL_LINE */
-            }
-            PyErr_Clear(); /* malformed or a rejected constant: skip this block */
-            continue;
-        }
-        int carries = PyDict_Check(value) || PyList_Check(value);
-        int added =
-            carries ? PyList_Append(parsed, value) : 0; /* GCOVR_EXCL_BR_LINE: append only fails on allocation */
-        Py_DECREF(value);
-        if (added < 0) {       /* GCOVR_EXCL_BR_LINE: allocation */
-            Py_DECREF(texts);  /* GCOVR_EXCL_LINE */
-            Py_DECREF(parsed); /* GCOVR_EXCL_LINE */
-            return NULL;       /* GCOVR_EXCL_LINE */
-        }
-    }
-    Py_DECREF(texts);
-    return parsed;
 }
 
 /* The effective document base for an opt-in base_url: the caller's URL validated once (so a malformed one raises an

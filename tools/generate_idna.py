@@ -8,13 +8,12 @@ canonical combining classes, decompositions, compositions, and NFC quick-check r
 at the pinned Unicode version and writes one header that ``idna.c`` includes.
 
 The mapping status is collapsed to the four outcomes the ToASCII engine acts on -- keep, map, ignore, disallow.
-``valid`` and ``deviation`` (non-transitional keeps the code point) both keep it; ``disallowed`` is kept distinct so
-``idna.c`` rejects the host (UTS #46 §4.1 validity criterion 6, the P1/V6 the test vectors flag), the way ada's ToASCII
-does rather than punycode-encoding a code point the WHATWG host parser forbids. Each fetched file is also
-pinned to the SHA-256 of its exact bytes, so a rebuild refuses a silently rewritten or poisoned mirror the version
-pin alone would not catch. The pinned mapping file is
-the "Compatible Preprocessing" variant, whose ``valid`` rows already fold in ``UseSTD3ASCIIRules=false`` (ASCII symbols
-such as ``_`` are ``valid`` rather than ``disallowed_STD3_valid``), so no STD3 toggle is needed at run time.
+``valid`` and ``deviation`` (non-transitional keeps the code point) both keep it; ``disallowed`` stays distinct so
+``idna.c`` rejects the host (UTS #46 §4.1 validity criterion 6) instead of encoding a code point the WHATWG host parser
+forbids. Each fetched file is also pinned to the SHA-256 of its exact bytes, so a rebuild refuses a silently rewritten
+or poisoned mirror the version pin alone would not catch. The pinned mapping file is the "Compatible Preprocessing"
+variant, whose ``valid`` rows already fold in ``UseSTD3ASCIIRules=false`` (ASCII symbols such as ``_`` are ``valid``
+rather than ``disallowed_STD3_valid``), so no STD3 toggle is needed at run time.
 
 Normalization data is stored fully resolved: each code point's canonical decomposition is expanded recursively to its
 non-decomposable form in this generator, so the C step never recurses, and the composition pairs are the canonical
@@ -30,7 +29,7 @@ import hashlib
 import sys
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from httpfetch import fetch_bytes
 
@@ -56,7 +55,7 @@ _DERIVED_NORM_SHA256 = "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f
 _KEEP = 0
 _MAPPED = 1
 _IGNORED = 2
-_DISALLOWED = 3
+_DISALLOWED: Final = 3
 
 _HANGUL_SBASE = 0xAC00
 _HANGUL_LCOUNT = 19
@@ -102,7 +101,7 @@ def _mapping_ranges(text: str) -> tuple[list[tuple[int, int, int, int, int]], li
 
 
 def _merge_keep_runs(rows: list[tuple[int, int, int, int, int]]) -> list[tuple[int, int, int, int, int]]:
-    """Fuse adjacent keep rows so the binary-searched table stays compact; mapped/ignored rows never merge."""
+    """Fuse adjacent keep rows so the binary-searched table stays compact."""
     merged: list[tuple[int, int, int, int, int]] = []
     for row in rows:
         if merged and row[2] == _KEEP and merged[-1][2] == _KEEP and row[0] == merged[-1][1] + 1:

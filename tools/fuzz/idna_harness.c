@@ -57,14 +57,14 @@ static size_t utf8_next(const unsigned char *bytes, size_t len, size_t pos, Py_U
 }
 
 /* Run the WHATWG domain-to-ASCII pipeline over one host, mirroring th_url_to_ascii's buffer sizing so ASan bounds the
-   real allocation. Frees every buffer; a label punycode cannot encode returns a negative offset and is ignored. */
+   real allocation. Frees every buffer; a host map_host rejects, or a label punycode cannot encode, is ignored. */
 static void to_ascii(const Py_UCS4 *input, Py_ssize_t in_len) {
     Py_UCS4 *mapped = malloc((size_t)(in_len * 18 + 1) * sizeof(Py_UCS4));
     if (mapped == NULL) {
         return;
     }
     Py_ssize_t mapped_len = map_host(input, in_len, mapped);
-    if (mapped_len < 0) { /* a disallowed code point: the host is rejected before normalization */
+    if (mapped_len < 0) {
         free(mapped);
         return;
     }

@@ -359,10 +359,9 @@ typedef struct {
     int length;
 } th_detect_bom_sig;
 
-/* Only the three marks the WHATWG "BOM sniff" recognizes (Encoding §BOM sniff): UTF-8,
-   UTF-16BE, UTF-16LE. FF FE 00 00 therefore reports UTF-16LE on its FF FE prefix, as the
-   parser does, rather than a UTF-32 label the parser never honors. The array+loop keeps the
-   match a single memcmp per row rather than a chain of &&-guarded byte compares. */
+/* Only the three marks the WHATWG BOM sniff recognizes (Encoding §BOM sniff), so
+   FF FE 00 00 reports UTF-16LE as the parser does. The array+loop keeps the match a single
+   memcmp per row rather than a chain of &&-guarded byte compares. */
 static const th_detect_bom_sig th_detect_bom_table[] = {
     {"UTF-8-SIG", {0xEF, 0xBB, 0xBF, 0x00}, 3},
     {"UTF-16BE", {0xFE, 0xFF, 0x00, 0x00}, 2},
@@ -370,9 +369,8 @@ static const th_detect_bom_sig th_detect_bom_table[] = {
 };
 
 /* The label the standalone turbohtml.detect surface reports for a leading byte-order mark,
-   or NULL when there is none. It spells a UTF-8 mark as UTF-8-SIG (so a caller knows to
-   strip it), the one spelling the spec-locked parse-time th_encoding_bom above does not
-   emit; both agree that FF FE 00 00 is UTF-16LE and that a UTF-32 mark is no mark. */
+   or NULL when there is none. It spells a UTF-8 mark as UTF-8-SIG, unlike th_encoding_bom
+   above, so a caller knows to strip it. */
 static const char *th_detect_bom(const unsigned char *buf, Py_ssize_t len) {
     for (size_t index = 0; index < sizeof(th_detect_bom_table) / sizeof(th_detect_bom_table[0]); index++) {
         const th_detect_bom_sig *sig = &th_detect_bom_table[index];

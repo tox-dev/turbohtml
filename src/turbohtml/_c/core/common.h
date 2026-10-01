@@ -197,13 +197,10 @@ PyObject *turbohtml_url_language_matches(PyObject *module, PyObject *args);
 PyObject *th_url_to_ascii(PyObject *host);
 PyObject *turbohtml_url_to_ascii(PyObject *module, PyObject *arg);
 
-/* Implemented in url/url.c. th_url_host_canonical runs the rest of the WHATWG host parser over the bracket-stripped
-   host span url_split reports (https://url.spec.whatwg.org/#concept-host-parser): a bracketed IPv6 literal (kind
-   TH_HOST_IPV6) is parsed and serialized with zero-run compression; any other host is percent-decoded, run through
-   domain-to-ASCII, and -- when it ends in a number -- parsed as IPv4 and re-serialized in dotted-decimal, so two
-   spellings of one address compare equal. The host is a borrowed str, the result a new str (brackets dropped for IPv6);
-   NULL with an error only on allocation failure. A host that is not valid for its form falls back to its lowercased
-   spelling, the advisory behavior normalize_url already takes for an unencodable label. */
+/* Implemented in url/url.c. th_url_host_canonical runs the rest of the WHATWG host parser
+   (https://url.spec.whatwg.org/#concept-host-parser) over the bracket-stripped host url_split reports, so two spellings
+   of one address compare equal. A host invalid for its form falls back to its lowercased spelling, the advisory
+   behavior normalize_url takes for an unencodable label. NULL only on allocation failure. */
 PyObject *th_url_host_canonical(PyObject *host, int kind);
 
 /* Implemented in url/registrable.c. _registrable_domain(host) returns a lowercased

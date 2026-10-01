@@ -5,13 +5,12 @@
    The WHATWG host parser runs Unicode IDNA ToASCII with Transitional_Processing=false and, for the non-strict cleaner
    this backs, UseSTD3ASCIIRules=false -- that is UTS #46, not the older IDNA-2003 str.encode("idna") the shim used to
    reach, which mis-handles ess-zett and final sigma. Processing is three steps over the pinned Unicode tables in
-   data/idna_table.h: map each code point (lowercasing, fold-away, or drop), rejecting one UTS #46 disallows in a host;
-   normalize the result to NFC; then per label punycode-encode any that carries a non-ASCII code point. An already-ASCII
-   "xn--" label is decoded to validate and canonicalize it, and a label the decoder rejects is kept verbatim (an
-   advisory error the best-effort cleaner ignores), so the mechanical output matches the UTS #46 conformance vectors'
-   toASCII column for every well-formed, in-limit host. The host fails -- which the shim catches to fall back to the
-   lowercased form -- on a disallowed code point, on a code point punycode cannot encode (an unpaired surrogate), or on
-   an input past TH_IDNA_MAX_INPUT code points, the cap that bounds the quadratic reorder and punycode passes. */
+   data/idna_table.h: map each code point (lowercasing, fold-away, or drop), normalize the result to NFC, then per label
+   punycode-encode any that carries a non-ASCII code point. An already-ASCII "xn--" label is decoded to validate and
+   canonicalize it, and a label the decoder rejects is kept verbatim (an advisory error the best-effort cleaner
+   ignores), so the mechanical output matches the UTS #46 conformance vectors' toASCII column for every well-formed,
+   in-limit host. The host fails, and the shim falls back to the lowercased form, on a disallowed code point, an
+   unpaired surrogate, or an input past TH_IDNA_MAX_INPUT. */
 
 /* The ToASCII core (map_host, nfc, puny_encode/decode, emit_label) is pure Py_UCS4 buffer arithmetic and touches
    CPython only through the two boundary functions at the foot of the file. Defining TH_IDNA_STANDALONE swaps the
@@ -57,14 +56,10 @@ enum {
     HANGUL_SCOUNT = HANGUL_LCOUNT * HANGUL_NCOUNT,
 };
 
-/* The most code points ToASCII will map and normalize before it rejects the host. Both the combining-mark reorder
-   (nfc_order) and the per-label punycode encoder are O(n^2) in the label length, so an unbounded host pins a CPU core
-   (a 32,000-code-point label took ~0.9 s). The URL Standard sets VerifyDnsLength=false and leaves overlong labels
-   undefined (whatwg/url#824), so capping the input is an implementation choice: ada rejects a domain over
-   max_domain_input_bytes = 16384 "to bound heap growth under untrusted input (DoS resistance)". We cap at the same
-   16384, measured in code points (the unit the quadratic work scales in) -- three orders of magnitude above the 253
-   octets DNS allows a real name, so no genuine host is refused. Checked before mapping, it bounds nfc_order,
-   puny_encode, and the in_len-proportional working buffers at once. */
+/* The longest host ToASCII accepts. nfc_order and puny_encode are O(n^2) in the label length (a 32,000-code-point
+   label took ~0.9 s), and the URL Standard leaves overlong labels undefined (whatwg/url#824), so this matches ada's
+   max_domain_input_bytes = 16384 DoS bound, counted in code points, the unit the quadratic work scales in. It is three
+   orders of magnitude above the 253 octets DNS allows, so it refuses no real host. */
 enum { TH_IDNA_MAX_INPUT = 16384 };
 
 /* The UTS #46 mapping row covering `cp`: the ranges tile the code space with no gap the loader leaves, so a code point
@@ -208,11 +203,9 @@ static Py_UCS4 pair_compose(Py_UCS4 first, Py_UCS4 second) {
 }
 
 /* Apply the UTS #46 mapping to input[0,in_len): keep, replace with the pool sequence, or drop each code point. `out`
-   holds at most in_len * (longest mapping) code points; returns the mapped length, or -1 when the host carries a code
-   point UTS #46 disallows (status 3), which the host parser must reject rather than encode (spec 3.5, validity
-   criterion 6) -- the over-acceptance ada rejects for C0/C1 controls, non-characters, and the like. An unpaired
-   surrogate is status 3 too, but it is left in place for puny_encode's non-scalar guard to reject (unchanged, and still
-   reachable by the standalone fuzz harness), so a crafted surrogate still exercises that CVE-surface guard. */
+   holds at most in_len * (longest mapping) code points; returns the mapped length, or -1 on a code point UTS #46
+   disallows in a host (validity criterion 6). It keeps an unpaired surrogate, which UTS #46 also disallows, so the
+   fuzz harness reaches puny_encode's non-scalar guard with one. */
 static Py_ssize_t map_host(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4 *out) {
     Py_ssize_t at = 0;
     for (Py_ssize_t index = 0; index < in_len; index++) {
@@ -227,8 +220,8 @@ static Py_ssize_t map_host(const Py_UCS4 *input, Py_ssize_t in_len, Py_UCS4 *out
                 out[at++] = th_idna_map_pool[row->offset + offset];
             }
         } else if (row->status == 3 && (cp < 0xD800 || cp > 0xDFFF)) {
-            return -1; /* disallowed in a host (a surrogate, also status 3, is kept for puny_encode to reject) */
-        } else if (row->status != 2) { /* 0 keeps the code point; 2 drops it (the ignored set); a surrogate keeps */
+            return -1;
+        } else if (row->status != 2) { /* 0 keeps the code point; 2 drops it (the ignored set) */
             out[at++] = cp;
         }
     }
@@ -540,8 +533,7 @@ static Py_ssize_t emit_label(Py_UCS4 *out, Py_ssize_t at, const Py_UCS4 *span, P
 
 #ifndef TH_IDNA_STANDALONE
 /* th_url_to_ascii(host): the WHATWG domain-to-ASCII engine, a borrowed str host in, a new ASCII str out, or NULL with a
-   ValueError set when a label holds a code point punycode cannot encode (an unpaired surrogate). The shim catches that
-   to fall back to the lowercased host. */
+   ValueError set when the host fails. The shim catches that to fall back to the lowercased host. */
 PyObject *th_url_to_ascii(PyObject *host) {
     Py_ssize_t in_len = PyUnicode_GET_LENGTH(host);
     if (in_len > TH_IDNA_MAX_INPUT) {

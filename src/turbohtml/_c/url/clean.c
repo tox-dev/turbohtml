@@ -152,9 +152,7 @@ static PyObject *port_suffix(const th_url_parts *parts) {
     return suffix;
 }
 
-/* The authority rebuilt from its WHATWG-canonical host and port, keeping userinfo verbatim: the host is
-   percent-decoded, domain-to-ASCII'd, and IPv4/IPv6-canonicalized by th_url_host_canonical, then a bracketed IPv6
-   literal is re-wrapped. */
+/* The authority rebuilt from its WHATWG-canonical host and port, keeping userinfo verbatim. */
 static PyObject *normalize_netloc(const th_url_parts *parts) {
     PyObject *canonical = th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
     if (canonical == NULL) { /* GCOVR_EXCL_BR_LINE: the host parse only fails on allocation failure */
@@ -429,7 +427,7 @@ PyObject *turbohtml_url_clean(PyObject *Py_UNUSED(module), PyObject *args) {
     return result;
 }
 
-/* The registrable domain (eTLD+1) that defines a URL's external_only site, or "" for no host. The host is punycoded
+/* The registrable domain (eTLD+1) that defines a URL's external_only site, or "" for no host. The host is canonicalized
    first so a Unicode base compares against the ASCII hosts clean emits. Raises ValueError when the URL cannot be
    split. */
 static PyObject *site_of(PyObject *url) {
