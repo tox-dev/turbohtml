@@ -70,3 +70,16 @@
 	path = tests/conformance/linkify-it
 	url = https://github.com/markdown-it/linkify-it
 	shallow = true
+[submodule "tools/fuzz-data/h5sc"]
+	path = tools/fuzz-data/h5sc
+	url = https://github.com/cure53/H5SC
+	shallow = true
+[submodule "tools/fuzz-data/google-fuzzing"]
+	path = tools/fuzz-data/google-fuzzing
+	url = https://github.com/google/fuzzing
+	shallow = true
+[submodule "tools/fuzz-data/wpt"]
+	path = tools/fuzz-data/wpt
+	url = https://github.com/web-platform-tests/wpt
+	shallow = true
+	update = none

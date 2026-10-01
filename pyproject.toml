@@ -264,6 +264,7 @@ extend-exclude = [
   "tests/conformance/python-phonenumbers",
   "tests/conformance/unicodetools",
   "tests/html5lib-tests",
+  "tools/fuzz-data",
   "tools/html5lib-python"
 ]  # vendored suites, not our code
 format.preview = true
@@ -348,6 +349,7 @@ src.exclude = [
   "tests/conformance/python-phonenumbers",
   "tests/conformance/unicodetools",
   "tests/html5lib-tests",
+  "tools/fuzz-data",
   "tools/html5lib-python"
 ]  # vendored suites, not our code
 environment.extra-paths = [

@@ -15,5 +15,5 @@ from pathlib import Path
 
 if __name__ == "__main__":
     root = Path(os.environ["MESON_DIST_ROOT"])
-    for relative in ("tests/html5lib-tests", "tools/bench-data", "tools/html5lib-python"):
+    for relative in ("tests/html5lib-tests", "tools/bench-data", "tools/fuzz-data", "tools/html5lib-python"):
         shutil.rmtree(root / relative, ignore_errors=True)
