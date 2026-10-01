@@ -886,6 +886,7 @@ static int set_textarea_value(PyObject *self, th_node *node, PyObject *value) {
     th_tree *tree = tree_of(self);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    handle_drop_index(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
         th_node_remove_observed(tree, node->first_child);
     }
@@ -3682,6 +3683,7 @@ TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, vo
     th_tree *tree = tree_of(self);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    handle_drop_index(((NodeObject *)self)->handle);
     while (node->first_child != NULL) {
         th_node_remove_observed(tree, node->first_child);
     }

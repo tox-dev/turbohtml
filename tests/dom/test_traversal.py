@@ -175,6 +175,33 @@ def test_last_child_descends_into_skipped(root: Element) -> None:
     assert walker.last_child() is None
 
 
+def _detaching_filter(action: str, verdict: int) -> Callable[[Node], int]:
+    def node_filter(node: Node) -> int:
+        if action == "extract":
+            _el(node).extract()
+        else:
+            _el(_el(node).parent).set_text("z")
+        return verdict
+
+    return node_filter
+
+
+@pytest.mark.parametrize(
+    ("walk", "action", "verdict"),
+    [
+        pytest.param("first_child", "extract", REJECT, id="first-child-reject-extract"),
+        pytest.param("first_child", "extract", SKIP, id="first-child-skip-extract"),
+        pytest.param("first_child", "parent_set_text", REJECT, id="first-child-reject-parent-set-text"),
+        pytest.param("last_child", "extract", REJECT, id="last-child-reject-extract"),
+    ],
+)
+def test_traverse_children_survives_filter_detaching_node(walk: str, action: str, verdict: int) -> None:
+    # The DOM lets a NodeFilter mutate the tree; a filter that detaches the walked node must not crash the climb.
+    tree = Element("root", children=[Element("a", children=[Element("aa")]), Element("b", children=[Element("bb")])])
+    walker = TreeWalker(tree, SHOW_ELEMENT, _detaching_filter(action, verdict))
+    assert getattr(walker, walk)() is None
+
+
 def test_parent_node_none_at_root(root: Element) -> None:
     assert TreeWalker(root).parent_node() is None
 

@@ -653,8 +653,8 @@ static void serialize_iter_dealloc(PyObject *self) {
     Py_DECREF(type);
 }
 
-/* set_text, normalize, linkify_node, strip_comments_node, the textarea field_value setter and ShadowRoot.set_inner_html
-   unlink nodes without bumping mutation_version, so a detached resume node shows only as a broken parent chain. */
+/* normalize, linkify and strip_comments unlink nodes without bumping mutation_version, so a detached resume node shows
+   only as a broken parent chain, not as a version change. */
 static int cursor_reaches_root(const th_node *cursor, const th_node *root) {
     for (const th_node *node = cursor; node != NULL; node = node->parent) {
         if (node == root) {

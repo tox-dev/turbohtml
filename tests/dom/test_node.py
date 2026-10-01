@@ -1336,6 +1336,33 @@ def test_iter_elements_walks_detached_pending_subtree() -> None:
     assert list(iterator) == [second, child]
 
 
+def test_iter_elements_survives_set_text_clearing_siblings() -> None:
+    first: Final = Element("a")
+    root: Final = Element("root", children=[first, Element("b"), Element("c")])
+    iterator: Final = root.iter_elements()
+    assert next(iterator) == first
+    root.set_text("x")  # clears the pending siblings; the walk must revalidate, not crash
+    assert [node.tag for node in iterator] == ["b"]
+
+
+def test_iter_elements_survives_text_setter_clearing_siblings() -> None:
+    first: Final = Element("a")
+    root: Final = Element("root", children=[first, Element("b"), Element("c")])
+    iterator: Final = root.iter_elements()
+    assert next(iterator) == first
+    root.text = "x"
+    assert [node.tag for node in iterator] == ["b"]
+
+
+def test_iter_elements_survives_field_value_clearing_siblings() -> None:
+    first: Final = Element("a")
+    root: Final = Element("textarea", children=[first, Element("b"), Element("c")])
+    iterator: Final = root.iter_elements()
+    assert next(iterator) == first
+    root.field_value = "x"
+    assert [node.tag for node in iterator] == ["b"]
+
+
 def test_iter_elements_follows_moved_root() -> None:
     first: Final = Element("p")
     second: Final = Element("p")

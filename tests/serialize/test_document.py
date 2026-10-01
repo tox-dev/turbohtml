@@ -386,6 +386,30 @@ def test_serialize_iter_raises_after_a_mid_stream_edit() -> None:
     assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
 
+_ITER_VERSIONLESS_DETACH: Final = """
+import turbohtml
+from turbohtml import Element, Text
+
+root = Element("div", children=[Text("x" * 200000), Text("y"), Element("p", children=[Text("z" * 200000)])])
+walk = root.serialize_iter()
+next(walk)            # the huge first text ends the chunk; the cursor resumes on Text("y")
+root.normalize()     # merges Text("y") into the first text and unlinks it, without bumping the version
+try:
+    next(walk)
+except RuntimeError as exc:
+    print(exc)
+"""
+
+
+def test_serialize_iter_raises_when_a_versionless_edit_detaches_the_cursor() -> None:
+    # normalize unlinks the resume node without bumping the version, so serialize_iter must notice the broken parent
+    # chain rather than the version counter; a regression serializes a detached node and kills the interpreter.
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", _ITER_VERSIONLESS_DETACH], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, result.stdout) == (0, f"{_ITER_CHANGED}\n"), result.stderr
+
+
 @pytest.mark.parametrize(
     "moved",
     [

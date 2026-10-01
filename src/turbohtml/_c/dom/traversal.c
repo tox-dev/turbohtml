@@ -151,8 +151,9 @@ static th_node *tw_traverse_children(TreeWalkerObject *self, module_state *state
                 break;
             }
             th_node *parent = node->parent;
-            /* parent is never NULL here: node stays within origin's subtree, so the climb hits origin first */
-            if (parent == self->root || parent == origin) {
+            /* The spec lets a NodeFilter mutate the tree; a filter that detaches node leaves parent NULL,
+               so stop rather than dereference it, matching the other TreeWalker steps. */
+            if (parent == NULL || parent == self->root || parent == origin) {
                 return NULL;
             }
             node = parent;

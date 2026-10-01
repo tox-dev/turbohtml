@@ -600,6 +600,7 @@ TH_NODE_API(static, PyObject *, shadow_root_set_inner_html, (PyObject * self, Py
     th_tree *dest = tree_of(self);
     int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
+    handle_drop_index(((NodeObject *)self)->handle);
     while (root->first_child != NULL) {
         th_node_remove(root->first_child);
     }
