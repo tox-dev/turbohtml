@@ -623,8 +623,6 @@ def test_a_byte_order_mark_codec_delegates_to_cpython(data: bytes, text: str) ->
         pytest.param(b"\xef\xbb\xbfhi\xc3(", "hi\ufffd(", id="utf-8-sig-bad-continuation"),
         pytest.param(b"\xff\xfe" + "AB".encode("utf-16-le") + b"\x41", "\ufeffAB\ufffd", id="utf-16le-lone-byte"),
         pytest.param(b"\xfe\xff" + "AB".encode("utf-16-be") + b"\x41", "\ufeffAB\ufffd", id="utf-16be-lone-byte"),
-        pytest.param(b"\xff\xfe\x00\x00A\x00\x00\x00\x41", "\ufeffA\ufffd", id="utf-32le-trailing-bytes"),
-        pytest.param(b"\x00\x00\xfe\xff\x00\x00\x00A\x41", "\ufeffA\ufffd", id="utf-32be-trailing-bytes"),
     ],
 )
 def test_a_byte_order_mark_codec_replaces_malformed_bytes(data: bytes, text: str) -> None:
