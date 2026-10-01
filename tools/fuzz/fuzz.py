@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -34,7 +35,7 @@ _ROOT: Final[Path] = Path(__file__).resolve().parent.parent.parent
 _FUZZ: Final[Path] = _ROOT / "tools" / "fuzz"
 _CORPUS: Final[Path] = _FUZZ / "corpus"
 _REGRESSIONS: Final[Path] = _ROOT / "tests" / "fuzz_regressions"
-_JS_CORPUS: Final[Path] = _ROOT / "tests" / "serialize" / "js" / "_corpus"
+_JS_CORPUS: Final[Path] = _ROOT / "tests" / "js" / "_corpus"
 _CC: Final[str] = os.environ.get("CC", "clang")
 _JS_ENGINE: Final[tuple[str, ...]] = ("lexer", "ast", "parser", "printer", "fold", "mangle", "minify")
 # pymalloc carves small objects out of pools, so an over-read that stays inside a pool never reaches ASan's redzones;
@@ -95,7 +96,7 @@ def _run_standalone(mode: str, extra: Path | None) -> int:
         "-DJM_STANDALONE",
         js,
     )
-    js_seeds = _files(_REGRESSIONS) + (_files(_JS_CORPUS) if mode == "deep" else [])
+    js_seeds = _files(_REGRESSIONS) + (_js_corpus(work) if mode == "deep" else [])
     env = {
         **os.environ,
         "ASAN_OPTIONS": f"detect_leaks={1 if platform.system() == 'Linux' else 0}:halt_on_error=1",
@@ -128,6 +129,17 @@ def _compile(harness: Path, sources: list[Path], macro: str, binary: Path) -> No
     ]
     print("$", " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def _js_corpus(work: Path) -> list[str]:
+    # the fixtures are JSON rows, so each input becomes its own file for the harness, as tools/js_sanitize.py does
+    files = []
+    for index, row in enumerate(
+        row for fixture in sorted(_JS_CORPUS.glob("*.json")) for row in json.loads(fixture.read_text(encoding="utf-8"))
+    ):
+        (path := work / f"corpus-{index}.js").write_text(row["input"], encoding="utf-8")
+        files.append(str(path))
+    return files
 
 
 def _seed_files(target: str, extra: Path | None) -> list[str]:
