@@ -1,0 +1,4 @@
+The URL extraction helpers :func:`~turbohtml.extract.normalize_url`, :func:`~turbohtml.extract.clean_url`, and
+:func:`~turbohtml.extract.extract_links` no longer take time quadratic in the length of a non-ASCII host, leave a host
+longer than 16384 code points unencoded, and keep a host carrying a code point UTS #46 disallows as Unicode rather than
+converting it to punycode.

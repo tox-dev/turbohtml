@@ -13,6 +13,7 @@ pinned separately to the RFC 3492 sample strings, and the remaining branches (an
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -75,9 +76,23 @@ def _expected_ascii(columns: list[str], source: str) -> str:
     return decoded_unicode
 
 
-def _vectors() -> list[tuple[str, str]]:
-    """The ``(source, expected_ascii)`` pairs of every well-formed IdnaTestV2 row, surrogate rows dropped."""
-    pairs: list[tuple[str, str]] = []
+# The URL Standard runs ToASCII with VerifyDnsLength, CheckHyphens, and UseSTD3ASCIIRules off, so the vectors' status
+# codes for those flags (A4_1/A4_2, V2/V3, U1) are not errors here; a row with any other code is one the WHATWG host
+# parser rejects.
+_IGNORED_STATUS = frozenset({"A4_1", "A4_2", "V2", "V3", "U1"})
+
+
+def _row_is_error(columns: list[str]) -> bool:
+    """Whether the ``toAsciiN`` status flags a WHATWG-relevant error (column 5, inheriting column 3 when blank)."""
+    status = columns[4] or columns[2]
+    inside = status.strip()[1:-1] if status.strip().startswith("[") else ""
+    codes = {code for code in (part.strip() for part in inside.split(",")) if code}
+    return bool(codes - _IGNORED_STATUS)
+
+
+def _vectors() -> list[tuple[str, str, bool]]:
+    """The ``(source, expected_ascii, is_error)`` triple of each well-formed IdnaTestV2 row, surrogate rows dropped."""
+    rows: list[tuple[str, str, bool]] = []
     for raw in _VECTORS.read_text(encoding="utf-8").splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line:
@@ -86,18 +101,31 @@ def _vectors() -> list[tuple[str, str]]:
         source = _unescape(columns[0])
         if source and _has_surrogate(source):
             continue
-        pairs.append((source, _expected_ascii(columns, source)))
-    return pairs
+        rows.append((source, _expected_ascii(columns, source), _row_is_error(columns)))
+    return rows
+
+
+def _ascii_or_rejected(source: str) -> tuple[bool, str]:
+    """``(rejected, ascii)``: whether the engine refused the host, and its ASCII form when it did not."""
+    try:
+        return False, _url_to_ascii(source)
+    except ValueError:
+        return True, ""
 
 
 def test_idna_conformance_covers_every_wellformed_vector() -> None:
-    """The engine reproduces the ``toAsciiN`` column of every well-formed Unicode IdnaTestV2 vector."""
-    mismatches = [
-        (source, expected, _url_to_ascii(source))
-        for source, expected in _vectors()
-        if _url_to_ascii(source) != expected
+    """Every well-formed IdnaTestV2 row either reproduces the ``toAsciiN`` column or, where the engine rejects it,
+    is one UTS #46 itself flags as an error under the WHATWG flags -- the engine never refuses a host the standard
+    accepts, and never emits a wrong one."""
+    rows = [(source, expected, is_error, *_ascii_or_rejected(source)) for source, expected, is_error in _vectors()]
+    returned_wrong = [
+        (source, actual, expected)
+        for source, expected, _, rejected, actual in rows
+        if not rejected and actual != expected
     ]
-    assert mismatches == []
+    rejected_valid = [source for source, _, is_error, rejected, _ in rows if rejected and not is_error]
+    assert returned_wrong == []
+    assert rejected_valid == []
 
 
 # RFC 3492 section 7.1 sample strings whose label is all lowercase (ToASCII lowercases first, so the mixed-case samples
@@ -194,8 +222,9 @@ def test_malformed_xn_label_is_kept_verbatim(label: str) -> None:
 
 # A label whose punycode delta would overflow the 32-bit accumulator: a long run of one code point, then a distant one.
 # The first case trips the pre-multiply guard, the second lands the accumulator just under the limit so the following
-# increments trip the per-code-point guard.
-_OVERFLOW_LABELS = ["\u3400" * 2000 + "\U0010ffff", "\u3400" * 2000 + "\U00109436"]
+# increments trip the per-code-point guard. Both stay under the 16384-code-point input cap and use CJK code points UTS
+# #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap rejection.
+_OVERFLOW_LABELS = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
 
 
 @pytest.mark.parametrize("label", _OVERFLOW_LABELS, ids=["pre-multiply-guard", "increment-guard"])
@@ -308,3 +337,37 @@ def test_boundary_length_label_round_trips_without_overrun(label: str) -> None:
     encoded = _url_to_ascii(f"{label}.example")
     assert encoded.endswith(".example")
     assert _url_to_ascii(encoded) == encoded
+
+
+# One label, under then over the 16384-code-point input cap. U+0316 then U+0301 alternates combining classes 220 and
+# 230, the input the pre-fix insertion-sort reorder is O(n^2) on; without the cap a host this size pins a CPU core for
+# tens of seconds (the IDNA ToASCII DoS, whatwg/url#824; ada caps the same at 16384 bytes). The cap rejects before it.
+def test_host_at_the_input_cap_still_encodes() -> None:
+    """A host exactly at the 16384-code-point cap is mapped and encoded, so no real domain is refused."""
+    assert _url_to_ascii("\u3400" * 16384).startswith("xn--")
+
+
+def test_oversize_host_is_rejected_before_the_quadratic_passes_run() -> None:
+    """A host past the cap raises at once, in bounded time, instead of driving the O(n^2) reorder and punycode loops."""
+    host = "\u0316\u0301" * 60000
+    start = time.process_time()
+    with pytest.raises(ValueError, match="exceeds the IDNA input limit of 16384"):
+        _url_to_ascii(host)
+    assert time.process_time() - start < 2.0
+
+
+@pytest.mark.parametrize(
+    "code_point",
+    [
+        pytest.param(0x0085, id="c1-control-NEL"),
+        pytest.param(0x2028, id="line-separator"),
+        pytest.param(0x202E, id="right-to-left-override"),
+        pytest.param(0xE000, id="private-use"),
+        pytest.param(0xFFFE, id="noncharacter"),
+    ],
+)
+def test_disallowed_code_point_host_is_rejected(code_point: int) -> None:
+    """A code point UTS #46 marks disallowed is refused (validity criterion 6), the way ada's ToASCII refuses it,
+    rather than punycode-encoded into a host the WHATWG parser would reject."""
+    with pytest.raises(ValueError, match="disallows"):
+        _url_to_ascii(f"a{chr(code_point)}b.example")

@@ -64,6 +64,10 @@ static void to_ascii(const Py_UCS4 *input, Py_ssize_t in_len) {
         return;
     }
     Py_ssize_t mapped_len = map_host(input, in_len, mapped);
+    if (mapped_len < 0) { /* a disallowed code point: the host is rejected before normalization */
+        free(mapped);
+        return;
+    }
     Py_UCS4 *norm = malloc((size_t)(mapped_len * 4 + 1) * sizeof(Py_UCS4));
     if (norm == NULL) {
         free(mapped);
