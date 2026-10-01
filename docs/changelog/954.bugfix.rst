@@ -1,0 +1,2 @@
+Parsing HTML with formatting elements nested past the 512 open-element limit no longer builds a quadratic number of DOM
+nodes.

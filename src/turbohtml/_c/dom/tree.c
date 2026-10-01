@@ -1616,6 +1616,18 @@ static int afe_push(th_tree *tree, th_node *node) {
     return 1;
 }
 
+/* Record a just-inserted formatting element for later reconstruction, but only if the
+   depth cap let it onto the open stack (it is then the current node). An entry the cap
+   refused never rejoins the stack, so reconstruct_afe would re-clone it on every later
+   formatting tag -- O(n^2) retained DOM nodes from a flat run of start tags past the
+   512 cap. jsoup keeps the same cap and its formatting list consistent the same way
+   (TreeBuilder.onStackPrunedForDepth). */
+static void afe_push_if_open(th_tree *tree, th_node *node) {
+    if (current_node(tree) == node) {
+        afe_push(tree, node);
+    }
+}
+
 static void afe_push_marker(th_tree *tree) {
     if (tree->afe_len == tree->afe_cap) {
         size_t cap;
@@ -3190,7 +3202,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
-                afe_push(tree, node);
+                afe_push_if_open(tree, node);
             }
             return TH_DRAIN_NEXT;
         }
@@ -3199,7 +3211,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
-                afe_push(tree, node);
+                afe_push_if_open(tree, node);
             }
             return TH_DRAIN_NEXT;
         }
