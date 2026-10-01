@@ -97,6 +97,7 @@ static void run_builtins(long *cases) {
         "obj?.prop??a**b>>>=c", "class C extends B{#p=1;get x(){}static m(){}}",
         "for(var a=(b in c);;);", "(foo?.bar()).baz=true", "a<! --b", "a-- >b",
         "new a.b.C(1)", "1 .toString()", "x=[1,,3,,]", "switch(x){case 1:a();break;default:b()}",
+        "t.0.", "t,(0).", /* empty member name: the run borrows a zero-length span at the buffer end */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {

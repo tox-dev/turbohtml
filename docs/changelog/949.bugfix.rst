@@ -1,0 +1,2 @@
+The JavaScript minifier no longer reads past the inline-``<script>`` buffer when a member access ends with an empty
+name, such as ``t.0.``.

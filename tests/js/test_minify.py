@@ -20,7 +20,7 @@ import pytest
 from bench.operations import INPUTS
 
 import turbohtml
-from turbohtml import Html, Minify, _html
+from turbohtml import Html, Minify, _html, clean
 from turbohtml.clean import JSMinify, minify_js
 
 if TYPE_CHECKING:
@@ -120,6 +120,15 @@ def test_adjacency_guard(source: str, expected: str) -> None:
 )
 def test_computed_member_to_dot(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+@pytest.mark.parametrize("source", [pytest.param("t.0.", id="dot"), pytest.param("t,(0).", id="paren")])
+def test_empty_member_name_does_not_over_read(source: str) -> None:
+    # a `.` after a numeric member leaves an empty member name whose borrowed source span sits one
+    # past the buffer end; printing it must not read that code point (asan-js catches the over-read).
+    # The inline-<script> path allocates the span with no NUL terminator, so it exercises the bug.
+    assert minify_js(source) == "t,(0)."
+    assert clean.minify(f"<script>{source}</script>", Minify(minify_js=JSMinify())) == "<script>t,(0).</script>"
 
 
 @pytest.mark.parametrize(
