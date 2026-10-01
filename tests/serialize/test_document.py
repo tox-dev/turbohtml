@@ -921,7 +921,7 @@ def test_round_trip_reparses_to_same_html() -> None:
 
 
 def _inner_xml(node: Node) -> str:
-    """Serialize one node through the well-formed inner_xml path (Node.serialize keeps the raw XML syntax)."""
+    """Serialize one node through the inner_xml path, which emits the same well-formed XML Node.serialize(xml) does."""
     return Element("root", children=[node]).inner_xml
 
 
@@ -932,14 +932,37 @@ def _parsed_inner_xml(markup: str) -> str:
     return node.inner_xml
 
 
-def test_raw_xml_serialize_spaces_a_double_dash_in_a_comment() -> None:
-    from turbohtml import (  # ruff:ignore[import-outside-top-level]  # only this raw-vs-well-formed contrast needs it
-        Comment,
-    )
-
-    # XML forbids `--` inside a comment, so even the raw path spaces it; unlike inner_xml it keeps other characters
+def test_xml_serialize_makes_a_comment_well_formed() -> None:
+    # XML forbids `--` inside a comment and holds no C0 control, so serialize(xml) spaces the one and drops the other,
+    # matching inner_xml; the raw path that kept the control left output parse_xml rejects
     node = Element("doc", children=[Comment("a--b\x01")])
-    assert node.serialize(_XML) == "<doc><!--a- -b\x01--></doc>"
+    assert node.serialize(_XML) == "<doc><!--a- -b--></doc>"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<p>a\x01\x0b\x0c\x1fb</p>", id="c0-controls-in-text"),
+        pytest.param("<p>&#x7;x</p>", id="char-ref-control-in-text"),
+        pytest.param("<p>\ud800x</p>", id="lone-surrogate-in-text"),
+        pytest.param("<p>￾￿x</p>", id="noncharacters-in-text"),
+        pytest.param('<p title="a&#x1;b">x</p>', id="control-in-attribute-value"),
+        pytest.param("<style>a{b:1}\x01</style>", id="control-in-style-body"),
+        pytest.param("<p a\x01b=1>x</p>", id="control-in-attribute-name"),
+        pytest.param("<!--a--b\x01--><p>x</p>", id="double-hyphen-and-control-in-comment"),
+    ],
+)
+def test_serialize_xml_output_reparses_as_xml(markup: str) -> None:
+    # the round-trip invariant: Node.serialize(xml) only ever emits XML parse_xml can read back
+    out = parse(markup).serialize(_XML)
+    reparsed = parse_xml(out)
+    assert reparsed.serialize(_XML) == out  # and re-serializing the reparse is a fixpoint
+
+
+def test_serialize_xml_drops_an_attribute_name_xml_cannot_hold() -> None:
+    # a tag-soup attribute name the HTML parser keeps would break the XML start tag, so serialize(xml) omits it
+    node = Element("p", {'a"b': "1", "ok": "v"}, children=[Text("t")])
+    assert node.serialize(_XML) == '<p ok="v">t</p>'
 
 
 @pytest.mark.parametrize(

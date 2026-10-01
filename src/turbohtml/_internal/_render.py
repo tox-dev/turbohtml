@@ -363,7 +363,10 @@ class Html:
     :param xml: emit XML/XHTML syntax -- every empty element self-closes (``<br/>``), foreign SVG and MathML
         subtrees carry their namespace declarations, and text and attribute values follow the XML escaping rules.
         The HTML void-element and raw-text special casing (and the ``formatter``/``meta_charset`` options) do not
-        apply; a :class:`~turbohtml.Minify` layout stays HTML.
+        apply; a :class:`~turbohtml.Minify` layout stays HTML. The serializer drops or spaces content XML 1.0 cannot
+        hold -- a C0 control other than tab/newline/return, a surrogate, the noncharacters U+FFFE/U+FFFF, a ``--`` or
+        trailing ``-`` in a comment, an attribute name carrying a forbidden character -- so the output re-parses with
+        :func:`~turbohtml.parse_xml`.
     """
 
     formatter: Formatter = Formatter.WHATWG

@@ -1,0 +1,2 @@
+Make ``serialize(Html(xml=True))`` emit well-formed XML, dropping the characters, attribute names, and comment spellings
+XML 1.0 forbids.

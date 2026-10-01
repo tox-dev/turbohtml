@@ -71,6 +71,13 @@ result parses with any XML reader, which is the whole point: an HTML tree become
 pipeline that would reject HTML's unclosed tags. A :class:`~turbohtml.Minify` layout is inherently HTML (its
 optional-tag and unquoted-attribute rules are HTML-parser rules), so it stays HTML even under ``xml=True``.
 
+The fifth is content XML cannot represent at all. The XML 1.0 ``Char`` production excludes the C0 controls other than
+tab, newline and carriage return, the surrogate block, and the noncharacters U+FFFE/U+FFFF; a comment cannot contain
+``--`` or end on ``-``; and an attribute name must be an XML ``Name``. An HTML parser keeps all of these (a stray
+control in text, a ``--`` in a comment, a tag-soup ``a"b`` attribute name), so ``xml=True`` drops the forbidden
+characters and attribute names and spaces the comment hyphens. The output of ``serialize(Html(xml=True))`` therefore
+re-parses with :func:`~turbohtml.parse_xml`.
+
 **********************
  Minifying JavaScript
 **********************

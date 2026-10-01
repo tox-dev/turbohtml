@@ -259,7 +259,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             node->parent == root) {
             sbuf_put_ucs4(out, need_text(tree, node), node->text_len);
         } else if (opts->xml) {
-            sbuf_put_xml_text(out, need_text(tree, node), node->text_len, 0, opts->well_formed);
+            sbuf_put_xml_text(out, need_text(tree, node), node->text_len, 0);
         } else {
             sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
         }
@@ -269,7 +269,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         if (opts->xml) {
             /* HTML parsers read XHTML output too, the sanitizer's inner_xml among them */
             sbuf_put_comment_start(out, node->text, node->text_len);
-            sbuf_put_xml_comment(out, node->text, node->text_len, opts->well_formed);
+            sbuf_put_xml_comment(out, node->text, node->text_len);
         } else {
             sbuf_put_comment(out, node->text, node->text_len);
         }
@@ -526,7 +526,7 @@ static th_node *pretty_emit_run(sbuf *out, th_tree *tree, th_node *start, const 
                 end--;
             }
             if (opts->xml) {
-                sbuf_put_xml_text(out, text + begin, end - begin, 0, opts->well_formed);
+                sbuf_put_xml_text(out, text + begin, end - begin, 0);
             } else {
                 sbuf_put_text(out, text + begin, end - begin, 0, opts->formatter);
             }
@@ -784,7 +784,7 @@ void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
-static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, 0};
+static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0};
 
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
@@ -801,12 +801,11 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
-/* The inner_html defaults with XML/XHTML syntax turned on, plus the well-formed pass:
-   empty elements self-close, values follow the XML escaping rules, foreign subtrees
-   carry their namespace declarations, and comments plus character data plus attribute
-   names are made well-formed. This is the sanitizer's serialization; Node.serialize's
-   own Html(xml=True) stays on the raw XML path with well_formed off. */
-static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 1, 0};
+/* The inner_html defaults with XML/XHTML syntax turned on: empty elements self-close,
+   values follow the XML escaping rules, foreign subtrees carry their namespace
+   declarations, and comments, character data, and attribute names are made well-formed.
+   The same rules Node.serialize(Html(xml=True)) emits under, so a fragment always reparses. */
+static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0};
 
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};

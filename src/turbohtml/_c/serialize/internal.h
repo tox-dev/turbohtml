@@ -285,18 +285,6 @@ static inline void sbuf_put_xml_special(sbuf *out, Py_UCS4 character) {
     }
 }
 
-/* Whether a code point needs a reference under raw XML serialization. Structural
-   `& < >` always escape; a double quote, tab and newline escape only inside an
-   attribute value (where XML would otherwise normalize the whitespace away); a
-   carriage return escapes everywhere so a reparse cannot fold it to a newline. This
-   is Node.serialize(Html(xml=True)), which leaves a non-XML character verbatim. */
-static inline int sbuf_xml_special(Py_UCS4 character, int in_attr) {
-    if (character == '&' || character == '<' || character == '>' || character == '\r') {
-        return 1;
-    }
-    return in_attr && (character == '"' || character == '\t' || character == '\n');
-}
-
 /* Whether a code point interrupts a well-formed XML text run: an ASCII character is
    one table lookup (the attribute context also stops on the bit-1 set), and only the
    rare non-ASCII invalids reach the Char-production check. */
@@ -310,27 +298,11 @@ static inline int xml_text_stop(Py_UCS4 character, int in_attr) {
 
 /* Append text under XML escaping, bulk-copying each run with nothing to escape and
    rewriting only the specials between. Unlike the HTML formatter, no-break space is
-   left verbatim (XML predefines no &nbsp;) and `>` escapes in every context. The raw
-   path (Node.serialize) leaves a non-XML character in place; the well-formed path (the
-   sanitizer's inner_xml) drops it, so a cleaned fragment always reparses. */
-static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr, int well_formed) {
+   left verbatim (XML predefines no &nbsp;) and `>` escapes in every context. A code
+   point XML cannot hold (a C0 control, a surrogate, a noncharacter) is dropped rather
+   than emitted, so the serialization always reparses. */
+static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr) {
     Py_ssize_t index = 0;
-    if (!well_formed) {
-        while (index < len) {
-            Py_ssize_t start = index;
-            while (index < len && !sbuf_xml_special(text[index], in_attr)) {
-                index++;
-            }
-            if (index > start) {
-                sbuf_put_run(out, &text[start], index - start);
-            }
-            if (index < len) {
-                sbuf_put_xml_special(out, text[index]);
-                index++;
-            }
-        }
-        return;
-    }
     while (index < len) {
         Py_ssize_t start = index;
         while (index < len && !xml_text_stop(text[index], in_attr)) {
@@ -349,11 +321,11 @@ static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t 
 }
 
 /* XML 1.0 §2.5 forbids `--` and a trailing `-` in a comment; spacing them changes no parsed XML comment.
-   well_formed also drops characters XML cannot hold. */
-static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int well_formed) {
+   A character XML cannot hold is dropped, as in character data. */
+static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = text[index];
-        if (well_formed && xml_char_invalid(character)) {
+        if (xml_char_invalid(character)) {
             continue;
         }
         sbuf_putc(out, character);
@@ -387,7 +359,7 @@ static inline int ucs4_has_gt(const Py_UCS4 *text, Py_ssize_t len) {
 static inline void sbuf_put_html_pi(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     if (ucs4_has_gt(text, len)) {
         sbuf_puts(out, "<!--?");
-        sbuf_put_xml_comment(out, text, len, 1);
+        sbuf_put_xml_comment(out, text, len);
         sbuf_puts(out, "-->");
         return;
     }
@@ -772,7 +744,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if (opts->well_formed && !xml_attr_name_writable(name, name_len, emitted)) {
+        if (opts->xml && !xml_attr_name_writable(name, name_len, emitted)) {
             continue;
         }
         sbuf_putc(out, ' ');
@@ -782,7 +754,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         }
         sbuf_puts(out, "=\"");
         if (opts->xml) {
-            sbuf_put_xml_text(out, attr->value, attr->value_len, 1, opts->well_formed);
+            sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
         } else {
             sbuf_put_text(out, attr->value, attr->value_len, 1, opts->formatter);
         }
