@@ -9,14 +9,6 @@
 #ifndef TURBOHTML_VALIDATE_XSD_H
 #define TURBOHTML_VALIDATE_XSD_H
 
-/* How many reference hops a group ref, attributeGroup ref or type-derivation base chain may
-   span before xsd_compile rejects the schema. Validation follows these links by C recursion
-   (xsd_collect_edecls, xsd_match_once, xsd_effective_model, xsd_collect_attrs), so an
-   unbounded chain overflows the stack; libxml2 flattens instead but still needs the cycle
-   check this cap backs. The limit is well above any real schema -- the Python peer xmlschema
-   already fails below 200 hops -- and far below the smallest supported thread stack. */
-#define TH_XSD_MAX_REF_DEPTH 100
-
 /* An expected element name plus the declaration that supplies its type. */
 typedef struct {
     const Py_UCS4 *uri;
@@ -453,12 +445,142 @@ typedef struct xfacet_entry {
     facetset facets;
 } xfacet_entry;
 
-/* Resolve the references a schema element carries and reject any identity constraint it declares,
-   from its already-resolved local name. Folded into the single facet-caching walk so compilation
-   classifies each node once (defined below, after the per-reference helpers). */
 static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len);
+static int xsd_record_facets(th_schema *schema, th_node *node);
 
-/* Append the facet set gathered up a simpleType's restriction chain to the schema's facet cache. */
+/* The reference checks ride the facet walk so each node's cached qname (kind 0 always builds it) is looked up once. */
+static int xsd_cache_facets(th_schema *schema, th_node *node) {
+    const qname *name = schema_node_qname(schema, node);
+    if (is_xsd_uri(name->uri, name->uri_len)) {
+        if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
+            return -1;
+        }
+        if (u_eq_ascii(name->local, name->local_len, "simpleType")) {
+            if (xsd_record_facets(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                return -1;                             /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind);
+static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex);
+static int xsd_require_base(th_schema *schema, th_node *node);
+
+/* A dangling reference or an unenforced identity constraint would let validation accept documents the schema forbids,
+   so both are compile errors, as in libxml2 (src-resolve), Xerces and xmlschema. */
+static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len) {
+    if (u_eq_ascii(local, local_len, "unique") || u_eq_ascii(local, local_len, "key") ||
+        u_eq_ascii(local, local_len, "keyref")) {
+        char buffer[32];
+        PyErr_Format(PyExc_ValueError,
+                     "identity constraint xs:%s is not supported; remove it or enforce it outside the schema",
+                     name_utf8(local, local_len, buffer, sizeof(buffer)));
+        return -1;
+    }
+    if (u_eq_ascii(local, local_len, "element")) {
+        if (xsd_require_ref(schema, node, &schema->elements, "element") < 0 || xsd_require_type(schema, node, 1) < 0) {
+            return -1;
+        }
+    } else if (u_eq_ascii(local, local_len, "attribute")) {
+        if (xsd_require_ref(schema, node, &schema->attributes, "attribute") < 0 ||
+            xsd_require_type(schema, node, 0) < 0) {
+            return -1;
+        }
+    } else if (u_eq_ascii(local, local_len, "group")) {
+        return xsd_require_ref(schema, node, &schema->groups, "group");
+    } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
+        return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
+    } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
+        return xsd_require_base(schema, node);
+    }
+    return 0;
+}
+
+static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind) {
+    Py_ssize_t ref_len = 0;
+    const Py_UCS4 *ref = xsd_attr(schema->tree, node, "ref", &ref_len);
+    if (ref == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+    if (named_find(table, local, local_len) != NULL) {
+        return 0;
+    }
+    char buffer[256];
+    PyErr_Format(PyExc_ValueError, "%s reference '%s' does not resolve to a declared %s", kind,
+                 name_utf8(ref, ref_len, buffer, sizeof(buffer)), kind);
+    return -1;
+}
+
+/* allow_complex matches where the element and attribute validators look a type up. */
+static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex) {
+    th_tree *tree = schema->tree;
+    Py_ssize_t type_len = 0;
+    const Py_UCS4 *type = xsd_attr(tree, node, "type", &type_len);
+    if (type == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *local, *prefix, *uri;
+    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+    split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
+    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    if (is_xsd_uri(uri, uri_len)) {
+        return 0;
+    }
+    if (named_find(&schema->simple_types, local, local_len) != NULL) {
+        return 0;
+    }
+    if (allow_complex && named_find(&schema->complex_types, local, local_len) != NULL) {
+        return 0;
+    }
+    char buffer[256];
+    PyErr_Format(PyExc_ValueError, "type '%s' does not resolve to a declared type",
+                 name_utf8(type, type_len, buffer, sizeof(buffer)));
+    return -1;
+}
+
+static int xsd_require_base(th_schema *schema, th_node *node) {
+    th_tree *tree = schema->tree;
+    Py_ssize_t base_len = 0;
+    const Py_UCS4 *base = xsd_attr(tree, node, "base", &base_len);
+    if (base == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *local, *prefix, *uri;
+    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
+    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
+    if (is_xsd_uri(uri, uri_len)) {
+        return 0;
+    }
+    th_node *parent = node->parent;
+    int found;
+    if (is_schema_el(schema, parent, XSD_NS, "simpleType")) {
+        found = named_find(&schema->simple_types, local, local_len) != NULL;
+    } else if (is_schema_el(schema, parent, XSD_NS, "simpleContent")) {
+        found = named_find(&schema->simple_types, local, local_len) != NULL ||
+                named_find(&schema->complex_types, local, local_len) != NULL;
+    } else {
+        found = named_find(&schema->complex_types, local, local_len) != NULL;
+    }
+    if (found) {
+        return 0;
+    }
+    char buffer[256];
+    PyErr_Format(PyExc_ValueError, "base type '%s' does not resolve to a declared type",
+                 name_utf8(base, base_len, buffer, sizeof(buffer)));
+    return -1;
+}
+
 static int xsd_record_facets(th_schema *schema, th_node *node) {
     if (schema->facet_count == schema->facet_cap) {
         size_t capacity, bytes;
@@ -482,29 +604,6 @@ static int xsd_record_facets(th_schema *schema, th_node *node) {
     facetset_init(&entry->facets, DT_STRING);
     if (xsd_gather_facets(schema, node, &entry->facets, 0) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;                                                /* GCOVR_EXCL_LINE */
-    }
-    return 0;
-}
-
-/* Walk every schema element once: resolve its references, reject declared identity constraints, and
-   cache the facet set of each simpleType. The node's namespace-resolved name is cached (kind 0
-   always builds that cache), so one lookup drives every classification the walk needs. */
-static int xsd_cache_facets(th_schema *schema, th_node *node) {
-    const qname *name = schema_node_qname(schema, node);
-    if (is_xsd_uri(name->uri, name->uri_len)) {
-        if (xsd_check_names(schema, node, name->local, name->local_len) < 0) {
-            return -1;
-        }
-        if (u_eq_ascii(name->local, name->local_len, "simpleType")) {
-            if (xsd_record_facets(schema, node) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                return -1;                             /* GCOVR_EXCL_LINE */
-            }
-        }
-    }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && xsd_cache_facets(schema, child) < 0) {
-            return -1;
-        }
     }
     return 0;
 }
@@ -1037,281 +1136,11 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) 
     ctx->path.len = mark;
 }
 
-/* ---- compile-time reference resolution and cycle detection ---- */
-
-/* Competitors reject an XSD that references a name it never declares (libxml2 src-resolve,
-   Xerces/JDK/.NET/xmlschema "does not resolve"); turbohtml used to keep the dangling particle,
-   which validated untrusted documents as if the missing component imposed no constraint. These
-   checks make an unresolved reference, a reference cycle, an over-long reference chain, and an
-   unenforced identity constraint compile-time ValueErrors instead, so a schema either compiles
-   into something validation can trust or is rejected. */
-
-/* Reject element/attribute/group/attributeGroup `ref` that resolves to no declaration. */
-static int xsd_require_ref(th_schema *schema, th_node *node, named_vec *table, const char *kind) {
-    Py_ssize_t ref_len = 0;
-    const Py_UCS4 *ref = xsd_attr(schema->tree, node, "ref", &ref_len);
-    if (ref == NULL) {
-        return 0;
-    }
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-    if (named_find(table, local, local_len) != NULL) {
-        return 0;
-    }
-    char buffer[256];
-    PyErr_Format(PyExc_ValueError, "%s reference '%s' does not resolve to a declared %s", kind,
-                 name_utf8(ref, ref_len, buffer, sizeof(buffer)), kind);
-    return -1;
-}
-
-/* Reject a `type` that is neither an XSD built-in nor a declared type (a complex type too when
-   `allow_complex`, matching where the element and attribute validators look). */
-static int xsd_require_type(th_schema *schema, th_node *node, int allow_complex) {
-    th_tree *tree = schema->tree;
-    Py_ssize_t type_len = 0;
-    const Py_UCS4 *type = xsd_attr(tree, node, "type", &type_len);
-    if (type == NULL) {
-        return 0;
-    }
-    const Py_UCS4 *local, *prefix, *uri;
-    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-    split_prefix(type, type_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
-    if (is_xsd_uri(uri, uri_len)) {
-        return 0;
-    }
-    if (named_find(&schema->simple_types, local, local_len) != NULL) {
-        return 0;
-    }
-    if (allow_complex && named_find(&schema->complex_types, local, local_len) != NULL) {
-        return 0;
-    }
-    char buffer[256];
-    PyErr_Format(PyExc_ValueError, "type '%s' does not resolve to a declared type",
-                 name_utf8(type, type_len, buffer, sizeof(buffer)));
-    return -1;
-}
-
-/* Reject an extension/restriction `base` that resolves to no declared type. A built-in base
-   (xs:string, xs:anyType, ...) is accepted; otherwise the base must be a declared type in the
-   table the derivation's context draws from. */
-static int xsd_require_base(th_schema *schema, th_node *node) {
-    th_tree *tree = schema->tree;
-    Py_ssize_t base_len = 0;
-    const Py_UCS4 *base = xsd_attr(tree, node, "base", &base_len);
-    if (base == NULL) {
-        return 0;
-    }
-    const Py_UCS4 *local, *prefix, *uri;
-    Py_ssize_t local_len = 0, prefix_len = 0, uri_len = 0;
-    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    resolve_ns(tree, node, prefix, prefix_len, &uri, &uri_len);
-    if (is_xsd_uri(uri, uri_len)) {
-        return 0;
-    }
-    th_node *parent = node->parent;
-    int found;
-    if (is_schema_el(schema, parent, XSD_NS, "simpleType")) {
-        found = named_find(&schema->simple_types, local, local_len) != NULL;
-    } else if (is_schema_el(schema, parent, XSD_NS, "simpleContent")) {
-        found = named_find(&schema->simple_types, local, local_len) != NULL ||
-                named_find(&schema->complex_types, local, local_len) != NULL;
-    } else {
-        found = named_find(&schema->complex_types, local, local_len) != NULL;
-    }
-    if (found) {
-        return 0;
-    }
-    char buffer[256];
-    PyErr_Format(PyExc_ValueError, "base type '%s' does not resolve to a declared type",
-                 name_utf8(base, base_len, buffer, sizeof(buffer)));
-    return -1;
-}
-
-/* Resolve one schema element's references from its XSD-namespace local name, and reject a declared
-   xs:unique/xs:key/xs:keyref: enforcing identity constraints is unimplemented, and every mainstream
-   XSD engine enforces them, so a schema that declares one is rejected rather than silently accepting
-   documents that violate it. The caller (xsd_cache_facets) has already resolved the XSD namespace. */
-static int xsd_check_names(th_schema *schema, th_node *node, const Py_UCS4 *local, Py_ssize_t local_len) {
-    if (u_eq_ascii(local, local_len, "unique") || u_eq_ascii(local, local_len, "key") ||
-        u_eq_ascii(local, local_len, "keyref")) {
-        char buffer[32];
-        PyErr_Format(PyExc_ValueError,
-                     "identity constraint xs:%s is not supported; remove it or enforce it outside the schema",
-                     name_utf8(local, local_len, buffer, sizeof(buffer)));
-        return -1;
-    }
-    if (u_eq_ascii(local, local_len, "element")) {
-        if (xsd_require_ref(schema, node, &schema->elements, "element") < 0 || xsd_require_type(schema, node, 1) < 0) {
-            return -1;
-        }
-    } else if (u_eq_ascii(local, local_len, "attribute")) {
-        if (xsd_require_ref(schema, node, &schema->attributes, "attribute") < 0 ||
-            xsd_require_type(schema, node, 0) < 0) {
-            return -1;
-        }
-    } else if (u_eq_ascii(local, local_len, "group")) {
-        return xsd_require_ref(schema, node, &schema->groups, "group");
-    } else if (u_eq_ascii(local, local_len, "attributeGroup")) {
-        return xsd_require_ref(schema, node, &schema->attr_groups, "attribute group");
-    } else if (u_eq_ascii(local, local_len, "extension") || u_eq_ascii(local, local_len, "restriction")) {
-        return xsd_require_base(schema, node);
-    }
-    return 0;
-}
+/* ---- compile & entry ---- */
 
 enum { CHAIN_GROUP, CHAIN_ATTRGROUP, CHAIN_TYPE };
 
-static named_vec *xsd_chain_vec(th_schema *schema, int kind) {
-    if (kind == CHAIN_GROUP) {
-        return &schema->groups;
-    }
-    if (kind == CHAIN_ATTRGROUP) {
-        return &schema->attr_groups;
-    }
-    return &schema->complex_types;
-}
-
-static const char *xsd_chain_kind(int kind) {
-    if (kind == CHAIN_GROUP) {
-        return "group";
-    }
-    if (kind == CHAIN_ATTRGROUP) {
-        return "attribute group";
-    }
-    return "complex type";
-}
-
-static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, int *state, int depth);
-
-/* Follow the type-derivation base edge (complexContent/simpleContent extension or restriction)
-   when it lands on another complex type, so A-extends-B-extends-A is a cycle and a long chain
-   is bounded. A built-in or simple-type base is a leaf. */
-static int xsd_type_base_edge(th_schema *schema, th_node *ctype, int *state, int depth, int *longest) {
-    th_node *content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
-    if (content == NULL) {
-        content = first_schema_child(schema, ctype, XSD_NS, "simpleContent");
-    }
-    if (content == NULL) {
-        return 0;
-    }
-    th_node *deriv = first_schema_child(schema, content, XSD_NS, "extension");
-    if (deriv == NULL) {
-        deriv = first_schema_child(schema, content, XSD_NS, "restriction");
-    }
-    if (deriv == NULL) {
-        return 0;
-    }
-    Py_ssize_t base_len = 0;
-    const Py_UCS4 *base = xsd_attr(schema->tree, deriv, "base", &base_len);
-    if (base == NULL) {
-        return 0;
-    }
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
-    Py_ssize_t target = named_find_index(&schema->complex_types, local, local_len);
-    if (target < 0) {
-        return 0;
-    }
-    int reached = xsd_chain_visit(schema, CHAIN_TYPE, target, state, depth + 1);
-    if (reached < 0) {
-        return -1;
-    }
-    *longest = reached; /* a type derives from a single base, so this is the whole chain below it */
-    return 0;
-}
-
-/* Scan a group or attributeGroup definition for its ref edges, following each into the
-   referenced definition. Group refs sit inside the model groups, so descend sequence/choice/all;
-   an element is a leaf (a group ref never reaches across one). */
-static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, int *state, int depth, int *longest) {
-    const char *ref_el = kind == CHAIN_GROUP ? "group" : "attributeGroup";
-    named_vec *vec = xsd_chain_vec(schema, kind);
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        Py_ssize_t ref_len = 0;
-        const Py_UCS4 *ref =
-            is_schema_el(schema, child, XSD_NS, ref_el) ? xsd_attr(schema->tree, child, "ref", &ref_len) : NULL;
-        if (ref != NULL) {
-            const Py_UCS4 *local, *prefix;
-            Py_ssize_t local_len = 0, prefix_len = 0;
-            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-            int reached = xsd_chain_visit(schema, kind, named_find_index(vec, local, local_len), state, depth + 1);
-            if (reached < 0) {
-                return -1;
-            }
-            if (reached > *longest) {
-                *longest = reached;
-            }
-        } else if (kind == CHAIN_GROUP && xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3) &&
-                   xsd_chain_refscan(schema, kind, child, state, depth, longest) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-/* The longest reference chain rooted at definition `index`, or -1 after raising. `state[index]`
-   is 0 unvisited, -1 while on the DFS stack (a back edge is a cycle), else the resolved chain
-   length. `depth` caps the DFS itself so a long acyclic chain raises here; the resolved-length
-   cap catches a chain reached through memoized nodes regardless of definition order. */
-static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, int *state, int depth) {
-    named_vec *vec = xsd_chain_vec(schema, kind);
-    if (state[index] == -1) {
-        char buffer[256];
-        PyErr_Format(PyExc_ValueError, "circular %s reference to '%s'", xsd_chain_kind(kind),
-                     name_utf8(vec->items[index].name, vec->items[index].len, buffer, sizeof(buffer)));
-        return -1;
-    }
-    if (state[index] > 0) {
-        return state[index];
-    }
-    if (depth >= TH_XSD_MAX_REF_DEPTH) {
-        PyErr_Format(PyExc_ValueError, "%s reference chain exceeds %d hops; flatten the schema or shorten the chain",
-                     xsd_chain_kind(kind), TH_XSD_MAX_REF_DEPTH);
-        return -1;
-    }
-    state[index] = -1;
-    int longest = 0;
-    int status = kind == CHAIN_TYPE ? xsd_type_base_edge(schema, vec->items[index].node, state, depth, &longest)
-                                    : xsd_chain_refscan(schema, kind, vec->items[index].node, state, depth, &longest);
-    if (status < 0) {
-        return -1;
-    }
-    int length = longest + 1;
-    if (length > TH_XSD_MAX_REF_DEPTH) {
-        PyErr_Format(PyExc_ValueError, "%s reference chain exceeds %d hops; flatten the schema or shorten the chain",
-                     xsd_chain_kind(kind), TH_XSD_MAX_REF_DEPTH);
-        return -1;
-    }
-    state[index] = length;
-    return length;
-}
-
-static int xsd_check_chains(th_schema *schema, int kind) {
-    named_vec *vec = xsd_chain_vec(schema, kind);
-    if (vec->len == 0) {
-        return 0;
-    }
-    int *state = arena_alloc(&schema->mem, (size_t)vec->len * sizeof(int));
-    if (state == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-        return -1;        /* GCOVR_EXCL_LINE */
-    }
-    memset(state, 0, (size_t)vec->len * sizeof(int));
-    for (Py_ssize_t index = 0; index < vec->len; index++) {
-        if (state[index] == 0 && xsd_chain_visit(schema, kind, index, state, 0) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-/* ---- compile & entry ---- */
+static int xsd_check_chains(th_schema *schema, int kind);
 
 static int xsd_compile(th_schema *schema) {
     th_tree *tree = schema->tree;
@@ -1361,8 +1190,7 @@ static int xsd_compile(th_schema *schema) {
             return 0;                                 /* GCOVR_EXCL_LINE */
         }
     }
-    /* One walk resolves every reference, rejects identity constraints, and caches facets; it must
-       run before the cycle checks, which assume each group/attributeGroup/base ref now resolves. */
+    /* the cycle checks below assume every group, attributeGroup and base ref resolves */
     if (xsd_cache_facets(schema, schema->root) < 0) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only an arena OOM returns without an exception set */
             PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
@@ -1377,6 +1205,158 @@ static int xsd_compile(th_schema *schema) {
         qsort(schema->facet_entries, schema->facet_count, sizeof(xfacet_entry), xsd_facet_order);
     }
     return 1;
+}
+
+static named_vec *xsd_chain_vec(th_schema *schema, int kind);
+static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, int *state, int depth);
+
+static int xsd_check_chains(th_schema *schema, int kind) {
+    named_vec *vec = xsd_chain_vec(schema, kind);
+    if (vec->len == 0) {
+        return 0;
+    }
+    int *state = arena_alloc(&schema->mem, (size_t)vec->len * sizeof(int));
+    if (state == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    memset(state, 0, (size_t)vec->len * sizeof(int));
+    for (Py_ssize_t index = 0; index < vec->len; index++) {
+        if (state[index] == 0 && xsd_chain_visit(schema, kind, index, state, 0) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static named_vec *xsd_chain_vec(th_schema *schema, int kind) {
+    if (kind == CHAIN_GROUP) {
+        return &schema->groups;
+    }
+    if (kind == CHAIN_ATTRGROUP) {
+        return &schema->attr_groups;
+    }
+    return &schema->complex_types;
+}
+
+static const char *xsd_chain_kind(int kind);
+static int xsd_type_base_edge(th_schema *schema, th_node *ctype, int *state, int depth, int *longest);
+static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, int *state, int depth, int *longest);
+
+/* Validation follows these refs by C recursion (xsd_collect_edecls, xsd_match_once, xsd_effective_model,
+   xsd_collect_attrs). Well above any real schema (xmlschema already fails below 200 hops) and far below the smallest
+   supported thread stack. */
+#define TH_XSD_MAX_REF_DEPTH 100
+
+/* state[index] is 0 unvisited, -1 on the DFS stack (a back edge is a cycle), else the resolved chain length. depth caps
+   the recursion itself; the length cap also catches a chain reached through memoized nodes. */
+static int xsd_chain_visit(th_schema *schema, int kind, Py_ssize_t index, int *state, int depth) {
+    named_vec *vec = xsd_chain_vec(schema, kind);
+    if (state[index] == -1) {
+        char buffer[256];
+        PyErr_Format(PyExc_ValueError, "circular %s reference to '%s'", xsd_chain_kind(kind),
+                     name_utf8(vec->items[index].name, vec->items[index].len, buffer, sizeof(buffer)));
+        return -1;
+    }
+    if (state[index] > 0) {
+        return state[index];
+    }
+    if (depth >= TH_XSD_MAX_REF_DEPTH) {
+        PyErr_Format(PyExc_ValueError, "%s reference chain exceeds %d hops; flatten the schema or shorten the chain",
+                     xsd_chain_kind(kind), TH_XSD_MAX_REF_DEPTH);
+        return -1;
+    }
+    state[index] = -1;
+    int longest = 0;
+    int status = kind == CHAIN_TYPE ? xsd_type_base_edge(schema, vec->items[index].node, state, depth, &longest)
+                                    : xsd_chain_refscan(schema, kind, vec->items[index].node, state, depth, &longest);
+    if (status < 0) {
+        return -1;
+    }
+    int length = longest + 1;
+    if (length > TH_XSD_MAX_REF_DEPTH) {
+        PyErr_Format(PyExc_ValueError, "%s reference chain exceeds %d hops; flatten the schema or shorten the chain",
+                     xsd_chain_kind(kind), TH_XSD_MAX_REF_DEPTH);
+        return -1;
+    }
+    state[index] = length;
+    return length;
+}
+
+static const char *xsd_chain_kind(int kind) {
+    if (kind == CHAIN_GROUP) {
+        return "group";
+    }
+    if (kind == CHAIN_ATTRGROUP) {
+        return "attribute group";
+    }
+    return "complex type";
+}
+
+/* A-extends-B-extends-A is a cycle; a built-in or simple-type base ends the chain. */
+static int xsd_type_base_edge(th_schema *schema, th_node *ctype, int *state, int depth, int *longest) {
+    th_node *content = first_schema_child(schema, ctype, XSD_NS, "complexContent");
+    if (content == NULL) {
+        content = first_schema_child(schema, ctype, XSD_NS, "simpleContent");
+    }
+    if (content == NULL) {
+        return 0;
+    }
+    th_node *deriv = first_schema_child(schema, content, XSD_NS, "extension");
+    if (deriv == NULL) {
+        deriv = first_schema_child(schema, content, XSD_NS, "restriction");
+    }
+    if (deriv == NULL) {
+        return 0;
+    }
+    Py_ssize_t base_len = 0;
+    const Py_UCS4 *base = xsd_attr(schema->tree, deriv, "base", &base_len);
+    if (base == NULL) {
+        return 0;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(base, base_len, &local, &local_len, &prefix, &prefix_len);
+    Py_ssize_t target = named_find_index(&schema->complex_types, local, local_len);
+    if (target < 0) {
+        return 0;
+    }
+    int reached = xsd_chain_visit(schema, CHAIN_TYPE, target, state, depth + 1);
+    if (reached < 0) {
+        return -1;
+    }
+    *longest = reached; /* a type derives from a single base, so this is the whole chain below it */
+    return 0;
+}
+
+/* Group refs sit inside model groups, so those are descended; an element is a leaf since no ref reaches across one. */
+static int xsd_chain_refscan(th_schema *schema, int kind, th_node *node, int *state, int depth, int *longest) {
+    const char *ref_el = kind == CHAIN_GROUP ? "group" : "attributeGroup";
+    named_vec *vec = xsd_chain_vec(schema, kind);
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        Py_ssize_t ref_len = 0;
+        const Py_UCS4 *ref =
+            is_schema_el(schema, child, XSD_NS, ref_el) ? xsd_attr(schema->tree, child, "ref", &ref_len) : NULL;
+        if (ref != NULL) {
+            const Py_UCS4 *local, *prefix;
+            Py_ssize_t local_len = 0, prefix_len = 0;
+            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+            int reached = xsd_chain_visit(schema, kind, named_find_index(vec, local, local_len), state, depth + 1);
+            if (reached < 0) {
+                return -1;
+            }
+            if (reached > *longest) {
+                *longest = reached;
+            }
+        } else if (kind == CHAIN_GROUP && xsd_is_particle(schema, child, XSD_MODEL_GROUPS, 3) &&
+                   xsd_chain_refscan(schema, kind, child, state, depth, longest) < 0) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void xsd_validate_root(valctx *ctx, th_node *root) {

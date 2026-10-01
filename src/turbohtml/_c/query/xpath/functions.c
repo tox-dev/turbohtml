@@ -1146,9 +1146,8 @@ static int str_replace(struct th_tree *tree, const xp_result *args, xp_result *o
    `pattern` (a single space by default). An empty pattern pads with spaces. */
 static int str_padding(struct th_tree *tree, const xp_result *args, int argc, xp_result *out) {
     double requested = round(to_number(tree, &args[0]));
-    /* The length may come from source data, so an unbounded value sizes the allocation from a
-       tiny document. libexslt caps at 100,000 (strings.c, commit df878571); we reuse that ceiling
-       but raise, since silent truncation would contradict the EXSLT str:padding definition. */
+    /* source data can supply the length, so a tiny document could size a huge allocation; the ceiling is libexslt's
+       (strings.c, df878571), raised as an error since truncating would contradict the EXSLT definition */
     const Py_ssize_t ceiling = 100000;
     if (requested > (double)ceiling) {
         char shown[320]; /* %.0f of the largest finite double is 309 digits */

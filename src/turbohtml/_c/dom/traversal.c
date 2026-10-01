@@ -151,8 +151,7 @@ static th_node *tw_traverse_children(TreeWalkerObject *self, module_state *state
                 break;
             }
             th_node *parent = node->parent;
-            /* The spec lets a NodeFilter mutate the tree; a filter that detaches node leaves parent NULL,
-               so stop rather than dereference it, matching the other TreeWalker steps. */
+            /* a NodeFilter may mutate the tree (the spec allows it) and detach node */
             if (parent == NULL || parent == self->root || parent == origin) {
                 return NULL;
             }

@@ -51,25 +51,55 @@ struct pattern {
     Py_ssize_t value_len;
 };
 
-/* Per-validation hash-consing of the derivative patterns. James Clark's paper ("Interning
-   patterns" / "Avoiding exponential blowup") and the jing/MSV implementations the P1-C2
-   audit cites (jing PatternInterner, MSV ExpressionPool) make a structurally identical
-   pattern share one node so choice can drop a duplicate branch by pointer and the residual
-   stays bounded on an ambiguous but legal schema. Keyed on (type, p1, p2); P_ONEMORE keys
-   on (type, p1, NULL). Allocated in the per-call arena and never set while compiling. */
+/* Per-validation hash-consing: a structurally identical derivative shares one node, so a choice drops a duplicate
+   branch by pointer and the residual stays bounded on an ambiguous schema (Clark, "Avoiding exponential blowup"; jing
+   PatternInterner, MSV ExpressionPool). */
 typedef struct patintern {
     pattern **slots;
     size_t cap; /* power of two, 0 until first grow */
     size_t count;
 } patintern;
 
-static uint64_t pat_key_hash(int type, pattern *p1, pattern *p2) {
-    uint64_t hash = UINT64_C(1469598103934665603);
-    hash = (hash ^ (uint64_t)(unsigned)type) * UINT64_C(1099511628211);
-    hash = (hash ^ (uint64_t)(uintptr_t)p1) * UINT64_C(1099511628211);
-    hash = (hash ^ (uint64_t)(uintptr_t)p2) * UINT64_C(1099511628211);
-    return hash;
+static pattern *pat_new(th_schema *schema, int type) {
+    pattern *pattern = arena_alloc(&schema->mem, sizeof(*pattern));
+    if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    memset(pattern, 0, sizeof(*pattern));
+    pattern->type = type;
+    pattern->nullable =
+        type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
+            ? -1
+            : type == P_EMPTY || type == P_TEXT;
+    return pattern;
 }
+
+static pattern *intern_find(const patintern *table, int type, pattern *p1, pattern *p2);
+static void intern_insert(th_schema *schema, patintern *table, pattern *node);
+
+static pattern *pat_binary(th_schema *schema, int type, pattern *p1, pattern *p2) {
+    if (schema->intern != NULL) {
+        pattern *found = intern_find(schema->intern, type, p1, p2);
+        if (found != NULL) {
+            return found;
+        }
+    }
+    pattern *node = pat_new(schema, type);
+    if (node == NULL) {              /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+    }
+    node->p1 = p1;
+    node->p2 = p2;
+    if (type != P_AFTER && p1->nullable >= 0 && p2->nullable >= 0) {
+        node->nullable = type == P_CHOICE ? p1->nullable || p2->nullable : p1->nullable && p2->nullable;
+    }
+    if (schema->intern != NULL) {
+        intern_insert(schema, schema->intern, node);
+    }
+    return node;
+}
+
+static uint64_t pat_key_hash(int type, pattern *p1, pattern *p2);
 
 static pattern *intern_find(const patintern *table, int type, pattern *p1, pattern *p2) {
     if (table->cap == 0) {
@@ -84,6 +114,14 @@ static pattern *intern_find(const patintern *table, int type, pattern *p1, patte
         slot = (slot + 1) & (table->cap - 1);
     }
     return NULL;
+}
+
+static uint64_t pat_key_hash(int type, pattern *p1, pattern *p2) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    hash = (hash ^ (uint64_t)(unsigned)type) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)(uintptr_t)p1) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)(uintptr_t)p2) * UINT64_C(1099511628211);
+    return hash;
 }
 
 static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
@@ -116,70 +154,33 @@ static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
     table->count++;
 }
 
-static pattern *pat_new(th_schema *schema, int type) {
-    pattern *pattern = arena_alloc(&schema->mem, sizeof(*pattern));
-    if (pattern == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return NULL;       /* GCOVR_EXCL_LINE */
-    }
-    memset(pattern, 0, sizeof(*pattern));
-    pattern->type = type;
-    pattern->nullable =
-        type == P_REF || type == P_CHOICE || type == P_GROUP || type == P_INTERLEAVE || type == P_ONEMORE
-            ? -1
-            : type == P_EMPTY || type == P_TEXT;
-    return pattern;
-}
+static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2);
 
-static pattern *pat_binary(th_schema *schema, int type, pattern *p1, pattern *p2) {
-    if (schema->intern != NULL) {
-        pattern *found = intern_find(schema->intern, type, p1, p2);
-        if (found != NULL) {
-            return found;
+/* Smart constructors: absorb notAllowed / empty so derivatives stay bounded. */
+static pattern *pat_choice(th_schema *schema, pattern *p1, pattern *p2) {
+    if (p1->type == P_NOTALLOWED) {
+        return p2;
+    }
+    if (p2->type == P_NOTALLOWED) {
+        return p1;
+    }
+    if (schema->intern == NULL) { /* compiling: interning only exists during validation */
+        return pat_binary(schema, P_CHOICE, p1, p2);
+    }
+    if (p1->type != P_CHOICE && p2->type != P_CHOICE) { /* hot path: two leaves need no merge buffer */
+        if (p1 == p2) {
+            return p1;
         }
+        return p1 < p2 ? pat_binary(schema, P_CHOICE, p1, p2) : pat_binary(schema, P_CHOICE, p2, p1);
     }
-    pattern *node = pat_new(schema, type);
-    if (node == NULL) {              /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return schema->p_notallowed; /* GCOVR_EXCL_LINE */
-    }
-    node->p1 = p1;
-    node->p2 = p2;
-    if (type != P_AFTER && p1->nullable >= 0 && p2->nullable >= 0) {
-        node->nullable = type == P_CHOICE ? p1->nullable || p2->nullable : p1->nullable && p2->nullable;
-    }
-    if (schema->intern != NULL) {
-        intern_insert(schema, schema->intern, node);
-    }
-    return node;
+    return pat_choice_merge(schema, p1, p2);
 }
 
-/* The leaves of a canonical choice, a right-leaning chain whose every left child is a
-   non-choice pattern, the leaves sorted by node address and free of duplicates. */
-static Py_ssize_t choice_leaf_count(const pattern *p) {
-    Py_ssize_t count = 1;
-    while (p->type == P_CHOICE) {
-        count++;
-        p = p->p2;
-    }
-    return count;
-}
+static Py_ssize_t choice_leaf_count(const pattern *choice);
+static void choice_collect(pattern *choice, pattern **out, Py_ssize_t *at);
+static int pat_ptr_cmp(const void *left, const void *right);
 
-static void choice_collect(pattern *p, pattern **out, Py_ssize_t *at) {
-    while (p->type == P_CHOICE) {
-        out[(*at)++] = p->p1;
-        p = p->p2;
-    }
-    out[(*at)++] = p;
-}
-
-/* Total order on nodes by address, so a canonical choice has a single shape per leaf set. */
-static int pat_ptr_cmp(const void *left, const void *right) {
-    pattern *left_pat = *(pattern *const *)left;
-    pattern *right_pat = *(pattern *const *)right;
-    return (left_pat > right_pat) - (left_pat < right_pat);
-}
-
-/* Merge the leaf sets of two canonical choices, dropping duplicates (Clark's "eliminate
-   redundant choices"; jing makeChoice / MSV createChoice), then rebuild the canonical form. */
+/* A canonical choice is a right-leaning chain of non-choice leaves, sorted by address and free of duplicates. */
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     Py_ssize_t total = choice_leaf_count(p1) + choice_leaf_count(p2);
     pattern **leaves = arena_alloc(&schema->mem, (size_t)total * sizeof(pattern *));
@@ -192,31 +193,35 @@ static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2) {
     qsort(leaves, (size_t)total, sizeof(pattern *), pat_ptr_cmp);
     pattern *result = leaves[total - 1];
     for (Py_ssize_t index = total - 2; index >= 0; index--) {
-        if (leaves[index] != leaves[index + 1]) { /* an adjacent equal is a duplicate branch, dropped */
+        if (leaves[index] != leaves[index + 1]) {
             result = pat_binary(schema, P_CHOICE, leaves[index], result);
         }
     }
     return result;
 }
 
-/* Smart constructors: absorb notAllowed / empty so derivatives stay bounded. */
-static pattern *pat_choice(th_schema *schema, pattern *p1, pattern *p2) {
-    if (p1->type == P_NOTALLOWED) {
-        return p2;
+static Py_ssize_t choice_leaf_count(const pattern *choice) {
+    Py_ssize_t count = 1;
+    while (choice->type == P_CHOICE) {
+        count++;
+        choice = choice->p2;
     }
-    if (p2->type == P_NOTALLOWED) {
-        return p1;
+    return count;
+}
+
+static void choice_collect(pattern *choice, pattern **out, Py_ssize_t *at) {
+    while (choice->type == P_CHOICE) {
+        out[(*at)++] = choice->p1;
+        choice = choice->p2;
     }
-    if (schema->intern == NULL) { /* compiling: build the plain binary; interning is a validation-time concern */
-        return pat_binary(schema, P_CHOICE, p1, p2);
-    }
-    if (p1->type != P_CHOICE && p2->type != P_CHOICE) { /* hot path: two leaves, order them and drop a duplicate */
-        if (p1 == p2) {
-            return p1;
-        }
-        return p1 < p2 ? pat_binary(schema, P_CHOICE, p1, p2) : pat_binary(schema, P_CHOICE, p2, p1);
-    }
-    return pat_choice_merge(schema, p1, p2);
+    out[(*at)++] = choice;
+}
+
+/* Total order on nodes by address, so a canonical choice has a single shape per leaf set. */
+static int pat_ptr_cmp(const void *left, const void *right) {
+    pattern *left_pat = *(pattern *const *)left;
+    pattern *right_pat = *(pattern *const *)right;
+    return (left_pat > right_pat) - (left_pat < right_pat);
 }
 
 static pattern *pat_group(th_schema *schema, pattern *p1, pattern *p2) {
@@ -629,8 +634,7 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         return combined;
     }
     if (is_schema_el(schema, node, RNG_NS, "interleave")) {
-        /* at compile (intern == NULL) this is the short-form root's own 7.4 check; a grammar's reachable
-           interleaves are checked by the scan instead, so it is not repeated during lazy validation builds */
+        /* compile time only: validation builds defines lazily, after the scan has checked them */
         if (schema->intern == NULL && rng_check_interleave_node(schema, node) < 0) {
             return schema->p_notallowed;
         }
@@ -689,8 +693,7 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
     }
     if (is_schema_el(schema, node, RNG_NS, "ref")) {
         const th_node_attr *name = attr_exact(tree, node, "name", 4);
-        if (name == NULL) { /* 4.10 requires a name; the grammar scan rejects this for a reachable define,
-                               so this guards the short-form root build (never reached during validation) */
+        if (name == NULL) { /* 4.10; the grammar scan rejects this earlier, so only the short form gets here */
             PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
             return schema->p_notallowed;
         }
@@ -1072,27 +1075,126 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
     return ended;
 }
 
-/* ---- compile-time grammar restriction checks ----
+/* ---- compile & entry ---- */
 
-   A single reachability-following pass (rng_scan, below) enforces three restrictions on the
-   patterns the validator can actually reach -- a <ref> must have a name (spec 4.10), a ref loop
-   must cross an <element> (4.19), and interleave branches must not compete (7.4). Only reachable
-   patterns are checked because an unreachable <define> is never built or validated, so it cannot
-   crash or run away; this also keeps compilation off the cost of a schema's dead definitions. */
+static int rng_scan(th_schema *schema, th_node *container, int depth);
 
-/* Whether two concrete (NC_NAME) element name classes are the same expanded name. */
-static int nc_name_eq(const nameclass *left, const nameclass *right) {
-    return u_eq_u(left->local, left->local_len, right->local, right->local_len) &&
-           u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len);
+static int rng_compile(th_schema *schema) {
+    th_tree *tree = schema->tree;
+    schema->p_empty = pat_new(schema, P_EMPTY);
+    schema->p_notallowed = pat_new(schema, P_NOTALLOWED);
+    schema->p_text = pat_new(schema, P_TEXT);
+    if (!is_schema_el(schema, schema->root, RNG_NS, "grammar")) {
+        /* no defines, so no ref cycles; rng_build checks 4.10 and 7.4 inline instead of a second walk */
+        schema->start = rng_build(schema, schema->root);
+        return PyErr_Occurred() ? 0 : 1;
+    }
+    for (th_node *child = schema->root->first_child; child != NULL; child = child->next_sibling) {
+        if (is_schema_el(schema, child, RNG_NS, "define")) {
+            const th_node_attr *name = attr_exact(tree, child, "name", 4);
+            if (name == NULL) {
+                continue;
+            }
+            if (def_add(schema, name, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                PyErr_NoMemory();                   /* GCOVR_EXCL_LINE */
+                return 0;                           /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    th_node *start = first_schema_child(schema, schema->root, RNG_NS, "start");
+    if (start == NULL) {
+        PyErr_SetString(PyExc_ValueError, "grammar has no start element");
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < schema->defines.len; index++) {
+        schema->defines.items[index].cycle_depth = -1;
+    }
+    if (rng_scan(schema, start, 0) < 0) {
+        return 0;
+    }
+    schema->start = rng_build_children(schema, start, NULL);
+    return 1;
 }
 
-/* The name class of an <element>/<attribute> pattern node (mirrors rng_build's own choice). */
-static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is_attr) {
-    const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
-    if (name != NULL) {
-        return nc_from_qname(schema, node, name->value, name->value_len, is_attr);
+static int rng_scan_node(th_schema *schema, th_node *node, int depth);
+
+/* Checks 4.10, 4.19 and 7.4 on reachable patterns only: an unreachable <define> is never built, so it can neither
+   crash nor blow up, and dead definitions add no compile cost. */
+static int rng_scan(th_schema *schema, th_node *container, int depth) {
+    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (rng_scan_node(schema, child, depth) < 0) {
+            return -1;
+        }
     }
-    return rng_build_nameclass(schema, first_element_child(node));
+    return 0;
+}
+
+enum { RNG_SCAN_OTHER, RNG_SCAN_REF, RNG_SCAN_INTERLEAVE, RNG_SCAN_ELEMENT };
+
+static int rng_scan_kind(const th_schema *schema, th_node *node);
+static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth);
+
+static int rng_scan_node(th_schema *schema, th_node *node, int depth) {
+    switch (rng_scan_kind(schema, node)) {
+    case RNG_SCAN_REF: {
+        const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
+        if (name == NULL) {
+            PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
+            return -1;
+        }
+        Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
+        return index >= 0 ? rng_scan_define(schema, index, depth) : 0;
+    }
+    case RNG_SCAN_INTERLEAVE:
+        return rng_check_interleave_node(schema, node) < 0 ? -1 : rng_scan(schema, node, depth);
+    case RNG_SCAN_ELEMENT:
+        return rng_scan(schema, node, depth + 1);
+    default:
+        return rng_scan(schema, node, depth);
+    }
+}
+
+static int rng_scan_kind(const th_schema *schema, th_node *node) {
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(node->text, node->text_len, &local, &local_len, &prefix, &prefix_len);
+    int kind;
+    if (u_eq_ascii(local, local_len, "ref")) {
+        kind = RNG_SCAN_REF;
+    } else if (u_eq_ascii(local, local_len, "interleave")) {
+        kind = RNG_SCAN_INTERLEAVE;
+    } else if (u_eq_ascii(local, local_len, "element")) {
+        kind = RNG_SCAN_ELEMENT;
+    } else {
+        return RNG_SCAN_OTHER; /* most nodes are not a restriction keyword: skip the namespace resolution */
+    }
+    qname name = schema_direct_qname(schema, node);
+    return u_eq_ascii(name.uri, name.uri_len, RNG_NS) ? kind : RNG_SCAN_OTHER;
+}
+
+/* RELAX NG 4.19: meeting a define again at the element depth where its expansion began is a ref loop with no
+   <element> between, which libxml2 ("Detected a cycle in %s references") and jing/MSV reject too. */
+static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
+    def_entry *entry = &schema->defines.items[def_index];
+    if (entry->cycle_depth == -1) {
+        entry->cycle_depth = depth;
+        int ret = rng_scan(schema, entry->first, depth);
+        for (def_part *part = entry->extra; ret == 0 && part != NULL; part = part->next) {
+            ret = rng_scan(schema, part->node, depth);
+        }
+        entry->cycle_depth = -2;
+        return ret;
+    }
+    if (entry->cycle_depth == depth) {
+        char buffer[256];
+        PyErr_Format(PyExc_ValueError, "RELAX NG define '%s' references itself with no element in between",
+                     name_utf8(entry->name, entry->len, buffer, sizeof(buffer)));
+        return -1;
+    }
+    return 0;
 }
 
 typedef struct {
@@ -1101,55 +1203,12 @@ typedef struct {
     int text;
 } ncvec;
 
-static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc) {
-    if (vec->len == vec->cap) {
-        Py_ssize_t cap = vec->cap ? vec->cap * 2 : 8;
-        nameclass **items = arena_alloc(&schema->mem, (size_t)cap * sizeof(nameclass *));
-        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return -1;       /* GCOVR_EXCL_LINE */
-        }
-        if (vec->len > 0) {
-            memcpy(items, vec->items, (size_t)vec->len * sizeof(nameclass *));
-        }
-        vec->items = items;
-        vec->cap = cap;
-    }
-    vec->items[vec->len++] = nc;
-    return 0;
-}
+static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out);
+static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc);
+static int nc_name_eq(const nameclass *left, const nameclass *right);
 
-/* Collect the concrete element names one interleave branch can match as a child, and whether it
-   allows text, descending through the pattern combinators but stopping at an <element> (its
-   content is a new level). An <attribute> is skipped (its own text content is not interleave
-   text), a <ref> is opaque, and an element whose name class is a wildcard or choice is not a
-   single concrete name -- both fall to the interning backstop rather than a false rejection. */
-static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out) {
-    if (is_schema_el(schema, node, RNG_NS, "element")) {
-        nameclass *nc = rng_pattern_nameclass(schema, node, 0);
-        return nc->type == NC_NAME ? ncvec_push(schema, out, nc) : 0;
-    }
-    if (is_schema_el(schema, node, RNG_NS, "text")) {
-        out->text = 1;
-        return 0;
-    }
-    if (is_schema_el(schema, node, RNG_NS, "attribute") || is_schema_el(schema, node, RNG_NS, "ref")) {
-        return 0;
-    }
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT) {
-            continue;
-        }
-        if (rng_branch_nameclasses(schema, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: only ncvec_push arena OOM fails */
-            return -1;                                        /* GCOVR_EXCL_LINE */
-        }
-    }
-    return 0;
-}
-
-/* Enforce the RELAX NG 7.4 restriction on one <interleave>: two branches must not both match an
-   element with the same name, and at most one branch may match text. libxml2 ("Element or text
-   conflicts in interleave") and jing/MSV reject such a schema; without it an ambiguous interleave
-   drives the derivative into exponential memory. */
+/* RELAX NG 7.4: an ambiguous interleave drives the derivative into exponential memory; libxml2 ("Element or text
+   conflicts in interleave") and jing/MSV reject it too. */
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave) {
     ncvec seen = {NULL, 0, 0, 0};
     for (th_node *branch = interleave->first_child; branch != NULL; branch = branch->next_sibling) {
@@ -1183,132 +1242,62 @@ static int rng_check_interleave_node(th_schema *schema, th_node *interleave) {
     return 0;
 }
 
-/* The restriction-relevant kind of a schema element, from a single namespace resolution. */
-enum { RNG_SCAN_OTHER, RNG_SCAN_REF, RNG_SCAN_INTERLEAVE, RNG_SCAN_ELEMENT };
+static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is_attr);
 
-static int rng_scan_kind(const th_schema *schema, th_node *node) {
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(node->text, node->text_len, &local, &local_len, &prefix, &prefix_len);
-    int kind;
-    if (u_eq_ascii(local, local_len, "ref")) {
-        kind = RNG_SCAN_REF;
-    } else if (u_eq_ascii(local, local_len, "interleave")) {
-        kind = RNG_SCAN_INTERLEAVE;
-    } else if (u_eq_ascii(local, local_len, "element")) {
-        kind = RNG_SCAN_ELEMENT;
-    } else {
-        return RNG_SCAN_OTHER; /* most nodes are not a restriction keyword: skip the namespace resolution */
+/* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> or a wildcard/choice
+   name class is not one concrete name, so it falls to the interning backstop rather than a false rejection. */
+static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out) {
+    if (is_schema_el(schema, node, RNG_NS, "element")) {
+        nameclass *nc = rng_pattern_nameclass(schema, node, 0);
+        return nc->type == NC_NAME ? ncvec_push(schema, out, nc) : 0;
     }
-    /* a keyword name matched; resolve the namespace once to confirm it is RELAX NG, not a foreign element */
-    qname name = schema_direct_qname(schema, node);
-    return u_eq_ascii(name.uri, name.uri_len, RNG_NS) ? kind : RNG_SCAN_OTHER;
-}
-
-static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth);
-static int rng_scan(th_schema *schema, th_node *container, int depth);
-
-/* Apply the restrictions to one reachable pattern node and descend. A <ref> must have a name and is
-   followed for the 4.19 loop check; an <interleave> is checked against 7.4; an <element> opens a new
-   depth level; anything else descends at the same depth. */
-static int rng_scan_node(th_schema *schema, th_node *node, int depth) {
-    switch (rng_scan_kind(schema, node)) {
-    case RNG_SCAN_REF: {
-        const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
-        if (name == NULL) {
-            PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
-            return -1;
-        }
-        Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
-        return index >= 0 ? rng_scan_define(schema, index, depth) : 0;
+    if (is_schema_el(schema, node, RNG_NS, "text")) {
+        out->text = 1;
+        return 0;
     }
-    case RNG_SCAN_INTERLEAVE:
-        return rng_check_interleave_node(schema, node) < 0 ? -1 : rng_scan(schema, node, depth);
-    case RNG_SCAN_ELEMENT:
-        return rng_scan(schema, node, depth + 1);
-    default:
-        return rng_scan(schema, node, depth);
+    if (is_schema_el(schema, node, RNG_NS, "attribute") || is_schema_el(schema, node, RNG_NS, "ref")) {
+        return 0;
     }
-}
-
-/* One reachability-following pass enforcing all three restrictions on the patterns the validator
-   can reach: a <ref> must have a name (4.10), following it must not re-enter a define still open at
-   this element depth (4.19), and every <interleave> reached must satisfy 7.4. An unreachable
-   <define> is never built, so skipping it cannot hide a crash or a blow-up and keeps dead
-   definitions off the cost. */
-static int rng_scan(th_schema *schema, th_node *container, int depth) {
-    for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (rng_scan_node(schema, child, depth) < 0) {
-            return -1;
+        if (rng_branch_nameclasses(schema, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: only ncvec_push arena OOM fails */
+            return -1;                                        /* GCOVR_EXCL_LINE */
         }
     }
     return 0;
 }
 
-/* RELAX NG 4.19: expanding a <ref> must not require expanding the same ref without an <element> in
-   between. Stamp each define with the element depth where its expansion begins; meeting it again at
-   that same depth is a loop. Matches libxml2 ("Detected a cycle in %s references") and jing/MSV. */
-static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
-    def_entry *entry = &schema->defines.items[def_index];
-    if (entry->cycle_depth == -1) {
-        entry->cycle_depth = depth;
-        int ret = rng_scan(schema, entry->first, depth);
-        for (def_part *part = entry->extra; ret == 0 && part != NULL; part = part->next) {
-            ret = rng_scan(schema, part->node, depth);
+/* mirrors how rng_build picks the name class */
+static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is_attr) {
+    const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
+    if (name != NULL) {
+        return nc_from_qname(schema, node, name->value, name->value_len, is_attr);
+    }
+    return rng_build_nameclass(schema, first_element_child(node));
+}
+
+static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc) {
+    if (vec->len == vec->cap) {
+        Py_ssize_t cap = vec->cap ? vec->cap * 2 : 8;
+        nameclass **items = arena_alloc(&schema->mem, (size_t)cap * sizeof(nameclass *));
+        if (items == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;       /* GCOVR_EXCL_LINE */
         }
-        entry->cycle_depth = -2;
-        return ret;
+        if (vec->len > 0) {
+            memcpy(items, vec->items, (size_t)vec->len * sizeof(nameclass *));
+        }
+        vec->items = items;
+        vec->cap = cap;
     }
-    if (entry->cycle_depth == depth) {
-        char buffer[256];
-        PyErr_Format(PyExc_ValueError, "RELAX NG define '%s' references itself with no element in between",
-                     name_utf8(entry->name, entry->len, buffer, sizeof(buffer)));
-        return -1;
-    }
+    vec->items[vec->len++] = nc;
     return 0;
 }
 
-/* ---- compile & entry ---- */
-
-static int rng_compile(th_schema *schema) {
-    th_tree *tree = schema->tree;
-    schema->p_empty = pat_new(schema, P_EMPTY);
-    schema->p_notallowed = pat_new(schema, P_NOTALLOWED);
-    schema->p_text = pat_new(schema, P_TEXT);
-    if (!is_schema_el(schema, schema->root, RNG_NS, "grammar")) {
-        /* the short form has no defines and so no ref cycles; rng_build carries the name (4.10) and
-           interleave (7.4) checks inline, avoiding a second walk of the whole pattern */
-        schema->start = rng_build(schema, schema->root);
-        return PyErr_Occurred() ? 0 : 1;
-    }
-    for (th_node *child = schema->root->first_child; child != NULL; child = child->next_sibling) {
-        if (is_schema_el(schema, child, RNG_NS, "define")) {
-            const th_node_attr *name = attr_exact(tree, child, "name", 4);
-            if (name == NULL) {
-                continue;
-            }
-            if (def_add(schema, name, child) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-                PyErr_NoMemory();                   /* GCOVR_EXCL_LINE */
-                return 0;                           /* GCOVR_EXCL_LINE */
-            }
-        }
-    }
-    th_node *start = first_schema_child(schema, schema->root, RNG_NS, "start");
-    if (start == NULL) {
-        PyErr_SetString(PyExc_ValueError, "grammar has no start element");
-        return 0;
-    }
-    for (Py_ssize_t index = 0; index < schema->defines.len; index++) {
-        schema->defines.items[index].cycle_depth = -1;
-    }
-    if (rng_scan(schema, start, 0) < 0) {
-        return 0;
-    }
-    schema->start = rng_build_children(schema, start, NULL);
-    return 1;
+static int nc_name_eq(const nameclass *left, const nameclass *right) {
+    return u_eq_u(left->local, left->local_len, right->local, right->local_len) &&
+           u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len);
 }
 
 static void rng_validate_root(valctx *ctx, th_node *root) {

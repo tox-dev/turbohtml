@@ -144,9 +144,7 @@ static void sync_tail(St *st) {
 }
 
 static void put_run(St *st, const Py_UCS4 *text, Py_ssize_t len) {
-    /* an empty run (len 0) appends no code point, so there is no leading char to guard against
-       merging; text then borrows a zero-length source span whose pointer may sit one past the
-       buffer end (an empty member name, `t.0.`), so reading text[0] would over-read the source */
+    /* an empty run (the member name in `t.0.`) may point one past the source buffer end */
     if (len > 0 && needs_guard(st, text[0])) {
         grow(st, 1);
         if (st->failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */

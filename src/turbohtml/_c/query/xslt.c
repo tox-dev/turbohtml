@@ -4130,9 +4130,8 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
         return emit_text(eng, out_parent, text, text_len);
     }
     if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
-        /* The built-in rule applies templates to each child, so it is a template application like a matched rule
-           (section 5.8) and shares the same cap; otherwise an untrusted deep source overflows the C stack. libxslt
-           counts its built-in rule the same way via ctxt->depth (xsltApplyBuiltinTemplate). */
+        /* a template application (section 5.8) like a matched rule, so it shares the cap that keeps a deep source off
+           the C stack limit; libxslt counts it in ctxt->depth too (xsltApplyBuiltinTemplate) */
         if (++eng->depth > XSLT_MAX_DEPTH) {
             eng->depth--;
             PyErr_Format(PyExc_RecursionError,
@@ -6299,20 +6298,7 @@ static void import_policy_clear(import_policy *policy) {
 #endif
 }
 
-/* A leading pair of path separators is a UNC prefix (\\host\share): url2pathname maps the bare \\host, file:////host
-   and ////host forms to it alike, and CreateFileW then opens it over SMB to an arbitrary host. urlparse leaves such a
-   prefix in an empty-netloc path, so classify it here and reject it on every platform before the path is resolved. */
-static int import_is_unc(PyObject *text) {
-    if (PyUnicode_GET_LENGTH(text) < 2) {
-        return 0;
-    }
-    Py_UCS4 first = PyUnicode_ReadChar(text, 0);
-    if (first != '\\' && first != '/') {
-        return 0;
-    }
-    Py_UCS4 second = PyUnicode_ReadChar(text, 1);
-    return second == '\\' || second == '/';
-}
+static int import_is_unc(PyObject *text);
 
 static PyObject *import_path_from_url(import_policy *policy, PyObject *value, const char *name) {
     if (!PyUnicode_Check(value)) {
@@ -6366,6 +6352,20 @@ static PyObject *import_path_from_url(import_policy *policy, PyObject *value, co
     PyObject *path = PyObject_CallOneArg(policy->path_type, local);
     Py_DECREF(local);
     return path;
+}
+
+/* url2pathname maps \\host, file:////host and ////host alike to a UNC path, which CreateFileW opens over SMB on an
+   arbitrary host; rejected on every platform. */
+static int import_is_unc(PyObject *text) {
+    if (PyUnicode_GET_LENGTH(text) < 2) {
+        return 0;
+    }
+    Py_UCS4 first = PyUnicode_ReadChar(text, 0);
+    if (first != '\\' && first != '/') {
+        return 0;
+    }
+    Py_UCS4 second = PyUnicode_ReadChar(text, 1);
+    return second == '\\' || second == '/';
 }
 
 static PyObject *import_resolve(PyObject *path) {

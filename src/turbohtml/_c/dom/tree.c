@@ -1619,18 +1619,6 @@ static int afe_push(th_tree *tree, th_node *node) {
     return 1;
 }
 
-/* Record a just-inserted formatting element for later reconstruction, but only if the
-   depth cap let it onto the open stack (it is then the current node). An entry the cap
-   refused never rejoins the stack, so reconstruct_afe would re-clone it on every later
-   formatting tag -- O(n^2) retained DOM nodes from a flat run of start tags past the
-   512 cap. jsoup keeps the same cap and its formatting list consistent the same way
-   (TreeBuilder.onStackPrunedForDepth). */
-static void afe_push_if_open(th_tree *tree, th_node *node) {
-    if (current_node(tree) == node) {
-        afe_push(tree, node);
-    }
-}
-
 static void afe_push_marker(th_tree *tree) {
     if (tree->afe_len == tree->afe_cap) {
         size_t cap;
@@ -2846,6 +2834,8 @@ static int slice_can_span(const th_tree *tree, const th_token *token) {
             !chunk_has_nul(tree->kind, (const uint8_t *)tree->data + token->src_start * tree->kind, token->src_len));
 }
 
+static void afe_push_if_open(th_tree *tree, th_node *node);
+
 static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) {
     if (tok->kind == TH_TEXT) {
         if (slice_can_span(tree, tok)) {
@@ -3375,6 +3365,14 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
     }
     return TH_DRAIN_NEXT; /* GCOVR_EXCL_LINE: in body handles every text/comment/start/end token in a branch
               that breaks, and a DOCTYPE is ignored before the switch, so nothing reaches here */
+}
+
+/* An element the depth cap kept off the open stack must stay off the list too, or reconstruct_afe re-clones it on
+   every later formatting tag: O(n^2) retained nodes past the 512 cap (jsoup TreeBuilder.onStackPrunedForDepth). */
+static void afe_push_if_open(th_tree *tree, th_node *node) {
+    if (current_node(tree) == node) {
+        afe_push(tree, node);
+    }
 }
 
 static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {

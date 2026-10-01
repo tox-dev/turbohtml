@@ -320,8 +320,7 @@ static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t 
     }
 }
 
-/* XML 1.0 §2.5 forbids `--` and a trailing `-` in a comment; spacing them changes no parsed XML comment.
-   A character XML cannot hold is dropped, as in character data. */
+/* XML 1.0 §2.5 forbids `--` and a trailing `-` in a comment; spacing them changes no parsed XML comment. */
 static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = text[index];

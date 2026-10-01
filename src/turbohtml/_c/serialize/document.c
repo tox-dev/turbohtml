@@ -860,10 +860,7 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
-/* The inner_html defaults with XML/XHTML syntax turned on: empty elements self-close,
-   values follow the XML escaping rules, foreign subtrees carry their namespace
-   declarations, and comments, character data, and attribute names are made well-formed.
-   The same rules Node.serialize(Html(xml=True)) emits under, so a fragment always reparses. */
+/* The inner_html defaults with XML/XHTML syntax on, the same rules Node.serialize(Html(xml=True)) emits under. */
 static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0};
 
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len) {

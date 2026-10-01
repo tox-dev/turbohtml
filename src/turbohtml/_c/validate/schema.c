@@ -702,8 +702,14 @@ static int named_index(th_schema *schema, named_vec *vec) {
     return 0;
 }
 
-/* The index of the named definition, or -1. The XSD cycle checks key per-definition state
-   by this index, so they resolve a reference to its slot rather than only its node. */
+static Py_ssize_t named_find_index(const named_vec *vec, const Py_UCS4 *name, Py_ssize_t len);
+
+static th_node *named_find(const named_vec *vec, const Py_UCS4 *name, Py_ssize_t len) {
+    Py_ssize_t index = named_find_index(vec, name, len);
+    return index < 0 ? NULL : vec->items[index].node;
+}
+
+/* The XSD cycle checks key per-definition state by index, so they need the slot, not only its node. */
 static Py_ssize_t named_find_index(const named_vec *vec, const Py_UCS4 *name, Py_ssize_t len) {
     if (vec->slots == NULL) {
         for (Py_ssize_t index = 0; index < vec->len; index++) {
@@ -722,11 +728,6 @@ static Py_ssize_t named_find_index(const named_vec *vec, const Py_UCS4 *name, Py
         slot = (slot + 1) & (vec->slot_cap - 1);
     }
     return -1;
-}
-
-static th_node *named_find(const named_vec *vec, const Py_UCS4 *name, Py_ssize_t len) {
-    Py_ssize_t index = named_find_index(vec, name, len);
-    return index < 0 ? NULL : vec->items[index].node;
 }
 
 /* Concatenate an element's direct character-data children into an arena buffer. */
