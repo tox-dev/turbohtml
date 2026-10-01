@@ -1,0 +1,2 @@
+Decode byte-order-mark input through :attr:`EncodingMatch.codec <turbohtml.detect.EncodingMatch>` with U+FFFD
+replacement instead of raising :exc:`UnicodeDecodeError` on malformed bytes.

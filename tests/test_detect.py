@@ -612,6 +612,32 @@ def test_a_byte_order_mark_codec_delegates_to_cpython(data: bytes, text: str) ->
     assert data.decode(match.codec) == text
 
 
+@pytest.mark.parametrize(
+    ("data", "text"),
+    [
+        pytest.param(b"\xef\xbb\xbfhi\xc3", "hi\ufffd", id="utf-8-sig-truncated"),
+        pytest.param(b"\xef\xbb\xbfhi\xc3(", "hi\ufffd(", id="utf-8-sig-bad-continuation"),
+        pytest.param(b"\xff\xfe" + "AB".encode("utf-16-le") + b"\x41", "\ufeffAB\ufffd", id="utf-16le-lone-byte"),
+        pytest.param(b"\xfe\xff" + "AB".encode("utf-16-be") + b"\x41", "\ufeffAB\ufffd", id="utf-16be-lone-byte"),
+        pytest.param(b"\xff\xfe\x00\x00A\x00\x00\x00\x41", "\ufeffA\ufffd", id="utf-32le-trailing-bytes"),
+        pytest.param(b"\x00\x00\xfe\xff\x00\x00\x00A\x41", "\ufeffA\ufffd", id="utf-32be-trailing-bytes"),
+    ],
+)
+def test_a_byte_order_mark_codec_replaces_malformed_bytes(data: bytes, text: str) -> None:
+    # the strict CPython codec would raise UnicodeDecodeError here; the whatwg-* codec replaces like turbohtml.parse
+    match = detect(data)
+    assert match.codec is not None
+    assert data.decode(match.codec) == text
+
+
+def test_a_mark_stripping_codec_reproduces_the_parser_text_on_malformed_bytes() -> None:
+    # utf-8-sig drops the mark, so its decode equals the parser's text byte for byte, replacement char and all
+    data = b"\xef\xbb\xbfhi\xc3"
+    match = detect(data)
+    assert match.codec is not None
+    assert data.decode(match.codec) == parse(data).text == "hi\ufffd"
+
+
 def test_a_whatwg_codec_refuses_to_encode() -> None:
     # the generated tables are decode-side only; encoding to a legacy charset is a separate spec algorithm
     with pytest.raises(UnicodeError, match="decodes only"):

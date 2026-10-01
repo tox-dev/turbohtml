@@ -88,10 +88,18 @@ def _search(name: str) -> codecs.CodecInfo | None:
         return None
     delegate, label = found
     if delegate:
-        return codecs.CodecInfo(_refuse_encode, codecs.lookup(label).decode, name=name)
+        # These names resolve to CPython's utf-8-sig/utf-16/utf-32 decoder, since the native tables carry no mark
+        # labels and UTF-32 is not a WHATWG encoding. Force "replace" so malformed bytes become U+FFFD as
+        # turbohtml.parse produces them, not the strict codec's UnicodeDecodeError.
+        delegated = codecs.lookup(label).decode
 
-    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
-        return _decode(data, label), len(data)
+        def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
+            return delegated(data, "replace")
+
+    else:
+
+        def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
+            return _decode(data, label), len(data)
 
     # CodecInfo's decoder is typed against _typeshed.ReadableBuffer, which Sphinx cannot import when it walks the
     # annotations at doc-build time; bytes is what the codecs machinery ever passes a decode function.
