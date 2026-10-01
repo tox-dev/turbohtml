@@ -1366,7 +1366,7 @@ static int xsd_compile(th_schema *schema) {
     if (xsd_cache_facets(schema, schema->root) < 0) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only an arena OOM returns without an exception set */
             PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE: llvm attributes the unexecuted fall-through to this brace */
         return 0;
     }
     if (xsd_check_chains(schema, CHAIN_GROUP) < 0 || xsd_check_chains(schema, CHAIN_ATTRGROUP) < 0 ||
