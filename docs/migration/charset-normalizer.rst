@@ -60,9 +60,10 @@ Portable one-to-one between the two libraries:
 - Language of the winning model: ``best().language`` maps to :attr:`EncodingMatch.language
   <turbohtml.detect.EncodingMatch>`.
 - The byte-order-mark flag: ``best().bom`` maps to :attr:`EncodingMatch.bom <turbohtml.detect.EncodingMatch>`. A mark
-  reports the mark's own label -- ``UTF-8-SIG`` for a UTF-8 mark and ``UTF-16LE`` / ``UTF-16BE`` / ``UTF-32LE`` /
-  ``UTF-32BE`` for the UTF-16 and UTF-32 marks -- so ``data.decode(match.codec)`` (or ``utf-8-sig`` / ``utf-16`` /
-  ``utf-32``) strips it, matching charset-normalizer's mark-aware decode.
+  reports the mark's own label -- ``UTF-8-SIG`` for a UTF-8 mark and ``UTF-16LE`` / ``UTF-16BE`` for the UTF-16 marks --
+  so ``data.decode(match.codec)`` (or ``utf-8-sig`` / ``utf-16``) strips it, matching charset-normalizer's mark-aware
+  decode. The `WHATWG BOM sniff <https://encoding.spec.whatwg.org/#bom-sniff>`_ has no UTF-32, so ``FF FE 00 00``
+  reports the UTF-16LE mark, not UTF-32.
 - A ``<meta>`` charset in the first bytes is honored by both (charset-normalizer's ``preemptive_behaviour``, on by
   default, and turbohtml's prescan).
 

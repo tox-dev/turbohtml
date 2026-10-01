@@ -1,0 +1,2 @@
+:func:`turbohtml.detect.detect` reports ``UTF-16LE`` for the ``FF FE 00 00`` byte-order mark, matching
+:func:`turbohtml.parse`, instead of the ``UTF-32LE`` label the parser does not produce.

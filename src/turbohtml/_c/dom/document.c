@@ -839,8 +839,8 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
    canonical name or None for pure ASCII, whether it came from a declaration or a
    structural proof rather than frequency scoring, every surviving scored candidate as
    (canonical name, raw score) pairs, and whether a leading byte-order mark decided it.
-   The BOM step uses th_detect_bom, which reports UTF-8-SIG and the UTF-32 marks the
-   spec-locked parse path does not; the parse path's th_encoding_bom is untouched. */
+   The BOM step uses th_detect_bom, which reports UTF-8-SIG where the spec-locked parse
+   path reports UTF-8; both sniff the same three WHATWG marks and neither honors UTF-32. */
 /* _decode(data, label) -> str: decode bytes with the WHATWG decoder the label names, the way parse(bytes) would. A
    byte-order mark is not stripped; the label decides, as the spec's "decode" entry point does. */
 PyObject *turbohtml_decode(PyObject *module, PyObject *args) {
@@ -1188,19 +1188,20 @@ typedef struct {
     int fed; /* whether any bytes arrived: an unfed stream has no answer */
 } DetectStreamObject;
 
-/* Whether the leading bytes settle the stream whatever follows: a resolved byte-order mark. FF FE alone could still
-   open the FF FE 00 00 UTF-32LE mark, so it settles only once the next pair has ruled that out. */
+/* Whether the leading bytes settle the stream whatever follows: a resolved byte-order mark. The three WHATWG marks
+   (Encoding §BOM sniff) each settle as soon as their bytes arrive; FF FE is UTF-16LE on sight, with no UTF-32 mark to
+   wait out. */
 static int detect_bom_settles(const unsigned char *head, Py_ssize_t len) {
     static const struct {
         unsigned char bytes[4];
         Py_ssize_t len;
-    } marks[] = {{{0xEF, 0xBB, 0xBF, 0x00}, 3}, {{0xFE, 0xFF, 0x00, 0x00}, 2}, {{0x00, 0x00, 0xFE, 0xFF}, 4}};
+    } marks[] = {{{0xEF, 0xBB, 0xBF, 0x00}, 3}, {{0xFE, 0xFF, 0x00, 0x00}, 2}, {{0xFF, 0xFE, 0x00, 0x00}, 2}};
     for (size_t index = 0; index < sizeof(marks) / sizeof(*marks); index++) {
         if (len >= marks[index].len && memcmp(head, marks[index].bytes, (size_t)marks[index].len) == 0) {
             return 1;
         }
     }
-    return len >= 4 && head[0] == 0xFF && head[1] == 0xFE;
+    return 0;
 }
 
 static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {

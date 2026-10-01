@@ -359,20 +359,20 @@ typedef struct {
     int length;
 } th_detect_bom_sig;
 
-/* Ordered so a UTF-32 mark is tested before the UTF-16 mark it starts with:
-   FF FE 00 00 (UTF-32LE) must win over FF FE (UTF-16LE). The array+loop keeps the
+/* Only the three marks the WHATWG "BOM sniff" recognizes (Encoding §BOM sniff): UTF-8,
+   UTF-16BE, UTF-16LE. FF FE 00 00 therefore reports UTF-16LE on its FF FE prefix, as the
+   parser does, rather than a UTF-32 label the parser never honors. The array+loop keeps the
    match a single memcmp per row rather than a chain of &&-guarded byte compares. */
 static const th_detect_bom_sig th_detect_bom_table[] = {
-    {"UTF-32LE", {0xFF, 0xFE, 0x00, 0x00}, 4},  {"UTF-32BE", {0x00, 0x00, 0xFE, 0xFF}, 4},
-    {"UTF-8-SIG", {0xEF, 0xBB, 0xBF, 0x00}, 3}, {"UTF-16BE", {0xFE, 0xFF, 0x00, 0x00}, 2},
+    {"UTF-8-SIG", {0xEF, 0xBB, 0xBF, 0x00}, 3},
+    {"UTF-16BE", {0xFE, 0xFF, 0x00, 0x00}, 2},
     {"UTF-16LE", {0xFF, 0xFE, 0x00, 0x00}, 2},
 };
 
-/* The label the standalone turbohtml.detect surface reports for a leading byte-order
-   mark, or NULL when there is none. It spells a UTF-8 mark as UTF-8-SIG (so a caller
-   knows to strip it) and recognizes the UTF-32 marks, neither of which the spec-locked
-   parse-time th_encoding_bom above emits -- the WHATWG sniff has no UTF-8-SIG label and
-   treats FF FE 00 00 as UTF-16LE, and that path stays byte-for-byte unchanged. */
+/* The label the standalone turbohtml.detect surface reports for a leading byte-order mark,
+   or NULL when there is none. It spells a UTF-8 mark as UTF-8-SIG (so a caller knows to
+   strip it), the one spelling the spec-locked parse-time th_encoding_bom above does not
+   emit; both agree that FF FE 00 00 is UTF-16LE and that a UTF-32 mark is no mark. */
 static const char *th_detect_bom(const unsigned char *buf, Py_ssize_t len) {
     for (size_t index = 0; index < sizeof(th_detect_bom_table) / sizeof(th_detect_bom_table[0]); index++) {
         const th_detect_bom_sig *sig = &th_detect_bom_table[index];

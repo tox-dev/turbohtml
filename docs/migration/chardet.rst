@@ -86,8 +86,8 @@ What chardet has that turbohtml does not
 
 - A wider candidate set. turbohtml scores chardetng's list: UTF-8, ISO-2022-JP, five CJK encodings, and 19 single-byte
   encodings. chardet's extras outside that set (UTF-16/32 *without* a byte-order mark, MacCyrillic, TIS-620, Johab)
-  resolve to the closest WHATWG candidate instead. No equivalent when you need one of those exact labels. A UTF-16 or
-  UTF-32 stream that *does* carry a mark now reports its exact label (see below).
+  resolve to the closest WHATWG candidate instead. No equivalent when you need one of those exact labels. A UTF-16
+  stream that *does* carry a mark reports its exact label (see below); UTF-32 has no WHATWG mark and is content-sniffed.
 - A raw CJK speed edge on the C fork. On CJK-heavy byte streams (the Shift_JIS row), ``cchardet``'s uchardet engine
   stays about 1.6x ahead of turbohtml, which decodes each candidate encoding to score it and a CJK stream leaves several
   candidates standing. Workaround: keep ``faust-cchardet`` for that one workload if it dominates; turbohtml leads
@@ -182,10 +182,11 @@ either package unchanged.
   cchardet ignore markup. Feed :class:`~turbohtml.detect.Detection` ``excluded`` constraints instead of re-sniffing when
   a declaration is known to lie.
 - A byte-order mark reports the mark's own label and sets ``EncodingMatch.bom``: a UTF-8 mark comes back as
-  ``UTF-8-SIG`` (chardet's spelling), and the UTF-16 and UTF-32 marks as ``UTF-16LE`` / ``UTF-16BE`` / ``UTF-32LE`` /
-  ``UTF-32BE``. Decode with the matching codec (``utf-8-sig``, ``utf-16``, ``utf-32``) to strip the mark. The
-  spec-locked :func:`~turbohtml.parse` sniff is unaffected -- it keeps the plain WHATWG name and treats ``FF FE 00 00``
-  as UTF-16LE, so ``detect`` and ``parse(detect_encoding=True)`` agree on every input except a marked one.
+  ``UTF-8-SIG`` (chardet's spelling) and the UTF-16 marks as ``UTF-16LE`` / ``UTF-16BE``. Decode with the matching codec
+  (``utf-8-sig``, ``utf-16``) to strip the mark. The `WHATWG BOM sniff <https://encoding.spec.whatwg.org/#bom-sniff>`_
+  has no UTF-32, so ``FF FE 00 00`` is the UTF-16LE mark and ``00 00 FE FF`` is no mark (content-sniffed). The
+  spec-locked :func:`~turbohtml.parse` sniff reports the same, so ``detect`` and ``parse(detect_encoding=True)`` agree
+  on every input except a UTF-8 mark, which ``detect`` spells ``UTF-8-SIG`` and ``parse`` ``UTF-8``.
 - The candidate set is chardetng's: UTF-8, ISO-2022-JP, five CJK encodings, and 19 single-byte encodings. chardet's
   extras outside that set (UTF-16/32 *without* a mark, MacCyrillic, TIS-620, Johab) resolve to the closest WHATWG
   candidate instead.
