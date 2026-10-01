@@ -1134,8 +1134,8 @@ static Py_ssize_t css_skip_token(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_
 
 /* A declaration whose property name is allowlisted can still carry a dangerous value: IE's `expression(...)` runs
    script, and `url(javascript:...)` a disallowed scheme. Scan CSS tokens so inert strings, comments, and longer
-   identifiers do not trigger the executable-function checks. When `url_forbidden`, any `url()` is rejected regardless of
-   scheme: a selector prelude never carries one, so its presence marks a declaration misread as a prelude. Returns 1
+   identifiers do not trigger the executable-function checks. When `url_forbidden`, any `url()` is rejected regardless
+   of scheme: a selector prelude never carries one, so its presence marks a declaration misread as a prelude. Returns 1
    allow, 0 drop, -1 error (never -1 when url_forbidden, which short-circuits before the scheme check that can fail). */
 static int css_value_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t end, int url_forbidden) {
     Py_ssize_t pos = start;
@@ -1369,9 +1369,9 @@ static int css_emit_block_declaration(sanitizer *s, const Py_UCS4 *value, Py_ssi
 }
 
 /* Skip a dropped nested rule's `{...}` block: from `start` (just past the opening `{`), advance past the matching `}`,
-   balancing nested braces while skipping strings, comments, and url()/ident tokens so a brace inside one is not counted,
-   and ignoring braces inside parentheses as the scrubber's main scan does. Returns the index just past the closing `}`,
-   or `len` when the block is unterminated. */
+   balancing nested braces while skipping strings, comments, and url()/ident tokens so a brace inside one is not
+   counted, and ignoring braces inside parentheses as the scrubber's main scan does. Returns the index just past the
+   closing `}`, or `len` when the block is unterminated. */
 static Py_ssize_t css_skip_block(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
     int brace_depth = 1;
     int paren_depth = 0;
@@ -1401,8 +1401,9 @@ static Py_ssize_t css_skip_block(const Py_UCS4 *value, Py_ssize_t start, Py_ssiz
    block. A block's declarations are vetted like a `style` attribute -- only allowlisted, expression()/url-safe
    declarations survive -- while preludes and block nesting are kept, so `p{color:red;position:fixed}` becomes
    `p{color:red;}`. Segmentation runs a single pass whose terminator classifies each run: a `{` makes the run a prelude
-   (open a block), a `;`/`}` a declaration. A prelude holding a top-level `property:value` with a url()/expression() is a
-   declaration a pre-nesting browser applies, not a selector, so its whole nested rule is dropped. An at-rule statement
+   (open a block), a `;`/`}` a declaration. A prelude holding a top-level `property:value` with a url()/expression() is
+   a declaration a pre-nesting browser applies, not a selector, so its whole nested rule is dropped. An at-rule
+   statement
    (`@import ...;`, `@charset ...`) has no property:value split, so css_declaration_kept drops it, and a
    `url()`/quoted/commented `;`, `:`, `{`, or `}` is skipped so it is never mistaken for a separator. brace_depth is an
    int counter, not recursion, so a pathologically nested body cannot
@@ -1437,8 +1438,8 @@ static int scrub_stylesheet(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len, 
             /* A top-level `property:value` run before `{` is a declaration a pre-nesting browser applies (CSS Nesting
                reads it as a nested rule whose prelude is an invalid selector and drops it); a genuine selector or
                at-rule head never carries a url()/expression() there. Vet its value like any declaration and drop the
-               whole nested construct when it carries one, so `color:expression(...)`/`-moz-binding:url(...)` cannot reach
-               a kept <style> as an unchecked prelude -- while `a:hover`/`li:nth-child(2n)` survive. */
+               whole nested construct when it carries one, so `color:expression(...)`/`-moz-binding:url(...)` cannot
+               reach a kept <style> as an unchecked prelude -- while `a:hover`/`li:nth-child(2n)` survive. */
             if (colon >= 0 && css_value_allowed(s, value, colon + 1, index - 1, 1) == 0) {
                 index = css_skip_block(value, index, len);
                 seg_start = index;
