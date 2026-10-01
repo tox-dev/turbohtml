@@ -128,20 +128,46 @@ Two mechanisms share one driver (``tools/fuzz/fuzz.py``):
   runs against an extension built with the sanitizers and calls the public API, so a C fault aborts the interpreter with
   a stack trace and the harness survives internal C refactors.
 
-The ``fuzz-smoke`` environment replays a benign seed corpus (``tools/fuzz/corpus/``) once per target. It is fast and
-deterministic and gates every pull request in the ``🔒 fuzz`` workflow, so it seeds with valid inputs, never known
-crashers. The ``fuzz`` environment adds a mutation loop and escalating-depth structural probes for a per-target budget;
-it is the continuous hunt, run weekly and on demand, not a merge gate.
+The ``fuzz-smoke`` environment replays every past find in ``tests/fuzz_regressions/`` through every harness, then a
+benign seed corpus (``tools/fuzz/corpus/``) once per target. It is deterministic and gates every pull request in the
+``🔒 fuzz`` workflow. The ``fuzz`` environment adds a mutation loop and escalating-depth structural probes for a
+per-target budget; it is the continuous hunt, run daily and on demand, not a merge gate.
 
 .. code-block:: console
 
-    $ tox r -e fuzz-smoke            # the per-PR gate: benign corpus, no crash expected
+    $ tox r -e fuzz-smoke            # the per-PR gate: past finds and benign corpus, no crash expected
     $ tox r -e fuzz -- --minutes 5   # the deep run: mutation + structural probes per target
 
-Add a target by registering a ``bytes``-taking callable in ``TARGETS`` (in-process) and dropping a representative benign
-seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C unit that
-compiles free of the CPython boundary. macOS ships no ``libFuzzer`` runtime with Apple Clang, so the coverage-guided
-mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation modes run under Apple Clang.
+The in-process driver runs each input under pymalloc and again under ``PYTHONMALLOC=malloc``, because AddressSanitizer
+cannot see an over-read that stays inside a pymalloc pool. The deep run splits ``--minutes`` between the two passes.
+Both environments pin ``PYTHONHASHSEED=0``, and ``--rng-seed`` (default 0) fixes the mutation sequence, so a find
+replays on the next run.
+
+``fuzz.py`` stores a crashing input as ``.fuzz-crashes/crash-<sha256>`` and logs only its SHA-256, length, harness and
+seeds, because anyone can read the CI logs of a public repository. Once the fix lands, copy the input into
+``tests/fuzz_regressions/`` with the issue number in its name, and every later run replays it first.
+
+The scheduled run uploads crashers only when the ``FUZZ_AGE_RECIPIENT`` repository variable holds an `age
+<https://github.com/FiloSottile/age>`_ public key, and it encrypts each one to that key first. Without the variable it
+uploads nothing. A maintainer sets the variable once and keeps the identity file private:
+
+.. code-block:: console
+
+    $ age-keygen -o fuzz-crashes.key   # prints "Public key: age1..."
+    $ gh variable set FUZZ_AGE_RECIPIENT --body age1...
+
+To read the crashers of a failed run, download its ``fuzz-crashes`` artifact and decrypt each file:
+
+.. code-block:: console
+
+    $ gh run download <run-id> --name fuzz-crashes
+    $ age --decrypt --identity fuzz-crashes.key --output crash-<sha256> crash-<sha256>.age
+
+Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
+benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C
+unit that compiles free of the CPython boundary. macOS ships no ``libFuzzer`` runtime with Apple Clang, so the
+coverage-guided mode needs an LLVM Clang (``brew install llvm``); the corpus-replay and mutation modes run under Apple
+Clang.
 
 ****************
  Project layout

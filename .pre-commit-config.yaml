@@ -5,9 +5,9 @@ repos:
     rev: "v6.0.0" # v6.0.0
     hooks:
       - id: end-of-file-fixer
-        exclude: ^tools/fuzz/corpus/.*$ # byte-exact crash inputs
+        exclude: ^(tools/fuzz/corpus|tests/fuzz_regressions)/.*$ # byte-exact crash inputs
       - id: trailing-whitespace
-        exclude: ^tools/fuzz/corpus/.*$ # byte-exact crash inputs
+        exclude: ^(tools/fuzz/corpus|tests/fuzz_regressions)/.*$ # byte-exact crash inputs
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: "0.38.2" # 0.37.2
     hooks:

@@ -32,3 +32,6 @@ tools/bench/node/node_modules/
 
 # the conformance oracles build in place
 tests/conformance/oracles/*/target/
+
+# tools/fuzz/fuzz.py stores crashing inputs here; they stay off the public repository
+/.fuzz-crashes

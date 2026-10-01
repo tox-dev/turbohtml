@@ -53,13 +53,31 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
-      - name: 📤 Upload crash corpus
-        if: failure()
+      # A crasher of an unfixed bug is an undisclosed vulnerability, and artifacts on a public repository are readable
+      # by anyone, so crashers leave the runner only encrypted to the maintainers' age key; without the key nothing
+      # leaves.
+      - name: 🔐 Encrypt crashers
+        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
+        run: |
+          curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  ${RUNNER_TEMP}/age.tar.gz" | sha256sum --check --strict
+          tar -xzf "${RUNNER_TEMP}/age.tar.gz" -C "${RUNNER_TEMP}" age/age
+          mkdir -p "${RUNNER_TEMP}/fuzz-crashes"
+          shopt -s nullglob
+          for crasher in .fuzz-crashes/crash-*; do
+            "${RUNNER_TEMP}/age/age" --recipient "${RECIPIENT}" \
+              --output "${RUNNER_TEMP}/fuzz-crashes/$(basename "${crasher}").age" "${crasher}"
+          done
+        env:
+          AGE_VERSION: v1.3.2
+          AGE_SHA256: cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10
+          RECIPIENT: ${{ vars.FUZZ_AGE_RECIPIENT }}
+      - name: 📤 Upload encrypted crashers
+        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-crashes
-          path: |
-            **/crash-*
-            **/*.crash
+          path: ${{ runner.temp }}/fuzz-crashes/*.age
           if-no-files-found: ignore
           retention-days: 14
