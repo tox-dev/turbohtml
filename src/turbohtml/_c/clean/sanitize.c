@@ -282,43 +282,67 @@ static int authority_allowed(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t 
     return th_url_authority_end(value, start, len) >= 0;
 }
 
-/* Unicode and control characters can conceal a disallowed scheme. */
-static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
-    char scheme[40];
-    Py_ssize_t length = 0;
+/* Whether the scheme the scheme characters in value[from,colon) spell is allowlisted, skipping every other code point.
+   Returns 1, 0, or -1 on error. */
+static int scheme_listed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t from, Py_ssize_t colon) {
+    Py_ssize_t size = 0;
+    for (Py_ssize_t index = from; index < colon; index++) {
+        size += th_scheme_char(value[index]);
+    }
+    PyObject *name = PyUnicode_New(size, 127);
+    if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS1 *out = PyUnicode_1BYTE_DATA(name);
+    for (Py_ssize_t index = from; index < colon; index++) {
+        if (th_scheme_char(value[index])) {
+            *out++ = (Py_UCS1)(value[index] | 0x20); /* lowercases a letter, identity on a digit or +-. */
+        }
+    }
+    int allowed = is_script_scheme((const char *)PyUnicode_1BYTE_DATA(name), (size_t)size)
+                      ? 0
+                      : PySet_Contains(s->url_schemes, name);
+    Py_DECREF(name);
+    return allowed;
+}
+
+/* Defense in depth for a value the URL parser reads as relative: dropping the control, format, and non-ASCII code
+   points must not spell a scheme the policy refuses (java&zwsp;script:), the normalization DOMPurify and bleach apply
+   before their scheme match. Returns 1, 0, or -1 on error. */
+static int hidden_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     int started = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 c = value[index];
-        if (is_url_ignorable(c) || c >= 0x80) {
+        Py_UCS4 codepoint = value[index];
+        if (is_url_ignorable(codepoint) || codepoint >= 0x80) {
             continue;
         }
-        if (c == ':' && started) {
-            if (is_script_scheme(scheme, (size_t)length)) {
-                return 0;
-            }
-            PyObject *name = PyUnicode_FromStringAndSize(scheme, length);
-            if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            int allowed = PySet_Contains(s->url_schemes, name);
-            Py_DECREF(name);
-            return allowed > 0 ? authority_allowed(value, index + 1, len) : allowed;
+        if (codepoint == ':' && started) {
+            return scheme_listed(s, value, 0, index); /* keep a relative value only if it de-obfuscates to one listed */
         }
-        int letter = th_scheme_start(c);
-        /* before the colon, every byte must be a scheme byte and the first must be a letter (so 1http:// is relative)
-         */
-        if (started ? !th_scheme_char(c) : !letter) {
-            if (!started && c == '#' && s->allow_fragments) {
-                return 1;
-            }
-            return s->allow_relative && (started || authority_allowed(value, index, len));
-        }
-        if (length < (Py_ssize_t)sizeof(scheme)) { /* cap the buffer but keep scanning, so an over-long scheme is */
-            scheme[length++] = (char)(letter ? (c | 0x20) : c); /* recorded truncated and never matches the allowlist */
+        if (started ? !th_scheme_char(codepoint) : !th_scheme_start(codepoint)) {
+            return 1;
         }
         started = 1;
     }
-    return s->allow_relative; /* no colon: a relative URL */
+    return 1;
+}
+
+/* The scheme as the WHATWG URL parser reads it decides, so a value a browser resolves as relative is held to
+   allow_relative even when dropping a code point from it would spell an allowed scheme (ftp&nbsp;://). */
+static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t start = 0;
+    while (start < len && value[start] <= 0x20) {
+        start++;
+    }
+    Py_ssize_t colon = th_url_scheme_colon(value, start, len);
+    if (colon >= 0) {
+        int allowed = scheme_listed(s, value, start, colon);
+        return allowed > 0 ? authority_allowed(value, colon + 1, len) : allowed;
+    }
+    if (start < len && value[start] == '#') {
+        return s->allow_fragments || s->allow_relative;
+    }
+    return s->allow_relative && authority_allowed(value, start, len) ? hidden_scheme_allowed(s, value, len) : 0;
 }
 
 /* srcset and imagesrcset hold a comma-separated list of "URL descriptor" candidates. Each candidate's leading URL is
@@ -920,22 +944,21 @@ static Py_ssize_t css_skip_ws_comments(const Py_UCS4 *value, Py_ssize_t pos, Py_
     return pos;
 }
 
-/* Read the URL inside a `url(...)` starting at `pos` (just past the paren) and check its scheme against the allowlist,
-   the same scan the URL-attribute path uses, after stripping an optional surrounding quote so `url("javascript:...")`
-   cannot smuggle a scheme past the check. Returns 1 allow, 0 drop, -1 error. */
+/* Decode the URL inside a `url(...)` starting at `pos` (just past the paren), escapes resolved and an optional
+   surrounding quote stripped so `url("javascript:...")` cannot smuggle a scheme past the check, and give it the
+   URL-attribute scheme check. Returns 1 allow, 0 drop, -1 error. */
 static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t end) {
-    enum { SCHEME_UNDECIDED = -2 };
     pos = css_skip_ws_comments(value, pos, end);
     Py_UCS4 quote = 0;
     if (pos < end && (value[pos] == '"' || value[pos] == '\'')) {
         quote = value[pos++];
     }
-    char inline_scheme[40];
-    char *scheme = inline_scheme;
-    size_t scheme_len = 0;
-    size_t scheme_capacity = sizeof(inline_scheme);
-    int scheme_started = 0;
-    int allowed = SCHEME_UNDECIDED;
+    Py_UCS4 *url = PyMem_Malloc((size_t)(end - pos + 1) * sizeof(Py_UCS4)); /* an escape never decodes longer */
+    if (url == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t url_len = 0;
     int result = 0;
     while (pos < end && value[pos] != ')' && (quote ? value[pos] != quote : !is_space(value[pos]))) {
         Py_UCS4 codepoint = value[pos];
@@ -950,53 +973,7 @@ static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t
             }
             pos++;
         }
-        if (allowed != SCHEME_UNDECIDED || is_url_ignorable(codepoint)) {
-            continue;
-        }
-        if (codepoint == ':' && scheme_started) {
-            if (is_script_scheme(scheme, scheme_len)) {
-                allowed = 0;
-                continue;
-            }
-            PyObject *name = PyUnicode_FromStringAndSize(scheme, (Py_ssize_t)scheme_len);
-            if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                result = -1;    /* GCOVR_EXCL_LINE: allocation-failure path */
-                goto done;      /* GCOVR_EXCL_LINE */
-            }
-            allowed = PySet_Contains(s->url_schemes, name);
-            Py_DECREF(name);
-            continue;
-        }
-        int is_scheme_letter = th_scheme_start(codepoint);
-        if (scheme_started ? !th_scheme_char(codepoint) : !is_scheme_letter) {
-            allowed = s->allow_relative;
-            continue;
-        }
-        if (scheme_len == scheme_capacity) {
-            size_t grown_capacity;
-            size_t bytes;
-            int fits = th_grow_cap(scheme_len + 1, scheme_capacity, sizeof(inline_scheme), sizeof(*scheme),
-                                   &grown_capacity, &bytes);
-            if (!fits) {          /* GCOVR_EXCL_BR_LINE: a CSS token cannot exhaust size_t */
-                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: size-overflow path */
-                result = -1;      /* GCOVR_EXCL_LINE */
-                goto done;        /* GCOVR_EXCL_LINE */
-            }
-            char *grown = PyMem_Malloc(bytes);
-            if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-                result = -1;      /* GCOVR_EXCL_LINE */
-                goto done;        /* GCOVR_EXCL_LINE */
-            }
-            memcpy(grown, scheme, scheme_len);
-            if (scheme != inline_scheme) {
-                PyMem_Free(scheme);
-            }
-            scheme = grown;
-            scheme_capacity = grown_capacity;
-        }
-        scheme[scheme_len++] = (char)(is_scheme_letter ? (codepoint | 0x20) : codepoint);
-        scheme_started = 1;
+        url[url_len++] = codepoint;
     }
     if (quote) {
         if (pos >= end) { /* GCOVR_EXCL_BR_LINE: the declaration splitter rejects an unterminated quoted URL */
@@ -1009,12 +986,10 @@ static int css_url_scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t
     }
     pos = css_skip_ws_comments(value, pos, end);
     if (pos < end && value[pos] == ')') {
-        result = allowed == SCHEME_UNDECIDED ? s->allow_relative : allowed;
+        result = scheme_allowed(s, url, url_len);
     }
 done:
-    if (scheme != inline_scheme) {
-        PyMem_Free(scheme);
-    }
+    PyMem_Free(url);
     return result;
 }
 

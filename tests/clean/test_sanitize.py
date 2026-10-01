@@ -646,10 +646,10 @@ def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: boo
         pytest.param("cursor: \\", False, id="trailing-escape"),
         pytest.param(r"width: expr\65ssion(alert(1))", False, id="escaped-expression"),
         pytest.param(r"cursor: url(https://example.com/a), u\72l(jav\61script:alert(1))", False, id="multiple-urls"),
-        pytest.param(r"cursor: url(jav\110000-script:x)", True, id="invalid-code-point-is-not-script"),
-        pytest.param(r"cursor: url(jav\0 -script:x)", True, id="null-escape-is-not-script"),
-        pytest.param(r"cursor: url(jav\d800 -script:x)", True, id="surrogate-escape-is-not-script"),
-        pytest.param(r"cursor: url(jav\1f642 -script:x)", True, id="non-bmp-code-point-is-not-script"),
+        pytest.param(r"cursor: url(jav\110000-script:x)", False, id="invalid-code-point-hides-scheme"),
+        pytest.param(r"cursor: url(jav\0 -script:x)", False, id="null-escape-hides-scheme"),
+        pytest.param(r"cursor: url(jav\d800 -script:x)", False, id="surrogate-escape-hides-scheme"),
+        pytest.param(r"cursor: url(jav\1f642 -script:x)", False, id="non-bmp-code-point-hides-scheme"),
         pytest.param(r"cursor: abcdefghijk\0000612", True, id="six-digit-escape-before-hex"),
         pytest.param("cursor: url(jav\\\nascript:alert(1))", False, id="escaped-newline-in-url"),
         pytest.param(r'cursor: url("https://example.com" trailing)', False, id="garbage-after-quoted-url"),
@@ -1229,6 +1229,58 @@ def test_relative_url_dropped_when_disallowed() -> None:
     assert sanitize('<a href="/path">x</a>', policy) == "<a>x</a>"
 
 
+# A code point the WHATWG scheme state stops on (anything but an ASCII scheme character or a removed tab/LF/CR) ends the
+# scheme, so the value is a relative URL -- a browser resolves it same-origin, not as the allowlisted scheme spelled
+# around the character. Dropping such a code point to read a scheme would bypass allow_relative_urls=False.
+_SCHEME_SPLITTERS = [
+    pytest.param("\u00a0", id="nbsp"),
+    pytest.param("\u00ad", id="soft-hyphen"),
+    pytest.param("\u200b", id="zero-width-space"),
+    pytest.param("\u2028", id="line-separator"),
+    pytest.param("\x01", id="c0-control"),
+    pytest.param("\x7f", id="delete"),
+    pytest.param("\uff54", id="fullwidth-letter"),
+]
+
+
+@pytest.mark.parametrize("splitter", _SCHEME_SPLITTERS)
+def test_scheme_split_by_non_scheme_code_point_is_relative(splitter: str) -> None:
+    # ftp<splitter>:// parses as a relative URL, so it is dropped when relative URLs are not allowed, even though ftp is
+    # allowlisted: the value never reads as the ftp scheme to a browser.
+    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, url_schemes=frozenset({"ftp"}),
+                    allow_relative_urls=False)  # fmt: skip
+    assert sanitize(f'<a href="ftp{splitter}://example.com/">x</a>', policy) == "<a>x</a>"
+
+
+@pytest.mark.parametrize("splitter", _SCHEME_SPLITTERS)
+def test_scheme_split_in_css_url_is_relative(splitter: str) -> None:
+    # the CSS url() scheme check reads the scheme the same WHATWG way as a URL attribute, so the same split drops it.
+    policy = Policy(tags=frozenset({"p"}), attributes={"p": frozenset({"style"})},
+                    css_properties=frozenset({"background"}), url_schemes=frozenset({"ftp"}),
+                    allow_relative_urls=False)  # fmt: skip
+    assert sanitize(f"<p style='background:url(ftp{splitter}://example.com/)'>x</p>", policy) == "<p>x</p>"
+
+
+def test_tab_in_scheme_is_removed_not_a_splitter() -> None:
+    # the WHATWG parser removes tab/LF/CR anywhere, so ftp\t:// still reads as the ftp scheme and is kept when allowed.
+    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, url_schemes=frozenset({"ftp"}))
+    assert sanitize('<a href="ftp\t://example.com/">x</a>', policy) == '<a href="ftp\t://example.com/">x</a>'
+
+
+def test_hidden_listed_scheme_kept_as_relative_when_relative_allowed() -> None:
+    # a value the parser reads as relative but which de-obfuscates to a listed scheme is harmless relative markup, so it
+    # survives when relative URLs are allowed; the browser still resolves it same-origin.
+    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, url_schemes=frozenset({"http"}))
+    assert "href=" in sanitize('<a href="htt\u00a0p://example.com/">x</a>', policy)
+
+
+@pytest.mark.parametrize("splitter", _SCHEME_SPLITTERS)
+def test_hidden_scheme_still_blocked_when_relative_allowed(splitter: str) -> None:
+    # even where a relative URL is allowed, a disallowed scheme concealed by a code point the parser treats as a split
+    # (java<splitter>script:) must not slip through: a consumer that strips the character would resolve it to a scheme.
+    assert sanitize(f'<a href="java{splitter}script:alert(1)">x</a>') == "<a>x</a>"
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -1239,6 +1291,10 @@ def test_relative_url_dropped_when_disallowed() -> None:
 )
 def test_fragment_url_allowed_without_relative_urls(value: str, expected: str) -> None:
     assert sanitize(f'<a href="{value}">x</a>', Policy(allow_relative_urls=False, allow_fragment_urls=True)) == expected
+
+
+def test_fragment_url_dropped_without_relative_or_fragment_urls() -> None:
+    assert sanitize('<a href="#fragment">x</a>', Policy(allow_relative_urls=False)) == "<a>x</a>"
 
 
 def test_event_handler_attribute_always_dropped() -> None:

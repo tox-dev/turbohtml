@@ -130,7 +130,7 @@ _RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 
 @dataclass(frozen=True)
 class Policy:
-    """
+    r"""
     An immutable, thread-safe description of what sanitizing keeps.
 
     Build one and reuse it across threads. Whatever a policy allows, a non-configurable baseline still removes the
@@ -141,7 +141,8 @@ class Policy:
         set allows every name).
     :param url_schemes: the allowlist for URL-bearing attributes such as ``href`` and ``src``, and for the redirect URL
         in a ``<meta http-equiv="refresh">`` ``content``; ``javascript:`` stays dropped even when listed.
-    :param allow_relative_urls: keep relative (scheme-less) URLs, which carry no scheme to check.
+    :param allow_relative_urls: keep relative (scheme-less) URLs, which carry no scheme to check. A value whose scheme
+        holds a non-ASCII or control code point, such as ``ftp\xa0://``, is relative under the WHATWG URL parser.
     :param allow_fragment_urls: keep fragment-only URLs even when relative URLs are disallowed.
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
     :param strip_comments: drop HTML comments from the output.

@@ -211,6 +211,21 @@ static Py_UCS4 input_char(int kind, const void *data, Py_ssize_t index) {
     return PyUnicode_READ(kind, data, index);
 }
 
+Py_ssize_t th_url_scheme_colon(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len) {
+    if (start == len || !th_scheme_start(value[start])) {
+        return -1;
+    }
+    for (Py_ssize_t index = start + 1; index < len; index++) {
+        if (value[index] == ':') {
+            return index;
+        }
+        if (!th_scheme_char(value[index]) && !is_removed(value[index])) {
+            return -1;
+        }
+    }
+    return -1;
+}
+
 int th_url_scheme_special(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end) {
     /* an array+loop, not a chained ``||`` of equalities, so the clang branch gate stays stable when this inlines */
     static const char *const SPECIAL[] = {"http", "https", "ws", "wss", "ftp", "file"};
@@ -628,19 +643,7 @@ int th_url_split(PyObject *arg, th_url_parts *out) {
             work[len++] = ch;
         }
     }
-    Py_ssize_t scheme_end = -1;
-    if (len > 0 && th_scheme_start(work[0])) {
-        for (Py_ssize_t index = 1; index < len; index++) {
-            Py_UCS4 ch = work[index];
-            if (ch == ':') {
-                scheme_end = index;
-                break;
-            }
-            if (!th_scheme_char(ch)) {
-                break;
-            }
-        }
-    }
+    Py_ssize_t scheme_end = th_url_scheme_colon(work, 0, len);
     for (Py_ssize_t index = 0; index < scheme_end; index++) {
         work[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter and is identity on a digit or +-. */
     }
@@ -783,30 +786,15 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
     out->query_start = out->query_end = 0;
     out->fragment_start = out->fragment_end = 0;
     Py_ssize_t rest = 0;
-    Py_ssize_t colon = -1;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (buf[index] == ':') {
-            colon = index;
-            break;
-        }
-    }
-    if (colon > 0 && th_scheme_start(buf[0])) {
-        int scheme_ok = 1;
+    Py_ssize_t colon = th_url_scheme_colon(buf, 0, len);
+    if (colon > 0) {
         for (Py_ssize_t index = 0; index < colon; index++) {
-            if (!th_scheme_char(buf[index])) {
-                scheme_ok = 0;
-                break;
-            }
+            buf[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter, identity on a digit or +-. */
         }
-        if (scheme_ok) {
-            for (Py_ssize_t index = 0; index < colon; index++) {
-                buf[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter, identity on a digit or +-. */
-            }
-            out->has_scheme = 1;
-            out->scheme_start = 0;
-            out->scheme_end = colon;
-            rest = colon + 1;
-        }
+        out->has_scheme = 1;
+        out->scheme_start = 0;
+        out->scheme_end = colon;
+        rest = colon + 1;
     }
     int special = out->has_scheme ? th_url_scheme_special(buf, out->scheme_start, out->scheme_end) : special_hint;
     out->has_netloc = 0;

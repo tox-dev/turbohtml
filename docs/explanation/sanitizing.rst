@@ -70,6 +70,11 @@ event-handler and URL baseline unconditional, so a custom-element policy is safe
 ``style`` policy is. Only basic custom-element names reach the matcher -- a hyphenated name clear of the reserved
 ``annotation-xml``/``font-face`` set -- so a matcher cannot be tricked into keeping a real foreign element by its name.
 
+The URL gates read a value's scheme with the same WHATWG scheme reader the URL helpers use. A scheme is an ASCII letter
+followed by scheme characters up to ``:``. Any other code point before the colon makes the value relative, so
+``allow_relative_urls`` decides it. A relative value that spells a refused scheme once its control and non-ASCII code
+points are dropped, such as ``java&#8203;script:``, is still refused.
+
 SVG animation needs an element rule in addition to direct attribute checks. ``animate``, ``set``, ``animateMotion``,
 ``animateTransform``, and ``animateColor`` can assign the attribute named by ``attributeName`` at runtime. A value in
 ``from``, ``to``, or ``values`` can write a script URL or event handler without placing that value in a direct URL or

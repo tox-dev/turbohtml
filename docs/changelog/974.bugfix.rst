@@ -1,0 +1,1 @@
+``sanitize`` drops a URL such as ``ftp\u00a0://host`` when ``allow_relative_urls`` is off, as the URL is relative.
