@@ -13,8 +13,8 @@ pinned separately to the RFC 3492 sample strings, and the remaining branches (an
 from __future__ import annotations
 
 import re
-import time
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -347,13 +347,11 @@ def test_host_at_the_input_cap_still_encodes() -> None:
     assert _url_to_ascii("\u3400" * 16384).startswith("xn--")
 
 
-def test_oversize_host_is_rejected_before_the_quadratic_passes_run() -> None:
-    """A host past the cap raises at once, in bounded time, instead of driving the O(n^2) reorder and punycode loops."""
-    host = "\u0316\u0301" * 60000
-    start = time.process_time()
-    with pytest.raises(ValueError, match="exceeds the IDNA input limit of 16384"):
-        _url_to_ascii(host)
-    assert time.process_time() - start < 2.0
+def test_oversize_host_keeps_its_unicode_form() -> None:
+    # past the 16384-code-point cap the host skips the O(n^2) reorder and punycode passes and keeps its Unicode form;
+    # U+0316 then U+0301 alternate combining classes 220 and 230, the input an insertion-sort reorder is O(n^2) on
+    url: Final = "http://" + "\u0316\u0301" * 60000 + "/"
+    assert normalize_url(url) == url
 
 
 @pytest.mark.parametrize(

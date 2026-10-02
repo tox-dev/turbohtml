@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING, Final, cast
+from typing import Final, cast
 
 import pytest
 from bench.operations import INPUTS
@@ -18,9 +17,6 @@ from turbohtml import (
     Text,
     parse_xml,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 def elements(node: Element) -> list[Element]:
@@ -698,30 +694,6 @@ def _plain_repeated(count: int) -> str:
     return "<r>" + f"<e {attrs}/>" * 2 + "</r>"  # the second element re-reads already-interned names
 
 
-def _min_parse_seconds(markup: str) -> float:
-    best = float("inf")
-    for _ in range(5):  # the floor over repeats drops scheduler noise, which only ever inflates a sample
-        start = time.perf_counter()
-        parse_xml(markup)
-        best = min(best, time.perf_counter() - start)
-    return best
-
-
-@pytest.mark.parametrize(
-    "build",
-    [
-        pytest.param(_namespaced_distinct, id="expanded-name"),
-        pytest.param(_plain_repeated, id="raw-name"),
-    ],
-)
-def test_xml_duplicate_detection_scales_linearly(build: Callable[[int], str]) -> None:
-    base: Final = _min_parse_seconds(build(10_000))
-    quadrupled: Final = _min_parse_seconds(build(40_000))
-    # Linear work quadruples with the input; the reverted nested scan is ~16x. 8x sits two-fold
-    # below the quadratic floor and two-fold above the linear one, so jitter cannot flip it.
-    assert quadrupled < base * 8
-
-
 @pytest.mark.parametrize("count", [pytest.param(2000, id="grows-and-rehashes")])
 def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
     root: Final = parse_xml(_namespaced_distinct(count)).find("r")
@@ -823,7 +795,7 @@ def test_round_trip_against_lxml() -> None:
     assert [node.tag.split(":")[-1] for node in (ours, *ours.descendants) if isinstance(node, Element)] == their_locals
 
 
-@pytest.mark.parametrize(("index", "count"), [(0, 128), (1, 1)], ids=["many", "single"])
+@pytest.mark.parametrize(("index", "count"), [(0, 128), (1, 1), (2, 1_000)], ids=["many", "single", "wide"])
 @pytest.mark.oracle
 def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)

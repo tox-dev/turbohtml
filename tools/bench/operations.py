@@ -1929,7 +1929,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             + " ".join(f'p{index}:value="x"' for index in range(count))
             + "/>",
         )
-        for count in (128, 1)
+        for count in (128, 1, 1_000)
     ),
     "parse-xml-names": lambda: (
         (
