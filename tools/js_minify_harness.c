@@ -106,6 +106,8 @@ static void run_builtins(long *cases) {
         "x.\"\\a\\", "x.`\\a\\", /* a literal ending in `\`: its lexeme must stop at the buffer end */
         "function f(){function(a){return a}}", "function f(){class{}}", /* a declaration with no name */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
+        /* a var redeclaring a catch parameter pins it and the function var it declares (Annex B.3.4) */
+        "try{}catch(a){var a}a", "function f(){try{}catch(a){var [a=1,{a},...a]=[]}return a}",
         /* a function declaration sharing a parameter's or var's binding has no declarator to drop or inline */
         "function f(a){function a(){}}", "function f(a){function a(){}return a}",
         "function f(){var [a]=[];function a(){}return[a,a]}",

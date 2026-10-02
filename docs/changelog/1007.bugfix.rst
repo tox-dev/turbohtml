@@ -1,0 +1,2 @@
+The JavaScript minifier no longer renames a local onto the name of an outer binding that the local's scope uses, or
+drops a ``var`` that redeclares a catch parameter.

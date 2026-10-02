@@ -9,10 +9,10 @@
    - A scope reached by `with` or a direct `eval(` is poisoned; nothing inside it (or
      any enclosing scope) is renamed, because those constructs resolve names
      dynamically.
-   - Every free / global name used anywhere in the program is forbidden as a new
-     name, so a binding can never be renamed onto a name that some reference resolves
-     to globally - even a reference this pass failed to resolve keeps its (free) name
-     and that name is reserved.
+   - Every free name, and every kept (top-level or pinned) binding's name, is forbidden
+     as a new name, so a binding can never be renamed onto a name that some reference
+     resolves to unrenamed - even a reference this pass failed to resolve keeps its
+     (free) name and that name is reserved.
    - A new name also avoids every reserved word and every enclosing binding's name in
      scope, so it can neither be a keyword nor shadow an outer binding that is visible.
    Naming runs in two steps: each binding gets a slot index (inherited down the scope
@@ -200,7 +200,7 @@ typedef struct {
 typedef struct {
     jm_program *prog;
     htab visible; /* name -> currently-visible symbol index (-1 when its binding is gone) */
-    htab frees;   /* free / global names, plus kept declaration names, reserved (value 1) */
+    htab frees;   /* free names, plus kept binding names, reserved (value 1) */
     htab labels;  /* label name -> its symbol (a separate namespace; -1 when kept verbatim) */
     undo_rec *undo;
     int32_t undo_count;
@@ -210,6 +210,7 @@ typedef struct {
     int32_t label_depth; /* count of lexically-enclosing labels, indexing their short names */
     int32_t args_scope;  /* scope of the innermost enclosing non-arrow function, whose `arguments` a
                             free `arguments` read names (-1 at the top level) */
+    int32_t catch_depth; /* enclosing catch bodies: only a var inside one can name a catch parameter */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
     int failed;
 } M;
@@ -400,6 +401,54 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
 
 static void walk(M *mangler, int32_t idx, int32_t scope, int bind);
 
+/* A `var` in a catch block may name the catch parameter (Annex B.3.4): it binds the enclosing function's var while
+   its initializer assigns the parameter, so the statement declares one binding and writes another. Pin both: they
+   keep the one spelling the statement gives them, and no pass drops a statement the var needs. */
+static void pin_catch_redeclaration(jm_program *prog, int32_t param) {
+    prog->syms[param].pinned = 1;
+    int32_t scope = prog->syms[param].scope;
+    while (prog->scopes[scope].kind != 1) {
+        scope = prog->scopes[scope].parent;
+    }
+    for (int32_t sym = prog->scopes[scope].first_sym; sym >= 0; sym = prog->syms[sym].scope_next) {
+        if (name_eq(prog->syms[sym].name, prog->syms[sym].name_len, prog->syms[param].name,
+                    prog->syms[param].name_len)) {
+            prog->syms[sym].pinned = 1;
+        }
+    }
+}
+
+/* Apply pin_catch_redeclaration to every catch parameter a var declaration target resolves to. */
+static void pin_catch_redeclarations(jm_program *prog, int32_t idx) {
+    const jm_node *node = &prog->nodes[idx];
+    switch (node->kind) {
+    case JN_IDENT:
+        if (node->sym >= 0) { /* GCOVR_EXCL_BR_LINE: a hoisted var resolves unless an allocation failed */
+            if (prog->syms[node->sym].decl == 5) {
+                pin_catch_redeclaration(prog, node->sym);
+            }
+        }
+        break;
+    case JN_ARRAY:
+        for (int32_t element = node->a; element >= 0; element = prog->nodes[element].next) {
+            pin_catch_redeclarations(prog, element);
+        }
+        break;
+    case JN_OBJECT:
+        for (int32_t prop = node->a; prop >= 0; prop = prog->nodes[prop].next) {
+            const jm_node *entry = &prog->nodes[prop];
+            pin_catch_redeclarations(prog, entry->b >= 0 ? entry->b : entry->a); /* a shorthand or rest binds a */
+        }
+        break;
+    case JN_ASSIGN: /* a default `target = init`, or a rest `...target` */
+    case JN_SPREAD:
+        pin_catch_redeclarations(prog, node->a);
+        break;
+    default:
+        break;
+    }
+}
+
 /* A sloppy function with a simple parameter list maps `arguments[i]` onto its i-th parameter
    (§10.4.4), so reading `arguments` reads every parameter and writing through it writes them. Count
    both on each parameter, so no pass drops an assignment to one as a dead store. */
@@ -578,11 +627,13 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
                 return;              /* GCOVR_EXCL_LINE */
             }
             int32_t mark = mangler->undo_count;
+            mangler->catch_depth++;
             if (node->b >= 0) {
                 declare_pattern(mangler, node->b, cat, 5);
                 walk(mangler, node->b, cat, 1);
             }
             walk_chain(mangler, mangler->prog->nodes[node->c].a, cat, 0);
+            mangler->catch_depth--;
             undo_to(mangler, mark);
         }
         walk(mangler, node->d, scope, 0);
@@ -605,6 +656,11 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
                     /* Preserve traversal order when compression moves expression nodes. */
                     mangler->prog->syms[target].read_before_init = mangler->prog->syms[target].refs != 0;
                 }
+            }
+        }
+        if (mangler->catch_depth > 0 && node->decl == 0) {
+            for (int32_t declarator = node->a; declarator >= 0; declarator = mangler->prog->nodes[declarator].next) {
+                pin_catch_redeclarations(mangler->prog, mangler->prog->nodes[declarator].a);
             }
         }
         return;
@@ -788,9 +844,9 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     walk(mangler, node->d, scope, bind);
 }
 
-/* Whether name is a reserved word or a name that must not be reused: a free/global
-   name, or a kept function/class declaration name (reserved globally so a mangled
-   binding never shadows one). The free table holds both, so this is O(1). */
+/* Whether name is a reserved word or a name that must not be reused: a free name, or
+   a kept binding's name (reserved globally so a mangled binding never shadows one).
+   The free table holds both, so this is O(1). */
 static int is_forbidden(M *mangler, const Py_UCS4 *name, Py_ssize_t len) {
     return is_reserved(name, len) || htab_get(&mangler->frees, name, len) > 0;
 }
@@ -1458,7 +1514,10 @@ static int propagate_value_literals(jm_program *prog, int32_t global) {
         int32_t stmt = prog->syms[sym].decl_node;
         int32_t declr = prog->syms[sym].declr_node;
         int32_t init = prog->nodes[declr].b;
-        if (init < 0 || !is_value_literal(prog, init)) {
+        if (init < 0) {
+            continue;
+        }
+        if (!is_value_literal(prog, init)) {
             continue;
         }
         Py_ssize_t len = literal_print_len(prog, init);
@@ -1601,12 +1660,11 @@ void jm_mangle(jm_program *prog) {
         if (global >= 0 && !mangler.failed && !mangler.visible.failed && !mangler.frees.failed) {
             /* GCOVR_EXCL_BR_STOP */
             prog->resolved = 1;
-            /* reserve every *kept* function/class declaration name globally so a mangled binding in any
-               scope can never be assigned a name that shadows one. A declaration in a non-global
-               function scope is renamed, not kept (see assign_slots), so it is not reserved. */
+            /* Reserve every kept (top-level or pinned) binding name. Slots keep only renamed bindings apart, so a
+               new name equal to a kept one would capture its references inside the renamed scope, or be captured
+               inside its scope. Labels have their own namespace. */
             for (int32_t sym = 0; sym < prog->sym_count; sym++) {
-                if ((prog->syms[sym].decl == 4 || prog->syms[sym].decl == 6) &&
-                    (prog->syms[sym].scope == global || prog->scopes[prog->syms[sym].scope].kind != 1)) {
+                if (prog->syms[sym].decl != 8 && (prog->syms[sym].scope == global || prog->syms[sym].pinned)) {
                     hslot *slot = htab_slot(&mangler.frees, prog->syms[sym].name, prog->syms[sym].name_len, 1);
                     if (slot != NULL) { /* GCOVR_EXCL_BR_LINE: the false branch is an allocation failure */
                         slot->val = 1;
