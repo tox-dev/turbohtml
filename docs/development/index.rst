@@ -176,6 +176,17 @@ to a JSON report and logs only their hashes.
     $ tox r -e fuzz-oracle -- --minutes 0   # the per-PR seed pass
     $ tox r -e fuzz-oracle -- --minutes 10  # adds generated markup and URL obfuscations
 
+A quadratic only shows on long inputs, so ``fuzz-amplify`` (``tools/fuzz/amplify.py``) grows a repeated shape from 1 KiB
+through three doublings and fails when thread CPU time grows 2.5 times or more at every doubling, or when the output
+passes its per-target ``k * len(input) + c`` bound. Every pull request re-scores
+``tools/fuzz/amplify_regressions.json``; add a row there once a super-linear input is fixed. The daily run searches
+shapes built from literals in the C sources.
+
+.. code-block:: console
+
+    $ tox r -e fuzz-amplify                        # the per-PR gate: the regression list
+    $ tox r -e fuzz-amplify -- search --minutes 5  # shapes drawn from the C literals
+
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C
 unit that compiles free of the CPython boundary. macOS ships no ``libFuzzer`` runtime with Apple Clang, so the

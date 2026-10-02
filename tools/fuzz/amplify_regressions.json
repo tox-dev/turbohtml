@@ -1,0 +1,753 @@
+[
+  {
+    "name": "508-attribute-name-dedup",
+    "source": "https://github.com/tox-dev/turbohtml/pull/508",
+    "targets": [
+      "tokenize",
+      "parse"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<a",
+      "left": " a{n}",
+      "tail": ">",
+      "counter": true
+    }
+  },
+  {
+    "name": "509-has-subtree-memo",
+    "source": "https://github.com/tox-dev/turbohtml/pull/509",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 512,
+    "shape": {
+      "kind": "sandwich",
+      "left": "<div>",
+      "middle": "<a>x</a>",
+      "right": "</div>"
+    }
+  },
+  {
+    "name": "652-xslt-sort",
+    "source": "https://github.com/tox-dev/turbohtml/pull/652",
+    "targets": [
+      "xslt"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "<e{n}/>",
+      "head": "<r>",
+      "tail": "</r>",
+      "counter": true
+    }
+  },
+  {
+    "name": "665-xpath-substring",
+    "source": "https://github.com/tox-dev/turbohtml/pull/665",
+    "targets": [
+      "xpath"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "contains('",
+      "left": "aa",
+      "middle": "', '",
+      "right": "a",
+      "tail": "b')"
+    }
+  },
+  {
+    "name": "951-ambiguous-choice",
+    "source": "https://github.com/tox-dev/turbohtml/pull/951",
+    "targets": [
+      "relaxng_validate"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<doc>",
+      "left": "<a/>",
+      "tail": "</doc>"
+    }
+  },
+  {
+    "name": "952-same-selector-merge",
+    "source": "https://github.com/tox-dev/turbohtml/pull/952",
+    "targets": [
+      "minify_css"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "a{--p{n}:{n}}",
+      "counter": true
+    }
+  },
+  {
+    "name": "954-formatting-clones",
+    "source": "https://github.com/tox-dev/turbohtml/pull/954",
+    "targets": [
+      "parse"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "left": "<b c{n}>",
+      "tail": "x",
+      "counter": true
+    }
+  },
+  {
+    "name": "955-namespaced-attribute-dedup",
+    "source": "https://github.com/tox-dev/turbohtml/pull/955",
+    "targets": [
+      "parse_xml"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<r xmlns:p='u'",
+      "left": " p:a{n}='x'",
+      "tail": "/>",
+      "counter": true
+    }
+  },
+  {
+    "name": "957-str-padding-cap",
+    "source": "https://github.com/tox-dev/turbohtml/pull/957",
+    "targets": [
+      "xpath_tree"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<row width=\"",
+      "left": "0",
+      "tail": "200000\"/>"
+    }
+  },
+  {
+    "name": "966-idna-input-cap",
+    "source": "https://github.com/tox-dev/turbohtml/pull/966",
+    "targets": [
+      "idna"
+    ],
+    "base": 65536,
+    "shape": {
+      "kind": "repeat",
+      "head": "a",
+      "left": "̖́"
+    }
+  },
+  {
+    "name": "cmark-backticks",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L86",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "tree",
+      "left": "`",
+      "middle": "e"
+    }
+  },
+  {
+    "name": "cmark-deeply-nested-lists",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L80",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "tree",
+      "left": "  ",
+      "middle": "* a\n"
+    }
+  },
+  {
+    "name": "cmark-emph-closers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L41",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a_ "
+    }
+  },
+  {
+    "name": "cmark-emph-deep-blockquote",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L104",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": ">",
+      "right": "a*"
+    }
+  },
+  {
+    "name": "cmark-emph-openers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L44",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "_a "
+    }
+  },
+  {
+    "name": "cmark-empty-lines-nested-lists",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L98",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "- ",
+      "middle": "x",
+      "right": "\n"
+    }
+  },
+  {
+    "name": "cmark-empty-lines-nested-lists-blockquote",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L101",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "> ",
+      "left": "- ",
+      "middle": "x\n",
+      "right": ">\n"
+    }
+  },
+  {
+    "name": "cmark-image-link",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L68",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "![[]()"
+    }
+  },
+  {
+    "name": "cmark-issue-389",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L56",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "*a ",
+      "right": "_a*_ "
+    }
+  },
+  {
+    "name": "cmark-link-bracket-paren",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L65",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[ (]("
+    }
+  },
+  {
+    "name": "cmark-link-closers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L47",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a]"
+    }
+  },
+  {
+    "name": "cmark-link-openers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L50",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[a"
+    }
+  },
+  {
+    "name": "cmark-link-openers-emph-closers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L62",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[ a_"
+    }
+  },
+  {
+    "name": "cmark-mismatched-openers-closers",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L53",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "*a_ "
+    }
+  },
+  {
+    "name": "cmark-nested-block-quotes",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L77",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "> ",
+      "tail": "a"
+    }
+  },
+  {
+    "name": "cmark-nested-brackets",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L74",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "[",
+      "middle": "a",
+      "right": "]"
+    }
+  },
+  {
+    "name": "cmark-nested-inlines",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L114",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "*",
+      "middle": "a",
+      "right": "*"
+    }
+  },
+  {
+    "name": "cmark-nested-strong-emph",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L38",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "*a **a ",
+      "middle": "b",
+      "right": " a** a*"
+    }
+  },
+  {
+    "name": "cmark-openers-closers-multiple-of-3",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L59",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "a**b",
+      "left": "c* "
+    }
+  },
+  {
+    "name": "cmark-unclosed-comment",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L95",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "</",
+      "left": "<!--"
+    }
+  },
+  {
+    "name": "cmark-unclosed-links-a",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L89",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[a](<b"
+    }
+  },
+  {
+    "name": "cmark-unclosed-links-b",
+    "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L92",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[a](b"
+    }
+  },
+  {
+    "name": "pulldown-L189",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L189",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[]("
+    }
+  },
+  {
+    "name": "pulldown-L191",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L191",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "``\\"
+    }
+  },
+  {
+    "name": "pulldown-L193",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L193",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a***"
+    }
+  },
+  {
+    "name": "pulldown-L195",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L195",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "* ",
+      "tail": "a"
+    }
+  },
+  {
+    "name": "pulldown-L202",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L202",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[ (]("
+    }
+  },
+  {
+    "name": "pulldown-L204",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L204",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[*_a"
+    }
+  },
+  {
+    "name": "pulldown-L206",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L206",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a <![CDATA["
+    }
+  },
+  {
+    "name": "pulldown-L208",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L208",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a <!A"
+    }
+  },
+  {
+    "name": "pulldown-L210",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L210",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a<?"
+    }
+  },
+  {
+    "name": "pulldown-L212",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L212",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[[]()"
+    }
+  },
+  {
+    "name": "pulldown-L214",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L214",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[](<"
+    }
+  },
+  {
+    "name": "pulldown-L215",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L215",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[\"[]]\\("
+    }
+  },
+  {
+    "name": "pulldown-L216",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L216",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": ")-\r%<["
+    }
+  },
+  {
+    "name": "pulldown-L217",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L217",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "\u0000[@[{<"
+    }
+  },
+  {
+    "name": "pulldown-L218",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L218",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a <!A "
+    }
+  },
+  {
+    "name": "pulldown-L219",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L219",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a <? "
+    }
+  },
+  {
+    "name": "pulldown-L220",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L220",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[ (]( "
+    }
+  },
+  {
+    "name": "pulldown-L221",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L221",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "`a`",
+      "tail": "`"
+    }
+  },
+  {
+    "name": "pulldown-L227",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L227",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "\\``"
+    }
+  },
+  {
+    "name": "pulldown-L228",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L228",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a***b~~"
+    }
+  },
+  {
+    "name": "pulldown-L229",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L229",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "*~~ "
+    }
+  },
+  {
+    "name": "pulldown-L231",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L231",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "a***_b__"
+    }
+  },
+  {
+    "name": "pulldown-L234",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L234",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[a](<"
+    }
+  },
+  {
+    "name": "pulldown-L236",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L236",
+    "targets": [
+      "tokenize",
+      "parse",
+      "sanitize",
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "!-- <"
+    }
+  },
+  {
+    "name": "pulldown-L238",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L238",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "[^x]\n"
+    }
+  },
+  {
+    "name": "pulldown-L240",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L240",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "left": "- ",
+      "middle": "a\n",
+      "right": "\n"
+    }
+  },
+  {
+    "name": "pulldown-L246",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L246",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "sandwich",
+      "head": "> ",
+      "left": "- ",
+      "middle": "a\n",
+      "right": ">\n"
+    }
+  },
+  {
+    "name": "pulldown-L253",
+    "source": "https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L253",
+    "targets": [
+      "to_markdown"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "*_ "
+    }
+  }
+]

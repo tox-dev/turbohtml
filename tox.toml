@@ -409,6 +409,35 @@ commands = [
   ],
 ]
 
+[env.fuzz-amplify]
+description = "score super-linear time and output growth: the regression list (per-PR gate) or a shape search"
+package = "skip"  # commands_pre installs a plain release build: timing an instrumented build measures the instrumentation
+deps = []  # override the base env's gcovr; this env measures time, not coverage
+dependency_groups = [ "test" ]  # carries the meson-python build backend the no-build-isolation install below needs
+pass_env = [ "FUZZ_RNG_SEED" ]
+set_env = { PYTHONHASHSEED = "0" }
+commands_pre = [
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dbuildtype=release",
+  ],
+]
+commands = [
+  [
+    "python",
+    "{tox_root}{/}tools{/}fuzz{/}amplify.py",
+    { replace = "posargs", default = [ "regressions" ], extend = true },
+  ],
+]
+
 [env.fuzz-oracle]
 description = """\
   run the sanitizer wrong-output oracles (independent re-parse, random Policy, URL scheme) under ASan/UBSan\

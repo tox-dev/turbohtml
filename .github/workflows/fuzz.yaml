@@ -65,6 +65,24 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '0' || github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+  amplify:
+    name: 📈 super-linear regressions
+    runs-on: ubuntu-24.04
+    # re-scores every past super-linear input as a growth ratio (time per doubling and an output bound), not against a
+    # deadline, so a slower runner does not fail it; the shape search runs in the deep job below
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # meson project() derives the version from git history
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run fuzz-amplify
+        run: uvx --with tox-uv tox run -e fuzz-amplify
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
   deep:
     name: 🕳️ ASan/UBSan deep (mutation + structural)
     runs-on: ubuntu-24.04
@@ -88,6 +106,16 @@ jobs:
           FUZZ_RNG_SEED="$(python3 -c 'import secrets; print(secrets.randbits(32))')"
           export FUZZ_RNG_SEED
           uvx --with tox-uv tox run -e fuzz -- --minutes "${MINUTES}"
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+      - name: 📈 Run fuzz-amplify (search)
+        # runs even when the crash hunt above failed; its findings join the crashers that the steps below encrypt
+        if: success() || failure()
+        run: |
+          FUZZ_RNG_SEED="$(python3 -c 'import secrets; print(secrets.randbits(32))')"
+          export FUZZ_RNG_SEED
+          uvx --with tox-uv tox run -e fuzz-amplify -- search --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
